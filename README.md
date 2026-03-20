@@ -49,6 +49,57 @@ emulate list
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
+## Programmatic API
+
+```bash
+npm install emulate
+```
+
+```typescript
+import { createEmulate } from 'emulate'
+
+const emulate = await createEmulate({ port: 4100 })
+// emulate.urls.github  -> 'http://localhost:4101'
+// emulate.urls.vercel  -> 'http://localhost:4100'
+
+await emulate.close()
+```
+
+### Vitest / Jest setup
+
+```typescript
+// vitest.setup.ts
+import { createEmulate } from 'emulate'
+import type { EmulateInstance } from 'emulate'
+
+let emulate: EmulateInstance
+
+beforeAll(async () => {
+  emulate = await createEmulate({ port: 4100, services: ['github', 'vercel'] })
+  process.env.GITHUB_URL = emulate.urls.github
+  process.env.VERCEL_URL = emulate.urls.vercel
+})
+
+afterEach(() => emulate.reset())
+afterAll(() => emulate.close())
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `port` | `4000` | Base port (auto-increments per service) |
+| `services` | all | Array of services to start (`'github'`, `'vercel'`, `'google'`) |
+| `seed` | none | Inline seed data (same shape as YAML config) |
+
+### Instance methods
+
+| Method | Description |
+|--------|-------------|
+| `urls` | Map of service name to base URL |
+| `reset()` | Wipe all stores and replay the seed data |
+| `close()` | Shut down all HTTP servers, returns a Promise |
+
 ## Configuration
 
 Configuration is optional. To customize seed data, create `emulate.config.yaml` in your project root (or pass `--seed`):

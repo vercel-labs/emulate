@@ -4,6 +4,17 @@
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./cli": {
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/api.js",
+  "types": "./dist/api.d.ts",
   "homepage": "https://emulate.dev",
   "repository": {
     "type": "git",
@@ -35,6 +46,7 @@
     "prepack": "cp ../../README.md .",
     "build": "tsup",
     "dev": "tsup --watch",
+    "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
