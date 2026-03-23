@@ -204,6 +204,8 @@ github:
         contents: read
         issues: write
       events: [push, pull_request]
+      webhook_url: "http://localhost:3000/webhooks/github"
+      webhook_secret: "my-secret"
       installations:
         - installation_id: 100
           account: my-org
@@ -211,6 +213,10 @@ github:
 ```
 
 JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's private key (RS256). The emulator verifies the signature and resolves the app.
+
+**App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:
+- All webhook payloads (including repo and org hooks) include an `installation` field with `{ id, node_id }`.
+- If the app has a `webhook_url`, the emulator delivers the event there with the `installation` field and (if configured) an `X-Hub-Signature-256` header signed with `webhook_secret`.
 
 ## Vercel API
 

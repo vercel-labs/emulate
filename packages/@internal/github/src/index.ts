@@ -1,6 +1,9 @@
+import { createHmac } from "crypto";
 import type { Hono } from "hono";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@internal/core";
 import { getGitHubStore } from "./store.js";
+import type { GitHubStore } from "./store.js";
+import type { GitHubAppInstallation } from "./entities.js";
 import { generateNodeId, generateSha } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
@@ -68,6 +71,7 @@ export interface GitHubSeedConfig {
     permissions?: Record<string, string>;
     events?: string[];
     webhook_url?: string;
+    webhook_secret?: string;
     description?: string;
     installations?: Array<{
       installation_id: number;
@@ -330,6 +334,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         permissions: a.permissions ?? {},
         events: a.events ?? [],
         webhook_url: a.webhook_url ?? null,
+        webhook_secret: a.webhook_secret ?? null,
         description: a.description ?? null,
       });
 
@@ -373,9 +378,115 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
   }
 }
 
+function findInstallationsForRepo(
+  gh: GitHubStore,
+  ownerLogin: string,
+  repoName: string | undefined,
+  event: string,
+): GitHubAppInstallation[] {
+  const ownerEntity =
+    gh.users.findOneBy("login", ownerLogin) ?? gh.orgs.findOneBy("login", ownerLogin);
+  if (!ownerEntity) return [];
+
+  const repoEntity = repoName
+    ? gh.repos.findOneBy("full_name", `${ownerLogin}/${repoName}`)
+    : null;
+
+  const results: GitHubAppInstallation[] = [];
+  for (const inst of gh.appInstallations.all()) {
+    if (inst.account_id !== ownerEntity.id) continue;
+    if (inst.suspended_at) continue;
+
+    const ghApp = gh.apps.all().find((a) => a.app_id === inst.app_id);
+    if (!ghApp) continue;
+    if (!ghApp.events.includes(event) && !ghApp.events.includes("*")) continue;
+
+    if (repoEntity && inst.repository_selection === "selected") {
+      if (!inst.repository_ids.includes(repoEntity.id)) continue;
+    }
+
+    results.push(inst);
+  }
+  return results;
+}
+
+function enrichPayloadWithInstallation(
+  payload: unknown,
+  installation: GitHubAppInstallation,
+): unknown {
+  if (!payload || typeof payload !== "object") return payload;
+  return {
+    ...(payload as Record<string, unknown>),
+    installation: {
+      id: installation.installation_id,
+      node_id: generateNodeId("Installation", installation.installation_id),
+    },
+  };
+}
+
+async function deliverToAppWebhookUrls(
+  gh: GitHubStore,
+  event: string,
+  action: string | undefined,
+  payload: unknown,
+  ownerLogin: string,
+  repoName: string | undefined,
+): Promise<void> {
+  const installations = findInstallationsForRepo(gh, ownerLogin, repoName, event);
+
+  for (const inst of installations) {
+    const ghApp = gh.apps.all().find((a) => a.app_id === inst.app_id);
+    if (!ghApp?.webhook_url) continue;
+
+    const enriched = enrichPayloadWithInstallation(payload, inst);
+    const body = JSON.stringify(enriched);
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-GitHub-Event": event,
+      "X-GitHub-Delivery": String(Date.now()),
+    };
+    if (ghApp.webhook_secret) {
+      const hmac = createHmac("sha256", ghApp.webhook_secret).update(body).digest("hex");
+      headers["X-Hub-Signature-256"] = `sha256=${hmac}`;
+    }
+
+    try {
+      await fetch(ghApp.webhook_url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(10000),
+      });
+    } catch {
+      // Best-effort delivery
+    }
+  }
+}
+
 export const githubPlugin: ServicePlugin = {
   name: "github",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    const gh = getGitHubStore(store);
+
+    const originalDispatch = webhooks.dispatch.bind(webhooks);
+    webhooks.dispatch = async (
+      event: string,
+      action: string | undefined,
+      payload: unknown,
+      owner: string,
+      repo?: string,
+    ): Promise<void> => {
+      const installations = findInstallationsForRepo(gh, owner, repo, event);
+
+      const enrichedPayload = installations.length > 0
+        ? enrichPayloadWithInstallation(payload, installations[0])
+        : payload;
+
+      await originalDispatch(event, action, enrichedPayload, owner, repo);
+      await deliverToAppWebhookUrls(gh, event, action, payload, owner, repo);
+    };
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     usersRoutes(ctx);
     reposRoutes(ctx);

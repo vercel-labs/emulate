@@ -33,6 +33,24 @@ github:
       description: An organization repository
       language: TypeScript
       auto_init: true
+  apps:
+    - app_id: 12345
+      slug: my-github-app
+      name: My GitHub App
+      private_key: |
+        -----BEGIN RSA PRIVATE KEY-----
+        ...your PEM key...
+        -----END RSA PRIVATE KEY-----
+      permissions:
+        contents: read
+        issues: write
+      events: [push, pull_request, issues]
+      webhook_url: http://localhost:3000/webhooks/github
+      webhook_secret: my-webhook-secret
+      installations:
+        - installation_id: 100
+          account: octocat
+          repository_selection: all
   oauth_apps:
     - client_id: emu_github_client_id
       client_secret: emu_github_client_secret
