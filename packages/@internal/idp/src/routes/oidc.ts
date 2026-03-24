@@ -6,11 +6,12 @@ import {
   renderUserButton,
   matchesRedirectUri,
   constantTimeSecretEqual,
+  escapeHtml,
   bodyStr,
   debug,
 } from "@internal/core";
 import { getIdpStore } from "../store.js";
-import { createIdToken, verifyPkce } from "../crypto.js";
+import { createIdToken, verifyPkce, resolvePath } from "../crypto.js";
 import {
   getStrict,
   getIssuer,
@@ -96,7 +97,7 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     }
 
     const subtitleText = clientName
-      ? `Sign in to <strong>${clientName}</strong> with your account.`
+      ? `Sign in to <strong>${escapeHtml(clientName)}</strong> with your account.`
       : "Choose a seeded user to continue.";
 
     const users = idp.users.all();
@@ -157,7 +158,15 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
 
     debug("idp.oidc", `[IDP callback] code=${code.slice(0, 8)}... uid=${uid}`);
 
-    const url = new URL(redirect_uri);
+    let url: URL;
+    try {
+      url = new URL(redirect_uri);
+    } catch {
+      return c.html(
+        renderErrorPage("Invalid redirect_uri", "The redirect_uri is not a valid URL.", SERVICE_LABEL),
+        400,
+      );
+    }
     url.searchParams.set("code", code);
     if (state) url.searchParams.set("state", state);
 
@@ -261,7 +270,6 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     if (mappedClientId) {
       const client = idp.clients.findOneBy("client_id", mappedClientId);
       if (client && client.claim_mappings) {
-        const { resolvePath } = require("../crypto.js");
         for (const [claimName, path] of Object.entries(client.claim_mappings)) {
           const value = resolvePath(user, path);
           if (value !== undefined) {
@@ -384,6 +392,22 @@ async function handleAuthCodeGrant(
     return c.json({ error: "invalid_grant", error_description: "The code is incorrect or expired." }, 400);
   }
 
+  // Validate redirect_uri matches the one stored during authorize
+  if (redirect_uri && redirect_uri !== pending.redirectUri) {
+    return c.json({ error: "invalid_grant", error_description: "The redirect_uri does not match." }, 400);
+  }
+
+  // Validate client_id matches the one stored during authorize
+  if (clientId && pending.clientId && clientId !== pending.clientId) {
+    return c.json({ error: "invalid_grant", error_description: "The client_id does not match." }, 400);
+  }
+
+  // Strict mode requires PKCE
+  const strict = getStrict(store);
+  if (strict && pending.codeChallenge == null) {
+    return c.json({ error: "invalid_grant", error_description: "PKCE is required in strict mode." }, 400);
+  }
+
   // PKCE verification
   if (pending.codeChallenge != null) {
     if (code_verifier === undefined) {
@@ -411,7 +435,7 @@ async function handleAuthCodeGrant(
   const accessToken = "idp_" + randomBytes(20).toString("base64url");
 
   if (tokenMap) {
-    tokenMap.set(accessToken, { login: user.email, id: user.uid, scopes });
+    tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
   }
 
   // Track client for this token
@@ -483,6 +507,11 @@ async function handleRefreshTokenGrant(
     return c.json({ error: "invalid_grant", error_description: "The refresh_token is invalid or expired." }, 400);
   }
 
+  // Validate client_id matches the one bound to the refresh token
+  if (clientId && rtData.clientId && clientId !== rtData.clientId) {
+    return c.json({ error: "invalid_grant", error_description: "The client_id does not match the refresh token." }, 400);
+  }
+
   // Rotate: delete old, issue new
   refreshTokens.delete(refreshToken);
 
@@ -499,7 +528,7 @@ async function handleRefreshTokenGrant(
   const accessToken = "idp_" + randomBytes(20).toString("base64url");
 
   if (tokenMap) {
-    tokenMap.set(accessToken, { login: resolvedUser.email, id: resolvedUser.uid, scopes });
+    tokenMap.set(accessToken, { login: resolvedUser.email, id: resolvedUser.id, scopes });
   }
 
   const tcMap = getTokenClients(store);

@@ -70,8 +70,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
 
     // Strict mode: validate SP
     const strict = getStrict(store);
-    const spsConfigured = idp.serviceProviders.all().length > 0;
-    if (strict && spsConfigured) {
+    if (strict) {
       const sp = idp.serviceProviders.findOneBy("entity_id", spEntityId);
       if (!sp) {
         return c.html(renderErrorPage("Unknown Service Provider", `The entity '${spEntityId}' is not registered.`, SERVICE_LABEL), 400);
@@ -127,6 +126,14 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
     if (!pending) {
       return c.html(renderErrorPage("Invalid Request", "SAML request reference not found or expired.", SERVICE_LABEL), 400);
     }
+
+    // Check TTL (10 minutes)
+    const SAML_REQUEST_TTL_MS = 10 * 60 * 1000;
+    if (Date.now() - pending.created_at > SAML_REQUEST_TTL_MS) {
+      pendingMap.delete(samlRequestRef);
+      return c.html(renderErrorPage("Request Expired", "The SAML request has expired. Please try again.", SERVICE_LABEL), 400);
+    }
+
     pendingMap.delete(samlRequestRef);
 
     // Look up user (fallback to first user)
