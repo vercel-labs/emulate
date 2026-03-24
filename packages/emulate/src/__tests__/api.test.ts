@@ -58,6 +58,19 @@ describe("createEmulator", () => {
     await github.close();
   });
 
+  it("starts idp and serves OIDC discovery with RS256", async () => {
+    const idp = await createEmulator({ service: "idp", port: 14040 });
+
+    const res = await fetch(`${idp.url}/.well-known/openid-configuration`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id_token_signing_alg_values_supported: string[] };
+    expect(body.id_token_signing_alg_values_supported).toContain("RS256");
+
+    idp.reset();
+
+    await idp.close();
+  });
+
   it("throws on unknown service", async () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");

@@ -2,6 +2,7 @@ import { createServer, type AppKeyResolver, type AuthFallback, type Store } from
 import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } from "@internal/vercel";
 import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@internal/github";
 import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@internal/google";
+import { idpPlugin, seedFromConfig as seedIdp, type IdpSeedConfig } from "@internal/idp";
 import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
 import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
 import { serve } from "@hono/node-server";
@@ -10,6 +11,7 @@ const SERVICE_PLUGINS = {
   vercel: vercelPlugin,
   github: githubPlugin,
   google: googlePlugin,
+  idp: idpPlugin,
   slack: slackPlugin,
   apple: applePlugin,
 } as const;
@@ -21,6 +23,7 @@ export interface SeedConfig {
   vercel?: VercelSeedConfig;
   github?: GitHubSeedConfig;
   google?: GoogleSeedConfig;
+  idp?: IdpSeedConfig;
   slack?: SlackSeedConfig;
   apple?: AppleSeedConfig;
 }
@@ -82,6 +85,9 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   } else if (service === "google") {
     const firstEmail = seedConfig?.google?.users?.[0]?.email ?? "testuser@gmail.com";
     fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
+  } else if (service === "idp") {
+    const firstEmail = seedConfig?.idp?.users?.[0]?.email ?? "testuser@example.com";
+    fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
   } else if (service === "slack") {
     fallbackUser = { login: "U000000001", id: 1, scopes: ["chat:write", "channels:read", "users:read", "reactions:write"] };
   } else if (service === "apple") {
@@ -97,6 +103,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     if (service === "vercel" && seedConfig?.vercel) seedVercel(store, baseUrl, seedConfig.vercel);
     if (service === "github" && seedConfig?.github) seedGitHub(store, baseUrl, seedConfig.github);
     if (service === "google" && seedConfig?.google) seedGoogle(store, baseUrl, seedConfig.google);
+    if (service === "idp" && seedConfig?.idp) seedIdp(store, baseUrl, seedConfig.idp);
     if (service === "slack" && seedConfig?.slack) seedSlack(store, baseUrl, seedConfig.slack);
     if (service === "apple" && seedConfig?.apple) seedApple(store, baseUrl, seedConfig.apple);
   };

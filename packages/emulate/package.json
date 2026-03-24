@@ -60,6 +60,7 @@
     "@internal/github": "workspace:*",
     "@internal/apple": "workspace:*",
     "@internal/google": "workspace:*",
+    "@internal/idp": "workspace:*",
     "@internal/slack": "workspace:*",
     "@internal/vercel": "workspace:*",
     "tsup": "^8",
