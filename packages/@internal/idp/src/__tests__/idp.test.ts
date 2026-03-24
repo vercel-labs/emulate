@@ -254,6 +254,14 @@ describe("Authorize", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects unsupported response_type", async () => {
+    const { app } = createTestApp();
+    const res = await app.request("/authorize?response_type=token&client_id=test&redirect_uri=http://localhost:3000/cb");
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("Unsupported Response Type");
+  });
+
   it("rejects unregistered redirect_uri in strict mode", async () => {
     const { app } = createTestApp({
       strict: true,
@@ -490,6 +498,35 @@ describe("PKCE", () => {
       }).toString(),
     });
     expect(tokenRes.status).toBe(200);
+  });
+
+  it("rejects missing PKCE in strict mode", async () => {
+    const { app, store } = createTestApp({
+      strict: true,
+      users: [{ email: "test@test.com" }],
+      oidc: { clients: [{ client_id: "app", client_secret: "secret", redirect_uris: ["http://localhost:3000/cb"] }] },
+    });
+    // Authorize without code_challenge
+    const cbRes = await app.request("/authorize/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        uid: getUserUid(store, "test@test.com"), redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "app",
+      }).toString(),
+    });
+    const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;
+
+    const tokenRes = await app.request("/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb",
+        client_id: "app", client_secret: "secret",
+      }).toString(),
+    });
+    expect(tokenRes.status).toBe(400);
+    const body = await tokenRes.json();
+    expect(body.error).toBe("invalid_grant");
   });
 
   it("rejects S256 with wrong verifier", async () => {

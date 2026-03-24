@@ -46,6 +46,8 @@ export function getPendingCodes(store: Store): Map<string, PendingCode> {
     map = new Map();
     store.setData("idp.oidc.pendingCodes", map);
   }
+  // Safety valve for long-running processes. Real cleanup happens via store.reset().
+  if (map.size > 50000) map.clear();
   return map;
 }
 
@@ -68,8 +70,8 @@ export function getRevokedTokens(store: Store): Set<string> {
     set = new Set();
     store.setData("idp.oidc.revokedTokens", set);
   }
-  // Evict if too large (emulator safety valve)
-  if (set.size > 10000) set.clear();
+  // Safety valve for long-running processes. Real cleanup happens via store.reset().
+  if (set.size > 50000) set.clear();
   return set;
 }
 
@@ -79,8 +81,8 @@ export function getTokenClients(store: Store): Map<string, string> {
     map = new Map();
     store.setData("idp.oidc.tokenClients", map);
   }
-  // Evict if too large (emulator safety valve)
-  if (map.size > 10000) map.clear();
+  // Safety valve for long-running processes. Real cleanup happens via store.reset().
+  if (map.size > 50000) map.clear();
   return map;
 }
 
@@ -98,6 +100,8 @@ export function getPendingSamlRequests(store: Store): Map<string, PendingSamlReq
     map = new Map();
     store.setData("idp.saml.pendingRequests", map);
   }
+  // Safety valve for long-running processes. Real cleanup happens via store.reset().
+  if (map.size > 50000) map.clear();
   return map;
 }
 

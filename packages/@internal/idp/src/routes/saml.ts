@@ -136,14 +136,10 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
 
     pendingMap.delete(samlRequestRef);
 
-    // Look up user (fallback to first user)
-    let user = idp.users.findOneBy("uid", uid);
+    // Look up user
+    const user = idp.users.findOneBy("uid", uid);
     if (!user) {
-      const allUsers = idp.users.all();
-      user = allUsers[0];
-      if (!user) {
-        return c.html(renderErrorPage("No Users", "No users available in the emulator.", SERVICE_LABEL), 400);
-      }
+      return c.html(renderErrorPage("User Not Found", "The selected user does not exist.", SERVICE_LABEL), 400);
     }
 
     // Look up SP config for attribute mappings and NameID format

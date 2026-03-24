@@ -64,6 +64,9 @@ export async function createIdToken(
 ): Promise<string> {
   const key = await importPKCS8(signingKey.private_key_pem, "RS256");
 
+  // Note: ID token includes all standard claims regardless of scopes.
+  // This is intentional for emulator convenience — applications testing
+  // scope-based claim filtering should validate via /userinfo instead.
   const claims: Record<string, unknown> = {
     sub: user.uid,
     email: user.email,
