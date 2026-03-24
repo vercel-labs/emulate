@@ -58,6 +58,7 @@
   "devDependencies": {
     "@internal/core": "workspace:*",
     "@internal/github": "workspace:*",
+    "@internal/apple": "workspace:*",
     "@internal/google": "workspace:*",
     "@internal/vercel": "workspace:*",
     "tsup": "^8",
