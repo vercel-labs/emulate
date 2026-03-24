@@ -6,7 +6,6 @@ import type {
   MongoAtlasDocument,
   MongoAtlasProject,
   MongoAtlasUser,
-  MongoAtlasApiKey,
 } from "./entities.js";
 
 export interface MongoAtlasStore {
@@ -16,7 +15,6 @@ export interface MongoAtlasStore {
   documents: Collection<MongoAtlasDocument>;
   projects: Collection<MongoAtlasProject>;
   users: Collection<MongoAtlasUser>;
-  apiKeys: Collection<MongoAtlasApiKey>;
 }
 
 export function getMongoAtlasStore(store: Store): MongoAtlasStore {
@@ -27,6 +25,5 @@ export function getMongoAtlasStore(store: Store): MongoAtlasStore {
     documents: store.collection<MongoAtlasDocument>("mongoatlas.documents", ["cluster_id", "doc_id"]),
     projects: store.collection<MongoAtlasProject>("mongoatlas.projects", ["group_id"]),
     users: store.collection<MongoAtlasUser>("mongoatlas.users", ["user_id", "username"]),
-    apiKeys: store.collection<MongoAtlasApiKey>("mongoatlas.api_keys", ["public_key"]),
   };
 }

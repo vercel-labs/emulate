@@ -19,10 +19,6 @@ export function generateUserId(): string {
   return randomBytes(12).toString("hex");
 }
 
-export function generateApiKey(): string {
-  return randomBytes(16).toString("hex");
-}
-
 export function mongoOk<T extends Record<string, unknown>>(c: Context, data: T, status = 200) {
   return c.json(data, status as 200);
 }

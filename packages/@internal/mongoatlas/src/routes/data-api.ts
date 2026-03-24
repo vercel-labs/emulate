@@ -553,18 +553,21 @@ function applyUpdate(data: Record<string, unknown>, update: Record<string, unkno
   if ("$push" in update) {
     const pushFields = update.$push as Record<string, unknown>;
     for (const [key, value] of Object.entries(pushFields)) {
-      if (!Array.isArray(result[key])) {
-        result[key] = [];
+      const current = getNestedValue(result, key);
+      if (!Array.isArray(current)) {
+        setNestedValue(result, key, [value]);
+      } else {
+        setNestedValue(result, key, [...current, value]);
       }
-      (result[key] as unknown[]).push(value);
     }
   }
 
   if ("$pull" in update) {
     const pullFields = update.$pull as Record<string, unknown>;
     for (const [key, value] of Object.entries(pullFields)) {
-      if (Array.isArray(result[key])) {
-        result[key] = (result[key] as unknown[]).filter((item) => item !== value);
+      const current = getNestedValue(result, key);
+      if (Array.isArray(current)) {
+        setNestedValue(result, key, current.filter((item) => item !== value));
       }
     }
   }
@@ -572,9 +575,20 @@ function applyUpdate(data: Record<string, unknown>, update: Record<string, unkno
   if ("$rename" in update) {
     const renameFields = update.$rename as Record<string, string>;
     for (const [oldKey, newKey] of Object.entries(renameFields)) {
-      if (oldKey in result) {
-        result[newKey] = result[oldKey];
-        delete result[oldKey];
+      const value = getNestedValue(result, oldKey);
+      if (value !== undefined) {
+        setNestedValue(result, newKey, value);
+        const parts = oldKey.split(".");
+        if (parts.length === 1) {
+          delete result[oldKey];
+        } else {
+          let current: Record<string, unknown> = result;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (typeof current[parts[i]] !== "object" || current[parts[i]] === null) break;
+            current = current[parts[i]] as Record<string, unknown>;
+          }
+          delete current[parts[parts.length - 1]];
+        }
       }
     }
   }

@@ -186,14 +186,9 @@ export function adminRoutes(ctx: RouteContext): void {
     const updates: Partial<typeof cluster> = {};
     if (body.providerSettings) {
       updates.provider_settings = {
-        ...cluster.provider_settings,
-        ...body.providerSettings
-          ? {
-              instance_size_name: body.providerSettings.instanceSizeName ?? cluster.provider_settings.instance_size_name,
-              region_name: body.providerSettings.regionName ?? cluster.provider_settings.region_name,
-            }
-          : {},
         provider_name: cluster.provider_settings.provider_name,
+        instance_size_name: body.providerSettings.instanceSizeName ?? cluster.provider_settings.instance_size_name,
+        region_name: body.providerSettings.regionName ?? cluster.provider_settings.region_name,
       };
     }
     if (body.diskSizeGB !== undefined) {

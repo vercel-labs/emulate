@@ -52,11 +52,3 @@ export interface MongoAtlasUser extends Entity {
   group_id: string;
   roles: Array<{ database_name: string; role_name: string }>;
 }
-
-export interface MongoAtlasApiKey extends Entity {
-  public_key: string;
-  private_key: string;
-  group_id: string;
-  description: string;
-  roles: string[];
-}
