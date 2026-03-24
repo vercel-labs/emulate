@@ -100,7 +100,58 @@ const defaultGoogleConfig = {
       {
         client_id: "example-client-id.apps.googleusercontent.com",
         client_secret: "GOCSPX-example_secret",
+        name: "Code App (Google)",
         redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
+      },
+    ],
+    labels: [
+      {
+        id: "Label_ops",
+        user_email: "testuser@example.com",
+        name: "Ops/Review",
+        color_background: "#DDEEFF",
+        color_text: "#111111",
+      },
+    ],
+    messages: [
+      {
+        id: "msg_welcome",
+        user_email: "testuser@example.com",
+        from: "welcome@example.com",
+        to: "testuser@example.com",
+        subject: "Welcome to the Gmail emulator",
+        body_text: "You can now test Gmail, Calendar, and Drive flows locally.",
+        label_ids: ["INBOX", "UNREAD", "CATEGORY_UPDATES"],
+        date: "2025-01-04T10:00:00.000Z",
+      },
+    ],
+    calendars: [
+      {
+        id: "primary",
+        user_email: "testuser@example.com",
+        summary: "testuser@example.com",
+        primary: true,
+        selected: true,
+        time_zone: "UTC",
+      },
+    ],
+    calendar_events: [
+      {
+        id: "evt_kickoff",
+        user_email: "testuser@example.com",
+        calendar_id: "primary",
+        summary: "Project Kickoff",
+        start_date_time: "2025-01-10T09:00:00.000Z",
+        end_date_time: "2025-01-10T09:30:00.000Z",
+      },
+    ],
+    drive_items: [
+      {
+        id: "drv_docs",
+        user_email: "testuser@example.com",
+        name: "Docs",
+        mime_type: "application/vnd.google-apps.folder",
+        parent_ids: ["root"],
       },
     ],
   },
@@ -183,6 +234,46 @@ const defaultSlackConfig = {
   },
 };
 
+const defaultAwsConfig = {
+  aws: {
+    region: "us-east-1",
+    s3: {
+      buckets: [
+        {
+          name: "my-app-bucket",
+        },
+        {
+          name: "my-app-uploads",
+        },
+      ],
+    },
+    sqs: {
+      queues: [
+        {
+          name: "my-app-events",
+        },
+        {
+          name: "my-app-dlq",
+        },
+      ],
+    },
+    iam: {
+      users: [
+        {
+          user_name: "developer",
+          create_access_key: true,
+        },
+      ],
+      roles: [
+        {
+          role_name: "lambda-execution-role",
+          description: "Role for Lambda function execution",
+        },
+      ],
+    },
+  },
+};
+
 const defaultTokens = {
   tokens: {
     "gho_test_token_admin": {
@@ -203,6 +294,7 @@ const serviceConfigs: Record<string, Record<string, unknown>> = {
   slack: defaultSlackConfig,
   apple: defaultAppleConfig,
   microsoft: defaultMicrosoftConfig,
+  aws: defaultAwsConfig,
 };
 
 export function initCommand(options: InitOptions): void {
@@ -224,6 +316,7 @@ export function initCommand(options: InitOptions): void {
       ...defaultSlackConfig,
       ...defaultAppleConfig,
       ...defaultMicrosoftConfig,
+      ...defaultAwsConfig,
     };
   } else {
     const svcConfig = serviceConfigs[options.service];

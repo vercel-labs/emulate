@@ -5,6 +5,7 @@ import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } fro
 import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
 import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
 import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@internal/microsoft";
+import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@internal/aws";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -29,6 +30,7 @@ interface SeedConfig {
   slack?: SlackSeedConfig;
   apple?: AppleSeedConfig;
   microsoft?: MicrosoftSeedConfig;
+  aws?: AwsSeedConfig;
 }
 
 interface LoadResult {
@@ -86,6 +88,7 @@ const SERVICE_PLUGINS: Record<string, ServicePlugin> = {
   slack: slackPlugin,
   apple: applePlugin,
   microsoft: microsoftPlugin,
+  aws: awsPlugin,
 };
 
 const ALL_SERVICES = Object.keys(SERVICE_PLUGINS);
@@ -133,8 +136,9 @@ export function startCommand(options: StartOptions): void {
     if (svc === "github") return seedConfig?.github?.port;
     if (svc === "google") return seedConfig?.google?.port;
     if (svc === "slack") return seedConfig?.slack?.port;
-    if (svc === "apple") return undefined;
+    if (svc === "apple") return seedConfig?.apple?.port;
     if (svc === "microsoft") return undefined;
+    if (svc === "aws") return seedConfig?.aws?.port;
     return undefined;
   };
 
@@ -181,6 +185,8 @@ export function startCommand(options: StartOptions): void {
     } else if (svc === "microsoft") {
       const firstEmail = seedConfig?.microsoft?.users?.[0]?.email ?? "testuser@outlook.com";
       fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile", "User.Read"] };
+    } else if (svc === "aws") {
+      fallbackUser = { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
     }
 
     const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
@@ -206,6 +212,9 @@ export function startCommand(options: StartOptions): void {
     }
     if (svc === "microsoft" && seedConfig?.microsoft) {
       seedMicrosoft(store, baseUrl, seedConfig.microsoft);
+    }
+    if (svc === "aws" && seedConfig?.aws) {
+      seedAws(store, baseUrl, seedConfig.aws);
     }
 
     const httpServer = serve({ fetch: app.fetch, port });

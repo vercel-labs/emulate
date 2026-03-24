@@ -204,6 +204,22 @@ importers:
         specifier: ^5.7
         version: 5.9.3
 
+  packages/@internal/aws:
+    dependencies:
+      '@internal/core':
+        specifier: workspace:*
+        version: link:../core
+      hono:
+        specifier: ^4
+        version: 4.12.8
+    devDependencies:
+      tsup:
+        specifier: ^8
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)(yaml@2.8.2)
+      typescript:
+        specifier: ^5.7
+        version: 5.9.3
+
   packages/@internal/core:
     dependencies:
       hono:
@@ -327,6 +343,9 @@ importers:
       '@internal/apple':
         specifier: workspace:*
         version: link:../@internal/apple
+      '@internal/aws':
+        specifier: workspace:*
+        version: link:../@internal/aws
       '@internal/core':
         specifier: workspace:*
         version: link:../@internal/core

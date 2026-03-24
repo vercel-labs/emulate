@@ -60,6 +60,7 @@
     "@internal/github": "workspace:*",
     "@internal/apple": "workspace:*",
     "@internal/microsoft": "workspace:*",
+    "@internal/aws": "workspace:*",
     "@internal/google": "workspace:*",
     "@internal/slack": "workspace:*",
     "@internal/vercel": "workspace:*",
