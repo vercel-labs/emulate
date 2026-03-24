@@ -1,10 +1,11 @@
 import { randomBytes } from "crypto";
 import { inflateRawSync } from "zlib";
-import type { RouteContext } from "@internal/core";
+import type { RouteContext, Store } from "@internal/core";
 import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  escapeHtml,
   bodyStr,
   debug,
 } from "@internal/core";
@@ -13,7 +14,6 @@ import { resolvePath, generateSelfSignedCert, getPublicCertBase64 } from "../cry
 import { getStrict, getPendingSamlRequests, getSamlEntityId } from "../helpers.js";
 import { buildMetadataXml, buildSamlResponse, signAssertion, buildAutoPostForm } from "../saml-xml.js";
 import { ENTRA_ID_ATTRIBUTE_MAPPINGS, SAML_NAMEID_FORMATS } from "../saml-constants.js";
-import type { Store } from "@internal/core";
 
 const SERVICE_LABEL = "Identity Provider";
 
@@ -73,7 +73,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
     if (strict) {
       const sp = idp.serviceProviders.findOneBy("entity_id", spEntityId);
       if (!sp) {
-        return c.html(renderErrorPage("Unknown Service Provider", `The entity '${spEntityId}' is not registered.`, SERVICE_LABEL), 400);
+        return c.html(renderErrorPage("Unknown Service Provider", `The entity '${escapeHtml(spEntityId)}' is not registered.`, SERVICE_LABEL), 400);
       }
     }
 

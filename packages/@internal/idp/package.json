@@ -21,13 +21,13 @@
   "dependencies": {
     "@internal/core": "workspace:*",
     "@peculiar/x509": "^2.0.0",
-    "@xmldom/xmldom": "^0.8.11",
     "hono": "^4",
     "jose": "^6",
     "reflect-metadata": "^0.2.2",
     "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
+    "@xmldom/xmldom": "^0.8.11",
     "tsup": "^8",
     "typescript": "^5.7"
   }

@@ -20,7 +20,6 @@ import {
   isPendingCodeExpired,
   getRefreshTokens,
   getRevokedTokens,
-  getSessions,
   getTokenClients,
 } from "../helpers.js";
 import type { IdpUser } from "../entities.js";
@@ -76,6 +75,13 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     const code_challenge = c.req.query("code_challenge") ?? "";
     const code_challenge_method = c.req.query("code_challenge_method") ?? "";
 
+    if (response_type !== "code") {
+      return c.html(
+        renderErrorPage("Unsupported Response Type", "Only response_type=code is supported.", SERVICE_LABEL),
+        400,
+      );
+    }
+
     const strict = getStrict(store);
     const clientsConfigured = idp.clients.all().length > 0;
     let clientName = "";
@@ -84,7 +90,7 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       const client = idp.clients.findOneBy("client_id", client_id);
       if (!client) {
         return c.html(
-          renderErrorPage("Application not found", `The client_id '${client_id}' is not registered.`, SERVICE_LABEL),
+          renderErrorPage("Application not found", `The client_id '${escapeHtml(client_id)}' is not registered.`, SERVICE_LABEL),
           400,
         );
       }
@@ -340,7 +346,15 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
         }
       }
 
-      const url = new URL(post_logout_redirect_uri);
+      let url: URL;
+      try {
+        url = new URL(post_logout_redirect_uri);
+      } catch {
+        return c.html(
+          renderErrorPage("Invalid URI", "The post_logout_redirect_uri is not a valid URL.", SERVICE_LABEL),
+          400,
+        );
+      }
       if (state) url.searchParams.set("state", state);
       return c.redirect(url.toString(), 302);
     }
@@ -365,7 +379,6 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       signing_keys: keys.map((k) => ({ kid: k.kid, alg: k.alg, active: k.active })),
       pending_codes_count: getPendingCodes(store).size,
       refresh_tokens_count: getRefreshTokens(store).size,
-      sessions_count: getSessions(store).size,
     });
   });
 }
@@ -399,8 +412,8 @@ async function handleAuthCodeGrant(
   }
 
   // Validate client_id matches the one stored during authorize
-  if (clientId && pending.clientId && clientId !== pending.clientId) {
-    return c.json({ error: "invalid_grant", error_description: "The client_id does not match." }, 400);
+  if (pending.clientId && clientId !== pending.clientId) {
+    return c.json({ error: "invalid_grant", error_description: "client_id mismatch." }, 400);
   }
 
   // Strict mode requires PKCE
@@ -549,23 +562,27 @@ async function handleRefreshTokenGrant(
   const issuer = getIssuer(store, baseUrl);
   const idToken = await createIdToken(resolvedUser, clientId || rtData.clientId, null, issuer, signingKey, idTokenTtl, claimMappings);
 
-  // Issue new refresh token
-  const newRefreshToken = "idprt_" + randomBytes(32).toString("base64url");
-  refreshTokens.set(newRefreshToken, {
-    token: newRefreshToken,
-    uid: resolvedUser.uid,
-    clientId: clientId || rtData.clientId,
-    scope: rtData.scope,
-    created_at: Date.now(),
-    expires_at: Date.now() + refreshTokenTtl * 1000,
-  });
-
-  return c.json({
+  const result: Record<string, unknown> = {
     access_token: accessToken,
     id_token: idToken,
     token_type: "Bearer",
     expires_in: accessTokenTtl,
     scope: rtData.scope || "openid email profile",
-    refresh_token: newRefreshToken,
-  });
+  };
+
+  // Only issue new refresh token if offline_access was in original scope
+  if (scopes.includes("offline_access")) {
+    const newRefreshToken = "idprt_" + randomBytes(32).toString("base64url");
+    refreshTokens.set(newRefreshToken, {
+      token: newRefreshToken,
+      uid: resolvedUser.uid,
+      clientId: clientId || rtData.clientId,
+      scope: rtData.scope,
+      created_at: Date.now(),
+      expires_at: Date.now() + refreshTokenTtl * 1000,
+    });
+    result.refresh_token = newRefreshToken;
+  }
+
+  return c.json(result);
 }

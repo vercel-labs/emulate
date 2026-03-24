@@ -1,7 +1,6 @@
 // Required by @peculiar/x509's tsyringe dependency injection
 import "reflect-metadata";
 import { createHash, generateKeyPairSync, createPublicKey, randomBytes, webcrypto, timingSafeEqual } from "crypto";
-import type { Store } from "@internal/core";
 import { SignJWT, importPKCS8 } from "jose";
 import type { IdpUser } from "./entities.js";
 import type { IdpSigningKey } from "./entities.js";
@@ -179,8 +178,4 @@ export function getPublicCertBase64(certPem: string): string {
     .replace(/-----BEGIN CERTIFICATE-----/g, "")
     .replace(/-----END CERTIFICATE-----/g, "")
     .replace(/\s/g, "");
-}
-
-export function getCertificatePem(store: Store): string | null {
-  return store.getData<string>("idp.saml.certificatePem") ?? null;
 }

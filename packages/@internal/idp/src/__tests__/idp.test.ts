@@ -344,7 +344,7 @@ describe("Authorization Code Flow", () => {
     const firstRes = await app.request("/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb" }).toString(),
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", client_id: "test" }).toString(),
     });
     expect(firstRes.status).toBe(200);
 
@@ -352,7 +352,7 @@ describe("Authorization Code Flow", () => {
     const secondRes = await app.request("/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb" }).toString(),
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", client_id: "test" }).toString(),
     });
     expect(secondRes.status).toBe(400);
   });
@@ -375,6 +375,7 @@ describe("Authorization Code Flow", () => {
         grant_type: "authorization_code",
         code,
         redirect_uri: "http://localhost:3000/cb",
+        client_id: "test",
       }),
     });
     expect(res.status).toBe(200);
@@ -442,7 +443,7 @@ describe("PKCE", () => {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", code_verifier: verifier,
+        grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", code_verifier: verifier, client_id: "test",
       }).toString(),
     });
     expect(tokenRes.status).toBe(200);
@@ -466,7 +467,7 @@ describe("PKCE", () => {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", code_verifier: "wrong",
+        grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", code_verifier: "wrong", client_id: "test",
       }).toString(),
     });
     expect(tokenRes.status).toBe(400);
@@ -630,7 +631,7 @@ describe("ID Token Validation", () => {
     const tokenRes = await app.request("/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb" }).toString(),
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", client_id: "test" }).toString(),
     });
     const tokens = await tokenRes.json();
 

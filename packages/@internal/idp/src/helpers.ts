@@ -36,13 +36,6 @@ export type RefreshTokenData = {
   expires_at: number;
 };
 
-export type SessionData = {
-  sid: string;
-  uid: string;
-  clientId: string;
-  created_at: number;
-};
-
 // --- Ephemeral data accessors (lazy-init pattern from Google plugin) ---
 
 const PENDING_CODE_TTL_MS = 10 * 60 * 1000;
@@ -75,16 +68,9 @@ export function getRevokedTokens(store: Store): Set<string> {
     set = new Set();
     store.setData("idp.oidc.revokedTokens", set);
   }
+  // Evict if too large (emulator safety valve)
+  if (set.size > 10000) set.clear();
   return set;
-}
-
-export function getSessions(store: Store): Map<string, SessionData> {
-  let map = store.getData<Map<string, SessionData>>("idp.oidc.sessions");
-  if (!map) {
-    map = new Map();
-    store.setData("idp.oidc.sessions", map);
-  }
-  return map;
 }
 
 export function getTokenClients(store: Store): Map<string, string> {
@@ -93,6 +79,8 @@ export function getTokenClients(store: Store): Map<string, string> {
     map = new Map();
     store.setData("idp.oidc.tokenClients", map);
   }
+  // Evict if too large (emulator safety valve)
+  if (map.size > 10000) map.clear();
   return map;
 }
 
