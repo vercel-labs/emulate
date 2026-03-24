@@ -166,7 +166,7 @@ export function startCommand(options: StartOptions): void {
       const firstEmail = seedConfig?.google?.users?.[0]?.email ?? "testuser@gmail.com";
       fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
     } else if (svc === "slack") {
-      fallbackUser = { login: "admin", id: 1, scopes: ["chat:write", "channels:read", "users:read", "reactions:write"] };
+      fallbackUser = { login: "U000000001", id: 1, scopes: ["chat:write", "channels:read", "users:read", "reactions:write"] };
     }
 
     const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });

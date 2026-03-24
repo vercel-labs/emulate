@@ -45,7 +45,7 @@ export interface SlackSeedConfig {
 function seedDefaults(store: Store, _baseUrl: string): void {
   const ss = getSlackStore(store);
 
-  const teamId = generateSlackId("T");
+  const teamId = "T000000001";
 
   ss.teams.insert({
     team_id: teamId,
@@ -53,7 +53,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     domain: "emulate",
   });
 
-  const userId = generateSlackId("U");
+  const userId = "U000000001";
   ss.users.insert({
     user_id: userId,
     team_id: teamId,
@@ -72,9 +72,8 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     },
   });
 
-  const generalId = generateSlackId("C");
   ss.channels.insert({
-    channel_id: generalId,
+    channel_id: "C000000001",
     team_id: teamId,
     name: "general",
     is_channel: true,
@@ -87,9 +86,8 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     num_members: 1,
   });
 
-  const randomId = generateSlackId("C");
   ss.channels.insert({
-    channel_id: randomId,
+    channel_id: "C000000002",
     team_id: teamId,
     name: "random",
     is_channel: true,
