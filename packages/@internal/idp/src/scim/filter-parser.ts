@@ -193,9 +193,6 @@ class Parser {
   // or-expr = and-expr ("or" and-expr)*
   private parseOr(): FilterNode {
     let left = this.parseAnd();
-    while (this.peek()?.type === "AND" && false) {
-      // placeholder - handled below
-    }
     while (this.peek()?.type === "OR") {
       this.advance();
       const right = this.parseAnd();
@@ -351,6 +348,26 @@ function resolvePath(obj: Record<string, unknown>, path: string): unknown {
 
 // ─── Evaluator ─────────────────────────────────────────────────
 
+function compareValues(actual: unknown, expected: unknown, op: string): boolean {
+  const numActual = typeof actual === "number" ? actual : Number(actual);
+  const numExpected = typeof expected === "number" ? expected : Number(expected);
+
+  // Use numeric comparison if both are valid numbers
+  const useNumeric = !isNaN(numActual) && !isNaN(numExpected) &&
+    typeof actual !== "boolean" && typeof expected !== "boolean";
+
+  const a = useNumeric ? numActual : String(actual ?? "");
+  const b = useNumeric ? numExpected : String(expected ?? "");
+
+  switch (op) {
+    case "gt": return a > b;
+    case "ge": return a >= b;
+    case "lt": return a < b;
+    case "le": return a <= b;
+    default: return false;
+  }
+}
+
 function compare(
   actual: unknown,
   op: string,
@@ -380,13 +397,10 @@ function compare(
         return actual.toLowerCase().endsWith(expected.toLowerCase());
       return false;
     case "gt":
-      return (actual as string) > (expected as string);
     case "ge":
-      return (actual as string) >= (expected as string);
     case "lt":
-      return (actual as string) < (expected as string);
     case "le":
-      return (actual as string) <= (expected as string);
+      return compareValues(actual, expected, op);
     default:
       throw new Error(`Unknown operator: ${op}`);
   }

@@ -18,6 +18,7 @@ import { scimListResponse, scimError, paginate } from "../scim/response.js";
 import { parseFilter } from "../scim/filter-parser.js";
 import { applyPatchOps } from "../scim/patch-handler.js";
 import { generateUid } from "../helpers.js";
+import { getScimClients, type ScimClient } from "../scim/client.js";
 
 // Full SCIM 2.0 schema definitions for /Schemas endpoint
 const SCHEMAS = [
@@ -75,6 +76,13 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     return new Response(JSON.stringify(body), { status, headers });
   }
 
+  function pushToClients(action: (client: ScimClient) => Promise<void>) {
+    const clients = getScimClients(store);
+    for (const client of clients) {
+      action(client).catch(() => {}); // fire-and-forget
+    }
+  }
+
   // ─── Discovery (no auth required) ───────────────────────────────
 
   app.get("/scim/v2/ServiceProviderConfig", (c) => {
@@ -106,7 +114,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
     // Pagination
     const startIndex = Math.max(1, parseInt(c.req.query("startIndex") ?? "1", 10));
-    const count = parseInt(c.req.query("count") ?? "100", 10);
+    const count = Math.max(1, parseInt(c.req.query("count") ?? "100", 10) || 100);
     const { page, total } = paginate(scimUsers, startIndex, count);
 
     return scimJson(c, scimListResponse(page, total, startIndex, page.length));
@@ -126,7 +134,10 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
   // Create user
   app.post("/scim/v2/Users", auth, async (c) => {
     const body = await c.req.json();
-    const userName = body.userName;
+    const userName = body.userName ?? body.emails?.[0]?.value;
+    if (!userName) {
+      return scimJson(c, scimError(400, "userName is required", "invalidValue"), 400);
+    }
 
     // Check uniqueness
     if (userName) {
@@ -153,6 +164,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const allGroups = idp.groups.all();
     const scimUser = idpUserToScimUser(newUser, baseUrl, allGroups);
+    pushToClients(cl => cl.createUser(scimUser));
     return scimJson(c, scimUser, 201, { Location: `${baseUrl}/scim/v2/Users/${newUser.id}` });
   });
 
@@ -187,7 +199,9 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     });
 
     const allGroups = idp.groups.all();
-    return scimJson(c, idpUserToScimUser(updated!, baseUrl, allGroups));
+    const scimUser = idpUserToScimUser(updated!, baseUrl, allGroups);
+    pushToClients(cl => cl.updateUser(String(id), scimUser));
+    return scimJson(c, scimUser);
   });
 
   // Patch user
@@ -217,6 +231,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
       attributes: (input.attributes as Record<string, unknown>) ?? user.attributes,
     });
 
+    pushToClients(cl => cl.patchUser(String(id), body.Operations));
     return scimJson(c, idpUserToScimUser(updated!, baseUrl, idp.groups.all()));
   });
 
@@ -228,6 +243,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
       return scimJson(c, scimError(404, "User not found"), 404);
     }
     idp.users.delete(id);
+    pushToClients(cl => cl.deleteUser(String(id)));
     return c.body(null, 204);
   });
 
@@ -248,7 +264,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
     // Pagination
     const startIndex = Math.max(1, parseInt(c.req.query("startIndex") ?? "1", 10));
-    const count = parseInt(c.req.query("count") ?? "100", 10);
+    const count = Math.max(1, parseInt(c.req.query("count") ?? "100", 10) || 100);
     const { page, total } = paginate(scimGroups, startIndex, count);
 
     return scimJson(c, scimListResponse(page, total, startIndex, page.length));
@@ -276,6 +292,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const allUsers = idp.users.all();
     const scimGroup = idpGroupToScimGroup(newGroup, baseUrl, allUsers);
+    pushToClients(cl => cl.createGroup(scimGroup));
     return scimJson(c, scimGroup, 201, { Location: `${baseUrl}/scim/v2/Groups/${newGroup.id}` });
   });
 
@@ -300,7 +317,9 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     const allUsers = idp.users.all();
-    return scimJson(c, idpGroupToScimGroup(updated!, baseUrl, allUsers));
+    const scimGroup = idpGroupToScimGroup(updated!, baseUrl, allUsers);
+    pushToClients(cl => cl.updateGroup(String(id), scimGroup));
+    return scimJson(c, scimGroup);
   });
 
   // Patch group
@@ -341,15 +360,40 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
           }
         }
       } else if (opType === "replace") {
-        // Handle replace operations on group attributes
-        if (op.path === "displayName") {
+        if (op.path === "displayName" && typeof op.value === "string") {
           idp.groups.update(id, { display_name: op.value });
+        } else if (op.path === "members" && Array.isArray(op.value)) {
+          // Full member list replacement
+          const allUsers = idp.users.all();
+          for (const user of allUsers) {
+            if (user.groups.includes(group.name)) {
+              const newGroups = user.groups.filter((g: string) => g !== group.name);
+              idp.users.update(user.id, { groups: newGroups });
+            }
+          }
+          for (const member of op.value) {
+            const userId = Number(member.value);
+            const user = idp.users.get(userId);
+            if (user && !user.groups.includes(group.name)) {
+              idp.users.update(user.id, { groups: [...user.groups, group.name] });
+            }
+          }
+        } else if (!op.path) {
+          // Full resource replace (merge top-level)
+          if (typeof op.value === "object" && op.value !== null) {
+            const val = op.value as Record<string, unknown>;
+            if (val.displayName && typeof val.displayName === "string") {
+              idp.groups.update(id, { display_name: val.displayName });
+            }
+          }
         }
       }
     }
 
-    const allUsers = idp.users.all();
-    return scimJson(c, idpGroupToScimGroup(group, baseUrl, allUsers));
+    const updatedGroup = idp.groups.get(id)!;
+    const updatedUsers = idp.users.all();
+    pushToClients(cl => cl.patchGroup(String(id), operations));
+    return scimJson(c, idpGroupToScimGroup(updatedGroup, baseUrl, updatedUsers));
   });
 
   // Delete group
@@ -371,6 +415,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     idp.groups.delete(id);
+    pushToClients(cl => cl.deleteGroup(String(id)));
     return c.body(null, 204);
   });
 
