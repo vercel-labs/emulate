@@ -1,5 +1,6 @@
+// Required by @peculiar/x509's tsyringe dependency injection
 import "reflect-metadata";
-import { createHash, generateKeyPairSync, createPublicKey, randomBytes, webcrypto } from "crypto";
+import { createHash, generateKeyPairSync, createPublicKey, randomBytes, webcrypto, timingSafeEqual } from "crypto";
 import type { Store } from "@internal/core";
 import { SignJWT, importPKCS8 } from "jose";
 import type { IdpUser } from "./entities.js";
@@ -100,10 +101,12 @@ export function verifyPkce(
   const m = method.toLowerCase();
   if (m === "s256") {
     const expected = createHash("sha256").update(codeVerifier).digest("base64url");
-    return expected === codeChallenge;
+    if (expected.length !== codeChallenge.length) return false;
+    return timingSafeEqual(Buffer.from(expected), Buffer.from(codeChallenge));
   }
   if (m === "plain") {
-    return codeVerifier === codeChallenge;
+    if (codeVerifier.length !== codeChallenge.length) return false;
+    return timingSafeEqual(Buffer.from(codeVerifier), Buffer.from(codeChallenge));
   }
   return false;
 }

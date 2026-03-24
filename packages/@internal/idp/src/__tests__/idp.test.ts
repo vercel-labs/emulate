@@ -357,6 +357,43 @@ describe("Authorization Code Flow", () => {
     expect(secondRes.status).toBe(400);
   });
 
+  it("accepts application/json on token endpoint", async () => {
+    const { app } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const cbRes = await app.request("/authorize/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "test",
+      }).toString(),
+    });
+    const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;
+
+    const res = await app.request("/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "http://localhost:3000/cb",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.access_token).toBeDefined();
+  });
+
+  it("rejects unsupported grant type", async () => {
+    const { app } = createTestApp();
+    const res = await app.request("/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "client_credentials" }).toString(),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("unsupported_grant_type");
+  });
+
   it("supports client_secret_basic auth", async () => {
     const { app } = createTestApp({
       users: [{ email: "alice@example.com" }],

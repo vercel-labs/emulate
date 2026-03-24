@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
-import type { RouteContext, Store } from "@internal/core";
+import type { Context } from "hono";
+import type { RouteContext, Store, TokenMap } from "@internal/core";
 import {
   renderCardPage,
   renderErrorPage,
@@ -372,7 +373,7 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
 // ---------- Grant handlers ----------
 
 async function handleAuthCodeGrant(
-  c: any,
+  c: Context,
   store: Store,
   idp: ReturnType<typeof getIdpStore>,
   code: string,
@@ -380,7 +381,7 @@ async function handleAuthCodeGrant(
   code_verifier: string | undefined,
   clientId: string,
   baseUrl: string,
-  tokenMap?: Map<string, any>,
+  tokenMap?: TokenMap,
 ) {
   const pendingMap = getPendingCodes(store);
   const pending = pendingMap.get(code);
@@ -487,13 +488,13 @@ async function handleAuthCodeGrant(
 }
 
 async function handleRefreshTokenGrant(
-  c: any,
+  c: Context,
   store: Store,
   idp: ReturnType<typeof getIdpStore>,
   refreshToken: string,
   clientId: string,
   baseUrl: string,
-  tokenMap?: Map<string, any>,
+  tokenMap?: TokenMap,
 ) {
   const refreshTokens = getRefreshTokens(store);
   const rtData = refreshTokens.get(refreshToken);

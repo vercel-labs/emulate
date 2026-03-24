@@ -248,6 +248,21 @@ describe("SAML SSO endpoint", () => {
 });
 
 describe("SAML SSO callback", () => {
+  it("rejects invalid saml_request_ref", async () => {
+    const { app } = createSamlTestApp({ users: [{ email: "test@test.com" }] });
+    const res = await app.request("/saml/sso/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        uid: "any",
+        saml_request_ref: "nonexistent-ref",
+      }).toString(),
+    });
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("Invalid Request");
+  });
+
   it("POST /saml/sso/callback returns auto-post form HTML with SAMLResponse", async () => {
     const { app, store } = createSamlTestApp({
       users: [{ email: "alice@example.com", name: "Alice" }],
