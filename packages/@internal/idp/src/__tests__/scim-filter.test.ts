@@ -178,5 +178,17 @@ describe("SCIM Filter Parser", () => {
     it("throws on unbalanced parens", () => {
       expect(() => parseFilter("(active eq true")).toThrow();
     });
+
+    it("treats missing attribute as null for eq", () => {
+      const fn = parseFilter("timezone eq null");
+      expect(fn({})).toBe(true);
+      expect(fn({ timezone: null })).toBe(true);
+      expect(fn({ timezone: "UTC" })).toBe(false);
+    });
+
+    it("throws on deeply nested expression (recursion limit)", () => {
+      const deep = "(" .repeat(60) + "active eq true" + ")".repeat(60);
+      expect(() => parseFilter(deep)).toThrow();
+    });
   });
 });

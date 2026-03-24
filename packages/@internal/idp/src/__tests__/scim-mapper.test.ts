@@ -66,6 +66,26 @@ describe("idpUserToScimUser", () => {
     const scim = idpUserToScimUser(inactive, baseUrl, []);
     expect(scim.active).toBe(false);
   });
+
+  it("maps manager attribute as object", () => {
+    const withManager: IdpUser = {
+      ...mockUser,
+      attributes: { ...mockUser.attributes, manager: { value: "mgr-1", displayName: "Boss" } },
+    };
+    const scim = idpUserToScimUser(withManager, baseUrl, []);
+    const ext = scim[SCIM_ENTERPRISE_USER_SCHEMA];
+    expect(ext?.manager?.displayName).toBe("Boss");
+  });
+
+  it("maps manager attribute as string", () => {
+    const withManager: IdpUser = {
+      ...mockUser,
+      attributes: { ...mockUser.attributes, manager: "Jane Doe" },
+    };
+    const scim = idpUserToScimUser(withManager, baseUrl, []);
+    const ext = scim[SCIM_ENTERPRISE_USER_SCHEMA];
+    expect(ext?.manager?.displayName).toBe("Jane Doe");
+  });
 });
 
 describe("scimUserToIdpUserInput", () => {
@@ -86,8 +106,8 @@ describe("scimUserToIdpUserInput", () => {
 
   it("generates uid if no externalId", () => {
     const input = scimUserToIdpUserInput({ userName: "test@test.com" });
-    expect(input.uid).toBeDefined();
     expect(typeof input.uid).toBe("string");
+    expect((input.uid as string).length).toBeGreaterThan(3);
   });
 
   it("maps enterprise extension to attributes", () => {

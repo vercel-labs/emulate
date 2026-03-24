@@ -76,8 +76,8 @@ describe("SCIM Users", () => {
     const res = await app.request("/scim/v2/Users", { headers: authHeaders() });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.totalResults).toBeGreaterThanOrEqual(2); // 2 seeded + 1 default
-    expect(body.Resources[0].userName).toBeDefined();
+    expect(body.totalResults).toBe(3); // 1 default + 2 seeded
+    expect(body.Resources.map((r: any) => r.userName)).toContain("alice@example.com");
   });
 
   it("gets user by id", async () => {
@@ -114,22 +114,38 @@ describe("SCIM Users", () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.userName).toBe("charlie@example.com");
-    expect(body.id).toBeDefined();
+    expect(typeof body.id).toBe("string");
     expect(res.headers.get("Location")).toContain("/scim/v2/Users/");
   });
 
-  it("rejects duplicate userName", async () => {
+  it("rejects duplicate userName with SCIM error format", async () => {
+    const { app } = createScimTestApp(defaultConfig);
+    const res = await app.request("/scim/v2/Users", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ schemas: [SCIM_USER_SCHEMA], userName: "alice@example.com", name: { givenName: "Dupe" } }),
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.schemas).toContain("urn:ietf:params:scim:api:messages:2.0:Error");
+    expect(body.status).toBe("409");
+    expect(body.scimType).toBe("uniqueness");
+    expect(body.detail).toBeDefined();
+  });
+
+  it("rejects POST with missing userName", async () => {
     const { app } = createScimTestApp(defaultConfig);
     const res = await app.request("/scim/v2/Users", {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
         schemas: [SCIM_USER_SCHEMA],
-        userName: "alice@example.com", // already exists
-        name: { givenName: "Dupe" },
+        name: { givenName: "No", familyName: "Email" },
       }),
     });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.detail).toContain("userName");
   });
 
   it("replaces user via PUT", async () => {
@@ -213,6 +229,20 @@ describe("SCIM Users", () => {
     const res = await app.request("/scim/v2/Users", { headers: authHeaders() });
     expect(res.headers.get("Content-Type")).toContain("application/scim+json");
   });
+
+  it("allows access when no SCIM token configured", async () => {
+    const { app } = createScimTestApp({ users: [{ email: "test@test.com" }] });
+    const res = await app.request("/scim/v2/Users");
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 401 with missing Authorization header", async () => {
+    const { app } = createScimTestApp(defaultConfig);
+    const res = await app.request("/scim/v2/Users");
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.status).toBe("401");
+  });
 });
 
 describe("SCIM Groups", () => {
@@ -221,7 +251,7 @@ describe("SCIM Groups", () => {
     const res = await app.request("/scim/v2/Groups", { headers: authHeaders() });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.totalResults).toBeGreaterThanOrEqual(2);
+    expect(body.totalResults).toBe(2);
   });
 
   it("creates group via POST", async () => {
@@ -285,5 +315,64 @@ describe("SCIM Groups", () => {
     // Verify alice's groups[] was updated
     const updatedAlice = idp.users.get(alice!.id);
     expect(updatedAlice!.groups).not.toContain("engineering");
+  });
+
+  it("gets group by id", async () => {
+    const { app, store } = createScimTestApp(defaultConfig);
+    const idp = getIdpStore(store);
+    const group = idp.groups.findOneBy("name", "engineering");
+    const res = await app.request(`/scim/v2/Groups/${group!.id}`, { headers: authHeaders() });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.displayName).toBe("Engineering");
+    expect(body.id).toBe(String(group!.id));
+  });
+
+  it("returns 404 for unknown group id", async () => {
+    const { app } = createScimTestApp(defaultConfig);
+    const res = await app.request("/scim/v2/Groups/99999", { headers: authHeaders() });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.detail).toBeDefined();
+    expect(body.status).toBe("404");
+  });
+
+  it("replaces group via PUT", async () => {
+    const { app, store } = createScimTestApp(defaultConfig);
+    const idp = getIdpStore(store);
+    const group = idp.groups.findOneBy("name", "engineering");
+    const res = await app.request(`/scim/v2/Groups/${group!.id}`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        schemas: [SCIM_GROUP_SCHEMA],
+        displayName: "Engineering Team",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.displayName).toBe("Engineering Team");
+  });
+
+  it("deletes group and removes from user groups", async () => {
+    const { app, store } = createScimTestApp(defaultConfig);
+    const idp = getIdpStore(store);
+    const group = idp.groups.findOneBy("name", "sales");
+    const bob = idp.users.findOneBy("email", "bob@example.com");
+    expect(bob!.groups).toContain("sales");
+
+    const res = await app.request(`/scim/v2/Groups/${group!.id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(204);
+
+    // Verify group removed from user
+    const updatedBob = idp.users.get(bob!.id);
+    expect(updatedBob!.groups).not.toContain("sales");
+
+    // Verify group is gone
+    const getRes = await app.request(`/scim/v2/Groups/${group!.id}`, { headers: authHeaders() });
+    expect(getRes.status).toBe(404);
   });
 });

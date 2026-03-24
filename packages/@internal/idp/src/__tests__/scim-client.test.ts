@@ -81,4 +81,32 @@ describe("ScimClient", () => {
       expect.objectContaining({ method: "POST" })
     );
   });
+
+  it("updateUser sends PUT", async () => {
+    const client = new ScimClient({ target_url: "http://localhost/scim/v2", bearer_token: "tok" });
+    await client.updateUser("1", mockUser);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost/scim/v2/Users/1",
+      expect.objectContaining({ method: "PUT" })
+    );
+  });
+
+  it("deleteGroup sends DELETE to /Groups", async () => {
+    fetchSpy.mockResolvedValue(new Response(null, { status: 204 }));
+    const client = new ScimClient({ target_url: "http://localhost/scim/v2", bearer_token: "tok" });
+    await client.deleteGroup("5");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost/scim/v2/Groups/5",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("strips trailing slash from target_url", async () => {
+    const client = new ScimClient({ target_url: "http://localhost/scim/v2/", bearer_token: "tok" });
+    await client.createUser(mockUser);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost/scim/v2/Users",
+      expect.anything()
+    );
+  });
 });
