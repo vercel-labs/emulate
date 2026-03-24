@@ -156,6 +156,8 @@ function tokenize(input: string): Token[] {
 
 class Parser {
   private pos = 0;
+  private depth = 0;
+  private readonly MAX_DEPTH = 50;
 
   constructor(private tokens: Token[]) {}
 
@@ -192,13 +194,18 @@ class Parser {
 
   // or-expr = and-expr ("or" and-expr)*
   private parseOr(): FilterNode {
-    let left = this.parseAnd();
-    while (this.peek()?.type === "OR") {
-      this.advance();
-      const right = this.parseAnd();
-      left = { type: "logical", op: "or", left, right };
+    if (++this.depth > this.MAX_DEPTH) throw new Error("Filter expression too deeply nested");
+    try {
+      let left = this.parseAnd();
+      while (this.peek()?.type === "OR") {
+        this.advance();
+        const right = this.parseAnd();
+        left = { type: "logical", op: "or", left, right };
+      }
+      return left;
+    } finally {
+      this.depth--;
     }
-    return left;
   }
 
   // and-expr = unary-expr ("and" unary-expr)*
@@ -331,6 +338,16 @@ function resolvePath(obj: Record<string, unknown>, path: string): unknown {
     const attrName = urnMatch[2];
     const schemaObj = obj[schemaUrn];
     if (schemaObj && typeof schemaObj === "object") {
+      // Handle dot-path within URN attribute (e.g., urn:...:User:name.givenName)
+      if (attrName.includes(".")) {
+        const parts = attrName.split(".");
+        let current: unknown = schemaObj;
+        for (const part of parts) {
+          if (current == null || typeof current !== "object") return undefined;
+          current = (current as Record<string, unknown>)[part];
+        }
+        return current;
+      }
       return (schemaObj as Record<string, unknown>)[attrName];
     }
     return undefined;
@@ -354,7 +371,8 @@ function compareValues(actual: unknown, expected: unknown, op: string): boolean 
 
   // Use numeric comparison if both are valid numbers
   const useNumeric = !isNaN(numActual) && !isNaN(numExpected) &&
-    typeof actual !== "boolean" && typeof expected !== "boolean";
+    typeof actual !== "boolean" && typeof expected !== "boolean" &&
+    actual !== "" && expected !== "";
 
   const a = useNumeric ? numActual : String(actual ?? "");
   const b = useNumeric ? numExpected : String(expected ?? "");
@@ -373,17 +391,31 @@ function compare(
   op: string,
   expected: unknown
 ): boolean {
-  // Case-insensitive string comparison
-  const norm = (v: unknown): unknown => {
-    if (typeof v === "string") return v.toLowerCase();
-    return v;
-  };
+  // Before comparison, treat undefined as null (SCIM spec: missing = null)
+  const normalizedActual = actual === undefined ? null : actual;
 
   switch (op) {
-    case "eq":
-      return norm(actual) === norm(expected);
-    case "ne":
-      return norm(actual) !== norm(expected);
+    case "eq": {
+      const na = normalizedActual;
+      const ne = expected;
+      // Case-insensitive string comparison
+      if (typeof na === "string" && typeof ne === "string") return na.toLowerCase() === ne.toLowerCase();
+      // Number coercion: "30" eq 30 should match
+      if (typeof na === "number" || typeof ne === "number") {
+        return Number(na) === Number(ne) && !isNaN(Number(na));
+      }
+      // null/boolean/etc: strict equality
+      return na === ne;
+    }
+    case "ne": {
+      const na = normalizedActual;
+      const ne = expected;
+      if (typeof na === "string" && typeof ne === "string") return na.toLowerCase() !== ne.toLowerCase();
+      if (typeof na === "number" || typeof ne === "number") {
+        return Number(na) !== Number(ne) || isNaN(Number(na));
+      }
+      return na !== ne;
+    }
     case "co":
       if (typeof actual === "string" && typeof expected === "string")
         return actual.toLowerCase().includes(expected.toLowerCase());
@@ -420,9 +452,8 @@ function evaluate(
       return val !== undefined && val !== null;
     }
     case "logical": {
-      const left = evaluate(node.left, resource);
-      const right = evaluate(node.right, resource);
-      return node.op === "and" ? left && right : left || right;
+      if (node.op === "and") return evaluate(node.left, resource) && evaluate(node.right, resource);
+      return evaluate(node.left, resource) || evaluate(node.right, resource);
     }
     case "not":
       return !evaluate(node.operand, resource);

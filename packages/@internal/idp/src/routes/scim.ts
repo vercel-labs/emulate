@@ -195,7 +195,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
       family_name: (input.family_name as string) ?? user.family_name,
       picture: (input.picture as string | null) ?? user.picture,
       locale: (input.locale as string) ?? user.locale,
-      attributes: (input.attributes as Record<string, unknown>) ?? user.attributes,
+      attributes: { ...user.attributes, ...(input.attributes as Record<string, unknown> ?? {}) },
     });
 
     const allGroups = idp.groups.all();
@@ -228,7 +228,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
       family_name: (input.family_name as string) ?? user.family_name,
       picture: (input.picture as string | null) ?? user.picture,
       locale: (input.locale as string) ?? user.locale,
-      attributes: (input.attributes as Record<string, unknown>) ?? user.attributes,
+      attributes: { ...user.attributes, ...(input.attributes as Record<string, unknown> ?? {}) },
     });
 
     pushToClients(cl => cl.patchUser(String(id), body.Operations));
@@ -289,6 +289,17 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
       name: (input.name as string) ?? "",
       display_name: (input.display_name as string) ?? "",
     });
+
+    // Sync members if provided in request body
+    if (body.members && Array.isArray(body.members)) {
+      for (const member of body.members) {
+        const userId = Number(member.value);
+        const user = idp.users.get(userId);
+        if (user && !user.groups.includes(newGroup.name)) {
+          idp.users.update(user.id, { groups: [...user.groups, newGroup.name] });
+        }
+      }
+    }
 
     const allUsers = idp.users.all();
     const scimGroup = idpGroupToScimGroup(newGroup, baseUrl, allUsers);

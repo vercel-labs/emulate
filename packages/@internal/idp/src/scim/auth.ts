@@ -17,14 +17,20 @@ export function scimAuthMiddleware(store: Store) {
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
     if (!token) {
-      return c.json(scimError(401, "Bearer token required"), 401);
+      return new Response(JSON.stringify(scimError(401, "Bearer token required")), {
+        status: 401,
+        headers: { "Content-Type": "application/scim+json" },
+      });
     }
 
     // Constant-time comparison
     const tokenBuf = Buffer.from(token);
     const expectedBuf = Buffer.from(expectedToken);
     if (tokenBuf.length !== expectedBuf.length || !timingSafeEqual(tokenBuf, expectedBuf)) {
-      return c.json(scimError(401, "Invalid bearer token"), 401);
+      return new Response(JSON.stringify(scimError(401, "Invalid bearer token")), {
+        status: 401,
+        headers: { "Content-Type": "application/scim+json" },
+      });
     }
 
     await next();

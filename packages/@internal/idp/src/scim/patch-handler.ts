@@ -38,10 +38,14 @@ function applyAdd(
     return resource;
   }
 
-  const { target, key, parent } = resolvePatchPath(resource, path);
+  const { target, key, parent } = resolvePatchPath(resource, path, true);
 
-  if (Array.isArray(target) && Array.isArray(value)) {
-    target.push(...value);
+  if (Array.isArray(target)) {
+    if (Array.isArray(value)) {
+      target.push(...value);
+    } else {
+      target.push(value);
+    }
   } else if (parent && key) {
     (parent as Record<string, unknown>)[key] = value;
   }
@@ -110,6 +114,7 @@ const KNOWN_URN_PREFIXES = [
 function resolvePatchPath(
   resource: Record<string, unknown>,
   path: string,
+  createIntermediates = false,
 ): { target: unknown; parent: unknown; key: string } {
   // Handle URN-prefixed paths: urn:...:User:attrName
   for (const urn of KNOWN_URN_PREFIXES) {

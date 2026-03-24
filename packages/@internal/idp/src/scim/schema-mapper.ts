@@ -67,8 +67,8 @@ export function idpUserToScimUser(user: IdpUser, baseUrl: string, allGroups: Idp
 export function scimUserToIdpUserInput(scim: Partial<ScimUser>): Record<string, unknown> {
   const input: Record<string, unknown> = {};
 
-  if (scim.userName) input.email = scim.userName;
-  if (scim.externalId) input.uid = scim.externalId;
+  if (scim.userName !== undefined) input.email = scim.userName;
+  if (scim.externalId !== undefined) input.uid = scim.externalId;
   else if (!input.uid) input.uid = generateUid("idp");
 
   if (scim.name) {
@@ -78,7 +78,7 @@ export function scimUserToIdpUserInput(scim: Partial<ScimUser>): Record<string, 
   }
 
   if (scim.displayName && !input.name) input.name = scim.displayName;
-  if (scim.locale) input.locale = scim.locale;
+  if (scim.locale !== undefined) input.locale = scim.locale;
   if (scim.photos?.[0]?.value) input.picture = scim.photos[0].value;
   if (scim.active !== undefined) {
     if (!input.attributes) input.attributes = {};
