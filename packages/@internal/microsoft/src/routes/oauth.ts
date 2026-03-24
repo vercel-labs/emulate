@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { SignJWT } from "jose";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { RouteContext } from "@internal/core";
 import {
   escapeHtml,
@@ -17,7 +17,9 @@ import { DEFAULT_TENANT_ID } from "../helpers.js";
 import type { MicrosoftUser } from "../entities.js";
 import type { Store } from "@internal/core";
 
-const JWT_SECRET = new TextEncoder().encode("emulate-microsoft-jwt-secret");
+// RSA key pair generated at module load for signing id_tokens
+const keyPairPromise = generateKeyPair("RS256");
+const KID = "emulate-microsoft-1";
 
 type PendingCode = {
   email: string;
@@ -69,6 +71,7 @@ async function createIdToken(
   nonce: string | null,
   baseUrl: string,
 ): Promise<string> {
+  const { privateKey } = await keyPairPromise;
   const now = Math.floor(Date.now() / 1000);
 
   const builder = new SignJWT({
@@ -83,13 +86,13 @@ async function createIdToken(
     ver: "2.0",
     ...(nonce ? { nonce } : {}),
   })
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setProtectedHeader({ alg: "RS256", kid: KID, typ: "JWT" })
     .setIssuer(`${baseUrl}/${user.tenant_id}/v2.0`)
     .setAudience(clientId)
     .setIssuedAt(now)
     .setExpirationTime("1h");
 
-  return builder.sign(JWT_SECRET);
+  return builder.sign(privateKey);
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
@@ -109,7 +112,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     response_types_supported: ["code", "id_token", "code id_token"],
     response_modes_supported: ["query", "fragment", "form_post"],
     subject_types_supported: ["pairwise"],
-    id_token_signing_alg_values_supported: ["HS256"],
+    id_token_signing_alg_values_supported: ["RS256"],
     scopes_supported: ["openid", "email", "profile", "offline_access", "User.Read"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     claims_supported: [
@@ -129,10 +132,19 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return c.json(oidcConfig(tenant === "common" || tenant === "organizations" || tenant === "consumers" ? DEFAULT_TENANT_ID : tenant));
   });
 
-  // ---------- JWKS (stub) ----------
+  // ---------- JWKS ----------
 
-  app.get("/discovery/v2.0/keys", (c) => {
-    return c.json({ keys: [] });
+  app.get("/discovery/v2.0/keys", async (c) => {
+    const { publicKey } = await keyPairPromise;
+    const jwk = await exportJWK(publicKey);
+    return c.json({
+      keys: [{
+        ...jwk,
+        kid: KID,
+        use: "sig",
+        alg: "RS256",
+      }],
+    });
   });
 
   // ---------- Authorization page ----------
@@ -217,9 +229,15 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     // Validate redirect_uri against registered client
     const clientsConfigured = ms.oauthClients.all().length > 0;
-    if (clientsConfigured && redirect_uri) {
+    if (clientsConfigured) {
       const client = ms.oauthClients.findOneBy("client_id", client_id);
-      if (client && !matchesRedirectUri(redirect_uri, client.redirect_uris)) {
+      if (!client) {
+        return c.html(
+          renderErrorPage("Application not found", `The client_id '${client_id}' is not registered.`, SERVICE_LABEL),
+          400,
+        );
+      }
+      if (redirect_uri && !matchesRedirectUri(redirect_uri, client.redirect_uris)) {
         return c.html(
           renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
           400,
@@ -469,6 +487,16 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.get("/oauth2/v2.0/logout", (c) => {
     const post_logout_redirect_uri = c.req.query("post_logout_redirect_uri");
     if (post_logout_redirect_uri) {
+      // Validate against registered client redirect URIs
+      const allClients = ms.oauthClients.all();
+      if (allClients.length > 0) {
+        const allowed = allClients.some((client) =>
+          matchesRedirectUri(post_logout_redirect_uri, client.redirect_uris),
+        );
+        if (!allowed) {
+          return c.text("Invalid post_logout_redirect_uri", 400);
+        }
+      }
       return c.redirect(post_logout_redirect_uri, 302);
     }
     return c.text("Logged out", 200);

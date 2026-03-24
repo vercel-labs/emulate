@@ -155,11 +155,16 @@ describe("Microsoft plugin integration", () => {
 
   // --- JWKS ---
 
-  it("GET /discovery/v2.0/keys returns JWKS stub", async () => {
+  it("GET /discovery/v2.0/keys returns JWKS with RSA public key", async () => {
     const res = await app.request(`${base}/discovery/v2.0/keys`);
     expect(res.status).toBe(200);
-    const body = await res.json() as { keys: unknown[] };
-    expect(body.keys).toEqual([]);
+    const body = await res.json() as { keys: Array<Record<string, unknown>> };
+    expect(body.keys).toHaveLength(1);
+    const key = body.keys[0];
+    expect(key.kty).toBe("RSA");
+    expect(key.kid).toBe("emulate-microsoft-1");
+    expect(key.use).toBe("sig");
+    expect(key.alg).toBe("RS256");
   });
 
   // --- Authorization page ---
@@ -178,6 +183,29 @@ describe("Microsoft plugin integration", () => {
   it("returns error for unknown client_id when clients are configured", async () => {
     const url = `${base}/oauth2/v2.0/authorize?client_id=unknown-client&redirect_uri=${encodeURIComponent("http://localhost:3000/callback")}`;
     const res = await app.request(url);
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("Application not found");
+  });
+
+  it("callback rejects unknown client_id when clients are configured", async () => {
+    const formData = new URLSearchParams({
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/callback",
+      scope: "openid",
+      state: "s",
+      nonce: "",
+      client_id: "unknown-client",
+      response_mode: "query",
+      code_challenge: "",
+      code_challenge_method: "",
+    });
+
+    const res = await app.request(`${base}/oauth2/v2.0/authorize/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
     expect(res.status).toBe(400);
     const html = await res.text();
     expect(html).toContain("Application not found");
@@ -334,11 +362,19 @@ describe("Microsoft plugin integration", () => {
 
   // --- Logout endpoint ---
 
-  it("GET /oauth2/v2.0/logout redirects when post_logout_redirect_uri is set", async () => {
-    const redirectUri = "http://localhost:3000/logged-out";
+  it("GET /oauth2/v2.0/logout redirects when post_logout_redirect_uri is registered", async () => {
+    const redirectUri = "http://localhost:3000/callback";
     const res = await app.request(`${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`);
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(redirectUri);
+  });
+
+  it("GET /oauth2/v2.0/logout rejects unregistered post_logout_redirect_uri", async () => {
+    const redirectUri = "http://evil.example.com/phishing";
+    const res = await app.request(`${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`);
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toBe("Invalid post_logout_redirect_uri");
   });
 
   it("GET /oauth2/v2.0/logout returns text without redirect URI", async () => {
