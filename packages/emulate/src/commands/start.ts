@@ -3,6 +3,7 @@ import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } fro
 import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@internal/github";
 import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@internal/google";
 import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
+import { mongoatlasPlugin, seedFromConfig as seedMongoAtlas, type MongoAtlasSeedConfig } from "@internal/mongoatlas";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -25,6 +26,7 @@ interface SeedConfig {
   github?: GitHubSeedConfig;
   google?: GoogleSeedConfig;
   slack?: SlackSeedConfig;
+  mongoatlas?: MongoAtlasSeedConfig;
 }
 
 interface LoadResult {
@@ -80,6 +82,7 @@ const SERVICE_PLUGINS: Record<string, ServicePlugin> = {
   github: githubPlugin,
   google: googlePlugin,
   slack: slackPlugin,
+  mongoatlas: mongoatlasPlugin,
 };
 
 const ALL_SERVICES = Object.keys(SERVICE_PLUGINS);
@@ -127,6 +130,7 @@ export function startCommand(options: StartOptions): void {
     if (svc === "github") return seedConfig?.github?.port;
     if (svc === "google") return seedConfig?.google?.port;
     if (svc === "slack") return seedConfig?.slack?.port;
+    if (svc === "mongoatlas") return seedConfig?.mongoatlas?.port;
     return undefined;
   };
 
@@ -167,6 +171,8 @@ export function startCommand(options: StartOptions): void {
       fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
     } else if (svc === "slack") {
       fallbackUser = { login: "U000000001", id: 1, scopes: ["chat:write", "channels:read", "users:read", "reactions:write"] };
+    } else if (svc === "mongoatlas") {
+      fallbackUser = { login: "admin", id: 1, scopes: [] };
     }
 
     const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
@@ -186,6 +192,9 @@ export function startCommand(options: StartOptions): void {
     }
     if (svc === "slack" && seedConfig?.slack) {
       seedSlack(store, baseUrl, seedConfig.slack);
+    }
+    if (svc === "mongoatlas" && seedConfig?.mongoatlas) {
+      seedMongoAtlas(store, baseUrl, seedConfig.mongoatlas);
     }
 
     const httpServer = serve({ fetch: app.fetch, port });

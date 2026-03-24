@@ -11,6 +11,14 @@ const SERVICE_DESCRIPTIONS: Record<string, { label: string; endpoints: string }>
     label: "Google OAuth 2.0 / OpenID Connect emulator",
     endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, token revocation",
   },
+  slack: {
+    label: "Slack API emulator",
+    endpoints: "auth, chat, conversations, users, reactions, team, OAuth, webhooks",
+  },
+  mongoatlas: {
+    label: "MongoDB Atlas API emulator",
+    endpoints: "Data API (find, insert, update, delete, aggregate), Admin API (projects, clusters, database users)",
+  },
 };
 
 export function listCommand(): void {
