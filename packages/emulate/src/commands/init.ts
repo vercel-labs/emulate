@@ -100,7 +100,29 @@ const defaultGoogleConfig = {
       {
         client_id: "example-client-id.apps.googleusercontent.com",
         client_secret: "GOCSPX-example_secret",
+        name: "Code App (Google)",
         redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
+      },
+    ],
+    labels: [
+      {
+        id: "Label_ops",
+        user_email: "testuser@example.com",
+        name: "Ops/Review",
+        color_background: "#DDEEFF",
+        color_text: "#111111",
+      },
+    ],
+    messages: [
+      {
+        id: "msg_welcome",
+        user_email: "testuser@example.com",
+        from: "welcome@example.com",
+        to: "testuser@example.com",
+        subject: "Welcome to the Gmail emulator",
+        body_text: "You can now test Gmail messages, threads, and labels locally.",
+        label_ids: ["INBOX", "UNREAD", "CATEGORY_UPDATES"],
+        date: "2025-01-04T10:00:00.000Z",
       },
     ],
   },

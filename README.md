@@ -154,6 +154,20 @@ google:
       client_secret: GOCSPX-secret
       redirect_uris:
         - http://localhost:3000/api/auth/callback/google
+  labels:
+    - id: Label_ops
+      user_email: testuser@example.com
+      name: Ops/Review
+      color_background: "#DDEEFF"
+      color_text: "#111111"
+  messages:
+    - id: msg_welcome
+      user_email: testuser@example.com
+      from: welcome@example.com
+      to: testuser@example.com
+      subject: Welcome to the Gmail emulator
+      body_text: You can now test Gmail messages, threads, and labels locally.
+      label_ids: [INBOX, UNREAD, CATEGORY_UPDATES]
 ```
 
 ## OAuth & Integrations
@@ -387,15 +401,29 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /zen` - random zen phrase
 - `GET /versions` - API versions
 
-## Google API
+## Google OAuth + Gmail API
 
-OAuth 2.0 and OpenID Connect emulation.
+OAuth 2.0, OpenID Connect, and a mutable Gmail surface for local inbox flows.
+This stays under a single `google:` service because the Gmail API is used by both consumer Google accounts and Google Workspace accounts. A separate Workspace-specific service would only make sense once we add admin or tenant-level APIs that do not belong in the basic Google/Gmail emulator.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
-- `POST /oauth2/v4/token` - token exchange
+- `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
+- `GET /gmail/v1/users/:userId/messages` - list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
+- `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full`, `metadata`, `minimal`, or `raw` formats
+- `POST /gmail/v1/users/:userId/messages/send` - create sent mail from `raw` MIME or structured fields
+- `POST /gmail/v1/users/:userId/messages/import` - import inbox mail
+- `POST /gmail/v1/users/:userId/messages` - insert a message directly
+- `POST /gmail/v1/users/:userId/messages/:id/modify` - add/remove labels on one message
+- `POST /gmail/v1/users/:userId/messages/batchModify` - add/remove labels across many messages
+- `POST /gmail/v1/users/:userId/messages/:id/trash` and `POST /gmail/v1/users/:userId/messages/:id/untrash`
+- `POST /gmail/v1/users/:userId/threads/:id/modify` - add/remove labels across a thread
+- `GET /gmail/v1/users/:userId/threads` and `GET /gmail/v1/users/:userId/threads/:id`
+- `GET /gmail/v1/users/:userId/labels`, `POST /gmail/v1/users/:userId/labels`, `PATCH /gmail/v1/users/:userId/labels/:id`, `DELETE /gmail/v1/users/:userId/labels/:id`
+
+The Google plugin still does not cover the entire Gmail API, but messages, threads, and labels can now be created and mutated through the API itself, so large seed configs are optional rather than required.
 
 ## Architecture
 
@@ -406,7 +434,7 @@ packages/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     vercel/         # Vercel API service
     github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC
+    google/         # Google OAuth 2.0 / OIDC + Gmail APIs for consumer and Workspace accounts
 apps/
   web/              # Documentation site (Next.js)
 ```

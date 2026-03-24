@@ -11,6 +11,7 @@ import {
   constantTimeSecretEqual,
   bodyStr,
   debug,
+  type Store,
 } from "@internal/core";
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
