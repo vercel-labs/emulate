@@ -5,6 +5,7 @@ import { generateUid } from "./helpers.js";
 import { generateSigningKeySync, importSigningKey } from "./crypto.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { samlRoutes } from "./routes/saml.js";
+import { scimRoutes } from "./routes/scim.js";
 import { ENTRA_ID_ATTRIBUTE_MAPPINGS } from "./saml-constants.js";
 
 export { getIdpStore, type IdpStore } from "./store.js";
@@ -58,6 +59,14 @@ export interface IdpSeedConfig {
       acs_url: string;
       name_id_format?: string;
       attribute_mappings?: Record<string, string>;
+    }>;
+  };
+  scim?: {
+    bearer_token: string;
+    clients?: Array<{
+      target_url: string;
+      bearer_token: string;
+      name?: string;
     }>;
   };
 }
@@ -198,6 +207,14 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: IdpSeedCo
       });
     }
   }
+
+  // SCIM configuration
+  if (config.scim) {
+    store.setData("idp.scim.bearerToken", config.scim.bearer_token);
+    if (config.scim.clients) {
+      store.setData("idp.scim.clients", config.scim.clients);
+    }
+  }
 }
 
 export const idpPlugin: ServicePlugin = {
@@ -206,6 +223,7 @@ export const idpPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oidcRoutes(ctx);
     samlRoutes(ctx);
+    scimRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
