@@ -181,6 +181,14 @@ function createTestApp(config?: IdpSeedConfig) {
   return { app, store, tokenMap };
 }
 
+/** Helper: look up the uid for a seeded user by email */
+function getUserUid(store: Store, email: string): string {
+  const idp = getIdpStore(store);
+  const user = idp.users.findOneBy("email", email);
+  if (!user) throw new Error(`Test setup: no user with email ${email}`);
+  return user.uid;
+}
+
 describe("OIDC Discovery", () => {
   it("returns valid openid-configuration", async () => {
     const { app } = createTestApp();
@@ -258,17 +266,18 @@ describe("Authorize", () => {
 
 describe("Authorization Code Flow", () => {
   it("completes full auth code exchange", async () => {
-    const { app } = createTestApp({
+    const { app, store } = createTestApp({
       users: [{ email: "alice@example.com", name: "Alice" }],
       oidc: { clients: [{ client_id: "app", client_secret: "secret", redirect_uris: ["http://localhost:3000/cb"] }] },
     });
+    const uid = getUserUid(store, "alice@example.com");
 
     // Step 1: POST callback to get auth code
     const callbackRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "will-be-looked-up",
+        uid,
         redirect_uri: "http://localhost:3000/cb",
         scope: "openid email profile offline_access",
         state: "test-state",
@@ -306,6 +315,36 @@ describe("Authorization Code Flow", () => {
     expect(tokens.refresh_token).toMatch(/^idprt_/);
   });
 
+  it("rejects unknown uid instead of falling back to wrong user", async () => {
+    const { app } = createTestApp({
+      users: [{ email: "alice@example.com", name: "Alice" }],
+    });
+
+    const cbRes = await app.request("/authorize/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        uid: "nonexistent-uid",
+        redirect_uri: "http://localhost:3000/cb",
+        scope: "openid",
+        client_id: "test",
+      }).toString(),
+    });
+    const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;
+
+    const tokenRes = await app.request("/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/cb", client_id: "test",
+      }).toString(),
+    });
+    expect(tokenRes.status).toBe(400);
+    const body = await tokenRes.json();
+    expect(body.error).toBe("invalid_grant");
+    expect(body.error_description).toContain("User not found");
+  });
+
   it("rejects invalid code", async () => {
     const { app } = createTestApp();
     const res = await app.request("/token", {
@@ -323,15 +362,16 @@ describe("Authorization Code Flow", () => {
   });
 
   it("rejects code reuse", async () => {
-    const { app } = createTestApp({
+    const { app, store } = createTestApp({
       users: [{ email: "test@test.com" }],
     });
+    const uid = getUserUid(store, "test@test.com");
 
     const cbRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any",
+        uid,
         redirect_uri: "http://localhost:3000/cb",
         scope: "openid",
         client_id: "test",
@@ -358,12 +398,13 @@ describe("Authorization Code Flow", () => {
   });
 
   it("accepts application/json on token endpoint", async () => {
-    const { app } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const { app, store } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const uid = getUserUid(store, "test@test.com");
     const cbRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "test",
+        uid, redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "test",
       }).toString(),
     });
     const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;
@@ -396,16 +437,17 @@ describe("Authorization Code Flow", () => {
   });
 
   it("supports client_secret_basic auth", async () => {
-    const { app } = createTestApp({
+    const { app, store } = createTestApp({
       users: [{ email: "alice@example.com" }],
       oidc: { clients: [{ client_id: "app", client_secret: "secret", redirect_uris: ["http://localhost:3000/cb"] }] },
     });
+    const uid = getUserUid(store, "alice@example.com");
 
     const cbRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "app",
+        uid, redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "app",
       }).toString(),
     });
     const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;
@@ -425,7 +467,8 @@ describe("Authorization Code Flow", () => {
 
 describe("PKCE", () => {
   it("validates S256 with correct verifier", async () => {
-    const { app } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const { app, store } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const uid = getUserUid(store, "test@test.com");
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
     const challenge = createHash("sha256").update(verifier).digest("base64url");
 
@@ -433,7 +476,7 @@ describe("PKCE", () => {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid",
+        uid, redirect_uri: "http://localhost:3000/cb", scope: "openid",
         client_id: "test", code_challenge: challenge, code_challenge_method: "S256",
       }).toString(),
     });
@@ -450,14 +493,15 @@ describe("PKCE", () => {
   });
 
   it("rejects S256 with wrong verifier", async () => {
-    const { app } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const { app, store } = createTestApp({ users: [{ email: "test@test.com" }] });
+    const uid = getUserUid(store, "test@test.com");
     const challenge = createHash("sha256").update("correct").digest("base64url");
 
     const cbRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid",
+        uid, redirect_uri: "http://localhost:3000/cb", scope: "openid",
         client_id: "test", code_challenge: challenge, code_challenge_method: "S256",
       }).toString(),
     });
@@ -477,12 +521,12 @@ describe("PKCE", () => {
 });
 
 describe("Refresh Token", () => {
-  async function getTokensWithRefresh(app: any) {
+  async function getTokensWithRefresh(app: any, uid: string) {
     const cbRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid offline_access", client_id: "app",
+        uid, redirect_uri: "http://localhost:3000/cb", scope: "openid offline_access", client_id: "app",
       }).toString(),
     });
     const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;
@@ -497,21 +541,23 @@ describe("Refresh Token", () => {
   }
 
   it("issues refresh token with offline_access scope", async () => {
-    const { app } = createTestApp({
+    const { app, store } = createTestApp({
       users: [{ email: "alice@example.com" }],
       oidc: { clients: [{ client_id: "app", client_secret: "secret", redirect_uris: ["http://localhost:3000/cb"] }] },
     });
-    const tokens = await getTokensWithRefresh(app);
+    const uid = getUserUid(store, "alice@example.com");
+    const tokens = await getTokensWithRefresh(app, uid);
     expect(tokens.refresh_token).toBeDefined();
     expect(tokens.refresh_token).toMatch(/^idprt_/);
   });
 
   it("exchanges refresh token for new tokens", async () => {
-    const { app } = createTestApp({
+    const { app, store } = createTestApp({
       users: [{ email: "alice@example.com" }],
       oidc: { clients: [{ client_id: "app", client_secret: "secret", redirect_uris: ["http://localhost:3000/cb"] }] },
     });
-    const tokens = await getTokensWithRefresh(app);
+    const uid = getUserUid(store, "alice@example.com");
+    const tokens = await getTokensWithRefresh(app, uid);
 
     const refreshRes = await app.request("/token", {
       method: "POST",
@@ -582,6 +628,34 @@ describe("Revoke", () => {
     expect(tokenMap.has("idp_to_revoke")).toBe(false);
   });
 
+  it("revoked token is rejected at /userinfo", async () => {
+    const { app, tokenMap } = createTestApp({
+      users: [{ email: "alice@example.com", name: "Alice" }],
+    });
+    tokenMap.set("idp_revoke_me", { login: "alice@example.com", id: 1, scopes: ["openid", "email"] });
+
+    // Verify token works before revocation
+    const beforeRes = await app.request("/userinfo", {
+      headers: { "Authorization": "Bearer idp_revoke_me" },
+    });
+    expect(beforeRes.status).toBe(200);
+
+    // Revoke the token
+    await app.request("/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: "idp_revoke_me" }).toString(),
+    });
+
+    // Verify token is rejected after revocation
+    const afterRes = await app.request("/userinfo", {
+      headers: { "Authorization": "Bearer idp_revoke_me" },
+    });
+    expect(afterRes.status).toBe(401);
+    const body = await afterRes.json();
+    expect(body.error).toBe("invalid_token");
+  });
+
   it("returns 200 for unknown token (per RFC 7009)", async () => {
     const { app } = createTestApp();
     const res = await app.request("/revoke", {
@@ -611,18 +685,93 @@ describe("Debug", () => {
   });
 });
 
+describe("Logout", () => {
+  it("renders signed-out page when no redirect URI provided", async () => {
+    const { app } = createTestApp();
+    const res = await app.request("/logout");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Signed out");
+  });
+
+  it("redirects to post_logout_redirect_uri", async () => {
+    const { app } = createTestApp();
+    const res = await app.request("/logout?post_logout_redirect_uri=http://localhost:3000/logged-out&state=abc");
+    expect(res.status).toBe(302);
+    const location = res.headers.get("Location")!;
+    expect(location).toContain("http://localhost:3000/logged-out");
+    expect(location).toContain("state=abc");
+  });
+
+  it("rejects invalid post_logout_redirect_uri", async () => {
+    const { app } = createTestApp();
+    const res = await app.request("/logout?post_logout_redirect_uri=not-a-url");
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("Invalid URI");
+  });
+
+  it("rejects unregistered post_logout_redirect_uri in strict mode with id_token_hint", async () => {
+    const { app, store } = createTestApp({
+      strict: true,
+      users: [{ email: "alice@example.com" }],
+      oidc: {
+        clients: [{
+          client_id: "app",
+          client_secret: "secret",
+          redirect_uris: ["http://localhost:3000/cb"],
+          post_logout_redirect_uris: ["http://localhost:3000/signed-out"],
+        }],
+      },
+    });
+
+    // Create a fake id_token_hint with aud=app
+    const fakePayload = Buffer.from(JSON.stringify({ aud: "app", sub: "test" })).toString("base64url");
+    const fakeIdToken = `eyJhbGciOiJSUzI1NiJ9.${fakePayload}.fake-sig`;
+
+    const res = await app.request(`/logout?post_logout_redirect_uri=http://evil.com/logout&id_token_hint=${fakeIdToken}`);
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("Invalid redirect");
+  });
+
+  it("allows registered post_logout_redirect_uri in strict mode", async () => {
+    const { app } = createTestApp({
+      strict: true,
+      users: [{ email: "alice@example.com" }],
+      oidc: {
+        clients: [{
+          client_id: "app",
+          client_secret: "secret",
+          redirect_uris: ["http://localhost:3000/cb"],
+          post_logout_redirect_uris: ["http://localhost:3000/signed-out"],
+        }],
+      },
+    });
+
+    const fakePayload = Buffer.from(JSON.stringify({ aud: "app", sub: "test" })).toString("base64url");
+    const fakeIdToken = `eyJhbGciOiJSUzI1NiJ9.${fakePayload}.fake-sig`;
+
+    const res = await app.request(`/logout?post_logout_redirect_uri=http://localhost:3000/signed-out&id_token_hint=${fakeIdToken}`);
+    expect(res.status).toBe(302);
+    const location = res.headers.get("Location")!;
+    expect(location).toContain("http://localhost:3000/signed-out");
+  });
+});
+
 describe("ID Token Validation", () => {
   it("ID token verifies against JWKS public key", async () => {
-    const { app } = createTestApp({
+    const { app, store } = createTestApp({
       users: [{ email: "alice@example.com" }],
     });
+    const uid = getUserUid(store, "alice@example.com");
 
     // Get auth code
     const cbRes = await app.request("/authorize/callback", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        uid: "any", redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "test", nonce: "test-nonce",
+        uid, redirect_uri: "http://localhost:3000/cb", scope: "openid", client_id: "test", nonce: "test-nonce",
       }).toString(),
     });
     const code = new URL(cbRes.headers.get("Location")!).searchParams.get("code")!;

@@ -239,6 +239,11 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
   // ---------- Userinfo ----------
 
   app.get("/userinfo", (c) => {
+    const authToken = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (authToken && getRevokedTokens(store).has(authToken)) {
+      return c.json({ error: "invalid_token", error_description: "Token has been revoked." }, 401);
+    }
+
     const authUser = c.get("authUser");
     if (!authUser) {
       return c.json({ error: "invalid_token", error_description: "Authentication required." }, 401);
@@ -271,7 +276,6 @@ export function oidcRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     }
 
     // Apply claim_mappings from client if available
-    const authToken = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
     const tcMap = getTokenClients(store);
     const mappedClientId = tcMap.get(authToken);
     if (mappedClientId) {
@@ -435,12 +439,8 @@ async function handleAuthCodeGrant(
 
   pendingMap.delete(code);
 
-  // Look up user by uid from pending code; fall back to first user
-  let user = idp.users.findOneBy("uid", pending.uid);
-  if (!user) {
-    const allUsers = idp.users.all();
-    user = allUsers[0] ?? null;
-  }
+  // Look up user by uid from pending code
+  const user = idp.users.findOneBy("uid", pending.uid);
   if (!user) {
     return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
   }
@@ -529,14 +529,10 @@ async function handleRefreshTokenGrant(
   // Rotate: delete old, issue new
   refreshTokens.delete(refreshToken);
 
-  const user = idp.users.findOneBy("uid", rtData.uid);
-  if (!user) {
-    const allUsers = idp.users.all();
-    if (allUsers.length === 0) {
-      return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
-    }
+  const resolvedUser = idp.users.findOneBy("uid", rtData.uid);
+  if (!resolvedUser) {
+    return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
   }
-  const resolvedUser = user ?? idp.users.all()[0];
 
   const scopes = rtData.scope ? rtData.scope.split(/\s+/).filter(Boolean) : [];
   const accessToken = "idp_" + randomBytes(20).toString("base64url");
