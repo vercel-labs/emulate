@@ -34,7 +34,8 @@ export function dataApiRoutes(ctx: RouteContext): void {
       (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
     );
 
-    const doc = matchFilter(docs, body.filter)?.[0] ?? null;
+    const matched = matchFilter(docs, body.filter) ?? docs;
+    const doc = matched[0] ?? null;
     const projected = doc ? applyProjection(doc.data, body.projection) : null;
 
     return mongoOk(c, { document: projected });
@@ -180,8 +181,8 @@ export function dataApiRoutes(ctx: RouteContext): void {
       (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
     );
 
-    const matched = matchFilter(docs, body.filter);
-    const doc = matched?.[0];
+    const matched = matchFilter(docs, body.filter) ?? docs;
+    const doc = matched[0];
 
     if (doc) {
       const updatedData = applyUpdate(doc.data, body.update);
@@ -192,7 +193,8 @@ export function dataApiRoutes(ctx: RouteContext): void {
     if (body.upsert) {
       ensureCollectionExists(ms, cluster.cluster_id, body.database, body.collection);
       const docId = generateObjectId();
-      const data = applyUpdate({ _id: docId, ...((body.filter ?? {}) as Record<string, unknown>) }, body.update);
+      const baseDoc = extractEqualityFields(body.filter ?? {});
+      const data = applyUpdate({ _id: docId, ...baseDoc }, body.update);
       ms().documents.insert({
         cluster_id: cluster.cluster_id,
         database: body.database,
@@ -242,7 +244,8 @@ export function dataApiRoutes(ctx: RouteContext): void {
     if (matched.length === 0 && body.upsert) {
       ensureCollectionExists(ms, cluster.cluster_id, body.database, body.collection);
       const docId = generateObjectId();
-      const data = applyUpdate({ _id: docId, ...((body.filter ?? {}) as Record<string, unknown>) }, body.update);
+      const baseDoc = extractEqualityFields(body.filter ?? {});
+      const data = applyUpdate({ _id: docId, ...baseDoc }, body.update);
       ms().documents.insert({
         cluster_id: cluster.cluster_id,
         database: body.database,
@@ -278,8 +281,8 @@ export function dataApiRoutes(ctx: RouteContext): void {
       (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
     );
 
-    const matched = matchFilter(docs, body.filter);
-    const doc = matched?.[0];
+    const matched = matchFilter(docs, body.filter) ?? docs;
+    const doc = matched[0];
 
     if (doc) {
       ms().documents.delete(doc.id);
@@ -451,7 +454,10 @@ function matchesFilter(data: Record<string, unknown>, filter: Record<string, unk
             const pattern = opVal as string;
             const flags = (ops.$options as string) ?? "";
             try {
-              if (typeof docValue !== "string" || !new RegExp(pattern, flags).test(docValue)) return false;
+              const re = new RegExp(pattern, flags);
+              // Guard against catastrophic backtracking by enforcing a source length limit
+              if (re.source.length > 1000) return false;
+              if (typeof docValue !== "string" || !re.test(docValue)) return false;
             } catch {
               return false;
             }
@@ -539,8 +545,8 @@ function applyUpdate(data: Record<string, unknown>, update: Record<string, unkno
   if ("$inc" in update) {
     const incFields = update.$inc as Record<string, number>;
     for (const [key, value] of Object.entries(incFields)) {
-      const current = (result[key] as number) ?? 0;
-      result[key] = current + value;
+      const current = (getNestedValue(result, key) as number) ?? 0;
+      setNestedValue(result, key, current + value);
     }
   }
 
@@ -627,4 +633,21 @@ function applySortToDocuments<T extends MongoAtlasDocEntity>(docs: T[], sortSpec
     }
     return 0;
   });
+}
+
+/**
+ * Extract simple equality fields from a filter for use as a base document during upsert.
+ * Strips out query operators (keys starting with $) and fields with operator-object values.
+ */
+function extractEqualityFields(filter: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(filter)) {
+    if (key.startsWith("$")) continue;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const ops = value as Record<string, unknown>;
+      if (Object.keys(ops).some((k) => k.startsWith("$"))) continue;
+    }
+    result[key] = value;
+  }
+  return result;
 }
