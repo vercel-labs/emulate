@@ -28,6 +28,10 @@ const SERVICE_DESCRIPTIONS: Record<string, { label: string; endpoints: string }>
     label: "Microsoft Entra ID OAuth 2.0 / OpenID Connect emulator",
     endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, Graph /me, logout, token revocation",
   },
+  mongoatlas: {
+    label: "MongoDB Atlas API emulator",
+    endpoints: "Data API (find, insert, update, delete, aggregate), Admin API (projects, clusters, database users)",
+  },
 };
 
 export function listCommand(): void {

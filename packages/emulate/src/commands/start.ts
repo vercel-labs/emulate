@@ -3,6 +3,7 @@ import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } fro
 import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@internal/github";
 import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@internal/google";
 import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
+import { mongoatlasPlugin, seedFromConfig as seedMongoAtlas, type MongoAtlasSeedConfig } from "@internal/mongoatlas";
 import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
 import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@internal/microsoft";
 import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@internal/aws";
@@ -28,6 +29,7 @@ interface SeedConfig {
   github?: GitHubSeedConfig;
   google?: GoogleSeedConfig;
   slack?: SlackSeedConfig;
+  mongoatlas?: MongoAtlasSeedConfig;
   apple?: AppleSeedConfig;
   microsoft?: MicrosoftSeedConfig;
   aws?: AwsSeedConfig;
@@ -86,6 +88,7 @@ const SERVICE_PLUGINS: Record<string, ServicePlugin> = {
   github: githubPlugin,
   google: googlePlugin,
   slack: slackPlugin,
+  mongoatlas: mongoatlasPlugin,
   apple: applePlugin,
   microsoft: microsoftPlugin,
   aws: awsPlugin,
@@ -136,6 +139,7 @@ export function startCommand(options: StartOptions): void {
     if (svc === "github") return seedConfig?.github?.port;
     if (svc === "google") return seedConfig?.google?.port;
     if (svc === "slack") return seedConfig?.slack?.port;
+    if (svc === "mongoatlas") return seedConfig?.mongoatlas?.port;
     if (svc === "apple") return seedConfig?.apple?.port;
     if (svc === "microsoft") return undefined;
     if (svc === "aws") return seedConfig?.aws?.port;
@@ -179,6 +183,8 @@ export function startCommand(options: StartOptions): void {
       fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
     } else if (svc === "slack") {
       fallbackUser = { login: "U000000001", id: 1, scopes: ["chat:write", "channels:read", "users:read", "reactions:write"] };
+    } else if (svc === "mongoatlas") {
+      fallbackUser = { login: "admin", id: 1, scopes: [] };
     } else if (svc === "apple") {
       const firstEmail = seedConfig?.apple?.users?.[0]?.email ?? "testuser@icloud.com";
       fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "name"] };
@@ -206,6 +212,9 @@ export function startCommand(options: StartOptions): void {
     }
     if (svc === "slack" && seedConfig?.slack) {
       seedSlack(store, baseUrl, seedConfig.slack);
+    }
+    if (svc === "mongoatlas" && seedConfig?.mongoatlas) {
+      seedMongoAtlas(store, baseUrl, seedConfig.mongoatlas);
     }
     if (svc === "apple" && seedConfig?.apple) {
       seedApple(store, baseUrl, seedConfig.apple);

@@ -287,11 +287,50 @@ const defaultTokens = {
   },
 };
 
+const defaultMongoAtlasConfig = {
+  mongoatlas: {
+    projects: [
+      {
+        name: "MyProject",
+      },
+    ],
+    clusters: [
+      {
+        name: "Cluster0",
+        project: "MyProject",
+        provider: "AWS",
+        instance_size: "M10",
+        region: "US_EAST_1",
+      },
+    ],
+    database_users: [
+      {
+        username: "developer",
+        project: "MyProject",
+        roles: [
+          {
+            database_name: "admin",
+            role_name: "readWriteAnyDatabase",
+          },
+        ],
+      },
+    ],
+    databases: [
+      {
+        cluster: "Cluster0",
+        name: "mydb",
+        collections: ["users", "products", "orders"],
+      },
+    ],
+  },
+};
+
 const serviceConfigs: Record<string, Record<string, unknown>> = {
   vercel: defaultVercelConfig,
   github: defaultGithubConfig,
   google: defaultGoogleConfig,
   slack: defaultSlackConfig,
+  mongoatlas: defaultMongoAtlasConfig,
   apple: defaultAppleConfig,
   microsoft: defaultMicrosoftConfig,
   aws: defaultAwsConfig,
@@ -314,6 +353,7 @@ export function initCommand(options: InitOptions): void {
       ...defaultGithubConfig,
       ...defaultGoogleConfig,
       ...defaultSlackConfig,
+      ...defaultMongoAtlasConfig,
       ...defaultAppleConfig,
       ...defaultMicrosoftConfig,
       ...defaultAwsConfig,
