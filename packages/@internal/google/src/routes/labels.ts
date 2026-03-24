@@ -5,7 +5,8 @@ import {
   findLabelById,
   findLabelByName,
   formatLabelResource,
-  gmailError,
+  formatLabelResources,
+  googleApiError,
   isSystemLabelId,
   listLabelsForUser,
   markMessageModified,
@@ -22,7 +23,7 @@ export function labelRoutes({ app, store }: RouteContext): void {
     if (authEmail instanceof Response) return authEmail;
 
     return c.json({
-      labels: listLabelsForUser(gs, authEmail).map((label) => formatLabelResource(gs, label)),
+      labels: formatLabelResources(gs, listLabelsForUser(gs, authEmail)),
     });
   });
 
@@ -32,7 +33,7 @@ export function labelRoutes({ app, store }: RouteContext): void {
 
     const label = findLabelById(gs, authEmail, c.req.param("id"));
     if (!label) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     return c.json(formatLabelResource(gs, label));
@@ -45,11 +46,11 @@ export function labelRoutes({ app, store }: RouteContext): void {
     const body = await parseGoogleBody(c);
     const name = getString(body, "name")?.trim();
     if (!name) {
-      return gmailError(c, 400, "Invalid label name", "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, "Invalid label name", "invalidArgument", "INVALID_ARGUMENT");
     }
 
     if (findLabelByName(gs, authEmail, name)) {
-      return gmailError(
+      return googleApiError(
         c,
         400,
         "Label name exists or conflicts",
@@ -95,11 +96,11 @@ export function labelRoutes({ app, store }: RouteContext): void {
 
     const label = findLabelById(gs, authEmail, c.req.param("id"));
     if (!label) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     if (isSystemLabelId(label.gmail_id)) {
-      return gmailError(c, 400, "System labels cannot be deleted.", "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, "System labels cannot be deleted.", "invalidArgument", "INVALID_ARGUMENT");
     }
 
     for (const message of gs.messages.findBy("user_email", authEmail)) {
@@ -126,11 +127,11 @@ async function saveLabel(
 
   const label = findLabelById(gs, authEmail, c.req.param("id"));
   if (!label) {
-    return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+    return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
   }
 
   if (isSystemLabelId(label.gmail_id)) {
-    return gmailError(c, 400, "System labels cannot be modified.", "invalidArgument", "INVALID_ARGUMENT");
+    return googleApiError(c, 400, "System labels cannot be modified.", "invalidArgument", "INVALID_ARGUMENT");
   }
 
   const body = await parseGoogleBody(c);
@@ -142,7 +143,7 @@ async function saveLabel(
   if (name) {
     const conflicting = findLabelByName(gs, authEmail, name);
     if (conflicting && conflicting.gmail_id !== label.gmail_id) {
-      return gmailError(
+      return googleApiError(
         c,
         400,
         "Label name exists or conflicts",

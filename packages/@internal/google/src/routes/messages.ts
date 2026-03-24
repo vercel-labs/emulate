@@ -1,6 +1,7 @@
 import type { RouteContext } from "@internal/core";
 import type { Context } from "hono";
 import {
+  applyLabelMutation,
   createStoredMessage,
   deleteMessage,
   dedupeLabelIds,
@@ -8,7 +9,7 @@ import {
   formatMessageResource,
   getAttachmentById,
   getMessageById,
-  gmailError,
+  googleApiError,
   listMessagesForUser,
   markMessageModified,
   normalizeLimit,
@@ -43,14 +44,14 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
       const missingLabelIds = findMissingLabelIds(gs, authEmail, defaultLabelIds);
       if (missingLabelIds.length > 0) {
-        return gmailError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+        return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
       }
 
       const messageInput = parseMessageInputFromBody(body, {
         from: mode === "send" ? authEmail : undefined,
       });
       if (!messageInput.raw && (!messageInput.from || !messageInput.to)) {
-        return gmailError(
+        return googleApiError(
           c,
           400,
           "A raw MIME message or explicit from/to fields are required.",
@@ -68,7 +69,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
         return c.json(formatMessageResource(gs, message, "full"));
       } catch {
-        return gmailError(
+        return googleApiError(
           c,
           400,
           "Invalid raw MIME message payload.",
@@ -115,7 +116,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return gmailError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
     }
 
     for (const messageId of ids) {
@@ -125,7 +126,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
       markMessageModified(
         gs,
         message,
-        message.label_ids.filter((labelId) => !removeLabelIds.includes(labelId)).concat(addLabelIds),
+        applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds),
       );
     }
 
@@ -160,12 +161,12 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const message = getMessageById(gs, authEmail, c.req.param("messageId"));
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const attachment = getAttachmentById(gs, authEmail, message.gmail_id, c.req.param("id"));
     if (!attachment) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     return c.json({
@@ -181,7 +182,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const message = getMessageById(gs, authEmail, c.req.param("id"));
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const url = new URL(c.req.url);
@@ -201,7 +202,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const message = getMessageById(gs, authEmail, c.req.param("id"));
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const body = await parseGoogleBody(c);
@@ -209,13 +210,13 @@ export function messageRoutes({ app, store }: RouteContext): void {
     const removeLabelIds = getStringArray(body, "removeLabelIds");
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return gmailError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const updated = markMessageModified(
       gs,
       message,
-      message.label_ids.filter((labelId) => !removeLabelIds.includes(labelId)).concat(addLabelIds),
+      applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds),
     );
     return c.json(formatMessageResource(gs, updated, "full"));
   });
@@ -226,7 +227,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const message = getMessageById(gs, authEmail, c.req.param("id"));
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     return c.json(formatMessageResource(gs, markMessageModified(gs, message, trashLabelIds(message.label_ids)), "full"));
@@ -238,7 +239,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const message = getMessageById(gs, authEmail, c.req.param("id"));
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     return c.json(formatMessageResource(gs, markMessageModified(gs, message, untrashLabelIds(message.label_ids)), "full"));
@@ -250,7 +251,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const message = getMessageById(gs, authEmail, c.req.param("id"));
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     deleteMessage(gs, message);

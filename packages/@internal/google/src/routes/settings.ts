@@ -7,7 +7,7 @@ import {
   formatForwardingAddressResource,
   formatSendAsResource,
   getFilterById,
-  gmailError,
+  googleApiError,
   listFiltersForUser,
   listForwardingAddressesForUser,
   listSendAsForUser,
@@ -39,12 +39,12 @@ export function settingsRoutes({ app, store }: RouteContext): void {
     const removeLabelIds = getStringArray(action, "removeLabelIds");
 
     if (addLabelIds.length === 0 && removeLabelIds.length === 0) {
-      return gmailError(c, 400, "Filter actions are required.", "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, "Filter actions are required.", "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return gmailError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
     }
 
     if (
@@ -55,7 +55,7 @@ export function settingsRoutes({ app, store }: RouteContext): void {
         remove_label_ids: removeLabelIds,
       })
     ) {
-      return gmailError(c, 400, "Filter already exists", "failedPrecondition", "FAILED_PRECONDITION");
+      return googleApiError(c, 400, "Filter already exists", "failedPrecondition", "FAILED_PRECONDITION");
     }
 
     const filter = createFilterRecord(gs, {
@@ -74,7 +74,7 @@ export function settingsRoutes({ app, store }: RouteContext): void {
 
     const filter = getFilterById(gs, authEmail, c.req.param("id"));
     if (!filter) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     gs.filters.delete(filter.id);

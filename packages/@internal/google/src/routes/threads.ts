@@ -1,10 +1,11 @@
 import type { RouteContext } from "@internal/core";
 import {
+  applyLabelMutation,
   deleteMessage,
   findMissingLabelIds,
   formatThreadResource,
   getThreadMessages,
-  gmailError,
+  googleApiError,
   groupThreads,
   listMessagesForUser,
   markMessageModified,
@@ -60,7 +61,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
     });
 
     if (messages.length === 0) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     return c.json(
@@ -79,7 +80,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
 
     const messages = getThreadMessages(gs, authEmail, c.req.param("id"), { includeSpamTrash: true });
     if (messages.length === 0) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const body = await parseGoogleBody(c);
@@ -87,14 +88,14 @@ export function threadRoutes({ app, store }: RouteContext): void {
     const removeLabelIds = getStringArray(body, "removeLabelIds");
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return gmailError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const updated = messages.map((message) =>
       markMessageModified(
         gs,
         message,
-        message.label_ids.filter((labelId) => !removeLabelIds.includes(labelId)).concat(addLabelIds),
+        applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds),
       ),
     );
 
@@ -107,7 +108,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
 
     const messages = getThreadMessages(gs, authEmail, c.req.param("id"), { includeSpamTrash: true });
     if (messages.length === 0) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const updated = messages.map((message) => markMessageModified(gs, message, trashLabelIds(message.label_ids)));
@@ -120,7 +121,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
 
     const messages = getThreadMessages(gs, authEmail, c.req.param("id"), { includeSpamTrash: true });
     if (messages.length === 0) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const updated = messages.map((message) => markMessageModified(gs, message, untrashLabelIds(message.label_ids)));
@@ -133,7 +134,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
 
     const messages = getThreadMessages(gs, authEmail, c.req.param("id"), { includeSpamTrash: true });
     if (messages.length === 0) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     for (const message of messages) {

@@ -166,8 +166,28 @@ google:
       from: welcome@example.com
       to: testuser@example.com
       subject: Welcome to the Gmail emulator
-      body_text: You can now test Gmail messages, threads, and labels locally.
+      body_text: You can now test Gmail, Calendar, and Drive flows locally.
       label_ids: [INBOX, UNREAD, CATEGORY_UPDATES]
+  calendars:
+    - id: primary
+      user_email: testuser@example.com
+      summary: testuser@example.com
+      primary: true
+      selected: true
+      time_zone: UTC
+  calendar_events:
+    - id: evt_kickoff
+      user_email: testuser@example.com
+      calendar_id: primary
+      summary: Project Kickoff
+      start_date_time: 2025-01-10T09:00:00.000Z
+      end_date_time: 2025-01-10T09:30:00.000Z
+  drive_items:
+    - id: drv_docs
+      user_email: testuser@example.com
+      name: Docs
+      mime_type: application/vnd.google-apps.folder
+      parent_ids: [root]
 ```
 
 ## OAuth & Integrations
@@ -401,9 +421,9 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /zen` - random zen phrase
 - `GET /versions` - API versions
 
-## Google OAuth + Gmail API
+## Google OAuth + Gmail, Calendar, and Drive APIs
 
-OAuth 2.0, OpenID Connect, and a mutable Gmail surface for local inbox flows.
+OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 This stays under a single `google:` service because the Gmail API is used by both consumer Google accounts and Google Workspace accounts. A separate Workspace-specific service would only make sense once we add admin or tenant-level APIs that do not belong in the basic Google/Gmail emulator.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
@@ -413,17 +433,24 @@ This stays under a single `google:` service because the Gmail API is used by bot
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
 - `GET /gmail/v1/users/:userId/messages` - list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
 - `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full`, `metadata`, `minimal`, or `raw` formats
+- `GET /gmail/v1/users/:userId/messages/:messageId/attachments/:id` - fetch attachment bodies
 - `POST /gmail/v1/users/:userId/messages/send` - create sent mail from `raw` MIME or structured fields
 - `POST /gmail/v1/users/:userId/messages/import` - import inbox mail
 - `POST /gmail/v1/users/:userId/messages` - insert a message directly
 - `POST /gmail/v1/users/:userId/messages/:id/modify` - add/remove labels on one message
 - `POST /gmail/v1/users/:userId/messages/batchModify` - add/remove labels across many messages
 - `POST /gmail/v1/users/:userId/messages/:id/trash` and `POST /gmail/v1/users/:userId/messages/:id/untrash`
+- `GET /gmail/v1/users/:userId/drafts`, `POST /gmail/v1/users/:userId/drafts`, `GET /gmail/v1/users/:userId/drafts/:id`, `PUT /gmail/v1/users/:userId/drafts/:id`, `POST /gmail/v1/users/:userId/drafts/:id/send`, `DELETE /gmail/v1/users/:userId/drafts/:id`
 - `POST /gmail/v1/users/:userId/threads/:id/modify` - add/remove labels across a thread
 - `GET /gmail/v1/users/:userId/threads` and `GET /gmail/v1/users/:userId/threads/:id`
 - `GET /gmail/v1/users/:userId/labels`, `POST /gmail/v1/users/:userId/labels`, `PATCH /gmail/v1/users/:userId/labels/:id`, `DELETE /gmail/v1/users/:userId/labels/:id`
+- `GET /gmail/v1/users/:userId/history`, `POST /gmail/v1/users/:userId/watch`, `POST /gmail/v1/users/:userId/stop`
+- `GET /gmail/v1/users/:userId/settings/filters`, `POST /gmail/v1/users/:userId/settings/filters`, `DELETE /gmail/v1/users/:userId/settings/filters/:id`
+- `GET /gmail/v1/users/:userId/settings/forwardingAddresses`, `GET /gmail/v1/users/:userId/settings/sendAs`
+- `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
+- `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
 
-The Google plugin still does not cover the entire Gmail API, but messages, threads, and labels can now be created and mutated through the API itself, so large seed configs are optional rather than required.
+The Google plugin still does not cover every Google API edge case, but Gmail, Calendar, and Drive now have enough mutable surface to support realistic local automation flows without stuffing everything into static seed config.
 
 ## Architecture
 
@@ -434,7 +461,7 @@ packages/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     vercel/         # Vercel API service
     github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail APIs for consumer and Workspace accounts
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, and Drive APIs
 apps/
   web/              # Documentation site (Next.js)
 ```

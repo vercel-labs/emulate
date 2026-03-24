@@ -10,6 +10,9 @@ import type {
   GoogleFilter,
   GoogleForwardingAddress,
   GoogleSendAs,
+  GoogleCalendar,
+  GoogleCalendarEvent,
+  GoogleDriveItem,
 } from "./entities.js";
 
 export interface GoogleStore {
@@ -23,6 +26,9 @@ export interface GoogleStore {
   filters: Collection<GoogleFilter>;
   forwardingAddresses: Collection<GoogleForwardingAddress>;
   sendAs: Collection<GoogleSendAs>;
+  calendars: Collection<GoogleCalendar>;
+  calendarEvents: Collection<GoogleCalendarEvent>;
+  driveItems: Collection<GoogleDriveItem>;
 }
 
 export function getGoogleStore(store: Store): GoogleStore {
@@ -37,5 +43,8 @@ export function getGoogleStore(store: Store): GoogleStore {
     filters: store.collection<GoogleFilter>("google.filters", ["gmail_id", "user_email"]),
     forwardingAddresses: store.collection<GoogleForwardingAddress>("google.forwarding_addresses", ["user_email", "forwarding_email"]),
     sendAs: store.collection<GoogleSendAs>("google.send_as", ["user_email", "send_as_email"]),
+    calendars: store.collection<GoogleCalendar>("google.calendars", ["google_id", "user_email"]),
+    calendarEvents: store.collection<GoogleCalendarEvent>("google.calendar_events", ["google_id", "calendar_google_id", "user_email"]),
+    driveItems: store.collection<GoogleDriveItem>("google.drive_items", ["google_id", "user_email", "mime_type"]),
   };
 }

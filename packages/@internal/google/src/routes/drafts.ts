@@ -6,7 +6,7 @@ import {
   formatDraftResource,
   getDraftById,
   getDraftMessage,
-  gmailError,
+  googleApiError,
   listDraftsForUser,
   normalizeLimit,
   parseFormat,
@@ -35,7 +35,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
 
       return c.json(formatDraftResource(gs, draft, "full"));
     } catch {
-      return gmailError(
+      return googleApiError(
         c,
         400,
         "Invalid raw MIME message payload.",
@@ -52,17 +52,17 @@ export function draftRoutes({ app, store }: RouteContext): void {
     const body = await parseGoogleBody(c);
     const draftId = getString(body, "id") ?? getString(getRecord(body, "draft") ?? {}, "id");
     if (!draftId) {
-      return gmailError(c, 400, "Draft ID is required.", "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, "Draft ID is required.", "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const draft = getDraftById(gs, authEmail, draftId);
     if (!draft) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const message = sendDraftMessage(gs, draft);
     if (!message) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     return c.json({
@@ -116,10 +116,10 @@ export function draftRoutes({ app, store }: RouteContext): void {
 
     const draft = getDraftById(gs, authEmail, c.req.param("id"));
     if (!draft) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
     if (!getDraftMessage(gs, draft)) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const url = new URL(c.req.url);
@@ -139,7 +139,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
 
     const draft = getDraftById(gs, authEmail, c.req.param("id"));
     if (!draft) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     const body = await parseGoogleBody(c);
@@ -149,12 +149,12 @@ export function draftRoutes({ app, store }: RouteContext): void {
       const updated = updateDraftMessage(gs, draft, parseMessageInputFromBody(messageBody));
 
       if (!updated) {
-        return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+        return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
       }
 
       return c.json(formatDraftResource(gs, updated.draft, "full"));
     } catch {
-      return gmailError(
+      return googleApiError(
         c,
         400,
         "Invalid raw MIME message payload.",
@@ -173,7 +173,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
 
     const draft = getDraftById(gs, authEmail, c.req.param("id"));
     if (!draft) {
-      return gmailError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
+      return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
     deleteDraftMessage(gs, draft);

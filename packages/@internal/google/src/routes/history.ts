@@ -2,7 +2,7 @@ import type { RouteContext } from "@internal/core";
 import {
   findMissingLabelIds,
   getCurrentHistoryId,
-  gmailError,
+  googleApiError,
   isHistoryChangeType,
   listHistoryForUser,
   normalizeLimit,
@@ -29,7 +29,7 @@ export function historyRoutes({ app, store }: RouteContext): void {
     const url = new URL(c.req.url);
     const startHistoryId = url.searchParams.get("startHistoryId")?.trim();
     if (!startHistoryId) {
-      return gmailError(c, 400, "Start history ID is required.", "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, "Start history ID is required.", "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const historyTypes = url.searchParams
@@ -54,13 +54,13 @@ export function historyRoutes({ app, store }: RouteContext): void {
     const body = await parseGoogleBody(c);
     const topicName = getString(body, "topicName")?.trim();
     if (!topicName) {
-      return gmailError(c, 400, "Topic name is required.", "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, "Topic name is required.", "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const labelIds = getStringArray(body, "labelIds");
     const missingLabelIds = findMissingLabelIds(gs, authEmail, labelIds);
     if (missingLabelIds.length > 0) {
-      return gmailError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
     }
 
     const expiration = String(Date.now() + 24 * 60 * 60 * 1000);
