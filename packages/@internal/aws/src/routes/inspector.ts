@@ -1,5 +1,6 @@
 import type { RouteContext } from "@internal/core";
 import { getAwsStore } from "../store.js";
+import { escapeXml } from "../helpers.js";
 
 export function inspectorRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -21,10 +22,10 @@ export function inspectorRoutes(ctx: RouteContext): void {
         .map((b) => {
           const objects = s3Store.s3Objects.findBy("bucket_name", b.bucket_name);
           return `<tr>
-            <td>${esc(b.bucket_name)}</td>
+            <td>${escapeXml(b.bucket_name)}</td>
             <td>${objects.length}</td>
-            <td>${esc(b.region)}</td>
-            <td>${esc(b.creation_date)}</td>
+            <td>${escapeXml(b.region)}</td>
+            <td>${escapeXml(b.creation_date)}</td>
           </tr>`;
         })
         .join("\n");
@@ -43,15 +44,15 @@ export function inspectorRoutes(ctx: RouteContext): void {
           const objRows = objects
             .map(
               (o) => `<tr>
-              <td>${esc(o.key)}</td>
+              <td>${escapeXml(o.key)}</td>
               <td>${o.content_length}</td>
-              <td>${esc(o.content_type)}</td>
-              <td>${esc(o.last_modified)}</td>
+              <td>${escapeXml(o.content_type)}</td>
+              <td>${escapeXml(o.last_modified)}</td>
             </tr>`,
             )
             .join("\n");
           contentHtml += `
-            <h3>${esc(bucket.bucket_name)} objects</h3>
+            <h3>${escapeXml(bucket.bucket_name)} objects</h3>
             <table>
               <thead><tr><th>Key</th><th>Size</th><th>Type</th><th>Last Modified</th></tr></thead>
               <tbody>${objRows}</tbody>
@@ -63,7 +64,7 @@ export function inspectorRoutes(ctx: RouteContext): void {
         .map((q) => {
           const messages = s3Store.sqsMessages.findBy("queue_name", q.queue_name);
           return `<tr>
-            <td>${esc(q.queue_name)}</td>
+            <td>${escapeXml(q.queue_name)}</td>
             <td>${messages.length}</td>
             <td>${q.fifo ? "Yes" : "No"}</td>
             <td>${q.visibility_timeout}s</td>
@@ -81,10 +82,10 @@ export function inspectorRoutes(ctx: RouteContext): void {
       const userRows = users
         .map(
           (u) => `<tr>
-          <td>${esc(u.user_name)}</td>
-          <td>${esc(u.user_id)}</td>
+          <td>${escapeXml(u.user_name)}</td>
+          <td>${escapeXml(u.user_id)}</td>
           <td>${u.access_keys.length}</td>
-          <td>${esc(u.arn)}</td>
+          <td>${escapeXml(u.arn)}</td>
         </tr>`,
         )
         .join("\n");
@@ -92,10 +93,10 @@ export function inspectorRoutes(ctx: RouteContext): void {
       const roleRows = roles
         .map(
           (r) => `<tr>
-          <td>${esc(r.role_name)}</td>
-          <td>${esc(r.role_id)}</td>
-          <td>${esc(r.description)}</td>
-          <td>${esc(r.arn)}</td>
+          <td>${escapeXml(r.role_name)}</td>
+          <td>${escapeXml(r.role_id)}</td>
+          <td>${escapeXml(r.description)}</td>
+          <td>${escapeXml(r.arn)}</td>
         </tr>`,
         )
         .join("\n");
@@ -152,12 +153,4 @@ export function inspectorRoutes(ctx: RouteContext): void {
 
     return c.html(html);
   });
-}
-
-function esc(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

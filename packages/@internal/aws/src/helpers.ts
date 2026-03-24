@@ -42,8 +42,8 @@ export function awsErrorXml(c: Context, code: string, message: string, status = 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ErrorResponse>
   <Error>
-    <Code>${code}</Code>
-    <Message>${message}</Message>
+    <Code>${escapeXml(code)}</Code>
+    <Message>${escapeXml(message)}</Message>
   </Error>
   <RequestId>${generateMessageId()}</RequestId>
 </ErrorResponse>`;

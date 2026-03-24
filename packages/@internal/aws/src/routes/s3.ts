@@ -12,7 +12,7 @@ export function s3Routes(ctx: RouteContext): void {
     const bucketXml = buckets
       .map(
         (b) => `    <Bucket>
-      <Name>${b.bucket_name}</Name>
+      <Name>${escapeXml(b.bucket_name)}</Name>
       <CreationDate>${b.creation_date}</CreationDate>
     </Bucket>`,
       )
@@ -132,7 +132,7 @@ ${bucketXml}
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ListBucketResult>
-  <Name>${bucketName}</Name>
+  <Name>${escapeXml(bucketName)}</Name>
   <Prefix>${escapeXml(prefix)}</Prefix>
   <MaxKeys>${maxKeys}</MaxKeys>
   <IsTruncated>${truncated}</IsTruncated>
