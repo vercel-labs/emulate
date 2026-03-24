@@ -59,6 +59,8 @@
     "@internal/core": "workspace:*",
     "@internal/github": "workspace:*",
     "@internal/apple": "workspace:*",
+    "@internal/microsoft": "workspace:*",
+    "@internal/aws": "workspace:*",
     "@internal/google": "workspace:*",
     "@internal/mongoatlas": "workspace:*",
     "@internal/slack": "workspace:*",

@@ -5,6 +5,8 @@ import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } fro
 import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
 import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
 import { mongoatlasPlugin, seedFromConfig as seedMongoAtlas, type MongoAtlasSeedConfig } from "@internal/mongoatlas";
+import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@internal/microsoft";
+import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@internal/aws";
 import { serve } from "@hono/node-server";
 
 const SERVICE_PLUGINS = {
@@ -14,6 +16,8 @@ const SERVICE_PLUGINS = {
   slack: slackPlugin,
   apple: applePlugin,
   mongoatlas: mongoatlasPlugin,
+  microsoft: microsoftPlugin,
+  aws: awsPlugin,
 } as const;
 
 export type ServiceName = keyof typeof SERVICE_PLUGINS;
@@ -26,6 +30,8 @@ export interface SeedConfig {
   slack?: SlackSeedConfig;
   apple?: AppleSeedConfig;
   mongoatlas?: MongoAtlasSeedConfig;
+  microsoft?: MicrosoftSeedConfig;
+  aws?: AwsSeedConfig;
 }
 
 export interface EmulatorOptions {
@@ -92,6 +98,11 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "name"] };
   } else if (service === "mongoatlas") {
     fallbackUser = { login: "admin", id: 1, scopes: [] };
+  } else if (service === "microsoft") {
+    const firstEmail = seedConfig?.microsoft?.users?.[0]?.email ?? "testuser@outlook.com";
+    fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile", "User.Read"] };
+  } else if (service === "aws") {
+    fallbackUser = { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
   }
 
   const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
@@ -105,6 +116,8 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     if (service === "slack" && seedConfig?.slack) seedSlack(store, baseUrl, seedConfig.slack);
     if (service === "apple" && seedConfig?.apple) seedApple(store, baseUrl, seedConfig.apple);
     if (service === "mongoatlas" && seedConfig?.mongoatlas) seedMongoAtlas(store, baseUrl, seedConfig.mongoatlas);
+    if (service === "microsoft" && seedConfig?.microsoft) seedMicrosoft(store, baseUrl, seedConfig.microsoft);
+    if (service === "aws" && seedConfig?.aws) seedAws(store, baseUrl, seedConfig.aws);
   };
   seed();
 
