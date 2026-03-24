@@ -143,6 +143,9 @@ const defaultIdpConfig = {
         },
       ],
     },
+    scim: {
+      bearer_token: "emulate-scim-token",
+    },
   },
 };
 

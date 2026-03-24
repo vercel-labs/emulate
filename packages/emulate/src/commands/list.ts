@@ -13,7 +13,7 @@ const SERVICE_DESCRIPTIONS: Record<string, { label: string; endpoints: string }>
   },
   idp: {
     label: "Enterprise Identity Provider (OIDC / SAML) emulator",
-    endpoints: "OIDC discovery, authorize, token, userinfo, JWKS, revoke, logout, SAML metadata, SAML SSO, debug",
+    endpoints: "OIDC discovery, authorize, token, userinfo, JWKS, revoke, logout, SAML metadata, SAML SSO, SCIM Users, SCIM Groups, debug",
   },
 };
 
