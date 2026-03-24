@@ -474,6 +474,7 @@ function matchesFilter(data: Record<string, unknown>, filter: Record<string, unk
 
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".");
+  if (hasDangerousKey(parts)) return undefined;
   let current: unknown = obj;
   for (const part of parts) {
     if (current === null || current === undefined || typeof current !== "object") return undefined;
