@@ -106,6 +106,46 @@ const defaultGoogleConfig = {
   },
 };
 
+const defaultIdpConfig = {
+  idp: {
+    users: [
+      {
+        email: "alice@example.com",
+        name: "Alice Example",
+        groups: ["engineering", "admins"],
+        roles: ["owner"],
+        attributes: { department: "Engineering", employee_id: "E-1001" },
+      },
+      {
+        email: "bob@example.com",
+        name: "Bob Example",
+        groups: ["engineering"],
+        roles: ["member"],
+      },
+    ],
+    oidc: {
+      clients: [
+        {
+          client_id: "app-local",
+          client_secret: "secret-local",
+          name: "My App",
+          redirect_uris: ["http://localhost:3000/api/auth/callback/idp"],
+          scopes: ["openid", "profile", "email", "groups", "roles", "offline_access"],
+          claim_mappings: { department: "attributes.department", groups: "groups", roles: "roles" },
+        },
+      ],
+    },
+    saml: {
+      service_providers: [
+        {
+          entity_id: "http://localhost:3000",
+          acs_url: "http://localhost:3000/api/auth/sso/saml2/callback/local-idp",
+        },
+      ],
+    },
+  },
+};
+
 const defaultTokens = {
   tokens: {
     "gho_test_token_admin": {
@@ -123,6 +163,7 @@ const serviceConfigs: Record<string, Record<string, unknown>> = {
   vercel: defaultVercelConfig,
   github: defaultGithubConfig,
   google: defaultGoogleConfig,
+  idp: defaultIdpConfig,
 };
 
 export function initCommand(options: InitOptions): void {
@@ -141,6 +182,7 @@ export function initCommand(options: InitOptions): void {
       ...defaultVercelConfig,
       ...defaultGithubConfig,
       ...defaultGoogleConfig,
+      ...defaultIdpConfig,
     };
   } else {
     const svcConfig = serviceConfigs[options.service];

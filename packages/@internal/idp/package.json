@@ -1,0 +1,34 @@
+{
+  "name": "@internal/idp",
+  "version": "0.2.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup --clean",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@internal/core": "workspace:*",
+    "@peculiar/x509": "^2.0.0",
+    "@xmldom/xmldom": "^0.8.11",
+    "hono": "^4",
+    "jose": "^6",
+    "reflect-metadata": "^0.2.2",
+    "xml-crypto": "^6.1.2"
+  },
+  "devDependencies": {
+    "tsup": "^8",
+    "typescript": "^5.7"
+  }
+}

@@ -59,6 +59,7 @@
     "@internal/core": "workspace:*",
     "@internal/github": "workspace:*",
     "@internal/google": "workspace:*",
+    "@internal/idp": "workspace:*",
     "@internal/vercel": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
