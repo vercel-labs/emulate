@@ -12,7 +12,8 @@ export class ScimClient {
   constructor(private config: ScimClientConfig) {}
 
   private async request(method: string, path: string, body?: unknown): Promise<Response | null> {
-    const url = `${this.config.target_url}${path}`;
+    const baseUrl = this.config.target_url.replace(/\/+$/, "");
+    const url = `${baseUrl}${path}`;
     try {
       const res = await fetch(url, {
         method,

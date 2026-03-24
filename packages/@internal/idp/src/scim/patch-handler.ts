@@ -140,10 +140,21 @@ function resolvePatchPath(
   const key = parts[parts.length - 1];
 
   for (let i = 0; i < parts.length - 1; i++) {
+    parent = current;
     if (current == null || typeof current !== "object") {
-      return { target: undefined, parent: null, key };
+      if (createIntermediates) {
+        (parent as Record<string, unknown>)[parts[i]] = {};
+        current = (parent as Record<string, unknown>)[parts[i]];
+      } else {
+        return { target: undefined, parent: null, key };
+      }
+    } else {
+      current = (current as Record<string, unknown>)[parts[i]];
+      if (current === undefined && createIntermediates) {
+        (parent as Record<string, unknown>)[parts[i]] = {};
+        current = (parent as Record<string, unknown>)[parts[i]];
+      }
     }
-    current = (current as Record<string, unknown>)[parts[i]];
   }
 
   parent = current;

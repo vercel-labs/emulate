@@ -3,8 +3,8 @@ import type { Context, Next } from "hono";
 import type { Store } from "@internal/core";
 import { scimError } from "./response.js";
 
-export function scimAuthMiddleware(store: Store) {
-  return async (c: Context, next: Next) => {
+export function scimAuthMiddleware(store: Store): (c: Context, next: Next) => Promise<Response | void> {
+  return async (c: Context, next: Next): Promise<Response | void> => {
     const expectedToken = store.getData<string>("idp.scim.bearerToken");
 
     if (!expectedToken) {

@@ -317,14 +317,26 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const body = await c.req.json();
     const input = scimGroupToIdpGroupInput(body);
+    const oldGroupName = group.name;
     const updated = idp.groups.update(id, {
       display_name: (input.display_name as string) ?? group.display_name,
       name: (input.name as string) ?? group.name,
     });
 
+    // If group name changed, update all user references
+    const newGroupName = (input.name as string) ?? oldGroupName;
+    if (newGroupName !== oldGroupName) {
+      for (const user of idp.users.all()) {
+        if (user.groups.includes(oldGroupName)) {
+          const newGroups = user.groups.map(g => g === oldGroupName ? newGroupName : g);
+          idp.users.update(user.id, { groups: newGroups });
+        }
+      }
+    }
+
     // Sync members if provided
     if (body.members) {
-      syncGroupMembers(group.name, body.members);
+      syncGroupMembers(newGroupName, body.members);
     }
 
     const allUsers = idp.users.all();
