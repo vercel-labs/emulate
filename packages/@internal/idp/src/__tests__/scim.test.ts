@@ -1,14 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher } from "@internal/core";
+import { Store, WebhookDispatcher, type TokenMap } from "@internal/core";
 import { idpPlugin, seedFromConfig, type IdpSeedConfig } from "../index.js";
 import { getIdpStore } from "../store.js";
 import { SCIM_USER_SCHEMA, SCIM_GROUP_SCHEMA, SCIM_ENTERPRISE_USER_SCHEMA } from "../scim/constants.js";
 
+// Note: SCIM uses its own bearer token auth middleware at the route level,
+// not the shared authMiddleware. This matches the real app stack.
 function createScimTestApp(config?: IdpSeedConfig) {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
-  const tokenMap = new Map<string, { login: string; id: number; scopes: string[] }>();
+  const tokenMap: TokenMap = new Map();
   const app = new Hono();
   idpPlugin.register(app as any, store, webhooks, "http://localhost:4003", tokenMap);
   idpPlugin.seed!(store, "http://localhost:4003");

@@ -1,4 +1,6 @@
+import type { Context } from "hono";
 import type { RouteContext } from "@internal/core";
+import { debug } from "@internal/core";
 import { getIdpStore } from "../store.js";
 import { scimAuthMiddleware } from "../scim/auth.js";
 import {
@@ -63,12 +65,17 @@ const SCHEMAS = [
   },
 ];
 
+function parseId(idParam: string): number | null {
+  const id = parseInt(idParam, 10);
+  return isNaN(id) ? null : id;
+}
+
 export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
   const idp = getIdpStore(store);
   const auth = scimAuthMiddleware(store);
 
   // Helper to return SCIM JSON with correct content type
-  function scimJson(_c: any, body: any, status = 200, extraHeaders?: Record<string, string>) {
+  function scimJson(_c: Context, body: unknown, status = 200, extraHeaders?: Record<string, string>) {
     const headers: Record<string, string> = {
       "Content-Type": "application/scim+json",
       ...extraHeaders,
@@ -122,7 +129,8 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
   // Get user by ID
   app.get("/scim/v2/Users/:id", auth, (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const user = idp.users.get(id);
     if (!user) {
       return scimJson(c, scimError(404, "User not found"), 404);
@@ -133,7 +141,12 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
   // Create user
   app.post("/scim/v2/Users", auth, async (c) => {
-    const body = await c.req.json();
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return scimJson(c, scimError(400, "Invalid JSON body", "invalidSyntax"), 400);
+    }
     const userName = body.userName ?? body.emails?.[0]?.value;
     if (!userName) {
       return scimJson(c, scimError(400, "userName is required", "invalidValue"), 400);
@@ -165,18 +178,25 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     const allGroups = idp.groups.all();
     const scimUser = idpUserToScimUser(newUser, baseUrl, allGroups);
     pushToClients(cl => cl.createUser(scimUser));
+    debug("idp.scim", "[SCIM] Created user: " + userName);
     return scimJson(c, scimUser, 201, { Location: `${baseUrl}/scim/v2/Users/${newUser.id}` });
   });
 
   // Replace user (PUT)
   app.put("/scim/v2/Users/:id", auth, async (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const user = idp.users.get(id);
     if (!user) {
       return scimJson(c, scimError(404, "User not found"), 404);
     }
 
-    const body = await c.req.json();
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return scimJson(c, scimError(400, "Invalid JSON body", "invalidSyntax"), 400);
+    }
     const userName = body.userName;
 
     // Check uniqueness (allow same user)
@@ -201,18 +221,25 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     const allGroups = idp.groups.all();
     const scimUser = idpUserToScimUser(updated!, baseUrl, allGroups);
     pushToClients(cl => cl.updateUser(String(id), scimUser));
+    debug("idp.scim", "[SCIM] Replaced user: " + id);
     return scimJson(c, scimUser);
   });
 
   // Patch user
   app.patch("/scim/v2/Users/:id", auth, async (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const user = idp.users.get(id);
     if (!user) {
       return scimJson(c, scimError(404, "User not found"), 404);
     }
 
-    const body = await c.req.json();
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return scimJson(c, scimError(400, "Invalid JSON body", "invalidSyntax"), 400);
+    }
     const allGroups = idp.groups.all();
 
     // Convert user to SCIM representation for patching
@@ -232,18 +259,21 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     });
 
     pushToClients(cl => cl.patchUser(String(id), body.Operations));
+    debug("idp.scim", "[SCIM] Patched user: " + id);
     return scimJson(c, idpUserToScimUser(updated!, baseUrl, idp.groups.all()));
   });
 
   // Delete user
   app.delete("/scim/v2/Users/:id", auth, (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const user = idp.users.get(id);
     if (!user) {
       return scimJson(c, scimError(404, "User not found"), 404);
     }
     idp.users.delete(id);
     pushToClients(cl => cl.deleteUser(String(id)));
+    debug("idp.scim", "[SCIM] Deleted user: " + id);
     return c.body(null, 204);
   });
 
@@ -272,7 +302,8 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
   // Get group by ID
   app.get("/scim/v2/Groups/:id", auth, (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const group = idp.groups.get(id);
     if (!group) {
       return scimJson(c, scimError(404, "Group not found"), 404);
@@ -283,7 +314,12 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
   // Create group
   app.post("/scim/v2/Groups", auth, async (c) => {
-    const body = await c.req.json();
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return scimJson(c, scimError(400, "Invalid JSON body", "invalidSyntax"), 400);
+    }
     const input = scimGroupToIdpGroupInput(body);
     const newGroup = idp.groups.insert({
       name: (input.name as string) ?? "",
@@ -304,18 +340,25 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     const allUsers = idp.users.all();
     const scimGroup = idpGroupToScimGroup(newGroup, baseUrl, allUsers);
     pushToClients(cl => cl.createGroup(scimGroup));
+    debug("idp.scim", "[SCIM] Created group: " + (input.display_name ?? input.name));
     return scimJson(c, scimGroup, 201, { Location: `${baseUrl}/scim/v2/Groups/${newGroup.id}` });
   });
 
   // Replace group (PUT)
   app.put("/scim/v2/Groups/:id", auth, async (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const group = idp.groups.get(id);
     if (!group) {
       return scimJson(c, scimError(404, "Group not found"), 404);
     }
 
-    const body = await c.req.json();
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return scimJson(c, scimError(400, "Invalid JSON body", "invalidSyntax"), 400);
+    }
     const input = scimGroupToIdpGroupInput(body);
     const oldGroupName = group.name;
     const updated = idp.groups.update(id, {
@@ -342,18 +385,25 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     const allUsers = idp.users.all();
     const scimGroup = idpGroupToScimGroup(updated!, baseUrl, allUsers);
     pushToClients(cl => cl.updateGroup(String(id), scimGroup));
+    debug("idp.scim", "[SCIM] Replaced group: " + id);
     return scimJson(c, scimGroup);
   });
 
   // Patch group
   app.patch("/scim/v2/Groups/:id", auth, async (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const group = idp.groups.get(id);
     if (!group) {
       return scimJson(c, scimError(404, "Group not found"), 404);
     }
 
-    const body = await c.req.json();
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return scimJson(c, scimError(400, "Invalid JSON body", "invalidSyntax"), 400);
+    }
     const operations = body.Operations ?? [];
 
     for (const op of operations) {
@@ -416,12 +466,14 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
     const updatedGroup = idp.groups.get(id)!;
     const updatedUsers = idp.users.all();
     pushToClients(cl => cl.patchGroup(String(id), operations));
+    debug("idp.scim", "[SCIM] Patched group: " + id);
     return scimJson(c, idpGroupToScimGroup(updatedGroup, baseUrl, updatedUsers));
   });
 
   // Delete group
   app.delete("/scim/v2/Groups/:id", auth, (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseId(c.req.param("id"));
+    if (id === null) return scimJson(c, scimError(400, "Invalid resource ID", "invalidValue"), 400);
     const group = idp.groups.get(id);
     if (!group) {
       return scimJson(c, scimError(404, "Group not found"), 404);
@@ -439,6 +491,7 @@ export function scimRoutes({ app, store, baseUrl }: RouteContext): void {
 
     idp.groups.delete(id);
     pushToClients(cl => cl.deleteGroup(String(id)));
+    debug("idp.scim", "[SCIM] Deleted group: " + id);
     return c.body(null, 204);
   });
 
