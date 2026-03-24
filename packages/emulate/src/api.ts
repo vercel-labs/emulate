@@ -2,12 +2,14 @@ import { createServer, type AppKeyResolver, type AuthFallback, type Store } from
 import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } from "@internal/vercel";
 import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@internal/github";
 import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@internal/google";
+import { resendPlugin, seedFromConfig as seedResend, type ResendSeedConfig } from "@internal/resend";
 import { serve } from "@hono/node-server";
 
 const SERVICE_PLUGINS = {
   vercel: vercelPlugin,
   github: githubPlugin,
   google: googlePlugin,
+  resend: resendPlugin,
 } as const;
 
 export type ServiceName = keyof typeof SERVICE_PLUGINS;
@@ -17,6 +19,7 @@ export interface SeedConfig {
   vercel?: VercelSeedConfig;
   github?: GitHubSeedConfig;
   google?: GoogleSeedConfig;
+  resend?: ResendSeedConfig;
 }
 
 export interface EmulatorOptions {
@@ -76,6 +79,8 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   } else if (service === "google") {
     const firstEmail = seedConfig?.google?.users?.[0]?.email ?? "testuser@gmail.com";
     fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
+  } else if (service === "resend") {
+    fallbackUser = { login: "api-key-user", id: 1, scopes: [] };
   }
 
   const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
@@ -86,6 +91,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     if (service === "vercel" && seedConfig?.vercel) seedVercel(store, baseUrl, seedConfig.vercel);
     if (service === "github" && seedConfig?.github) seedGitHub(store, baseUrl, seedConfig.github);
     if (service === "google" && seedConfig?.google) seedGoogle(store, baseUrl, seedConfig.google);
+    if (service === "resend" && seedConfig?.resend) seedResend(store, baseUrl, seedConfig.resend);
   };
   seed();
 
