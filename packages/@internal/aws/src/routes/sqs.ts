@@ -50,7 +50,7 @@ export function sqsRoutes(ctx: RouteContext): void {
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <CreateQueueResponse>
   <CreateQueueResult>
-    <QueueUrl>${existing.queue_url}</QueueUrl>
+    <QueueUrl>${escapeXml(existing.queue_url)}</QueueUrl>
   </CreateQueueResult>
   <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
 </CreateQueueResponse>`;
@@ -76,7 +76,7 @@ export function sqsRoutes(ctx: RouteContext): void {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <CreateQueueResponse>
   <CreateQueueResult>
-    <QueueUrl>${queueUrl}</QueueUrl>
+    <QueueUrl>${escapeXml(queueUrl)}</QueueUrl>
   </CreateQueueResult>
   <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
 </CreateQueueResponse>`;
@@ -111,7 +111,7 @@ export function sqsRoutes(ctx: RouteContext): void {
       queues = queues.filter((q) => q.queue_name.startsWith(prefix));
     }
 
-    const queueUrlsXml = queues.map((q) => `    <QueueUrl>${q.queue_url}</QueueUrl>`).join("\n");
+    const queueUrlsXml = queues.map((q) => `    <QueueUrl>${escapeXml(q.queue_url)}</QueueUrl>`).join("\n");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ListQueuesResponse>
@@ -133,7 +133,7 @@ ${queueUrlsXml}
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <GetQueueUrlResponse>
   <GetQueueUrlResult>
-    <QueueUrl>${queue.queue_url}</QueueUrl>
+    <QueueUrl>${escapeXml(queue.queue_url)}</QueueUrl>
   </GetQueueUrlResult>
   <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
 </GetQueueUrlResponse>`;
@@ -181,6 +181,11 @@ ${queueUrlsXml}
 
     if (!messageBody) {
       return awsErrorXml(c, "MissingParameter", "The request must contain the parameter MessageBody.", 400);
+    }
+
+    const bodyBytes = new TextEncoder().encode(messageBody).byteLength;
+    if (bodyBytes > queue.max_message_size) {
+      return awsErrorXml(c, "InvalidParameterValue", `One or more parameters are invalid. Reason: Message must be shorter than ${queue.max_message_size} bytes.`, 400);
     }
 
     const messageId = generateMessageId();

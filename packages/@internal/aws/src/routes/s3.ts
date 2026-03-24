@@ -173,7 +173,7 @@ ${prefixesXml}
       aws().s3Objects.update(existing.id, {
         body,
         content_type: contentType,
-        content_length: body.length,
+        content_length: new TextEncoder().encode(body).byteLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -184,7 +184,7 @@ ${prefixesXml}
         key,
         body,
         content_type: contentType,
-        content_length: body.length,
+        content_length: new TextEncoder().encode(body).byteLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
