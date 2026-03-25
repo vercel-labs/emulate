@@ -64,6 +64,7 @@
     "@internal/google": "workspace:*",
     "@internal/slack": "workspace:*",
     "@internal/vercel": "workspace:*",
+    "@internal/descope": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

@@ -13,6 +13,7 @@ All services start with sensible defaults. No config file needed:
 - **Vercel** on `http://localhost:4000`
 - **GitHub** on `http://localhost:4001`
 - **Google** on `http://localhost:4002`
+- **Descope** on `http://localhost:4003`
 
 ## CLI
 
@@ -188,6 +189,13 @@ google:
       name: Docs
       mime_type: application/vnd.google-apps.folder
       parent_ids: [root]
+
+descope:
+  users:
+    - email: testuser@example.com
+      name: Test User
+      permissions: [read, write]
+      roles: [user]
 ```
 
 ## OAuth & Integrations
