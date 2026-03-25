@@ -1,6 +1,6 @@
 {
   "name": "@internal/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -19,12 +19,12 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "hono": "^4",
+    "hono": "^4.12.9",
     "jose": "^6.2.2"
   },
   "devDependencies": {
     "tsup": "^8",
     "typescript": "^5.7",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.1"
   }
 }

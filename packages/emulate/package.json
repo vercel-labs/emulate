@@ -1,6 +1,6 @@
 {
   "name": "emulate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -53,15 +53,15 @@
     "@hono/node-server": "^1",
     "commander": "^14",
     "picocolors": "^1.1.1",
-    "yaml": "^2"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
+    "@internal/apple": "workspace:*",
+    "@internal/aws": "workspace:*",
     "@internal/core": "workspace:*",
     "@internal/github": "workspace:*",
-    "@internal/apple": "workspace:*",
-    "@internal/microsoft": "workspace:*",
-    "@internal/aws": "workspace:*",
     "@internal/google": "workspace:*",
+    "@internal/microsoft": "workspace:*",
     "@internal/slack": "workspace:*",
     "@internal/vercel": "workspace:*",
     "tsup": "^8",
