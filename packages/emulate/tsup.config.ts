@@ -13,22 +13,30 @@ export default defineConfig([
   {
     entry: ["src/index.ts"],
     format: ["esm"],
+    platform: "node",
     dts: false,
     clean: true,
     sourcemap: true,
     noExternal: [/^@internal\//],
     banner: {
-      js: "#!/usr/bin/env node",
+      js: `#!/usr/bin/env node
+import { createRequire as __cr } from 'node:module';
+const require = __cr(import.meta.url);`,
     },
     onSuccess: copyFonts,
   },
   {
     entry: ["src/api.ts"],
     format: ["esm"],
+    platform: "node",
     dts: true,
     clean: false,
     sourcemap: true,
     noExternal: [/^@internal\//],
+    banner: {
+      js: `import { createRequire as __cr } from 'node:module';
+const require = __cr(import.meta.url);`,
+    },
     onSuccess: copyFonts,
   },
 ]);

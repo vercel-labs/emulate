@@ -28,6 +28,10 @@ const SERVICE_DESCRIPTIONS: Record<string, { label: string; endpoints: string }>
     label: "Microsoft Entra ID OAuth 2.0 / OpenID Connect emulator",
     endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, Graph /me, logout, token revocation",
   },
+  idp: {
+    label: "Enterprise Identity Provider (OIDC / SAML) emulator",
+    endpoints: "OIDC discovery, authorize, token, userinfo, JWKS, revoke, logout, SAML metadata, SAML SSO, debug",
+  },
 };
 
 export function listCommand(): void {

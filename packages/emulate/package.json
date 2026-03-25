@@ -62,6 +62,7 @@
     "@internal/microsoft": "workspace:*",
     "@internal/aws": "workspace:*",
     "@internal/google": "workspace:*",
+    "@internal/idp": "workspace:*",
     "@internal/slack": "workspace:*",
     "@internal/vercel": "workspace:*",
     "tsup": "^8",
