@@ -157,6 +157,123 @@ const defaultGoogleConfig = {
   },
 };
 
+const defaultAppleConfig = {
+  apple: {
+    users: [
+      {
+        email: "testuser@icloud.com",
+        name: "Test User",
+      },
+    ],
+    oauth_clients: [
+      {
+        client_id: "com.example.app",
+        team_id: "TEAM001",
+        name: "My Apple App",
+        redirect_uris: ["http://localhost:3000/api/auth/callback/apple"],
+      },
+    ],
+  },
+};
+
+const defaultMicrosoftConfig = {
+  microsoft: {
+    users: [
+      {
+        email: "testuser@outlook.com",
+        name: "Test User",
+      },
+    ],
+    oauth_clients: [
+      {
+        client_id: "example-client-id",
+        client_secret: "example-client-secret",
+        name: "My Microsoft App",
+        redirect_uris: ["http://localhost:3000/api/auth/callback/microsoft-entra-id"],
+      },
+    ],
+  },
+};
+
+const defaultSlackConfig = {
+  slack: {
+    team: {
+      name: "My Workspace",
+      domain: "my-workspace",
+    },
+    users: [
+      {
+        name: "developer",
+        real_name: "Developer",
+        email: "dev@example.com",
+      },
+    ],
+    channels: [
+      {
+        name: "general",
+        topic: "General discussion",
+      },
+      {
+        name: "random",
+        topic: "Random stuff",
+      },
+    ],
+    bots: [
+      {
+        name: "my-bot",
+      },
+    ],
+    oauth_apps: [
+      {
+        client_id: "12345.67890",
+        client_secret: "example_client_secret",
+        name: "My Slack App",
+        redirect_uris: ["http://localhost:3000/api/auth/callback/slack"],
+      },
+    ],
+  },
+};
+
+const defaultAwsConfig = {
+  aws: {
+    region: "us-east-1",
+    s3: {
+      buckets: [
+        {
+          name: "my-app-bucket",
+        },
+        {
+          name: "my-app-uploads",
+        },
+      ],
+    },
+    sqs: {
+      queues: [
+        {
+          name: "my-app-events",
+        },
+        {
+          name: "my-app-dlq",
+        },
+      ],
+    },
+    iam: {
+      users: [
+        {
+          user_name: "developer",
+          create_access_key: true,
+        },
+      ],
+      roles: [
+        {
+          role_name: "lambda-execution-role",
+          description: "Role for Lambda function execution",
+        },
+      ],
+    },
+  },
+};
+
 const defaultTokens = {
   tokens: {
     "gho_test_token_admin": {
@@ -174,6 +291,10 @@ const serviceConfigs: Record<string, Record<string, unknown>> = {
   vercel: defaultVercelConfig,
   github: defaultGithubConfig,
   google: defaultGoogleConfig,
+  slack: defaultSlackConfig,
+  apple: defaultAppleConfig,
+  microsoft: defaultMicrosoftConfig,
+  aws: defaultAwsConfig,
 };
 
 export function initCommand(options: InitOptions): void {
@@ -192,6 +313,10 @@ export function initCommand(options: InitOptions): void {
       ...defaultVercelConfig,
       ...defaultGithubConfig,
       ...defaultGoogleConfig,
+      ...defaultSlackConfig,
+      ...defaultAppleConfig,
+      ...defaultMicrosoftConfig,
+      ...defaultAwsConfig,
     };
   } else {
     const svcConfig = serviceConfigs[options.service];
