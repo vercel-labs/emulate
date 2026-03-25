@@ -87,7 +87,9 @@ function requireAuthEmail(ctx: RouteContext, c: any): string | Response {
 function buildNextLink(currentUrl: string, nextSkip: number): string {
   const url = new URL(currentUrl);
   url.searchParams.set("$skip", String(nextSkip));
-  return url.toString();
+  // Return a Graph-relative path so SDK clients can keep using their configured
+  // base URL and auth middleware when following @odata.nextLink.
+  return `${url.pathname}${url.search}`;
 }
 
 function getTopAndSkip(c: any) {

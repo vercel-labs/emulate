@@ -548,6 +548,9 @@ describe("Microsoft plugin integration", () => {
     const listBody = await listRes.json() as { value: Array<Record<string, unknown>>; "@odata.nextLink"?: string };
     expect(listBody.value.length).toBe(2);
     expect(listBody["@odata.nextLink"]).toBeTruthy();
+    expect(listBody["@odata.nextLink"]).toMatch(/^\/v1\.0\/me\/messages\?/);
+    const nextLinkUrl = new URL(listBody["@odata.nextLink"]!, base);
+    expect(nextLinkUrl.searchParams.get("$skip")).toBe("2");
 
     const sourceMessageId = String(listBody.value[0]?.id);
     const replyRes = await app.request(`${base}/v1.0/me/messages/${sourceMessageId}/createReply`, {
