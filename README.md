@@ -96,7 +96,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service to emulate: `'github'`, `'vercel'`, or `'google'` |
+| `service` | *(required)* | Service to emulate: `'github'`, `'vercel'`, `'google'`, or `'microsoft'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 
@@ -188,6 +188,41 @@ google:
       name: Docs
       mime_type: application/vnd.google-apps.folder
       parent_ids: [root]
+
+microsoft:
+  users:
+    - email: testuser@outlook.com
+      name: Test User
+  oauth_clients:
+    - client_id: my-microsoft-client-id
+      client_secret: my-microsoft-client-secret
+      redirect_uris:
+        - http://localhost:3000/api/outlook/linking/callback
+        - http://localhost:3000/api/outlook/calendar/callback
+        - http://localhost:3000/api/outlook/drive/callback
+  categories:
+    - display_name: Follow Up
+      color: preset4
+  messages:
+    - user_email: testuser@outlook.com
+      from:
+        address: welcome@example.com
+        name: Welcome Team
+      to_recipients:
+        - address: testuser@outlook.com
+      subject: Welcome to the Outlook emulator
+      body_content: "<p>You can now test Outlook mail, calendar, and OneDrive flows locally.</p>"
+      parent_folder_id: inbox
+  calendars:
+    - id: primary
+      user_email: testuser@outlook.com
+      name: Calendar
+      is_default_calendar: true
+  drive_items:
+    - id: drv_invoices
+      user_email: testuser@outlook.com
+      name: Invoices
+      is_folder: true
 ```
 
 ## OAuth & Integrations
@@ -452,6 +487,23 @@ This stays under a single `google:` service because the Gmail API is used by bot
 
 The Google plugin still does not cover every Google API edge case, but Gmail, Calendar, and Drive now have enough mutable surface to support realistic local automation flows without stuffing everything into static seed config.
 
+## Microsoft OAuth + Outlook, Calendar, and OneDrive APIs
+
+OAuth 2.0, OpenID Connect, and Microsoft Graph-style mail, calendar, subscription, and drive flows for local Outlook automation.
+
+- `GET /:tenant/v2.0/.well-known/openid-configuration`, `GET /.well-known/openid-configuration`, `GET /discovery/v2.0/keys`
+- `GET /oauth2/v2.0/authorize`, `POST /oauth2/v2.0/authorize/callback`, `POST /oauth2/v2.0/token`, `GET /oauth2/v2.0/logout`, `POST /oauth2/v2.0/revoke`
+- `GET /oidc/userinfo`, `GET /v1.0/me`, `GET /v1.0/me/photo/$value`
+- `GET /v1.0/me/messages`, `POST /v1.0/me/messages`, `GET|PATCH|DELETE /v1.0/me/messages/:messageId`
+- `POST /v1.0/me/messages/:messageId/send`, `POST /v1.0/me/messages/:messageId/createReply`, `POST /v1.0/me/messages/:messageId/createReplyAll`, `POST /v1.0/me/messages/:messageId/forward`, `POST /v1.0/me/messages/:messageId/move`
+- `GET /v1.0/me/messages/:messageId/attachments/:attachmentId`, `POST /v1.0/me/messages/:messageId/attachments`, `POST /v1.0/me/messages/:messageId/attachments/createUploadSession`
+- `GET|POST /v1.0/me/mailFolders`, `GET /v1.0/me/mailFolders/:folderId`, `GET /v1.0/me/mailFolders/:folderId/childFolders`
+- `GET|POST /v1.0/me/outlook/masterCategories`, `GET|DELETE /v1.0/me/outlook/masterCategories/:categoryId`
+- `GET|POST /v1.0/me/mailFolders/inbox/messageRules`, `PATCH|DELETE /v1.0/me/mailFolders/inbox/messageRules/:ruleId`
+- `POST /v1.0/subscriptions`, `DELETE /v1.0/subscriptions/:subscriptionId`, `POST /v1.0/$batch`
+- `GET /v1.0/me/calendars`, `GET /v1.0/me/calendar/calendarView`, `GET /v1.0/me/calendars/:calendarId/calendarView`
+- `GET|POST /v1.0/me/drive/root/children`, `GET|PATCH /v1.0/me/drive/items/:itemId`, `GET|POST /v1.0/me/drive/items/:itemId/children`, `PUT /v1.0/me/drive/items/:parentId:/:filename:/content`, `GET /v1.0/me/drive/items/:itemId/content`
+
 ## Architecture
 
 ```
@@ -462,6 +514,7 @@ packages/
     vercel/         # Vercel API service
     github/         # GitHub API service
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, and Drive APIs
+    microsoft/      # Microsoft OAuth 2.0 / OIDC + Outlook, Calendar, and OneDrive APIs
 apps/
   web/              # Documentation site (Next.js)
 ```
