@@ -10,6 +10,7 @@
     "clean": "turbo clean"
   },
   "devDependencies": {
+    "@rolldown/binding-darwin-arm64": "1.0.0-rc.10",
     "@types/node": "^22",
     "turbo": "^2",
     "typescript": "^5.7",

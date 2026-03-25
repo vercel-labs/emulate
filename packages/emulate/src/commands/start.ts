@@ -6,6 +6,7 @@ import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "
 import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
 import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@internal/microsoft";
 import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@internal/aws";
+import { descopePlugin, seedFromConfig as seedDescope, type DescopeSeedConfig } from "@internal/descope";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -31,6 +32,7 @@ interface SeedConfig {
   apple?: AppleSeedConfig;
   microsoft?: MicrosoftSeedConfig;
   aws?: AwsSeedConfig;
+  descope?: DescopeSeedConfig;
 }
 
 interface LoadResult {
@@ -89,6 +91,7 @@ const SERVICE_PLUGINS: Record<string, ServicePlugin> = {
   apple: applePlugin,
   microsoft: microsoftPlugin,
   aws: awsPlugin,
+  descope: descopePlugin,
 };
 
 const ALL_SERVICES = Object.keys(SERVICE_PLUGINS);
@@ -139,6 +142,7 @@ export function startCommand(options: StartOptions): void {
     if (svc === "apple") return seedConfig?.apple?.port;
     if (svc === "microsoft") return undefined;
     if (svc === "aws") return seedConfig?.aws?.port;
+    if (svc === "descope") return seedConfig?.descope?.port;
     return undefined;
   };
 
@@ -187,6 +191,9 @@ export function startCommand(options: StartOptions): void {
       fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile", "User.Read"] };
     } else if (svc === "aws") {
       fallbackUser = { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
+    } else if (svc === "descope") {
+      const firstEmail = seedConfig?.descope?.users?.[0]?.email ?? "testuser@example.com";
+      fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
     }
 
     const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
@@ -215,6 +222,9 @@ export function startCommand(options: StartOptions): void {
     }
     if (svc === "aws" && seedConfig?.aws) {
       seedAws(store, baseUrl, seedConfig.aws);
+    }
+    if (svc === "descope" && seedConfig?.descope) {
+      seedDescope(store, baseUrl, seedConfig.descope);
     }
 
     const httpServer = serve({ fetch: app.fetch, port });
