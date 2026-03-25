@@ -197,9 +197,9 @@ microsoft:
     - client_id: my-microsoft-client-id
       client_secret: my-microsoft-client-secret
       redirect_uris:
-        - http://localhost:3000/api/outlook/linking/callback
-        - http://localhost:3000/api/outlook/calendar/callback
-        - http://localhost:3000/api/outlook/drive/callback
+        - http://localhost:3000/api/microsoft/linking/callback
+        - http://localhost:3000/api/microsoft/calendar/callback
+        - http://localhost:3000/api/microsoft/drive/callback
   categories:
     - display_name: Follow Up
       color: preset4

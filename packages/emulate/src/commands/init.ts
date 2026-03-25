@@ -191,9 +191,9 @@ const defaultMicrosoftConfig = {
         name: "My Microsoft App",
         redirect_uris: [
           "http://localhost:3000/api/auth/callback/microsoft-entra-id",
-          "http://localhost:3000/api/outlook/linking/callback",
-          "http://localhost:3000/api/outlook/calendar/callback",
-          "http://localhost:3000/api/outlook/drive/callback",
+          "http://localhost:3000/api/microsoft/linking/callback",
+          "http://localhost:3000/api/microsoft/calendar/callback",
+          "http://localhost:3000/api/microsoft/drive/callback",
         ],
       },
     ],
