@@ -31,7 +31,7 @@ import {
   type UploadSessionRecord,
   updateMessage,
   upsertMessageAttachment,
-  buildDriveItemWebUrl,
+  dedupeRecipients,
 } from "../helpers.js";
 import { getMicrosoftStore } from "../store.js";
 import { parseJsonBody } from "../route-helpers.js";
@@ -150,44 +150,16 @@ function patchMessageFromBody(ctx: RouteContext, messageId: string, body: Record
     patch.importance = body.importance;
   }
   if (Array.isArray(body.toRecipients)) {
-    patch.to_recipients = (body.toRecipients as Array<Record<string, unknown>>)
-      .map((recipient) => recipient.emailAddress)
-      .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
-      .map((emailAddress) => ({
-        address: typeof emailAddress.address === "string" ? emailAddress.address : "",
-        name: typeof emailAddress.name === "string" ? emailAddress.name : undefined,
-      }))
-      .filter((recipient) => recipient.address);
+    patch.to_recipients = extractRecipients(body.toRecipients);
   }
   if (Array.isArray(body.ccRecipients)) {
-    patch.cc_recipients = (body.ccRecipients as Array<Record<string, unknown>>)
-      .map((recipient) => recipient.emailAddress)
-      .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
-      .map((emailAddress) => ({
-        address: typeof emailAddress.address === "string" ? emailAddress.address : "",
-        name: typeof emailAddress.name === "string" ? emailAddress.name : undefined,
-      }))
-      .filter((recipient) => recipient.address);
+    patch.cc_recipients = extractRecipients(body.ccRecipients);
   }
   if (Array.isArray(body.bccRecipients)) {
-    patch.bcc_recipients = (body.bccRecipients as Array<Record<string, unknown>>)
-      .map((recipient) => recipient.emailAddress)
-      .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
-      .map((emailAddress) => ({
-        address: typeof emailAddress.address === "string" ? emailAddress.address : "",
-        name: typeof emailAddress.name === "string" ? emailAddress.name : undefined,
-      }))
-      .filter((recipient) => recipient.address);
+    patch.bcc_recipients = extractRecipients(body.bccRecipients);
   }
   if (Array.isArray(body.replyTo)) {
-    patch.reply_to = (body.replyTo as Array<Record<string, unknown>>)
-      .map((recipient) => recipient.emailAddress)
-      .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
-      .map((emailAddress) => ({
-        address: typeof emailAddress.address === "string" ? emailAddress.address : "",
-        name: typeof emailAddress.name === "string" ? emailAddress.name : undefined,
-      }))
-      .filter((recipient) => recipient.address);
+    patch.reply_to = extractRecipients(body.replyTo);
   }
   if (body.from && typeof body.from === "object" && !Array.isArray(body.from)) {
     const emailAddress = (body.from as Record<string, unknown>).emailAddress;
@@ -204,14 +176,6 @@ function patchMessageFromBody(ctx: RouteContext, messageId: string, body: Record
   }
 
   return updateMessage(ms, message, patch as any);
-}
-
-function ensureDriveWebUrl(ctx: RouteContext, driveItemId: string) {
-  const ms = getMicrosoftStore(ctx.store);
-  const item = ms.driveItems.findOneBy("microsoft_id", driveItemId);
-  if (item && item.web_url.includes("pending")) {
-    ms.driveItems.update(item.id, { web_url: buildDriveItemWebUrl(ctx.baseUrl, item.microsoft_id) });
-  }
 }
 
 export function graphRoutes(ctx: RouteContext): void {
@@ -467,7 +431,7 @@ export function graphRoutes(ctx: RouteContext): void {
       body_content_type: "html",
       from: { address: authEmail, name: getMicrosoftUserByEmail(ms, authEmail)?.name },
       sender: { address: authEmail, name: getMicrosoftUserByEmail(ms, authEmail)?.name },
-      to_recipients: dedupeRecipientInputs(recipients),
+      to_recipients: dedupeRecipients(recipients),
       cc_recipients: [],
       is_draft: false,
       is_read: true,
@@ -647,7 +611,7 @@ export function graphRoutes(ctx: RouteContext): void {
         name: session.attachmentName,
         content_type: session.contentType,
         size: total,
-        content_bytes: Buffer.from(Buffer.from(session.contentBytes, "base64")).toString("base64"),
+        content_bytes: session.contentBytes,
       });
       getUploadSessions(ctx).delete(session.sessionId);
       return c.json(formatAttachmentResource(attachment), 201);
@@ -1254,7 +1218,7 @@ export function graphRoutes(ctx: RouteContext): void {
           content_bytes: content,
           web_url_base: ctx.baseUrl,
         });
-    ensureDriveWebUrl(ctx, updated.microsoft_id);
+
     const parent = updated.parent_microsoft_id
       ? ms.driveItems.findOneBy("microsoft_id", updated.parent_microsoft_id)
       : null;
@@ -1273,7 +1237,7 @@ export function graphRoutes(ctx: RouteContext): void {
         ? (body.item as Record<string, unknown>)
         : {};
     const fileName = decodeURIComponent(encodedName);
-    const contentType = typeof itemBody.fileSize === "number" ? "application/octet-stream" : "application/octet-stream";
+    const contentType = "application/octet-stream";
     const sessionId = generateMicrosoftId("drive_upload");
     getDriveUploadSessions(ctx).set(sessionId, {
       sessionId,
@@ -1329,7 +1293,7 @@ export function graphRoutes(ctx: RouteContext): void {
         parent_microsoft_id: session.parentId,
         is_folder: false,
         mime_type: session.contentType,
-        content_bytes: Buffer.from(Buffer.from(session.contentBytes, "base64")).toString("base64"),
+        content_bytes: session.contentBytes,
         web_url_base: ctx.baseUrl,
       });
       getDriveUploadSessions(ctx).delete(session.sessionId);
@@ -1357,16 +1321,6 @@ function extractRecipients(value: unknown) {
       name: typeof emailAddress.name === "string" ? emailAddress.name : undefined,
     }))
     .filter((recipient) => recipient.address);
-}
-
-function dedupeRecipientInputs(recipients: Array<{ address: string; name?: string | null }>) {
-  const seen = new Set<string>();
-  return recipients.filter((recipient) => {
-    const key = recipient.address.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function matchesCalendarWindow(
@@ -1524,7 +1478,6 @@ async function createDriveChild(ctx: RouteContext, c: any, authEmail: string, pa
         is_folder: Boolean(body.folder),
         web_url_base: ctx.baseUrl,
       });
-      ensureDriveWebUrl(ctx, created.microsoft_id);
       const parent = parentId ? ms.driveItems.findOneBy("microsoft_id", parentId) ?? null : null;
       return c.json(formatDriveItemResource(created, parent), 201);
     }
@@ -1538,7 +1491,6 @@ async function createDriveChild(ctx: RouteContext, c: any, authEmail: string, pa
     is_folder: Boolean(body.folder),
     web_url_base: ctx.baseUrl,
   });
-  ensureDriveWebUrl(ctx, created.microsoft_id);
   const parent = parentId ? ms.driveItems.findOneBy("microsoft_id", parentId) ?? null : null;
   return c.json(formatDriveItemResource(created, parent), 201);
 }

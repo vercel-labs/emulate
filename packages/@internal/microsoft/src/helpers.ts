@@ -740,10 +740,7 @@ export function seedDefaultMailbox(ms: MicrosoftStore, baseUrl: string, userEmai
     is_folder: true,
     web_url_base: baseUrl,
   });
-  ms.driveItems.update(invoicesFolder.id, {
-    web_url: buildDriveItemWebUrl(baseUrl, invoicesFolder.microsoft_id),
-  });
-  const invoiceFile = createDriveItemRecord(ms, {
+  createDriveItemRecord(ms, {
     user_email: userEmail,
     name: "March-Invoice.pdf",
     parent_microsoft_id: invoicesFolder.microsoft_id,
@@ -751,9 +748,6 @@ export function seedDefaultMailbox(ms: MicrosoftStore, baseUrl: string, userEmai
     mime_type: "application/pdf",
     content_bytes: Buffer.from("invoice-pdf-data", "utf8").toString("base64"),
     web_url_base: baseUrl,
-  });
-  ms.driveItems.update(invoiceFile.id, {
-    web_url: buildDriveItemWebUrl(baseUrl, invoiceFile.microsoft_id),
   });
 
   const welcome = createMessageRecord(ms, {
@@ -847,7 +841,7 @@ export function seedDefaultMailbox(ms: MicrosoftStore, baseUrl: string, userEmai
   });
 }
 
-function dedupeRecipients(recipients: RecipientInput[]): RecipientInput[] {
+export function dedupeRecipients(recipients: RecipientInput[]): RecipientInput[] {
   const seen = new Set<string>();
   return recipients.filter((recipient) => {
     const key = recipient.address.toLowerCase();
