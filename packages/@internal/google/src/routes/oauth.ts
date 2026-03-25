@@ -11,6 +11,7 @@ import {
   constantTimeSecretEqual,
   bodyStr,
   debug,
+  type Store,
 } from "@internal/core";
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
@@ -30,11 +31,26 @@ type PendingCode = {
 
 const PENDING_CODE_TTL_MS = 10 * 60 * 1000;
 
+type RefreshTokenRecord = {
+  email: string;
+  scope: string;
+  clientId: string;
+};
+
 function getPendingCodes(store: Store): Map<string, PendingCode> {
   let map = store.getData<Map<string, PendingCode>>("google.oauth.pendingCodes");
   if (!map) {
     map = new Map();
     store.setData("google.oauth.pendingCodes", map);
+  }
+  return map;
+}
+
+function getRefreshTokens(store: Store): Map<string, RefreshTokenRecord> {
+  let map = store.getData<Map<string, RefreshTokenRecord>>("google.oauth.refreshTokens");
+  if (!map) {
+    map = new Map();
+    store.setData("google.oauth.refreshTokens", map);
   }
   return map;
 }
@@ -222,10 +238,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
     const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
 
-    if (grant_type !== "authorization_code") {
-      return c.json({ error: "unsupported_grant_type", error_description: "Only authorization_code is supported." }, 400);
-    }
-
     const clientsConfigured = gs.oauthClients.all().length > 0;
     if (clientsConfigured) {
       const client = gs.oauthClients.findOneBy("client_id", bodyClientId);
@@ -235,6 +247,40 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       if (!constantTimeSecretEqual(bodyClientSecret, client.client_secret)) {
         return c.json({ error: "invalid_client", error_description: "The client_secret is incorrect." }, 401);
       }
+    }
+
+    if (grant_type === "refresh_token") {
+      const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token : "";
+      const record = getRefreshTokens(store).get(refreshToken);
+      if (!record) {
+        return c.json({ error: "invalid_grant", error_description: "The refresh token is invalid." }, 400);
+      }
+      if (clientsConfigured && record.clientId !== bodyClientId) {
+        return c.json({ error: "invalid_grant", error_description: "The refresh token is invalid." }, 400);
+      }
+
+      const user = gs.users.findOneBy("email", record.email as GoogleUser["email"]);
+      if (!user) {
+        return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
+      }
+
+      const accessToken = "google_" + randomBytes(20).toString("base64url");
+      const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : [];
+
+      if (tokenMap) {
+        tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
+      }
+
+      return c.json({
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: record.scope || "openid email profile",
+      });
+    }
+
+    if (grant_type !== "authorization_code") {
+      return c.json({ error: "unsupported_grant_type", error_description: "Only authorization_code and refresh_token are supported." }, 400);
     }
 
     const pendingMap = getPendingCodes(store);
@@ -274,11 +320,17 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     const accessToken = "google_" + randomBytes(20).toString("base64url");
+    const refreshToken = "google_refresh_" + randomBytes(24).toString("base64url");
     const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : [];
 
     if (tokenMap) {
       tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
     }
+    getRefreshTokens(store).set(refreshToken, {
+      email: user.email,
+      scope: pending.scope,
+      clientId: pending.clientId,
+    });
 
     const idToken = await createIdToken(user, pending.clientId, pending.nonce, baseUrl);
 
@@ -286,6 +338,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     return c.json({
       access_token: accessToken,
+      refresh_token: refreshToken,
       id_token: idToken,
       token_type: "Bearer",
       expires_in: 3600,
@@ -339,6 +392,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     if (token && tokenMap) {
       tokenMap.delete(token);
+    }
+    if (token) {
+      getRefreshTokens(store).delete(token);
     }
 
     return c.body(null, 200);
