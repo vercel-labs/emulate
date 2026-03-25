@@ -189,7 +189,42 @@ const defaultMicrosoftConfig = {
         client_id: "example-client-id",
         client_secret: "example-client-secret",
         name: "My Microsoft App",
-        redirect_uris: ["http://localhost:3000/api/auth/callback/microsoft-entra-id"],
+        redirect_uris: [
+          "http://localhost:3000/api/auth/callback/microsoft-entra-id",
+          "http://localhost:3000/api/outlook/linking/callback",
+          "http://localhost:3000/api/outlook/calendar/callback",
+          "http://localhost:3000/api/outlook/drive/callback",
+        ],
+      },
+    ],
+    categories: [
+      {
+        display_name: "Follow Up",
+        color: "preset4",
+      },
+    ],
+    calendars: [
+      {
+        id: "primary",
+        name: "Calendar",
+        is_default_calendar: true,
+      },
+    ],
+    calendar_events: [
+      {
+        id: "evt_planning",
+        calendar_id: "primary",
+        subject: "Inbox Zero planning",
+        start_date_time: "2025-01-10T09:00:00.000Z",
+        end_date_time: "2025-01-10T09:30:00.000Z",
+        location_display_name: "Teams",
+      },
+    ],
+    drive_items: [
+      {
+        id: "drv_invoices",
+        name: "Invoices",
+        is_folder: true,
       },
     ],
   },
