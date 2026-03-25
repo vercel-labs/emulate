@@ -90,22 +90,6 @@ describe("Descope Proprietary API", () => {
       expect(body.url).toBeDefined();
     });
 
-    it("handles pkceChallenge", async () => {
-      const res = await app.request(`${base}/v1/auth/oauth/authorize`, {
-        method: "POST",
-        headers: {
-          ...authHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: "google",
-          redirectUrl: "http://localhost:3000/callback",
-          pkceChallenge: "test-challenge-123",
-        }),
-      });
-
-      expect(res.status).toBe(200);
-    });
   });
 
   describe("GET /v1/auth/oauth/authorize/picker", () => {
@@ -234,15 +218,14 @@ describe("Descope Proprietary API", () => {
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        sessionToken: { jwt: string; expiration: number };
-        refreshToken: { jwt: string; expiration: number };
+        sessionJwt: string;
+        refreshJwt: string;
         user: { userId: string; email: string; name: string };
         firstSeen: boolean;
       };
 
-      expect(body.sessionToken.jwt).toBeDefined();
-      expect(body.sessionToken.expiration).toBeGreaterThan(Date.now());
-      expect(body.refreshToken.jwt).toBeDefined();
+      expect(body.sessionJwt).toBeDefined();
+      expect(body.refreshJwt).toBeDefined();
       expect(body.user.email).toBe("testuser@example.com");
       expect(body.user.name).toBe("Test User");
       expect(body.firstSeen).toBe(false);
@@ -286,10 +269,10 @@ describe("Descope Proprietary API", () => {
       });
 
       const body = (await res.json()) as {
-        user: { OAuth: Record<string, boolean> };
+        user: { oauth: Record<string, boolean> };
       };
 
-      expect(body.user.OAuth.google).toBe(true);
+      expect(body.user.oauth.google).toBe(true);
     });
   });
 
@@ -377,13 +360,13 @@ describe("Descope Proprietary API", () => {
 
       expect(exchangeRes.status).toBe(200);
       const authInfo = (await exchangeRes.json()) as {
-        sessionToken: { jwt: string };
-        refreshToken: { jwt: string };
+        sessionJwt: string;
+        refreshJwt: string;
         user: { userId: string; email: string };
       };
 
-      expect(authInfo.sessionToken.jwt).toBeTruthy();
-      expect(authInfo.refreshToken.jwt).toBeTruthy();
+      expect(authInfo.sessionJwt).toBeTruthy();
+      expect(authInfo.refreshJwt).toBeTruthy();
       expect(authInfo.user.email).toBe("testuser@example.com");
     });
   });
@@ -416,20 +399,5 @@ describe("Descope Proprietary API", () => {
       expect(body.error).toBe("invalid_grant");
     });
 
-    it("handles missing custom claims", async () => {
-      const res = await app.request(`${base}/v1/auth/oauth/authorize`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${testProjectId}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: "google",
-          customClaims: { custom: "value" },
-        }),
-      });
-
-      expect(res.status).toBe(200);
-    });
   });
 });

@@ -29,10 +29,6 @@ export interface DescopeOAuthClient extends Entity {
 export interface DescopeToken {
   jwt: string;
   expiration: number;
-  refreshExpiration?: number;
-  projectId?: string;
-  id?: string;
-  claims?: Record<string, any>;
 }
 
 export interface DescopeUserResponse {
@@ -63,11 +59,6 @@ export interface OAuthAuthorizeRequest {
   provider: string;
   redirectUrl?: string;
   loginHint?: string;
-  prompt?: string[];
-  pkceChallenge?: string;
-  stepup?: boolean;
-  customClaims?: Record<string, any>;
-  revokeOtherSessions?: boolean;
 }
 
 export interface OAuthAuthorizeResponse {
@@ -88,6 +79,4 @@ export interface PendingOAuthAuthorization {
   loginHint?: string;
   email: string;
   createdAt: number;
-  pkceChallenge?: string;
-  customClaims?: Record<string, any>;
 }

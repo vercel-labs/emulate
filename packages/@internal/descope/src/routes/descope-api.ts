@@ -112,14 +112,19 @@ export function descopeApiRoutes({ app, store, baseUrl }: RouteContext): void {
 
       const provider = (c.req.query("provider") ?? body.provider ?? "google") as string;
       const redirectUrl = (c.req.query("redirectURL") ?? body.redirectUrl ?? "") as string;
-      const { loginHint, pkceChallenge, customClaims } = body as Record<string, unknown>;
+      const { loginHint } = body as Record<string, unknown>;
 
-      // Parse Authorization header
+      // Parse and validate projectId from Authorization header
       const authHeader = c.req.header("Authorization") || "";
+      if (!authHeader.startsWith("Bearer ")) {
+        return c.json({ error: "invalid_project", error_description: "Project ID required" }, 400);
+      }
       const token = authHeader.replace("Bearer ", "");
-      const [projectId] = token.includes(":") ? token.split(":") : [token, null];
-
-      if (!projectId) {
+      if (!token) {
+        return c.json({ error: "invalid_project", error_description: "Project ID required" }, 400);
+      }
+      const [projectId] = token.split(":");
+      if (!projectId || projectId.length < 3) {
         return c.json({ error: "invalid_project", error_description: "Project ID required" }, 400);
       }
 
@@ -135,8 +140,6 @@ export function descopeApiRoutes({ app, store, baseUrl }: RouteContext): void {
         loginHint,
         email: "", // Will be set when user selects
         createdAt: Date.now(),
-        pkceChallenge,
-        customClaims
       };
       
       getPendingAuthorizations(store).set(code, pendingAuth);
@@ -241,12 +244,17 @@ export function descopeApiRoutes({ app, store, baseUrl }: RouteContext): void {
       const body = await c.req.json();
       const { code } = body;
 
-      // Parse Authorization header
+      // Parse and validate projectId from Authorization header
       const authHeader = c.req.header("Authorization") || "";
+      if (!authHeader.startsWith("Bearer ")) {
+        return c.json({ error: "invalid_project", error_description: "Project ID required" }, 400);
+      }
       const token = authHeader.replace("Bearer ", "");
-      const [projectId] = token.includes(":") ? token.split(":") : [token, null];
-
-      if (!projectId) {
+      if (!token) {
+        return c.json({ error: "invalid_project", error_description: "Project ID required" }, 400);
+      }
+      const [projectId] = token.split(":");
+      if (!projectId || projectId.length < 3) {
         return c.json({ error: "invalid_project", error_description: "Project ID required" }, 400);
       }
 
@@ -299,27 +307,6 @@ export function descopeApiRoutes({ app, store, baseUrl }: RouteContext): void {
       console.error("Exchange error:", error);
       return c.json({ error: "server_error", error_description: "Internal server error" }, 500);
     }
-  });
-
-  // ============================================
-  // Legacy OAuth Endpoints (for backward compatibility)
-  // ============================================
-  // These are kept for users who want to use standard OAuth directly
-  // Note: The Descope SDK won't use these
-
-  // OIDC Discovery
-  app.get("/.well-known/openid-configuration", (c) => {
-    return c.json({
-      issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/v1/auth/oauth/authorize`,
-      token_endpoint: `${baseUrl}/v1/auth/oauth/exchange`,
-      userinfo_endpoint: `${baseUrl}/v1/auth/oauth/userinfo`,
-      response_types_supported: ["code"],
-      subject_types_supported: ["public"],
-      id_token_signing_alg_values_supported: ["ES384", "HS256"],
-      scopes_supported: ["openid", "email", "profile"],
-      token_endpoint_auth_methods_supported: ["bearer"],
-    });
   });
 
   // ============================================
