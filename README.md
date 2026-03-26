@@ -509,7 +509,7 @@ OAuth 2.0, OpenID Connect, and Microsoft Graph-style mail, calendar, subscriptio
 ```
 packages/
   emulate/          # CLI entry point (commander)
-    @internal/
+    @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     vercel/         # Vercel API service
     github/         # GitHub API service

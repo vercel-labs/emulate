@@ -5,6 +5,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useChat } from "@ai-sdk/react";
@@ -19,6 +20,18 @@ const transport = new DefaultChatTransport({ api: "/api/docs-chat" });
 const DESKTOP_DEFAULT_WIDTH = 400;
 const DESKTOP_MIN_WIDTH = 300;
 const DESKTOP_MAX_WIDTH = 700;
+
+function subscribeToDesktopQuery(callback: () => void) {
+  const mq = window.matchMedia("(min-width: 640px)");
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
+function getIsDesktop() {
+  return window.matchMedia("(min-width: 640px)").matches;
+}
+
+const noopSubscribe = () => () => {};
 
 function setCookie(name: string, value: string) {
   document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
@@ -126,8 +139,8 @@ export function DocsChat({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [input, setInput] = useState("");
-  const [isDesktop, setIsDesktop] = useState(false);
-  const [hasMounted, setHasMounted] = useState(false);
+  const isDesktop = useSyncExternalStore(subscribeToDesktopQuery, getIsDesktop, () => false);
+  const hasMounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [desktopWidth, setDesktopWidth] = useState(
     Math.min(DESKTOP_MAX_WIDTH, Math.max(DESKTOP_MIN_WIDTH, defaultWidth))
   );
@@ -135,6 +148,7 @@ export function DocsChat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const restoredRef = useRef(false);
   const isDraggingRef = useRef(false);
+  const [mobileOverrideDone, setMobileOverrideDone] = useState(false);
 
   const { messages, sendMessage, status, setMessages, error } = useChat({
     transport,
@@ -143,17 +157,12 @@ export function DocsChat({
   const isLoading = status === "streaming" || status === "submitted";
   const showMessages = messages.length > 0 || !!error || isLoading;
 
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 640px)");
-    setIsDesktop(mq.matches);
-    setHasMounted(true);
-    if (!mq.matches && defaultOpen) {
+  if (hasMounted && !mobileOverrideDone) {
+    setMobileOverrideDone(true);
+    if (!isDesktop && defaultOpen) {
       setOpen(false);
     }
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   useEffect(() => {
     if (hasMounted) {
@@ -268,9 +277,13 @@ export function DocsChat({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (error) setOpen(true);
-  }, [error]);
+  const [prevError, setPrevError] = useState(error);
+  if (error !== prevError) {
+    setPrevError(error);
+    if (error) {
+      setOpen(true);
+    }
+  }
 
   useEffect(() => {
     const el = messagesScrollRef.current;

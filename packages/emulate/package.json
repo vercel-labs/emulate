@@ -1,6 +1,6 @@
 {
   "name": "@inbox-zero/emulate",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -59,14 +59,14 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@internal/apple": "workspace:*",
-    "@internal/aws": "workspace:*",
-    "@internal/core": "workspace:*",
-    "@internal/github": "workspace:*",
-    "@internal/google": "workspace:*",
-    "@internal/microsoft": "workspace:*",
-    "@internal/slack": "workspace:*",
-    "@internal/vercel": "workspace:*",
+    "@emulators/core": "workspace:*",
+    "@emulators/github": "workspace:*",
+    "@emulators/apple": "workspace:*",
+    "@emulators/microsoft": "workspace:*",
+    "@emulators/aws": "workspace:*",
+    "@emulators/google": "workspace:*",
+    "@emulators/slack": "workspace:*",
+    "@emulators/vercel": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }
