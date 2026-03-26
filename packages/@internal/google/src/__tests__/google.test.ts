@@ -233,6 +233,84 @@ describe("Google plugin integration", () => {
     expect(body.name).toBe("Test User");
   });
 
+  it("returns token info for an OAuth-issued access token", async () => {
+    const scope = [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.settings.basic",
+    ].join(" ");
+
+    const callbackRes = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/api/auth/oauth2/callback/google",
+      scope,
+      state: "test-state",
+      client_id: "emu_google_client_id",
+      code_challenge: "plain-verifier",
+      code_challenge_method: "plain",
+    });
+
+    expect(callbackRes.status).toBe(302);
+    const redirectUrl = callbackRes.headers.get("location");
+    expect(redirectUrl).toBeTruthy();
+
+    const code = new URL(redirectUrl!).searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const tokenRes = await formRequest(app, "/oauth2/token", {
+      code: code!,
+      redirect_uri: "http://localhost:3000/api/auth/oauth2/callback/google",
+      grant_type: "authorization_code",
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+      code_verifier: "plain-verifier",
+    });
+
+    expect(tokenRes.status).toBe(200);
+    const tokenBody = (await tokenRes.json()) as {
+      access_token: string;
+      scope: string;
+    };
+
+    const tokenInfoRes = await app.request(
+      `${base}/oauth2/v1/tokeninfo?access_token=${tokenBody.access_token}`,
+    );
+    expect(tokenInfoRes.status).toBe(200);
+
+    const tokenInfo = (await tokenInfoRes.json()) as {
+      scope: string;
+      email: string;
+      verified_email: boolean;
+      user_id: string;
+      access_type: string;
+      expires_in: number;
+    };
+
+    expect(tokenInfo.scope).toBe(scope);
+    expect(tokenInfo.email).toBe("testuser@example.com");
+    expect(tokenInfo.verified_email).toBe(true);
+    expect(tokenInfo.user_id).toBeDefined();
+    expect(tokenInfo.access_type).toBe("offline");
+    expect(tokenInfo.expires_in).toBe(3600);
+  });
+
+  it("returns invalid_token for unknown access tokens", async () => {
+    const res = await app.request(
+      `${base}/oauth2/v1/tokeninfo?access_token=missing-token`,
+    );
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      error: string;
+      error_description: string;
+    };
+
+    expect(body.error).toBe("invalid_token");
+    expect(body.error_description).toContain("invalid");
+  });
+
   it("lists paginated messages with Gmail-style filters", async () => {
     const res = await app.request(
       `${base}/gmail/v1/users/me/messages?maxResults=2&q=${encodeURIComponent("-label:DRAFT in:inbox")}`,
