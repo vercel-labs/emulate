@@ -8,7 +8,7 @@ describe("createEmulator", () => {
     expect(github.url).toBe("http://localhost:14000");
 
     const res = await fetch(`${github.url}/user`, {
-      headers: { Authorization: "token gho_test_token_admin" },
+      headers: { Authorization: "token test_token_admin" },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { login: string };
@@ -39,7 +39,7 @@ describe("createEmulator", () => {
     const createRes = await fetch(`${github.url}/user/repos`, {
       method: "POST",
       headers: {
-        Authorization: "token gho_test_token_admin",
+        Authorization: "token test_token_admin",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ name: "my-repo", private: false }),
@@ -49,7 +49,7 @@ describe("createEmulator", () => {
     github.reset();
 
     const listRes = await fetch(`${github.url}/user/repos`, {
-      headers: { Authorization: "token gho_test_token_admin" },
+      headers: { Authorization: "token test_token_admin" },
     });
     expect(listRes.status).toBe(200);
     const repos = (await listRes.json()) as unknown[];

@@ -1,5 +1,5 @@
 import { defineConfig } from "tsup";
-import { cpSync, mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const copyFonts = async () => {
@@ -7,6 +7,12 @@ const copyFonts = async () => {
   const dest = resolve(__dirname, "dist/fonts");
   mkdirSync(dest, { recursive: true });
   cpSync(src, dest, { recursive: true });
+};
+
+const addShebang = async () => {
+  const entry = resolve(__dirname, "dist/index.js");
+  const content = readFileSync(entry, "utf-8");
+  writeFileSync(entry, `#!/usr/bin/env node\n${content}`);
 };
 
 export default defineConfig([
@@ -18,10 +24,10 @@ export default defineConfig([
     splitting: true,
     sourcemap: true,
     noExternal: [/^@emulators\//, /^@internal\//],
-    banner: {
-      js: "#!/usr/bin/env node",
+    async onSuccess() {
+      await copyFonts();
+      await addShebang();
     },
-    onSuccess: copyFonts,
   },
   {
     entry: ["src/api.ts"],

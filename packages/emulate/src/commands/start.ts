@@ -6,6 +6,13 @@ import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
 import { createRequire } from "module";
 import pc from "picocolors";
+import type { VercelSeedConfig } from "@emulators/vercel";
+import type { GitHubSeedConfig } from "@emulators/github";
+import type { GoogleSeedConfig } from "@emulators/google";
+import type { SlackSeedConfig } from "@emulators/slack";
+import type { AppleSeedConfig } from "@emulators/apple";
+import type { MicrosoftSeedConfig } from "@emulators/microsoft";
+import type { AwsSeedConfig } from "@emulators/aws";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json") as { version: string };
@@ -18,6 +25,13 @@ export interface StartOptions {
 
 interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
+  vercel?: VercelSeedConfig;
+  github?: GitHubSeedConfig;
+  google?: GoogleSeedConfig;
+  slack?: SlackSeedConfig;
+  apple?: AppleSeedConfig;
+  microsoft?: MicrosoftSeedConfig;
+  aws?: AwsSeedConfig;
   [service: string]: unknown;
 }
 
@@ -104,7 +118,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       tokens[token] = { login: user.login, id: tokenId++, scopes: user.scopes };
     }
   } else {
-    tokens["gho_test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
+    tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
   const serviceUrls: Array<{ name: string; url: string }> = [];
@@ -123,10 +137,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     let serverStore: Store | undefined;
     const appKeyResolver = loadedSvc.createAppKeyResolver
-      ? (() => {
-          const resolver = loadedSvc.createAppKeyResolver!;
-          return (appId: number) => resolver(serverStore!)(appId);
-        })()
+      ? (appId: number) => loadedSvc.createAppKeyResolver!(serverStore!)(appId)
       : undefined;
 
     const fallbackUser = entry.defaultFallback(svcSeedConfig);

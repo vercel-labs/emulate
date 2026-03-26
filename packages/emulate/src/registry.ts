@@ -212,15 +212,16 @@ export const SERVICE_REGISTRY: Record<string, ServiceEntry> = {
   },
 };
 
-export const SERVICE_NAMES = Object.keys(SERVICE_REGISTRY);
+export type ServiceName = keyof typeof SERVICE_REGISTRY;
+export const SERVICE_NAMES: readonly ServiceName[] = Object.keys(SERVICE_REGISTRY) as ServiceName[];
 
 export const DEFAULT_TOKENS = {
   tokens: {
-    "gho_test_token_admin": {
+    "test_token_admin": {
       login: "admin",
       scopes: ["repo", "user", "admin:org", "admin:repo_hook"],
     },
-    "gho_test_token_user1": {
+    "test_token_user1": {
       login: "octocat",
       scopes: ["repo", "user"],
     },

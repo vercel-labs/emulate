@@ -1,11 +1,25 @@
 import { createServer, type Store } from "@internal/core";
-import { SERVICE_REGISTRY, SERVICE_NAMES } from "./registry.js";
+import { SERVICE_REGISTRY } from "./registry.js";
+export type { ServiceName } from "./registry.js";
+import type { ServiceName } from "./registry.js";
 import { serve } from "@hono/node-server";
-
-export type ServiceName = (typeof SERVICE_NAMES)[number];
+import type { VercelSeedConfig } from "@emulators/vercel";
+import type { GitHubSeedConfig } from "@emulators/github";
+import type { GoogleSeedConfig } from "@emulators/google";
+import type { SlackSeedConfig } from "@emulators/slack";
+import type { AppleSeedConfig } from "@emulators/apple";
+import type { MicrosoftSeedConfig } from "@emulators/microsoft";
+import type { AwsSeedConfig } from "@emulators/aws";
 
 export interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
+  vercel?: VercelSeedConfig;
+  github?: GitHubSeedConfig;
+  google?: GoogleSeedConfig;
+  slack?: SlackSeedConfig;
+  apple?: AppleSeedConfig;
+  microsoft?: MicrosoftSeedConfig;
+  aws?: AwsSeedConfig;
   [service: string]: unknown;
 }
 
@@ -38,17 +52,14 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
       tokens[token] = { login: user.login, id: tokenId++, scopes: user.scopes };
     }
   } else {
-    tokens["gho_test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
+    tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
   const baseUrl = `http://localhost:${port}`;
 
   let serverStore: Store | undefined;
   const appKeyResolver = loaded.createAppKeyResolver
-    ? (() => {
-        const resolver = loaded.createAppKeyResolver!;
-        return (appId: number) => resolver(serverStore!)(appId);
-      })()
+    ? (appId: number) => loaded.createAppKeyResolver!(serverStore!)(appId)
     : undefined;
 
   const svcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
