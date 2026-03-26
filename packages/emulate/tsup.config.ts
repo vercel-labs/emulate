@@ -15,6 +15,7 @@ export default defineConfig([
     format: ["esm"],
     dts: false,
     clean: true,
+    splitting: true,
     sourcemap: true,
     noExternal: [/^@emulators\//, /^@internal\//],
     banner: {
@@ -27,6 +28,7 @@ export default defineConfig([
     format: ["esm"],
     dts: true,
     clean: false,
+    splitting: true,
     sourcemap: true,
     noExternal: [/^@emulators\//, /^@internal\//],
     onSuccess: copyFonts,
