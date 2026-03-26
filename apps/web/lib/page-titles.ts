@@ -4,6 +4,7 @@ export const PAGE_TITLES: Record<string, string> = {
   vercel: "Vercel API",
   github: "GitHub API",
   google: "Google API",
+  microsoft: "Microsoft API",
   authentication: "Authentication",
   architecture: "Architecture",
 };
