@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@internal/core";
+import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getMicrosoftStore } from "./store.js";
 import { generateOid, DEFAULT_TENANT_ID } from "./helpers.js";
 import { oauthRoutes } from "./routes/oauth.js";

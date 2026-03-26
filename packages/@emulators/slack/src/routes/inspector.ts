@@ -1,5 +1,5 @@
-import type { RouteContext } from "@internal/core";
-import { escapeHtml, renderSettingsPage } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
+import { escapeHtml, renderSettingsPage } from "@emulators/core";
 import { getSlackStore } from "../store.js";
 import type { SlackMessage, SlackChannel } from "../entities.js";
 

@@ -1,5 +1,5 @@
-import type { RouteContext, AuthUser } from "@internal/core";
-import { ApiError, parsePagination, setLinkHeader } from "@internal/core";
+import type { RouteContext, AuthUser } from "@emulators/core";
+import { ApiError, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type {

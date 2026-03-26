@@ -7,7 +7,7 @@ import {
   createApiErrorHandler,
   createErrorHandler,
   type TokenMap,
-} from "@internal/core";
+} from "@emulators/core";
 import { googlePlugin, seedFromConfig } from "../index.js";
 import { buildRawMessage } from "../helpers.js";
 

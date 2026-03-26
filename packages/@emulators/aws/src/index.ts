@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@internal/core";
+import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getAwsStore } from "./store.js";
 import { getAccountId, getDefaultRegion, generateAwsId } from "./helpers.js";
 import { s3Routes } from "./routes/s3.js";

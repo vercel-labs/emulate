@@ -1,5 +1,5 @@
-import type { AuthUser } from "@internal/core";
-import { notFound, unauthorized, forbidden } from "@internal/core";
+import type { AuthUser } from "@emulators/core";
+import { notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
 

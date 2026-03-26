@@ -1,11 +1,11 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   ApiError,
   parseJsonBody,
   parsePagination,
   setLinkHeader,
   unauthorized,
-} from "@internal/core";
+} from "@emulators/core";
 import { assertAuthenticatedUser, canAccessRepo, notFoundResponse } from "../route-helpers.js";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";

@@ -1,25 +1,11 @@
-import { createServer, type Store } from "@internal/core";
+import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { serve } from "@hono/node-server";
-import type { VercelSeedConfig } from "@emulators/vercel";
-import type { GitHubSeedConfig } from "@emulators/github";
-import type { GoogleSeedConfig } from "@emulators/google";
-import type { SlackSeedConfig } from "@emulators/slack";
-import type { AppleSeedConfig } from "@emulators/apple";
-import type { MicrosoftSeedConfig } from "@emulators/microsoft";
-import type { AwsSeedConfig } from "@emulators/aws";
 
 export interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
-  vercel?: VercelSeedConfig;
-  github?: GitHubSeedConfig;
-  google?: GoogleSeedConfig;
-  slack?: SlackSeedConfig;
-  apple?: AppleSeedConfig;
-  microsoft?: MicrosoftSeedConfig;
-  aws?: AwsSeedConfig;
   [service: string]: unknown;
 }
 
@@ -57,16 +43,16 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
 
   const baseUrl = `http://localhost:${port}`;
 
-  let serverStore: Store | undefined;
-  const appKeyResolver = loaded.createAppKeyResolver
-    ? (appId: number) => loaded.createAppKeyResolver!(serverStore!)(appId)
+  let cachedResolver: AppKeyResolver | undefined;
+  const appKeyResolver: AppKeyResolver | undefined = loaded.createAppKeyResolver
+    ? (appId) => cachedResolver!(appId)
     : undefined;
 
   const svcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
   const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
   const { app, store } = createServer(loaded.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
-  serverStore = store;
+  cachedResolver = loaded.createAppKeyResolver?.(store);
 
   const seed = () => {
     loaded.plugin.seed?.(store, baseUrl);

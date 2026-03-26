@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -10,7 +10,7 @@ import {
   constantTimeSecretEqual,
   bodyStr,
   debug,
-} from "@internal/core";
+} from "@emulators/core";
 import { getSlackStore } from "../store.js";
 
 type PendingCode = {
@@ -24,7 +24,7 @@ type PendingCode = {
 const PENDING_CODE_TTL_MS = 10 * 60 * 1000;
 const SERVICE_LABEL = "Slack";
 
-function getPendingCodes(store: import("@internal/core").Store): Map<string, PendingCode> {
+function getPendingCodes(store: import("@emulators/core").Store): Map<string, PendingCode> {
   let map = store.getData<Map<string, PendingCode>>("slack.oauth.pendingCodes");
   if (!map) {
     map = new Map();

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@internal/core";
+import { Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@emulators/core";
 import { vercelPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";

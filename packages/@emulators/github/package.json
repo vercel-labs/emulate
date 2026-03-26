@@ -30,11 +30,12 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@internal/core": "workspace:*",
+    "@emulators/core": "workspace:*",
     "hono": "^4"
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "vitest": "^4.1.0"
   }
 }

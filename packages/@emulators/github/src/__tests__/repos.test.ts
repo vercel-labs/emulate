@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store } from "@internal/core";
-import { WebhookDispatcher } from "@internal/core";
-import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@internal/core";
+import { Store } from "@emulators/core";
+import { WebhookDispatcher } from "@emulators/core";
+import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
 import { githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";

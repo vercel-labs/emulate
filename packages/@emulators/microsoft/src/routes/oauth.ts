@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -11,11 +11,11 @@ import {
   constantTimeSecretEqual,
   bodyStr,
   debug,
-} from "@internal/core";
+} from "@emulators/core";
 import { getMicrosoftStore } from "../store.js";
 import { DEFAULT_TENANT_ID } from "../helpers.js";
 import type { MicrosoftUser } from "../entities.js";
-import type { Store } from "@internal/core";
+import type { Store } from "@emulators/core";
 
 // RSA key pair generated at module load for signing id_tokens
 const keyPairPromise = generateKeyPair("RS256");

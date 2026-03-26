@@ -1,4 +1,4 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 
 export function rateLimitRoutes({ app }: RouteContext): void {
   app.get("/rate_limit", (c) => {

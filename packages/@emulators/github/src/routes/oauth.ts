@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import type { Context } from "hono";
-import type { RouteContext, Store, AuthUser, AppEnv } from "@internal/core";
+import type { RouteContext, Store, AuthUser, AppEnv } from "@emulators/core";
 import {
   unauthorized,
   escapeHtml,
@@ -13,7 +13,7 @@ import {
   constantTimeSecretEqual,
   parseCookies,
   debug,
-} from "@internal/core";
+} from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import { formatUser, formatUserFull } from "../helpers.js";
 

@@ -1,4 +1,4 @@
-import type { Entity } from "@internal/core";
+import type { Entity } from "@emulators/core";
 
 export interface GitHubUser extends Entity {
   login: string;

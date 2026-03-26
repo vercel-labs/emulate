@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { SignJWT } from "jose";
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -12,7 +12,7 @@ import {
   bodyStr,
   debug,
   type Store,
-} from "@internal/core";
+} from "@emulators/core";
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 

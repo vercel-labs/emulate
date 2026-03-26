@@ -1,4 +1,4 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 
 export function metaRoutes({ app, baseUrl }: RouteContext): void {
   app.get("/meta", (c) => {

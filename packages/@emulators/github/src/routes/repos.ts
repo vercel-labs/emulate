@@ -1,11 +1,11 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   ApiError,
   forbidden,
   parseJsonBody,
   parsePagination,
   setLinkHeader,
-} from "@internal/core";
+} from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
@@ -27,7 +27,7 @@ import type {
   GitHubTree,
   GitHubUser,
 } from "../entities.js";
-import type { Collection, Entity } from "@internal/core";
+import type { Collection, Entity } from "@emulators/core";
 import {
   formatRepo,
   formatUser,

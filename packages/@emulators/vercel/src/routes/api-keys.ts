@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import type { Context } from "hono";
-import type { RouteContext } from "@internal/core";
-import { parseJsonBody } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
+import { parseJsonBody } from "@emulators/core";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { getVercelStore } from "../store.js";
 import { generateUid } from "../helpers.js";

@@ -1,4 +1,4 @@
-import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@internal/core";
+import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@emulators/core";
 
 export interface LoadedService {
   plugin: ServicePlugin;
@@ -14,7 +14,11 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-export const SERVICE_REGISTRY: Record<string, ServiceEntry> = {
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "aws"] as const;
+export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
+export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
+
+export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   vercel: {
     label: "Vercel REST API emulator",
     endpoints: "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass",
@@ -211,9 +215,6 @@ export const SERVICE_REGISTRY: Record<string, ServiceEntry> = {
     },
   },
 };
-
-export type ServiceName = keyof typeof SERVICE_REGISTRY;
-export const SERVICE_NAMES: readonly ServiceName[] = Object.keys(SERVICE_REGISTRY) as ServiceName[];
 
 export const DEFAULT_TOKENS = {
   tokens: {

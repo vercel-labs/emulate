@@ -1,4 +1,4 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   createFilterRecord,
   findMatchingFilter,

@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { RouteContext, AuthApp } from "@internal/core";
+import type { RouteContext, AuthApp } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import { generateNodeId } from "../helpers.js";
 

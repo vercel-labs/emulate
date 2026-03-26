@@ -1,21 +1,13 @@
-import { createServer, type Store } from "@internal/core";
+import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY, SERVICE_NAMES } from "../registry.js";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
-import { createRequire } from "module";
 import pc from "picocolors";
-import type { VercelSeedConfig } from "@emulators/vercel";
-import type { GitHubSeedConfig } from "@emulators/github";
-import type { GoogleSeedConfig } from "@emulators/google";
-import type { SlackSeedConfig } from "@emulators/slack";
-import type { AppleSeedConfig } from "@emulators/apple";
-import type { MicrosoftSeedConfig } from "@emulators/microsoft";
-import type { AwsSeedConfig } from "@emulators/aws";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../../package.json") as { version: string };
+declare const PKG_VERSION: string;
+const pkg = { version: PKG_VERSION };
 
 export interface StartOptions {
   port: number;
@@ -25,13 +17,6 @@ export interface StartOptions {
 
 interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
-  vercel?: VercelSeedConfig;
-  github?: GitHubSeedConfig;
-  google?: GoogleSeedConfig;
-  slack?: SlackSeedConfig;
-  apple?: AppleSeedConfig;
-  microsoft?: MicrosoftSeedConfig;
-  aws?: AwsSeedConfig;
   [service: string]: unknown;
 }
 
@@ -135,15 +120,15 @@ export async function startCommand(options: StartOptions): Promise<void> {
     const baseUrl = `http://localhost:${port}`;
     serviceUrls.push({ name: svc, url: baseUrl });
 
-    let serverStore: Store | undefined;
-    const appKeyResolver = loadedSvc.createAppKeyResolver
-      ? (appId: number) => loadedSvc.createAppKeyResolver!(serverStore!)(appId)
+    let cachedResolver: AppKeyResolver | undefined;
+    const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
+      ? (appId) => cachedResolver!(appId)
       : undefined;
 
     const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
     const { app, store } = createServer(loadedSvc.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
-    serverStore = store;
+    cachedResolver = loadedSvc.createAppKeyResolver?.(store);
     stores.push(store);
 
     loadedSvc.plugin.seed?.(store, baseUrl);

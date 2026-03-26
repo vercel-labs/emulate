@@ -1,4 +1,4 @@
-import { Store, type Collection } from "@internal/core";
+import { Store, type Collection } from "@emulators/core";
 import type {
   VercelUser, VercelTeam, VercelTeamMember, VercelProject, VercelDeployment,
   VercelDeploymentAlias, VercelBuild, VercelDeploymentEvent, VercelFile,

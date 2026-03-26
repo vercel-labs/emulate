@@ -5,7 +5,7 @@ import type {
   Store,
   TokenMap,
   WebhookDispatcher,
-} from "@internal/core";
+} from "@emulators/core";
 import type { Hono } from "hono";
 import {
   createLabelRecord,

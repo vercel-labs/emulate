@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { RouteContext } from "@internal/core";
-import { ApiError, parseJsonBody } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
+import { ApiError, parseJsonBody } from "@emulators/core";
 export { ApiError };
 import { getVercelStore } from "../store.js";
 import type { VercelStore } from "../store.js";

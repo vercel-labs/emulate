@@ -1,4 +1,4 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
 import { slackOk, slackError } from "../helpers.js";
 

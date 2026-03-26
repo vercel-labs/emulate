@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@internal/core";
+import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getSlackStore } from "./store.js";
 import { generateSlackId } from "./helpers.js";
 import { authRoutes } from "./routes/auth.js";

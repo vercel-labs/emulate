@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -10,7 +10,7 @@ import {
   constantTimeSecretEqual,
   bodyStr,
   debug,
-} from "@internal/core";
+} from "@emulators/core";
 import { getVercelStore } from "../store.js";
 import { formatUser } from "../helpers.js";
 import type { VercelUser } from "../entities.js";

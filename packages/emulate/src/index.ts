@@ -1,11 +1,10 @@
 import { Command } from "commander";
-import { createRequire } from "module";
 import { startCommand } from "./commands/start.js";
 import { initCommand } from "./commands/init.js";
 import { listCommand } from "./commands/list.js";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../package.json") as { version: string };
+declare const PKG_VERSION: string;
+const pkg = { version: PKG_VERSION };
 
 const defaultPort = process.env.EMULATE_PORT ?? process.env.PORT ?? "4000";
 

@@ -1,6 +1,5 @@
 packages:
   - "packages/*"
   - "packages/@emulators/*"
-  - "packages/@internal/*"
   - "apps/*"
   - "examples/*"

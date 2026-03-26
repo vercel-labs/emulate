@@ -1,4 +1,4 @@
-import type { RouteContext } from "@internal/core";
+import type { RouteContext } from "@emulators/core";
 import { getAwsStore } from "../store.js";
 import { awsXmlResponse, awsErrorXml, md5, generateMessageId, escapeXml } from "../helpers.js";
 
