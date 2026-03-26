@@ -1,7 +1,6 @@
 {
-  "name": "@internal/github",
+  "name": "@emulators/microsoft",
   "version": "0.2.0",
-  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +11,18 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "homepage": "https://emulate.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/microsoft"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel-labs/emulate/issues"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup --clean",
     "dev": "tsup --watch",
@@ -20,7 +31,8 @@
   },
   "dependencies": {
     "@internal/core": "workspace:*",
-    "hono": "^4"
+    "hono": "^4",
+    "jose": "^6"
   },
   "devDependencies": {
     "tsup": "^8",

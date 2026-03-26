@@ -1,11 +1,11 @@
 import { createServer, type AppKeyResolver, type AuthFallback, type ServicePlugin, type Store } from "@internal/core";
-import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } from "@internal/vercel";
-import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@internal/github";
-import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@internal/google";
-import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
-import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
-import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@internal/microsoft";
-import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@internal/aws";
+import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } from "@emulators/vercel";
+import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@emulators/github";
+import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@emulators/google";
+import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@emulators/slack";
+import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@emulators/apple";
+import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@emulators/microsoft";
+import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@emulators/aws";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";

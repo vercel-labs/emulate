@@ -207,7 +207,7 @@ Then use these in your app to construct API and OAuth URLs. See each service's s
 ```
 packages/
   emulate/           # CLI entry point + programmatic API
-  @internal/
+  @emulators/
     core/            # HTTP server (Hono), Store, plugin interface, middleware
     vercel/          # Vercel API service plugin
     github/          # GitHub API service plugin

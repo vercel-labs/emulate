@@ -457,7 +457,7 @@ The Google plugin still does not cover every Google API edge case, but Gmail, Ca
 ```
 packages/
   emulate/          # CLI entry point (commander)
-    @internal/
+    @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     vercel/         # Vercel API service
     github/         # GitHub API service

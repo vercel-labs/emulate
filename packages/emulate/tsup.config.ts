@@ -16,7 +16,7 @@ export default defineConfig([
     dts: false,
     clean: true,
     sourcemap: true,
-    noExternal: [/^@internal\//],
+    noExternal: [/^@emulators\//, /^@internal\//],
     banner: {
       js: "#!/usr/bin/env node",
     },
@@ -28,7 +28,7 @@ export default defineConfig([
     dts: true,
     clean: false,
     sourcemap: true,
-    noExternal: [/^@internal\//],
+    noExternal: [/^@emulators\//, /^@internal\//],
     onSuccess: copyFonts,
   },
 ]);
