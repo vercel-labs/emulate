@@ -1,11 +1,10 @@
 import { Command } from "commander";
-import { createRequire } from "module";
 import { startCommand } from "./commands/start.js";
 import { initCommand } from "./commands/init.js";
 import { listCommand } from "./commands/list.js";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../package.json") as { version: string };
+declare const PKG_VERSION: string;
+const pkg = { version: PKG_VERSION };
 
 const defaultPort = process.env.EMULATE_PORT ?? process.env.PORT ?? "4000";
 
@@ -22,13 +21,13 @@ program
   .option("-p, --port <port>", "Base port", defaultPort)
   .option("-s, --service <services>", "Comma-separated services to enable")
   .option("--seed <file>", "Path to seed config file")
-  .action((opts) => {
+  .action(async (opts) => {
     const port = parseInt(opts.port, 10);
     if (Number.isNaN(port) || port < 1 || port > 65535) {
       console.error(`Invalid port: ${opts.port}`);
       process.exit(1);
     }
-    startCommand({
+    await startCommand({
       port,
       service: opts.service,
       seed: opts.seed,

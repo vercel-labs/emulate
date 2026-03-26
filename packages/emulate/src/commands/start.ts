@@ -1,20 +1,13 @@
-import { createServer, type AppKeyResolver, type AuthFallback, type ServicePlugin, type Store } from "@internal/core";
-import { vercelPlugin, seedFromConfig as seedVercel, type VercelSeedConfig } from "@internal/vercel";
-import { githubPlugin, seedFromConfig as seedGitHub, getGitHubStore, type GitHubSeedConfig } from "@internal/github";
-import { googlePlugin, seedFromConfig as seedGoogle, type GoogleSeedConfig } from "@internal/google";
-import { slackPlugin, seedFromConfig as seedSlack, type SlackSeedConfig } from "@internal/slack";
-import { applePlugin, seedFromConfig as seedApple, type AppleSeedConfig } from "@internal/apple";
-import { microsoftPlugin, seedFromConfig as seedMicrosoft, type MicrosoftSeedConfig } from "@internal/microsoft";
-import { awsPlugin, seedFromConfig as seedAws, type AwsSeedConfig } from "@internal/aws";
+import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
+import { SERVICE_REGISTRY, SERVICE_NAMES } from "../registry.js";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
-import { createRequire } from "module";
 import pc from "picocolors";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../package.json") as { version: string };
+declare const PKG_VERSION: string;
+const pkg = { version: PKG_VERSION };
 
 export interface StartOptions {
   port: number;
@@ -24,13 +17,7 @@ export interface StartOptions {
 
 interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
-  vercel?: VercelSeedConfig;
-  github?: GitHubSeedConfig;
-  google?: GoogleSeedConfig;
-  slack?: SlackSeedConfig;
-  apple?: AppleSeedConfig;
-  microsoft?: MicrosoftSeedConfig;
-  aws?: AwsSeedConfig;
+  [service: string]: unknown;
 }
 
 interface LoadResult {
@@ -81,24 +68,12 @@ function loadSeedConfig(seedPath?: string): LoadResult | null {
   return null;
 }
 
-const SERVICE_PLUGINS: Record<string, ServicePlugin> = {
-  vercel: vercelPlugin,
-  github: githubPlugin,
-  google: googlePlugin,
-  slack: slackPlugin,
-  apple: applePlugin,
-  microsoft: microsoftPlugin,
-  aws: awsPlugin,
-};
-
-const ALL_SERVICES = Object.keys(SERVICE_PLUGINS);
-
 function inferServicesFromConfig(config: SeedConfig): string[] | null {
-  const found = ALL_SERVICES.filter((k) => k in config);
+  const found = SERVICE_NAMES.filter((k) => k in config);
   return found.length > 0 ? found : null;
 }
 
-export function startCommand(options: StartOptions): void {
+export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
 
   const loaded = loadSeedConfig(options.seed);
@@ -109,13 +84,13 @@ export function startCommand(options: StartOptions): void {
   if (options.service) {
     services = options.service.split(",").map((s) => s.trim());
   } else if (seedConfig) {
-    services = inferServicesFromConfig(seedConfig) ?? ALL_SERVICES;
+    services = inferServicesFromConfig(seedConfig) ?? SERVICE_NAMES;
   } else {
-    services = ALL_SERVICES;
+    services = SERVICE_NAMES;
   }
 
   for (const svc of services) {
-    if (!SERVICE_PLUGINS[svc]) {
+    if (!SERVICE_REGISTRY[svc]) {
       console.error(`Unknown service: ${svc}`);
       process.exit(1);
     }
@@ -128,19 +103,8 @@ export function startCommand(options: StartOptions): void {
       tokens[token] = { login: user.login, id: tokenId++, scopes: user.scopes };
     }
   } else {
-    tokens["gho_test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
+    tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
-
-  const serviceConfigPort = (svc: string): number | undefined => {
-    if (svc === "vercel") return seedConfig?.vercel?.port;
-    if (svc === "github") return seedConfig?.github?.port;
-    if (svc === "google") return seedConfig?.google?.port;
-    if (svc === "slack") return seedConfig?.slack?.port;
-    if (svc === "apple") return seedConfig?.apple?.port;
-    if (svc === "microsoft") return undefined;
-    if (svc === "aws") return seedConfig?.aws?.port;
-    return undefined;
-  };
 
   const serviceUrls: Array<{ name: string; url: string }> = [];
   const stores: Store[] = [];
@@ -148,73 +112,29 @@ export function startCommand(options: StartOptions): void {
 
   for (let i = 0; i < services.length; i++) {
     const svc = services[i];
-    const plugin = SERVICE_PLUGINS[svc];
-    const port = serviceConfigPort(svc) ?? basePort + i;
+    const entry = SERVICE_REGISTRY[svc];
+    const loadedSvc = await entry.load();
+
+    const svcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
+    const port = (svcSeedConfig?.port as number | undefined) ?? basePort + i;
     const baseUrl = `http://localhost:${port}`;
     serviceUrls.push({ name: svc, url: baseUrl });
 
-    let serverStore: Store | undefined;
-    const appKeyResolver: AppKeyResolver | undefined = svc === "github"
-      ? (appId: number) => {
-          try {
-            const gh = getGitHubStore(serverStore!);
-            const ghApp = gh.apps.all().find((a) => a.app_id === appId);
-            if (!ghApp) return null;
-            return { privateKey: ghApp.private_key, slug: ghApp.slug, name: ghApp.name };
-          } catch {
-            return null;
-          }
-        }
+    let cachedResolver: AppKeyResolver | undefined;
+    const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
+      ? (appId) => cachedResolver!(appId)
       : undefined;
 
-    let fallbackUser: AuthFallback | undefined;
-    if (svc === "vercel") {
-      const firstLogin = seedConfig?.vercel?.users?.[0]?.username ?? "admin";
-      fallbackUser = { login: firstLogin, id: 1, scopes: [] };
-    } else if (svc === "github") {
-      const firstLogin = seedConfig?.github?.users?.[0]?.login ?? "admin";
-      fallbackUser = { login: firstLogin, id: 1, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
-    } else if (svc === "google") {
-      const firstEmail = seedConfig?.google?.users?.[0]?.email ?? "testuser@gmail.com";
-      fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
-    } else if (svc === "slack") {
-      fallbackUser = { login: "U000000001", id: 1, scopes: ["chat:write", "channels:read", "users:read", "reactions:write"] };
-    } else if (svc === "apple") {
-      const firstEmail = seedConfig?.apple?.users?.[0]?.email ?? "testuser@icloud.com";
-      fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "name"] };
-    } else if (svc === "microsoft") {
-      const firstEmail = seedConfig?.microsoft?.users?.[0]?.email ?? "testuser@outlook.com";
-      fallbackUser = { login: firstEmail, id: 1, scopes: ["openid", "email", "profile", "User.Read"] };
-    } else if (svc === "aws") {
-      fallbackUser = { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
-    }
+    const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-    const { app, store } = createServer(plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
-    serverStore = store;
+    const { app, store } = createServer(loadedSvc.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
+    cachedResolver = loadedSvc.createAppKeyResolver?.(store);
     stores.push(store);
 
-    plugin.seed?.(store, baseUrl);
+    loadedSvc.plugin.seed?.(store, baseUrl);
 
-    if (svc === "vercel" && seedConfig?.vercel) {
-      seedVercel(store, baseUrl, seedConfig.vercel);
-    }
-    if (svc === "github" && seedConfig?.github) {
-      seedGitHub(store, baseUrl, seedConfig.github);
-    }
-    if (svc === "google" && seedConfig?.google) {
-      seedGoogle(store, baseUrl, seedConfig.google);
-    }
-    if (svc === "slack" && seedConfig?.slack) {
-      seedSlack(store, baseUrl, seedConfig.slack);
-    }
-    if (svc === "apple" && seedConfig?.apple) {
-      seedApple(store, baseUrl, seedConfig.apple);
-    }
-    if (svc === "microsoft" && seedConfig?.microsoft) {
-      seedMicrosoft(store, baseUrl, seedConfig.microsoft);
-    }
-    if (svc === "aws" && seedConfig?.aws) {
-      seedAws(store, baseUrl, seedConfig.aws);
+    if (svcSeedConfig && loadedSvc.seedFromConfig) {
+      loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig);
     }
 
     const httpServer = serve({ fetch: app.fetch, port });
