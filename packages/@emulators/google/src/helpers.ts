@@ -483,7 +483,14 @@ export function createStoredMessage(
 
   const internalDateMs = resolveInternalDate(input.internal_date ?? input.date ?? parsedRaw?.date_header ?? undefined);
   const gmailId = input.gmail_id ?? generateUid("msg");
-  const threadId = resolveThreadId(gs, input.user_email, input.thread_id, merged.in_reply_to, merged.references);
+  const threadId = resolveThreadId(
+    gs,
+    input.user_email,
+    gmailId,
+    input.thread_id,
+    merged.in_reply_to,
+    merged.references,
+  );
   const messageId = merged.message_id ?? `<${gmailId}@emulate.google.local>`;
   const baseLabelIds = dedupeLabelIds(input.label_ids ?? options?.defaultLabelIds ?? []);
 
@@ -1321,6 +1328,7 @@ function compareHistoryIds(left: string, right: string): number {
 function resolveThreadId(
   gs: GoogleStore,
   userEmail: string,
+  gmailId: string,
   explicitThreadId: string | undefined,
   inReplyTo: string | null,
   references: string | null,
@@ -1339,7 +1347,7 @@ function resolveThreadId(
     if (linkedMessage) return linkedMessage.thread_id;
   }
 
-  return generateUid("thr");
+  return gmailId;
 }
 
 function replaceMessageAttachments(

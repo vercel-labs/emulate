@@ -9,7 +9,8 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { googlePlugin, seedFromConfig } from "../index.js";
-import { buildRawMessage } from "../helpers.js";
+import { buildRawMessage, createStoredMessage, ensureSystemLabels } from "../helpers.js";
+import { getGoogleStore } from "../store.js";
 
 const base = "http://localhost:4000";
 
@@ -330,6 +331,39 @@ describe("Google plugin integration", () => {
     ]);
     expect(body.nextPageToken).toBe("2");
     expect(body.resultSizeEstimate).toBe(3);
+  });
+
+  it("uses the first message id as the thread id and preserves it for replies", () => {
+    const store = new Store();
+    const gs = getGoogleStore(store);
+    const userEmail = "root-thread@example.com";
+
+    ensureSystemLabels(gs, userEmail);
+
+    const root = createStoredMessage(gs, {
+      gmail_id: "msg_root_thread",
+      user_email: userEmail,
+      from: "alerts@example.com",
+      to: userEmail,
+      subject: "Root message",
+      body_text: "Standalone thread root.",
+    });
+
+    expect(root.thread_id).toBe(root.gmail_id);
+
+    const reply = createStoredMessage(gs, {
+      gmail_id: "msg_root_reply",
+      user_email: userEmail,
+      from: "alerts@example.com",
+      to: userEmail,
+      subject: "Re: Root message",
+      body_text: "Reply in same thread.",
+      in_reply_to: root.message_id,
+      references: root.message_id,
+    });
+
+    expect(reply.thread_id).toBe(root.thread_id);
+    expect(reply.thread_id).not.toBe(reply.gmail_id);
   });
 
   it("returns message payloads in metadata and raw formats", async () => {
