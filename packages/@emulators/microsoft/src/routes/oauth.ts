@@ -526,6 +526,80 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
+  // ---------- v1 OAuth token endpoint (legacy) ----------
+  // Azure AD v1 applications use /{tenant}/oauth2/token instead of /oauth2/v2.0/token.
+  // The v1 endpoint accepts a `resource` body parameter instead of `scope`.
+  // We translate `resource` to `scope` format and delegate to the same token logic.
+
+  app.post("/:tenant/oauth2/token", async (c) => {
+    const contentType = c.req.header("Content-Type") ?? "";
+    const rawText = await c.req.text();
+
+    let body: Record<string, unknown>;
+    if (contentType.includes("application/json")) {
+      try { body = JSON.parse(rawText); } catch { body = {}; }
+    } else {
+      body = Object.fromEntries(new URLSearchParams(rawText));
+    }
+
+    // Translate v1 `resource` parameter to v2 `scope` format.
+    // e.g. resource=https://graph.microsoft.com → scope=https://graph.microsoft.com/.default
+    const resource = typeof body.resource === "string" ? body.resource : "";
+    if (resource && !body.scope) {
+      const normalized = resource.endsWith("/") ? resource : resource + "/";
+      body.scope = normalized + ".default";
+    }
+
+    // Rebuild as URL-encoded form data for the v2 handler
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(body)) {
+      if (key !== "resource" && typeof value === "string") {
+        params.set(key, value);
+      }
+    }
+
+    // Forward to the v2 token endpoint by making an internal request
+    const v2Req = new Request(`${baseUrl}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: new Headers({
+        "Content-Type": "application/x-www-form-urlencoded",
+        ...(c.req.header("Authorization") ? { Authorization: c.req.header("Authorization")! } : {}),
+      }),
+      body: params.toString(),
+    });
+
+    return app.fetch(v2Req);
+  });
+
+  // ---------- Microsoft Graph /v1.0/users/:id endpoint ----------
+  // Service-to-service calls (e.g. with client_credentials tokens) use
+  // /v1.0/users/{id} to look up any user by their object ID (oid).
+
+  app.get("/v1.0/users/:id", (c) => {
+    const userId = c.req.param("id");
+
+    // Look up by oid (the Microsoft object ID)
+    const user = ms.users.findOneBy("oid", userId);
+    if (!user) {
+      return c.json({
+        error: {
+          code: "Request_ResourceNotFound",
+          message: `Resource '${userId}' does not exist or one of its queried reference-property objects are not present.`,
+        },
+      }, 404);
+    }
+
+    return c.json({
+      "@odata.context": `${baseUrl}/v1.0/$metadata#users/$entity`,
+      id: user.oid,
+      displayName: user.name,
+      givenName: user.given_name,
+      surname: user.family_name,
+      mail: user.email,
+      userPrincipalName: user.preferred_username,
+    });
+  });
+
   // ---------- Logout ----------
 
   app.get("/oauth2/v2.0/logout", (c) => {
