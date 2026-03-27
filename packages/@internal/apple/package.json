@@ -1,6 +1,7 @@
 {
-  "name": "@emulators/core",
+  "name": "@internal/apple",
   "version": "0.3.0",
+  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,21 +12,6 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "homepage": "https://emulate.dev",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vercel-labs/emulate.git",
-    "directory": "packages/@emulators/core"
-  },
-  "bugs": {
-    "url": "https://github.com/vercel-labs/emulate/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsup --clean",
     "dev": "tsup --watch",
@@ -33,12 +19,12 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@internal/core": "workspace:*",
     "hono": "^4.12.9",
-    "jose": "^6.2.2"
+    "jose": "^6"
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7",
-    "vitest": "^4.1.1"
+    "typescript": "^5.7"
   }
 }

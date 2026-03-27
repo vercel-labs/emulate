@@ -9,7 +9,8 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { googlePlugin, seedFromConfig } from "../index.js";
-import { buildRawMessage } from "../helpers.js";
+import { buildRawMessage, createStoredMessage, ensureSystemLabels } from "../helpers.js";
+import { getGoogleStore } from "../store.js";
 
 const base = "http://localhost:4000";
 
@@ -233,6 +234,84 @@ describe("Google plugin integration", () => {
     expect(body.name).toBe("Test User");
   });
 
+  it("returns token info for an OAuth-issued access token", async () => {
+    const scope = [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.settings.basic",
+    ].join(" ");
+
+    const callbackRes = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/api/auth/oauth2/callback/google",
+      scope,
+      state: "test-state",
+      client_id: "emu_google_client_id",
+      code_challenge: "plain-verifier",
+      code_challenge_method: "plain",
+    });
+
+    expect(callbackRes.status).toBe(302);
+    const redirectUrl = callbackRes.headers.get("location");
+    expect(redirectUrl).toBeTruthy();
+
+    const code = new URL(redirectUrl!).searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const tokenRes = await formRequest(app, "/oauth2/token", {
+      code: code!,
+      redirect_uri: "http://localhost:3000/api/auth/oauth2/callback/google",
+      grant_type: "authorization_code",
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+      code_verifier: "plain-verifier",
+    });
+
+    expect(tokenRes.status).toBe(200);
+    const tokenBody = (await tokenRes.json()) as {
+      access_token: string;
+      scope: string;
+    };
+
+    const tokenInfoRes = await app.request(
+      `${base}/oauth2/v1/tokeninfo?access_token=${tokenBody.access_token}`,
+    );
+    expect(tokenInfoRes.status).toBe(200);
+
+    const tokenInfo = (await tokenInfoRes.json()) as {
+      scope: string;
+      email: string;
+      verified_email: boolean;
+      user_id: string;
+      access_type: string;
+      expires_in: number;
+    };
+
+    expect(tokenInfo.scope).toBe(scope);
+    expect(tokenInfo.email).toBe("testuser@example.com");
+    expect(tokenInfo.verified_email).toBe(true);
+    expect(tokenInfo.user_id).toBeDefined();
+    expect(tokenInfo.access_type).toBe("offline");
+    expect(tokenInfo.expires_in).toBe(3600);
+  });
+
+  it("returns invalid_token for unknown access tokens", async () => {
+    const res = await app.request(
+      `${base}/oauth2/v1/tokeninfo?access_token=missing-token`,
+    );
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      error: string;
+      error_description: string;
+    };
+
+    expect(body.error).toBe("invalid_token");
+    expect(body.error_description).toContain("invalid");
+  });
+
   it("lists paginated messages with Gmail-style filters", async () => {
     const res = await app.request(
       `${base}/gmail/v1/users/me/messages?maxResults=2&q=${encodeURIComponent("-label:DRAFT in:inbox")}`,
@@ -252,6 +331,39 @@ describe("Google plugin integration", () => {
     ]);
     expect(body.nextPageToken).toBe("2");
     expect(body.resultSizeEstimate).toBe(3);
+  });
+
+  it("uses the first message id as the thread id and preserves it for replies", () => {
+    const store = new Store();
+    const gs = getGoogleStore(store);
+    const userEmail = "root-thread@example.com";
+
+    ensureSystemLabels(gs, userEmail);
+
+    const root = createStoredMessage(gs, {
+      gmail_id: "msg_root_thread",
+      user_email: userEmail,
+      from: "alerts@example.com",
+      to: userEmail,
+      subject: "Root message",
+      body_text: "Standalone thread root.",
+    });
+
+    expect(root.thread_id).toBe(root.gmail_id);
+
+    const reply = createStoredMessage(gs, {
+      gmail_id: "msg_root_reply",
+      user_email: userEmail,
+      from: "alerts@example.com",
+      to: userEmail,
+      subject: "Re: Root message",
+      body_text: "Reply in same thread.",
+      in_reply_to: root.message_id,
+      references: root.message_id,
+    });
+
+    expect(reply.thread_id).toBe(root.thread_id);
+    expect(reply.thread_id).not.toBe(reply.gmail_id);
   });
 
   it("returns message payloads in metadata and raw formats", async () => {

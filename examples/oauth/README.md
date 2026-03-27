@@ -12,7 +12,7 @@ pnpm install
 
 # Start the emulator with the example config
 cd examples/oauth
-npx emulate --seed emulate.config.yaml
+npx @inbox-zero/emulate --seed emulate.config.yaml
 
 # In a separate terminal, start the Next.js app
 cd examples/oauth
