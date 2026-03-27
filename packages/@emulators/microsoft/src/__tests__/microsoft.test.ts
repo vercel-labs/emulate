@@ -569,4 +569,93 @@ describe("Microsoft plugin integration", () => {
     expect(client).toBeDefined();
     expect(client!.name).toBe("My App");
   });
+
+  // --- v1 OAuth token endpoint (legacy /{tenant}/oauth2/token) ---
+
+  it("POST /:tenant/oauth2/token issues token with client_credentials and resource param", async () => {
+    const formData = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: "test-client",
+      client_secret: "test-secret",
+      resource: "https://graph.microsoft.com",
+    });
+
+    const res = await app.request(`${base}/my-tenant/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.access_token).toBeDefined();
+    expect((body.access_token as string).startsWith("microsoft_")).toBe(true);
+    expect(body.token_type).toBe("Bearer");
+    expect(body.expires_in).toBe(3600);
+    // resource=https://graph.microsoft.com should become scope=https://graph.microsoft.com/.default
+    expect(body.scope).toBe("https://graph.microsoft.com/.default");
+  });
+
+  it("POST /:tenant/oauth2/token preserves explicit scope over resource param", async () => {
+    const formData = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: "test-client",
+      client_secret: "test-secret",
+      scope: "https://graph.microsoft.com/.default",
+      resource: "https://something-else.example.com",
+    });
+
+    const res = await app.request(`${base}/my-tenant/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.scope).toBe("https://graph.microsoft.com/.default");
+  });
+
+  it("POST /:tenant/oauth2/token rejects wrong client_secret", async () => {
+    const formData = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: "test-client",
+      client_secret: "wrong-secret",
+      resource: "https://graph.microsoft.com",
+    });
+
+    const res = await app.request(`${base}/my-tenant/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
+
+    expect(res.status).toBe(401);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("invalid_client");
+  });
+
+  // --- Graph /v1.0/users/:id endpoint ---
+
+  it("GET /v1.0/users/:id returns user profile by oid", async () => {
+    const ms = getMicrosoftStore(store);
+    const user = ms.users.findOneBy("email", "testuser@example.com");
+    expect(user).toBeDefined();
+
+    const res = await app.request(`${base}/v1.0/users/${user!.oid}`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.id).toBe(user!.oid);
+    expect(body.displayName).toBe("Test User");
+    expect(body.mail).toBe("testuser@example.com");
+    expect(body.userPrincipalName).toBe("testuser@example.com");
+    expect(body["@odata.context"]).toContain("$metadata#users");
+  });
+
+  it("GET /v1.0/users/:id returns 404 for unknown user id", async () => {
+    const res = await app.request(`${base}/v1.0/users/00000000-0000-0000-0000-000000000000`);
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: Record<string, unknown> };
+    expect(body.error.code).toBe("Request_ResourceNotFound");
+  });
 });
