@@ -17,6 +17,7 @@ import {
 } from "./helpers.js";
 import { createCalendarEventRecord, createCalendarRecord } from "./calendar-helpers.js";
 import { createDriveItemRecord } from "./drive-helpers.js";
+import { batchRoutes } from "./routes/batch.js";
 import { calendarRoutes } from "./routes/calendar.js";
 import { draftRoutes } from "./routes/drafts.js";
 import { driveRoutes } from "./routes/drive.js";
@@ -473,6 +474,7 @@ export const googlePlugin: ServicePlugin = {
     oauthRoutes(ctx);
     calendarRoutes(ctx);
     driveRoutes(ctx);
+    batchRoutes(ctx);
     messageRoutes(ctx);
     draftRoutes(ctx);
     historyRoutes(ctx);

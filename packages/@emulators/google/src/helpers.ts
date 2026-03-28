@@ -2014,3 +2014,34 @@ function decodeBase64Like(value: string): Buffer {
   const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
   return Buffer.from(normalized + padding, "base64");
 }
+
+export function extractMultipartBoundary(contentType: string): string | null {
+  const match = contentType.match(/boundary="?([^";]+)"?/i);
+  return match?.[1] ?? null;
+}
+
+export function splitMultipartParts(boundary: string, rawBody: string): string[] {
+  return rawBody
+    .split(`--${boundary}`)
+    .slice(1)
+    .filter((part) => part !== "--" && part !== "--\r\n" && part !== "--\n")
+    .map(stripMultipartBoundaryPadding);
+}
+
+export function stripMultipartBoundaryPadding(part: string): string {
+  let normalized = part;
+
+  if (normalized.startsWith("\r\n")) {
+    normalized = normalized.slice(2);
+  } else if (normalized.startsWith("\n")) {
+    normalized = normalized.slice(1);
+  }
+
+  if (normalized.endsWith("\r\n")) {
+    normalized = normalized.slice(0, -2);
+  } else if (normalized.endsWith("\n")) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+}

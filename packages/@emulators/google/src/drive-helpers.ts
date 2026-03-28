@@ -1,4 +1,4 @@
-import { generateUid, normalizeLimit, parseOffset } from "./helpers.js";
+import { extractMultipartBoundary, generateUid, normalizeLimit, parseOffset, splitMultipartParts } from "./helpers.js";
 import type { GoogleDriveItem } from "./entities.js";
 import type { GoogleStore } from "./store.js";
 
@@ -144,8 +144,7 @@ export function formatDriveItemResource(item: GoogleDriveItem) {
 }
 
 export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer): ParsedDriveUpload {
-  const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
-  const boundary = boundaryMatch?.[1];
+  const boundary = extractMultipartBoundary(contentType);
   if (!boundary) {
     return {
       requestBody: {},
@@ -154,22 +153,19 @@ export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer):
   }
 
   const raw = rawBody.toString("latin1");
-  const parts = raw
-    .split(`--${boundary}`)
-    .slice(1)
-    .filter((part) => part !== "--" && part !== "--\r\n" && part !== "--\n");
+  const parts = splitMultipartParts(boundary, raw);
 
   let requestBody: Record<string, unknown> = {};
   let media: ParsedDriveUpload["media"];
 
-  for (const part of parts) {
-    const normalized = stripMultipartBoundaryPadding(part);
-    const headerSeparator = normalized.includes("\r\n\r\n") ? "\r\n\r\n" : "\n\n";
-    const separatorIndex = normalized.indexOf(headerSeparator);
-    if (separatorIndex < 0) continue;
+  for (const normalized of parts) {
+    const separatorIndex = normalized.indexOf("\r\n\r\n");
+    const headerSeparator = separatorIndex >= 0 ? "\r\n\r\n" : "\n\n";
+    const actualIndex = separatorIndex >= 0 ? separatorIndex : normalized.indexOf("\n\n");
+    if (actualIndex < 0) continue;
 
-    const headers = normalized.slice(0, separatorIndex).toLowerCase();
-    const bodyText = normalized.slice(separatorIndex + headerSeparator.length);
+    const headers = normalized.slice(0, actualIndex).toLowerCase();
+    const bodyText = normalized.slice(actualIndex + headerSeparator.length);
 
     if (headers.includes("application/json")) {
       try {
@@ -250,20 +246,3 @@ function normalizeParentIds(parentIds: string[] | undefined): string[] {
   return normalized.length > 0 ? normalized : ["root"];
 }
 
-function stripMultipartBoundaryPadding(part: string): string {
-  let normalized = part;
-
-  if (normalized.startsWith("\r\n")) {
-    normalized = normalized.slice(2);
-  } else if (normalized.startsWith("\n")) {
-    normalized = normalized.slice(1);
-  }
-
-  if (normalized.endsWith("\r\n")) {
-    normalized = normalized.slice(0, -2);
-  } else if (normalized.endsWith("\n")) {
-    normalized = normalized.slice(0, -1);
-  }
-
-  return normalized;
-}

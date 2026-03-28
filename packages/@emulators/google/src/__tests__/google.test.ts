@@ -210,6 +210,45 @@ async function formRequest(
   });
 }
 
+function buildBatchRequestBody(paths: string[]): string {
+  return [
+    ...paths.map(
+      (path) =>
+        `--batch_boundary\r\nContent-Type: application/http\r\n\r\nGET ${path}\r\n`,
+    ),
+    "--batch_boundary--",
+  ].join("\r\n");
+}
+
+function parseBatchResponseBody(
+  contentType: string | null,
+  rawBody: string,
+): Array<{ statusLine: string; json: unknown }> {
+  const boundaryMatch = contentType?.match(/boundary="?([^";]+)"?/i);
+  const boundary = boundaryMatch?.[1];
+  if (!boundary) return [];
+
+  return rawBody
+    .split(`--${boundary}`)
+    .slice(1)
+    .filter((part) => part !== "--" && part !== "--\r\n" && part !== "--\n")
+    .map((part) => part.trim())
+    .map((part) => {
+      const responseStart = part.indexOf("HTTP/1.1 ");
+      const responseText = responseStart >= 0 ? part.slice(responseStart) : part;
+      const separator = responseText.includes("\r\n\r\n") ? "\r\n\r\n" : "\n\n";
+      const separatorIndex = responseText.indexOf(separator);
+      const head = responseText.slice(0, separatorIndex);
+      const body = responseText.slice(separatorIndex + separator.length);
+      const [statusLine] = head.split(/\r?\n/, 1);
+
+      return {
+        statusLine,
+        json: JSON.parse(body),
+      };
+    });
+}
+
 describe("Google plugin integration", () => {
   let app: Hono;
 
@@ -388,6 +427,48 @@ describe("Google plugin integration", () => {
     });
     const rawBody = (await rawRes.json()) as { raw?: string };
     expect(rawBody.raw).toBeDefined();
+  });
+
+  it("supports Gmail multipart batch fetches for messages and threads", async () => {
+    const batchRes = await app.request(`${base}/batch/gmail/v1`, {
+      method: "POST",
+      headers: authHeaders({
+        "Content-Type": "multipart/mixed; boundary=batch_boundary",
+      }),
+      body: buildBatchRequestBody([
+        "/gmail/v1/users/me/messages/msg_release",
+        "/gmail/v1/users/me/threads/thread_support",
+      ]),
+    });
+
+    expect(batchRes.status).toBe(200);
+    const responseParts = parseBatchResponseBody(
+      batchRes.headers.get("Content-Type"),
+      await batchRes.text(),
+    );
+
+    expect(responseParts).toHaveLength(2);
+    expect(responseParts[0]?.statusLine).toBe("HTTP/1.1 200 OK");
+    expect(responseParts[0]?.json).toMatchObject({
+      id: "msg_release",
+      threadId: "thread_release",
+      payload: {
+        headers: expect.arrayContaining([
+          expect.objectContaining({
+            name: "Subject",
+            value: "Release notes available",
+          }),
+        ]),
+      },
+    });
+    expect(responseParts[1]?.statusLine).toBe("HTTP/1.1 200 OK");
+    expect(responseParts[1]?.json).toMatchObject({
+      id: "thread_support",
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: "msg_support_1" }),
+        expect.objectContaining({ id: "msg_support_2" }),
+      ]),
+    });
   });
 
   it("returns attachment parts and serves attachment bodies", async () => {
