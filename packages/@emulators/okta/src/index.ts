@@ -184,10 +184,11 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
     for (const user of config.users) {
       const byLogin = okta.users.findOneBy("login", user.login);
       if (byLogin) continue;
+      const resolvedStatus = normalizeStatus(user.status, "ACTIVE");
       okta.users.insert({
         okta_id: user.okta_id ?? generateOktaId("00u"),
-        status: normalizeStatus(user.status, "ACTIVE"),
-        activated_at: user.status === "ACTIVE" ? new Date().toISOString() : null,
+        status: resolvedStatus,
+        activated_at: resolvedStatus === "ACTIVE" ? new Date().toISOString() : null,
         status_changed_at: new Date().toISOString(),
         last_login_at: null,
         password_changed_at: null,
