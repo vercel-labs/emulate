@@ -10,6 +10,7 @@ import { domainsRoutes } from "./routes/domains.js";
 import { envRoutes } from "./routes/env.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { apiKeysRoutes } from "./routes/api-keys.js";
+import { blobRoutes, computeEtag, inferContentType } from "./routes/blob.js";
 
 export { getVercelStore, type VercelStore } from "./store.js";
 export * from "./entities.js";
@@ -47,6 +48,17 @@ export interface VercelSeedConfig {
     name: string;
     redirect_uris: string[];
   }>;
+  blob_stores?: Array<{
+    store_id: string;
+    token: string;
+    access: "public" | "private";
+    blobs?: Array<{
+      pathname: string;
+      content?: string;
+      content_base64?: string;
+      content_type?: string;
+    }>;
+  }>;
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -67,7 +79,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   });
 }
 
-export function seedFromConfig(store: Store, baseUrl: string, config: VercelSeedConfig): void {
+export function seedFromConfig(store: Store, baseUrl: string, config: VercelSeedConfig, tokenMap?: TokenMap): void {
   const vs = getVercelStore(store);
 
   if (config.users) {
@@ -205,6 +217,49 @@ export function seedFromConfig(store: Store, baseUrl: string, config: VercelSeed
       });
     }
   }
+
+  if (config.blob_stores) {
+    const vs = getVercelStore(store);
+    for (const bs of config.blob_stores) {
+      // Register token
+      if (tokenMap && bs.token) {
+        tokenMap.set(bs.token, { login: bs.store_id, id: 0, scopes: [] });
+        const rwTokens = store.getData<Map<string, string>>("vercel.blob_rw_tokens") ?? new Map();
+        rwTokens.set(bs.store_id, bs.token);
+        store.setData("vercel.blob_rw_tokens", rwTokens);
+      }
+
+      if (bs.blobs) {
+        for (const b of bs.blobs) {
+          const existing = vs.blobs
+            .findBy("storeId", bs.store_id as any)
+            .find((e) => e.pathname === b.pathname);
+          if (existing) continue;
+
+          const content = b.content_base64
+            ? Buffer.from(b.content_base64, "base64")
+            : Buffer.from(b.content ?? "");
+          const contentType = b.content_type ?? inferContentType(b.pathname);
+          const url = `${baseUrl}/${bs.store_id}/${bs.access}/${b.pathname}`;
+          const filename = b.pathname.split("/").pop() ?? b.pathname;
+
+          vs.blobs.insert({
+            storeId: bs.store_id,
+            pathname: b.pathname,
+            url,
+            downloadUrl: `${url}?download=1`,
+            access: bs.access,
+            contentType,
+            contentDisposition: `attachment; filename="${filename}"`,
+            cacheControl: "public, max-age=2592000",
+            size: content.length,
+            etag: computeEtag(content),
+            content,
+          });
+        }
+      }
+    }
+  }
 }
 
 export const vercelPlugin: ServicePlugin = {
@@ -218,6 +273,7 @@ export const vercelPlugin: ServicePlugin = {
     domainsRoutes(ctx);
     envRoutes(ctx);
     apiKeysRoutes(ctx);
+    blobRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

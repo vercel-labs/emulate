@@ -256,6 +256,42 @@ JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's privat
 
 Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination.
 
+### Blob Storage
+
+Full Vercel Blob emulation. Point the `@vercel/blob` SDK at the emulator:
+
+```bash
+VERCEL_BLOB_API_URL=http://localhost:4000/api/blob
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_mystore_secret
+```
+
+- `PUT /api/blob?pathname=` - upload blob (binary body, random suffix by default)
+- `GET /api/blob?url=` - get blob metadata
+- `GET /api/blob` - list blobs (`limit`, `prefix`, `cursor`, `mode=folded`)
+- `POST /api/blob/delete` - delete blobs by URL
+- `PUT /api/blob?pathname=&fromUrl=` - copy blob
+- `PUT /api/blob?pathname=folder/` - create folder
+- `POST /api/blob/mpu` - multipart upload (create/upload/complete via `x-mpu-action`)
+- `POST /api/blob/handle-blob-upload` - client token generation
+- `GET /:storeId/:access/*` - download blob content
+
+Supports overwrite protection (`x-allow-overwrite`), conditional writes (`x-if-match`), ETag-based caching (`If-None-Match` → 304), private blob auth, content type inference, and client upload tokens with HMAC verification.
+
+```yaml
+# Seed config
+vercel:
+  blob_stores:
+    - store_id: mystore
+      token: vercel_blob_rw_mystore_secret
+      access: public
+      blobs:
+        - pathname: welcome.txt
+          content: "Hello from the emulator!"
+        - pathname: logo.png
+          content_base64: "iVBORw0KGgo..."
+          content_type: image/png
+```
+
 ### User & Teams
 - `GET /v2/user` - authenticated user
 - `PATCH /v2/user` - update user
@@ -459,9 +495,13 @@ packages/
   emulate/          # CLI entry point (commander)
     @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
-    vercel/         # Vercel API service
-    github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, and Drive APIs
+    vercel/         # Vercel API + Blob storage
+    github/         # GitHub REST API + Apps
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, and Drive
+    slack/          # Slack API
+    apple/          # Apple Sign In / OAuth
+    microsoft/      # Microsoft Entra ID / OAuth 2.0
+    aws/            # AWS services (S3, SQS, IAM, STS)
 apps/
   web/              # Documentation site (Next.js)
 ```

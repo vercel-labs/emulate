@@ -242,3 +242,34 @@ export interface VercelIntegration extends Entity {
   name: string;
   redirect_uris: string[];
 }
+
+export interface VercelBlob extends Entity {
+  storeId: string;
+  pathname: string;
+  url: string;
+  downloadUrl: string;
+  access: "public" | "private";
+  contentType: string;
+  contentDisposition: string;
+  cacheControl: string;
+  size: number;
+  etag: string;
+  content: Buffer;
+}
+
+export interface VercelBlobMultipartUpload extends Entity {
+  storeId: string;
+  pathname: string;
+  uploadId: string;
+  key: string;
+  access: "public" | "private";
+  contentType: string;
+}
+
+export interface VercelBlobMultipartPart extends Entity {
+  uploadId: string;
+  partNumber: number;
+  etag: string;
+  content: Buffer;
+  size: number;
+}
