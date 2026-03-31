@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "aws"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "aws", "openai"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -211,6 +211,28 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           users: [{ user_name: "developer", create_access_key: true }],
           roles: [{ role_name: "lambda-execution-role", description: "Role for Lambda function execution" }],
         },
+      },
+    },
+  },
+  openai: {
+    label: "OpenAI API emulator",
+    endpoints: "chat completions, embeddings, models, playground UI",
+    async load() {
+      const mod = await import("@emulators/openai");
+      return { plugin: mod.openaiPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "sk-test-admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      openai: {
+        models: [
+          { id: "gpt-4o", owned_by: "openai" },
+          { id: "gpt-4o-mini", owned_by: "openai" },
+        ],
+        completions: [
+          { pattern: ".*", content: "This is a mock response from the OpenAI emulator." },
+        ],
       },
     },
   },
