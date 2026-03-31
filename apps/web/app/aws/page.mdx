@@ -1,0 +1,49 @@
+# AWS
+
+S3, SQS, IAM, and STS emulation with REST-style S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
+
+## S3
+
+- `GET /s3/` - list all buckets
+- `PUT /s3/:bucket` - create bucket
+- `DELETE /s3/:bucket` - delete bucket (must be empty)
+- `HEAD /s3/:bucket` - check existence, get region
+- `GET /s3/:bucket` - list objects (supports `prefix`, `delimiter`, `max-keys`)
+- `PUT /s3/:bucket/:key` - put object (supports `Content-Type`, `x-amz-meta-*` headers)
+- `GET /s3/:bucket/:key` - get object
+- `HEAD /s3/:bucket/:key` - head object (metadata only)
+- `DELETE /s3/:bucket/:key` - delete object
+- `PUT /s3/:bucket/:key` with `x-amz-copy-source` - copy object
+
+## SQS
+
+All SQS operations use `POST /sqs/` with an `Action` form parameter.
+
+- `CreateQueue` - create queue (with optional attributes like `VisibilityTimeout`)
+- `ListQueues` - list queues (supports `QueueNamePrefix` filter)
+- `GetQueueUrl` - get queue URL by name
+- `GetQueueAttributes` - get queue attributes
+- `SendMessage` - send message (supports message attributes)
+- `ReceiveMessage` - receive messages (supports `MaxNumberOfMessages`)
+- `DeleteMessage` - delete message by receipt handle
+- `PurgeQueue` - purge all messages
+- `DeleteQueue` - delete queue
+
+## IAM
+
+All IAM operations use `POST /iam/` with an `Action` form parameter.
+
+- `CreateUser` / `GetUser` / `ListUsers` / `DeleteUser` - user management
+- `CreateAccessKey` / `ListAccessKeys` / `DeleteAccessKey` - access key management
+- `CreateRole` / `GetRole` / `ListRoles` / `DeleteRole` - role management
+
+## STS
+
+All STS operations use `POST /sts/` with an `Action` form parameter.
+
+- `GetCallerIdentity` - get caller identity
+- `AssumeRole` - assume a role (returns temporary credentials)
+
+## Inspector
+
+The emulator serves an HTML dashboard at `GET /` with `tab` query parameter (`s3`, `sqs`, `iam`) for browsing current state.
