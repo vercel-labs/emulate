@@ -110,6 +110,13 @@ async function exchangeCode(
   });
 }
 
+async function getAccessToken(app: Hono): Promise<string> {
+  const { code } = await getAuthCode(app);
+  const tokenRes = await exchangeCode(app, code);
+  const tokenBody = await tokenRes.json() as Record<string, unknown>;
+  return tokenBody.access_token as string;
+}
+
 describe("Microsoft plugin integration", () => {
   let app: Hono;
   let store: Store;
@@ -527,6 +534,466 @@ describe("Microsoft plugin integration", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body.access_token).toBeDefined();
+  });
+
+  // --- Microsoft Graph mail, calendar, and drive ---
+
+  it("lists seeded messages and supports reply/send flows", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const listRes = await app.request(`${base}/v1.0/me/messages?$top=2&$orderby=receivedDateTime DESC`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as { value: Array<Record<string, unknown>>; "@odata.nextLink"?: string };
+    expect(listBody.value.length).toBe(2);
+    expect(listBody["@odata.nextLink"]).toBeTruthy();
+    expect(listBody["@odata.nextLink"]).toMatch(/^\/v1\.0\/me\/messages\?/);
+    const nextLinkUrl = new URL(listBody["@odata.nextLink"]!, base);
+    expect(nextLinkUrl.searchParams.get("$skip")).toBe("2");
+
+    const sourceMessageId = String(listBody.value[0]?.id);
+    const replyRes = await app.request(`${base}/v1.0/me/messages/${sourceMessageId}/createReply`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(replyRes.status).toBe(201);
+    const replyBody = await replyRes.json() as Record<string, unknown>;
+    const draftId = String(replyBody.id);
+    expect(replyBody.isDraft).toBe(true);
+
+    const patchRes = await app.request(`${base}/v1.0/me/messages/${draftId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        body: { contentType: "html", content: "<p>Reply from test</p>" },
+        categories: ["Follow Up"],
+      }),
+    });
+    expect(patchRes.status).toBe(200);
+
+    const sendRes = await app.request(`${base}/v1.0/me/messages/${draftId}/send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(sendRes.status).toBe(200);
+    const sendBody = await sendRes.json() as Record<string, unknown>;
+    expect(sendBody.isDraft).toBe(false);
+    expect(sendBody.parentFolderId).toBe("sentitems");
+  });
+
+  it("supports direct mail send, reply-all, and folder-scoped message listing", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const sendMailRes = await app.request(`${base}/v1.0/me/sendMail`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: {
+          subject: "Direct send",
+          body: { contentType: "text", content: "Sent without drafting first" },
+          toRecipients: [{ emailAddress: { address: "person@example.com", name: "Person" } }],
+          ccRecipients: [{ emailAddress: { address: "cc@example.com" } }],
+        },
+      }),
+    });
+    expect(sendMailRes.status).toBe(202);
+
+    const sentFolderRes = await app.request(`${base}/v1.0/me/mailFolders/sentitems/messages?$top=20`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(sentFolderRes.status).toBe(200);
+    const sentFolderBody = await sentFolderRes.json() as { value: Array<Record<string, unknown>> };
+    const directSend = sentFolderBody.value.find((message) => message.subject === "Direct send");
+    expect(directSend).toBeDefined();
+
+    const inboxRes = await app.request(`${base}/v1.0/me/mailFolders/inbox/messages?$top=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(inboxRes.status).toBe(200);
+    const inboxBody = await inboxRes.json() as { value: Array<Record<string, unknown>> };
+    const sourceMessageId = String(inboxBody.value[0]?.id);
+    expect(sourceMessageId).toBeTruthy();
+
+    const replyAllRes = await app.request(`${base}/v1.0/me/messages/${sourceMessageId}/replyAll`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        comment: "Replying to everybody",
+      }),
+    });
+    expect(replyAllRes.status).toBe(202);
+
+    const sentAfterReplyRes = await app.request(`${base}/v1.0/me/mailFolders/sentitems/messages?$top=20`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const sentAfterReplyBody = await sentAfterReplyRes.json() as { value: Array<Record<string, unknown>> };
+    const replyAllMessage = sentAfterReplyBody.value.find((message) => String(message.subject).startsWith("Re:"));
+    expect(replyAllMessage).toBeDefined();
+    expect(Array.isArray(replyAllMessage?.toRecipients)).toBe(true);
+    expect((replyAllMessage?.toRecipients as Array<unknown>).length).toBeGreaterThan(0);
+  });
+
+  it("supports attachments, upload sessions, categories, rules, subscriptions, and batch move", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const createDraftRes = await app.request(`${base}/v1.0/me/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subject: "Draft with attachment",
+        body: { contentType: "html", content: "<p>Hello</p>" },
+        toRecipients: [{ emailAddress: { address: "friend@example.com" } }],
+      }),
+    });
+    const draftBody = await createDraftRes.json() as Record<string, unknown>;
+    const draftId = String(draftBody.id);
+
+    const attachmentRes = await app.request(`${base}/v1.0/me/messages/${draftId}/attachments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "note.txt",
+        contentType: "text/plain",
+        contentBytes: Buffer.from("hello world").toString("base64"),
+      }),
+    });
+    expect(attachmentRes.status).toBe(201);
+    const attachmentBody = await attachmentRes.json() as Record<string, unknown>;
+    expect(attachmentBody.name).toBe("note.txt");
+
+    const uploadSessionRes = await app.request(`${base}/v1.0/me/messages/${draftId}/attachments/createUploadSession`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        AttachmentItem: {
+          attachmentType: "file",
+          name: "big.bin",
+          contentType: "application/octet-stream",
+          size: 4,
+        },
+      }),
+    });
+    expect(uploadSessionRes.status).toBe(200);
+    const uploadSessionBody = await uploadSessionRes.json() as Record<string, unknown>;
+    const uploadUrl = String(uploadSessionBody.uploadUrl);
+
+    const uploadChunkRes = await app.request(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Range": "bytes 0-3/4" },
+      body: Buffer.from("test"),
+    });
+    expect(uploadChunkRes.status).toBe(201);
+
+    const categoriesRes = await app.request(`${base}/v1.0/me/outlook/masterCategories`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(categoriesRes.status).toBe(200);
+    const categoriesBody = await categoriesRes.json() as { value: Array<Record<string, unknown>> };
+    expect(categoriesBody.value.length).toBeGreaterThan(0);
+
+    const createRuleRes = await app.request(`${base}/v1.0/me/mailFolders/inbox/messageRules`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        displayName: "Archive build mail",
+        sequence: 1,
+        isEnabled: true,
+        conditions: { senderContains: ["builds@example.com"] },
+        actions: { moveToFolder: "archive", markAsRead: true },
+      }),
+    });
+    expect(createRuleRes.status).toBe(201);
+
+    const createSubscriptionRes = await app.request(`${base}/v1.0/subscriptions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        changeType: "created,updated",
+        notificationUrl: "https://example.com/outlook/webhook",
+        resource: "/me/messages",
+        expirationDateTime: new Date(Date.now() + 3600_000).toISOString(),
+        clientState: "secret",
+      }),
+    });
+    expect(createSubscriptionRes.status).toBe(201);
+
+    const archiveMessage = await app.request(`${base}/v1.0/me/messages?$filter=parentFolderId eq 'inbox'&$top=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const archiveMessageBody = await archiveMessage.json() as { value: Array<Record<string, unknown>> };
+    const archiveMessageId = String(archiveMessageBody.value[0]?.id);
+
+    const batchRes = await app.request(`${base}/v1.0/$batch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            id: "move-1",
+            method: "POST",
+            url: `/me/messages/${archiveMessageId}/move`,
+            headers: { "Content-Type": "application/json" },
+            body: { destinationId: "archive" },
+          },
+        ],
+      }),
+    });
+    expect(batchRes.status).toBe(200);
+    const batchBody = await batchRes.json() as { responses: Array<Record<string, unknown>> };
+    expect(batchBody.responses[0]?.status).toBe(200);
+  });
+
+  it("lists calendars and calendar views", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const calendarsRes = await app.request(`${base}/v1.0/me/calendars`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(calendarsRes.status).toBe(200);
+    const calendarsBody = await calendarsRes.json() as { value: Array<Record<string, unknown>> };
+    expect(calendarsBody.value.length).toBeGreaterThan(0);
+
+    const calendarId = String(calendarsBody.value[0]?.id);
+    const start = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const end = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const calendarViewRes = await app.request(
+      `${base}/v1.0/me/calendars/${calendarId}/calendarView?startDateTime=${encodeURIComponent(start)}&endDateTime=${encodeURIComponent(end)}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+    expect(calendarViewRes.status).toBe(200);
+    const calendarViewBody = await calendarViewRes.json() as { value: Array<Record<string, unknown>> };
+    expect(calendarViewBody.value.length).toBeGreaterThan(0);
+    expect(calendarViewBody.value[0]?.start).toBeDefined();
+  });
+
+  it("supports calendar event CRUD across default and named calendar routes", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const calendarsRes = await app.request(`${base}/v1.0/me/calendars`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const calendarsBody = await calendarsRes.json() as { value: Array<Record<string, unknown>> };
+    const teamCalendar = calendarsBody.value.find((calendar) => calendar.isDefaultCalendar === false);
+    expect(teamCalendar).toBeDefined();
+    const calendarId = teamCalendar?.id;
+    expect(typeof calendarId).toBe("string");
+
+    const createRes = await app.request(`${base}/v1.0/me/calendars/${calendarId as string}/events`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subject: "Roadmap review",
+        body: { contentType: "text", content: "Review Microsoft coverage" },
+        start: { dateTime: "2026-04-01T09:00:00.000Z" },
+        end: { dateTime: "2026-04-01T10:00:00.000Z" },
+        attendees: [{ emailAddress: { address: "pm@example.com", name: "PM" } }],
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const createdEvent = await createRes.json() as Record<string, unknown>;
+    const eventId = String(createdEvent.id);
+
+    const getRes = await app.request(`${base}/v1.0/me/calendars/${calendarId as string}/events/${eventId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(getRes.status).toBe(200);
+
+    const patchRes = await app.request(`${base}/v1.0/me/events/${eventId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subject: "Roadmap review updated",
+        location: { displayName: "Room 4" },
+      }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patchedEvent = await patchRes.json() as Record<string, unknown>;
+    expect(patchedEvent.subject).toBe("Roadmap review updated");
+    expect((patchedEvent.location as Record<string, unknown>).displayName).toBe("Room 4");
+
+    const listRes = await app.request(`${base}/v1.0/me/calendars/${calendarId as string}/events?$top=20`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json() as { value: Array<Record<string, unknown>> };
+    expect(listBody.value.some((event) => event.id === eventId)).toBe(true);
+
+    const deleteRes = await app.request(`${base}/v1.0/me/calendars/${calendarId as string}/events/${eventId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleteRes.status).toBe(204);
+
+    const missingRes = await app.request(`${base}/v1.0/me/events/${eventId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(missingRes.status).toBe(404);
+  });
+
+  it("supports drive listing, folder creation, upload, download, and move", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const rootRes = await app.request(`${base}/v1.0/me/drive/root/children?$filter=folder ne null`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(rootRes.status).toBe(200);
+    const rootBody = await rootRes.json() as { value: Array<Record<string, unknown>> };
+    expect(rootBody.value.length).toBeGreaterThan(0);
+
+    const createFolderRes = await app.request(`${base}/v1.0/me/drive/root/children`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Receipts",
+        folder: {},
+        "@microsoft.graph.conflictBehavior": "rename",
+      }),
+    });
+    expect(createFolderRes.status).toBe(201);
+    const createFolderBody = await createFolderRes.json() as Record<string, unknown>;
+    const folderId = String(createFolderBody.id);
+
+    const uploadRes = await app.request(`${base}/v1.0/me/drive/items/${folderId}:/hello.txt:/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "text/plain",
+      },
+      body: Buffer.from("hello drive"),
+    });
+    expect(uploadRes.status).toBe(200);
+    const uploadBody = await uploadRes.json() as Record<string, unknown>;
+    const fileId = String(uploadBody.id);
+
+    const downloadRes = await app.request(`${base}/v1.0/me/drive/items/${fileId}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(downloadRes.status).toBe(200);
+    expect(await downloadRes.text()).toBe("hello drive");
+
+    const moveRes = await app.request(`${base}/v1.0/me/drive/items/${fileId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ parentReference: { id: null } }),
+    });
+    expect(moveRes.status).toBe(200);
+  });
+
+  it("supports drive root metadata, upload sessions, item fetch, and delete", async () => {
+    const accessToken = await getAccessToken(app);
+
+    const driveRes = await app.request(`${base}/v1.0/me/drive`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(driveRes.status).toBe(200);
+
+    const rootRes = await app.request(`${base}/v1.0/me/drive/root`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(rootRes.status).toBe(200);
+    const rootBody = await rootRes.json() as Record<string, unknown>;
+    expect(rootBody.id).toBe("root");
+
+    const folderRes = await app.request(`${base}/v1.0/me/drive/root/children`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Upload Session Folder",
+        folder: {},
+      }),
+    });
+    expect(folderRes.status).toBe(201);
+    const folderBody = await folderRes.json() as Record<string, unknown>;
+    const folderId = String(folderBody.id);
+
+    const createSessionRes = await app.request(
+      `${base}/v1.0/me/drive/items/${folderId}:/chunked.txt:/createUploadSession`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          item: { fileSize: 11 },
+        }),
+      },
+    );
+    expect(createSessionRes.status).toBe(200);
+    const createSessionBody = await createSessionRes.json() as Record<string, unknown>;
+    const uploadUrl = String(createSessionBody.uploadUrl);
+
+    const uploadChunkRes = await app.request(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Range": "bytes 0-10/11" },
+      body: Buffer.from("hello world"),
+    });
+    expect(uploadChunkRes.status).toBe(201);
+    const uploadedFile = await uploadChunkRes.json() as Record<string, unknown>;
+    const fileId = String(uploadedFile.id);
+
+    const getItemRes = await app.request(`${base}/v1.0/me/drive/items/${fileId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(getItemRes.status).toBe(200);
+    const getItemBody = await getItemRes.json() as Record<string, unknown>;
+    expect(getItemBody.name).toBe("chunked.txt");
+
+    const deleteRes = await app.request(`${base}/v1.0/me/drive/items/${fileId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleteRes.status).toBe(204);
+
+    const missingItemRes = await app.request(`${base}/v1.0/me/drive/items/${fileId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(missingItemRes.status).toBe(404);
   });
 
   // --- Seed from config ---
