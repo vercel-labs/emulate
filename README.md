@@ -13,6 +13,10 @@ All services start with sensible defaults. No config file needed:
 - **Vercel** on `http://localhost:4000`
 - **GitHub** on `http://localhost:4001`
 - **Google** on `http://localhost:4002`
+- **Slack** on `http://localhost:4003`
+- **Apple** on `http://localhost:4004`
+- **Microsoft** on `http://localhost:4005`
+- **AWS** on `http://localhost:4006`
 
 ## CLI
 
@@ -96,7 +100,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service to emulate: `'github'`, `'vercel'`, or `'google'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 
@@ -188,6 +192,68 @@ google:
       name: Docs
       mime_type: application/vnd.google-apps.folder
       parent_ids: [root]
+
+slack:
+  team:
+    name: My Workspace
+    domain: my-workspace
+  users:
+    - name: developer
+      real_name: Developer
+      email: dev@example.com
+  channels:
+    - name: general
+      topic: General discussion
+    - name: random
+      topic: Random stuff
+  bots:
+    - name: my-bot
+  oauth_apps:
+    - client_id: "12345.67890"
+      client_secret: example_client_secret
+      name: My Slack App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/slack
+
+apple:
+  users:
+    - email: testuser@icloud.com
+      name: Test User
+  oauth_clients:
+    - client_id: com.example.app
+      team_id: TEAM001
+      name: My Apple App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/apple
+
+microsoft:
+  users:
+    - email: testuser@outlook.com
+      name: Test User
+  oauth_clients:
+    - client_id: example-client-id
+      client_secret: example-client-secret
+      name: My Microsoft App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/microsoft-entra-id
+
+aws:
+  region: us-east-1
+  s3:
+    buckets:
+      - name: my-app-bucket
+      - name: my-app-uploads
+  sqs:
+    queues:
+      - name: my-app-events
+      - name: my-app-dlq
+  iam:
+    users:
+      - user_name: developer
+        create_access_key: true
+    roles:
+      - role_name: lambda-execution-role
+        description: Role for Lambda function execution
 ```
 
 ## OAuth & Integrations
@@ -251,6 +317,42 @@ JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's privat
 **App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:
 - All webhook payloads (including repo and org hooks) include an `installation` field with `{ id, node_id }`.
 - If the app has a `webhook_url`, the emulator delivers the event there with the `installation` field and (if configured) an `X-Hub-Signature-256` header signed with `webhook_secret`.
+
+### Slack OAuth Apps
+
+```yaml
+slack:
+  oauth_apps:
+    - client_id: "12345.67890"
+      client_secret: "example_client_secret"
+      name: "My Slack App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/slack"
+```
+
+### Apple OAuth Clients
+
+```yaml
+apple:
+  oauth_clients:
+    - client_id: "com.example.app"
+      team_id: "TEAM001"
+      name: "My Apple App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/apple"
+```
+
+### Microsoft OAuth Clients
+
+```yaml
+microsoft:
+  oauth_clients:
+    - client_id: "example-client-id"
+      client_secret: "example-client-secret"
+      name: "My Microsoft App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/microsoft-entra-id"
+```
 
 ## Vercel API
 
@@ -424,7 +526,6 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
-This stays under a single `google:` service because the Gmail API is used by both consumer Google accounts and Google Workspace accounts. A separate Workspace-specific service would only make sense once we add admin or tenant-level APIs that do not belong in the basic Google/Gmail emulator.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
@@ -450,18 +551,110 @@ This stays under a single `google:` service because the Gmail API is used by bot
 - `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
 - `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
 
-The Google plugin still does not cover every Google API edge case, but Gmail, Calendar, and Drive now have enough mutable surface to support realistic local automation flows without stuffing everything into static seed config.
+## Slack API
+
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks.
+
+### Auth & Chat
+- `POST /api/auth.test` - test authentication
+- `POST /api/chat.postMessage` - post message (supports threads via `thread_ts`)
+- `POST /api/chat.update` - update message
+- `POST /api/chat.delete` - delete message
+- `POST /api/chat.meMessage` - /me message
+
+### Conversations
+- `POST /api/conversations.list` - list channels (cursor pagination)
+- `POST /api/conversations.info` - get channel info
+- `POST /api/conversations.create` - create channel
+- `POST /api/conversations.history` - channel history
+- `POST /api/conversations.replies` - thread replies
+- `POST /api/conversations.join` / `conversations.leave` - join/leave
+- `POST /api/conversations.members` - list members
+
+### Users & Reactions
+- `POST /api/users.list` - list users (cursor pagination)
+- `POST /api/users.info` - get user info
+- `POST /api/users.lookupByEmail` - lookup by email
+- `POST /api/reactions.add` / `reactions.remove` / `reactions.get` - manage reactions
+
+### Team, Bots & Webhooks
+- `POST /api/team.info` - workspace info
+- `POST /api/bots.info` - bot info
+- `POST /services/:teamId/:botId/:webhookId` - incoming webhook
+
+### OAuth
+- `GET /oauth/v2/authorize` - authorization (shows user picker)
+- `POST /api/oauth.v2.access` - token exchange
+
+## Apple Sign In
+
+Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /auth/keys` - JSON Web Key Set (JWKS)
+- `GET /auth/authorize` - authorization endpoint (shows user picker)
+- `POST /auth/token` - token exchange (authorization code and refresh token grants)
+- `POST /auth/revoke` - token revocation
+
+## Microsoft Entra ID
+
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, and OIDC discovery.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /:tenant/v2.0/.well-known/openid-configuration` - tenant-scoped OIDC discovery
+- `GET /discovery/v2.0/keys` - JSON Web Key Set (JWKS)
+- `GET /oauth2/v2.0/authorize` - authorization endpoint (shows user picker)
+- `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, client credentials)
+- `GET /oidc/userinfo` - OpenID Connect user info
+- `GET /v1.0/me` - Microsoft Graph user profile
+- `GET /oauth2/v2.0/logout` - end session / logout
+- `POST /oauth2/v2.0/revoke` - token revocation
+
+## AWS
+
+S3, SQS, IAM, and STS emulation with REST-style S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+
+### S3
+- `GET /s3/` - list all buckets
+- `PUT /s3/:bucket` - create bucket
+- `DELETE /s3/:bucket` - delete bucket
+- `HEAD /s3/:bucket` - check existence
+- `GET /s3/:bucket` - list objects (prefix, delimiter, max-keys)
+- `PUT /s3/:bucket/:key` - put object (supports copy via `x-amz-copy-source`)
+- `GET /s3/:bucket/:key` - get object
+- `HEAD /s3/:bucket/:key` - head object
+- `DELETE /s3/:bucket/:key` - delete object
+
+### SQS
+All operations via `POST /sqs/` with `Action` parameter:
+- `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
+- `SendMessage`, `ReceiveMessage`, `DeleteMessage`
+- `PurgeQueue`, `DeleteQueue`
+
+### IAM
+All operations via `POST /iam/` with `Action` parameter:
+- `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
+- `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
+- `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
+
+### STS
+All operations via `POST /sts/` with `Action` parameter:
+- `GetCallerIdentity`, `AssumeRole`
 
 ## Architecture
 
 ```
 packages/
   emulate/          # CLI entry point (commander)
-    @emulators/
+  @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     vercel/         # Vercel API service
     github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, and Drive APIs
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
+    slack/          # Slack Web API, OAuth v2, incoming webhooks
+    apple/          # Apple Sign In / OIDC
+    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
+    aws/            # AWS S3, SQS, IAM, STS
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -475,3 +668,13 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Vercel**: All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
 
 **GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+
+**Google**: Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
+
+**Slack**: All Web API endpoints require `Authorization: Bearer <token>`. OAuth v2 flow with user picker UI.
+
+**Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
+
+**Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
+
+**AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

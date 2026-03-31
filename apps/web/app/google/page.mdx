@@ -1,38 +1,77 @@
 # Google API
 
-The Google emulator provides OAuth 2.0 and OpenID Connect (OIDC) support for local development and testing.
+OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
-## Configuration
-
-```yaml
-google:
-  users:
-    - email: testuser@gmail.com
-      name: Test User
-    - email: dev@example.com
-      name: Developer
-  oauth_clients:
-    - client_id: emu_google_client_id
-      client_secret: emu_google_client_secret
-      name: Code App (Google)
-      redirect_uris:
-        - http://localhost:3000/api/auth/callback/google
-```
-
-## OAuth 2.0 Flow
-
-The emulator implements the standard Google OAuth 2.0 authorization code flow:
-
-1. Your app redirects the user to the emulator's authorize endpoint
-2. The emulator presents a consent screen (or auto-approves in test mode)
-3. The user is redirected back with an authorization code
-4. Your app exchanges the code for access and refresh tokens
-5. Tokens can be used to access the userinfo endpoint
-
-## Endpoints
+## OAuth & OpenID Connect
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
-- `POST /oauth2/v4/token` - token exchange
+- `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
+
+## Gmail
+
+- `GET /gmail/v1/users/:userId/messages` - list messages (`q`, `labelIds`, `maxResults`, `pageToken`)
+- `GET /gmail/v1/users/:userId/messages/:id` - get message (`full`, `metadata`, `minimal`, `raw` formats)
+- `GET /gmail/v1/users/:userId/messages/:messageId/attachments/:id` - get attachment
+- `POST /gmail/v1/users/:userId/messages/send` - send message (raw MIME or structured fields)
+- `POST /gmail/v1/users/:userId/messages/import` - import inbox mail
+- `POST /gmail/v1/users/:userId/messages` - insert a message directly
+- `POST /gmail/v1/users/:userId/messages/:id/modify` - add/remove labels
+- `POST /gmail/v1/users/:userId/messages/batchModify` - batch label changes
+- `POST /gmail/v1/users/:userId/messages/:id/trash` - trash message
+- `POST /gmail/v1/users/:userId/messages/:id/untrash` - untrash message
+
+## Gmail Drafts
+
+- `GET /gmail/v1/users/:userId/drafts` - list drafts
+- `POST /gmail/v1/users/:userId/drafts` - create draft
+- `GET /gmail/v1/users/:userId/drafts/:id` - get draft
+- `PUT /gmail/v1/users/:userId/drafts/:id` - update draft
+- `POST /gmail/v1/users/:userId/drafts/:id/send` - send draft
+- `DELETE /gmail/v1/users/:userId/drafts/:id` - delete draft
+
+## Gmail Threads
+
+- `GET /gmail/v1/users/:userId/threads` - list threads
+- `GET /gmail/v1/users/:userId/threads/:id` - get thread
+- `POST /gmail/v1/users/:userId/threads/:id/modify` - add/remove labels across a thread
+
+## Gmail Labels
+
+- `GET /gmail/v1/users/:userId/labels` - list labels
+- `POST /gmail/v1/users/:userId/labels` - create label
+- `PATCH /gmail/v1/users/:userId/labels/:id` - update label
+- `DELETE /gmail/v1/users/:userId/labels/:id` - delete label
+
+## Gmail History & Push
+
+- `GET /gmail/v1/users/:userId/history` - list history changes
+- `POST /gmail/v1/users/:userId/watch` - set up push notifications
+- `POST /gmail/v1/users/:userId/stop` - stop push notifications
+
+## Gmail Settings
+
+- `GET /gmail/v1/users/:userId/settings/filters` - list filters
+- `POST /gmail/v1/users/:userId/settings/filters` - create filter
+- `DELETE /gmail/v1/users/:userId/settings/filters/:id` - delete filter
+- `GET /gmail/v1/users/:userId/settings/forwardingAddresses` - list forwarding addresses
+- `GET /gmail/v1/users/:userId/settings/sendAs` - list send-as aliases
+
+## Calendar
+
+- `GET /calendar/v3/users/:userId/calendarList` - list calendars
+- `GET /calendar/v3/calendars/:calendarId/events` - list events
+- `POST /calendar/v3/calendars/:calendarId/events` - create event
+- `DELETE /calendar/v3/calendars/:calendarId/events/:eventId` - delete event
+- `POST /calendar/v3/freeBusy` - query free/busy
+
+## Drive
+
+- `GET /drive/v3/files` - list files
+- `GET /drive/v3/files/:fileId` - get file metadata
+- `POST /drive/v3/files` - create file metadata
+- `PATCH /drive/v3/files/:fileId` - update file metadata
+- `PUT /drive/v3/files/:fileId` - update file content
+- `POST /upload/drive/v3/files` - upload file

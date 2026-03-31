@@ -1,0 +1,62 @@
+# Apple Sign In
+
+Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
+
+## Endpoints
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /auth/keys` - JSON Web Key Set (JWKS)
+- `GET /auth/authorize` - authorization endpoint (shows user picker)
+- `POST /auth/token` - token exchange (authorization code and refresh token grants)
+- `POST /auth/revoke` - token revocation
+
+## Authorization Flow
+
+1. Redirect the user to `/auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, and optionally `nonce` and `response_mode`
+2. The emulator renders a user picker page where the user selects a seeded account
+3. On selection, the emulator redirects (or auto-submits a form for `form_post` mode) to `redirect_uri` with `code` and `state`
+4. On the first authorization per user/client pair, a `user` JSON blob is also included (matching Apple's real behavior)
+5. Exchange the code for tokens via `POST /auth/token`
+
+## ID Token
+
+The `id_token` is an RS256 JWT containing `sub`, `email`, `email_verified`, `is_private_email`, `real_user_status`, `auth_time`, and optional `nonce`.
+
+Users with `is_private_email: true` in the seed config receive a generated `@privaterelay.appleid.com` email in the `id_token` instead of their real email, matching Apple's Hide My Email behavior.
+
+## Supported Parameters
+
+<table>
+  <thead>
+    <tr>
+      <th>Param</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>client_id</code></td>
+      <td>OAuth client ID (Apple Services ID)</td>
+    </tr>
+    <tr>
+      <td><code>redirect_uri</code></td>
+      <td>Callback URL</td>
+    </tr>
+    <tr>
+      <td><code>scope</code></td>
+      <td>Space-separated scopes (<code>openid email name</code>)</td>
+    </tr>
+    <tr>
+      <td><code>state</code></td>
+      <td>Opaque state for CSRF protection</td>
+    </tr>
+    <tr>
+      <td><code>nonce</code></td>
+      <td>Nonce for ID token (optional)</td>
+    </tr>
+    <tr>
+      <td><code>response_mode</code></td>
+      <td><code>query</code> (default), <code>form_post</code>, or <code>fragment</code></td>
+    </tr>
+  </tbody>
+</table>

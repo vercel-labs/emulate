@@ -1,0 +1,38 @@
+# Microsoft Entra ID
+
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
+
+## Endpoints
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /:tenant/v2.0/.well-known/openid-configuration` - tenant-scoped OIDC discovery
+- `GET /discovery/v2.0/keys` - JSON Web Key Set (JWKS)
+- `GET /oauth2/v2.0/authorize` - authorization endpoint (shows user picker)
+- `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, and client credentials grants)
+- `GET /oidc/userinfo` - OpenID Connect user info
+- `GET /v1.0/me` - Microsoft Graph user profile
+- `GET /oauth2/v2.0/logout` - end session / logout
+- `POST /oauth2/v2.0/revoke` - token revocation
+
+## Authorization Code Flow
+
+1. Redirect the user to `/oauth2/v2.0/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, and optionally `nonce`, `response_mode`, `code_challenge`, and `code_challenge_method`
+2. The emulator renders a user picker page
+3. On selection, the emulator redirects to `redirect_uri` with `code` and `state`
+4. Exchange the code for tokens via `POST /oauth2/v2.0/token`
+
+## PKCE
+
+Include `code_challenge` and `code_challenge_method` (`plain` or `S256`) in the authorization request, and `code_verifier` in the token exchange.
+
+## Client Credentials
+
+Request tokens for service-to-service flows using `grant_type=client_credentials` with `scope=https://graph.microsoft.com/.default`. Returns an `access_token` only (no `refresh_token` or `id_token`).
+
+## ID Token
+
+The `id_token` is an RS256 JWT containing `sub`, `oid`, `tid` (tenant ID), `email`, `name`, `preferred_username`, `ver` ("2.0"), and optional `nonce`.
+
+## Microsoft Graph
+
+The `/v1.0/me` endpoint returns an OData-style response with `displayName`, `mail`, `userPrincipalName`, and `id`.
