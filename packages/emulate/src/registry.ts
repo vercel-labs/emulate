@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "aws", "resend"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -187,6 +187,36 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         oauth_clients: [{
           client_id: "example-client-id", client_secret: "example-client-secret",
           name: "My Microsoft App", redirect_uris: ["http://localhost:3000/api/auth/callback/microsoft-entra-id"],
+        }],
+      },
+    },
+  },
+
+  okta: {
+    label: "Okta OAuth 2.0 / OpenID Connect + management API emulator",
+    endpoints: "OIDC discovery, JWKS, OAuth authorize/token/userinfo/introspect/revoke/logout, users, groups, apps, authorization servers",
+    async load() {
+      const mod = await import("@emulators/okta");
+      return { plugin: mod.oktaPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstLogin =
+        (cfg?.users as Array<{ login?: string; email?: string }> | undefined)?.[0]?.login ??
+        (cfg?.users as Array<{ login?: string; email?: string }> | undefined)?.[0]?.email ??
+        "testuser@okta.local";
+      return { login: firstLogin, id: 1, scopes: ["openid", "profile", "email", "groups"] };
+    },
+    initConfig: {
+      okta: {
+        users: [{ login: "testuser@okta.local", email: "testuser@okta.local", first_name: "Test", last_name: "User" }],
+        groups: [{ name: "Everyone", description: "All users", type: "BUILT_IN", okta_id: "00g_everyone" }],
+        authorization_servers: [{ id: "default", name: "default", audiences: ["api://default"] }],
+        oauth_clients: [{
+          client_id: "okta-test-client",
+          client_secret: "okta-test-secret",
+          name: "Sample OIDC Client",
+          redirect_uris: ["http://localhost:3000/callback"],
+          auth_server_id: "default",
         }],
       },
     },

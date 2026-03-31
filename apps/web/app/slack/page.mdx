@@ -1,0 +1,62 @@
+# Slack API
+
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. State changes dispatch `event_callback` payloads to configured webhook URLs.
+
+## Auth
+
+- `POST /api/auth.test` - test authentication
+
+## Chat
+
+- `POST /api/chat.postMessage` - post message (supports threads via `thread_ts`)
+- `POST /api/chat.update` - update message
+- `POST /api/chat.delete` - delete message
+- `POST /api/chat.meMessage` - /me message
+
+## Conversations
+
+- `POST /api/conversations.list` - list channels (cursor pagination)
+- `POST /api/conversations.info` - get channel info
+- `POST /api/conversations.create` - create channel
+- `POST /api/conversations.history` - channel history (top-level messages)
+- `POST /api/conversations.replies` - thread replies
+- `POST /api/conversations.join` - join channel
+- `POST /api/conversations.leave` - leave channel
+- `POST /api/conversations.members` - list members
+
+## Users
+
+- `POST /api/users.list` - list users (cursor pagination)
+- `POST /api/users.info` - get user info
+- `POST /api/users.lookupByEmail` - lookup by email
+
+## Reactions
+
+- `POST /api/reactions.add` - add reaction
+- `POST /api/reactions.remove` - remove reaction
+- `POST /api/reactions.get` - get reactions for a message
+
+## Team
+
+- `POST /api/team.info` - get workspace info
+
+## Bots
+
+- `POST /api/bots.info` - get bot info
+
+## Incoming Webhooks
+
+- `POST /services/:teamId/:botId/:webhookId` - post via incoming webhook (supports `channel` override and `thread_ts`)
+
+## OAuth
+
+- `GET /oauth/v2/authorize` - authorization endpoint (shows user picker)
+- `POST /api/oauth.v2.access` - token exchange
+
+## Event Dispatching
+
+When messages are posted or reactions change, the emulator dispatches `event_callback` payloads to configured webhook URLs matching Slack's Events API format:
+
+- `message` events on `chat.postMessage`, `chat.update`, `chat.delete`
+- `reaction_added` / `reaction_removed` events on `reactions.add` / `reactions.remove`
+- `message` with `subtype: bot_message` on incoming webhook posts

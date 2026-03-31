@@ -54,4 +54,53 @@ The returned token can be used for API calls scoped to that installation's permi
 
 ## Google OAuth
 
-The Google emulator uses the standard OAuth 2.0 authorization code flow. Configure clients in the seed config and use them with your OAuth library of choice.
+The Google emulator uses the standard OAuth 2.0 authorization code flow. Configure clients in the seed config and use them with your OAuth library of choice. The OIDC discovery document is available at `/.well-known/openid-configuration`.
+
+```bash
+curl http://localhost:4002/.well-known/openid-configuration
+```
+
+## Slack OAuth
+
+The Slack emulator supports OAuth v2 with a user picker UI. Configure OAuth apps in the seed config for strict client validation. Point your Slack SDK at the emulator URL:
+
+```typescript
+import { WebClient } from '@slack/web-api'
+
+const client = new WebClient(token, {
+  slackApiUrl: 'http://localhost:4003/api/',
+})
+```
+
+All Web API endpoints require `Authorization: Bearer <token>`.
+
+## Apple Sign In
+
+The Apple emulator provides OIDC discovery, JWKS, and a full authorization code flow with RS256 ID tokens. Point your app at the emulator's endpoints:
+
+```bash
+curl http://localhost:4004/.well-known/openid-configuration
+```
+
+On first authorization per user/client pair, a `user` JSON blob is included in the callback (matching real Apple behavior).
+
+## Microsoft Entra ID
+
+The Microsoft emulator supports OIDC discovery, authorization code flow, PKCE, and client credentials grants. It also provides a Microsoft Graph `/v1.0/me` endpoint.
+
+```bash
+curl http://localhost:4005/.well-known/openid-configuration
+```
+
+Supports `Authorization: Basic` header with base64-encoded `client_id:client_secret` as an alternative to body parameters.
+
+## AWS
+
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
+
+```bash
+curl http://localhost:4006/s3/ \
+  -H "Authorization: Bearer test_token_admin"
+```
+
+For the AWS SDK, use IAM access key credentials. A default key pair is always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

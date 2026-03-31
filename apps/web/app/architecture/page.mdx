@@ -2,11 +2,18 @@
 
 ```
 packages/
-  core/       # HTTP server, in-memory store, plugin interface, middleware
-  vercel/     # Vercel API service
-  github/     # GitHub API service
-  google/     # Google OAuth 2.0 / OIDC
-  cli/        # CLI entry point (commander)
+  emulate/          # CLI entry point (commander)
+  @emulators/
+    core/           # HTTP server, in-memory store, plugin interface, middleware
+    vercel/         # Vercel API service
+    github/         # GitHub API service
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
+    slack/          # Slack Web API, OAuth v2, incoming webhooks
+    apple/          # Apple Sign In / OIDC
+    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
+    aws/            # AWS S3, SQS, IAM, STS
+apps/
+  web/              # Documentation site (Next.js)
 ```
 
 ## Core
@@ -15,14 +22,14 @@ The core package provides a generic `Store` with typed `Collection<T>` instances
 
 ## Plugin System
 
-Each service (Vercel, GitHub, Google) is a plugin that:
+Each service is a plugin that:
 
 1. Defines its entity types and store collections
 2. Registers HTTP routes on the shared Hono app
 3. Provides a seed function to populate initial state from config
 4. Uses shared middleware for auth, error handling, and pagination
 
-Multiple services can run simultaneously on the same port.
+Multiple services can run simultaneously, each on its own port (auto-incremented from the base port).
 
 ## In-Memory State
 

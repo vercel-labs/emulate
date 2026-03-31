@@ -60,6 +60,7 @@
     "@emulators/github": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",
+    "@emulators/okta": "workspace:*",
     "@emulators/aws": "workspace:*",
     "@emulators/google": "workspace:*",
     "@emulators/slack": "workspace:*",
