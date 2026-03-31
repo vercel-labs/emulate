@@ -1,6 +1,6 @@
 ---
 name: vercel
-description: Emulated Vercel REST API for local development and testing. Use when the user needs to interact with Vercel API endpoints locally, test Vercel integrations, emulate projects/deployments/domains, set up Vercel OAuth flows, manage environment variables, or test without hitting the real Vercel API. Triggers include "Vercel API", "emulate Vercel", "mock Vercel", "test Vercel OAuth", "Vercel integration", "local Vercel", or any task requiring a local Vercel API.
+description: Emulated Vercel REST API for local development and testing. Use when the user needs to interact with Vercel API endpoints locally, test Vercel integrations, emulate projects/deployments/domains, set up Vercel OAuth flows, manage environment variables, create API keys, configure protection bypass, or test without hitting the real Vercel API. Triggers include "Vercel API", "emulate Vercel", "mock Vercel", "test Vercel OAuth", "Vercel integration", "local Vercel", or any task requiring a local Vercel API.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
@@ -33,10 +33,10 @@ Pass tokens as `Authorization: Bearer <token>`. All endpoints accept `teamId` or
 
 ```bash
 curl http://localhost:4000/v2/user \
-  -H "Authorization: Bearer gho_test_token_admin"
+  -H "Authorization: Bearer test_token_admin"
 ```
 
-When no token is provided, requests fall back to the first seeded user.
+Team-scoped requests resolve the account from the `teamId` or `slug` query parameter. User-scoped requests resolve the account from the authenticated user.
 
 ## Pointing Your App at the Emulator
 
@@ -97,7 +97,7 @@ const res = await fetch(`${VERCEL_API}/v10/projects`, {
 
 ```yaml
 tokens:
-  gho_test_token_admin:
+  test_token_admin:
     login: admin
     scopes: []
 
@@ -109,10 +109,20 @@ vercel:
   teams:
     - slug: my-team
       name: My Team
+      description: Engineering team
   projects:
     - name: my-app
       team: my-team
       framework: nextjs
+      buildCommand: next build
+      outputDirectory: .next
+      rootDirectory: null
+      nodeVersion: "20.x"
+      envVars:
+        - key: DATABASE_URL
+          value: postgres://localhost/mydb
+          type: encrypted
+          target: [production, preview]
   integrations:
     - client_id: oac_abc123
       client_secret: secret_abc123
@@ -135,6 +145,9 @@ curl "http://localhost:4000/v10/projects?limit=10" \
 ### User & Teams
 
 ```bash
+# Registration check
+curl http://localhost:4000/registration
+
 # Authenticated user
 curl http://localhost:4000/v2/user -H "Authorization: Bearer $TOKEN"
 
@@ -142,7 +155,7 @@ curl http://localhost:4000/v2/user -H "Authorization: Bearer $TOKEN"
 curl -X PATCH http://localhost:4000/v2/user \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "New Name"}'
+  -d '{"name": "New Name", "email": "new@example.com"}'
 
 # List teams (cursor paginated)
 curl http://localhost:4000/v2/teams -H "Authorization: Bearer $TOKEN"
@@ -156,24 +169,32 @@ curl -X POST http://localhost:4000/v2/teams \
   -H "Content-Type: application/json" \
   -d '{"slug": "new-team", "name": "New Team"}'
 
-# Update team
+# Update team (name, slug, description)
 curl -X PATCH http://localhost:4000/v2/teams/my-team \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Updated Team"}'
+  -d '{"name": "Updated Team", "description": "New description"}'
 
-# List members, add member
+# List members
 curl http://localhost:4000/v2/teams/my-team/members -H "Authorization: Bearer $TOKEN"
+
+# Add member (by uid or email, with role)
+curl -X POST "http://localhost:4000/v2/teams/team_id/members" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "dev@example.com", "role": "MEMBER"}'
 ```
+
+Roles: `OWNER`, `MEMBER`, `DEVELOPER`, `VIEWER`.
 
 ### Projects
 
 ```bash
-# Create project (with optional env vars and git integration)
+# Create project (with optional env vars, git, and build config)
 curl -X POST http://localhost:4000/v11/projects \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-app", "framework": "nextjs"}'
+  -d '{"name": "my-app", "framework": "nextjs", "buildCommand": "next build", "outputDirectory": ".next", "nodeVersion": "20.x", "environmentVariables": [{"key": "API_KEY", "value": "secret", "type": "encrypted", "target": ["production"]}]}'
 
 # List projects (search, cursor pagination)
 curl "http://localhost:4000/v10/projects?search=my-app" \
@@ -183,13 +204,16 @@ curl "http://localhost:4000/v10/projects?search=my-app" \
 curl http://localhost:4000/v9/projects/my-app \
   -H "Authorization: Bearer $TOKEN"
 
-# Update project
+# Update project (framework, buildCommand, devCommand, installCommand,
+#   outputDirectory, rootDirectory, nodeVersion, serverlessFunctionRegion,
+#   publicSource, autoAssignCustomDomains, gitForkProtection,
+#   commandForIgnoringBuildStep)
 curl -X PATCH http://localhost:4000/v9/projects/my-app \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"framework": "remix"}'
 
-# Delete project (cascades deployments, domains, env vars)
+# Delete project (cascades deployments, domains, env vars, protection bypasses)
 curl -X DELETE http://localhost:4000/v9/projects/my-app \
   -H "Authorization: Bearer $TOKEN"
 
@@ -197,11 +221,23 @@ curl -X DELETE http://localhost:4000/v9/projects/my-app \
 curl http://localhost:4000/v1/projects/my-app/promote/aliases \
   -H "Authorization: Bearer $TOKEN"
 
-# Protection bypass
+# Protection bypass: generate, revoke, regenerate
 curl -X PATCH http://localhost:4000/v1/projects/my-app/protection-bypass \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"revoke": false}'
+  -d '{"generate": {"note": "CI preview", "scope": "deployment"}}'
+
+# Revoke protection bypass secrets
+curl -X PATCH http://localhost:4000/v1/projects/my-app/protection-bypass \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"revoke": ["secret_to_revoke"]}'
+
+# Regenerate protection bypass secrets
+curl -X PATCH http://localhost:4000/v1/projects/my-app/protection-bypass \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"regenerate": ["old_secret"]}'
 ```
 
 ### Deployments
@@ -211,17 +247,19 @@ curl -X PATCH http://localhost:4000/v1/projects/my-app/protection-bypass \
 curl -X POST http://localhost:4000/v13/deployments \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-app", "target": "production"}'
+  -d '{"name": "my-app", "target": "production", "meta": {"commit": "abc123"}, "regions": ["iad1"], "gitSource": {"type": "github", "ref": "main", "sha": "abc123", "repoId": "123", "org": "my-org", "repo": "my-app", "message": "Deploy", "authorName": "dev", "commitAuthorName": "dev"}}'
+
+# Targets: "production", "preview", "staging"
 
 # Get deployment (by ID or URL)
 curl http://localhost:4000/v13/deployments/dpl_abc123 \
   -H "Authorization: Bearer $TOKEN"
 
-# List deployments (filter by project, target, state)
-curl "http://localhost:4000/v6/deployments?projectId=my-app&target=production" \
+# List deployments (filter by projectId, app, target, state; cursor paginated)
+curl "http://localhost:4000/v6/deployments?projectId=my-app&target=production&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 
-# Delete deployment (cascades)
+# Delete deployment
 curl -X DELETE http://localhost:4000/v13/deployments/dpl_abc123 \
   -H "Authorization: Bearer $TOKEN"
 
@@ -233,8 +271,8 @@ curl -X PATCH http://localhost:4000/v12/deployments/dpl_abc123/cancel \
 curl http://localhost:4000/v2/deployments/dpl_abc123/aliases \
   -H "Authorization: Bearer $TOKEN"
 
-# Get build events/logs
-curl http://localhost:4000/v3/deployments/dpl_abc123/events \
+# Get build events/logs (supports direction, limit)
+curl "http://localhost:4000/v3/deployments/dpl_abc123/events?direction=forward&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
 # List deployment files
@@ -252,13 +290,15 @@ curl -X POST http://localhost:4000/v2/files \
 ### Domains
 
 ```bash
-# Add domain (with verification challenge)
+# Add domain (with optional redirect, gitBranch, customEnvironmentId)
 curl -X POST http://localhost:4000/v10/projects/my-app/domains \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "example.com"}'
+  -d '{"name": "example.com", "redirect": null, "redirectStatusCode": null, "gitBranch": null}'
 
-# List domains
+# *.vercel.app domains are auto-verified
+
+# List domains (cursor paginated)
 curl http://localhost:4000/v9/projects/my-app/domains \
   -H "Authorization: Bearer $TOKEN"
 
@@ -271,18 +311,20 @@ curl -X POST http://localhost:4000/v9/projects/my-app/domains/example.com/verify
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Redirect status codes: `301`, `302`, `307`, `308`.
+
 ### Environment Variables
 
 ```bash
-# List env vars (with decrypt option)
+# List env vars (with decrypt option; filter by gitBranch, customEnvironmentId)
 curl "http://localhost:4000/v10/projects/my-app/env?decrypt=true" \
   -H "Authorization: Bearer $TOKEN"
 
 # Create env vars (single, batch, or upsert)
-curl -X POST http://localhost:4000/v10/projects/my-app/env \
+curl -X POST "http://localhost:4000/v10/projects/my-app/env?upsert=true" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"key": "API_KEY", "value": "secret123", "type": "encrypted", "target": ["production", "preview"]}'
+  -d '{"key": "API_KEY", "value": "secret123", "type": "encrypted", "target": ["production", "preview"], "comment": "API key for service"}'
 
 # Get env var
 curl http://localhost:4000/v10/projects/my-app/env/env_abc123 \
@@ -299,26 +341,42 @@ curl -X DELETE http://localhost:4000/v9/projects/my-app/env/env_abc123 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Env var types: `system`, `encrypted`, `plain`, `secret`, `sensitive`.
+
+### API Keys
+
+```bash
+# Create API key (optional teamId scope)
+curl -X POST "http://localhost:4000/v1/api-keys?teamId=team_abc123" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "CI Deploy Key"}'
+
+# List API keys (optional teamId filter)
+curl "http://localhost:4000/v1/api-keys?teamId=team_abc123" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Delete API key
+curl -X DELETE http://localhost:4000/v1/api-keys/ak_abc123 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Created API keys are automatically registered in the token map and can be used as Bearer tokens for all endpoints.
+
 ### OAuth / Integrations
 
 ```bash
 # Authorize (browser flow -- shows user picker)
 # GET /oauth/authorize?client_id=...&redirect_uri=...&scope=...&state=...
 
-# Token exchange (supports PKCE)
+# Token exchange (supports PKCE; accepts JSON or form-urlencoded)
 curl -X POST http://localhost:4000/login/oauth/token \
   -H "Content-Type: application/json" \
   -d '{"client_id": "oac_abc123", "client_secret": "secret_abc123", "code": "<code>", "redirect_uri": "http://localhost:3000/api/auth/callback/vercel"}'
 
-# User info (returns sub, email, name, preferred_username, picture)
+# User info (returns sub, email, email_verified, name, preferred_username, picture)
 curl http://localhost:4000/login/oauth/userinfo \
   -H "Authorization: Bearer $TOKEN"
-```
-
-### API Keys
-
-```bash
-# Manage API keys for programmatic access
 ```
 
 ## Common Patterns
@@ -326,7 +384,7 @@ curl http://localhost:4000/login/oauth/userinfo \
 ### Create Project and Deploy
 
 ```bash
-TOKEN="gho_test_token_admin"
+TOKEN="test_token_admin"
 BASE="http://localhost:4000"
 
 # Create project

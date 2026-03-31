@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     )
     .sort((a, b) => b.score - a.score)
     .slice(0, 20)
-    .map(({ score: _, ...rest }) => rest);
+    .map(({ title, href, snippet }) => ({ title, href, snippet }));
 
   return NextResponse.json({ results }, { headers: { "Cache-Control": "public, max-age=60" } });
 }
