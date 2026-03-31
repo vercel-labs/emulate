@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -241,6 +241,23 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           users: [{ user_name: "developer", create_access_key: true }],
           roles: [{ role_name: "lambda-execution-role", description: "Role for Lambda function execution" }],
         },
+      },
+    },
+  },
+  resend: {
+    label: "Resend email API emulator",
+    endpoints: "emails, domains, contacts, API keys, inbox UI",
+    async load() {
+      const mod = await import("@emulators/resend");
+      return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "re_test_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      resend: {
+        domains: [{ name: "example.com", region: "us-east-1" }],
+        contacts: [{ email: "test@example.com", first_name: "Test", last_name: "User" }],
       },
     },
   },
