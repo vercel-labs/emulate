@@ -6,6 +6,7 @@ packages/
   vercel/     # Vercel API service
   github/     # GitHub API service
   google/     # Google OAuth 2.0 / OIDC
+  microsoft/  # Microsoft OAuth 2.0 / OIDC + Graph surfaces
   cli/        # CLI entry point (commander)
 ```
 
@@ -15,7 +16,7 @@ The core package provides a generic `Store` with typed `Collection<T>` instances
 
 ## Plugin System
 
-Each service (Vercel, GitHub, Google) is a plugin that:
+Each service (Vercel, GitHub, Google, Microsoft) is a plugin that:
 
 1. Defines its entity types and store collections
 2. Registers HTTP routes on the shared Hono app

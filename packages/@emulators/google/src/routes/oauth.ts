@@ -371,6 +371,36 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
+  app.get("/oauth2/v1/tokeninfo", (c) => {
+    const accessToken = c.req.query("access_token") ?? "";
+    if (!accessToken || !tokenMap) {
+      return c.json(
+        { error: "invalid_token", error_description: "The access token is invalid." },
+        400,
+      );
+    }
+
+    const authUser = tokenMap.get(accessToken);
+    if (!authUser) {
+      return c.json(
+        { error: "invalid_token", error_description: "The access token is invalid." },
+        400,
+      );
+    }
+
+    const user = gs.users.findOneBy("email", authUser.login as GoogleUser["email"]);
+    return c.json({
+      scope: authUser.scopes.join(" "),
+      expires_in: 3600,
+      access_type: "offline",
+      ...(user && {
+        user_id: user.uid,
+        email: user.email,
+        verified_email: user.email_verified,
+      }),
+    });
+  });
+
   // ---------- Token revocation ----------
 
   app.post("/oauth2/revoke", async (c) => {

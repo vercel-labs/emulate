@@ -11,6 +11,7 @@ const nav = [
   { href: "/vercel", label: "Vercel API" },
   { href: "/github", label: "GitHub API" },
   { href: "/google", label: "Google API" },
+  { href: "/microsoft", label: "Microsoft API" },
   { href: "/authentication", label: "Authentication" },
   { href: "/architecture", label: "Architecture" },
 ];

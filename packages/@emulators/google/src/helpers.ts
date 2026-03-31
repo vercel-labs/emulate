@@ -483,7 +483,14 @@ export function createStoredMessage(
 
   const internalDateMs = resolveInternalDate(input.internal_date ?? input.date ?? parsedRaw?.date_header ?? undefined);
   const gmailId = input.gmail_id ?? generateUid("msg");
-  const threadId = resolveThreadId(gs, input.user_email, input.thread_id, merged.in_reply_to, merged.references);
+  const threadId = resolveThreadId(
+    gs,
+    input.user_email,
+    gmailId,
+    input.thread_id,
+    merged.in_reply_to,
+    merged.references,
+  );
   const messageId = merged.message_id ?? `<${gmailId}@emulate.google.local>`;
   const baseLabelIds = dedupeLabelIds(input.label_ids ?? options?.defaultLabelIds ?? []);
 
@@ -1321,6 +1328,7 @@ function compareHistoryIds(left: string, right: string): number {
 function resolveThreadId(
   gs: GoogleStore,
   userEmail: string,
+  gmailId: string,
   explicitThreadId: string | undefined,
   inReplyTo: string | null,
   references: string | null,
@@ -1339,7 +1347,7 @@ function resolveThreadId(
     if (linkedMessage) return linkedMessage.thread_id;
   }
 
-  return generateUid("thr");
+  return gmailId;
 }
 
 function replaceMessageAttachments(
@@ -2005,4 +2013,35 @@ function decodeBase64Like(value: string): Buffer {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
   return Buffer.from(normalized + padding, "base64");
+}
+
+export function extractMultipartBoundary(contentType: string): string | null {
+  const match = contentType.match(/boundary="?([^";]+)"?/i);
+  return match?.[1] ?? null;
+}
+
+export function splitMultipartParts(boundary: string, rawBody: string): string[] {
+  return rawBody
+    .split(`--${boundary}`)
+    .slice(1)
+    .filter((part) => part !== "--" && part !== "--\r\n" && part !== "--\n")
+    .map(stripMultipartBoundaryPadding);
+}
+
+export function stripMultipartBoundaryPadding(part: string): string {
+  let normalized = part;
+
+  if (normalized.startsWith("\r\n")) {
+    normalized = normalized.slice(2);
+  } else if (normalized.startsWith("\n")) {
+    normalized = normalized.slice(1);
+  }
+
+  if (normalized.endsWith("\r\n")) {
+    normalized = normalized.slice(0, -2);
+  } else if (normalized.endsWith("\n")) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
 }

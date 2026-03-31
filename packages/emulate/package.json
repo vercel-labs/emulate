@@ -1,6 +1,6 @@
 {
   "name": "emulate",
-  "version": "0.3.0",
+  "version": "0.4.5",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -15,7 +15,7 @@
   },
   "main": "./dist/api.js",
   "types": "./dist/api.d.ts",
-  "homepage": "https://emulate.dev",
+  "homepage": "https://github.com/vercel-labs/emulate",
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel-labs/emulate.git",
@@ -39,6 +39,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "emulate": "./dist/index.js"
   },
@@ -53,7 +56,7 @@
     "@hono/node-server": "^1",
     "commander": "^14",
     "picocolors": "^1.1.1",
-    "yaml": "^2"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@emulators/core": "workspace:*",
