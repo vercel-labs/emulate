@@ -254,6 +254,17 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+
+linkedin:
+  users:
+    - email: testuser@linkedin.com
+      name: Test User
+  oauth_clients:
+    - client_id: my-linkedin-client-id
+      client_secret: my-linkedin-client-secret
+      name: My LinkedIn App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/linkedin
 ```
 
 ## OAuth & Integrations
@@ -285,6 +296,20 @@ github:
 ```
 
 If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced.
+
+### LinkedIn OAuth
+
+```yaml
+linkedin:
+  oauth_clients:
+    - client_id: "my-linkedin-client-id"
+      client_secret: "my-linkedin-client-secret"
+      name: "My LinkedIn App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/linkedin"
+```
+
+LinkedIn uses the same strict validation pattern. If `oauth_clients` are configured, `client_id`, `client_secret`, and `redirect_uri` are all validated.
 
 ### GitHub Apps
 
@@ -641,6 +666,19 @@ All operations via `POST /iam/` with `Action` parameter:
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
 
+## LinkedIn OAuth (OpenID Connect)
+
+Sign In with LinkedIn using OpenID Connect. Matches the surface used by Better Auth, Auth.js, and other OIDC-aware libraries.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
+- `GET /oauth/v2/authorization` - authorization endpoint (renders user picker)
+- `POST /oauth/v2/accessToken` - token exchange (`authorization_code`, `refresh_token`)
+- `GET /v2/userinfo` - user profile (`sub`, `name`, `given_name`, `family_name`, `picture`, `locale`, `email`, `email_verified`)
+- `POST /oauth/v2/revoke` - token revocation
+
+Supports PKCE (plain + S256), `client_secret_post`, and `client_secret_basic` authentication.
+
 ## Architecture
 
 ```
@@ -650,11 +688,12 @@ packages/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     vercel/         # Vercel API service
     github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, and Drive APIs
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
+    linkedin/       # LinkedIn OAuth 2.0 / OpenID Connect
 apps/
   web/              # Documentation site (Next.js)
 ```

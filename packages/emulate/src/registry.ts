@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas", "linkedin"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -295,6 +295,28 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         clusters: [{ name: "Cluster0", project: "Project0" }],
         database_users: [{ username: "admin", project: "Project0" }],
         databases: [{ cluster: "Cluster0", name: "test", collections: ["items"] }],
+      },
+    },
+  },
+
+  linkedin: {
+    label: "LinkedIn OAuth 2.0 / OpenID Connect emulator",
+    endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, token revocation",
+    async load() {
+      const mod = await import("@emulators/linkedin");
+      return { plugin: mod.linkedinPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@linkedin.com";
+      return { login: firstEmail, id: 1, scopes: ["openid", "email", "profile"] };
+    },
+    initConfig: {
+      linkedin: {
+        users: [{ email: "testuser@linkedin.com", name: "Test User" }],
+        oauth_clients: [{
+          client_id: "example-linkedin-client-id", client_secret: "example-linkedin-client-secret",
+          name: "My LinkedIn App", redirect_uris: ["http://localhost:3000/api/auth/callback/linkedin"],
+        }],
       },
     },
   },

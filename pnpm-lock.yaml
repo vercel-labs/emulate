@@ -286,6 +286,28 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(msw@2.12.13(@types/node@22.19.15)(typescript@5.9.3))(vite@8.0.1(@types/node@22.19.15)(esbuild@0.27.4)(jiti@2.6.1)(yaml@2.8.2))
 
+  packages/@emulators/linkedin:
+    dependencies:
+      '@emulators/core':
+        specifier: workspace:*
+        version: link:../core
+      hono:
+        specifier: ^4
+        version: 4.12.8
+      jose:
+        specifier: ^6
+        version: 6.2.2
+    devDependencies:
+      tsup:
+        specifier: ^8
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)(yaml@2.8.2)
+      typescript:
+        specifier: ^5.7
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@22.19.15)(msw@2.12.13(@types/node@22.19.15)(typescript@5.9.3))(vite@8.0.1(@types/node@22.19.15)(esbuild@0.27.4)(jiti@2.6.1)(yaml@2.8.2))
+
   packages/@emulators/microsoft:
     dependencies:
       '@emulators/core':
@@ -455,6 +477,9 @@ importers:
       '@emulators/google':
         specifier: workspace:*
         version: link:../@emulators/google
+      '@emulators/linkedin':
+        specifier: workspace:*
+        version: link:../@emulators/linkedin
       '@emulators/microsoft':
         specifier: workspace:*
         version: link:../@emulators/microsoft
