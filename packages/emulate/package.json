@@ -68,6 +68,7 @@
     "@emulators/vercel": "workspace:*",
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
+    "@emulators/clerk": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }
