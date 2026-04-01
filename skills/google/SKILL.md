@@ -195,7 +195,7 @@ Returns `{ "keys": [] }`. ID tokens are signed with HS256 using an internal secr
 ### Authorization
 
 ```bash
-# Browser flow -- redirects to a user picker page
+# Browser flow: redirects to a user picker page
 curl -v "http://localhost:4002/o/oauth2/v2/auth?\
 client_id=my-client-id.apps.googleusercontent.com&\
 redirect_uri=http://localhost:3000/api/auth/callback/google&\
@@ -541,7 +541,7 @@ CLIENT_ID="my-client-id.apps.googleusercontent.com"
 CLIENT_SECRET="GOCSPX-secret"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
 
-# 1. Open in browser -- user picks a seeded account
+# 1. Open in browser (user picks a seeded account)
 #    $GOOGLE_URL/o/oauth2/v2/auth?client_id=$CLIENT_ID&redirect_uri=$REDIRECT_URI&scope=openid+email+profile&response_type=code&state=abc
 
 # 2. After user selection, emulator redirects to:

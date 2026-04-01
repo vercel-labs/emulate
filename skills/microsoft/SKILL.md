@@ -166,7 +166,7 @@ Returns an RSA public key (`kid`: `emulate-microsoft-1`) for verifying `id_token
 ### Authorization
 
 ```bash
-# Browser flow -- redirects to a user picker page
+# Browser flow: redirects to a user picker page
 curl -v "http://localhost:4005/oauth2/v2.0/authorize?\
 client_id=example-client-id&\
 redirect_uri=http://localhost:3000/api/auth/callback/microsoft-entra-id&\
@@ -312,7 +312,7 @@ CLIENT_ID="example-client-id"
 CLIENT_SECRET="example-client-secret"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/microsoft-entra-id"
 
-# 1. Open in browser -- user picks a seeded account
+# 1. Open in browser (user picks a seeded account)
 #    $MICROSOFT_URL/oauth2/v2.0/authorize?client_id=$CLIENT_ID&redirect_uri=$REDIRECT_URI&scope=openid+email+profile&response_type=code&state=abc
 
 # 2. After user selection, emulator redirects to:

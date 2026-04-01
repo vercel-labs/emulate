@@ -142,7 +142,7 @@ Returns an RSA public key (`kid`: `emulate-apple-1`) for verifying `id_token` si
 ### Authorization
 
 ```bash
-# Browser flow -- redirects to a user picker page
+# Browser flow: redirects to a user picker page
 curl -v "http://localhost:4004/auth/authorize?\
 client_id=com.example.app&\
 redirect_uri=http://localhost:3000/api/auth/callback/apple&\
@@ -222,7 +222,7 @@ APPLE_URL="http://localhost:4004"
 CLIENT_ID="com.example.app"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/apple"
 
-# 1. Open in browser -- user picks a seeded account
+# 1. Open in browser (user picks a seeded account)
 #    $APPLE_URL/auth/authorize?client_id=$CLIENT_ID&redirect_uri=$REDIRECT_URI&scope=openid+email+name&response_type=code&state=abc&response_mode=form_post
 
 # 2. After user selection, emulator posts to:

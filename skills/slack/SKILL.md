@@ -289,7 +289,7 @@ curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
 ### OAuth
 
 ```bash
-# Authorize (browser flow -- shows user picker)
+# Authorize (browser flow, shows user picker)
 # GET /oauth/v2/authorize?client_id=...&redirect_uri=...&scope=...&state=...
 
 # Token exchange
@@ -354,5 +354,5 @@ curl -X POST $BASE/api/reactions.add \
 # Use the default incoming webhook
 curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
-  -d '{"text": ":white_check_mark: Build passed on main"}'
+  -d '{"text": "Build passed on main"}'
 ```

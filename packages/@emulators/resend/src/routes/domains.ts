@@ -1,6 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { getResendStore } from "../store.js";
 import { generateUuid, resendError, resendList, parseResendBody } from "../helpers.js";
+import type { ResendDomain } from "../entities.js";
 
 export function domainRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
@@ -96,7 +97,7 @@ export function domainRoutes(ctx: RouteContext): void {
   });
 }
 
-function formatDomain(domain: any) {
+function formatDomain(domain: ResendDomain) {
   return {
     id: domain.uuid,
     object: "domain",

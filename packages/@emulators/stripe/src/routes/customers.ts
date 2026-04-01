@@ -1,20 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, toUnixTimestamp, parseStripeBody, stripeError, stripeList } from "../helpers.js";
-import type { StripeCustomer } from "../entities.js";
-
-function formatCustomer(c: StripeCustomer) {
-  return {
-    id: c.stripe_id,
-    object: "customer",
-    email: c.email,
-    name: c.name,
-    description: c.description,
-    metadata: c.metadata,
-    created: toUnixTimestamp(c.created_at),
-    livemode: false,
-  };
-}
+import { stripeId, parseStripeBody, stripeError, stripeList } from "../helpers.js";
+import { formatCustomer } from "../formatters.js";
 
 export function customerRoutes({ app, store, webhooks }: RouteContext): void {
   const ss = getStripeStore(store);

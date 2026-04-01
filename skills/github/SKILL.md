@@ -476,7 +476,7 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
 ### OAuth
 
 ```bash
-# Authorize (browser flow -- shows user picker)
+# Authorize (browser flow, shows user picker)
 # GET /login/oauth/authorize?client_id=...&redirect_uri=...&scope=...&state=...
 
 # Token exchange

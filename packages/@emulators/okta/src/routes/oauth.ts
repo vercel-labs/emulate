@@ -223,43 +223,48 @@ function parseClientCredentials(
   return { clientId, clientSecret };
 }
 
+interface ClientValidationError {
+  body: { error: string; error_description: string };
+  status: number;
+}
+
 function validateClient(
   clients: OktaOAuthClient[],
   authServerId: string,
   clientId: string,
   clientSecret: string,
-): { client: OktaOAuthClient | null; response: Response | null } {
+): { client: OktaOAuthClient | null; error: ClientValidationError | null } {
   const scopedClients = getClientsForServer(clients, authServerId);
   if (scopedClients.length === 0) {
-    return { client: null, response: null };
+    return { client: null, error: null };
   }
 
   const client = scopedClients.find((entry) => entry.client_id === clientId);
   if (!client) {
     return {
       client: null,
-      response: new Response(
-        JSON.stringify({ error: "invalid_client", error_description: "Unknown client." }),
-        { status: 401, headers: { "Content-Type": "application/json" } },
-      ),
+      error: {
+        body: { error: "invalid_client", error_description: "Unknown client." },
+        status: 401,
+      },
     };
   }
 
   if (client.token_endpoint_auth_method === "none") {
-    return { client, response: null };
+    return { client, error: null };
   }
 
   if (!constantTimeSecretEqual(client.client_secret ?? "", clientSecret)) {
     return {
       client: null,
-      response: new Response(
-        JSON.stringify({ error: "invalid_client", error_description: "Invalid client credentials." }),
-        { status: 401, headers: { "Content-Type": "application/json" } },
-      ),
+      error: {
+        body: { error: "invalid_client", error_description: "Invalid client credentials." },
+        status: 401,
+      },
     };
   }
 
-  return { client, response: null };
+  return { client, error: null };
 }
 
 function parseScope(scope: string): string[] {
@@ -556,11 +561,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const creds = parseClientCredentials(c, body);
     const validation = validateClient(oktaStore.oauthClients.all(), authServerId, creds.clientId, creds.clientSecret);
-    if (validation.response) {
-      return c.json(
-        JSON.parse(await validation.response.text()) as Record<string, unknown>,
-        validation.response.status as 401,
-      );
+    if (validation.error) {
+      return c.json(validation.error.body, validation.error.status as 401);
     }
     const validatedClient = validation.client;
 
@@ -822,11 +824,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const creds = parseClientCredentials(c, body);
 
     const validation = validateClient(oktaStore.oauthClients.all(), authServerId, creds.clientId, creds.clientSecret);
-    if (validation.response) {
-      return c.json(
-        JSON.parse(await validation.response.text()) as Record<string, unknown>,
-        validation.response.status as 401,
-      );
+    if (validation.error) {
+      return c.json(validation.error.body, validation.error.status as 401);
     }
 
     const now = Math.floor(Date.now() / 1000);

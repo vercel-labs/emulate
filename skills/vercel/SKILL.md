@@ -366,7 +366,7 @@ Created API keys are automatically registered in the token map and can be used a
 ### OAuth / Integrations
 
 ```bash
-# Authorize (browser flow -- shows user picker)
+# Authorize (browser flow, shows user picker)
 # GET /oauth/authorize?client_id=...&redirect_uri=...&scope=...&state=...
 
 # Token exchange (supports PKCE; accepts JSON or form-urlencoded)
@@ -414,7 +414,7 @@ curl -X POST $BASE/v13/deployments \
 4. Exchange code for token via `POST /login/oauth/token`
 5. Fetch user info via `GET /login/oauth/userinfo`
 
-PKCE is supported -- pass `code_challenge` and `code_challenge_method` on authorize, then `code_verifier` on token exchange.
+PKCE is supported. Pass `code_challenge` and `code_challenge_method` on authorize, then `code_verifier` on token exchange.
 
 ### Team-Scoped Requests
 

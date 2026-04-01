@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
 
 # Service Emulation with emulate
 
-Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation -- not mocks.
+Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation, not mocks.
 
 ## Quick Start
 
@@ -249,7 +249,7 @@ aws:
 
 Tokens map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`. When no tokens are configured, a default `test_token_admin` is created for the `admin` user.
 
-Each service also has a fallback user -- if no token is provided, requests authenticate as the first seeded user.
+Each service also has a fallback user. If no token is provided, requests authenticate as the first seeded user.
 
 ## Pointing Your App at the Emulator
 

@@ -1,36 +1,8 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, toUnixTimestamp, parseStripeBody, stripeError, stripeList, applyExpand, parseExpand } from "../helpers.js";
-import type { StripePaymentIntent, StripeCustomer, PaymentIntentStatus } from "../entities.js";
-
-function formatPaymentIntent(pi: StripePaymentIntent) {
-  return {
-    id: pi.stripe_id,
-    object: "payment_intent",
-    amount: pi.amount,
-    currency: pi.currency,
-    status: pi.status,
-    customer: pi.customer_id,
-    description: pi.description,
-    payment_method: pi.payment_method,
-    metadata: pi.metadata,
-    created: toUnixTimestamp(pi.created_at),
-    livemode: false,
-  };
-}
-
-function formatCustomer(c: StripeCustomer) {
-  return {
-    id: c.stripe_id,
-    object: "customer",
-    email: c.email,
-    name: c.name,
-    description: c.description,
-    metadata: c.metadata,
-    created: toUnixTimestamp(c.created_at),
-    livemode: false,
-  };
-}
+import { stripeId, parseStripeBody, stripeError, stripeList, applyExpand, parseExpand } from "../helpers.js";
+import { formatCustomer, formatPaymentIntent } from "../formatters.js";
+import type { StripePaymentIntent, PaymentIntentStatus } from "../entities.js";
 
 export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): void {
   const ss = getStripeStore(store);
@@ -111,12 +83,12 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
     if (!pi) return stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${c.req.param("id")}'`, "resource_missing");
     const body = await parseStripeBody(c);
 
-    if (body.payment_method) {
-      ss.paymentIntents.update(pi.id, { payment_method: body.payment_method as string });
-    }
-
     if (pi.status !== "requires_confirmation" && pi.status !== "requires_payment_method") {
       return stripeError(c, 400, "invalid_request_error", `This PaymentIntent's status is ${pi.status}, which does not allow confirmation.`, "payment_intent_unexpected_state");
+    }
+
+    if (body.payment_method) {
+      ss.paymentIntents.update(pi.id, { payment_method: body.payment_method as string });
     }
 
     const updated = ss.paymentIntents.update(pi.id, { status: "succeeded" })!;

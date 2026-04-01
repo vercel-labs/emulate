@@ -1,12 +1,13 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
 import { toUnixTimestamp, stripeError, stripeList, applyExpand, parseExpand } from "../helpers.js";
-import type { StripeCharge, StripeCustomer, StripePaymentIntent } from "../entities.js";
+import { formatCustomer, formatPaymentIntent } from "../formatters.js";
+import type { StripeCharge } from "../entities.js";
 
 function formatCharge(ch: StripeCharge) {
   return {
     id: ch.stripe_id,
-    object: "charge",
+    object: "charge" as const,
     amount: ch.amount,
     currency: ch.currency,
     status: ch.status,
@@ -17,14 +18,6 @@ function formatCharge(ch: StripeCharge) {
     created: toUnixTimestamp(ch.created_at),
     livemode: false,
   };
-}
-
-function formatCustomer(c: StripeCustomer) {
-  return { id: c.stripe_id, object: "customer", email: c.email, name: c.name, created: toUnixTimestamp(c.created_at), livemode: false };
-}
-
-function formatPaymentIntent(pi: StripePaymentIntent) {
-  return { id: pi.stripe_id, object: "payment_intent", amount: pi.amount, currency: pi.currency, status: pi.status, created: toUnixTimestamp(pi.created_at), livemode: false };
 }
 
 export function chargeRoutes({ app, store }: RouteContext): void {

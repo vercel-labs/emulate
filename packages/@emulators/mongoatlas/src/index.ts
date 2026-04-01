@@ -44,6 +44,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     name: "Project0",
     org_id: "default_org",
     cluster_count: 1,
+    created_at: new Date().toISOString(),
   });
 
   const clusterId = generateClusterId();
@@ -65,6 +66,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     cluster_type: "REPLICASET",
     disk_size_gb: 10,
     mongodb_version: "8.0",
+    created_at: new Date().toISOString(),
   });
 
   ms.users.insert({
@@ -97,6 +99,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: MongoAtla
         name: p.name,
         org_id: p.org_id ?? "default_org",
         cluster_count: 0,
+        created_at: new Date().toISOString(),
       });
       projectIdMap.set(p.name, groupId);
     }
@@ -142,6 +145,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: MongoAtla
         cluster_type: "REPLICASET",
         disk_size_gb: cl.disk_size_gb ?? 10,
         mongodb_version: cl.mongodb_version ?? "8.0",
+        created_at: new Date().toISOString(),
       });
       clusterIdMap.set(cl.name, clusterId);
 

@@ -85,7 +85,7 @@ export function inboxRoutes(ctx: RouteContext): void {
 
     const previewContent = email.html
       ? `<iframe
-  sandbox="allow-same-origin"
+  sandbox=""
   srcdoc="${escapeAttr(email.html)}"
   class="s-card"
   style="width:100%;min-height:300px;border:1px solid #0a3300;border-radius:8px;background:#fff;"

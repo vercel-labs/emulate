@@ -22,12 +22,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, and collection are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, and collection are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     const docs = ms().documents.all().filter(
@@ -55,12 +55,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, and collection are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, and collection are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     let docs = ms().documents.all().filter(
@@ -95,12 +95,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection || !body.document) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, collection, and document are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, collection, and document are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     ensureCollectionExists(ms, cluster.cluster_id, body.database, body.collection);
@@ -129,12 +129,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection || !body.documents) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, collection, and documents are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, collection, and documents are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     ensureCollectionExists(ms, cluster.cluster_id, body.database, body.collection);
@@ -169,12 +169,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection || !body.update) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, collection, and update are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, collection, and update are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     const docs = ms().documents.all().filter(
@@ -220,19 +220,19 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection || !body.update) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, collection, and update are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, collection, and update are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     const docs = ms().documents.all().filter(
       (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
     );
 
-    const matched = matchFilter(docs, body.filter) ?? [];
+    const matched = matchFilter(docs, body.filter) ?? docs;
     let modifiedCount = 0;
 
     for (const doc of matched) {
@@ -269,12 +269,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, and collection are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, and collection are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     const docs = ms().documents.all().filter(
@@ -302,12 +302,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, and collection are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, and collection are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     const docs = ms().documents.all().filter(
@@ -335,12 +335,12 @@ export function dataApiRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.dataSource || !body.database || !body.collection) {
-      return mongoError(c, "bad request", "InvalidParameter", "dataSource, database, and collection are required");
+      return mongoError(c, "InvalidParameter", "dataSource, database, and collection are required");
     }
 
     const cluster = ms().clusters.findOneBy("name", body.dataSource);
     if (!cluster) {
-      return mongoError(c, "not found", "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
+      return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
     let docs = ms().documents.all().filter(
@@ -454,9 +454,8 @@ function matchesFilter(data: Record<string, unknown>, filter: Record<string, unk
             const pattern = opVal as string;
             const flags = (ops.$options as string) ?? "";
             try {
+              if (pattern.length > 1000) return false;
               const re = new RegExp(pattern, flags);
-              // Guard against catastrophic backtracking by enforcing a source length limit
-              if (re.source.length > 1000) return false;
               if (typeof docValue !== "string" || !re.test(docValue)) return false;
             } catch {
               return false;

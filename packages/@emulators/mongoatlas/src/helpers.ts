@@ -23,6 +23,6 @@ export function mongoOk<T extends Record<string, unknown>>(c: Context, data: T, 
   return c.json(data, status as 200);
 }
 
-export function mongoError(c: Context, error: string, errorCode: string, detail: string, status = 400) {
+export function mongoError(c: Context, errorCode: string, detail: string, status = 400) {
   return c.json({ error: status, errorCode, detail }, status as 400);
 }

@@ -1,6 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { getResendStore } from "../store.js";
 import { generateUuid, resendError, resendList, parseResendBody } from "../helpers.js";
+import type { ResendEmail } from "../entities.js";
 
 export function emailRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
@@ -147,7 +148,7 @@ function normalizeStringArray(value: unknown): string[] {
   return [];
 }
 
-function formatEmail(email: any) {
+function formatEmail(email: ResendEmail) {
   return {
     id: email.uuid,
     object: "email",

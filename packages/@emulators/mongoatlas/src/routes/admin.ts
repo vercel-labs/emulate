@@ -27,7 +27,7 @@ export function adminRoutes(ctx: RouteContext): void {
     const groupId = c.req.param("groupId");
     const project = ms().projects.findOneBy("group_id", groupId);
     if (!project) {
-      return mongoError(c, "not found", "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
+      return mongoError(c, "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
     }
     return mongoOk(c, formatProject(project));
   });
@@ -36,12 +36,12 @@ export function adminRoutes(ctx: RouteContext): void {
   app.post("/api/atlas/v2/groups", async (c) => {
     const body = await c.req.json<{ name?: string; orgId?: string }>();
     if (!body.name?.trim()) {
-      return mongoError(c, "bad request", "INVALID_PARAMETER", "name is required");
+      return mongoError(c, "INVALID_PARAMETER", "name is required");
     }
 
     const existing = ms().projects.all().find((p) => p.name === body.name);
     if (existing) {
-      return mongoError(c, "conflict", "DUPLICATE_GROUP_NAME", `Group name '${body.name}' already exists.`, 409);
+      return mongoError(c, "DUPLICATE_GROUP_NAME", `Group name '${body.name}' already exists.`, 409);
     }
 
     const groupId = generateGroupId();
@@ -50,6 +50,7 @@ export function adminRoutes(ctx: RouteContext): void {
       name: body.name,
       org_id: body.orgId ?? "default_org",
       cluster_count: 0,
+      created_at: new Date().toISOString(),
     });
 
     return mongoOk(c, formatProject(project), 201);
@@ -60,7 +61,7 @@ export function adminRoutes(ctx: RouteContext): void {
     const groupId = c.req.param("groupId");
     const project = ms().projects.findOneBy("group_id", groupId);
     if (!project) {
-      return mongoError(c, "not found", "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
+      return mongoError(c, "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
     }
 
     // Cascade delete clusters in this project
@@ -81,7 +82,7 @@ export function adminRoutes(ctx: RouteContext): void {
     const groupId = c.req.param("groupId");
     const project = ms().projects.findOneBy("group_id", groupId);
     if (!project) {
-      return mongoError(c, "not found", "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
+      return mongoError(c, "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
     }
 
     const clusters = ms().clusters.all().filter((cl) => cl.group_id === groupId);
@@ -100,7 +101,7 @@ export function adminRoutes(ctx: RouteContext): void {
     );
 
     if (!cluster) {
-      return mongoError(c, "not found", "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
+      return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
     return mongoOk(c, formatCluster(cluster));
@@ -111,7 +112,7 @@ export function adminRoutes(ctx: RouteContext): void {
     const groupId = c.req.param("groupId");
     const project = ms().projects.findOneBy("group_id", groupId);
     if (!project) {
-      return mongoError(c, "not found", "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
+      return mongoError(c, "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
     }
 
     const body = await c.req.json<{
@@ -127,14 +128,14 @@ export function adminRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.name?.trim()) {
-      return mongoError(c, "bad request", "INVALID_PARAMETER", "name is required");
+      return mongoError(c, "INVALID_PARAMETER", "name is required");
     }
 
     const existing = ms().clusters.all().find(
       (cl) => cl.group_id === groupId && cl.name === body.name,
     );
     if (existing) {
-      return mongoError(c, "conflict", "DUPLICATE_CLUSTER_NAME", `Cluster '${body.name}' already exists.`, 409);
+      return mongoError(c, "DUPLICATE_CLUSTER_NAME", `Cluster '${body.name}' already exists.`, 409);
     }
 
     const clusterId = generateClusterId();
@@ -156,6 +157,7 @@ export function adminRoutes(ctx: RouteContext): void {
       cluster_type: body.clusterType ?? "REPLICASET",
       disk_size_gb: body.diskSizeGB ?? 10,
       mongodb_version: body.mongoDBMajorVersion ?? "8.0",
+      created_at: new Date().toISOString(),
     });
 
     ms().projects.update(project.id, { cluster_count: project.cluster_count + 1 });
@@ -172,7 +174,7 @@ export function adminRoutes(ctx: RouteContext): void {
     );
 
     if (!cluster) {
-      return mongoError(c, "not found", "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
+      return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
     const body = await c.req.json<{
@@ -208,7 +210,7 @@ export function adminRoutes(ctx: RouteContext): void {
     );
 
     if (!cluster) {
-      return mongoError(c, "not found", "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
+      return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
     deleteClusterData(ms, cluster.cluster_id);
@@ -241,7 +243,7 @@ export function adminRoutes(ctx: RouteContext): void {
     const user = ms().users.all().find((u) => u.group_id === groupId && u.username === username);
 
     if (!user) {
-      return mongoError(c, "not found", "USER_NOT_FOUND", `Database user '${username}' not found.`, 404);
+      return mongoError(c, "USER_NOT_FOUND", `Database user '${username}' not found.`, 404);
     }
 
     return mongoOk(c, formatUser(user));
@@ -258,12 +260,12 @@ export function adminRoutes(ctx: RouteContext): void {
     }>();
 
     if (!body.username?.trim()) {
-      return mongoError(c, "bad request", "INVALID_PARAMETER", "username is required");
+      return mongoError(c, "INVALID_PARAMETER", "username is required");
     }
 
     const existing = ms().users.all().find((u) => u.group_id === groupId && u.username === body.username);
     if (existing) {
-      return mongoError(c, "conflict", "DUPLICATE_USER", `User '${body.username}' already exists.`, 409);
+      return mongoError(c, "DUPLICATE_USER", `User '${body.username}' already exists.`, 409);
     }
 
     const userId = generateUserId();
@@ -284,7 +286,7 @@ export function adminRoutes(ctx: RouteContext): void {
     const user = ms().users.all().find((u) => u.group_id === groupId && u.username === username);
 
     if (!user) {
-      return mongoError(c, "not found", "USER_NOT_FOUND", `Database user '${username}' not found.`, 404);
+      return mongoError(c, "USER_NOT_FOUND", `Database user '${username}' not found.`, 404);
     }
 
     ms().users.delete(user.id);
@@ -302,7 +304,7 @@ export function adminRoutes(ctx: RouteContext): void {
     );
 
     if (!cluster) {
-      return mongoError(c, "not found", "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
+      return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
     const databases = ms().databases.all().filter((db) => db.cluster_id === cluster.cluster_id);
@@ -322,7 +324,7 @@ export function adminRoutes(ctx: RouteContext): void {
     );
 
     if (!cluster) {
-      return mongoError(c, "not found", "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
+      return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
     const collections = ms().collections.all().filter(
@@ -346,13 +348,13 @@ function deleteClusterData(ms: () => ReturnType<typeof getMongoAtlasStore>, clus
   for (const db of dbs) ms().databases.delete(db.id);
 }
 
-function formatProject(p: { group_id: string; name: string; org_id: string; cluster_count: number; created_at?: string }) {
+function formatProject(p: { group_id: string; name: string; org_id: string; cluster_count: number; created_at: string }) {
   return {
     id: p.group_id,
     name: p.name,
     orgId: p.org_id,
     clusterCount: p.cluster_count,
-    created: p.created_at ?? new Date().toISOString(),
+    created: p.created_at,
   };
 }
 
@@ -367,7 +369,7 @@ function formatCluster(cl: {
   cluster_type: string;
   disk_size_gb: number;
   mongodb_version: string;
-  created_at?: string;
+  created_at: string;
 }) {
   return {
     id: cl.cluster_id,
@@ -387,7 +389,7 @@ function formatCluster(cl: {
     clusterType: cl.cluster_type,
     diskSizeGB: cl.disk_size_gb,
     mongoDBVersion: cl.mongodb_version,
-    created: cl.created_at ?? new Date().toISOString(),
+    created: cl.created_at,
   };
 }
 

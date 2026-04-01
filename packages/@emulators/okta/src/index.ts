@@ -240,7 +240,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
       const tokenEndpointAuthMethod = client.token_endpoint_auth_method ?? "client_secret_post";
       okta.oauthClients.insert({
         client_id: client.client_id,
-        client_secret: client.client_secret ?? (tokenEndpointAuthMethod === "none" ? "" : ""),
+        client_secret: client.client_secret ?? "",
         name: client.name,
         redirect_uris: client.redirect_uris,
         response_types: client.response_types ?? ["code"],

@@ -114,7 +114,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 ## Configuration
 
-Configuration is optional. To customize seed data, create `emulate.config.yaml` in your project root (or pass `--seed`):
+Configuration is optional. The CLI auto-detects config files in this order: `emulate.config.yaml` / `.yml`, `emulate.config.json`, `service-emulator.config.yaml` / `.yml`, `service-emulator.config.json`. Or pass `--seed <file>` explicitly. Run `emulate init` to generate a starter file.
 
 ```yaml
 tokens:

@@ -1,7 +1,6 @@
 {
   "name": "@emulators/mongoatlas",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +11,21 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "homepage": "https://emulate.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/mongoatlas"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel-labs/emulate/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup --clean",
     "dev": "tsup --watch",
@@ -24,6 +38,7 @@
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "vitest": "^4.1.0"
   }
 }

@@ -1,6 +1,17 @@
 import { randomBytes } from "crypto";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Entity, Collection } from "@emulators/core";
+
+const NUMERIC_KEYS = new Set([
+  "amount",
+  "unit_amount",
+  "quantity",
+  "amount_total",
+  "amount_subtotal",
+  "application_fee_amount",
+  "transfer_amount",
+]);
 
 export function stripeId(prefix: string): string {
   return `${prefix}_${randomBytes(12).toString("base64url").slice(0, 24)}`;
@@ -34,25 +45,30 @@ export async function parseStripeBody(c: Context): Promise<Record<string, unknow
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of params) {
-    if (key.includes("[") && key.includes("]")) {
-      const match = key.match(/^([^[]+)\[([^\]]*)\]$/);
-      if (match) {
-        const [, parent, child] = match;
-        if (!child) {
-          if (!Array.isArray(result[parent])) result[parent] = [];
-          (result[parent] as unknown[]).push(value);
-        } else {
-          if (typeof result[parent] !== "object" || result[parent] === null) result[parent] = {};
-          (result[parent] as Record<string, unknown>)[child] = value;
+    if (key.includes("[")) {
+      const parts = key.replace(/]/g, "").split("[");
+      let target: Record<string, unknown> | unknown[] = result;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        const nextIsIndex = /^\d+$/.test(parts[i + 1]);
+        const current = (target as Record<string, unknown>)[part];
+        if (current === undefined || current === null || typeof current !== "object") {
+          (target as Record<string, unknown>)[part] = nextIsIndex ? [] : {};
         }
+        target = (target as Record<string, unknown>)[part] as Record<string, unknown> | unknown[];
+      }
+      const lastKey = parts[parts.length - 1];
+      const num = Number(value);
+      const coerced = NUMERIC_KEYS.has(lastKey) && Number.isFinite(num) ? num : value;
+      if (Array.isArray(target)) {
+        const idx = lastKey === "" ? target.length : parseInt(lastKey, 10);
+        target[idx] = coerced;
+      } else {
+        (target as Record<string, unknown>)[lastKey] = coerced;
       }
     } else {
-      if (["amount", "unit_amount", "quantity"].includes(key)) {
-        const num = Number(value);
-        result[key] = Number.isFinite(num) ? num : value;
-      } else {
-        result[key] = value;
-      }
+      const num = Number(value);
+      result[key] = NUMERIC_KEYS.has(key) && Number.isFinite(num) ? num : value;
     }
   }
 
@@ -80,7 +96,7 @@ export function stripeError(
         ...(param && { param }),
       },
     },
-    status as any,
+    status as ContentfulStatusCode,
   );
 }
 
@@ -93,7 +109,7 @@ export function stripeList<T extends Entity & { stripe_id: string; created_at: s
   items: T[],
   url: string,
   formatFn: (item: T) => Record<string, unknown>,
-): Response {
+) {
   const limit = Math.min(parseInt(c.req.query("limit") ?? "10", 10), 100);
   const startingAfter = c.req.query("starting_after");
   const endingBefore = c.req.query("ending_before");
@@ -137,7 +153,7 @@ export function stripeList<T extends Entity & { stripe_id: string; created_at: s
     url,
     has_more: hasMore,
     data: page.map(formatFn),
-  }) as unknown as Response;
+  });
 }
 
 /**
