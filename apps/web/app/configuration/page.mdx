@@ -283,3 +283,64 @@ aws:
 ```
 
 Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair.
+
+## Okta Seed Config
+
+```yaml
+okta:
+  users:
+    - login: testuser@example.com
+      email: testuser@example.com
+      firstName: Test
+      lastName: User
+  groups:
+    - name: Everyone
+      description: All users
+  apps:
+    - name: My App
+      label: My App
+  authorization_servers:
+    - name: default
+      audiences: ["api://default"]
+```
+
+## MongoDB Atlas Seed Config
+
+```yaml
+mongoatlas:
+  projects:
+    - name: my-project
+  clusters:
+    - project: my-project
+      name: my-cluster
+  database_users:
+    - project: my-project
+      username: app-user
+```
+
+## Resend Seed Config
+
+```yaml
+resend:
+  domains:
+    - name: example.com
+  api_keys:
+    - name: default
+```
+
+## Stripe Seed Config
+
+```yaml
+stripe:
+  customers:
+    - name: Test Customer
+      email: test@example.com
+  products:
+    - name: Pro Plan
+  prices:
+    - product: Pro Plan
+      unit_amount: 2000
+      currency: usd
+      recurring:
+        interval: month
+```

@@ -5,26 +5,53 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Sheet, SheetTrigger, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
-const nav = [
-  { href: "/", label: "Getting Started" },
-  { href: "/configuration", label: "Configuration" },
-  { href: "/vercel", label: "Vercel API" },
-  { href: "/github", label: "GitHub API" },
-  { href: "/google", label: "Google API" },
-  { href: "/slack", label: "Slack API" },
-  { href: "/apple", label: "Apple Sign In" },
-  { href: "/microsoft", label: "Microsoft Entra ID" },
-  { href: "/aws", label: "AWS" },
-  { href: "/authentication", label: "Authentication" },
-  { href: "/architecture", label: "Architecture" },
+type NavSection = {
+  title?: string;
+  items: { href: string; label: string }[];
+};
+
+const sections: NavSection[] = [
+  {
+    items: [
+      { href: "/", label: "Getting Started" },
+      { href: "/programmatic-api", label: "Programmatic API" },
+      { href: "/configuration", label: "Configuration" },
+      { href: "/nextjs", label: "Next.js Integration" },
+    ],
+  },
+  {
+    title: "Services",
+    items: [
+      { href: "/vercel", label: "Vercel" },
+      { href: "/github", label: "GitHub" },
+      { href: "/google", label: "Google" },
+      { href: "/slack", label: "Slack" },
+      { href: "/apple", label: "Apple" },
+      { href: "/microsoft", label: "Microsoft Entra ID" },
+      { href: "/aws", label: "AWS" },
+      { href: "/okta", label: "Okta" },
+      { href: "/mongoatlas", label: "MongoDB Atlas" },
+      { href: "/resend", label: "Resend" },
+      { href: "/stripe", label: "Stripe" },
+    ],
+  },
+  {
+    title: "Reference",
+    items: [
+      { href: "/authentication", label: "Authentication" },
+      { href: "/architecture", label: "Architecture" },
+    ],
+  },
 ];
+
+const allItems = sections.flatMap((s) => s.items);
 
 export function DocsMobileNav() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
   const currentPage = useMemo(() => {
-    return nav.find((page) => page.href === pathname) ?? nav[0];
+    return allItems.find((page) => page.href === pathname) ?? allItems[0];
   }, [pathname]);
 
   return (
@@ -58,24 +85,33 @@ export function DocsMobileNav() {
       </SheetTrigger>
       <SheetContent side="left" className="overflow-y-auto p-6" showCloseButton={false}>
         <SheetTitle className="mb-6">Table of Contents</SheetTitle>
-        <nav>
-          <ul className="space-y-1">
-            {nav.map((item) => (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={() => setOpen(false)}
-                  className={`text-sm block py-2 transition-colors ${
-                    pathname === item.href
-                      ? "text-neutral-900 dark:text-neutral-100 font-medium"
-                      : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+        <nav className="space-y-6">
+          {sections.map((section, i) => (
+            <div key={i}>
+              {section.title && (
+                <div className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
+                  {section.title}
+                </div>
+              )}
+              <ul className="space-y-1">
+                {section.items.map((item) => (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={() => setOpen(false)}
+                      className={`text-sm block py-2 transition-colors ${
+                        pathname === item.href
+                          ? "text-neutral-900 dark:text-neutral-100 font-medium"
+                          : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
       </SheetContent>
     </Sheet>

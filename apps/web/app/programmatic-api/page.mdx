@@ -1,0 +1,145 @@
+# Programmatic API
+
+Use emulators as libraries in your tests and scripts. There are two approaches: the `emulate` CLI package (which wraps all services) and the individual `@emulators/*` scoped packages.
+
+## CLI package
+
+The `emulate` package provides a `createEmulator` helper that starts any service by name.
+
+```bash
+npm install emulate
+```
+
+```typescript
+import { createEmulator } from 'emulate'
+
+const github = await createEmulator({ service: 'github', port: 4001 })
+const vercel = await createEmulator({ service: 'vercel', port: 4002 })
+
+github.url   // 'http://localhost:4001'
+vercel.url   // 'http://localhost:4002'
+
+await github.close()
+await vercel.close()
+```
+
+### Vitest / Jest setup
+
+```typescript
+// vitest.setup.ts
+import { createEmulator, type Emulator } from 'emulate'
+
+let github: Emulator
+let vercel: Emulator
+
+beforeAll(async () => {
+  ;[github, vercel] = await Promise.all([
+    createEmulator({ service: 'github', port: 4001 }),
+    createEmulator({ service: 'vercel', port: 4002 }),
+  ])
+  process.env.GITHUB_EMULATOR_URL = github.url
+  process.env.VERCEL_EMULATOR_URL = vercel.url
+})
+
+afterEach(() => { github.reset(); vercel.reset() })
+afterAll(() => Promise.all([github.close(), vercel.close()]))
+```
+
+### createEmulator options
+
+<table>
+  <thead>
+    <tr>
+      <th>Option</th>
+      <th>Default</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>service</code></td>
+      <td><em>(required)</em></td>
+      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>, <code>'mongoatlas'</code>, <code>'resend'</code>, or <code>'stripe'</code></td>
+    </tr>
+    <tr>
+      <td><code>port</code></td>
+      <td><code>4000</code></td>
+      <td>Port for the HTTP server</td>
+    </tr>
+    <tr>
+      <td><code>seed</code></td>
+      <td>none</td>
+      <td>Inline seed data (same shape as YAML config)</td>
+    </tr>
+  </tbody>
+</table>
+
+### Instance methods
+
+<table>
+  <thead>
+    <tr>
+      <th>Method</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>url</code></td>
+      <td>Base URL of the running server</td>
+    </tr>
+    <tr>
+      <td><code>reset()</code></td>
+      <td>Wipe the store and replay seed data</td>
+    </tr>
+    <tr>
+      <td><code>close()</code></td>
+      <td>Shut down the HTTP server, returns a Promise</td>
+    </tr>
+  </tbody>
+</table>
+
+## Scoped packages
+
+Each emulator is published as its own `@emulators/*` package. Install only the ones you need:
+
+```bash
+npm install @emulators/github @emulators/google @emulators/stripe
+```
+
+### Available packages
+
+<table>
+  <thead>
+    <tr>
+      <th>Package</th>
+      <th>Service</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><code>@emulators/vercel</code></td><td>Vercel API</td></tr>
+    <tr><td><code>@emulators/github</code></td><td>GitHub API</td></tr>
+    <tr><td><code>@emulators/google</code></td><td>Google OAuth, Gmail, Calendar, Drive</td></tr>
+    <tr><td><code>@emulators/slack</code></td><td>Slack Web API, OAuth v2, webhooks</td></tr>
+    <tr><td><code>@emulators/apple</code></td><td>Apple Sign In / OIDC</td></tr>
+    <tr><td><code>@emulators/microsoft</code></td><td>Microsoft Entra ID, Graph API</td></tr>
+    <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, IAM, STS</td></tr>
+    <tr><td><code>@emulators/okta</code></td><td>Okta identity provider / OIDC</td></tr>
+    <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
+    <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
+    <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
+    <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
+    <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
+  </tbody>
+</table>
+
+### Direct usage
+
+Each scoped package exports its Hono app and seed function, so you can compose emulators however you like:
+
+```typescript
+import * as github from '@emulators/github'
+import * as stripe from '@emulators/stripe'
+```
+
+These are the same modules used internally by the CLI and the [Next.js adapter](/nextjs). See the Next.js Integration page for a full example of using scoped packages with `createEmulateHandler`.
