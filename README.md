@@ -17,6 +17,7 @@ All services start with sensible defaults. No config file needed:
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
 - **AWS** on `http://localhost:4006`
+- **HeyGen** on `http://localhost:4007`
 
 ## CLI
 
@@ -678,3 +679,5 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+**HeyGen**: OAuth 2.0 authorization code flow with mandatory PKCE. Separate token (`/v1/oauth/token`) and refresh (`/v1/oauth/refresh_token`) endpoints. User profile at `/v1/user/me` returns HeyGen's `{ code, data, message }` wrapper.

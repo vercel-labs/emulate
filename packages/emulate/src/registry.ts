@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas", "heygen"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -295,6 +295,31 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         clusters: [{ name: "Cluster0", project: "Project0" }],
         database_users: [{ username: "admin", project: "Project0" }],
         databases: [{ cluster: "Cluster0", name: "test", collections: ["items"] }],
+      },
+    },
+  },
+  heygen: {
+    label: "HeyGen OAuth 2.0 emulator",
+    endpoints: "OAuth authorize, PKCE token exchange, refresh token, user info",
+    async load() {
+      const mod = await import("@emulators/heygen");
+      return { plugin: mod.heygenPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@heygen.com";
+      return { login: firstEmail, id: 1, scopes: [] };
+    },
+    initConfig: {
+      heygen: {
+        users: [{ email: "testuser@heygen.com", name: "Test User" }],
+        oauth_clients: [
+          {
+            client_id: "dev_client_id",
+            client_secret: "dev_client_secret",
+            name: "HyperFrames (dev)",
+            redirect_uris: ["http://localhost:3000/api/auth/callback"],
+          },
+        ],
       },
     },
   },

@@ -13,6 +13,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Apple Sign In", href: "/apple" },
   { name: "Microsoft Entra ID", href: "/microsoft" },
   { name: "AWS", href: "/aws" },
+  { name: "HeyGen API", href: "/heygen" },
   { name: "Authentication", href: "/authentication" },
   { name: "Architecture", href: "/architecture" },
 ];

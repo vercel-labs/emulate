@@ -1,0 +1,65 @@
+# HeyGen API
+
+OAuth 2.0 authorization code flow with PKCE for local HeyGen auth testing.
+
+## Routes
+
+- `GET /oauth/authorize` - authorization endpoint (renders user-picker UI)
+- `POST /oauth/authorize/callback` - form submission; issues code and redirects
+- `POST /v1/oauth/token` - token exchange (authorization code grant with PKCE)
+- `POST /v1/oauth/refresh_token` - refresh token grant
+- `GET /v1/user/me` - get user profile
+
+## Start
+
+```bash
+npx emulate --service heygen
+# http://localhost:4007
+```
+
+## Environment Variables
+
+Point your app at the emulator by overriding these variables:
+
+```bash
+HEYGEN_OAUTH_AUTHORIZE_URL=http://localhost:4007/oauth/authorize
+HEYGEN_OAUTH_TOKEN_URL=http://localhost:4007/v1/oauth/token
+HEYGEN_OAUTH_REFRESH_URL=http://localhost:4007/v1/oauth/refresh_token
+HEYGEN_USER_ME_URL=http://localhost:4007/v1/user/me
+HEYGEN_OAUTH_CLIENT_ID=dev_client_id
+```
+
+## User Response
+
+The `GET /v1/user/me` response matches HeyGen's production shape:
+
+```json
+{
+  "code": 100,
+  "data": {
+    "user": {
+      "user_id": "heygen_a1b2c3d4",
+      "email": "testuser@heygen.com",
+      "username": "Test User",
+      "email_verified": true
+    }
+  },
+  "message": "Success"
+}
+```
+
+## Seed Config
+
+```yaml
+heygen:
+  users:
+    - email: alice@example.com
+      name: Alice
+      picture: https://example.com/alice.jpg
+  oauth_clients:
+    - client_id: my_client_id
+      client_secret: my_client_secret
+      name: My App (dev)
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback
+```
