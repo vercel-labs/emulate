@@ -15,6 +15,7 @@ const nav = [
   { href: "/apple", label: "Apple Sign In" },
   { href: "/microsoft", label: "Microsoft Entra ID" },
   { href: "/aws", label: "AWS" },
+  { href: "/heygen", label: "HeyGen API" },
   { href: "/authentication", label: "Authentication" },
   { href: "/architecture", label: "Architecture" },
 ];

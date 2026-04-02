@@ -8,6 +8,7 @@ export const PAGE_TITLES: Record<string, string> = {
   apple: "Apple Sign In",
   microsoft: "Microsoft Entra ID",
   aws: "AWS",
+  heygen: "HeyGen API",
   authentication: "Authentication",
   architecture: "Architecture",
 };
