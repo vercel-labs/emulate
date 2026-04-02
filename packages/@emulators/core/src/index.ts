@@ -1,4 +1,4 @@
-export { Store, Collection, type Entity, type InsertInput, type QueryOptions, type PaginatedResult, type FilterFn, type SortFn } from "./store.js";
+export { Store, Collection, type Entity, type InsertInput, type QueryOptions, type PaginatedResult, type FilterFn, type SortFn, type CollectionSnapshot, type StoreSnapshot, serializeValue, deserializeValue } from "./store.js";
 export { createServer, type ServerOptions } from "./server.js";
 export { type ServicePlugin, type RouteContext } from "./plugin.js";
 export { WebhookDispatcher, type WebhookSubscription, type WebhookDelivery } from "./webhooks.js";
@@ -19,3 +19,4 @@ export { escapeHtml, escapeAttr, renderCardPage, renderErrorPage, renderSettings
 export { registerFontRoutes } from "./fonts.js";
 export { normalizeUri, matchesRedirectUri, constantTimeSecretEqual, bodyStr, parseCookies } from "./oauth-helpers.js";
 export { debug } from "./debug.js";
+export { type PersistenceAdapter, filePersistence } from "./persistence.js";

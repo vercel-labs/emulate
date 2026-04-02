@@ -25,6 +25,41 @@ export interface PaginatedResult<T> {
   has_prev: boolean;
 }
 
+export interface CollectionSnapshot<T extends Entity = Entity> {
+  items: T[];
+  autoId: number;
+  indexFields: string[];
+}
+
+export interface StoreSnapshot {
+  collections: Record<string, CollectionSnapshot>;
+  data: Record<string, unknown>;
+}
+
+export function serializeValue(value: unknown): unknown {
+  if (value instanceof Map) {
+    return { __type: "Map" as const, entries: [...value.entries()].map(([k, v]) => [k, serializeValue(v)]) };
+  }
+  if (value instanceof Set) {
+    return { __type: "Set" as const, values: [...value.values()] };
+  }
+  return value;
+}
+
+export function deserializeValue(value: unknown): unknown {
+  if (value !== null && typeof value === "object" && "__type" in value) {
+    const tagged = value as Record<string, unknown>;
+    if (tagged.__type === "Map") {
+      const entries = tagged.entries as [unknown, unknown][];
+      return new Map(entries.map(([k, v]) => [k, deserializeValue(v)]));
+    }
+    if (tagged.__type === "Set") {
+      return new Set(tagged.values as unknown[]);
+    }
+  }
+  return value;
+}
+
 export class Collection<T extends Entity> {
   private items = new Map<number, T>();
   private indexes = new Map<string, Map<string | number, Set<number>>>();
@@ -162,6 +197,23 @@ export class Collection<T extends Entity> {
     }
     this.autoId = 1;
   }
+
+  snapshot(): CollectionSnapshot<T> {
+    return {
+      items: this.all(),
+      autoId: this.autoId,
+      indexFields: this.fieldNames,
+    };
+  }
+
+  restore(snap: CollectionSnapshot<T>): void {
+    this.clear();
+    this.autoId = snap.autoId;
+    for (const item of snap.items) {
+      this.items.set(item.id, item);
+      this.addToIndex(item);
+    }
+  }
 }
 
 export class Store {
@@ -199,5 +251,29 @@ export class Store {
       collection.clear();
     }
     this._data.clear();
+  }
+
+  snapshot(): StoreSnapshot {
+    const collections: Record<string, CollectionSnapshot> = {};
+    for (const [name, col] of this.collections) {
+      collections[name] = col.snapshot();
+    }
+    const data: Record<string, unknown> = {};
+    for (const [key, value] of this._data) {
+      data[key] = serializeValue(value);
+    }
+    return { collections, data };
+  }
+
+  restore(snap: StoreSnapshot): void {
+    for (const [name, colSnap] of Object.entries(snap.collections)) {
+      const indexFields = colSnap.indexFields as (keyof Entity)[];
+      const col = this.collection(name, indexFields);
+      col.restore(colSnap as CollectionSnapshot<any>);
+    }
+    this._data.clear();
+    for (const [key, value] of Object.entries(snap.data)) {
+      this._data.set(key, deserializeValue(value));
+    }
   }
 }
