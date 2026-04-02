@@ -717,6 +717,12 @@ export default withEmulate({
 })
 ```
 
+If you mount the catch-all at a custom path, pass the matching prefix:
+
+```typescript
+export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
+```
+
 ### Persistence
 
 By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter:

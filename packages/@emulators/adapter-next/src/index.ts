@@ -1,14 +1,16 @@
 import {
   createServer,
   debug,
+  serializeTokenMap,
+  restoreTokenMap,
   type ServicePlugin,
   type Store,
   type TokenMap,
+  type TokenEntry,
   type StoreSnapshot,
   type PersistenceAdapter,
   type AppKeyResolver,
 } from "@emulators/core";
-import type { Hono } from "hono";
 
 export type { PersistenceAdapter } from "@emulators/core";
 
@@ -29,14 +31,16 @@ export interface EmulateHandlerConfig {
   persistence?: PersistenceAdapter;
 }
 
+interface Fetchable {
+  fetch(request: Request, ...rest: unknown[]): Response | Promise<Response>;
+}
+
 interface ServiceApp {
-  hono: Hono<any>;
+  hono: Fetchable;
   store: Store;
   tokenMap: TokenMap;
   plugin: ServicePlugin;
 }
-
-type TokenEntry = { token: string; login: string; id: number; scopes: string[] };
 
 interface FullSnapshot {
   store: StoreSnapshot;
@@ -55,22 +59,6 @@ function resolvePlugin(mod: EmulatorModule): ServicePlugin {
     throw new Error("Emulator module must export `plugin` or a default export implementing ServicePlugin");
   }
   return plugin;
-}
-
-function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
-  return [...tokenMap.entries()].map(([token, user]) => ({
-    token,
-    login: user.login,
-    id: user.id,
-    scopes: user.scopes,
-  }));
-}
-
-function restoreTokenMap(tokenMap: TokenMap, tokens: TokenEntry[]): void {
-  tokenMap.clear();
-  for (const t of tokens) {
-    tokenMap.set(t.token, { login: t.login, id: t.id, scopes: t.scopes });
-  }
 }
 
 function takeSnapshot(apps: Map<string, ServiceApp>): FullSnapshot {
@@ -129,7 +117,7 @@ function detectPrefix(url: string, pathSegments: string[]): string {
   if (idx > 0) {
     return fullPath.slice(0, idx);
   }
-  return "/emulate";
+  throw new Error(`Could not detect mount path from URL: ${url}`);
 }
 
 async function rewriteResponse(response: Response, servicePrefix: string): Promise<Response> {
@@ -151,6 +139,8 @@ async function rewriteResponse(response: Response, servicePrefix: string): Promi
 
   let html = await response.text();
 
+  // Skip paths already carrying the service prefix to avoid double-prefixing
+  // (e.g., redirects that already went through rewriting).
   html = html.replace(/(action|href)="(\/[^"]*?)"/g, (_match, attr, path) => {
     if (path.startsWith(servicePrefix)) return `${attr}="${path}"`;
     return `${attr}="${servicePrefix}${path}"`;
@@ -188,9 +178,11 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       if (!apps) return;
       const snapshot = takeSnapshot(apps);
       const json = JSON.stringify(snapshot);
-      await persistence.save(json);
-    }).catch((err) => {
-      debug("persistence", "save failed", err);
+      try {
+        await persistence.save(json);
+      } catch (err) {
+        debug("persistence", "save failed: %o", err);
+      }
     });
   }
 
@@ -311,9 +303,10 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
   };
 }
 
-export function withEmulate<T>(nextConfig: T): T {
+export function withEmulate<T>(nextConfig: T, options?: { routePrefix?: string }): T {
   const config = nextConfig as Record<string, unknown>;
-  const routePattern = "/emulate/**";
+  const prefix = options?.routePrefix ?? "/emulate";
+  const routePattern = `${prefix}/**`;
   const fontGlob = "./node_modules/@emulators/core/dist/fonts/**";
 
   const topLevel = { ...((config.outputFileTracingIncludes as Record<string, string[]> | undefined) ?? {}) };

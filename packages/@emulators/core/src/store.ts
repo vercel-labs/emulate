@@ -266,6 +266,12 @@ export class Store {
   }
 
   restore(snap: StoreSnapshot): void {
+    const snapshotNames = new Set(Object.keys(snap.collections));
+    for (const name of this.collections.keys()) {
+      if (!snapshotNames.has(name)) {
+        this.collections.delete(name);
+      }
+    }
     for (const [name, colSnap] of Object.entries(snap.collections)) {
       const indexFields = colSnap.indexFields as (keyof Entity)[];
       const col = this.collection(name, indexFields);

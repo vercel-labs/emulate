@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export interface PersistenceAdapter {
@@ -10,14 +10,14 @@ export function filePersistence(path: string): PersistenceAdapter {
   return {
     async load() {
       try {
-        return readFileSync(path, "utf-8");
+        return await readFile(path, "utf-8");
       } catch {
         return null;
       }
     },
     async save(data: string) {
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, data, "utf-8");
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, data, "utf-8");
     },
   };
 }

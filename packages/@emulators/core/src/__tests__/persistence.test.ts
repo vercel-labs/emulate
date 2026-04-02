@@ -165,6 +165,24 @@ describe("Store snapshot/restore", () => {
     expect(users2.findOneBy("login", "will-be-replaced")).toBeUndefined();
   });
 
+  it("restore removes collections not present in the snapshot", () => {
+    store.collection<User>("users", ["login"]).insert({ login: "alice" });
+    store.collection<Repo>("repos", ["owner_id"]).insert({ name: "hello-world", owner_id: 1 });
+
+    const usersOnly = new Store();
+    usersOnly.collection<User>("users", ["login"]).insert({ login: "bob" });
+    const snap = usersOnly.snapshot();
+
+    store.restore(snap);
+
+    const users = store.collection<User>("users", ["login"]);
+    expect(users.all()).toHaveLength(1);
+    expect(users.findOneBy("login", "bob")).toBeDefined();
+
+    const repos = store.collection<Repo>("repos", ["owner_id"]);
+    expect(repos.all()).toHaveLength(0);
+  });
+
   it("survives JSON round-trip with Sets in data", () => {
     const tracker = new Set(["user1@test.com", "user2@test.com"]);
     store.setData("apple.oauth.firstAuthTracker", tracker);
@@ -205,10 +223,11 @@ describe("filePersistence", () => {
   });
 
   it("save creates parent directories", async () => {
-    const nested = join(tmpdir(), `emulate-nested-${Date.now()}`, "deep", "state.json");
+    const dir = join(tmpdir(), `emulate-nested-${Date.now()}`);
+    const nested = join(dir, "deep", "state.json");
     const adapter = filePersistence(nested);
     await adapter.save("{}");
     expect(existsSync(nested)).toBe(true);
-    rmSync(join(tmpdir(), `emulate-nested-${Date.now()}`), { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   });
 });

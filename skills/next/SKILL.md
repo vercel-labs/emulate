@@ -85,6 +85,12 @@ export default withEmulate({
 })
 ```
 
+If you mount the catch-all at a custom path, pass the matching prefix:
+
+```typescript
+export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
+```
+
 ## Persistence
 
 By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter.
@@ -152,9 +158,13 @@ Each `EmulatorEntry`:
 | `emulator` | `EmulatorModule` | The emulator package (e.g. `import * as github from '@emulators/github'`) |
 | `seed?` | `Record<string, unknown>` | Seed data matching the service's config schema |
 
-### `withEmulate(nextConfig)`
+### `withEmulate(nextConfig, options?)`
 
 Wraps a Next.js config to include emulator font files in the serverless output trace. Call it around your exported config in `next.config.mjs` or `next.config.ts`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `routePrefix` | `string` | `"/emulate"` | The path prefix where the catch-all route is mounted |
 
 ### `PersistenceAdapter`
 

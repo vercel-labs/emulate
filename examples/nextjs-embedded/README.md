@@ -26,6 +26,10 @@ Open [http://localhost:3000](http://localhost:3000) and click any provider to si
 5. The callback route exchanges the code for an access token by calling the embedded emulator's token endpoint, fetches user info, and stores the session in an HTTP-only cookie.
 6. The dashboard displays the authenticated user's profile and access token.
 
+## Security Note
+
+The session cookie in this example is a plain base64url-encoded JSON blob with no signature or encryption. This is acceptable for a local demo but not for production. In a real app, use a signed or encrypted session (e.g., iron-session or Auth.js).
+
 ## Key Differences from the OAuth Example
 
 | | `examples/oauth` | `examples/nextjs-embedded` |
