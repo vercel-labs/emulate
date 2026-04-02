@@ -269,59 +269,7 @@ Then use these in your app to construct API and OAuth URLs. See each service's s
 
 ## Next.js Integration (Embedded Mode)
 
-The `@emulators/adapter-next` package embeds emulators directly into a Next.js app, running them on the same origin. This is particularly useful for Vercel preview deployments where OAuth callback URLs change with every deployment.
-
-### Install
-
-```bash
-npm install @emulators/adapter-next @emulators/github @emulators/google
-```
-
-### Route handler
-
-```typescript
-// app/emulate/[...path]/route.ts
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
-import * as google from '@emulators/google'
-
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  services: {
-    github: {
-      emulator: github,
-      seed: { users: [{ login: 'octocat', name: 'The Octocat' }] },
-    },
-    google: {
-      emulator: google,
-      seed: { users: [{ email: 'test@example.com', name: 'Test User' }] },
-    },
-  },
-})
-```
-
-### Auth.js configuration
-
-```typescript
-const baseUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : 'http://localhost:3000'
-
-GitHub({
-  clientId: 'any-value',
-  clientSecret: 'any-value',
-  authorization: { url: `${baseUrl}/emulate/github/login/oauth/authorize` },
-  token: { url: `${baseUrl}/emulate/github/login/oauth/access_token` },
-  userinfo: { url: `${baseUrl}/emulate/github/user` },
-})
-```
-
-### Font tracing for serverless
-
-```typescript
-// next.config.mjs
-import { withEmulate } from '@emulators/adapter-next'
-export default withEmulate({ /* normal Next.js config */ })
-```
+The `@emulators/adapter-next` package embeds emulators directly into a Next.js app on the same origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, and font tracing details.
 
 ## Persistence
 
@@ -345,15 +293,6 @@ const kvAdapter: PersistenceAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data) { await kv.set('emulate-state', data) },
 }
-```
-
-### Using persistence with Next.js adapter
-
-```typescript
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  services: { github: { emulator: github } },
-  persistence: kvAdapter,
-})
 ```
 
 State is loaded on cold start and saved after every mutating request (POST, PUT, PATCH, DELETE). Saves are serialized to prevent race conditions.
