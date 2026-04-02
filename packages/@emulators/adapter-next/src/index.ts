@@ -340,27 +340,16 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
   };
 }
 
-export interface NextConfig {
-  experimental?: {
-    outputFileTracingIncludes?: Record<string, string[]>;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-export function withEmulate<T extends NextConfig>(nextConfig: T): T {
-  const config = { ...nextConfig };
-  const experimental = { ...(config.experimental ?? {}) };
-  const tracing = { ...(experimental.outputFileTracingIncludes ?? {}) };
-
+export function withEmulate<T>(nextConfig: T): T {
+  const config = nextConfig as Record<string, unknown>;
   const routePattern = "/emulate/**";
-  const existing = tracing[routePattern] ?? [];
   const fontGlob = "./node_modules/@emulators/core/dist/fonts/**";
+
+  const topLevel = { ...((config.outputFileTracingIncludes as Record<string, string[]> | undefined) ?? {}) };
+  const existing = topLevel[routePattern] ?? [];
   if (!existing.includes(fontGlob)) {
-    tracing[routePattern] = [...existing, fontGlob];
+    topLevel[routePattern] = [...existing, fontGlob];
   }
 
-  experimental.outputFileTracingIncludes = tracing;
-  config.experimental = experimental;
-  return config as T;
+  return { ...config, outputFileTracingIncludes: topLevel } as T;
 }
