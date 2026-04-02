@@ -31,12 +31,15 @@ export function tagRoutes({ app, store, baseUrl }: RouteContext): void {
     if (!body.name) return asanaError(c, 400, "name: Missing input");
     if (!body.workspace) return asanaError(c, 400, "workspace: Missing input");
 
+    const ws = as().workspaces.findOneBy("gid", body.workspace as string);
+    if (!ws) return asanaError(c, 404, "workspace: Not Found");
+
     const gid = generateGid();
     const tag = as().tags.insert({
       gid,
       resource_type: "tag",
       name: body.name as string,
-      workspace_gid: body.workspace as string,
+      workspace_gid: ws.gid,
       color: (body.color as string) ?? null,
       permalink_url: "",
     });

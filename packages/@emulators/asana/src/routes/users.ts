@@ -33,6 +33,9 @@ export function userRoutes({ app, store, baseUrl }: RouteContext): void {
     const workspaceGid = c.req.query("workspace");
     if (!workspaceGid) return asanaError(c, 400, "workspace: Missing input");
 
+    const ws = as().workspaces.findOneBy("gid", workspaceGid);
+    if (!ws) return asanaError(c, 404, "workspace: Not Found");
+
     const pagination = parsePagination(c);
     const users = as().users.all();
     const formatted = users.map((u) => compact(u.gid, u.resource_type, u.name));

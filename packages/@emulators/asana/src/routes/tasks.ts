@@ -111,7 +111,9 @@ export function taskRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
     if (membershipData) {
       for (const m of membershipData) {
         const existing = as().taskProjects.findBy("task_gid", gid).find((tp) => tp.project_gid === m.project);
-        if (!existing) {
+        if (existing) {
+          if (m.section) as().taskProjects.update(existing.id, { section_gid: m.section });
+        } else {
           as().taskProjects.insert({ task_gid: gid, project_gid: m.project, section_gid: m.section ?? null });
         }
       }
@@ -365,6 +367,9 @@ export function taskRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
     const body = await parseAsanaBody(c);
     const tagGid = body.tag as string;
     if (!tagGid) return asanaError(c, 400, "tag: Missing input");
+
+    const tag = as().tags.findOneBy("gid", tagGid);
+    if (!tag) return asanaError(c, 404, "tag: Not Found");
 
     const existing = as().taskTags.findBy("task_gid", taskGid).find((tt) => tt.tag_gid === tagGid);
     if (!existing) {

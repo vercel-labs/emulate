@@ -58,6 +58,10 @@ export function sectionRoutes({ app, store, baseUrl }: RouteContext): void {
     const section = as().sections.findOneBy("gid", gid);
     if (!section) return asanaError(c, 404, "section: Not Found");
 
+    for (const tp of as().taskProjects.findBy("project_gid", section.project_gid).filter((tp) => tp.section_gid === gid)) {
+      as().taskProjects.update(tp.id, { section_gid: null });
+    }
+
     as().sections.delete(section.id);
     return c.json(asanaData({}));
   });
