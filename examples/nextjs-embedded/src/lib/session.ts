@@ -24,6 +24,8 @@ export async function getSession(): Promise<Session | null> {
   }
 }
 
+// Demo only: plain base64url with no signature. In production, sign or
+// encrypt the cookie (e.g. with iron-session or Auth.js).
 export function encodeSession(session: Session): string {
   return Buffer.from(JSON.stringify(session)).toString("base64url");
 }

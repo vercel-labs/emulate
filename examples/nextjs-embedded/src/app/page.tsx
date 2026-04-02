@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { providers } from "@/lib/providers";
+import { getProviders } from "@/lib/providers";
 import {
   Card,
   CardContent,
@@ -41,7 +41,7 @@ export default async function Home() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {Object.values(providers).map((provider) => (
+          {Object.values(getProviders()).map((provider) => (
             <a
               key={provider.slug}
               href={`/api/auth/${provider.slug}`}

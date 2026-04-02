@@ -5,7 +5,6 @@ export type Provider = {
   tokenUrl: string;
   userInfoUrl: string;
   scope: string;
-  tokenFieldName?: string;
   userNameField: string;
   userEmailField: string;
   userLoginField?: string;
@@ -14,35 +13,40 @@ export type Provider = {
   tokenResponseAccessTokenField?: string;
 };
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+function getAppUrl(): string {
+  return process.env.APP_URL ?? "http://localhost:3000";
+}
 
-export const providers: Record<string, Provider> = {
-  github: {
-    name: "GitHub",
-    slug: "github",
-    authorizeUrl: `${APP_URL}/emulate/github/login/oauth/authorize`,
-    tokenUrl: `${APP_URL}/emulate/github/login/oauth/access_token`,
-    userInfoUrl: `${APP_URL}/emulate/github/user`,
-    scope: "user repo",
-    userNameField: "name",
-    userEmailField: "email",
-    userLoginField: "login",
-    userAvatarField: "avatar_url",
-  },
-  google: {
-    name: "Google",
-    slug: "google",
-    authorizeUrl: `${APP_URL}/emulate/google/o/oauth2/v2/auth`,
-    tokenUrl: `${APP_URL}/emulate/google/oauth2/token`,
-    userInfoUrl: `${APP_URL}/emulate/google/oauth2/v2/userinfo`,
-    scope: "openid email profile",
-    tokenRequestContentType: "application/x-www-form-urlencoded",
-    userNameField: "name",
-    userEmailField: "email",
-    userAvatarField: "picture",
-  },
-};
+export function getProviders(): Record<string, Provider> {
+  const appUrl = getAppUrl();
+  return {
+    github: {
+      name: "GitHub",
+      slug: "github",
+      authorizeUrl: `${appUrl}/emulate/github/login/oauth/authorize`,
+      tokenUrl: `${appUrl}/emulate/github/login/oauth/access_token`,
+      userInfoUrl: `${appUrl}/emulate/github/user`,
+      scope: "user repo",
+      userNameField: "name",
+      userEmailField: "email",
+      userLoginField: "login",
+      userAvatarField: "avatar_url",
+    },
+    google: {
+      name: "Google",
+      slug: "google",
+      authorizeUrl: `${appUrl}/emulate/google/o/oauth2/v2/auth`,
+      tokenUrl: `${appUrl}/emulate/google/oauth2/token`,
+      userInfoUrl: `${appUrl}/emulate/google/oauth2/v2/userinfo`,
+      scope: "openid email profile",
+      tokenRequestContentType: "application/x-www-form-urlencoded",
+      userNameField: "name",
+      userEmailField: "email",
+      userAvatarField: "picture",
+    },
+  };
+}
 
 export function getCallbackUrl(provider: string): string {
-  return `${APP_URL}/api/auth/callback/${provider}`;
+  return `${getAppUrl()}/api/auth/callback/${provider}`;
 }

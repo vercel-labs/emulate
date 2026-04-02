@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { providers, getCallbackUrl } from "@/lib/providers";
+import { getProviders, getCallbackUrl } from "@/lib/providers";
 import { encodeSession, type Session } from "@/lib/session";
 
 export async function GET(
@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ provider: string }> }
 ) {
   const { provider: slug } = await params;
-  const provider = providers[slug];
+  const provider = getProviders()[slug];
   if (!provider) {
     return new Response("Unknown provider", { status: 404 });
   }

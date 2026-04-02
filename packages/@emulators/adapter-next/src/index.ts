@@ -1,9 +1,9 @@
 import {
   createServer,
+  debug,
   type ServicePlugin,
   type Store,
   type TokenMap,
-  type AuthUser,
   type StoreSnapshot,
   type PersistenceAdapter,
   type AppKeyResolver,
@@ -17,7 +17,6 @@ export interface EmulatorModule {
   default?: ServicePlugin;
   seedFromConfig?(store: Store, baseUrl: string, config: unknown): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
-  getGitHubStore?(store: Store): unknown;
 }
 
 interface EmulatorEntry {
@@ -26,7 +25,7 @@ interface EmulatorEntry {
 }
 
 export interface EmulateHandlerConfig {
-  [service: string]: EmulatorEntry | PersistenceAdapter | undefined;
+  services: Record<string, EmulatorEntry>;
   persistence?: PersistenceAdapter;
 }
 
@@ -37,9 +36,11 @@ interface ServiceApp {
   plugin: ServicePlugin;
 }
 
+type TokenEntry = { token: string; login: string; id: number; scopes: string[] };
+
 interface FullSnapshot {
   store: StoreSnapshot;
-  tokens: Array<{ token: string; login: string; id: number; scopes: string[] }>;
+  tokens: Record<string, TokenEntry[]>;
 }
 
 type NextRequest = Request;
@@ -56,7 +57,7 @@ function resolvePlugin(mod: EmulatorModule): ServicePlugin {
   return plugin;
 }
 
-function serializeTokenMap(tokenMap: TokenMap): FullSnapshot["tokens"] {
+function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
   return [...tokenMap.entries()].map(([token, user]) => ({
     token,
     login: user.login,
@@ -65,7 +66,7 @@ function serializeTokenMap(tokenMap: TokenMap): FullSnapshot["tokens"] {
   }));
 }
 
-function restoreTokenMap(tokenMap: TokenMap, tokens: FullSnapshot["tokens"]): void {
+function restoreTokenMap(tokenMap: TokenMap, tokens: TokenEntry[]): void {
   tokenMap.clear();
   for (const t of tokens) {
     tokenMap.set(t.token, { login: t.login, id: t.id, scopes: t.scopes });
@@ -73,31 +74,21 @@ function restoreTokenMap(tokenMap: TokenMap, tokens: FullSnapshot["tokens"]): vo
 }
 
 function takeSnapshot(apps: Map<string, ServiceApp>): FullSnapshot {
-  const allStoreSnapshots: Record<string, StoreSnapshot> = {};
-  const allTokens: FullSnapshot["tokens"] = [];
-  const seenTokens = new Set<string>();
+  const mergedStore: StoreSnapshot = { collections: {}, data: {} };
+  const tokens: Record<string, TokenEntry[]> = {};
 
   for (const [name, sa] of apps) {
-    allStoreSnapshots[name] = sa.store.snapshot();
-    for (const t of serializeTokenMap(sa.tokenMap)) {
-      if (!seenTokens.has(t.token)) {
-        seenTokens.add(t.token);
-        allTokens.push(t);
-      }
-    }
-  }
-
-  const mergedStore: StoreSnapshot = { collections: {}, data: {} };
-  for (const [name, snap] of Object.entries(allStoreSnapshots)) {
+    const snap = sa.store.snapshot();
     for (const [colName, colSnap] of Object.entries(snap.collections)) {
       mergedStore.collections[`${name}:${colName}`] = colSnap;
     }
     for (const [key, val] of Object.entries(snap.data)) {
       mergedStore.data[`${name}:${key}`] = val;
     }
+    tokens[name] = serializeTokenMap(sa.tokenMap);
   }
 
-  return { store: mergedStore, tokens: allTokens };
+  return { store: mergedStore, tokens };
 }
 
 function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapshot): void {
@@ -126,7 +117,7 @@ function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapsh
     if (snap) {
       sa.store.restore(snap);
     }
-    restoreTokenMap(sa.tokenMap, snapshot.tokens);
+    restoreTokenMap(sa.tokenMap, snapshot.tokens[name] ?? []);
   }
 }
 
@@ -141,38 +132,21 @@ function detectPrefix(url: string, pathSegments: string[]): string {
   return "/emulate";
 }
 
-function rewriteResponse(response: Response, servicePrefix: string): Response {
+async function rewriteResponse(response: Response, servicePrefix: string): Promise<Response> {
   const contentType = response.headers.get("Content-Type") ?? "";
   const location = response.headers.get("Location");
+  const isHtml = contentType.includes("text/html");
+  const locationChanged = location != null && location.startsWith("/");
 
-  const headers = new Headers(response.headers);
-
-  if (location && location.startsWith("/")) {
+  if (!isHtml) {
+    if (!locationChanged) return response;
+    const headers = new Headers(response.headers);
     headers.set("Location", servicePrefix + location);
-  }
-
-  if (!contentType.includes("text/html")) {
-    if (headers.get("Location") !== response.headers.get("Location") || response.body === null) {
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
-    }
-    return response;
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-async function rewriteHtmlBody(response: Response, servicePrefix: string): Promise<Response> {
-  const contentType = response.headers.get("Content-Type") ?? "";
-  if (!contentType.includes("text/html")) {
-    return response;
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   let html = await response.text();
@@ -188,6 +162,9 @@ async function rewriteHtmlBody(response: Response, servicePrefix: string): Promi
   });
 
   const headers = new Headers(response.headers);
+  if (locationChanged) {
+    headers.set("Location", servicePrefix + location);
+  }
   headers.delete("Content-Length");
 
   return new Response(html, {
@@ -198,16 +175,10 @@ async function rewriteHtmlBody(response: Response, servicePrefix: string): Promi
 }
 
 export function createEmulateHandler(config: EmulateHandlerConfig) {
-  const persistence = config.persistence as PersistenceAdapter | undefined;
-  const serviceEntries: Record<string, EmulatorEntry> = {};
-  for (const [key, value] of Object.entries(config)) {
-    if (key === "persistence" || !value) continue;
-    if ("emulator" in value) {
-      serviceEntries[key] = value;
-    }
-  }
+  const { services: serviceEntries, persistence } = config;
 
   let apps: Map<string, ServiceApp> | null = null;
+  let mountPath: string | null = null;
   let initPromise: Promise<void> | null = null;
   let pendingSave: Promise<void> = Promise.resolve();
 
@@ -218,6 +189,8 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       const snapshot = takeSnapshot(apps);
       const json = JSON.stringify(snapshot);
       await persistence.save(json);
+    }).catch((err) => {
+      debug("persistence", "save failed", err);
     });
   }
 
@@ -281,7 +254,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
     if (!initPromise) {
       const url = new URL(req.url);
       const origin = url.origin;
-      const mountPath = detectPrefix(req.url, pathSegments);
+      mountPath = detectPrefix(req.url, pathSegments);
       initPromise = initApps(origin, mountPath).then((result) => {
         apps = result;
       });
@@ -313,14 +286,12 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       headers: req.headers,
       body: req.body,
       duplex: "half",
-    });
+    } as RequestInit & { duplex: string });
 
     let response = await sa.hono.fetch(strippedReq);
 
-    const mountPath = detectPrefix(req.url, pathSegments);
-    const servicePrefix = `${mountPath}/${serviceName}`;
-    response = rewriteResponse(response, servicePrefix);
-    response = await rewriteHtmlBody(response, servicePrefix);
+    const servicePrefix = `${mountPath!}/${serviceName}`;
+    response = await rewriteResponse(response, servicePrefix);
 
     if (persistence && MUTATING_METHODS.has(req.method)) {
       enqueueSave();

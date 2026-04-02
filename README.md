@@ -664,17 +664,19 @@ import * as github from '@emulators/github'
 import * as google from '@emulators/google'
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  github: {
-    emulator: github,
-    seed: {
-      users: [{ login: 'octocat', name: 'The Octocat' }],
-      repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+  services: {
+    github: {
+      emulator: github,
+      seed: {
+        users: [{ login: 'octocat', name: 'The Octocat' }],
+        repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+      },
     },
-  },
-  google: {
-    emulator: google,
-    seed: {
-      users: [{ email: 'test@example.com', name: 'Test User' }],
+    google: {
+      emulator: google,
+      seed: {
+        users: [{ email: 'test@example.com', name: 'Test User' }],
+      },
     },
   },
 })
@@ -729,7 +731,7 @@ const kvAdapter = {
 }
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  github: { emulator: github },
+  services: { github: { emulator: github } },
   persistence: kvAdapter,
 })
 ```

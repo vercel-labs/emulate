@@ -286,13 +286,15 @@ import * as github from '@emulators/github'
 import * as google from '@emulators/google'
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  github: {
-    emulator: github,
-    seed: { users: [{ login: 'octocat', name: 'The Octocat' }] },
-  },
-  google: {
-    emulator: google,
-    seed: { users: [{ email: 'test@example.com', name: 'Test User' }] },
+  services: {
+    github: {
+      emulator: github,
+      seed: { users: [{ login: 'octocat', name: 'The Octocat' }] },
+    },
+    google: {
+      emulator: google,
+      seed: { users: [{ email: 'test@example.com', name: 'Test User' }] },
+    },
   },
 })
 ```
@@ -349,7 +351,7 @@ const kvAdapter: PersistenceAdapter = {
 
 ```typescript
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  github: { emulator: github },
+  services: { github: { emulator: github } },
   persistence: kvAdapter,
 })
 ```

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { providers } from "@/lib/providers";
+import { getProviders } from "@/lib/providers";
 import {
   Card,
   CardContent,
@@ -19,6 +19,7 @@ export default async function Dashboard() {
   const session = await getSession();
   if (!session) redirect("/");
 
+  const providers = getProviders();
   const provider = providers[session.provider];
   const initials = (session.user.name ?? "?")
     .split(" ")
