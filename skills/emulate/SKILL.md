@@ -111,8 +111,8 @@ beforeAll(async () => {
     createEmulator({ service: 'github', port: 4001 }),
     createEmulator({ service: 'vercel', port: 4002 }),
   ])
-  process.env.GITHUB_URL = github.url
-  process.env.VERCEL_URL = vercel.url
+  process.env.GITHUB_EMULATOR_URL = github.url
+  process.env.VERCEL_EMULATOR_URL = vercel.url
 })
 
 afterEach(() => { github.reset(); vercel.reset() })
