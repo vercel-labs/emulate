@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+<!-- release:start -->
+### Bug Fixes
+
+- Include README in all `@emulators/*` npm packages
+<!-- release:end -->
+
 ## 0.4.0
 
 <!-- release:start -->
