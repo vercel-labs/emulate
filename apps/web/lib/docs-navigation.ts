@@ -6,6 +6,7 @@ export type NavItem = {
 export const allDocsPages: NavItem[] = [
   { name: "Getting Started", href: "/" },
   { name: "Configuration", href: "/configuration" },
+  { name: "Next.js Integration", href: "/nextjs" },
   { name: "Vercel API", href: "/vercel" },
   { name: "GitHub API", href: "/github" },
   { name: "Google API", href: "/google" },

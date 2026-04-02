@@ -1,6 +1,7 @@
 export const PAGE_TITLES: Record<string, string> = {
   "": "Local API Emulation\nfor CI and Sandboxes",
   configuration: "Configuration",
+  nextjs: "Next.js Integration",
   vercel: "Vercel API",
   github: "GitHub API",
   google: "Google API",
