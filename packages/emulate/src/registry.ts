@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas", "asana"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -295,6 +295,29 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         clusters: [{ name: "Cluster0", project: "Project0" }],
         database_users: [{ username: "admin", project: "Project0" }],
         databases: [{ cluster: "Cluster0", name: "test", collections: ["items"] }],
+      },
+    },
+  },
+  asana: {
+    label: "Asana project management API emulator",
+    endpoints: "users, workspaces, projects, sections, tasks, tags, stories, teams, webhooks",
+    async load() {
+      const mod = await import("@emulators/asana");
+      return { plugin: mod.asanaPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string; name?: string }> | undefined)?.[0]?.email ??
+        (cfg?.users as Array<{ email?: string; name?: string }> | undefined)?.[0]?.name ??
+        "me";
+      return { login: firstEmail, id: 1, scopes: [] };
+    },
+    initConfig: {
+      asana: {
+        workspaces: [{ name: "My Workspace", is_organization: true }],
+        users: [{ name: "Developer", email: "dev@example.com" }],
+        teams: [{ name: "Engineering", workspace: "My Workspace" }],
+        projects: [{ name: "My Project", workspace: "My Workspace", team: "Engineering", owner: "Developer" }],
+        tasks: [{ name: "Example Task", project: "My Project", assignee: "Developer" }],
       },
     },
   },
