@@ -354,6 +354,58 @@ describe("Stripe plugin", () => {
     });
   });
 
+  describe("customer sessions", () => {
+    it("creates a customer session", async () => {
+      const custRes = await app.request(`${base}/v1/customers`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ email: "session@test.com" }),
+      });
+      const cust = (await custRes.json()) as { id: string };
+
+      const res = await app.request(`${base}/v1/customer_sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({
+          customer: cust.id,
+          components: { payment_element: { enabled: true } },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const session = (await res.json()) as { object: string; client_secret: string; customer: string; components: Record<string, unknown>; created: number; expires_at: number };
+      expect(session.object).toBe("customer_session");
+      expect(session.client_secret).toBeTruthy();
+      expect(session.customer).toBe(cust.id);
+      expect(session.components).toEqual({ payment_element: { enabled: true } });
+      expect(session.created).toBeTypeOf("number");
+      expect(session.expires_at).toBeGreaterThan(session.created);
+    });
+
+    it("returns error for missing customer param", async () => {
+      const res = await app.request(`${base}/v1/customer_sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { type: string; param: string } };
+      expect(body.error.type).toBe("invalid_request_error");
+      expect(body.error.param).toBe("customer");
+    });
+
+    it("returns error for nonexistent customer", async () => {
+      const res = await app.request(`${base}/v1/customer_sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ customer: "cus_nonexistent" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { type: string; code: string } };
+      expect(body.error.type).toBe("invalid_request_error");
+      expect(body.error.code).toBe("resource_missing");
+    });
+  });
+
   describe("seed", () => {
     it("seeds customers and products from config", async () => {
       const store = new Store();
