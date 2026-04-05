@@ -14,7 +14,7 @@ export interface ServiceEntry {
   initConfig: Record<string, unknown>;
 }
 
-const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas"] as const;
+const SERVICE_NAME_LIST = ["vercel", "github", "google", "slack", "apple", "microsoft", "okta", "aws", "resend", "stripe", "mongoatlas", "clerk"] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
@@ -295,6 +295,39 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         clusters: [{ name: "Cluster0", project: "Project0" }],
         database_users: [{ username: "admin", project: "Project0" }],
         databases: [{ cluster: "Cluster0", name: "test", collections: ["items"] }],
+      },
+    },
+  },
+  clerk: {
+    label: "Clerk authentication and user management emulator",
+    endpoints: "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
+    async load() {
+      const mod = await import("@emulators/clerk");
+      return { plugin: mod.clerkPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email_addresses?: string[] }> | undefined)?.[0]?.email_addresses?.[0] ?? "test@example.com";
+      return { login: firstEmail, id: 1, scopes: [] };
+    },
+    initConfig: {
+      clerk: {
+        users: [{
+          first_name: "Test",
+          last_name: "User",
+          email_addresses: ["test@example.com"],
+          password: "clerk_test_password",
+        }],
+        organizations: [{
+          name: "My Company",
+          slug: "my-company",
+          members: [{ email: "test@example.com", role: "admin" }],
+        }],
+        oauth_applications: [{
+          client_id: "clerk_emulate_client",
+          client_secret: "clerk_emulate_secret",
+          name: "Emulate App",
+          redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
+        }],
       },
     },
   },
