@@ -6,6 +6,7 @@ import {
   escapeAttr,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
   matchesRedirectUri,
   constantTimeSecretEqual,
@@ -262,17 +263,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     debug("microsoft.oauth", `[Microsoft callback] code=${code.slice(0, 8)}... email=${email}`);
 
     if (response_mode === "form_post") {
-      const html = `<!DOCTYPE html>
-<html>
-<head><title>Submit</title></head>
-<body onload="document.forms[0].submit()">
-<form method="POST" action="${escapeAttr(redirect_uri)}">
-<input type="hidden" name="code" value="${escapeAttr(code)}" />
-<input type="hidden" name="state" value="${escapeAttr(state)}" />
-</form>
-</body>
-</html>`;
-      return c.html(html);
+      return c.html(renderFormPostPage(redirect_uri, { code, state }, SERVICE_LABEL));
     }
 
     // Default: query mode redirect

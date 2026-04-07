@@ -6,6 +6,7 @@ import {
   escapeAttr,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
   matchesRedirectUri,
   bodyStr,
@@ -254,18 +255,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     if (response_mode === "form_post") {
-      // Return auto-submit form that POSTs to redirect_uri
-      const html = `<!DOCTYPE html>
-<html>
-<head><title>Submit</title></head>
-<body onload="document.forms[0].submit()">
-<form method="POST" action="${escapeAttr(redirect_uri)}">
-<input type="hidden" name="code" value="${escapeAttr(code)}" />
-<input type="hidden" name="state" value="${escapeAttr(state)}" />${userJson ? `\n<input type="hidden" name="user" value="${escapeAttr(userJson)}" />` : ""}
-</form>
-</body>
-</html>`;
-      return c.html(html);
+      const fields: Record<string, string> = { code, state };
+      if (userJson) fields.user = userJson;
+      return c.html(renderFormPostPage(redirect_uri, fields, SERVICE_LABEL));
     }
 
     // Default: query mode redirect

@@ -11,6 +11,8 @@ const FONTS: Record<string, Buffer> = {
   "GeistPixel-Square.woff2": readFileSync(join(__dirname, "fonts", "GeistPixel-Square.woff2")),
 };
 
+const FAVICON = readFileSync(join(__dirname, "fonts", "favicon.ico"));
+
 export function registerFontRoutes(app: Hono<AppEnv>): void {
   app.get("/_emulate/fonts/:name", (c) => {
     const name = c.req.param("name");
@@ -21,6 +23,15 @@ export function registerFontRoutes(app: Hono<AppEnv>): void {
         "Content-Type": "font/woff2",
         "Cache-Control": "public, max-age=31536000, immutable",
         "Access-Control-Allow-Origin": "*",
+      },
+    });
+  });
+
+  app.get("/_emulate/favicon.ico", (c) => {
+    return new Response(FAVICON, {
+      headers: {
+        "Content-Type": "image/x-icon",
+        "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
   });

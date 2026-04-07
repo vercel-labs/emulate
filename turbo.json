@@ -20,6 +20,9 @@
     },
     "clean": {
       "cache": false
+    },
+    "type-check": {
+      "dependsOn": ["^build"]
     }
   }
 }

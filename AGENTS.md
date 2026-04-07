@@ -18,6 +18,23 @@ Do not use emojis anywhere in this repository (code, comments, output, docs).
 
 Never use `--` as a dash in prose, comments, or user-facing output. Use an em dash (\u2014) when a dash is needed, but prefer rephrasing to avoid dashes entirely. The only exception is CLI flags (e.g. `--port`).
 
+## Emulator UI Design System
+
+All emulator UIs (inspector pages, OAuth flows, checkout pages, inboxes, etc.) must use the shared design system in `packages/@emulators/core/src/ui.ts`. Never write inline HTML with custom `<style>` tags or standalone `<!DOCTYPE html>` templates in individual emulator packages.
+
+Use the appropriate shared render function for each page type:
+
+- `renderCardPage` for centered card layouts (OAuth sign-in, email detail, checkout)
+- `renderErrorPage` for error states
+- `renderSettingsPage` for sidebar + main content layouts (OAuth app settings, Slack inspector)
+- `renderInspectorPage` for tabbed data dashboards (AWS inspector)
+- `renderFormPostPage` for OAuth `form_post` auto-submit redirects
+- `renderUserButton` for user selection buttons in OAuth flows
+
+These functions provide the shared `head()` (Geist fonts, favicon, CSS), `emuBar()` header, and "Powered by emulate" footer automatically. Use the existing CSS classes (`.inspector-table`, `.s-card`, `.org-row`, `.badge`, `.empty`, etc.) rather than adding inline styles.
+
+If a new page type cannot be built with the existing render functions and CSS classes, add the new styles and render function to `core/src/ui.ts` so every emulator can reuse them.
+
 ## Docs Updates
 
 When a change affects how humans or agents use emulate (new/changed/removed commands, flags, behavior, routes, seed config, or SDK integration), update all of these:

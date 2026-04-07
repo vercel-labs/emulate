@@ -11,6 +11,7 @@ import {
   matchesRedirectUri,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
 } from "@emulators/core";
 import type { OktaOAuthClient, OktaUser } from "../entities.js";
@@ -522,17 +523,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     debug("okta.oauth", `[callback] code=${code.slice(0, 8)}... user=${user.login} server=${authServerId}`);
 
     if (responseMode === "form_post") {
-      const html = `<!DOCTYPE html>
-<html>
-<head><title>Submit</title></head>
-<body onload="document.forms[0].submit()">
-<form method="POST" action="${escapeAttr(redirectUri)}">
-<input type="hidden" name="code" value="${escapeAttr(code)}" />
-<input type="hidden" name="state" value="${escapeAttr(state)}" />
-</form>
-</body>
-</html>`;
-      return c.html(html);
+      return c.html(renderFormPostPage(redirectUri, { code, state }, SERVICE_LABEL));
     }
 
     const url = new URL(redirectUri);
