@@ -41,11 +41,13 @@ MICROSOFT_EMULATOR_URL=http://localhost:4005
 |--------------------|-------------|
 | `https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration` | `$MICROSOFT_EMULATOR_URL/{tenant}/v2.0/.well-known/openid-configuration` |
 | `https://login.microsoftonline.com/.well-known/openid-configuration` | `$MICROSOFT_EMULATOR_URL/.well-known/openid-configuration` |
-| `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | `$MICROSOFT_EMULATOR_URL/oauth2/v2.0/authorize` |
-| `https://login.microsoftonline.com/common/oauth2/v2.0/token` | `$MICROSOFT_EMULATOR_URL/oauth2/v2.0/token` |
-| `https://login.microsoftonline.com/common/discovery/v2.0/keys` | `$MICROSOFT_EMULATOR_URL/discovery/v2.0/keys` |
+| `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | `$MICROSOFT_EMULATOR_URL/common/oauth2/v2.0/authorize` |
+| `https://login.microsoftonline.com/common/oauth2/v2.0/token` | `$MICROSOFT_EMULATOR_URL/common/oauth2/v2.0/token` |
+| `https://login.microsoftonline.com/common/discovery/v2.0/keys` | `$MICROSOFT_EMULATOR_URL/common/discovery/v2.0/keys` |
 | `https://graph.microsoft.com/oidc/userinfo` | `$MICROSOFT_EMULATOR_URL/oidc/userinfo` |
 | `https://graph.microsoft.com/v1.0/me` | `$MICROSOFT_EMULATOR_URL/v1.0/me` |
+
+The emulator also accepts the root-scoped aliases `/oauth2/v2.0/authorize`, `/oauth2/v2.0/token`, `/discovery/v2.0/keys`, `/oauth2/v2.0/logout`, and `/oauth2/v2.0/revoke` for compatibility. OIDC discovery now returns tenant-scoped URLs to match Microsoft.
 
 ### Auth.js / NextAuth.js
 
@@ -56,16 +58,16 @@ MicrosoftEntraId({
   clientId: process.env.MICROSOFT_CLIENT_ID,
   clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
   authorization: {
-    url: `${process.env.MICROSOFT_EMULATOR_URL}/oauth2/v2.0/authorize`,
+    url: `${process.env.MICROSOFT_EMULATOR_URL}/common/oauth2/v2.0/authorize`,
     params: { scope: 'openid email profile User.Read' },
   },
   token: {
-    url: `${process.env.MICROSOFT_EMULATOR_URL}/oauth2/v2.0/token`,
+    url: `${process.env.MICROSOFT_EMULATOR_URL}/common/oauth2/v2.0/token`,
   },
   userinfo: {
     url: `${process.env.MICROSOFT_EMULATOR_URL}/oidc/userinfo`,
   },
-  issuer: process.env.MICROSOFT_EMULATOR_URL,
+  issuer: `${process.env.MICROSOFT_EMULATOR_URL}/common/v2.0`,
 })
 ```
 
@@ -77,7 +79,7 @@ import { OIDCStrategy } from 'passport-azure-ad'
 const MICROSOFT_URL = process.env.MICROSOFT_EMULATOR_URL ?? 'https://login.microsoftonline.com'
 
 new OIDCStrategy({
-  identityMetadata: `${MICROSOFT_URL}/.well-known/openid-configuration`,
+  identityMetadata: `${MICROSOFT_URL}/common/v2.0/.well-known/openid-configuration`,
   clientID: process.env.MICROSOFT_CLIENT_ID,
   clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
   redirectUrl: 'http://localhost:3000/api/auth/callback/microsoft-entra-id',
@@ -96,8 +98,8 @@ const msalConfig = {
   auth: {
     clientId: process.env.MICROSOFT_CLIENT_ID,
     clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
-    authority: process.env.MICROSOFT_EMULATOR_URL,
-    knownAuthorities: [process.env.MICROSOFT_EMULATOR_URL],
+    authority: `${process.env.MICROSOFT_EMULATOR_URL}/common`,
+    knownAuthorities: [new URL(process.env.MICROSOFT_EMULATOR_URL!).host],
   },
 }
 
@@ -142,11 +144,11 @@ Returns the standard OIDC discovery document:
 ```json
 {
   "issuer": "http://localhost:4005/{tenant}/v2.0",
-  "authorization_endpoint": "http://localhost:4005/oauth2/v2.0/authorize",
-  "token_endpoint": "http://localhost:4005/oauth2/v2.0/token",
+  "authorization_endpoint": "http://localhost:4005/{tenant}/oauth2/v2.0/authorize",
+  "token_endpoint": "http://localhost:4005/{tenant}/oauth2/v2.0/token",
   "userinfo_endpoint": "http://localhost:4005/oidc/userinfo",
-  "end_session_endpoint": "http://localhost:4005/oauth2/v2.0/logout",
-  "jwks_uri": "http://localhost:4005/discovery/v2.0/keys",
+  "end_session_endpoint": "http://localhost:4005/{tenant}/oauth2/v2.0/logout",
+  "jwks_uri": "http://localhost:4005/{tenant}/discovery/v2.0/keys",
   "response_types_supported": ["code"],
   "subject_types_supported": ["pairwise"],
   "id_token_signing_alg_values_supported": ["RS256"],
@@ -158,7 +160,7 @@ Returns the standard OIDC discovery document:
 ### JWKS
 
 ```bash
-curl http://localhost:4005/discovery/v2.0/keys
+curl http://localhost:4005/common/discovery/v2.0/keys
 ```
 
 Returns an RSA public key (`kid`: `emulate-microsoft-1`) for verifying `id_token` signatures.
@@ -167,7 +169,7 @@ Returns an RSA public key (`kid`: `emulate-microsoft-1`) for verifying `id_token
 
 ```bash
 # Browser flow: redirects to a user picker page
-curl -v "http://localhost:4005/oauth2/v2.0/authorize?\
+curl -v "http://localhost:4005/common/oauth2/v2.0/authorize?\
 client_id=example-client-id&\
 redirect_uri=http://localhost:3000/api/auth/callback/microsoft-entra-id&\
 scope=openid+email+profile&\
@@ -192,7 +194,7 @@ Query parameters:
 ### Token Exchange
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/token \
+curl -X POST http://localhost:4005/common/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "code=<authorization_code>&\
 client_id=example-client-id&\
@@ -223,7 +225,7 @@ Supports `Authorization: Basic` header with base64-encoded `client_id:client_sec
 ### Client Credentials
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/token \
+curl -X POST http://localhost:4005/common/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "client_id=example-client-id&\
 client_secret=example-client-secret&\
@@ -236,7 +238,7 @@ Returns an `access_token` only (no `refresh_token` or `id_token`).
 ### Refresh Token
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/token \
+curl -X POST http://localhost:4005/common/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "refresh_token=r_microsoft_...&\
 client_id=example-client-id&\
@@ -287,7 +289,7 @@ Returns an OData-style response:
 ### Logout
 
 ```bash
-curl "http://localhost:4005/oauth2/v2.0/logout?post_logout_redirect_uri=http://localhost:3000"
+curl "http://localhost:4005/common/oauth2/v2.0/logout?post_logout_redirect_uri=http://localhost:3000"
 ```
 
 Redirects to the `post_logout_redirect_uri` if provided and valid.
@@ -295,7 +297,7 @@ Redirects to the `post_logout_redirect_uri` if provided and valid.
 ### Token Revocation
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/revoke \
+curl -X POST http://localhost:4005/common/oauth2/v2.0/revoke \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "token=microsoft_..."
 ```
@@ -308,18 +310,19 @@ Returns `200 OK`. The token is removed from the emulator's token map.
 
 ```bash
 MICROSOFT_URL="http://localhost:4005"
+TENANT="common"
 CLIENT_ID="example-client-id"
 CLIENT_SECRET="example-client-secret"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/microsoft-entra-id"
 
 # 1. Open in browser (user picks a seeded account)
-#    $MICROSOFT_URL/oauth2/v2.0/authorize?client_id=$CLIENT_ID&redirect_uri=$REDIRECT_URI&scope=openid+email+profile&response_type=code&state=abc
+#    $MICROSOFT_URL/$TENANT/oauth2/v2.0/authorize?client_id=$CLIENT_ID&redirect_uri=$REDIRECT_URI&scope=openid+email+profile&response_type=code&state=abc
 
 # 2. After user selection, emulator redirects to:
 #    $REDIRECT_URI?code=<code>&state=abc
 
 # 3. Exchange code for tokens
-curl -X POST $MICROSOFT_URL/oauth2/v2.0/token \
+curl -X POST $MICROSOFT_URL/$TENANT/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "code=<code>&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&redirect_uri=$REDIRECT_URI&grant_type=authorization_code"
 
@@ -335,10 +338,10 @@ CODE_VERIFIER=$(openssl rand -base64 32 | tr -d '=+/' | cut -c1-43)
 CODE_CHALLENGE=$(echo -n $CODE_VERIFIER | openssl dgst -sha256 -binary | base64 | tr -d '=' | tr '+/' '-_')
 
 # 1. Authorize with challenge
-# $MICROSOFT_URL/oauth2/v2.0/authorize?...&code_challenge=$CODE_CHALLENGE&code_challenge_method=S256
+# $MICROSOFT_URL/$TENANT/oauth2/v2.0/authorize?...&code_challenge=$CODE_CHALLENGE&code_challenge_method=S256
 
 # 2. Token exchange with verifier
-curl -X POST $MICROSOFT_URL/oauth2/v2.0/token \
+curl -X POST $MICROSOFT_URL/$TENANT/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "code=<code>&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&redirect_uri=$REDIRECT_URI&grant_type=authorization_code&code_verifier=$CODE_VERIFIER"
 ```

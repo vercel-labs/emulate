@@ -40,6 +40,7 @@ async function getAuthCode(
     state?: string;
     nonce?: string;
     response_mode?: string;
+    tenant?: string;
   } = {},
 ): Promise<{ code: string; state: string }> {
   const email = options.email ?? "testuser@example.com";
@@ -49,6 +50,7 @@ async function getAuthCode(
   const nonce = options.nonce ?? "test-nonce";
   const client_id = options.client_id ?? "test-client";
   const response_mode = options.response_mode ?? "query";
+  const tenantPath = options.tenant ? `/${options.tenant}` : "";
 
   const formData = new URLSearchParams({
     email,
@@ -62,7 +64,7 @@ async function getAuthCode(
     code_challenge_method: "",
   });
 
-  const res = await app.request(`${base}/oauth2/v2.0/authorize/callback`, {
+  const res = await app.request(`${base}${tenantPath}/oauth2/v2.0/authorize/callback`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: formData.toString(),
@@ -93,8 +95,10 @@ async function exchangeCode(
     client_id?: string;
     client_secret?: string;
     redirect_uri?: string;
+    tenant?: string;
   } = {},
 ): Promise<Response> {
+  const tenantPath = options.tenant ? `/${options.tenant}` : "";
   const formData = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -103,7 +107,7 @@ async function exchangeCode(
     redirect_uri: options.redirect_uri ?? "http://localhost:3000/callback",
   });
 
-  return app.request(`${base}/oauth2/v2.0/token`, {
+  return app.request(`${base}${tenantPath}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: formData.toString(),
@@ -152,6 +156,21 @@ describe("Microsoft plugin integration", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body.issuer).toBe(`${base}/${tenantId}/v2.0`);
+    expect(body.authorization_endpoint).toBe(`${base}/${tenantId}/oauth2/v2.0/authorize`);
+    expect(body.token_endpoint).toBe(`${base}/${tenantId}/oauth2/v2.0/token`);
+    expect(body.end_session_endpoint).toBe(`${base}/${tenantId}/oauth2/v2.0/logout`);
+    expect(body.jwks_uri).toBe(`${base}/${tenantId}/discovery/v2.0/keys`);
+  });
+
+  it("GET /common/v2.0/.well-known/openid-configuration keeps common endpoints and default issuer", async () => {
+    const res = await app.request(`${base}/common/v2.0/.well-known/openid-configuration`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.issuer).toBe(`${base}/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`);
+    expect(body.authorization_endpoint).toBe(`${base}/common/oauth2/v2.0/authorize`);
+    expect(body.token_endpoint).toBe(`${base}/common/oauth2/v2.0/token`);
+    expect(body.end_session_endpoint).toBe(`${base}/common/oauth2/v2.0/logout`);
+    expect(body.jwks_uri).toBe(`${base}/common/discovery/v2.0/keys`);
   });
 
   // --- JWKS ---
@@ -168,6 +187,14 @@ describe("Microsoft plugin integration", () => {
     expect(key.alg).toBe("RS256");
   });
 
+  it("GET /:tenant/discovery/v2.0/keys returns JWKS alias", async () => {
+    const res = await app.request(`${base}/common/discovery/v2.0/keys`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { keys: Array<Record<string, unknown>> };
+    expect(body.keys).toHaveLength(1);
+    expect(body.keys[0]?.kid).toBe("emulate-microsoft-1");
+  });
+
   // --- Authorization page ---
 
   it("GET /oauth2/v2.0/authorize returns an HTML sign-in page", async () => {
@@ -179,6 +206,14 @@ describe("Microsoft plugin integration", () => {
     expect(html.length).toBeGreaterThan(0);
     expect(html).toMatch(/Sign in/i);
     expect(html).toMatch(/Microsoft/i);
+  });
+
+  it("GET /:tenant/oauth2/v2.0/authorize posts back to tenant callback", async () => {
+    const url = `${base}/common/oauth2/v2.0/authorize?client_id=test-client&redirect_uri=${encodeURIComponent("http://localhost:3000/callback")}&response_type=code&scope=openid%20email%20profile`;
+    const res = await app.request(url);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('action="/common/oauth2/v2.0/authorize/callback"');
   });
 
   it("returns error for unknown client_id when clients are configured", async () => {
@@ -243,6 +278,21 @@ describe("Microsoft plugin integration", () => {
     expect(claims.tid).toBeDefined();
     expect(claims.ver).toBe("2.0");
     expect(claims.nonce).toBe("test-nonce");
+  });
+
+  it("completes full OAuth authorization_code flow through tenant-scoped URLs", async () => {
+    const tenant = "common";
+    const { code, state } = await getAuthCode(app, { tenant });
+    expect(code).toBeTruthy();
+    expect(state).toBe("test-state");
+
+    const tokenRes = await exchangeCode(app, code, { tenant });
+    expect(tokenRes.status).toBe(200);
+    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    expect((tokenBody.access_token as string).startsWith("microsoft_")).toBe(true);
+
+    const claims = decodeJwt(tokenBody.id_token as string);
+    expect(claims.iss).toBe(`${base}/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`);
   });
 
   // --- Refresh token flow ---
@@ -370,6 +420,13 @@ describe("Microsoft plugin integration", () => {
     expect(res.headers.get("location")).toBe(redirectUri);
   });
 
+  it("GET /:tenant/oauth2/v2.0/logout redirects when post_logout_redirect_uri is registered", async () => {
+    const redirectUri = "http://localhost:3000/callback";
+    const res = await app.request(`${base}/common/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(redirectUri);
+  });
+
   it("GET /oauth2/v2.0/logout rejects unregistered post_logout_redirect_uri", async () => {
     const redirectUri = "http://evil.example.com/phishing";
     const res = await app.request(`${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`);
@@ -393,6 +450,20 @@ describe("Microsoft plugin integration", () => {
     });
 
     const res = await app.request(`${base}/oauth2/v2.0/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /:tenant/oauth2/v2.0/revoke returns 200", async () => {
+    const formData = new URLSearchParams({
+      token: "some-token",
+    });
+
+    const res = await app.request(`${base}/common/oauth2/v2.0/revoke`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: formData.toString(),

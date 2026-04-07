@@ -14,14 +14,16 @@ npm install @emulators/microsoft
 
 - `GET /.well-known/openid-configuration` — OIDC discovery document
 - `GET /:tenant/v2.0/.well-known/openid-configuration` — tenant-scoped OIDC discovery
-- `GET /discovery/v2.0/keys` — JSON Web Key Set (JWKS)
-- `GET /oauth2/v2.0/authorize` — authorization endpoint (shows user picker)
-- `POST /oauth2/v2.0/token` — token exchange (authorization code, refresh token, client credentials)
+- `GET /:tenant/discovery/v2.0/keys` — tenant-scoped JSON Web Key Set (JWKS)
+- `GET /:tenant/oauth2/v2.0/authorize` — tenant-scoped authorization endpoint (shows user picker)
+- `POST /:tenant/oauth2/v2.0/token` — tenant-scoped token exchange (authorization code, refresh token, client credentials)
 - `GET /oidc/userinfo` — OpenID Connect user info
 - `GET /v1.0/me` — Microsoft Graph user profile
 - `GET /v1.0/users/:id` — Microsoft Graph user by ID
-- `GET /oauth2/v2.0/logout` — end session / logout
-- `POST /oauth2/v2.0/revoke` — token revocation
+- `GET /:tenant/oauth2/v2.0/logout` — tenant-scoped end session / logout
+- `POST /:tenant/oauth2/v2.0/revoke` — tenant-scoped token revocation
+
+Root-scoped aliases remain available for compatibility.
 
 ## Auth
 
