@@ -16,7 +16,11 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
+- **Okta** on `http://localhost:4006`
+- **AWS** on `http://localhost:4007`
+- **Resend** on `http://localhost:4008`
+- **Stripe** on `http://localhost:4009`
+- **MongoDB Atlas** on `http://localhost:4010`
 
 ## CLI
 
@@ -100,7 +104,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, or `'mongoatlas'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 
