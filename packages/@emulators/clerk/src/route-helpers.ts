@@ -1,7 +1,14 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { AuthUser, TokenMap, AppEnv } from "@emulators/core";
-import type { ClerkUser, ClerkEmailAddress, ClerkOrganization, ClerkOrganizationMembership, ClerkOrganizationInvitation, ClerkSession } from "./entities.js";
+import type {
+  ClerkUser,
+  ClerkEmailAddress,
+  ClerkOrganization,
+  ClerkOrganizationMembership,
+  ClerkOrganizationInvitation,
+  ClerkSession,
+} from "./entities.js";
 import type { ClerkStore } from "./store.js";
 
 export function clerkError(
@@ -61,7 +68,12 @@ export function deletedResponse(objectType: string, objectId: string): Record<st
   };
 }
 
-export function paginatedResponse<T>(data: T[], totalCount: number, limit: number, offset: number): Record<string, unknown> {
+export function paginatedResponse<T>(
+  data: T[],
+  totalCount: number,
+  limit: number,
+  offset: number,
+): Record<string, unknown> {
   return {
     data,
     total_count: totalCount,
