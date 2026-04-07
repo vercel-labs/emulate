@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { signOutAction } from "../actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
+import { cn } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const session = await getSession();
@@ -19,9 +20,9 @@ export default async function DashboardPage() {
             Signed in as <strong className="text-foreground">{session.email}</strong>
           </p>
           <form action={signOutAction}>
-            <Button variant="outline" size="lg">
+            <button type="submit" className={cn(buttonVariants({ variant: "outline", size: "lg" }))}>
               Sign out
-            </Button>
+            </button>
           </form>
         </CardContent>
       </Card>
