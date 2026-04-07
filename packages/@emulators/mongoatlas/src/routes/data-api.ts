@@ -343,7 +343,7 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    let docs = ms().documents.all().filter(
+    const docs = ms().documents.all().filter(
       (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
     );
 

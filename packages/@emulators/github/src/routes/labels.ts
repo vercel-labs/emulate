@@ -94,7 +94,7 @@ function normalizeColor(raw: unknown): string {
   if (typeof raw !== "string" || !raw.trim()) {
     throw new ApiError(422, "Validation failed");
   }
-  let s = raw.trim().replace(/^#/, "");
+  const s = raw.trim().replace(/^#/, "");
   if (!/^[0-9a-fA-F]{6}$/.test(s)) {
     throw new ApiError(422, "Validation failed");
   }
@@ -193,7 +193,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     assertRepoRead(gh, c.get("authUser"), repo);
 
     const { page, per_page } = parsePagination(c);
-    let list = gh.labels.findBy("repo_id", repo.id).slice();
+    const list = gh.labels.findBy("repo_id", repo.id).slice();
     list.sort((a, b) => a.name.localeCompare(b.name));
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
@@ -637,7 +637,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
       creator_id: actor.id,
     } as Omit<GitHubMilestone, "id" | "created_at" | "updated_at">);
     gh.milestones.update(row.id, { node_id: generateNodeId("Milestone", row.id) });
-    let m = recalcMilestoneIssueCounts(gh, repo.id, row.id)!;
+    const m = recalcMilestoneIssueCounts(gh, repo.id, row.id)!;
 
     const ownerLogin = ownerLoginOf(gh, repo);
     webhooks.dispatch(
@@ -824,7 +824,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
       for (const lid of i.label_ids) labelIdSet.add(lid);
     }
 
-    let labels = [...labelIdSet]
+    const labels = [...labelIdSet]
       .map((id) => gh.labels.get(id))
       .filter(Boolean) as GitHubLabel[];
     labels.sort((a, b) => a.name.localeCompare(b.name));

@@ -133,7 +133,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!pr) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
-    let list = gh.reviews
+    const list = gh.reviews
       .findBy("repo_id", repo.id)
       .filter((r) => r.pull_number === pullNumber);
     list.sort((a, b) => a.id - b.id);

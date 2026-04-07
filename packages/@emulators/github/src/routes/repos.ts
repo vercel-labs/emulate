@@ -687,7 +687,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     let ownerType: "User" | "Organization" = "User";
     let ownerId = user.id;
     let fullName = "";
-    let forkName =
+    const forkName =
       typeof body.name === "string" && body.name.trim()
         ? validateRepoName(body.name)
         : parent.name;

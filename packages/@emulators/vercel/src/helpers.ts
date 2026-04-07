@@ -42,7 +42,7 @@ export function resolveTeamScope(c: Context, vs: VercelStore): { accountId: stri
 }
 
 export function lookupProject(vs: VercelStore, idOrName: string, accountId: string): VercelProject | undefined {
-  let project = vs.projects.findOneBy("uid", idOrName);
+  const project = vs.projects.findOneBy("uid", idOrName);
   if (project && project.accountId === accountId) return project;
 
   const byName = vs.projects.findBy("name", idOrName);

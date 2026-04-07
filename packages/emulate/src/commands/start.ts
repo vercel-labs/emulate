@@ -120,6 +120,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
     const baseUrl = `http://localhost:${port}`;
     serviceUrls.push({ name: svc, url: baseUrl });
 
+    // eslint-disable-next-line prefer-const -- reassigned after closure captures it
     let cachedResolver: AppKeyResolver | undefined;
     const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
       ? (appId) => cachedResolver!(appId)

@@ -31,7 +31,8 @@
     "build": "tsup --clean",
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@emulators/core": "workspace:*"

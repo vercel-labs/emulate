@@ -762,7 +762,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       return s;
     }
 
-    let sorted = [...hits];
+    const sorted = [...hits];
     if (sortRaw === "created") {
       sorted.sort((a, b) => {
         const ca = a.kind === "issue" ? a.issue.created_at : a.pr.created_at;
@@ -847,7 +847,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       return s;
     }
 
-    let list = [...hits];
+    const list = [...hits];
     if (sortRaw === "followers") {
       list.sort((a, b) => {
         const fa = a.kind === "user" ? a.u.followers : a.o.followers;

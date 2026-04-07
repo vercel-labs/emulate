@@ -669,7 +669,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     }
 
     const nextStatus = patch.status ?? prev.status;
-    let nextConclusion: GitHubCheckRun["conclusion"] =
+    const nextConclusion: GitHubCheckRun["conclusion"] =
       patch.conclusion !== undefined ? patch.conclusion : prev.conclusion;
 
     if (patch.head_sha && patch.head_sha !== prev.head_sha) {
@@ -682,7 +682,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         throw new ApiError(422, "conclusion is required when status is completed");
       }
       patch.conclusion = nextConclusion;
-      let nextCompleted = patch.completed_at !== undefined ? patch.completed_at : prev.completed_at;
+      const nextCompleted = patch.completed_at !== undefined ? patch.completed_at : prev.completed_at;
       if (!nextCompleted) {
         patch.completed_at = timestamp();
       }
