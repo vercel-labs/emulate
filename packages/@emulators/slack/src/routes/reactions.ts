@@ -35,7 +35,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     ss().messages.update(msg.id, { reactions });
 
-    await webhooks.dispatch("reaction_added", {
+    await webhooks.dispatch("reaction_added", undefined, {
       type: "event_callback",
       event: {
         type: "reaction_added",
@@ -43,7 +43,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
         reaction: name,
         item: { type: "message", channel, ts: timestamp },
       },
-    });
+    }, "slack");
 
     return slackOk(c, {});
   });
@@ -75,7 +75,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
     const filtered = reactions.filter((r) => r.count > 0);
     ss().messages.update(msg.id, { reactions: filtered });
 
-    await webhooks.dispatch("reaction_removed", {
+    await webhooks.dispatch("reaction_removed", undefined, {
       type: "event_callback",
       event: {
         type: "reaction_removed",
@@ -83,7 +83,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
         reaction: name,
         item: { type: "message", channel, ts: timestamp },
       },
-    });
+    }, "slack");
 
     return slackOk(c, {});
   });

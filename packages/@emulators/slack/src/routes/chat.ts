@@ -49,7 +49,7 @@ export function chatRoutes(ctx: RouteContext): void {
       }
     }
 
-    await webhooks.dispatch("message", {
+    await webhooks.dispatch("message", undefined, {
       type: "event_callback",
       event: {
         type: "message",
@@ -59,7 +59,7 @@ export function chatRoutes(ctx: RouteContext): void {
         ts,
         thread_ts,
       },
-    });
+    }, "slack");
 
     return slackOk(c, {
       channel: ch.channel_id,

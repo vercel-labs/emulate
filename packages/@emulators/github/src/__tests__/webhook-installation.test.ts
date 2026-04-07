@@ -27,7 +27,7 @@ function createTestApp(seedConfig?: Parameters<typeof seedFromConfig>[2]) {
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer test-token" };
 }
 

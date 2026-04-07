@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import type { RouteContext } from "@emulators/core";
+import type { RouteContext, Store } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,

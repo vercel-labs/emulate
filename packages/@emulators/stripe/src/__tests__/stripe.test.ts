@@ -25,7 +25,7 @@ function createTestApp() {
   return { app, store, webhooks, tokenMap };
 }
 
-function auth(): HeadersInit {
+function auth(): Record<string, string> {
   return {
     Authorization: "Bearer sk_test_abc123",
     "Content-Type": "application/json",

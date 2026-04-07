@@ -26,8 +26,8 @@ export function productRoutes({ app, store, webhooks }: RouteContext): void {
       stripe_id: stripeId("prod"),
       name: body.name as string,
       description: (body.description as string) ?? null,
-      active: body.active ?? true,
-      metadata: body.metadata ?? {},
+      active: (body.active as boolean) ?? true,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(

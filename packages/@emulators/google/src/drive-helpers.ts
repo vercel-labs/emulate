@@ -70,7 +70,7 @@ export function listDriveItems(
   const parsed = parseDriveQuery(options.q ?? null);
 
   if (parsed.parentId) {
-    items = items.filter((item) => item.parent_google_ids.includes(parsed.parentId));
+    items = items.filter((item) => item.parent_google_ids.includes(parsed.parentId!));
   }
 
   if (parsed.requireNotTrashed) {

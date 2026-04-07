@@ -92,7 +92,7 @@ export function driveRoutes({ app, store }: RouteContext): void {
     const authEmail = requireGoogleAuth(c);
     if (authEmail instanceof Response) return authEmail;
 
-    const item = getDriveItemById(gs, authEmail, c.req.param("fileId"));
+    const item = getDriveItemById(gs, authEmail, c.req.param("fileId")!);
     if (!item) {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }

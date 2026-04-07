@@ -80,7 +80,7 @@ export function webhookRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    await webhooks.dispatch("message", {
+    await webhooks.dispatch("message", undefined, {
       type: "event_callback",
       event: {
         type: "message",
@@ -91,7 +91,7 @@ export function webhookRoutes(ctx: RouteContext): void {
         ts,
         thread_ts: threadTs,
       },
-    });
+    }, "slack");
 
     return c.text("ok");
   });

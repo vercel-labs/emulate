@@ -60,7 +60,7 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
 
     const session = ss.checkoutSessions.insert({
       stripe_id: stripeId("cs"),
-      mode: body.mode as string,
+      mode: body.mode as StripeCheckoutSession["mode"],
       status: "open",
       payment_status: "unpaid",
       customer_id: (body.customer as string) ?? null,

@@ -170,19 +170,19 @@ function createTestApp() {
   return { app };
 }
 
-function authHeaders(extra?: HeadersInit): HeadersInit {
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return { Authorization: "Bearer test-token", ...extra };
 }
 
 async function jsonRequest(
   app: Hono,
   path: string,
-  init?: RequestInit & { body?: unknown },
+  init?: Omit<RequestInit, "body" | "headers"> & { body?: unknown; headers?: Record<string, string> },
 ) {
   const headers = authHeaders({ "Content-Type": "application/json", ...(init?.headers ?? {}) });
   const body =
     init?.body === undefined || typeof init.body === "string"
-      ? (init?.body as BodyInit | undefined)
+      ? (init?.body as string | undefined)
       : JSON.stringify(init.body);
 
   return app.request(`${base}${path}`, {

@@ -375,7 +375,7 @@ export function dataApiRoutes(ctx: RouteContext): void {
   });
 }
 
-type MongoAtlasDocEntity = { data: Record<string, unknown>; id: number; [key: string]: unknown };
+type MongoAtlasDocEntity = { data: Record<string, unknown>; id: number };
 
 function ensureCollectionExists(
   ms: () => ReturnType<typeof getMongoAtlasStore>,
@@ -637,8 +637,8 @@ function sortBySpec<T>(docs: T[], sortSpec: Record<string, number>, accessor: (d
       if (aVal === bVal) continue;
       if (aVal === undefined) return direction;
       if (bVal === undefined) return -direction;
-      if (aVal < bVal) return -direction;
-      if (aVal > bVal) return direction;
+      if ((aVal as number) < (bVal as number)) return -direction;
+      if ((aVal as number) > (bVal as number)) return direction;
     }
     return 0;
   });

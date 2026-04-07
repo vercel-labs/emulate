@@ -46,8 +46,8 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
       currency: (body.currency as string).toLowerCase(),
       unit_amount: (body.unit_amount as number) ?? null,
       type: body.recurring ? "recurring" : "one_time",
-      active: body.active ?? true,
-      metadata: body.metadata ?? {},
+      active: (body.active as boolean) ?? true,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(

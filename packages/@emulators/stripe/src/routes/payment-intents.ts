@@ -30,13 +30,13 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
 
     const pi = ss.paymentIntents.insert({
       stripe_id: stripeId("pi"),
-      amount: body.amount,
+      amount: body.amount as number,
       currency: (body.currency as string).toLowerCase(),
       status,
-      customer_id: body.customer ?? null,
-      description: body.description ?? null,
-      payment_method: body.payment_method ?? null,
-      metadata: body.metadata ?? {},
+      customer_id: (body.customer as string) ?? null,
+      description: (body.description as string) ?? null,
+      payment_method: (body.payment_method as string) ?? null,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(

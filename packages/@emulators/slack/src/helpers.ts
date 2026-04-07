@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 let tsCounter = 0;
 
@@ -17,7 +18,7 @@ export function slackOk<T extends Record<string, unknown>>(c: Context, data: T) 
   return c.json({ ok: true, ...data });
 }
 
-export function slackError(c: Context, error: string, status = 200) {
+export function slackError(c: Context, error: string, status: ContentfulStatusCode = 200) {
   return c.json({ ok: false, error }, status);
 }
 

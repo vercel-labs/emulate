@@ -125,7 +125,7 @@ async function saveLabel(
   const authEmail = requireGmailUser(c);
   if (authEmail instanceof Response) return authEmail;
 
-  const label = findLabelById(gs, authEmail, c.req.param("id"));
+  const label = findLabelById(gs, authEmail, c.req.param("id")!);
   if (!label) {
     return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
   }

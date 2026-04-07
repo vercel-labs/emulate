@@ -10,10 +10,10 @@ export function customerRoutes({ app, store, webhooks }: RouteContext): void {
     const body = await parseStripeBody(c);
     const customer = ss.customers.insert({
       stripe_id: stripeId("cus"),
-      email: body.email ?? null,
-      name: body.name ?? null,
-      description: body.description ?? null,
-      metadata: body.metadata ?? {},
+      email: (body.email as string) ?? null,
+      name: (body.name as string) ?? null,
+      description: (body.description as string) ?? null,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(
@@ -37,10 +37,10 @@ export function customerRoutes({ app, store, webhooks }: RouteContext): void {
     if (!customer) return stripeError(c, 404, "invalid_request_error", `No such customer: '${c.req.param("id")}'`, "resource_missing");
     const body = await parseStripeBody(c);
     const updated = ss.customers.update(customer.id, {
-      ...(body.email !== undefined && { email: body.email }),
-      ...(body.name !== undefined && { name: body.name }),
-      ...(body.description !== undefined && { description: body.description }),
-      ...(body.metadata !== undefined && { metadata: body.metadata }),
+      ...(body.email !== undefined && { email: body.email as string }),
+      ...(body.name !== undefined && { name: body.name as string }),
+      ...(body.description !== undefined && { description: body.description as string }),
+      ...(body.metadata !== undefined && { metadata: body.metadata as Record<string, string> }),
     });
 
     await webhooks.dispatch(

@@ -19,7 +19,7 @@ export function requireGmailUser(c: Context): string | Response {
     return authEmail;
   }
 
-  if (!matchesRequestedUser(c.req.param("userId"), authEmail)) {
+  if (!matchesRequestedUser(c.req.param("userId") ?? "", authEmail)) {
     return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
   }
 

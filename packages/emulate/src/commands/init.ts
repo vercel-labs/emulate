@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { stringify as yamlStringify } from "yaml";
-import { SERVICE_REGISTRY, SERVICE_NAMES, DEFAULT_TOKENS } from "../registry.js";
+import { SERVICE_REGISTRY, SERVICE_NAMES, DEFAULT_TOKENS, type ServiceName } from "../registry.js";
 
 interface InitOptions {
   service: string;
@@ -23,7 +23,7 @@ export function initCommand(options: InitOptions): void {
       Object.assign(config, SERVICE_REGISTRY[name].initConfig);
     }
   } else {
-    const entry = SERVICE_REGISTRY[options.service];
+    const entry = SERVICE_REGISTRY[options.service as ServiceName];
     if (!entry) {
       console.error(`Unknown service: ${options.service}. Available: ${SERVICE_NAMES.join(", ")}, all`);
       process.exit(1);
