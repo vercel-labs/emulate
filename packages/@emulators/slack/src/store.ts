@@ -1,5 +1,13 @@
 import { Store, type Collection } from "@emulators/core";
-import type { SlackTeam, SlackUser, SlackChannel, SlackMessage, SlackBot, SlackOAuthApp, SlackIncomingWebhook } from "./entities.js";
+import type {
+  SlackTeam,
+  SlackUser,
+  SlackChannel,
+  SlackMessage,
+  SlackBot,
+  SlackOAuthApp,
+  SlackIncomingWebhook,
+} from "./entities.js";
 
 export interface SlackStore {
   teams: Collection<SlackTeam>;

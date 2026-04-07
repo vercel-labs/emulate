@@ -62,7 +62,7 @@ export class WebhookDispatcher {
 
   updateSubscription(
     id: number,
-    data: Partial<Pick<WebhookSubscription, "url" | "events" | "active" | "secret">>
+    data: Partial<Pick<WebhookSubscription, "url" | "events" | "active" | "secret">>,
   ): WebhookSubscription | undefined {
     const sub = this.subscriptions.find((s) => s.id === id);
     if (!sub) return undefined;
@@ -70,7 +70,13 @@ export class WebhookDispatcher {
     return sub;
   }
 
-  async dispatch(event: string, action: string | undefined, payload: unknown, owner: string, repo?: string): Promise<void> {
+  async dispatch(
+    event: string,
+    action: string | undefined,
+    payload: unknown,
+    owner: string,
+    repo?: string,
+  ): Promise<void> {
     const matchingSubs = this.subscriptions.filter((s) => {
       if (!s.active) return false;
       if (s.owner !== owner) return false;
@@ -79,11 +85,7 @@ export class WebhookDispatcher {
       } else if (s.repo !== undefined) {
         return false;
       }
-      return (
-        event === "ping" ||
-        s.events.includes("*") ||
-        s.events.includes(event)
-      );
+      return event === "ping" || s.events.includes("*") || s.events.includes(event);
     });
 
     for (const sub of matchingSubs) {

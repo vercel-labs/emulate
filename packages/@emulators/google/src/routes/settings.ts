@@ -44,7 +44,13 @@ export function settingsRoutes({ app, store }: RouteContext): void {
 
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(
+        c,
+        400,
+        `Invalid label IDs: ${missingLabelIds.join(", ")}`,
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
     }
 
     if (

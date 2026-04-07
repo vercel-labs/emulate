@@ -36,7 +36,8 @@ export function chargeRoutes({ app, store }: RouteContext): void {
 
   app.get("/v1/charges/:id", (c) => {
     const charge = ss.charges.findOneBy("stripe_id", c.req.param("id"));
-    if (!charge) return stripeError(c, 404, "invalid_request_error", `No such charge: '${c.req.param("id")}'`, "resource_missing");
+    if (!charge)
+      return stripeError(c, 404, "invalid_request_error", `No such charge: '${c.req.param("id")}'`, "resource_missing");
     const expand = parseExpand(c);
     const result = applyExpand(formatCharge(charge), expand, expandResolvers);
     return c.json(result);

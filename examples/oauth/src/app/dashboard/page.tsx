@@ -1,13 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { providers } from "@/lib/providers";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,8 +27,7 @@ export default async function Dashboard() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Dashboard</CardTitle>
           <CardDescription>
-            You&apos;re signed in via{" "}
-            <Badge variant="secondary">{provider?.name ?? session.provider}</Badge>
+            You&apos;re signed in via <Badge variant="secondary">{provider?.name ?? session.provider}</Badge>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -43,29 +36,17 @@ export default async function Dashboard() {
               <AvatarFallback className="text-lg">{initials}</AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="font-semibold text-lg truncate">
-                {session.user.name}
-              </p>
-              {session.user.login && (
-                <p className="text-sm text-muted-foreground truncate">
-                  @{session.user.login}
-                </p>
-              )}
-              <p className="text-sm text-muted-foreground truncate">
-                {session.user.email}
-              </p>
+              <p className="font-semibold text-lg truncate">{session.user.name}</p>
+              {session.user.login && <p className="text-sm text-muted-foreground truncate">@{session.user.login}</p>}
+              <p className="text-sm text-muted-foreground truncate">{session.user.email}</p>
             </div>
           </div>
 
           <Separator />
 
           <div className="space-y-2">
-            <p className="text-sm font-medium text-muted-foreground">
-              Access Token
-            </p>
-            <code className="block text-xs bg-muted rounded-md p-3 break-all font-mono">
-              {session.accessToken}
-            </code>
+            <p className="text-sm font-medium text-muted-foreground">Access Token</p>
+            <code className="block text-xs bg-muted rounded-md p-3 break-all font-mono">{session.accessToken}</code>
           </div>
 
           <Separator />
@@ -77,10 +58,7 @@ export default async function Dashboard() {
                 <a
                   key={p.slug}
                   href={`/api/auth/${p.slug}`}
-                  className={cn(
-                    buttonVariants({ variant: "outline" }),
-                    "flex-1"
-                  )}
+                  className={cn(buttonVariants({ variant: "outline" }), "flex-1")}
                 >
                   Switch to {p.name}
                 </a>

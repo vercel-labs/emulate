@@ -220,13 +220,7 @@ export function matchesRequestedUser(userId: string, authEmail: string): boolean
   return userId === "me" || userId === authEmail;
 }
 
-export function googleApiError(
-  c: Context,
-  code: number,
-  message: string,
-  reason: string,
-  status: string,
-) {
+export function googleApiError(c: Context, code: number, message: string, reason: string, status: string) {
   return c.json(
     {
       error: {
@@ -270,9 +264,7 @@ export function parseBooleanParam(value: string | null | undefined): boolean {
 }
 
 export function ensureSystemLabels(gs: GoogleStore, userEmail: string): void {
-  const existingIds = new Set(
-    gs.labels.findBy("user_email", userEmail).map((row) => row.gmail_id),
-  );
+  const existingIds = new Set(gs.labels.findBy("user_email", userEmail).map((row) => row.gmail_id));
 
   for (const label of SYSTEM_LABELS) {
     if (existingIds.has(label.gmail_id)) continue;
@@ -290,12 +282,7 @@ export function ensureSystemLabels(gs: GoogleStore, userEmail: string): void {
   }
 }
 
-export function ensureCustomLabel(
-  gs: GoogleStore,
-  userEmail: string,
-  labelId: string,
-  name = labelId,
-): GoogleLabel {
+export function ensureCustomLabel(gs: GoogleStore, userEmail: string, labelId: string, name = labelId): GoogleLabel {
   ensureSystemLabels(gs, userEmail);
 
   const existing = findLabelById(gs, userEmail, labelId);
@@ -330,24 +317,15 @@ export function createLabelRecord(gs: GoogleStore, input: GoogleLabelInput): Goo
   });
 }
 
-export function updateLabelRecord(
-  gs: GoogleStore,
-  label: GoogleLabel,
-  input: Partial<GoogleLabelInput>,
-): GoogleLabel {
+export function updateLabelRecord(gs: GoogleStore, label: GoogleLabel, input: Partial<GoogleLabelInput>): GoogleLabel {
   return (
     gs.labels.update(label.id, {
       name: input.name !== undefined ? input.name : label.name,
       message_list_visibility:
-        input.message_list_visibility !== undefined
-          ? input.message_list_visibility
-          : label.message_list_visibility,
+        input.message_list_visibility !== undefined ? input.message_list_visibility : label.message_list_visibility,
       label_list_visibility:
-        input.label_list_visibility !== undefined
-          ? input.label_list_visibility
-          : label.label_list_visibility,
-      color_background:
-        input.color_background !== undefined ? input.color_background : label.color_background,
+        input.label_list_visibility !== undefined ? input.label_list_visibility : label.label_list_visibility,
+      color_background: input.color_background !== undefined ? input.color_background : label.color_background,
       color_text: input.color_text !== undefined ? input.color_text : label.color_text,
     }) ?? label
   );
@@ -368,12 +346,10 @@ export function findLabelByName(gs: GoogleStore, userEmail: string, name: string
 
 export function listLabelsForUser(gs: GoogleStore, userEmail: string): GoogleLabel[] {
   ensureSystemLabels(gs, userEmail);
-  return gs.labels
-    .findBy("user_email", userEmail)
-    .sort((a, b) => {
-      if (a.type !== b.type) return a.type === "system" ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+  return gs.labels.findBy("user_email", userEmail).sort((a, b) => {
+    if (a.type !== b.type) return a.type === "system" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 interface LabelStats {
@@ -495,21 +471,24 @@ export function createStoredMessage(
 
   const labelIds = applyFiltersToLabelIds(gs, input.user_email, merged.from, baseLabelIds);
 
-  const snippet = (input.snippet?.trim() || deriveSnippet(merged.body_text ?? merged.body_html ?? merged.subject)) || merged.subject;
-  const raw = merged.raw ?? buildRawMessage({
-    from: merged.from,
-    to: merged.to,
-    cc: merged.cc,
-    bcc: merged.bcc,
-    reply_to: merged.reply_to,
-    subject: merged.subject,
-    body_text: merged.body_text,
-    body_html: merged.body_html,
-    message_id: messageId,
-    references: merged.references,
-    in_reply_to: merged.in_reply_to,
-    date_header: new Date(internalDateMs).toUTCString(),
-  });
+  const snippet =
+    input.snippet?.trim() || deriveSnippet(merged.body_text ?? merged.body_html ?? merged.subject) || merged.subject;
+  const raw =
+    merged.raw ??
+    buildRawMessage({
+      from: merged.from,
+      to: merged.to,
+      cc: merged.cc,
+      bcc: merged.bcc,
+      reply_to: merged.reply_to,
+      subject: merged.subject,
+      body_text: merged.body_text,
+      body_html: merged.body_html,
+      message_id: messageId,
+      references: merged.references,
+      in_reply_to: merged.in_reply_to,
+      date_header: new Date(internalDateMs).toUTCString(),
+    });
 
   const historyId = generateHistoryId();
   const message = gs.messages.insert({
@@ -574,44 +553,46 @@ export function updateStoredMessage(
   };
 
   const snippet =
-    (input.snippet?.trim() || deriveSnippet(merged.body_text ?? merged.body_html ?? merged.subject)) ||
-    merged.subject;
+    input.snippet?.trim() || deriveSnippet(merged.body_text ?? merged.body_html ?? merged.subject) || merged.subject;
   const labelIds = dedupeLabelIds(input.label_ids ?? message.label_ids);
-  const raw = merged.raw ?? buildRawMessage({
-    from: merged.from,
-    to: merged.to,
-    cc: merged.cc,
-    bcc: merged.bcc,
-    reply_to: merged.reply_to,
-    subject: merged.subject,
-    body_text: merged.body_text,
-    body_html: merged.body_html,
-    message_id: merged.message_id,
-    references: merged.references,
-    in_reply_to: merged.in_reply_to,
-    date_header: new Date(internalDateMs).toUTCString(),
-  });
+  const raw =
+    merged.raw ??
+    buildRawMessage({
+      from: merged.from,
+      to: merged.to,
+      cc: merged.cc,
+      bcc: merged.bcc,
+      reply_to: merged.reply_to,
+      subject: merged.subject,
+      body_text: merged.body_text,
+      body_html: merged.body_html,
+      message_id: merged.message_id,
+      references: merged.references,
+      in_reply_to: merged.in_reply_to,
+      date_header: new Date(internalDateMs).toUTCString(),
+    });
 
-  const updated = gs.messages.update(message.id, {
-    thread_id: input.thread_id ?? message.thread_id,
-    history_id: generateHistoryId(),
-    internal_date: String(internalDateMs),
-    raw,
-    label_ids: labelIds,
-    snippet,
-    subject: merged.subject,
-    from: merged.from,
-    to: merged.to,
-    cc: merged.cc,
-    bcc: merged.bcc,
-    reply_to: merged.reply_to,
-    message_id: merged.message_id,
-    references: merged.references,
-    in_reply_to: merged.in_reply_to,
-    date_header: new Date(internalDateMs).toUTCString(),
-    body_text: merged.body_text,
-    body_html: merged.body_html,
-  }) ?? message;
+  const updated =
+    gs.messages.update(message.id, {
+      thread_id: input.thread_id ?? message.thread_id,
+      history_id: generateHistoryId(),
+      internal_date: String(internalDateMs),
+      raw,
+      label_ids: labelIds,
+      snippet,
+      subject: merged.subject,
+      from: merged.from,
+      to: merged.to,
+      cc: merged.cc,
+      bcc: merged.bcc,
+      reply_to: merged.reply_to,
+      message_id: merged.message_id,
+      references: merged.references,
+      in_reply_to: merged.in_reply_to,
+      date_header: new Date(internalDateMs).toUTCString(),
+      body_text: merged.body_text,
+      body_html: merged.body_html,
+    }) ?? message;
 
   replaceMessageAttachments(gs, updated, parsedRaw?.attachments ?? []);
   syncDraftState(gs, updated);
@@ -619,15 +600,11 @@ export function updateStoredMessage(
 }
 
 export function getMessageById(gs: GoogleStore, userEmail: string, messageId: string): GoogleMessage | undefined {
-  return gs.messages
-    .findBy("user_email", userEmail)
-    .find((message) => message.gmail_id === messageId);
+  return gs.messages.findBy("user_email", userEmail).find((message) => message.gmail_id === messageId);
 }
 
 export function getDraftById(gs: GoogleStore, userEmail: string, draftId: string): GoogleDraft | undefined {
-  return gs.drafts
-    .findBy("user_email", userEmail)
-    .find((draft) => draft.gmail_id === draftId);
+  return gs.drafts.findBy("user_email", userEmail).find((draft) => draft.gmail_id === draftId);
 }
 
 export function getDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMessage | undefined {
@@ -707,10 +684,7 @@ export function updateDraftMessage(
   return { draft: syncDraftState(gs, updated, draft.gmail_id) ?? draft, message: updated };
 }
 
-export function sendDraftMessage(
-  gs: GoogleStore,
-  draft: GoogleDraft,
-): GoogleMessage | null {
+export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMessage | null {
   const message = getDraftMessage(gs, draft);
   if (!message) {
     gs.drafts.delete(draft.id);
@@ -740,9 +714,7 @@ export function getCurrentHistoryId(gs: GoogleStore, userEmail: string): string 
 
   if (historyIds.length === 0) return "0";
 
-  return historyIds.reduce((latest, current) =>
-    compareHistoryIds(current, latest) > 0 ? current : latest,
-  );
+  return historyIds.reduce((latest, current) => (compareHistoryIds(current, latest) > 0 ? current : latest));
 }
 
 export function listHistoryForUser(
@@ -795,20 +767,18 @@ export function listFiltersForUser(gs: GoogleStore, userEmail: string): GoogleFi
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.gmail_id.localeCompare(b.gmail_id));
 }
 
-export function findMatchingFilter(
-  gs: GoogleStore,
-  input: GoogleFilterInput,
-): GoogleFilter | undefined {
+export function findMatchingFilter(gs: GoogleStore, input: GoogleFilterInput): GoogleFilter | undefined {
   const criteriaFrom = normalizeFilterFrom(input.criteria_from);
   const addLabelIds = sortStrings(dedupeLabelIds(input.add_label_ids ?? []));
   const removeLabelIds = sortStrings(dedupeLabelIds(input.remove_label_ids ?? []));
 
   return gs.filters
     .findBy("user_email", input.user_email)
-    .find((filter) =>
-      normalizeFilterFrom(filter.criteria_from) === criteriaFrom &&
-      arrayEquals(sortStrings(filter.add_label_ids), addLabelIds) &&
-      arrayEquals(sortStrings(filter.remove_label_ids), removeLabelIds),
+    .find(
+      (filter) =>
+        normalizeFilterFrom(filter.criteria_from) === criteriaFrom &&
+        arrayEquals(sortStrings(filter.add_label_ids), addLabelIds) &&
+        arrayEquals(sortStrings(filter.remove_label_ids), removeLabelIds),
     );
 }
 
@@ -930,9 +900,7 @@ export function getThreadMessages(
   threadId: string,
   options?: { includeSpamTrash?: boolean },
 ): GoogleMessage[] {
-  let messages = gs.messages
-    .findBy("user_email", userEmail)
-    .filter((message) => message.thread_id === threadId);
+  let messages = gs.messages.findBy("user_email", userEmail).filter((message) => message.thread_id === threadId);
 
   if (!options?.includeSpamTrash) {
     messages = messages.filter(
@@ -1002,11 +970,7 @@ export function applyLabelMutation(
   return [...next];
 }
 
-export function markMessageModified(
-  gs: GoogleStore,
-  message: GoogleMessage,
-  nextLabelIds: string[],
-): GoogleMessage {
+export function markMessageModified(gs: GoogleStore, message: GoogleMessage, nextLabelIds: string[]): GoogleMessage {
   const dedupedLabelIds = dedupeLabelIds(nextLabelIds);
   if (arrayEquals(message.label_ids, dedupedLabelIds)) {
     syncDraftState(gs, message);
@@ -1016,12 +980,11 @@ export function markMessageModified(
   const historyId = generateHistoryId();
   const addedLabelIds = dedupedLabelIds.filter((labelId) => !message.label_ids.includes(labelId));
   const removedLabelIds = message.label_ids.filter((labelId) => !dedupedLabelIds.includes(labelId));
-  const updated = (
+  const updated =
     gs.messages.update(message.id, {
       label_ids: dedupedLabelIds,
       history_id: historyId,
-    }) ?? message
-  );
+    }) ?? message;
 
   const historyEvents: Array<{
     change_type: GoogleHistoryEvent["change_type"];
@@ -1342,11 +1305,7 @@ function resolveThreadId(
   return generateUid("thr");
 }
 
-function replaceMessageAttachments(
-  gs: GoogleStore,
-  message: GoogleMessage,
-  attachments: ParsedAttachment[],
-): void {
+function replaceMessageAttachments(gs: GoogleStore, message: GoogleMessage, attachments: ParsedAttachment[]): void {
   clearMessageAttachments(gs, message.user_email, message.gmail_id);
 
   for (const attachment of attachments) {
@@ -1388,12 +1347,7 @@ function recordHistoryEvents(
   }
 }
 
-function applyFiltersToLabelIds(
-  gs: GoogleStore,
-  userEmail: string,
-  from: string,
-  labelIds: string[],
-): string[] {
+function applyFiltersToLabelIds(gs: GoogleStore, userEmail: string, from: string, labelIds: string[]): string[] {
   if (!from) return labelIds;
 
   let nextLabelIds = dedupeLabelIds(labelIds);
@@ -1406,13 +1360,8 @@ function applyFiltersToLabelIds(
   return nextLabelIds;
 }
 
-function syncDraftState(
-  gs: GoogleStore,
-  message: GoogleMessage,
-  preferredDraftId?: string,
-): GoogleDraft | undefined {
-  const shouldHaveDraft =
-    message.label_ids.includes("DRAFT") && !message.label_ids.includes("SENT");
+function syncDraftState(gs: GoogleStore, message: GoogleMessage, preferredDraftId?: string): GoogleDraft | undefined {
+  const shouldHaveDraft = message.label_ids.includes("DRAFT") && !message.label_ids.includes("SENT");
   const existing = gs.drafts
     .findBy("message_gmail_id", message.gmail_id)
     .filter((draft) => draft.user_email === message.user_email);
@@ -1434,9 +1383,7 @@ function syncDraftState(
 }
 
 function clearDraftRecordsForMessage(gs: GoogleStore, userEmail: string, messageId: string): void {
-  const drafts = gs.drafts
-    .findBy("message_gmail_id", messageId)
-    .filter((draft) => draft.user_email === userEmail);
+  const drafts = gs.drafts.findBy("message_gmail_id", messageId).filter((draft) => draft.user_email === userEmail);
 
   for (const draft of drafts) {
     gs.drafts.delete(draft.id);
@@ -1507,12 +1454,7 @@ function arrayEquals(left: string[], right: string[]): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
-function messageMatchesLabelQuery(
-  gs: GoogleStore,
-  userEmail: string,
-  message: GoogleMessage,
-  query: string,
-): boolean {
+function messageMatchesLabelQuery(gs: GoogleStore, userEmail: string, message: GoogleMessage, query: string): boolean {
   const normalized = normalizeLabelQuery(query);
   if (message.label_ids.includes(normalized)) return true;
 
@@ -1559,7 +1501,10 @@ function cleanToken(token: string): string {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildHeaders(message: GoogleMessage): MessageHeader[] {
@@ -1579,12 +1524,7 @@ function buildHeaders(message: GoogleMessage): MessageHeader[] {
   return headers.filter((header): header is MessageHeader => Boolean(header.value));
 }
 
-function buildPayload(
-  gs: GoogleStore,
-  message: GoogleMessage,
-  headers: MessageHeader[],
-  format: GmailMessageFormat,
-) {
+function buildPayload(gs: GoogleStore, message: GoogleMessage, headers: MessageHeader[], format: GmailMessageFormat) {
   const textBody = message.body_text ?? null;
   const htmlBody = message.body_html ?? null;
   const attachments = listAttachmentsForMessage(gs, message);
@@ -1607,10 +1547,7 @@ function buildPayload(
         filename: "",
         headers,
         body: { size: 0 },
-        parts: [
-          createTextBodyPart("0", "text/plain", textBody),
-          createTextBodyPart("1", "text/html", htmlBody),
-        ],
+        parts: [createTextBodyPart("0", "text/plain", textBody), createTextBodyPart("1", "text/html", htmlBody)],
       };
     }
 
@@ -1634,10 +1571,7 @@ function buildPayload(
       filename: "",
       headers: [],
       body: { size: 0 },
-      parts: [
-        createTextBodyPart("0.0", "text/plain", textBody),
-        createTextBodyPart("0.1", "text/html", htmlBody),
-      ],
+      parts: [createTextBodyPart("0.0", "text/plain", textBody), createTextBodyPart("0.1", "text/html", htmlBody)],
     });
   } else if (htmlBody) {
     parts.push(createTextBodyPart("0", "text/html", htmlBody));
@@ -1659,12 +1593,7 @@ function buildPayload(
   };
 }
 
-function createTextBodyPart(
-  partId: string,
-  mimeType: string,
-  content: string,
-  headers: MessageHeader[] = [],
-) {
+function createTextBodyPart(partId: string, mimeType: string, content: string, headers: MessageHeader[] = []) {
   return {
     partId,
     mimeType,
@@ -1681,9 +1610,7 @@ function createAttachmentPart(partId: string, attachment: GoogleAttachment) {
   const headers: MessageHeader[] = [
     {
       name: "Content-Type",
-      value: attachment.filename
-        ? `${attachment.mime_type}; name="${attachment.filename}"`
-        : attachment.mime_type,
+      value: attachment.filename ? `${attachment.mime_type}; name="${attachment.filename}"` : attachment.mime_type,
     },
     {
       name: "Content-Disposition",
@@ -1733,10 +1660,7 @@ function sortMessagesByDateAsc(messages: GoogleMessage[]): GoogleMessage[] {
   return [...messages].sort((a, b) => Number(a.internal_date) - Number(b.internal_date));
 }
 
-function buildMimeBodyPart(input: {
-  body_text?: string | null;
-  body_html?: string | null;
-}): string | null {
+function buildMimeBodyPart(input: { body_text?: string | null; body_html?: string | null }): string | null {
   if (input.body_text && input.body_html) {
     const boundary = `emulate-alt-${randomBytes(8).toString("hex")}`;
     return [
@@ -1756,19 +1680,11 @@ function buildMimeBodyPart(input: {
   }
 
   if (input.body_html) {
-    return [
-      "Content-Type: text/html; charset=utf-8",
-      "",
-      input.body_html,
-    ].join("\r\n");
+    return ["Content-Type: text/html; charset=utf-8", "", input.body_html].join("\r\n");
   }
 
   if (input.body_text) {
-    return [
-      "Content-Type: text/plain; charset=utf-8",
-      "",
-      input.body_text,
-    ].join("\r\n");
+    return ["Content-Type: text/plain; charset=utf-8", "", input.body_text].join("\r\n");
   }
 
   return null;

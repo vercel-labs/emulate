@@ -1,12 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import {
-  authMiddleware,
-  requireAuth,
-  requireAppAuth,
-  type TokenMap,
-  type AppEnv,
-} from "../middleware/auth.js";
+import { authMiddleware, requireAuth, requireAppAuth, type TokenMap, type AppEnv } from "../middleware/auth.js";
 
 describe("authMiddleware", () => {
   let tokenMap: TokenMap;

@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher, authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
+import {
+  Store,
+  WebhookDispatcher,
+  authMiddleware,
+  createApiErrorHandler,
+  createErrorHandler,
+  type TokenMap,
+} from "@emulators/core";
 import { stripePlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:14000";

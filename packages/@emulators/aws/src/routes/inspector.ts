@@ -132,8 +132,6 @@ export function inspectorRoutes(ctx: RouteContext): void {
         </div>`;
     }
 
-    return c.html(
-      renderInspectorPage("Inspector", TABS, tab, contentHtml, SERVICE_LABEL),
-    );
+    return c.html(renderInspectorPage("Inspector", TABS, tab, contentHtml, SERVICE_LABEL));
   });
 }

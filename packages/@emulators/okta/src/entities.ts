@@ -1,11 +1,6 @@
 import type { Entity } from "@emulators/core";
 
-export type OktaUserStatus =
-  | "STAGED"
-  | "PROVISIONED"
-  | "ACTIVE"
-  | "SUSPENDED"
-  | "DEPROVISIONED";
+export type OktaUserStatus = "STAGED" | "PROVISIONED" | "ACTIVE" | "SUSPENDED" | "DEPROVISIONED";
 
 export interface OktaUser extends Entity {
   okta_id: string;

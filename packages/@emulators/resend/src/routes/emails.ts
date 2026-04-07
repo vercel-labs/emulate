@@ -40,7 +40,7 @@ export function emailRoutes(ctx: RouteContext): void {
       const uuid = generateUuid();
 
       const scheduledAt = emailData.scheduled_at as string | undefined;
-      const status = scheduledAt ? "scheduled" as const : "delivered" as const;
+      const status = scheduledAt ? ("scheduled" as const) : ("delivered" as const);
 
       rs().emails.insert({
         uuid,
@@ -60,8 +60,18 @@ export function emailRoutes(ctx: RouteContext): void {
       });
 
       if (!scheduledAt) {
-        await webhooks.dispatch("email.sent", undefined, { type: "email.sent", data: { email_id: uuid, to: toArray, from, subject } }, "resend");
-        await webhooks.dispatch("email.delivered", undefined, { type: "email.delivered", data: { email_id: uuid, to: toArray, from, subject } }, "resend");
+        await webhooks.dispatch(
+          "email.sent",
+          undefined,
+          { type: "email.sent", data: { email_id: uuid, to: toArray, from, subject } },
+          "resend",
+        );
+        await webhooks.dispatch(
+          "email.delivered",
+          undefined,
+          { type: "email.delivered", data: { email_id: uuid, to: toArray, from, subject } },
+          "resend",
+        );
       }
 
       results.push({ id: uuid });
@@ -84,7 +94,7 @@ export function emailRoutes(ctx: RouteContext): void {
     const uuid = generateUuid();
 
     const scheduledAt = body.scheduled_at as string | undefined;
-    const status = scheduledAt ? "scheduled" as const : "delivered" as const;
+    const status = scheduledAt ? ("scheduled" as const) : ("delivered" as const);
 
     rs().emails.insert({
       uuid,
@@ -104,8 +114,18 @@ export function emailRoutes(ctx: RouteContext): void {
     });
 
     if (!scheduledAt) {
-      await webhooks.dispatch("email.sent", undefined, { type: "email.sent", data: { email_id: uuid, to: toArray, from, subject } }, "resend");
-      await webhooks.dispatch("email.delivered", undefined, { type: "email.delivered", data: { email_id: uuid, to: toArray, from, subject } }, "resend");
+      await webhooks.dispatch(
+        "email.sent",
+        undefined,
+        { type: "email.sent", data: { email_id: uuid, to: toArray, from, subject } },
+        "resend",
+      );
+      await webhooks.dispatch(
+        "email.delivered",
+        undefined,
+        { type: "email.delivered", data: { email_id: uuid, to: toArray, from, subject } },
+        "resend",
+      );
     }
 
     return c.json({ id: uuid }, 200);

@@ -36,7 +36,12 @@ ${bucketXml}
     const bucketName = c.req.param("bucket");
     const existing = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (existing) {
-      return awsErrorXml(c, "BucketAlreadyOwnedByYou", "Your previous request to create the named bucket succeeded and you already own it.", 409);
+      return awsErrorXml(
+        c,
+        "BucketAlreadyOwnedByYou",
+        "Your previous request to create the named bucket succeeded and you already own it.",
+        409,
+      );
     }
 
     aws().s3Buckets.insert({
@@ -319,6 +324,4 @@ ${prefixesXml}
     // S3 returns 204 even if the key doesn't exist
     return c.body(null, 204);
   });
-
 }
-

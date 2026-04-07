@@ -60,9 +60,7 @@ export function DocsMobileNav() {
         aria-label="Open table of contents"
         className="lg:hidden sticky top-14 z-40 w-full px-6 py-3 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-sm border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between focus:outline-none"
       >
-        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-          {currentPage.label}
-        </div>
+        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{currentPage.label}</div>
         <div className="w-8 h-8 flex items-center justify-center">
           <svg
             className="h-4 w-4 text-neutral-500 dark:text-neutral-400"

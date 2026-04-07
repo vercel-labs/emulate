@@ -20,7 +20,10 @@ function vercelErr(c: Context, status: ContentfulStatusCode, code: string, messa
 }
 
 function extractApexName(domain: string): string {
-  const parts = domain.toLowerCase().split(".").filter((p) => p.length > 0);
+  const parts = domain
+    .toLowerCase()
+    .split(".")
+    .filter((p) => p.length > 0);
   if (parts.length === 0) return domain;
   if (parts.length === 1) return parts[0];
   return parts.slice(-2).join(".");
@@ -42,11 +45,7 @@ function parseRedirectStatusCode(raw: unknown): 301 | 302 | 307 | 308 | null | "
   return "invalid";
 }
 
-function findDomainInProject(
-  vs: VercelStore,
-  projectUid: string,
-  domainName: string
-): VercelDomain | undefined {
+function findDomainInProject(vs: VercelStore, projectUid: string, domainName: string): VercelDomain | undefined {
   const normalized = normalizeDomainName(domainName);
   return vs.domains
     .findBy("projectId", projectUid as VercelDomain["projectId"])
@@ -100,8 +99,7 @@ export function domainsRoutes({ app, store }: RouteContext): void {
       return vercelErr(c, 400, "bad_request", "Invalid redirectStatusCode");
     }
 
-    const gitBranch =
-      body.gitBranch === null ? null : typeof body.gitBranch === "string" ? body.gitBranch : null;
+    const gitBranch = body.gitBranch === null ? null : typeof body.gitBranch === "string" ? body.gitBranch : null;
     const customEnvironmentId =
       body.customEnvironmentId === null
         ? null
@@ -242,7 +240,11 @@ export function domainsRoutes({ app, store }: RouteContext): void {
     }
     if ("redirect" in body) {
       patch.redirect =
-        body.redirect === null ? null : typeof body.redirect === "string" ? body.redirect.trim() || null : existing.redirect;
+        body.redirect === null
+          ? null
+          : typeof body.redirect === "string"
+            ? body.redirect.trim() || null
+            : existing.redirect;
     }
     if ("redirectStatusCode" in body) {
       const code = parseRedirectStatusCode(body.redirectStatusCode);

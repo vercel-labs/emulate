@@ -13,21 +13,14 @@ import {
   generateNodeId,
   lookupRepo,
 } from "../helpers.js";
-import {
-  assertRepoRead,
-  assertRepoWrite,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, number: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === number);
 }
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
-  return gh.pullRequests
-    .findBy("repo_id", repoId)
-    .find((p) => p.number === pullNumber);
+  return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
 }
 
 function findCommitInRepo(gh: GitHubStore, repoId: number, shaParam: string): GitHubCommit | undefined {
@@ -40,7 +33,7 @@ function getCommentForRepo(
   gh: GitHubStore,
   repo: GitHubRepo,
   commentId: number,
-  kind: GitHubComment["comment_type"]
+  kind: GitHubComment["comment_type"],
 ): GitHubComment | undefined {
   const c = gh.comments.get(commentId);
   if (!c || c.repo_id !== repo.id || c.comment_type !== kind) return undefined;
@@ -50,7 +43,7 @@ function getCommentForRepo(
 function sortComments(
   comments: GitHubComment[],
   sort: "created" | "updated",
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): GitHubComment[] {
   const mul = direction === "asc" ? 1 : -1;
   const field = sort === "created" ? "created_at" : "updated_at";
@@ -69,8 +62,7 @@ function parseCommentSort(c: Context, defaultDirection: "asc" | "desc") {
   const sortRaw = c.req.query("sort") ?? "created";
   const sort: "created" | "updated" = sortRaw === "updated" ? "updated" : "created";
   const dirRaw = c.req.query("direction");
-  const direction: "asc" | "desc" =
-    dirRaw === "desc" ? "desc" : dirRaw === "asc" ? "asc" : defaultDirection;
+  const direction: "asc" | "desc" = dirRaw === "desc" ? "desc" : dirRaw === "asc" ? "asc" : defaultDirection;
   return { sort, direction };
 }
 
@@ -144,7 +136,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(commentFmt);
@@ -165,8 +157,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
 
-    const issue =
-      comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
+    const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
     const issueFmt = issue ? formatIssue(issue, gh, baseUrl) : null;
     const ownerLogin = ownerLoginOf(gh, repo);
@@ -185,7 +176,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.body(null, 204);
@@ -203,9 +194,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const { sort, direction } = parseCommentSort(c, "asc");
     const since = c.req.query("since");
 
-    let list = gh.comments
-      .findBy("repo_id", repo.id)
-      .filter((x) => x.comment_type === "issue");
+    let list = gh.comments.findBy("repo_id", repo.id).filter((x) => x.comment_type === "issue");
     if (since) {
       list = list.filter((x) => x.updated_at >= since);
     }
@@ -260,8 +249,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
 
     comment = gh.comments.update(comment.id, { body: body.body })!;
-    const pr =
-      comment.pull_number !== null ? findPull(gh, repo.id, comment.pull_number) : undefined;
+    const pr = comment.pull_number !== null ? findPull(gh, repo.id, comment.pull_number) : undefined;
     const ownerLogin = ownerLoginOf(gh, repo);
     const commentFmt = formatComment(comment, gh, baseUrl);
     if (!commentFmt) throw notFoundResponse();
@@ -277,7 +265,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(commentFmt);
@@ -297,8 +285,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const comment = getCommentForRepo(gh, repo, commentId, "review");
     if (!comment) throw notFoundResponse();
 
-    const pr =
-      comment.pull_number !== null ? findPull(gh, repo.id, comment.pull_number) : undefined;
+    const pr = comment.pull_number !== null ? findPull(gh, repo.id, comment.pull_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
     const ownerLogin = ownerLoginOf(gh, repo);
 
@@ -316,7 +303,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.body(null, 204);
@@ -332,9 +319,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const { page, per_page } = parsePagination(c);
     const { sort, direction } = parseCommentSort(c, "asc");
 
-    let list = gh.comments
-      .findBy("repo_id", repo.id)
-      .filter((x) => x.comment_type === "review");
+    let list = gh.comments.findBy("repo_id", repo.id).filter((x) => x.comment_type === "review");
     list = sortComments(list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
@@ -419,9 +404,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const { page, per_page } = parsePagination(c);
     const { sort, direction } = parseCommentSort(c, "asc");
 
-    let list = gh.comments
-      .findBy("repo_id", repo.id)
-      .filter((x) => x.comment_type === "commit");
+    let list = gh.comments.findBy("repo_id", repo.id).filter((x) => x.comment_type === "commit");
     list = sortComments(list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
@@ -522,7 +505,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(commentFmt, 201);
@@ -577,14 +560,12 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       throw new ApiError(422, "Validation failed");
     }
 
-    const commitSha =
-      typeof raw.commit_id === "string" && raw.commit_id.trim()
-        ? raw.commit_id.trim()
-        : pr.head_sha;
+    const commitSha = typeof raw.commit_id === "string" && raw.commit_id.trim() ? raw.commit_id.trim() : pr.head_sha;
 
     let inReplyTo: number | null = null;
     if (raw.in_reply_to_id !== undefined && raw.in_reply_to_id !== null) {
-      const rid = typeof raw.in_reply_to_id === "number" ? raw.in_reply_to_id : parseInt(String(raw.in_reply_to_id), 10);
+      const rid =
+        typeof raw.in_reply_to_id === "number" ? raw.in_reply_to_id : parseInt(String(raw.in_reply_to_id), 10);
       if (!Number.isFinite(rid)) throw new ApiError(422, "Validation failed");
       const parent = gh.comments.get(rid);
       if (
@@ -598,12 +579,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       inReplyTo = rid;
     }
 
-    const pathVal =
-      raw.path === undefined || raw.path === null
-        ? null
-        : typeof raw.path === "string"
-          ? raw.path
-          : null;
+    const pathVal = raw.path === undefined || raw.path === null ? null : typeof raw.path === "string" ? raw.path : null;
     const position =
       raw.position === undefined || raw.position === null
         ? null
@@ -665,7 +641,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(commentFmt, 201);
@@ -716,12 +692,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       throw new ApiError(422, "Validation failed");
     }
 
-    const pathVal =
-      raw.path === undefined || raw.path === null
-        ? null
-        : typeof raw.path === "string"
-          ? raw.path
-          : null;
+    const pathVal = raw.path === undefined || raw.path === null ? null : typeof raw.path === "string" ? raw.path : null;
     const position =
       raw.position === undefined || raw.position === null
         ? null

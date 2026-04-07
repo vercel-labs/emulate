@@ -18,10 +18,13 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
   app.get("/app", (c) => {
     const authApp = requireApp(c);
     if (!authApp) {
-      return c.json({
-        message: "A JSON web token could not be decoded",
-        documentation_url: "https://docs.github.com/rest",
-      }, 401);
+      return c.json(
+        {
+          message: "A JSON web token could not be decoded",
+          documentation_url: "https://docs.github.com/rest",
+        },
+        401,
+      );
     }
 
     const ghApp = gh.apps.all().find((a) => a.app_id === authApp.appId);
@@ -51,33 +54,37 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
   app.get("/app/installations", (c) => {
     const authApp = requireApp(c);
     if (!authApp) {
-      return c.json({
-        message: "A JSON web token could not be decoded",
-        documentation_url: "https://docs.github.com/rest",
-      }, 401);
+      return c.json(
+        {
+          message: "A JSON web token could not be decoded",
+          documentation_url: "https://docs.github.com/rest",
+        },
+        401,
+      );
     }
 
     const installations = gh.appInstallations.findBy("app_id", authApp.appId);
     const ghApp = gh.apps.all().find((a) => a.app_id === authApp.appId);
 
-    return c.json(
-      installations.map((inst) => formatInstallation(inst, ghApp, baseUrl))
-    );
+    return c.json(installations.map((inst) => formatInstallation(inst, ghApp, baseUrl)));
   });
 
   app.get("/app/installations/:installation_id", (c) => {
     const authApp = requireApp(c);
     if (!authApp) {
-      return c.json({
-        message: "A JSON web token could not be decoded",
-        documentation_url: "https://docs.github.com/rest",
-      }, 401);
+      return c.json(
+        {
+          message: "A JSON web token could not be decoded",
+          documentation_url: "https://docs.github.com/rest",
+        },
+        401,
+      );
     }
 
     const installationId = parseInt(c.req.param("installation_id"), 10);
-    const inst = gh.appInstallations.all().find(
-      (i) => i.installation_id === installationId && i.app_id === authApp.appId
-    );
+    const inst = gh.appInstallations
+      .all()
+      .find((i) => i.installation_id === installationId && i.app_id === authApp.appId);
 
     if (!inst) {
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
@@ -90,16 +97,19 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
   app.post("/app/installations/:installation_id/access_tokens", async (c) => {
     const authApp = requireApp(c);
     if (!authApp) {
-      return c.json({
-        message: "A JSON web token could not be decoded",
-        documentation_url: "https://docs.github.com/rest",
-      }, 401);
+      return c.json(
+        {
+          message: "A JSON web token could not be decoded",
+          documentation_url: "https://docs.github.com/rest",
+        },
+        401,
+      );
     }
 
     const installationId = parseInt(c.req.param("installation_id"), 10);
-    const inst = gh.appInstallations.all().find(
-      (i) => i.installation_id === installationId && i.app_id === authApp.appId
-    );
+    const inst = gh.appInstallations
+      .all()
+      .find((i) => i.installation_id === installationId && i.app_id === authApp.appId);
 
     if (!inst) {
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
@@ -109,13 +119,13 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     let requestedRepoIds = inst.repository_ids;
 
     try {
-      const body = await c.req.json() as Record<string, unknown>;
+      const body = (await c.req.json()) as Record<string, unknown>;
       if (body.permissions && typeof body.permissions === "object") {
         requestedPermissions = body.permissions as Record<string, string>;
       }
       if (Array.isArray(body.repository_ids)) {
         requestedRepoIds = (body.repository_ids as number[]).filter(
-          (id) => inst.repository_selection === "all" || inst.repository_ids.includes(id)
+          (id) => inst.repository_selection === "all" || inst.repository_ids.includes(id),
         );
       }
     } catch {
@@ -144,13 +154,16 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
         private: r!.private,
       }));
 
-    return c.json({
-      token,
-      expires_at: expiresAt,
-      permissions: requestedPermissions,
-      repository_selection: inst.repository_selection,
-      ...(inst.repository_selection === "selected" ? { repositories: repos } : {}),
-    }, 201);
+    return c.json(
+      {
+        token,
+        expires_at: expiresAt,
+        permissions: requestedPermissions,
+        repository_selection: inst.repository_selection,
+        ...(inst.repository_selection === "selected" ? { repositories: repos } : {}),
+      },
+      201,
+    );
   });
 
   app.get("/repos/:owner/:repo/installation", (c) => {
@@ -162,8 +175,7 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
 
-    const ownerEntity = gh.users.findOneBy("login", owner)
-      ?? gh.orgs.findOneBy("login", owner);
+    const ownerEntity = gh.users.findOneBy("login", owner) ?? gh.orgs.findOneBy("login", owner);
 
     for (const inst of gh.appInstallations.all()) {
       if (inst.repository_selection === "all" && ownerEntity && inst.account_id === ownerEntity.id) {
@@ -186,9 +198,7 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
 
-    const inst = gh.appInstallations.all().find(
-      (i) => i.account_id === org.id && i.account_type === "Organization"
-    );
+    const inst = gh.appInstallations.all().find((i) => i.account_id === org.id && i.account_type === "Organization");
     if (!inst) {
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
@@ -204,9 +214,7 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
 
-    const inst = gh.appInstallations.all().find(
-      (i) => i.account_id === user.id && i.account_type === "User"
-    );
+    const inst = gh.appInstallations.all().find((i) => i.account_id === user.id && i.account_type === "User");
     if (!inst) {
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
@@ -216,20 +224,20 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
   });
 
   function formatInstallation(inst: any, ghApp: any, baseUrl: string) {
-    const account = inst.account_type === "Organization"
-      ? gh.orgs.get(inst.account_id)
-      : gh.users.get(inst.account_id);
+    const account = inst.account_type === "Organization" ? gh.orgs.get(inst.account_id) : gh.users.get(inst.account_id);
 
     return {
       id: inst.installation_id,
-      account: account ? {
-        login: account.login,
-        id: account.id,
-        node_id: account.node_id,
-        type: inst.account_type,
-        avatar_url: `${baseUrl}/avatars/u/${account.login}`,
-        url: `${baseUrl}/${inst.account_type === "Organization" ? "orgs" : "users"}/${account.login}`,
-      } : null,
+      account: account
+        ? {
+            login: account.login,
+            id: account.id,
+            node_id: account.node_id,
+            type: inst.account_type,
+            avatar_url: `${baseUrl}/avatars/u/${account.login}`,
+            url: `${baseUrl}/${inst.account_type === "Organization" ? "orgs" : "users"}/${account.login}`,
+          }
+        : null,
       repository_selection: inst.repository_selection,
       access_tokens_url: `${baseUrl}/app/installations/${inst.installation_id}/access_tokens`,
       repositories_url: `${baseUrl}/installation/repositories`,

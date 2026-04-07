@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 import { providers, getCallbackUrl } from "@/lib/providers";
 import { encodeSession, type Session } from "@/lib/session";
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
+export async function GET(request: Request, { params }: { params: Promise<{ provider: string }> }) {
   const { provider: slug } = await params;
   const provider = providers[slug];
   if (!provider) {
@@ -41,14 +38,10 @@ export async function GET(
   });
 
   const tokenData = await tokenRes.json();
-  const accessToken: string =
-    tokenData[provider.tokenResponseAccessTokenField ?? "access_token"];
+  const accessToken: string = tokenData[provider.tokenResponseAccessTokenField ?? "access_token"];
 
   if (!accessToken) {
-    return new Response(
-      `Token exchange failed: ${JSON.stringify(tokenData)}`,
-      { status: 502 }
-    );
+    return new Response(`Token exchange failed: ${JSON.stringify(tokenData)}`, { status: 502 });
   }
 
   const userRes = await fetch(provider.userInfoUrl, {
@@ -62,12 +55,8 @@ export async function GET(
     user: {
       name: userData[provider.userNameField] ?? "Unknown",
       email: userData[provider.userEmailField] ?? "",
-      login: provider.userLoginField
-        ? userData[provider.userLoginField]
-        : undefined,
-      avatar: provider.userAvatarField
-        ? userData[provider.userAvatarField]
-        : undefined,
+      login: provider.userLoginField ? userData[provider.userLoginField] : undefined,
+      avatar: provider.userAvatarField ? userData[provider.userAvatarField] : undefined,
     },
   };
 

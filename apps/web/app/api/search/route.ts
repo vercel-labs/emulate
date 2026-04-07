@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
           ...terms.map((t) => {
             const idx = contentLower.indexOf(t);
             return idx === -1 ? Infinity : idx;
-          })
+          }),
         );
         if (firstTermIdx !== Infinity) {
           const start = Math.max(0, firstTermIdx - 40);
@@ -48,13 +48,13 @@ export async function GET(req: NextRequest) {
     })
     .filter(
       (
-        r
+        r,
       ): r is {
         title: string;
         href: string;
         snippet: string;
         score: number;
-      } => r !== null
+      } => r !== null,
     )
     .sort((a, b) => b.score - a.score)
     .slice(0, 20)

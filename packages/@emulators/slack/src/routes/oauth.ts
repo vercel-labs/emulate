@@ -54,13 +54,17 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       if (!oauthApp) {
         return c.html(
           renderErrorPage("Application not found", `The client_id '${client_id}' is not registered.`, SERVICE_LABEL),
-          400
+          400,
         );
       }
       if (redirect_uri && !matchesRedirectUri(redirect_uri, oauthApp.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
-          400
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
+          400,
         );
       }
       appName = oauthApp.name;
@@ -70,7 +74,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       ? `Authorize <strong>${escapeHtml(appName)}</strong> to access your Slack workspace.`
       : "Choose a user to authorize.";
 
-    const users = ss().users.all().filter((u) => !u.deleted && !u.is_bot);
+    const users = ss()
+      .users.all()
+      .filter((u) => !u.deleted && !u.is_bot);
     const userButtons = users
       .map((user) => {
         return renderUserButton({
@@ -90,9 +96,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       })
       .join("\n");
 
-    const body = users.length === 0
-      ? '<p class="empty">No users in the emulator store.</p>'
-      : userButtons;
+    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
 
     return c.html(renderCardPage("Sign in to Slack", subtitleText, body, SERVICE_LABEL));
   });
@@ -132,7 +136,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     let body: Record<string, unknown>;
     if (contentType.includes("application/json")) {
-      try { body = JSON.parse(rawText); } catch { body = {}; }
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        body = {};
+      }
     } else {
       body = Object.fromEntries(new URLSearchParams(rawText));
     }

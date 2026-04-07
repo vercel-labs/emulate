@@ -21,9 +21,7 @@ export function groupRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const q = (c.req.query("q") ?? "").toLowerCase();
     let groups = oktaStore.groups.all();
     if (q) {
-      groups = groups.filter((group) =>
-        `${group.name} ${group.description ?? ""}`.toLowerCase().includes(q),
-      );
+      groups = groups.filter((group) => `${group.name} ${group.description ?? ""}`.toLowerCase().includes(q));
     }
     const { page, per_page } = parsePagination(c);
     const total = groups.length;

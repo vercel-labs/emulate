@@ -1,9 +1,5 @@
 export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 export function escapeAttr(s: string): string {
@@ -212,12 +208,7 @@ function head(title: string): string {
 </head>`;
 }
 
-export function renderCardPage(
-  title: string,
-  subtitle: string,
-  body: string,
-  service?: string
-): string {
+export function renderCardPage(title: string, subtitle: string, body: string, service?: string): string {
   return `${head(title)}
 <body>
 ${emuBar(service)}
@@ -246,12 +237,7 @@ ${POWERED_BY}
 </body></html>`;
 }
 
-export function renderSettingsPage(
-  title: string,
-  sidebarHtml: string,
-  bodyHtml: string,
-  service?: string
-): string {
+export function renderSettingsPage(title: string, sidebarHtml: string, bodyHtml: string, service?: string): string {
   return `${head(title)}
 <body>
 ${emuBar(service)}
@@ -274,12 +260,11 @@ export function renderInspectorPage(
   tabs: InspectorTab[],
   activeTab: string,
   body: string,
-  service?: string
+  service?: string,
 ): string {
   const tabLinks = tabs
     .map(
-      (t) =>
-        `<a href="${escapeAttr(t.href)}" class="${t.id === activeTab ? "active" : ""}">${escapeHtml(t.label)}</a>`
+      (t) => `<a href="${escapeAttr(t.href)}" class="${t.id === activeTab ? "active" : ""}">${escapeHtml(t.label)}</a>`,
     )
     .join("");
 
@@ -294,11 +279,7 @@ ${POWERED_BY}
 </body></html>`;
 }
 
-export function renderFormPostPage(
-  action: string,
-  fields: Record<string, string>,
-  service?: string
-): string {
+export function renderFormPostPage(action: string, fields: Record<string, string>, service?: string): string {
   const hiddens = Object.entries(fields)
     .filter(([, v]) => v != null)
     .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(v)}"/>`)
@@ -336,12 +317,8 @@ export function renderUserButton(opts: UserButtonOptions): string {
     .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(v)}"/>`)
     .join("");
 
-  const nameLine = opts.name
-    ? `<div class="user-meta">${escapeHtml(opts.name)}</div>`
-    : "";
-  const emailLine = opts.email
-    ? `<div class="user-email">${escapeHtml(opts.email)}</div>`
-    : "";
+  const nameLine = opts.name ? `<div class="user-meta">${escapeHtml(opts.name)}</div>` : "";
+  const emailLine = opts.email ? `<div class="user-email">${escapeHtml(opts.email)}</div>` : "";
 
   return `<form class="user-form" method="post" action="${escapeAttr(opts.formAction)}">
 ${hiddens}

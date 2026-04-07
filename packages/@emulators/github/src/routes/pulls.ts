@@ -30,15 +30,11 @@ import {
 } from "../helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
-  return gh.pullRequests
-    .findBy("repo_id", repoId)
-    .find((p) => p.number === pullNumber);
+  return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
 }
 
 function findPrIssue(gh: GitHubStore, repoId: number, number: number): GitHubIssue | undefined {
-  return gh.issues
-    .findBy("repo_id", repoId)
-    .find((i) => i.number === number && i.is_pull_request);
+  return gh.issues.findBy("repo_id", repoId).find((i) => i.number === number && i.is_pull_request);
 }
 
 function adjustRepoOpenIssues(gh: GitHubStore, repoId: number, delta: number) {
@@ -48,21 +44,14 @@ function adjustRepoOpenIssues(gh: GitHubStore, repoId: number, delta: number) {
 }
 
 function getDefaultBranchSha(gh: GitHubStore, repo: GitHubRepo): string {
-  const branch = gh.branches
-    .findBy("repo_id", repo.id)
-    .find((b) => b.name === repo.default_branch);
+  const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === repo.default_branch);
   if (!branch) {
     throw new ApiError(422, "The repository is empty.");
   }
   return branch.sha;
 }
 
-function createBranchAt(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  branchName: string,
-  sha: string
-): GitHubBranch {
+function createBranchAt(gh: GitHubStore, repo: GitHubRepo, branchName: string, sha: string): GitHubBranch {
   const b = gh.branches.insert({
     repo_id: repo.id,
     name: branchName,
@@ -89,16 +78,14 @@ function getOrCreateBranch(gh: GitHubStore, repo: GitHubRepo, branchName: string
 function updateBranchSha(gh: GitHubStore, repo: GitHubRepo, branchName: string, newSha: string) {
   const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === branchName);
   if (branch) gh.branches.update(branch.id, { sha: newSha });
-  const ref = gh.refs
-    .findBy("repo_id", repo.id)
-    .find((r) => r.ref === `refs/heads/${branchName}`);
+  const ref = gh.refs.findBy("repo_id", repo.id).find((r) => r.ref === `refs/heads/${branchName}`);
   if (ref) gh.refs.update(ref.id, { sha: newSha });
 }
 
 function resolveHeadTarget(
   gh: GitHubStore,
   baseRepo: GitHubRepo,
-  head: string
+  head: string,
 ): { headRepo: GitHubRepo; headRef: string } {
   const trimmed = head.trim();
   if (!trimmed.includes(":")) {
@@ -114,36 +101,21 @@ function resolveHeadTarget(
     return { headRepo: baseRepo, headRef: ref };
   }
 
-  const fork = gh.repos
-    .all()
-    .find((r) => {
-      if (r.forked_from_id !== baseRepo.id) return false;
-      const login =
-        r.owner_type === "User"
-          ? gh.users.get(r.owner_id)?.login
-          : gh.orgs.get(r.owner_id)?.login;
-      return login === ownerLogin;
-    });
+  const fork = gh.repos.all().find((r) => {
+    if (r.forked_from_id !== baseRepo.id) return false;
+    const login = r.owner_type === "User" ? gh.users.get(r.owner_id)?.login : gh.orgs.get(r.owner_id)?.login;
+    return login === ownerLogin;
+  });
   if (!fork) throw new ApiError(422, "Validation failed");
   return { headRepo: fork, headRef: ref };
 }
 
-function countCommitsBetween(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  headSha: string,
-  baseSha: string
-): number {
+function countCommitsBetween(gh: GitHubStore, repo: GitHubRepo, headSha: string, baseSha: string): number {
   const chain = walkCommitsToBase(gh, repo, headSha, baseSha);
   return chain.length;
 }
 
-function walkCommitsToBase(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  headSha: string,
-  baseSha: string
-): GitHubCommit[] {
+function walkCommitsToBase(gh: GitHubStore, repo: GitHubRepo, headSha: string, baseSha: string): GitHubCommit[] {
   const out: GitHubCommit[] = [];
   const seen = new Set<string>();
   let cur: string | undefined = headSha;
@@ -166,7 +138,7 @@ function insertCommit(
     parentShas: string[];
     message: string;
     user: GitHubUser | null;
-  }
+  },
 ): GitHubCommit {
   const u = opts.user;
   const authorName = u?.name ?? u?.login ?? "User";
@@ -255,7 +227,7 @@ function matchesHeadFilter(gh: GitHubStore, pr: GitHubPullRequest, headParam: st
 function sortPulls(
   list: GitHubPullRequest[],
   sort: "created" | "updated" | "popularity" | "long-running",
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): GitHubPullRequest[] {
   const sorted = [...list];
   sorted.sort((a, b) => {
@@ -283,22 +255,15 @@ function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
   const baseRepo = gh.repos.get(pr.base_repo_id);
   if (!baseRepo) throw new ApiError(422, "Base repository not found");
 
-  const rule = gh.branchProtections
-    .findBy("repo_id", baseRepo.id)
-    .find((p) => p.branch_name === pr.base_ref);
+  const rule = gh.branchProtections.findBy("repo_id", baseRepo.id).find((p) => p.branch_name === pr.base_ref);
 
   if (!rule) return;
 
   const checks = rule.required_status_checks;
   if (checks && checks.contexts.length > 0) {
-    const runs = gh.checkRuns
-      .findBy("repo_id", baseRepo.id)
-      .filter((r) => r.head_sha === pr.head_sha);
+    const runs = gh.checkRuns.findBy("repo_id", baseRepo.id).filter((r) => r.head_sha === pr.head_sha);
     for (const ctx of checks.contexts) {
-      const ok = runs.some(
-        (r) =>
-          r.name === ctx && r.status === "completed" && r.conclusion === "success"
-      );
+      const ok = runs.some((r) => r.name === ctx && r.status === "completed" && r.conclusion === "success");
       if (!ok) {
         throw new ApiError(422, "Required status checks have not succeeded.");
       }
@@ -321,9 +286,7 @@ function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
 function deleteBranchByName(gh: GitHubStore, repo: GitHubRepo, branchName: string) {
   const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === branchName);
   if (branch) gh.branches.delete(branch.id);
-  const ref = gh.refs
-    .findBy("repo_id", repo.id)
-    .find((r) => r.ref === `refs/heads/${branchName}`);
+  const ref = gh.refs.findBy("repo_id", repo.id).find((r) => r.ref === `refs/heads/${branchName}`);
   if (ref) gh.refs.delete(ref.id);
 }
 
@@ -334,9 +297,7 @@ function lookupUserByLogin(gh: GitHubStore, login: string): GitHubUser {
 }
 
 function lookupTeamSlug(gh: GitHubStore, orgId: number, slug: string) {
-  const t = gh.teams
-    .findBy("org_id", orgId)
-    .find((x) => x.slug === slug);
+  const t = gh.teams.findBy("org_id", orgId).find((x) => x.slug === slug);
   if (!t) throw new ApiError(422, "Validation failed");
   return t;
 }
@@ -360,9 +321,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
     const sortRaw = c.req.query("sort") ?? "created";
     const sort: "created" | "updated" | "popularity" | "long-running" =
-      sortRaw === "updated" || sortRaw === "popularity" || sortRaw === "long-running"
-        ? sortRaw
-        : "created";
+      sortRaw === "updated" || sortRaw === "popularity" || sortRaw === "long-running" ? sortRaw : "created";
 
     const dirRaw = c.req.query("direction") ?? "desc";
     const direction: "asc" | "desc" = dirRaw === "asc" ? "asc" : "desc";
@@ -502,7 +461,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(prFmt, 201);
@@ -604,7 +563,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     } else if (body.state === "open" && pr.state === "closed") {
       webhooks.dispatch(
@@ -617,13 +576,9 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
-    } else if (
-      typeof body.title === "string" ||
-      typeof body.body === "string" ||
-      body.body === null
-    ) {
+    } else if (typeof body.title === "string" || typeof body.body === "string" || body.body === null) {
       webhooks.dispatch(
         "pull_request",
         "edited",
@@ -634,7 +589,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     }
 
@@ -665,10 +620,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       throw new ApiError(422, "Head sha is out of date");
     }
 
-    const mergeMethod =
-      body.merge_method === "squash" || body.merge_method === "rebase"
-        ? body.merge_method
-        : "merge";
+    const mergeMethod = body.merge_method === "squash" || body.merge_method === "rebase" ? body.merge_method : "merge";
 
     if (mergeMethod === "merge" && !repo.allow_merge_commit) {
       throw new ApiError(422, "Merge commits are not allowed on this repository.");
@@ -685,12 +637,8 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const baseRepo = gh.repos.get(pr.base_repo_id)!;
     const headRepo = gh.repos.get(pr.head_repo_id)!;
 
-    const baseCommit = gh.commits
-      .findBy("repo_id", baseRepo.id)
-      .find((x) => x.sha === pr.base_sha);
-    const headCommit = gh.commits
-      .findBy("repo_id", headRepo.id)
-      .find((x) => x.sha === pr.head_sha);
+    const baseCommit = gh.commits.findBy("repo_id", baseRepo.id).find((x) => x.sha === pr.base_sha);
+    const headCommit = gh.commits.findBy("repo_id", headRepo.id).find((x) => x.sha === pr.head_sha);
 
     if (!baseCommit || !headCommit) {
       throw new ApiError(422, "Could not resolve commits to merge.");
@@ -701,9 +649,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         ? body.commit_title.trim()
         : `Merge pull request #${pr.number} from ${headLabel(gh, pr)}`;
     const commitMessage =
-      typeof body.commit_message === "string" && body.commit_message.trim()
-        ? body.commit_message.trim()
-        : "";
+      typeof body.commit_message === "string" && body.commit_message.trim() ? body.commit_message.trim() : "";
 
     const fullMessage = commitMessage ? `${commitTitle}\n\n${commitMessage}` : commitTitle;
 
@@ -767,7 +713,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json({
@@ -834,11 +780,9 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         changes: 1,
         blob_url: `${baseUrl}/${repo.full_name}/blob/${pr.head_sha}/${filename}`,
         raw_url: `${baseUrl}/${repo.full_name}/raw/${pr.head_sha}/${filename}`,
-        contents_url: `${baseUrl}/repos/${repo.full_name}/contents/${encodeURIComponent(
-          filename
-        )}?ref=${pr.head_ref}`,
+        contents_url: `${baseUrl}/repos/${repo.full_name}/contents/${encodeURIComponent(filename)}?ref=${pr.head_ref}`,
         patch: "",
-      }))
+      })),
     );
   });
 
@@ -855,7 +799,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const body = await parseJsonBody(c) as {
+    const body = (await parseJsonBody(c)) as {
       reviewers?: unknown;
       team_reviewers?: unknown;
     };
@@ -894,7 +838,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(prFmt);
@@ -913,7 +857,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const body = await parseJsonBody(c) as {
+    const body = (await parseJsonBody(c)) as {
       reviewers?: unknown;
       team_reviewers?: unknown;
     };
@@ -955,7 +899,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       throw new ApiError(422, "Cannot update a closed pull request");
     }
 
-    const body = await parseJsonBody(c) as { expected_head_sha?: unknown };
+    const body = (await parseJsonBody(c)) as { expected_head_sha?: unknown };
     if (typeof body.expected_head_sha === "string" && body.expected_head_sha !== pr.head_sha) {
       throw new ApiError(422, "Head sha is out of date");
     }
@@ -964,12 +908,8 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const baseRepo = gh.repos.get(pr.base_repo_id);
     if (!headRepo || !baseRepo) throw notFoundResponse();
 
-    const headCommit = gh.commits
-      .findBy("repo_id", headRepo.id)
-      .find((x) => x.sha === pr.head_sha);
-    const baseCommit = gh.commits
-      .findBy("repo_id", baseRepo.id)
-      .find((x) => x.sha === pr.base_sha);
+    const headCommit = gh.commits.findBy("repo_id", headRepo.id).find((x) => x.sha === pr.head_sha);
+    const baseCommit = gh.commits.findBy("repo_id", baseRepo.id).find((x) => x.sha === pr.base_sha);
     if (!headCommit || !baseCommit) throw new ApiError(422, "Could not resolve commits.");
 
     const actor = assertAuthenticatedUser(gh, c.get("authUser"));
@@ -994,7 +934,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         message: "Updating pull request branch.",
         url: apiUrl,
       },
-      202
+      202,
     );
   });
 }

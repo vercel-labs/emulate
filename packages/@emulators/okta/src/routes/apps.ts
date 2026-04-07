@@ -21,9 +21,7 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
     const q = (c.req.query("q") ?? "").toLowerCase();
     let apps = oktaStore.apps.all();
     if (q) {
-      apps = apps.filter((entry) =>
-        `${entry.name} ${entry.label}`.toLowerCase().includes(q),
-      );
+      apps = apps.filter((entry) => `${entry.name} ${entry.label}`.toLowerCase().includes(q));
     }
     const { page, per_page } = parsePagination(c);
     const total = apps.length;
@@ -43,12 +41,10 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
     const name = typeof body.name === "string" ? body.name : "oidc_client";
     const label = typeof body.label === "string" ? body.label : "Okta App";
     const signOnMode = typeof body.signOnMode === "string" ? body.signOnMode : "OPENID_CONNECT";
-    const settings = body.settings && typeof body.settings === "object"
-      ? (body.settings as Record<string, unknown>)
-      : {};
-    const credentials = body.credentials && typeof body.credentials === "object"
-      ? (body.credentials as Record<string, unknown>)
-      : {};
+    const settings =
+      body.settings && typeof body.settings === "object" ? (body.settings as Record<string, unknown>) : {};
+    const credentials =
+      body.credentials && typeof body.credentials === "object" ? (body.credentials as Record<string, unknown>) : {};
 
     const created = oktaStore.apps.insert({
       okta_id: generateOktaId("0oa"),
@@ -80,7 +76,7 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
         id: user.okta_id,
         scope: "USER",
         credentials: { userName: user.login },
-        profile: (userResponse(baseUrl, user).profile as Record<string, unknown>),
+        profile: userResponse(baseUrl, user).profile as Record<string, unknown>,
       })),
     );
   });
@@ -165,12 +161,14 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
       label: typeof body.label === "string" ? body.label : appEntity.label,
       status: normalizeAppStatus(typeof body.status === "string" ? body.status : undefined, appEntity.status),
       sign_on_mode: typeof body.signOnMode === "string" ? body.signOnMode : appEntity.sign_on_mode,
-      settings: body.settings && typeof body.settings === "object"
-        ? (body.settings as Record<string, unknown>)
-        : appEntity.settings,
-      credentials: body.credentials && typeof body.credentials === "object"
-        ? (body.credentials as Record<string, unknown>)
-        : appEntity.credentials,
+      settings:
+        body.settings && typeof body.settings === "object"
+          ? (body.settings as Record<string, unknown>)
+          : appEntity.settings,
+      credentials:
+        body.credentials && typeof body.credentials === "object"
+          ? (body.credentials as Record<string, unknown>)
+          : appEntity.credentials,
     });
     return c.json(appResponse(baseUrl, updated ?? appEntity));
   });

@@ -16,22 +16,29 @@ export function contactRoutes(ctx: RouteContext): void {
     const uuid = generateUuid();
     const audience = rs().audiences.insert({ uuid, name });
 
-    return c.json({
-      id: audience.uuid,
-      object: "audience",
-      name: audience.name,
-      created_at: audience.created_at,
-    }, 200);
+    return c.json(
+      {
+        id: audience.uuid,
+        object: "audience",
+        name: audience.name,
+        created_at: audience.created_at,
+      },
+      200,
+    );
   });
 
   app.get("/audiences", (c) => {
     const allAudiences = rs().audiences.all();
-    return c.json(resendList(allAudiences.map((a) => ({
-      id: a.uuid,
-      object: "audience",
-      name: a.name,
-      created_at: a.created_at,
-    }))));
+    return c.json(
+      resendList(
+        allAudiences.map((a) => ({
+          id: a.uuid,
+          object: "audience",
+          name: a.name,
+          created_at: a.created_at,
+        })),
+      ),
+    );
   });
 
   app.delete("/audiences/:id", (c) => {
@@ -65,13 +72,21 @@ export function contactRoutes(ctx: RouteContext): void {
       unsubscribed: (body.unsubscribed as boolean) ?? false,
     });
 
-    await webhooks.dispatch("contact.created", undefined, { type: "contact.created", data: { id: uuid, email, audience_id: audienceId } }, "resend");
+    await webhooks.dispatch(
+      "contact.created",
+      undefined,
+      { type: "contact.created", data: { id: uuid, email, audience_id: audienceId } },
+      "resend",
+    );
 
-    return c.json({
-      id: contact.uuid,
-      object: "contact",
-      email: contact.email,
-    }, 200);
+    return c.json(
+      {
+        id: contact.uuid,
+        object: "contact",
+        email: contact.email,
+      },
+      200,
+    );
   });
 
   app.get("/audiences/:audience_id/contacts", (c) => {
@@ -80,15 +95,19 @@ export function contactRoutes(ctx: RouteContext): void {
     if (!audience) return resendError(c, 404, "not_found", "Audience not found");
 
     const contacts = rs().contacts.findBy("audience_id", audienceId);
-    return c.json(resendList(contacts.map((ct) => ({
-      id: ct.uuid,
-      object: "contact",
-      email: ct.email,
-      first_name: ct.first_name,
-      last_name: ct.last_name,
-      unsubscribed: ct.unsubscribed,
-      created_at: ct.created_at,
-    }))));
+    return c.json(
+      resendList(
+        contacts.map((ct) => ({
+          id: ct.uuid,
+          object: "contact",
+          email: ct.email,
+          first_name: ct.first_name,
+          last_name: ct.last_name,
+          unsubscribed: ct.unsubscribed,
+          created_at: ct.created_at,
+        })),
+      ),
+    );
   });
 
   app.delete("/audiences/:audience_id/contacts/:id", async (c) => {
@@ -102,7 +121,12 @@ export function contactRoutes(ctx: RouteContext): void {
 
     rs().contacts.delete(contact.id);
 
-    await webhooks.dispatch("contact.deleted", undefined, { type: "contact.deleted", data: { id: contact.uuid, email: contact.email, audience_id: audienceId } }, "resend");
+    await webhooks.dispatch(
+      "contact.deleted",
+      undefined,
+      { type: "contact.deleted", data: { id: contact.uuid, email: contact.email, audience_id: audienceId } },
+      "resend",
+    );
 
     return c.json({ object: "contact", id: contact.uuid, deleted: true });
   });

@@ -15,8 +15,11 @@ export function authRoutes(ctx: RouteContext): void {
 
     // Look up by user_id first, then fall back to name (for token-based auth
     // where the token login may be the username rather than the user_id)
-    const user = ss().users.findOneBy("user_id", authUser.login)
-      ?? ss().users.all().find((u) => u.name === authUser.login);
+    const user =
+      ss().users.findOneBy("user_id", authUser.login) ??
+      ss()
+        .users.all()
+        .find((u) => u.name === authUser.login);
     if (!user) {
       return slackError(c, "invalid_auth");
     }

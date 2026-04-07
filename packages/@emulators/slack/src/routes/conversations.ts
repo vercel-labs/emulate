@@ -15,7 +15,9 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const limit = Math.min(Number(body.limit) || 100, 1000);
     const cursor = typeof body.cursor === "string" ? body.cursor : "";
 
-    const allChannels = ss().channels.all().filter((ch) => !ch.is_archived);
+    const allChannels = ss()
+      .channels.all()
+      .filter((ch) => !ch.is_archived);
 
     // Simple cursor pagination using channel id
     let startIndex = 0;
@@ -25,9 +27,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     }
 
     const page = allChannels.slice(startIndex, startIndex + limit);
-    const nextCursor = startIndex + limit < allChannels.length
-      ? allChannels[startIndex + limit].channel_id
-      : "";
+    const nextCursor = startIndex + limit < allChannels.length ? allChannels[startIndex + limit].channel_id : "";
 
     return slackOk(c, {
       channels: page.map(formatChannel),
@@ -101,8 +101,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
     if (!ch) return slackError(c, "channel_not_found");
 
     // Get top-level messages (no thread_ts or thread_ts === ts)
-    const allMessages = ss().messages
-      .findBy("channel_id", channel)
+    const allMessages = ss()
+      .messages.findBy("channel_id", channel)
       .filter((m) => !m.thread_ts || m.thread_ts === m.ts)
       .sort((a, b) => (b.ts > a.ts ? 1 : -1));
 
@@ -134,8 +134,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     if (!channel || !ts) return slackError(c, "channel_not_found");
 
-    const allMessages = ss().messages
-      .findBy("channel_id", channel)
+    const allMessages = ss()
+      .messages.findBy("channel_id", channel)
       .filter((m) => m.ts === ts || m.thread_ts === ts)
       .sort((a, b) => (a.ts > b.ts ? 1 : -1));
 

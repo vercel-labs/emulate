@@ -1,6 +1,15 @@
 import { randomBytes } from "crypto";
 import type { Context } from "hono";
-import type { VercelUser, VercelTeam, VercelProject, VercelDeployment, VercelDomain, VercelEnvVar, VercelDeploymentAlias, VercelBuild } from "./entities.js";
+import type {
+  VercelUser,
+  VercelTeam,
+  VercelProject,
+  VercelDeployment,
+  VercelDomain,
+  VercelEnvVar,
+  VercelDeploymentAlias,
+  VercelBuild,
+} from "./entities.js";
 import type { VercelStore } from "./store.js";
 
 export function generateUid(prefix = ""): string {
@@ -67,7 +76,7 @@ export function parseCursorPagination(c: Context): CursorPagination {
 
 export function applyCursorPagination<T extends { created_at: string }>(
   items: T[],
-  pagination: CursorPagination
+  pagination: CursorPagination,
 ): { items: T[]; pagination: { count: number; next: number | null; prev: number | null } } {
   let filtered = [...items].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 

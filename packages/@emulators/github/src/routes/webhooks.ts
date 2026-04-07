@@ -1,31 +1,16 @@
 import type { RouteContext, AuthUser, WebhookDelivery } from "@emulators/core";
-import {
-  ApiError,
-  forbidden,
-  parseJsonBody,
-  parsePagination,
-  setLinkHeader,
-  unauthorized,
-} from "@emulators/core";
+import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubOrg, GitHubRepo, GitHubUser, GitHubWebhook } from "../entities.js";
 import { formatRepo, formatUser, formatWebhook, lookupRepo } from "../helpers.js";
-import {
-  assertRepoAdmin,
-  getActorUser,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { assertRepoAdmin, getActorUser, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function teamsForOrg(gh: GitHubStore, orgId: number) {
   return gh.teams.findBy("org_id", orgId);
 }
 
-function listOrgMembersDeduped(
-  gh: GitHubStore,
-  orgId: number
-): { user: GitHubUser; orgRole: "admin" | "member" }[] {
+function listOrgMembersDeduped(gh: GitHubStore, orgId: number): { user: GitHubUser; orgRole: "admin" | "member" }[] {
   const byUser = new Map<number, { user: GitHubUser; isAdmin: boolean }>();
   for (const team of teamsForOrg(gh, orgId)) {
     for (const m of gh.teamMembers.findBy("team_id", team.id)) {
@@ -96,10 +81,7 @@ function normalizeInsecureSsl(v: unknown): string {
   return "0";
 }
 
-function parseHookConfig(
-  raw: unknown,
-  existing?: GitHubWebhook["config"]
-): GitHubWebhook["config"] | null {
+function parseHookConfig(raw: unknown, existing?: GitHubWebhook["config"]): GitHubWebhook["config"] | null {
   if (raw === undefined && existing) return existing;
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -107,9 +89,7 @@ function parseHookConfig(
   const url = urlRaw || existing?.url || "";
   if (!url) return null;
   const content_type =
-    typeof o.content_type === "string" && o.content_type
-      ? o.content_type
-      : existing?.content_type ?? "json";
+    typeof o.content_type === "string" && o.content_type ? o.content_type : (existing?.content_type ?? "json");
   let secret: string | undefined;
   if (o.secret === null) {
     secret = undefined;
@@ -119,17 +99,12 @@ function parseHookConfig(
     secret = existing.secret;
   }
   const insecure_ssl = normalizeInsecureSsl(
-    o.insecure_ssl !== undefined ? o.insecure_ssl : (existing?.insecure_ssl ?? "0")
+    o.insecure_ssl !== undefined ? o.insecure_ssl : (existing?.insecure_ssl ?? "0"),
   );
   return { url, content_type, secret, insecure_ssl };
 }
 
-function formatHookDelivery(
-  d: WebhookDelivery,
-  baseUrl: string,
-  pathPrefix: string,
-  hookId: number
-) {
+function formatHookDelivery(d: WebhookDelivery, baseUrl: string, pathPrefix: string, hookId: number) {
   return {
     id: d.id,
     guid: `${d.hook_id}-${d.id}-${d.delivered_at}`,
@@ -241,8 +216,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       ? (body.events as unknown[]).filter((e): e is string => typeof e === "string")
       : existing.events;
     const active = typeof body.active === "boolean" ? body.active : existing.active;
-    const config =
-      body.config !== undefined ? parseHookConfig(body.config, existing.config) : existing.config;
+    const config = body.config !== undefined ? parseHookConfig(body.config, existing.config) : existing.config;
     if (!config) throw new ApiError(422, "Invalid config");
 
     const wh = gh.webhooks.update(hookId, { name, active, events, config })!;
@@ -296,7 +270,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         hook: formatWebhook(wh, baseUrl, ownerPath),
       },
       owner,
-      repo.name
+      repo.name,
     );
     return c.body(null, 204);
   });
@@ -314,8 +288,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!wh) throw notFoundResponse();
 
     const ownerLogin = ownerLoginOf(gh, repo);
-    const actor =
-      getActorUser(gh, c.get("authUser")!) ?? gh.users.get(repo.owner_id) ?? gh.users.all()[0];
+    const actor = getActorUser(gh, c.get("authUser")!) ?? gh.users.get(repo.owner_id) ?? gh.users.all()[0];
     const testPayload = {
       ref: "refs/heads/main",
       before: "0000000000000000000000000000000000000000",
@@ -458,8 +431,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       ? (body.events as unknown[]).filter((e): e is string => typeof e === "string")
       : existing.events;
     const active = typeof body.active === "boolean" ? body.active : existing.active;
-    const config =
-      body.config !== undefined ? parseHookConfig(body.config, existing.config) : existing.config;
+    const config = body.config !== undefined ? parseHookConfig(body.config, existing.config) : existing.config;
     if (!config) throw new ApiError(422, "Invalid config");
 
     const wh = gh.webhooks.update(hookId, { name, active, events, config })!;
@@ -509,7 +481,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         hook: formatWebhook(wh, baseUrl, org.login),
       },
       org.login,
-      undefined
+      undefined,
     );
     return c.body(null, 204);
   });
