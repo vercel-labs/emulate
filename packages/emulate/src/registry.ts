@@ -263,7 +263,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   stripe: {
     label: "Stripe payments emulator",
-    endpoints: "customers, payment intents, charges, products, prices, checkout sessions, webhooks",
+    endpoints: "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
     async load() {
       const mod = await import("@emulators/stripe");
       return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig };

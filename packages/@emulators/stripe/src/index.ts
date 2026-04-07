@@ -4,10 +4,12 @@ import { getStripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
 import { customerRoutes } from "./routes/customers.js";
 import { paymentIntentRoutes } from "./routes/payment-intents.js";
+import { paymentMethodRoutes } from "./routes/payment-methods.js";
 import { chargeRoutes } from "./routes/charges.js";
 import { productRoutes } from "./routes/products.js";
 import { priceRoutes } from "./routes/prices.js";
 import { checkoutSessionRoutes } from "./routes/checkout-sessions.js";
+import { customerSessionRoutes } from "./routes/customer-sessions.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
@@ -92,11 +94,13 @@ export const stripePlugin: ServicePlugin = {
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     customerRoutes(ctx);
+    paymentMethodRoutes(ctx);
     paymentIntentRoutes(ctx);
     chargeRoutes(ctx);
     productRoutes(ctx);
     priceRoutes(ctx);
     checkoutSessionRoutes(ctx);
+    customerSessionRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

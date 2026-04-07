@@ -354,6 +354,95 @@ describe("Stripe plugin", () => {
     });
   });
 
+  describe("customer sessions", () => {
+    it("creates a customer session", async () => {
+      const custRes = await app.request(`${base}/v1/customers`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ email: "session@test.com" }),
+      });
+      const cust = (await custRes.json()) as { id: string };
+
+      const res = await app.request(`${base}/v1/customer_sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({
+          customer: cust.id,
+          components: { payment_element: { enabled: true } },
+        }),
+      });
+      expect(res.status).toBe(200);
+      const session = (await res.json()) as { object: string; client_secret: string; customer: string; components: Record<string, unknown>; created: number; expires_at: number };
+      expect(session.object).toBe("customer_session");
+      expect(session.client_secret).toBeTruthy();
+      expect(session.customer).toBe(cust.id);
+      expect(session.components).toEqual({ payment_element: { enabled: true } });
+      expect(session.created).toBeTypeOf("number");
+      expect(session.expires_at).toBeGreaterThan(session.created);
+    });
+
+    it("returns error for missing customer param", async () => {
+      const res = await app.request(`${base}/v1/customer_sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { type: string; param: string } };
+      expect(body.error.type).toBe("invalid_request_error");
+      expect(body.error.param).toBe("customer");
+    });
+
+    it("returns error for nonexistent customer", async () => {
+      const res = await app.request(`${base}/v1/customer_sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ customer: "cus_nonexistent" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { type: string; code: string } };
+      expect(body.error.type).toBe("invalid_request_error");
+      expect(body.error.code).toBe("resource_missing");
+    });
+  });
+
+  describe("payment methods", () => {
+    it("lists payment methods for a customer", async () => {
+      const custRes = await app.request(`${base}/v1/customers`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ email: "methods@test.com" }),
+      });
+      const cust = (await custRes.json()) as { id: string };
+
+      const res = await app.request(`${base}/v1/payment_methods?customer=${cust.id}&type=card`, {
+        headers: auth(),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        data: unknown[];
+        has_more: boolean;
+        object: string;
+        url: string;
+      };
+      expect(body.object).toBe("list");
+      expect(body.url).toBe("/v1/payment_methods");
+      expect(body.has_more).toBe(false);
+      expect(body.data).toEqual([]);
+    });
+
+    it("returns error for nonexistent customer", async () => {
+      const res = await app.request(`${base}/v1/payment_methods?customer=cus_nonexistent&type=card`, {
+        headers: auth(),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; param: string; type: string } };
+      expect(body.error.type).toBe("invalid_request_error");
+      expect(body.error.code).toBe("resource_missing");
+      expect(body.error.param).toBe("customer");
+    });
+  });
+
   describe("seed", () => {
     it("seeds customers and products from config", async () => {
       const store = new Store();

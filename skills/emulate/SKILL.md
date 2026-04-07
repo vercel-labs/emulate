@@ -111,8 +111,8 @@ beforeAll(async () => {
     createEmulator({ service: 'github', port: 4001 }),
     createEmulator({ service: 'vercel', port: 4002 }),
   ])
-  process.env.GITHUB_URL = github.url
-  process.env.VERCEL_URL = vercel.url
+  process.env.GITHUB_EMULATOR_URL = github.url
+  process.env.VERCEL_EMULATOR_URL = vercel.url
 })
 
 afterEach(() => { github.reset(); vercel.reset() })
@@ -267,6 +267,36 @@ AWS_EMULATOR_URL=http://localhost:4006
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
+## Next.js Integration (Embedded Mode)
+
+The `@emulators/adapter-next` package embeds emulators directly into a Next.js app on the same origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, and font tracing details.
+
+## Persistence
+
+By default, all emulator state is in-memory. For persistence across process restarts and serverless cold starts, use a `PersistenceAdapter`.
+
+### Built-in file persistence
+
+```typescript
+import { filePersistence } from '@emulators/core'
+
+// CLI or local dev: persists to a JSON file
+const adapter = filePersistence('.emulate/state.json')
+```
+
+### Custom adapters
+
+```typescript
+import type { PersistenceAdapter } from '@emulators/core'
+
+const kvAdapter: PersistenceAdapter = {
+  async load() { return await kv.get('emulate-state') },
+  async save(data) { await kv.set('emulate-state', data) },
+}
+```
+
+State is loaded on cold start and saved after every mutating request (POST, PUT, PATCH, DELETE). Saves are serialized to prevent race conditions.
+
 ## Architecture
 
 ```
@@ -274,6 +304,7 @@ packages/
   emulate/           # CLI entry point + programmatic API
   @emulators/
     core/            # HTTP server (Hono), Store, plugin interface, middleware
+    adapter-next/    # Next.js App Router integration
     vercel/          # Vercel API service plugin
     github/          # GitHub API service plugin
     google/          # Google OAuth 2.0 / OIDC plugin
