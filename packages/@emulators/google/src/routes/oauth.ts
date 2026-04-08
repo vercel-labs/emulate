@@ -3,7 +3,6 @@ import { SignJWT } from "jose";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
-  escapeAttr,
   renderCardPage,
   renderErrorPage,
   renderUserButton,
@@ -300,6 +299,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     if (isPendingCodeExpired(pending)) {
       pendingMap.delete(code);
       return c.json({ error: "invalid_grant", error_description: "The code is incorrect or expired." }, 400);
+    }
+
+    // RFC 6749 §4.1.3: redirect_uri must match the one used in the authorization request.
+    if (redirect_uri && redirect_uri !== pending.redirectUri) {
+      return c.json({ error: "invalid_grant", error_description: "The redirect_uri does not match." }, 400);
     }
 
     if (pending.codeChallenge != null) {
