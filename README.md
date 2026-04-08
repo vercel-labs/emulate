@@ -17,6 +17,7 @@ All services start with sensible defaults. No config file needed:
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
 - **AWS** on `http://localhost:4006`
+- **Twilio** on `http://localhost:4007`
 
 ## CLI
 

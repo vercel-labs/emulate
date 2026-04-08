@@ -58,6 +58,57 @@ describe("createEmulator", () => {
     await github.close();
   });
 
+  it("twilio sends SMS and lists messages", async () => {
+    const twilio = await createEmulator({ service: "twilio", port: 14300 });
+
+    const sendRes = await fetch(`${twilio.url}/2010-04-01/Accounts/AC_test/Messages.json`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "To=+15559876543&From=+15551234567&Body=Hello from emulate",
+    });
+    expect(sendRes.status).toBe(201);
+    const msg = (await sendRes.json()) as { sid: string; body: string; status: string };
+    expect(msg.sid).toMatch(/^SM/);
+    expect(msg.body).toBe("Hello from emulate");
+    expect(msg.status).toBe("delivered");
+
+    const listRes = await fetch(`${twilio.url}/2010-04-01/Accounts/AC_test/Messages.json`);
+    const list = (await listRes.json()) as { messages: Array<{ sid: string }> };
+    expect(list.messages.length).toBeGreaterThanOrEqual(1);
+
+    await twilio.close();
+  });
+
+  it("twilio verify sends code and checks it", async () => {
+    const twilio = await createEmulator({ service: "twilio", port: 14310 });
+
+    const sendRes = await fetch(`${twilio.url}/v2/Services/VA_default_service/Verifications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "To=+15559876543&Channel=sms",
+    });
+    expect(sendRes.status).toBe(201);
+    const verification = (await sendRes.json()) as { sid: string; status: string };
+    expect(verification.sid).toMatch(/^VE/);
+    expect(verification.status).toBe("pending");
+
+    // Get the code from the verifications tab
+    const inboxRes = await fetch(`${twilio.url}/?tab=verifications`);
+    const html = await inboxRes.text();
+    const codeMatch = html.match(/<code>(\d{6})<\/code>/);
+    expect(codeMatch).toBeTruthy();
+
+    const checkRes = await fetch(`${twilio.url}/v2/Services/VA_default_service/VerificationCheck`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `To=+15559876543&Code=${codeMatch![1]}`,
+    });
+    const result = (await checkRes.json()) as { status: string };
+    expect(result.status).toBe("approved");
+
+    await twilio.close();
+  });
+
   it("throws on unknown service", async () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");

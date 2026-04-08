@@ -55,11 +55,11 @@ export async function verifyCodeAction(_prev: { error: string } | null, formData
 
   const cookieStore = await cookies();
   cookieStore.delete("pending_signin");
-  cookieStore.set(
-    "session",
-    encodeSession({ email: pending.email, signedInAt: new Date().toISOString() }),
-    { httpOnly: true, path: "/", maxAge: 86400 },
-  );
+  cookieStore.set("session", encodeSession({ email: pending.email, signedInAt: new Date().toISOString() }), {
+    httpOnly: true,
+    path: "/",
+    maxAge: 86400,
+  });
 
   redirect("/dashboard");
 }

@@ -164,7 +164,10 @@ export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
       patch.public_metadata = { ...membership.public_metadata, ...(body.public_metadata as Record<string, unknown>) };
     }
     if (body.private_metadata !== undefined) {
-      patch.private_metadata = { ...membership.private_metadata, ...(body.private_metadata as Record<string, unknown>) };
+      patch.private_metadata = {
+        ...membership.private_metadata,
+        ...(body.private_metadata as Record<string, unknown>),
+      };
     }
 
     cs.memberships.update(membership.id, patch);

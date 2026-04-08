@@ -27,6 +27,7 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "twilio",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -371,7 +372,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   stripe: {
     label: "Stripe payments emulator",
-    endpoints: "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
+    endpoints:
+      "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
     async load() {
       const mod = await import("@emulators/stripe");
       return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig };
@@ -409,34 +411,67 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   clerk: {
     label: "Clerk authentication and user management emulator",
-    endpoints: "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
+    endpoints:
+      "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
     async load() {
       const mod = await import("@emulators/clerk");
       return { plugin: mod.clerkPlugin, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
-      const firstEmail = (cfg?.users as Array<{ email_addresses?: string[] }> | undefined)?.[0]?.email_addresses?.[0] ?? "test@example.com";
+      const firstEmail =
+        (cfg?.users as Array<{ email_addresses?: string[] }> | undefined)?.[0]?.email_addresses?.[0] ??
+        "test@example.com";
       return { login: firstEmail, id: 1, scopes: [] };
     },
     initConfig: {
       clerk: {
-        users: [{
-          first_name: "Test",
-          last_name: "User",
-          email_addresses: ["test@example.com"],
-          password: "clerk_test_password",
-        }],
-        organizations: [{
-          name: "My Company",
-          slug: "my-company",
-          members: [{ email: "test@example.com", role: "admin" }],
-        }],
-        oauth_applications: [{
-          client_id: "clerk_emulate_client",
-          client_secret: "clerk_emulate_secret",
-          name: "Emulate App",
-          redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
-        }],
+        users: [
+          {
+            first_name: "Test",
+            last_name: "User",
+            email_addresses: ["test@example.com"],
+            password: "clerk_test_password",
+          },
+        ],
+        organizations: [
+          {
+            name: "My Company",
+            slug: "my-company",
+            members: [{ email: "test@example.com", role: "admin" }],
+          },
+        ],
+        oauth_applications: [
+          {
+            client_id: "clerk_emulate_client",
+            client_secret: "clerk_emulate_secret",
+            name: "Emulate App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
+          },
+        ],
+      },
+    },
+  },
+  twilio: {
+    label: "Twilio SMS, voice, and verification emulator",
+    endpoints: "Messages (send, list, get), Calls (create, list), Verify (send code, check code), inbox UI",
+    async load() {
+      const mod = await import("@emulators/twilio");
+      return { plugin: mod.twilioPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "AC_test_account", id: 1, scopes: [] };
+    },
+    initConfig: {
+      twilio: {
+        account_sid: "AC_test_account",
+        auth_token: "test_auth_token",
+        phone_numbers: ["+15551234567"],
+        verify_services: [
+          {
+            sid: "VA_test_service",
+            friendly_name: "My App Verify",
+          },
+        ],
       },
     },
   },
