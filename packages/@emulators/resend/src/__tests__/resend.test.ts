@@ -239,6 +239,57 @@ describe("Resend plugin - Idempotency-Key", () => {
     expect(body.name).toBe("invalid_idempotent_request");
   });
 
+  it.each([
+    ["html", { html: "<b>Changed</b>" }],
+    ["text", { text: "Changed" }],
+    ["cc", { cc: ["extra@cc.com"] }],
+    ["bcc", { bcc: ["secret@bcc.com"] }],
+    ["reply_to", { reply_to: ["reply@new.com"] }],
+    ["headers", { headers: { "X-Custom": "changed" } }],
+    ["tags", { tags: [{ name: "env", value: "prod" }] }],
+    ["scheduled_at", { scheduled_at: "2026-12-25T00:00:00Z" }],
+  ])("returns 409 when same key but %s differs", async (_field, override) => {
+    const base_payload = { from: "a@b.com", to: "c@d.com", subject: "Same" };
+    const key = `conflict-${_field}`;
+    const headers = { ...authHeaders(), "Idempotency-Key": key };
+
+    const r1 = await app.request(`${base}/emails`, {
+      method: "POST", headers,
+      body: JSON.stringify(base_payload),
+    });
+    expect(r1.status).toBe(200);
+
+    const r2 = await app.request(`${base}/emails`, {
+      method: "POST", headers,
+      body: JSON.stringify({ ...base_payload, ...override }),
+    });
+    expect(r2.status).toBe(409);
+    const body = (await r2.json()) as { name: string };
+    expect(body.name).toBe("invalid_idempotent_request");
+  });
+
+  it("returns 200 when same key and full payload match", async () => {
+    const payload = {
+      from: "a@b.com", to: "c@d.com", subject: "Full",
+      html: "<b>Hi</b>", text: "Hi", cc: ["cc@x.com"], bcc: ["bcc@x.com"],
+      reply_to: ["reply@x.com"], headers: { "X-Tag": "v1" },
+      tags: [{ name: "env", value: "test" }],
+    };
+    const headers = { ...authHeaders(), "Idempotency-Key": "full-match" };
+
+    const r1 = await app.request(`${base}/emails`, {
+      method: "POST", headers, body: JSON.stringify(payload),
+    });
+    const r2 = await app.request(`${base}/emails`, {
+      method: "POST", headers, body: JSON.stringify(payload),
+    });
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const id1 = ((await r1.json()) as { id: string }).id;
+    const id2 = ((await r2.json()) as { id: string }).id;
+    expect(id1).toBe(id2);
+  });
+
   it("no Idempotency-Key header sends normally without dedup", async () => {
     const payload = { from: "a@b.com", to: "c@d.com", subject: "NoKey" };
 
@@ -328,6 +379,31 @@ describe("Resend plugin - Idempotency-Key", () => {
     const r2 = await app.request(`${base}/emails/batch`, {
       method: "POST", headers,
       body: JSON.stringify([{ from: "a@b.com", to: "c@d.com", subject: "Changed" }]),
+    });
+    expect(r2.status).toBe(409);
+    const body = (await r2.json()) as { name: string };
+    expect(body.name).toBe("invalid_idempotent_request");
+  });
+
+  it.each([
+    ["html", { html: "<b>Changed</b>" }],
+    ["text", { text: "Changed" }],
+    ["cc", { cc: ["extra@cc.com"] }],
+    ["bcc", { bcc: ["secret@bcc.com"] }],
+    ["tags", { tags: [{ name: "env", value: "prod" }] }],
+  ])("batch returns 409 when same key but %s differs", async (_field, override) => {
+    const batch = [{ from: "a@b.com", to: "c@d.com", subject: "BatchSame" }];
+    const key = `batch-conflict-${_field}`;
+    const headers = { ...authHeaders(), "Idempotency-Key": key };
+
+    const r1 = await app.request(`${base}/emails/batch`, {
+      method: "POST", headers, body: JSON.stringify(batch),
+    });
+    expect(r1.status).toBe(200);
+
+    const r2 = await app.request(`${base}/emails/batch`, {
+      method: "POST", headers,
+      body: JSON.stringify([{ ...batch[0], ...override }]),
     });
     expect(r2.status).toBe(409);
     const body = (await r2.json()) as { name: string };

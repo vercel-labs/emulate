@@ -120,12 +120,15 @@ export function emailRoutes(ctx: RouteContext): void {
     if (idempotencyKey) {
       const existing = rs().emails.findOneBy("idempotency_key", idempotencyKey);
       if (existing) {
-        if (existing.from !== from || JSON.stringify(existing.to) !== JSON.stringify(toArray) || existing.subject !== subject) {
+        const incomingFingerprint = emailFingerprint(body);
+        const storedFingerprint = store.getData<string>(`resend.idem.${idempotencyKey}`);
+        if (storedFingerprint && storedFingerprint !== incomingFingerprint) {
           return resendError(c, 409, "invalid_idempotent_request",
             "This idempotency key has already been used with a different payload");
         }
         return c.json({ id: existing.uuid }, 200);
       }
+      store.setData(`resend.idem.${idempotencyKey}`, emailFingerprint(body));
     }
 
     const uuid = generateUuid();
@@ -206,9 +209,19 @@ function normalizeStringArray(value: unknown): string[] {
   return [];
 }
 
+/** Deterministic fingerprint for a single email payload, used for idempotency mismatch detection. */
+function emailFingerprint(body: Record<string, unknown>): string {
+  return JSON.stringify([
+    body.from, body.to, body.subject,
+    body.html ?? null, body.text ?? null,
+    body.cc ?? null, body.bcc ?? null, body.reply_to ?? null,
+    body.headers ?? null, body.tags ?? null, body.scheduled_at ?? null,
+  ]);
+}
+
 /** Deterministic fingerprint for a batch payload, used for idempotency mismatch detection. */
 function batchFingerprint(emails: Array<Record<string, unknown>>): string {
-  return JSON.stringify(emails.map((e) => [e.from, JSON.stringify(e.to), e.subject]));
+  return JSON.stringify(emails.map((e) => emailFingerprint(e)));
 }
 
 function formatEmail(email: ResendEmail) {
