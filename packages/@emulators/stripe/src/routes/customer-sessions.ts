@@ -12,16 +12,26 @@ export function customerSessionRoutes({ app, store }: RouteContext): void {
 
     const customer = ss.customers.findOneBy("stripe_id", body.customer as string);
     if (!customer)
-      return stripeError(c, 400, "invalid_request_error", `No such customer: '${body.customer}'`, "resource_missing", "customer");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `No such customer: '${body.customer}'`,
+        "resource_missing",
+        "customer",
+      );
 
-    return c.json({
-      object: "customer_session" as const,
-      client_secret: stripeId("cuss_secret"),
-      components: (body.components as Record<string, unknown>) ?? {},
-      created: Math.floor(Date.now() / 1000),
-      customer: customer.stripe_id,
-      expires_at: Math.floor(Date.now() / 1000) + 1800,
-      livemode: false,
-    }, 200);
+    return c.json(
+      {
+        object: "customer_session" as const,
+        client_secret: stripeId("cuss_secret"),
+        components: (body.components as Record<string, unknown>) ?? {},
+        created: Math.floor(Date.now() / 1000),
+        customer: customer.stripe_id,
+        expires_at: Math.floor(Date.now() / 1000) + 1800,
+        livemode: false,
+      },
+      200,
+    );
   });
 }

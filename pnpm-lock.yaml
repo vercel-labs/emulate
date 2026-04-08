@@ -37,7 +37,7 @@ importers:
     dependencies:
       '@ai-sdk/react':
         specifier: ^3.0.118
-        version: 3.0.153(react@19.2.4)(zod@4.3.6)
+        version: 3.0.153(react@19.2.4)(zod@3.25.76)
       '@mdx-js/loader':
         specifier: ^3.1.1
         version: 3.1.1
@@ -55,10 +55,10 @@ importers:
         version: 1.37.0
       ai:
         specifier: ^6.0.116
-        version: 6.0.151(zod@4.3.6)
+        version: 6.0.151(zod@3.25.76)
       bash-tool:
         specifier: ^1.3.15
-        version: 1.3.16(ai@6.0.151(zod@4.3.6))(just-bash@2.14.0)
+        version: 1.3.16(ai@6.0.151(zod@3.25.76))(just-bash@2.14.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -67,7 +67,7 @@ importers:
         version: 2.1.1
       geist:
         specifier: ^1.7.0
-        version: 1.7.0(next@16.2.0(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
+        version: 1.7.0(next@16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       just-bash:
         specifier: ^2.14.0
         version: 2.14.0
@@ -584,6 +584,25 @@ importers:
         specifier: ^4.1.0
         version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(msw@2.12.13(@types/node@22.19.17)(typescript@5.9.3))(vite@8.0.1(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.6.1)(yaml@2.8.3))
 
+  packages/@emulators/twilio:
+    dependencies:
+      '@emulators/core':
+        specifier: workspace:*
+        version: link:../core
+      hono:
+        specifier: ^4
+        version: 4.12.12
+    devDependencies:
+      tsup:
+        specifier: ^8
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)(yaml@2.8.3)
+      typescript:
+        specifier: ^5.7
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(msw@2.12.13(@types/node@22.19.17)(typescript@5.9.3))(vite@8.0.1(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.6.1)(yaml@2.8.3))
+
   packages/@emulators/vercel:
     dependencies:
       '@emulators/core':
@@ -654,6 +673,9 @@ importers:
       '@emulators/stripe':
         specifier: workspace:*
         version: link:../@emulators/stripe
+      '@emulators/twilio':
+        specifier: workspace:*
+        version: link:../@emulators/twilio
       '@emulators/vercel':
         specifier: workspace:*
         version: link:../@emulators/vercel
@@ -6348,28 +6370,28 @@ packages:
 
 snapshots:
 
-  '@ai-sdk/gateway@3.0.93(zod@4.3.6)':
+  '@ai-sdk/gateway@3.0.93(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.23(zod@4.3.6)
+      '@ai-sdk/provider-utils': 4.0.23(zod@3.25.76)
       '@vercel/oidc': 3.1.0
-      zod: 4.3.6
+      zod: 3.25.76
 
-  '@ai-sdk/provider-utils@4.0.23(zod@4.3.6)':
+  '@ai-sdk/provider-utils@4.0.23(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.6
-      zod: 4.3.6
+      zod: 3.25.76
 
   '@ai-sdk/provider@3.0.8':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/react@3.0.153(react@19.2.4)(zod@4.3.6)':
+  '@ai-sdk/react@3.0.153(react@19.2.4)(zod@3.25.76)':
     dependencies:
-      '@ai-sdk/provider-utils': 4.0.23(zod@4.3.6)
-      ai: 6.0.151(zod@4.3.6)
+      '@ai-sdk/provider-utils': 4.0.23(zod@3.25.76)
+      ai: 6.0.151(zod@3.25.76)
       react: 19.2.4
       swr: 2.4.1(react@19.2.4)
       throttleit: 2.1.0
@@ -8614,13 +8636,13 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@6.0.151(zod@4.3.6):
+  ai@6.0.151(zod@3.25.76):
     dependencies:
-      '@ai-sdk/gateway': 3.0.93(zod@4.3.6)
+      '@ai-sdk/gateway': 3.0.93(zod@3.25.76)
       '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.23(zod@4.3.6)
+      '@ai-sdk/provider-utils': 4.0.23(zod@3.25.76)
       '@opentelemetry/api': 1.9.0
-      zod: 4.3.6
+      zod: 3.25.76
 
   ajv-formats@3.0.1(ajv@8.18.0):
     optionalDependencies:
@@ -8758,9 +8780,9 @@ snapshots:
 
   baseline-browser-mapping@2.10.9: {}
 
-  bash-tool@1.3.16(ai@6.0.151(zod@4.3.6))(just-bash@2.14.0):
+  bash-tool@1.3.16(ai@6.0.151(zod@3.25.76))(just-bash@2.14.0):
     dependencies:
-      ai: 6.0.151(zod@4.3.6)
+      ai: 6.0.151(zod@3.25.76)
       fast-glob: 3.3.3
       yaml: 2.8.3
       zod: 3.25.76
@@ -9935,7 +9957,7 @@ snapshots:
 
   fuzzysort@3.1.0: {}
 
-  geist@1.7.0(next@16.2.0(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)):
+  geist@1.7.0(next@16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)):
     dependencies:
       next: 16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
 
