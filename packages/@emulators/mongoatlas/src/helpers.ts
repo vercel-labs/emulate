@@ -2,7 +2,9 @@ import { randomBytes } from "crypto";
 import type { Context } from "hono";
 
 export function generateObjectId(): string {
-  const timestamp = Math.floor(Date.now() / 1000).toString(16).padStart(8, "0");
+  const timestamp = Math.floor(Date.now() / 1000)
+    .toString(16)
+    .padStart(8, "0");
   const random = randomBytes(8).toString("hex").slice(0, 16);
   return (timestamp + random).slice(0, 24);
 }

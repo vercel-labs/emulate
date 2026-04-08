@@ -73,9 +73,8 @@ async function getAuthCode(
   const state = options.state ?? "state-1";
   const nonce = options.nonce ?? "nonce-1";
   const responseMode = options.responseMode ?? "query";
-  const callbackPath = authServerId === "org"
-    ? "/oauth2/v1/authorize/callback"
-    : `/oauth2/${authServerId}/v1/authorize/callback`;
+  const callbackPath =
+    authServerId === "org" ? "/oauth2/v1/authorize/callback" : `/oauth2/${authServerId}/v1/authorize/callback`;
 
   const formData = new URLSearchParams({
     user_ref: userRef,
@@ -142,7 +141,9 @@ async function exchangeCode(
 
   const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
   if (options.useBasicAuth) {
-    const creds = Buffer.from(`${options.clientId ?? "okta-test-client"}:${options.clientSecret ?? "okta-test-secret"}`).toString("base64");
+    const creds = Buffer.from(
+      `${options.clientId ?? "okta-test-client"}:${options.clientSecret ?? "okta-test-secret"}`,
+    ).toString("base64");
     headers.Authorization = `Basic ${creds}`;
     body.delete("client_id");
     body.delete("client_secret");
@@ -171,7 +172,7 @@ describe("Okta plugin integration", () => {
     it("returns org discovery document", async () => {
       const res = await app.request(`${base}/.well-known/openid-configuration`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.issuer).toBe(base);
       expect(body.authorization_endpoint).toBe(`${base}/oauth2/v1/authorize`);
       expect(body.token_endpoint).toBe(`${base}/oauth2/v1/token`);
@@ -179,18 +180,14 @@ describe("Okta plugin integration", () => {
       expect(body.introspection_endpoint).toBe(`${base}/oauth2/v1/introspect`);
       expect(body.registration_endpoint).toBe(`${base}/oauth2/v1/clients`);
       expect(body.code_challenge_methods_supported).toEqual(["plain", "S256"]);
-      expect(body.token_endpoint_auth_methods_supported).toEqual([
-        "client_secret_post",
-        "client_secret_basic",
-        "none",
-      ]);
+      expect(body.token_endpoint_auth_methods_supported).toEqual(["client_secret_post", "client_secret_basic", "none"]);
       expect(body.request_parameter_supported).toBe(false);
     });
 
     it("returns default custom auth server discovery document", async () => {
       const res = await app.request(`${base}/oauth2/default/.well-known/openid-configuration`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.issuer).toBe(`${base}/oauth2/default`);
       expect(body.authorization_endpoint).toBe(`${base}/oauth2/default/v1/authorize`);
       expect(body.token_endpoint).toBe(`${base}/oauth2/default/v1/token`);
@@ -199,7 +196,7 @@ describe("Okta plugin integration", () => {
     it("returns custom auth server discovery document", async () => {
       const res = await app.request(`${base}/oauth2/custom-as/.well-known/openid-configuration`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.issuer).toBe(`${base}/oauth2/custom-as`);
       expect(body.authorization_endpoint).toBe(`${base}/oauth2/custom-as/v1/authorize`);
       expect(body.token_endpoint).toBe(`${base}/oauth2/custom-as/v1/token`);
@@ -213,7 +210,7 @@ describe("Okta plugin integration", () => {
     it("returns JWKS for default custom auth server", async () => {
       const res = await app.request(`${base}/oauth2/default/v1/keys`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { keys: Array<Record<string, unknown>> };
+      const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
       expect(body.keys).toHaveLength(1);
       expect(body.keys[0].kty).toBe("RSA");
       expect(body.keys[0].kid).toBe("emulate-okta-1");
@@ -224,7 +221,7 @@ describe("Okta plugin integration", () => {
     it("returns JWKS for org auth server path", async () => {
       const res = await app.request(`${base}/oauth2/v1/keys`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { keys: Array<Record<string, unknown>> };
+      const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
       expect(body.keys).toHaveLength(1);
       expect(body.keys[0].kid).toBe("emulate-okta-1");
     });
@@ -266,7 +263,7 @@ describe("Okta plugin integration", () => {
 
       const tokenRes = await exchangeCode(app, code, { authServerId: "default" });
       expect(tokenRes.status).toBe(200);
-      const body = await tokenRes.json() as Record<string, unknown>;
+      const body = (await tokenRes.json()) as Record<string, unknown>;
       expect((body.access_token as string).startsWith("okta_")).toBe(true);
       expect((body.refresh_token as string).startsWith("r_okta_")).toBe(true);
       expect(body.token_type).toBe("Bearer");
@@ -294,7 +291,7 @@ describe("Okta plugin integration", () => {
         redirectUri: "http://localhost:3000/org-callback",
       });
       expect(tokenRes.status).toBe(200);
-      const body = await tokenRes.json() as Record<string, unknown>;
+      const body = (await tokenRes.json()) as Record<string, unknown>;
       const claims = decodeJwt(body.id_token as string);
       expect(claims.iss).toBe(base);
       expect(claims.aud).toBe("org-client");
@@ -303,7 +300,7 @@ describe("Okta plugin integration", () => {
     it("refreshes token and rotates refresh token", async () => {
       const { code } = await getAuthCode(app, store);
       const tokenRes = await exchangeCode(app, code);
-      const tokenBody = await tokenRes.json() as Record<string, unknown>;
+      const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
       const refreshToken = tokenBody.refresh_token as string;
 
       const refreshRes = await app.request(`${base}/oauth2/default/v1/token`, {
@@ -317,7 +314,7 @@ describe("Okta plugin integration", () => {
         }).toString(),
       });
       expect(refreshRes.status).toBe(200);
-      const refreshBody = await refreshRes.json() as Record<string, unknown>;
+      const refreshBody = (await refreshRes.json()) as Record<string, unknown>;
       expect((refreshBody.access_token as string).startsWith("okta_")).toBe(true);
       expect((refreshBody.refresh_token as string).startsWith("r_okta_")).toBe(true);
       expect(refreshBody.refresh_token).not.toBe(refreshToken);
@@ -329,7 +326,7 @@ describe("Okta plugin integration", () => {
       expect(first.status).toBe(200);
       const second = await exchangeCode(app, code);
       expect(second.status).toBe(400);
-      const body = await second.json() as Record<string, unknown>;
+      const body = (await second.json()) as Record<string, unknown>;
       expect(body.error).toBe("invalid_grant");
     });
 
@@ -344,7 +341,7 @@ describe("Okta plugin integration", () => {
         }).toString(),
       });
       expect(res.status).toBe(400);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe("unsupported_grant_type");
     });
   });
@@ -379,7 +376,7 @@ describe("Okta plugin integration", () => {
         includeClientSecret: false,
       });
       expect(tokenRes.status).toBe(200);
-      const body = await tokenRes.json() as Record<string, unknown>;
+      const body = (await tokenRes.json()) as Record<string, unknown>;
       const claims = decodeJwt(body.id_token as string);
       expect(claims.aud).toBe("okta-test-app");
     });
@@ -394,7 +391,7 @@ describe("Okta plugin integration", () => {
 
       const tokenRes = await exchangeCode(app, code, { codeVerifier: "wrong-verifier" });
       expect(tokenRes.status).toBe(400);
-      const body = await tokenRes.json() as Record<string, unknown>;
+      const body = (await tokenRes.json()) as Record<string, unknown>;
       expect(body.error).toBe("invalid_grant");
     });
 
@@ -425,7 +422,7 @@ describe("Okta plugin integration", () => {
         includeClientSecret: false,
       });
       expect(tokenRes.status).toBe(401);
-      const body = await tokenRes.json() as Record<string, unknown>;
+      const body = (await tokenRes.json()) as Record<string, unknown>;
       expect(body.error).toBe("invalid_client");
     });
   });
@@ -443,7 +440,7 @@ describe("Okta plugin integration", () => {
         }).toString(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect((body.access_token as string).startsWith("okta_")).toBe(true);
       expect(body.refresh_token).toBeUndefined();
       expect(body.id_token).toBeUndefined();
@@ -461,7 +458,7 @@ describe("Okta plugin integration", () => {
         }).toString(),
       });
       expect(res.status).toBe(401);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe("invalid_client");
     });
 
@@ -486,14 +483,14 @@ describe("Okta plugin integration", () => {
     it("returns userinfo for valid user access token", async () => {
       const { code } = await getAuthCode(app, store);
       const tokenRes = await exchangeCode(app, code);
-      const tokenBody = await tokenRes.json() as Record<string, unknown>;
+      const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
       const accessToken = tokenBody.access_token as string;
 
       const res = await app.request(`${base}/oauth2/default/v1/userinfo`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.sub).toBeDefined();
       expect(body.email).toBeDefined();
       expect(body.preferred_username).toBeDefined();
@@ -509,7 +506,7 @@ describe("Okta plugin integration", () => {
     it("introspects active access token then inactive after revoke", async () => {
       const { code } = await getAuthCode(app, store);
       const tokenRes = await exchangeCode(app, code);
-      const tokenBody = await tokenRes.json() as Record<string, unknown>;
+      const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
       const accessToken = tokenBody.access_token as string;
 
       const introspect1 = await app.request(`${base}/oauth2/default/v1/introspect`, {
@@ -522,7 +519,7 @@ describe("Okta plugin integration", () => {
         }).toString(),
       });
       expect(introspect1.status).toBe(200);
-      const body1 = await introspect1.json() as Record<string, unknown>;
+      const body1 = (await introspect1.json()) as Record<string, unknown>;
       expect(body1.active).toBe(true);
       expect(body1.client_id).toBe("okta-test-client");
 
@@ -542,14 +539,14 @@ describe("Okta plugin integration", () => {
           client_secret: "okta-test-secret",
         }).toString(),
       });
-      const body2 = await introspect2.json() as Record<string, unknown>;
+      const body2 = (await introspect2.json()) as Record<string, unknown>;
       expect(body2.active).toBe(false);
     });
 
     it("introspects refresh token as active", async () => {
       const { code } = await getAuthCode(app, store);
       const tokenRes = await exchangeCode(app, code);
-      const tokenBody = await tokenRes.json() as Record<string, unknown>;
+      const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
       const refreshToken = tokenBody.refresh_token as string;
 
       const introspect = await app.request(`${base}/oauth2/default/v1/introspect`, {
@@ -561,7 +558,7 @@ describe("Okta plugin integration", () => {
           client_secret: "okta-test-secret",
         }).toString(),
       });
-      const body = await introspect.json() as Record<string, unknown>;
+      const body = (await introspect.json()) as Record<string, unknown>;
       expect(body.active).toBe(true);
       expect(body.token_type).toBe("refresh_token");
     });
@@ -569,7 +566,7 @@ describe("Okta plugin integration", () => {
     it("revocation removes access token from tokenMap", async () => {
       const { code } = await getAuthCode(app, store);
       const tokenRes = await exchangeCode(app, code);
-      const tokenBody = await tokenRes.json() as Record<string, unknown>;
+      const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
       const accessToken = tokenBody.access_token as string;
       expect(tokenMap.has(accessToken)).toBe(true);
 
@@ -592,21 +589,27 @@ describe("Okta plugin integration", () => {
 
     it("logout redirects when post_logout_redirect_uri is allowed", async () => {
       const uri = "http://localhost:3000/callback";
-      const res = await app.request(`${base}/oauth2/default/v1/logout?post_logout_redirect_uri=${encodeURIComponent(uri)}`);
+      const res = await app.request(
+        `${base}/oauth2/default/v1/logout?post_logout_redirect_uri=${encodeURIComponent(uri)}`,
+      );
       expect(res.status).toBe(302);
       expect(res.headers.get("location")).toBe(uri);
     });
 
     it("logout allows official SDK post_logout_redirect_uri for public clients", async () => {
       const uri = "http://localhost:3000/official-sdk";
-      const res = await app.request(`${base}/oauth2/default/v1/logout?post_logout_redirect_uri=${encodeURIComponent(uri)}`);
+      const res = await app.request(
+        `${base}/oauth2/default/v1/logout?post_logout_redirect_uri=${encodeURIComponent(uri)}`,
+      );
       expect(res.status).toBe(302);
       expect(res.headers.get("location")).toBe(uri);
     });
 
     it("logout rejects unregistered redirect", async () => {
       const uri = "http://evil.local/callback";
-      const res = await app.request(`${base}/oauth2/default/v1/logout?post_logout_redirect_uri=${encodeURIComponent(uri)}`);
+      const res = await app.request(
+        `${base}/oauth2/default/v1/logout?post_logout_redirect_uri=${encodeURIComponent(uri)}`,
+      );
       expect(res.status).toBe(400);
     });
 
@@ -621,7 +624,7 @@ describe("Okta plugin integration", () => {
     it("lists users", async () => {
       const res = await app.request(`${base}/api/v1/users`, { headers: managementHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as Array<Record<string, unknown>>;
+      const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body.length).toBeGreaterThan(0);
     });
 
@@ -639,27 +642,31 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(res.status).toBe(201);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.status).toBe("STAGED");
     });
 
     it("supports users/me endpoint", async () => {
       const res = await app.request(`${base}/api/v1/users/me`, { headers: managementHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect((body.profile as Record<string, unknown>).login).toBeDefined();
     });
 
     it("gets user by id and by login", async () => {
       const usersRes = await app.request(`${base}/api/v1/users`, { headers: managementHeaders() });
-      const users = await usersRes.json() as Array<Record<string, unknown>>;
+      const users = (await usersRes.json()) as Array<Record<string, unknown>>;
       const userId = users[0].id as string;
       const login = (users[0].profile as Record<string, unknown>).login as string;
 
-      const byId = await app.request(`${base}/api/v1/users/${encodeURIComponent(userId)}`, { headers: managementHeaders() });
+      const byId = await app.request(`${base}/api/v1/users/${encodeURIComponent(userId)}`, {
+        headers: managementHeaders(),
+      });
       expect(byId.status).toBe(200);
 
-      const byLogin = await app.request(`${base}/api/v1/users/${encodeURIComponent(login)}`, { headers: managementHeaders() });
+      const byLogin = await app.request(`${base}/api/v1/users/${encodeURIComponent(login)}`, {
+        headers: managementHeaders(),
+      });
       expect(byLogin.status).toBe(200);
     });
 
@@ -676,7 +683,7 @@ describe("Okta plugin integration", () => {
           },
         }),
       });
-      const created = await create.json() as Record<string, unknown>;
+      const created = (await create.json()) as Record<string, unknown>;
       const userId = created.id as string;
 
       const put = await app.request(`${base}/api/v1/users/${userId}`, {
@@ -692,7 +699,7 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(put.status).toBe(200);
-      const putBody = await put.json() as Record<string, unknown>;
+      const putBody = (await put.json()) as Record<string, unknown>;
       expect((putBody.profile as Record<string, unknown>).login).toBe("replace2@example.com");
 
       const post = await app.request(`${base}/api/v1/users/${userId}`, {
@@ -705,7 +712,7 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(post.status).toBe(200);
-      const postBody = await post.json() as Record<string, unknown>;
+      const postBody = (await post.json()) as Record<string, unknown>;
       expect((postBody.profile as Record<string, unknown>).firstName).toBe("Partial");
     });
 
@@ -717,60 +724,66 @@ describe("Okta plugin integration", () => {
           profile: { login: "life@example.com", email: "life@example.com", firstName: "Life", lastName: "Cycle" },
         }),
       });
-      const userId = (await create.json() as Record<string, unknown>).id as string;
+      const userId = ((await create.json()) as Record<string, unknown>).id as string;
 
       const suspend = await app.request(`${base}/api/v1/users/${userId}/lifecycle/suspend`, {
         method: "POST",
         headers: managementHeaders(),
       });
       expect(suspend.status).toBe(200);
-      expect((await suspend.json() as Record<string, unknown>).status).toBe("SUSPENDED");
+      expect(((await suspend.json()) as Record<string, unknown>).status).toBe("SUSPENDED");
 
       const unsuspend = await app.request(`${base}/api/v1/users/${userId}/lifecycle/unsuspend`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await unsuspend.json() as Record<string, unknown>).status).toBe("ACTIVE");
+      expect(((await unsuspend.json()) as Record<string, unknown>).status).toBe("ACTIVE");
 
       const deactivate = await app.request(`${base}/api/v1/users/${userId}/lifecycle/deactivate`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await deactivate.json() as Record<string, unknown>).status).toBe("DEPROVISIONED");
+      expect(((await deactivate.json()) as Record<string, unknown>).status).toBe("DEPROVISIONED");
 
       const reactivate = await app.request(`${base}/api/v1/users/${userId}/lifecycle/reactivate`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await reactivate.json() as Record<string, unknown>).status).toBe("PROVISIONED");
+      expect(((await reactivate.json()) as Record<string, unknown>).status).toBe("PROVISIONED");
     });
 
     it("returns groups for a user", async () => {
       const usersRes = await app.request(`${base}/api/v1/users`, { headers: managementHeaders() });
-      const users = await usersRes.json() as Array<Record<string, unknown>>;
+      const users = (await usersRes.json()) as Array<Record<string, unknown>>;
       const userId = users[0].id as string;
       const groupsRes = await app.request(`${base}/api/v1/users/${userId}/groups`, { headers: managementHeaders() });
       expect(groupsRes.status).toBe(200);
-      const groups = await groupsRes.json() as Array<Record<string, unknown>>;
+      const groups = (await groupsRes.json()) as Array<Record<string, unknown>>;
       expect(groups.length).toBeGreaterThan(0);
     });
 
     it("supports q search", async () => {
       const res = await app.request(`${base}/api/v1/users?q=alice`, { headers: managementHeaders() });
       expect(res.status).toBe(200);
-      const users = await res.json() as Array<Record<string, unknown>>;
-      expect(users.some((entry) => ((entry.profile as Record<string, unknown>).login as string).includes("alice"))).toBe(true);
+      const users = (await res.json()) as Array<Record<string, unknown>>;
+      expect(
+        users.some((entry) => ((entry.profile as Record<string, unknown>).login as string).includes("alice")),
+      ).toBe(true);
     });
 
     it("supports search and filter", async () => {
       const bySearch = await app.request(`${base}/api/v1/users?search=alice`, { headers: managementHeaders() });
       expect(bySearch.status).toBe(200);
-      const searchUsers = await bySearch.json() as Array<Record<string, unknown>>;
-      expect(searchUsers.some((entry) => ((entry.profile as Record<string, unknown>).login as string).includes("alice"))).toBe(true);
+      const searchUsers = (await bySearch.json()) as Array<Record<string, unknown>>;
+      expect(
+        searchUsers.some((entry) => ((entry.profile as Record<string, unknown>).login as string).includes("alice")),
+      ).toBe(true);
 
-      const byFilter = await app.request(`${base}/api/v1/users?filter=status eq ACTIVE`, { headers: managementHeaders() });
+      const byFilter = await app.request(`${base}/api/v1/users?filter=status eq ACTIVE`, {
+        headers: managementHeaders(),
+      });
       expect(byFilter.status).toBe(200);
-      const filterUsers = await byFilter.json() as Array<Record<string, unknown>>;
+      const filterUsers = (await byFilter.json()) as Array<Record<string, unknown>>;
       expect(filterUsers.length).toBeGreaterThan(0);
       expect(filterUsers.every((entry) => entry.status === "ACTIVE")).toBe(true);
     });
@@ -795,7 +808,7 @@ describe("Okta plugin integration", () => {
       expect(res.status).toBe(200);
       const link = res.headers.get("Link");
       expect(link).toBeTruthy();
-      const users = await res.json() as Array<Record<string, unknown>>;
+      const users = (await res.json()) as Array<Record<string, unknown>>;
       expect(users.length).toBe(2);
     });
 
@@ -808,7 +821,7 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(create.status).toBe(201);
-      const userId = (await create.json() as Record<string, unknown>).id as string;
+      const userId = ((await create.json()) as Record<string, unknown>).id as string;
 
       const firstDelete = await app.request(`${base}/api/v1/users/${userId}`, {
         method: "DELETE",
@@ -818,7 +831,7 @@ describe("Okta plugin integration", () => {
 
       const afterFirst = await app.request(`${base}/api/v1/users/${userId}`, { headers: managementHeaders() });
       expect(afterFirst.status).toBe(200);
-      const bodyAfterFirst = await afterFirst.json() as Record<string, unknown>;
+      const bodyAfterFirst = (await afterFirst.json()) as Record<string, unknown>;
       expect(bodyAfterFirst.status).toBe("DEPROVISIONED");
 
       const secondDelete = await app.request(`${base}/api/v1/users/${userId}`, {
@@ -842,7 +855,7 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(create.status).toBe(201);
-      const created = await create.json() as Record<string, unknown>;
+      const created = (await create.json()) as Record<string, unknown>;
       const groupId = created.id as string;
 
       const get = await app.request(`${base}/api/v1/groups/${groupId}`, { headers: managementHeaders() });
@@ -856,8 +869,8 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(put.status).toBe(200);
-      const putBody = await put.json() as Record<string, unknown>;
-      expect(((putBody.profile as Record<string, unknown>).name)).toBe("Team Blue 2");
+      const putBody = (await put.json()) as Record<string, unknown>;
+      expect((putBody.profile as Record<string, unknown>).name).toBe("Team Blue 2");
 
       const del = await app.request(`${base}/api/v1/groups/${groupId}`, {
         method: "DELETE",
@@ -867,7 +880,9 @@ describe("Okta plugin integration", () => {
     });
 
     it("manages group membership", async () => {
-      const users = await (await app.request(`${base}/api/v1/users`, { headers: managementHeaders() })).json() as Array<Record<string, unknown>>;
+      const users = (await (
+        await app.request(`${base}/api/v1/users`, { headers: managementHeaders() })
+      ).json()) as Array<Record<string, unknown>>;
       const userId = users[0].id as string;
 
       const createGroup = await app.request(`${base}/api/v1/groups`, {
@@ -876,7 +891,7 @@ describe("Okta plugin integration", () => {
         body: JSON.stringify({ profile: { name: "Membership Group", description: "desc" } }),
       });
       expect(createGroup.status).toBe(201);
-      const groupId = (await createGroup.json() as Record<string, unknown>).id as string;
+      const groupId = ((await createGroup.json()) as Record<string, unknown>).id as string;
 
       const add = await app.request(`${base}/api/v1/groups/${groupId}/users/${userId}`, {
         method: "PUT",
@@ -886,7 +901,7 @@ describe("Okta plugin integration", () => {
 
       const list = await app.request(`${base}/api/v1/groups/${groupId}/users`, { headers: managementHeaders() });
       expect(list.status).toBe(200);
-      const listBody = await list.json() as Array<Record<string, unknown>>;
+      const listBody = (await list.json()) as Array<Record<string, unknown>>;
       expect(listBody.length).toBeGreaterThan(0);
 
       const remove = await app.request(`${base}/api/v1/groups/${groupId}/users/${userId}`, {
@@ -909,7 +924,7 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(create.status).toBe(201);
-      const created = await create.json() as Record<string, unknown>;
+      const created = (await create.json()) as Record<string, unknown>;
       const appId = created.id as string;
 
       const get = await app.request(`${base}/api/v1/apps/${appId}`, { headers: managementHeaders() });
@@ -921,7 +936,7 @@ describe("Okta plugin integration", () => {
         body: JSON.stringify({ label: "My App Updated", status: "INACTIVE" }),
       });
       expect(update.status).toBe(200);
-      expect((await update.json() as Record<string, unknown>).label).toBe("My App Updated");
+      expect(((await update.json()) as Record<string, unknown>).label).toBe("My App Updated");
     });
 
     it("supports app lifecycle and assignment", async () => {
@@ -931,8 +946,10 @@ describe("Okta plugin integration", () => {
         body: JSON.stringify({ name: "web", label: "Web App", signOnMode: "OPENID_CONNECT" }),
       });
       expect(createApp.status).toBe(201);
-      const appId = (await createApp.json() as Record<string, unknown>).id as string;
-      const users = await (await app.request(`${base}/api/v1/users`, { headers: managementHeaders() })).json() as Array<Record<string, unknown>>;
+      const appId = ((await createApp.json()) as Record<string, unknown>).id as string;
+      const users = (await (
+        await app.request(`${base}/api/v1/users`, { headers: managementHeaders() })
+      ).json()) as Array<Record<string, unknown>>;
       const userId = users[0].id as string;
 
       const assign = await app.request(`${base}/api/v1/apps/${appId}/users/${userId}`, {
@@ -943,20 +960,20 @@ describe("Okta plugin integration", () => {
 
       const list = await app.request(`${base}/api/v1/apps/${appId}/users`, { headers: managementHeaders() });
       expect(list.status).toBe(200);
-      const listBody = await list.json() as Array<Record<string, unknown>>;
+      const listBody = (await list.json()) as Array<Record<string, unknown>>;
       expect(listBody.length).toBeGreaterThan(0);
 
       const deactivate = await app.request(`${base}/api/v1/apps/${appId}/lifecycle/deactivate`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await deactivate.json() as Record<string, unknown>).status).toBe("INACTIVE");
+      expect(((await deactivate.json()) as Record<string, unknown>).status).toBe("INACTIVE");
 
       const activate = await app.request(`${base}/api/v1/apps/${appId}/lifecycle/activate`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await activate.json() as Record<string, unknown>).status).toBe("ACTIVE");
+      expect(((await activate.json()) as Record<string, unknown>).status).toBe("ACTIVE");
     });
 
     it("only allows deleting inactive apps", async () => {
@@ -966,7 +983,7 @@ describe("Okta plugin integration", () => {
         body: JSON.stringify({ name: "deletable", label: "Delete App", signOnMode: "OPENID_CONNECT" }),
       });
       expect(create.status).toBe(201);
-      const appId = (await create.json() as Record<string, unknown>).id as string;
+      const appId = ((await create.json()) as Record<string, unknown>).id as string;
 
       const activeDelete = await app.request(`${base}/api/v1/apps/${appId}`, {
         method: "DELETE",
@@ -999,7 +1016,7 @@ describe("Okta plugin integration", () => {
         }),
       });
       expect(create.status).toBe(201);
-      const created = await create.json() as Record<string, unknown>;
+      const created = (await create.json()) as Record<string, unknown>;
       expect(created.id).toBe("api-2");
 
       const get = await app.request(`${base}/api/v1/authorizationServers/api-2`, { headers: managementHeaders() });
@@ -1011,19 +1028,19 @@ describe("Okta plugin integration", () => {
         body: JSON.stringify({ name: "API 2 Updated", status: "INACTIVE" }),
       });
       expect(update.status).toBe(200);
-      expect((await update.json() as Record<string, unknown>).name).toBe("API 2 Updated");
+      expect(((await update.json()) as Record<string, unknown>).name).toBe("API 2 Updated");
 
       const activate = await app.request(`${base}/api/v1/authorizationServers/api-2/lifecycle/activate`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await activate.json() as Record<string, unknown>).status).toBe("ACTIVE");
+      expect(((await activate.json()) as Record<string, unknown>).status).toBe("ACTIVE");
 
       const deactivate = await app.request(`${base}/api/v1/authorizationServers/api-2/lifecycle/deactivate`, {
         method: "POST",
         headers: managementHeaders(),
       });
-      expect((await deactivate.json() as Record<string, unknown>).status).toBe("INACTIVE");
+      expect(((await deactivate.json()) as Record<string, unknown>).status).toBe("INACTIVE");
 
       const del = await app.request(`${base}/api/v1/authorizationServers/api-2`, {
         method: "DELETE",
@@ -1066,13 +1083,15 @@ describe("Okta plugin integration", () => {
         ],
         groups: [{ name: "Config Group", description: "from seed" }],
         apps: [{ name: "config_app", label: "Config App" }],
-        oauth_clients: [{
-          client_id: "config-client",
-          client_secret: "config-secret",
-          name: "Config Client",
-          redirect_uris: ["http://localhost:3000/config-callback"],
-          auth_server_id: "default",
-        }],
+        oauth_clients: [
+          {
+            client_id: "config-client",
+            client_secret: "config-secret",
+            name: "Config Client",
+            redirect_uris: ["http://localhost:3000/config-callback"],
+            auth_server_id: "default",
+          },
+        ],
         authorization_servers: [{ id: "config-as", name: "Config AS", audiences: ["api://config"] }],
       });
       seedFromConfig(seedStore, base, {

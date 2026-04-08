@@ -15,9 +15,7 @@ export function ownerLoginOf(gh: GitHubStore, repo: GitHubRepo): string {
 export function isOrgMember(gh: GitHubStore, userId: number, orgId: number): boolean {
   for (const team of gh.teams.all()) {
     if (team.org_id !== orgId) continue;
-    const m = gh.teamMembers
-      .findBy("team_id", team.id)
-      .find((x) => x.user_id === userId);
+    const m = gh.teamMembers.findBy("team_id", team.id).find((x) => x.user_id === userId);
     if (m) return true;
   }
   return false;
@@ -34,9 +32,7 @@ export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, r
   if (!user) return false;
   if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
   if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  return Boolean(
-    gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id)
-  );
+  return Boolean(gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id));
 }
 
 export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
@@ -55,9 +51,7 @@ export function assertAuthenticatedUser(gh: GitHubStore, authUser: AuthUser | un
 export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
   if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
   if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  const collab = gh.collaborators
-    .findBy("repo_id", repo.id)
-    .find((c) => c.user_id === user.id);
+  const collab = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
   return collab?.permission === "admin" || collab?.permission === "maintain";
 }
 

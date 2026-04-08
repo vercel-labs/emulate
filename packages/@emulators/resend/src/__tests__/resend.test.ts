@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher, authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
+import {
+  Store,
+  WebhookDispatcher,
+  authMiddleware,
+  createApiErrorHandler,
+  createErrorHandler,
+  type TokenMap,
+} from "@emulators/core";
 import { resendPlugin, seedFromConfig, getResendStore } from "../index.js";
 
 const base = "http://localhost:4000";
@@ -24,7 +31,7 @@ function createTestApp() {
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer re_test_token", "Content-Type": "application/json" };
 }
 
@@ -47,7 +54,7 @@ describe("Resend plugin - Emails", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { id: string };
+    const body = (await res.json()) as { id: string };
     expect(body.id).toBeDefined();
     expect(typeof body.id).toBe("string");
   });
@@ -59,7 +66,7 @@ describe("Resend plugin - Emails", () => {
       body: JSON.stringify({ from: "noreply@example.com" }),
     });
     expect(res.status).toBe(422);
-    const body = await res.json() as { statusCode: number; name: string; message: string };
+    const body = (await res.json()) as { statusCode: number; name: string; message: string };
     expect(body.statusCode).toBe(422);
     expect(body.name).toBe("validation_error");
     expect(body.message).toContain("to");
@@ -76,11 +83,11 @@ describe("Resend plugin - Emails", () => {
         text: "plain text",
       }),
     });
-    const { id } = await sendRes.json() as { id: string };
+    const { id } = (await sendRes.json()) as { id: string };
 
     const res = await app.request(`${base}/emails/${id}`, { headers: authHeaders() });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.id).toBe(id);
     expect(body.subject).toBe("Test");
     expect(body.status).toBe("delivered");
@@ -101,7 +108,7 @@ describe("Resend plugin - Emails", () => {
 
     const res = await app.request(`${base}/emails`, { headers: authHeaders() });
     expect(res.status).toBe(200);
-    const body = await res.json() as { object: string; data: any[] };
+    const body = (await res.json()) as { object: string; data: any[] };
     expect(body.object).toBe("list");
     expect(body.data.length).toBe(2);
   });
@@ -116,7 +123,7 @@ describe("Resend plugin - Emails", () => {
       ]),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { data: Array<{ id: string }> };
+    const body = (await res.json()) as { data: Array<{ id: string }> };
     expect(body.data.length).toBe(2);
     expect(body.data[0].id).toBeDefined();
     expect(body.data[1].id).toBeDefined();
@@ -133,19 +140,19 @@ describe("Resend plugin - Emails", () => {
         scheduled_at: "2099-01-01T00:00:00Z",
       }),
     });
-    const { id } = await sendRes.json() as { id: string };
+    const { id } = (await sendRes.json()) as { id: string };
 
     const res = await app.request(`${base}/emails/${id}/cancel`, {
       method: "POST",
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.canceled).toBe(true);
 
     // Verify status changed
     const getRes = await app.request(`${base}/emails/${id}`, { headers: authHeaders() });
-    const email = await getRes.json() as any;
+    const email = (await getRes.json()) as any;
     expect(email.status).toBe("canceled");
   });
 
@@ -155,7 +162,7 @@ describe("Resend plugin - Emails", () => {
       headers: authHeaders(),
       body: JSON.stringify({ from: "a@b.com", to: "c@d.com", subject: "Sent" }),
     });
-    const { id } = await sendRes.json() as { id: string };
+    const { id } = (await sendRes.json()) as { id: string };
 
     const res = await app.request(`${base}/emails/${id}/cancel`, {
       method: "POST",
@@ -179,7 +186,7 @@ describe("Resend plugin - Domains", () => {
       body: JSON.stringify({ name: "example.com" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.id).toBeDefined();
     expect(body.name).toBe("example.com");
     expect(body.status).toBe("pending");
@@ -192,14 +199,14 @@ describe("Resend plugin - Domains", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "verify.com" }),
     });
-    const { id } = await createRes.json() as { id: string };
+    const { id } = (await createRes.json()) as { id: string };
 
     const res = await app.request(`${base}/domains/${id}/verify`, {
       method: "POST",
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.status).toBe("verified");
   });
 
@@ -212,7 +219,7 @@ describe("Resend plugin - Domains", () => {
 
     const res = await app.request(`${base}/domains`, { headers: authHeaders() });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.object).toBe("list");
     expect(body.data.length).toBeGreaterThanOrEqual(1);
   });
@@ -223,14 +230,14 @@ describe("Resend plugin - Domains", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "delete.com" }),
     });
-    const { id } = await createRes.json() as { id: string };
+    const { id } = (await createRes.json()) as { id: string };
 
     const res = await app.request(`${base}/domains/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.deleted).toBe(true);
   });
 });
@@ -249,7 +256,7 @@ describe("Resend plugin - API Keys", () => {
       body: JSON.stringify({ name: "Production" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { id: string; token: string };
+    const body = (await res.json()) as { id: string; token: string };
     expect(body.id).toBeDefined();
     expect(body.token).toMatch(/^re_/);
   });
@@ -263,7 +270,7 @@ describe("Resend plugin - API Keys", () => {
 
     const res = await app.request(`${base}/api-keys`, { headers: authHeaders() });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.object).toBe("list");
     expect(body.data.length).toBeGreaterThanOrEqual(1);
     // Should not expose full token in list
@@ -276,14 +283,14 @@ describe("Resend plugin - API Keys", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "ToDelete" }),
     });
-    const { id } = await createRes.json() as { id: string };
+    const { id } = (await createRes.json()) as { id: string };
 
     const res = await app.request(`${base}/api-keys/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.deleted).toBe(true);
   });
 });
@@ -302,7 +309,7 @@ describe("Resend plugin - Contacts & Audiences", () => {
       body: JSON.stringify({ name: "Newsletter" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.id).toBeDefined();
     expect(body.name).toBe("Newsletter");
   });
@@ -313,7 +320,7 @@ describe("Resend plugin - Contacts & Audiences", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "Subscribers" }),
     });
-    const { id: audienceId } = await audRes.json() as { id: string };
+    const { id: audienceId } = (await audRes.json()) as { id: string };
 
     const res = await app.request(`${base}/audiences/${audienceId}/contacts`, {
       method: "POST",
@@ -321,7 +328,7 @@ describe("Resend plugin - Contacts & Audiences", () => {
       body: JSON.stringify({ email: "user@example.com", first_name: "Test" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.email).toBe("user@example.com");
   });
 
@@ -331,7 +338,7 @@ describe("Resend plugin - Contacts & Audiences", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "List" }),
     });
-    const { id: audienceId } = await audRes.json() as { id: string };
+    const { id: audienceId } = (await audRes.json()) as { id: string };
 
     await app.request(`${base}/audiences/${audienceId}/contacts`, {
       method: "POST",
@@ -343,7 +350,7 @@ describe("Resend plugin - Contacts & Audiences", () => {
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.object).toBe("list");
     expect(body.data.length).toBe(1);
   });
@@ -354,21 +361,21 @@ describe("Resend plugin - Contacts & Audiences", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "Cleanup" }),
     });
-    const { id: audienceId } = await audRes.json() as { id: string };
+    const { id: audienceId } = (await audRes.json()) as { id: string };
 
     const ctRes = await app.request(`${base}/audiences/${audienceId}/contacts`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ email: "del@b.com" }),
     });
-    const { id: contactId } = await ctRes.json() as { id: string };
+    const { id: contactId } = (await ctRes.json()) as { id: string };
 
     const res = await app.request(`${base}/audiences/${audienceId}/contacts/${contactId}`, {
       method: "DELETE",
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.deleted).toBe(true);
   });
 });
@@ -413,7 +420,7 @@ describe("Resend plugin - Inbox UI", () => {
         html: "<h1>Hello</h1>",
       }),
     });
-    const { id } = await sendRes.json() as { id: string };
+    const { id } = (await sendRes.json()) as { id: string };
 
     const res = await app.request(`${base}/inbox/${id}`, { headers: authHeaders() });
     expect(res.status).toBe(200);

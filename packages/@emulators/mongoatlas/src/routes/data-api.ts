@@ -30,9 +30,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    const docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    const docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     const matched = matchFilter(docs, body.filter) ?? docs;
     const doc = matched[0] ?? null;
@@ -63,9 +65,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    let docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    let docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     docs = matchFilter(docs, body.filter) ?? docs;
 
@@ -177,9 +181,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    const docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    const docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     const matched = matchFilter(docs, body.filter) ?? docs;
     const doc = matched[0];
@@ -228,9 +234,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    const docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    const docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     const matched = matchFilter(docs, body.filter) ?? docs;
     let modifiedCount = 0;
@@ -277,9 +285,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    const docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    const docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     const matched = matchFilter(docs, body.filter) ?? docs;
     const doc = matched[0];
@@ -310,9 +320,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    const docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    const docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     const matched = matchFilter(docs, body.filter) ?? docs;
     let deletedCount = 0;
@@ -343,9 +355,11 @@ export function dataApiRoutes(ctx: RouteContext): void {
       return mongoError(c, "ClusterNotFound", `Cluster '${body.dataSource}' not found`, 404);
     }
 
-    let docs = ms().documents.all().filter(
-      (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
-    );
+    const docs = ms()
+      .documents.all()
+      .filter(
+        (d) => d.cluster_id === cluster.cluster_id && d.database === body.database && d.collection === body.collection,
+      );
 
     // Process simplified pipeline stages
     const pipeline = body.pipeline ?? [];
@@ -375,7 +389,7 @@ export function dataApiRoutes(ctx: RouteContext): void {
   });
 }
 
-type MongoAtlasDocEntity = { data: Record<string, unknown>; id: number; [key: string]: unknown };
+type MongoAtlasDocEntity = { data: Record<string, unknown>; id: number };
 
 function ensureCollectionExists(
   ms: () => ReturnType<typeof getMongoAtlasStore>,
@@ -383,14 +397,14 @@ function ensureCollectionExists(
   database: string,
   collection: string,
 ): void {
-  const existing = ms().collections.all().find(
-    (col) => col.cluster_id === clusterId && col.database === database && col.name === collection,
-  );
+  const existing = ms()
+    .collections.all()
+    .find((col) => col.cluster_id === clusterId && col.database === database && col.name === collection);
   if (!existing) {
     // Auto-create database entry if needed
-    const dbExists = ms().databases.all().find(
-      (db) => db.cluster_id === clusterId && db.name === database,
-    );
+    const dbExists = ms()
+      .databases.all()
+      .find((db) => db.cluster_id === clusterId && db.name === database);
     if (!dbExists) {
       ms().databases.insert({ cluster_id: clusterId, name: database });
     }
@@ -535,7 +549,8 @@ function applyUpdate(data: Record<string, unknown>, update: Record<string, unkno
       } else {
         let current: Record<string, unknown> = result;
         for (let i = 0; i < parts.length - 1; i++) {
-          if (current[parts[i]] === null || current[parts[i]] === undefined || typeof current[parts[i]] !== "object") break;
+          if (current[parts[i]] === null || current[parts[i]] === undefined || typeof current[parts[i]] !== "object")
+            break;
           current = current[parts[i]] as Record<string, unknown>;
         }
         delete current[parts[parts.length - 1]];
@@ -568,7 +583,11 @@ function applyUpdate(data: Record<string, unknown>, update: Record<string, unkno
     for (const [key, value] of Object.entries(pullFields)) {
       const current = getNestedValue(result, key);
       if (Array.isArray(current)) {
-        setNestedValue(result, key, current.filter((item) => item !== value));
+        setNestedValue(
+          result,
+          key,
+          current.filter((item) => item !== value),
+        );
       }
     }
   }
@@ -629,7 +648,11 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
   current[parts[parts.length - 1]] = value;
 }
 
-function sortBySpec<T>(docs: T[], sortSpec: Record<string, number>, accessor: (doc: T) => Record<string, unknown>): T[] {
+function sortBySpec<T>(
+  docs: T[],
+  sortSpec: Record<string, number>,
+  accessor: (doc: T) => Record<string, unknown>,
+): T[] {
   return [...docs].sort((a, b) => {
     for (const [key, direction] of Object.entries(sortSpec)) {
       const aVal = getNestedValue(accessor(a), key);
@@ -637,8 +660,8 @@ function sortBySpec<T>(docs: T[], sortSpec: Record<string, number>, accessor: (d
       if (aVal === bVal) continue;
       if (aVal === undefined) return direction;
       if (bVal === undefined) return -direction;
-      if (aVal < bVal) return -direction;
-      if (aVal > bVal) return direction;
+      if ((aVal as number) < (bVal as number)) return -direction;
+      if ((aVal as number) > (bVal as number)) return direction;
     }
     return 0;
   });

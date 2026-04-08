@@ -1,6 +1,15 @@
 import { randomBytes } from "crypto";
 import type { Context } from "hono";
-import type { VercelUser, VercelTeam, VercelProject, VercelDeployment, VercelDomain, VercelEnvVar, VercelDeploymentAlias, VercelBuild } from "./entities.js";
+import type {
+  VercelUser,
+  VercelTeam,
+  VercelProject,
+  VercelDeployment,
+  VercelDomain,
+  VercelEnvVar,
+  VercelDeploymentAlias,
+  VercelBuild,
+} from "./entities.js";
 import type { VercelStore } from "./store.js";
 
 export function generateUid(prefix = ""): string {
@@ -42,7 +51,7 @@ export function resolveTeamScope(c: Context, vs: VercelStore): { accountId: stri
 }
 
 export function lookupProject(vs: VercelStore, idOrName: string, accountId: string): VercelProject | undefined {
-  let project = vs.projects.findOneBy("uid", idOrName);
+  const project = vs.projects.findOneBy("uid", idOrName);
   if (project && project.accountId === accountId) return project;
 
   const byName = vs.projects.findBy("name", idOrName);
@@ -67,7 +76,7 @@ export function parseCursorPagination(c: Context): CursorPagination {
 
 export function applyCursorPagination<T extends { created_at: string }>(
   items: T[],
-  pagination: CursorPagination
+  pagination: CursorPagination,
 ): { items: T[]; pagination: { count: number; next: number | null; prev: number | null } } {
   let filtered = [...items].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 

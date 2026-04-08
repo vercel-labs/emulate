@@ -10,19 +10,8 @@ import type {
   GitHubUser,
   GitHubCheckAnnotation,
 } from "../entities.js";
-import {
-  formatRepo,
-  formatUser,
-  generateNodeId,
-  lookupRepo,
-  timestamp,
-} from "../helpers.js";
-import {
-  assertRepoRead,
-  assertRepoWrite,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
+import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 const CONCLUSION_RANK: Record<string, number> = {
   success: 0,
@@ -61,11 +50,9 @@ function getOrCreateCheckSuite(
   gh: GitHubStore,
   repo: GitHubRepo,
   headSha: string,
-  headBranch?: string | null
+  headBranch?: string | null,
 ): GitHubCheckSuite {
-  const existing = gh.checkSuites
-    .findBy("repo_id", repo.id)
-    .find((s) => s.head_sha === headSha);
+  const existing = gh.checkSuites.findBy("repo_id", repo.id).find((s) => s.head_sha === headSha);
   if (existing) return existing;
 
   const hb = headBranch?.trim() || headBranchForSha(gh, repo, headSha);
@@ -85,7 +72,7 @@ function getOrCreateCheckSuite(
 }
 
 function worstConclusion(
-  conclusions: NonNullable<GitHubCheckRun["conclusion"]>[]
+  conclusions: NonNullable<GitHubCheckRun["conclusion"]>[],
 ): NonNullable<GitHubCheckSuite["conclusion"]> {
   let best: NonNullable<GitHubCheckSuite["conclusion"]> = "success";
   let rank = -1;
@@ -108,9 +95,7 @@ function recomputeSuiteFromRuns(runs: GitHubCheckRun[]): {
   }
   const allDone = runs.every((r) => r.status === "completed");
   if (allDone) {
-    const conclusions = runs
-      .map((r) => r.conclusion)
-      .filter((c): c is NonNullable<typeof c> => c != null);
+    const conclusions = runs.map((r) => r.conclusion).filter((c): c is NonNullable<typeof c> => c != null);
     return {
       status: "completed",
       conclusion: conclusions.length ? worstConclusion(conclusions) : null,
@@ -134,28 +119,16 @@ function recomputeSuiteFromRuns(runs: GitHubCheckRun[]): {
 function recomputeCheckSuite(gh: GitHubStore, suiteId: number) {
   const suite = gh.checkSuites.get(suiteId);
   if (!suite) return;
-  const runs = gh.checkRuns
-    .findBy("repo_id", suite.repo_id)
-    .filter((r) => r.check_suite_id === suiteId);
+  const runs = gh.checkRuns.findBy("repo_id", suite.repo_id).filter((r) => r.check_suite_id === suiteId);
   const { status, conclusion } = recomputeSuiteFromRuns(runs);
   gh.checkSuites.update(suiteId, { status, conclusion });
 }
 
-function parseConclusion(
-  raw: unknown
-): GitHubCheckRun["conclusion"] | undefined {
+function parseConclusion(raw: unknown): GitHubCheckRun["conclusion"] | undefined {
   if (raw === undefined) return undefined;
   if (raw === null) return null;
   if (typeof raw !== "string") throw new ApiError(422, "Invalid conclusion");
-  const allowed = new Set([
-    "success",
-    "failure",
-    "neutral",
-    "cancelled",
-    "skipped",
-    "timed_out",
-    "action_required",
-  ]);
+  const allowed = new Set(["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required"]);
   if (!allowed.has(raw)) throw new ApiError(422, "Invalid conclusion");
   return raw as GitHubCheckRun["conclusion"];
 }
@@ -179,8 +152,7 @@ function normalizeAnnotations(raw: unknown): GitHubCheckAnnotation[] {
     const message = typeof o.message === "string" ? o.message : null;
     const start_line = typeof o.start_line === "number" ? o.start_line : parseInt(String(o.start_line), 10);
     const end_line = typeof o.end_line === "number" ? o.end_line : parseInt(String(o.end_line), 10);
-    const annotation_level =
-      typeof o.annotation_level === "string" ? o.annotation_level : "notice";
+    const annotation_level = typeof o.annotation_level === "string" ? o.annotation_level : "notice";
     if (!path || !message || !Number.isFinite(start_line) || !Number.isFinite(end_line)) {
       throw new ApiError(422, "Invalid annotation fields");
     }
@@ -195,11 +167,7 @@ function normalizeAnnotations(raw: unknown): GitHubCheckAnnotation[] {
   return out;
 }
 
-function formatCheckSuiteBrief(
-  suite: GitHubCheckSuite,
-  repo: GitHubRepo,
-  baseUrl: string
-) {
+function formatCheckSuiteBrief(suite: GitHubCheckSuite, repo: GitHubRepo, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   return {
     id: suite.id,
@@ -224,12 +192,7 @@ function formatRepoBrief(repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
   };
 }
 
-function formatCheckRun(
-  run: GitHubCheckRun,
-  repo: GitHubRepo,
-  gh: GitHubStore,
-  baseUrl: string
-) {
+function formatCheckRun(run: GitHubCheckRun, repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const suite = run.check_suite_id ? gh.checkSuites.get(run.check_suite_id) : null;
   return {
@@ -257,12 +220,7 @@ function formatCheckRun(
   };
 }
 
-function formatCheckSuite(
-  suite: GitHubCheckSuite,
-  repo: GitHubRepo,
-  gh: GitHubStore,
-  baseUrl: string
-) {
+function formatCheckSuite(suite: GitHubCheckSuite, repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   return {
     id: suite.id,
@@ -289,7 +247,7 @@ function dispatchCheckRun(
   run: GitHubCheckRun,
   actor: GitHubUser,
   baseUrl: string,
-  action: string | undefined
+  action: string | undefined,
 ) {
   const ownerLogin = ownerLoginOf(gh, repo);
   void webhooks.dispatch(
@@ -302,7 +260,7 @@ function dispatchCheckRun(
       sender: formatUser(actor, baseUrl),
     },
     ownerLogin,
-    repo.name
+    repo.name,
   );
 }
 
@@ -313,7 +271,7 @@ function dispatchCheckSuite(
   suite: GitHubCheckSuite,
   actor: GitHubUser,
   baseUrl: string,
-  action: string | undefined
+  action: string | undefined,
 ) {
   const ownerLogin = ownerLoginOf(gh, repo);
   void webhooks.dispatch(
@@ -326,7 +284,7 @@ function dispatchCheckSuite(
       sender: formatUser(actor, baseUrl),
     },
     ownerLogin,
-    repo.name
+    repo.name,
   );
 }
 
@@ -363,8 +321,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       throw new ApiError(422, "head_sha is required");
     }
     const headSha = body.head_sha.trim();
-    const headBranch =
-      typeof body.head_branch === "string" && body.head_branch.trim() ? body.head_branch.trim() : null;
+    const headBranch = typeof body.head_branch === "string" && body.head_branch.trim() ? body.head_branch.trim() : null;
 
     const suite = getOrCreateCheckSuite(gh, repo, headSha, headBranch);
     if (headBranch && suite.head_branch !== headBranch) {
@@ -397,9 +354,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
     const { page, per_page } = parsePagination(c);
-    let runs = gh.checkRuns
-      .findBy("repo_id", repo.id)
-      .filter((r) => r.check_suite_id === suiteId);
+    let runs = gh.checkRuns.findBy("repo_id", repo.id).filter((r) => r.check_suite_id === suiteId);
     runs = runs.sort((a, b) => b.id - a.id);
     const total = runs.length;
     const slice = runs.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
@@ -420,9 +375,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
 
-    const runs = gh.checkRuns
-      .findBy("repo_id", repo.id)
-      .filter((r) => r.check_suite_id === suiteId);
+    const runs = gh.checkRuns.findBy("repo_id", repo.id).filter((r) => r.check_suite_id === suiteId);
     const now = timestamp();
     for (const r of runs) {
       gh.checkRuns.update(r.id, {
@@ -488,7 +441,11 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const details_url =
       typeof body.details_url === "string" || body.details_url === null ? (body.details_url as string | null) : null;
     const external_id =
-      typeof body.external_id === "string" ? body.external_id : body.external_id == null ? "" : String(body.external_id);
+      typeof body.external_id === "string"
+        ? body.external_id
+        : body.external_id == null
+          ? ""
+          : String(body.external_id);
 
     const started_at =
       body.started_at === undefined
@@ -527,11 +484,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       for (const act of body.actions) {
         if (!act || typeof act !== "object") continue;
         const a = act as Record<string, unknown>;
-        if (
-          typeof a.id === "string" &&
-          typeof a.label === "string" &&
-          typeof a.description === "string"
-        ) {
+        if (typeof a.id === "string" && typeof a.label === "string" && typeof a.description === "string") {
           actions.push({ id: a.id, label: a.label, description: a.description });
         }
       }
@@ -599,24 +552,14 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         typeof body.details_url === "string" || body.details_url === null ? (body.details_url as string | null) : null;
     }
     if (body.external_id !== undefined) {
-      patch.external_id =
-        typeof body.external_id === "string" ? body.external_id : String(body.external_id ?? "");
+      patch.external_id = typeof body.external_id === "string" ? body.external_id : String(body.external_id ?? "");
     }
     if (body.started_at !== undefined) {
-      patch.started_at =
-        body.started_at === null
-          ? null
-          : typeof body.started_at === "string"
-            ? body.started_at
-            : null;
+      patch.started_at = body.started_at === null ? null : typeof body.started_at === "string" ? body.started_at : null;
     }
     if (body.completed_at !== undefined) {
       patch.completed_at =
-        body.completed_at === null
-          ? null
-          : typeof body.completed_at === "string"
-            ? body.completed_at
-            : null;
+        body.completed_at === null ? null : typeof body.completed_at === "string" ? body.completed_at : null;
     }
     if (body.app_id !== undefined) {
       patch.app_id = typeof body.app_id === "number" ? body.app_id : null;
@@ -629,11 +572,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         for (const act of body.actions) {
           if (!act || typeof act !== "object") continue;
           const a = act as Record<string, unknown>;
-          if (
-            typeof a.id === "string" &&
-            typeof a.label === "string" &&
-            typeof a.description === "string"
-          ) {
+          if (typeof a.id === "string" && typeof a.label === "string" && typeof a.description === "string") {
             actions.push({ id: a.id, label: a.label, description: a.description });
           }
         }
@@ -645,31 +584,21 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       const outRaw = body.output as Record<string, unknown>;
       const annotations = normalizeAnnotations(outRaw.annotations);
       patch.output = {
-        title:
-          outRaw.title === undefined
-            ? prev.output.title
-            : typeof outRaw.title === "string"
-              ? outRaw.title
-              : null,
+        title: outRaw.title === undefined ? prev.output.title : typeof outRaw.title === "string" ? outRaw.title : null,
         summary:
           outRaw.summary === undefined
             ? prev.output.summary
             : typeof outRaw.summary === "string"
               ? outRaw.summary
               : null,
-        text:
-          outRaw.text === undefined
-            ? prev.output.text
-            : typeof outRaw.text === "string"
-              ? outRaw.text
-              : null,
+        text: outRaw.text === undefined ? prev.output.text : typeof outRaw.text === "string" ? outRaw.text : null,
         annotations_count: annotations.length,
         annotations,
       };
     }
 
     const nextStatus = patch.status ?? prev.status;
-    let nextConclusion: GitHubCheckRun["conclusion"] =
+    const nextConclusion: GitHubCheckRun["conclusion"] =
       patch.conclusion !== undefined ? patch.conclusion : prev.conclusion;
 
     if (patch.head_sha && patch.head_sha !== prev.head_sha) {
@@ -682,7 +611,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         throw new ApiError(422, "conclusion is required when status is completed");
       }
       patch.conclusion = nextConclusion;
-      let nextCompleted = patch.completed_at !== undefined ? patch.completed_at : prev.completed_at;
+      const nextCompleted = patch.completed_at !== undefined ? patch.completed_at : prev.completed_at;
       if (!nextCompleted) {
         patch.completed_at = timestamp();
       }

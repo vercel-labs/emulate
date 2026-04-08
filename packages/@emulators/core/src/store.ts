@@ -122,7 +122,9 @@ export class Collection<T extends Entity> {
     if (this.indexes.has(String(field))) {
       const ids = this.indexes.get(String(field))!.get(String(value));
       if (!ids) return [];
-      return Array.from(ids).map((id) => this.items.get(id)!).filter(Boolean);
+      return Array.from(ids)
+        .map((id) => this.items.get(id)!)
+        .filter(Boolean);
     }
     return this.all().filter((item) => item[field] === value);
   }
@@ -227,7 +229,7 @@ export class Store {
         const requested = indexFields.map(String).sort();
         if (existing.fieldNames.length !== requested.length || existing.fieldNames.some((f, i) => f !== requested[i])) {
           throw new Error(
-            `Collection "${name}" already exists with indexes [${existing.fieldNames}] but was requested with [${requested}]`
+            `Collection "${name}" already exists with indexes [${existing.fieldNames}] but was requested with [${requested}]`,
           );
         }
       }

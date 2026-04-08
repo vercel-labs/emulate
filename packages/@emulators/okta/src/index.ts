@@ -1,12 +1,5 @@
 import type { Hono } from "hono";
-import type {
-  AppEnv,
-  RouteContext,
-  ServicePlugin,
-  Store,
-  TokenMap,
-  WebhookDispatcher,
-} from "@emulators/core";
+import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import type { OktaAuthorizationServerStatus, OktaGroupType, OktaUserStatus } from "./entities.js";
 import {
   createDefaultApp,
@@ -145,10 +138,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
       client_id: "okta-test-app",
       client_secret: "",
       name: "Sample Public PKCE Client",
-      redirect_uris: [
-        "http://localhost:3000/official-sdk/callback",
-        "http://localhost:3000/official-sdk",
-      ],
+      redirect_uris: ["http://localhost:3000/official-sdk/callback", "http://localhost:3000/official-sdk"],
       response_types: ["code"],
       grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "none",
@@ -272,13 +262,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
 
 export const oktaPlugin: ServicePlugin = {
   name: "okta",
-  register(
-    app: Hono<AppEnv>,
-    store: Store,
-    webhooks: WebhookDispatcher,
-    baseUrl: string,
-    tokenMap?: TokenMap,
-  ): void {
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userRoutes(ctx);

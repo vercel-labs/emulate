@@ -1,6 +1,14 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, toUnixTimestamp, parseStripeBody, stripeError, stripeList, applyExpand, parseExpand } from "../helpers.js";
+import {
+  stripeId,
+  toUnixTimestamp,
+  parseStripeBody,
+  stripeError,
+  stripeList,
+  applyExpand,
+  parseExpand,
+} from "../helpers.js";
 import type { StripePrice, StripeProduct } from "../entities.js";
 
 function formatPrice(p: StripePrice) {
@@ -19,7 +27,14 @@ function formatPrice(p: StripePrice) {
 }
 
 function formatProduct(p: StripeProduct) {
-  return { id: p.stripe_id, object: "product", name: p.name, active: p.active, created: toUnixTimestamp(p.created_at), livemode: false };
+  return {
+    id: p.stripe_id,
+    object: "product",
+    name: p.name,
+    active: p.active,
+    created: toUnixTimestamp(p.created_at),
+    livemode: false,
+  };
 }
 
 export function priceRoutes({ app, store, webhooks }: RouteContext): void {
@@ -35,10 +50,24 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
   app.post("/v1/prices", async (c) => {
     const body = await parseStripeBody(c);
     if (!body.currency || !body.product) {
-      return stripeError(c, 400, "invalid_request_error", "Missing required param: currency and product are required.", undefined, "currency");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        "Missing required param: currency and product are required.",
+        undefined,
+        "currency",
+      );
     }
     if (!ss.products.findOneBy("stripe_id", body.product as string)) {
-      return stripeError(c, 400, "invalid_request_error", `No such product: '${body.product}'`, "resource_missing", "product");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `No such product: '${body.product}'`,
+        "resource_missing",
+        "product",
+      );
     }
     const price = ss.prices.insert({
       stripe_id: stripeId("price"),
@@ -46,8 +75,8 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
       currency: (body.currency as string).toLowerCase(),
       unit_amount: (body.unit_amount as number) ?? null,
       type: body.recurring ? "recurring" : "one_time",
-      active: body.active ?? true,
-      metadata: body.metadata ?? {},
+      active: (body.active as boolean) ?? true,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(
@@ -62,7 +91,8 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
 
   app.get("/v1/prices/:id", (c) => {
     const price = ss.prices.findOneBy("stripe_id", c.req.param("id"));
-    if (!price) return stripeError(c, 404, "invalid_request_error", `No such price: '${c.req.param("id")}'`, "resource_missing");
+    if (!price)
+      return stripeError(c, 404, "invalid_request_error", `No such price: '${c.req.param("id")}'`, "resource_missing");
     const expand = parseExpand(c);
     const result = applyExpand(formatPrice(price), expand, expandResolvers);
     return c.json(result);

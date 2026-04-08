@@ -1,5 +1,31 @@
 import { randomBytes } from "crypto";
-import type { GitHubUser, GitHubOrg, GitHubRepo, GitHubIssue, GitHubPullRequest, GitHubLabel, GitHubMilestone, GitHubComment, GitHubRelease, GitHubTeam, GitHubBranch, GitHubCommit, GitHubCheckRun, GitHubCheckSuite, GitHubReview, GitHubWorkflow, GitHubWorkflowRun, GitHubJob, GitHubArtifact, GitHubReleaseAsset, GitHubWebhook, GitHubRef, GitHubTag, GitHubBlob, GitHubTree } from "./entities.js";
+import type {
+  GitHubUser,
+  GitHubOrg,
+  GitHubRepo,
+  GitHubIssue,
+  GitHubPullRequest,
+  GitHubLabel,
+  GitHubMilestone,
+  GitHubComment,
+  GitHubRelease,
+  GitHubTeam,
+  GitHubBranch,
+  GitHubCommit,
+  GitHubCheckRun,
+  GitHubCheckSuite,
+  GitHubReview,
+  GitHubWorkflow,
+  GitHubWorkflowRun,
+  GitHubJob,
+  GitHubArtifact,
+  GitHubReleaseAsset,
+  GitHubWebhook,
+  GitHubRef,
+  GitHubTag,
+  GitHubBlob,
+  GitHubTree,
+} from "./entities.js";
 import type { GitHubStore } from "./store.js";
 
 export function generateNodeId(type: string, id: number): string {
@@ -290,11 +316,7 @@ export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string
   };
 }
 
-export function formatIssue(
-  issue: GitHubIssue,
-  store: GitHubStore,
-  baseUrl: string
-) {
+export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: string) {
   const repo = store.repos.get(issue.repo_id);
   if (!repo) return null;
   const user = store.users.get(issue.user_id);
@@ -346,11 +368,7 @@ export function formatIssue(
   };
 }
 
-export function formatPullRequest(
-  pr: GitHubPullRequest,
-  store: GitHubStore,
-  baseUrl: string
-) {
+export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, baseUrl: string) {
   const repo = store.repos.get(pr.repo_id);
   if (!repo) return null;
   const user = store.users.get(pr.user_id);
@@ -465,12 +483,7 @@ export function formatLabel(label: GitHubLabel, repo: GitHubRepo, baseUrl: strin
   };
 }
 
-export function formatMilestone(
-  m: GitHubMilestone,
-  repo: GitHubRepo,
-  store: GitHubStore,
-  baseUrl: string
-) {
+export function formatMilestone(m: GitHubMilestone, repo: GitHubRepo, store: GitHubStore, baseUrl: string) {
   const creator = store.users.get(m.creator_id);
   return {
     url: `${baseUrl}/repos/${repo.full_name}/milestones/${m.number}`,
@@ -492,11 +505,7 @@ export function formatMilestone(
   };
 }
 
-export function formatComment(
-  comment: GitHubComment,
-  store: GitHubStore,
-  baseUrl: string
-) {
+export function formatComment(comment: GitHubComment, store: GitHubStore, baseUrl: string) {
   const repo = store.repos.get(comment.repo_id);
   if (!repo) return null;
   const user = store.users.get(comment.user_id);
@@ -564,11 +573,7 @@ export function formatComment(
   };
 }
 
-export function formatReview(
-  review: GitHubReview,
-  store: GitHubStore,
-  baseUrl: string
-) {
+export function formatReview(review: GitHubReview, store: GitHubStore, baseUrl: string) {
   const repo = store.repos.get(review.repo_id);
   if (!repo) return null;
   const user = store.users.get(review.user_id);
@@ -624,11 +629,7 @@ export function formatBranch(branch: GitHubBranch, repo: GitHubRepo, baseUrl: st
   };
 }
 
-export function formatRelease(
-  release: GitHubRelease,
-  store: GitHubStore,
-  baseUrl: string
-) {
+export function formatRelease(release: GitHubRelease, store: GitHubStore, baseUrl: string) {
   const repo = store.repos.get(release.repo_id);
   if (!repo) return null;
   const author = store.users.get(release.author_id);

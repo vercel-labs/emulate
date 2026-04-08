@@ -19,15 +19,19 @@ function createTestApp(seedConfig?: Parameters<typeof seedFromConfig>[2]) {
   app.use("*", authMiddleware(tokenMap));
   githubPlugin.register(app as any, store, webhooks, base, tokenMap);
   githubPlugin.seed?.(store, base);
-  seedFromConfig(store, base, seedConfig ?? {
-    users: [{ login: "octocat" }],
-    repos: [{ owner: "octocat", name: "hello-world" }],
-  });
+  seedFromConfig(
+    store,
+    base,
+    seedConfig ?? {
+      users: [{ login: "octocat" }],
+      repos: [{ owner: "octocat", name: "hello-world" }],
+    },
+  );
 
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer test-token" };
 }
 
@@ -47,18 +51,22 @@ describe("webhook installation enrichment", () => {
     const { app, webhooks } = createTestApp({
       users: [{ login: "octocat" }],
       repos: [{ owner: "octocat", name: "hello-world" }],
-      apps: [{
-        app_id: 100,
-        slug: "test-app",
-        name: "Test App",
-        private_key: "fake-key",
-        events: ["issues"],
-        installations: [{
-          installation_id: 42,
-          account: "octocat",
-          repository_selection: "all",
-        }],
-      }],
+      apps: [
+        {
+          app_id: 100,
+          slug: "test-app",
+          name: "Test App",
+          private_key: "fake-key",
+          events: ["issues"],
+          installations: [
+            {
+              installation_id: 42,
+              account: "octocat",
+              repository_selection: "all",
+            },
+          ],
+        },
+      ],
     });
 
     webhooks.register({
@@ -113,18 +121,22 @@ describe("webhook installation enrichment", () => {
     const { app, webhooks } = createTestApp({
       users: [{ login: "octocat" }],
       repos: [{ owner: "octocat", name: "hello-world" }],
-      apps: [{
-        app_id: 200,
-        slug: "push-only-app",
-        name: "Push Only",
-        private_key: "fake-key",
-        events: ["push"],
-        installations: [{
-          installation_id: 77,
-          account: "octocat",
-          repository_selection: "all",
-        }],
-      }],
+      apps: [
+        {
+          app_id: 200,
+          slug: "push-only-app",
+          name: "Push Only",
+          private_key: "fake-key",
+          events: ["push"],
+          installations: [
+            {
+              installation_id: 77,
+              account: "octocat",
+              repository_selection: "all",
+            },
+          ],
+        },
+      ],
     });
 
     webhooks.register({
@@ -151,18 +163,22 @@ describe("webhook installation enrichment", () => {
     const { app, webhooks } = createTestApp({
       users: [{ login: "octocat" }],
       repos: [{ owner: "octocat", name: "hello-world" }],
-      apps: [{
-        app_id: 300,
-        slug: "pr-app",
-        name: "PR App",
-        private_key: "fake-key",
-        events: ["pull_request"],
-        installations: [{
-          installation_id: 1,
-          account: "octocat",
-          repository_selection: "all",
-        }],
-      }],
+      apps: [
+        {
+          app_id: 300,
+          slug: "pr-app",
+          name: "PR App",
+          private_key: "fake-key",
+          events: ["pull_request"],
+          installations: [
+            {
+              installation_id: 1,
+              account: "octocat",
+              repository_selection: "all",
+            },
+          ],
+        },
+      ],
     });
 
     webhooks.register({
@@ -183,14 +199,11 @@ describe("webhook installation enrichment", () => {
     mockFetch.mockClear();
 
     const prData = (await createRes.json()) as { number: number };
-    const mergeRes = await app.request(
-      `${base}/repos/octocat/hello-world/pulls/${prData.number}/merge`,
-      {
-        method: "PUT",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      },
-    );
+    const mergeRes = await app.request(`${base}/repos/octocat/hello-world/pulls/${prData.number}/merge`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     expect(mergeRes.status).toBe(200);
 
     expect(mockFetch).toHaveBeenCalled();
@@ -209,19 +222,23 @@ describe("webhook installation enrichment", () => {
         { owner: "octocat", name: "included-repo" },
         { owner: "octocat", name: "excluded-repo" },
       ],
-      apps: [{
-        app_id: 400,
-        slug: "selective-app",
-        name: "Selective App",
-        private_key: "fake-key",
-        events: ["issues"],
-        installations: [{
-          installation_id: 88,
-          account: "octocat",
-          repository_selection: "selected",
-          repositories: ["included-repo"],
-        }],
-      }],
+      apps: [
+        {
+          app_id: 400,
+          slug: "selective-app",
+          name: "Selective App",
+          private_key: "fake-key",
+          events: ["issues"],
+          installations: [
+            {
+              installation_id: 88,
+              account: "octocat",
+              repository_selection: "selected",
+              repositories: ["included-repo"],
+            },
+          ],
+        },
+      ],
     });
 
     webhooks.register({
@@ -252,9 +269,7 @@ describe("webhook installation enrichment", () => {
       body: JSON.stringify({ title: "Included" }),
     });
 
-    const includedCall = mockFetch.mock.calls.find(
-      (c) => c[0] === "https://hooks.example/included",
-    );
+    const includedCall = mockFetch.mock.calls.find((c) => c[0] === "https://hooks.example/included");
     expect(includedCall).toBeDefined();
     const includedBody = JSON.parse((includedCall![1] as RequestInit).body as string);
     expect(includedBody.installation).toBeDefined();
@@ -268,9 +283,7 @@ describe("webhook installation enrichment", () => {
       body: JSON.stringify({ title: "Excluded" }),
     });
 
-    const excludedCall = mockFetch.mock.calls.find(
-      (c) => c[0] === "https://hooks.example/excluded",
-    );
+    const excludedCall = mockFetch.mock.calls.find((c) => c[0] === "https://hooks.example/excluded");
     expect(excludedCall).toBeDefined();
     const excludedBody = JSON.parse((excludedCall![1] as RequestInit).body as string);
     expect(excludedBody.installation).toBeUndefined();
@@ -293,19 +306,23 @@ describe("app webhook_url delivery", () => {
     const { app } = createTestApp({
       users: [{ login: "octocat" }],
       repos: [{ owner: "octocat", name: "hello-world" }],
-      apps: [{
-        app_id: 500,
-        slug: "webhook-app",
-        name: "Webhook App",
-        private_key: "fake-key",
-        events: ["issues"],
-        webhook_url: "https://app.example/webhook",
-        installations: [{
-          installation_id: 55,
-          account: "octocat",
-          repository_selection: "all",
-        }],
-      }],
+      apps: [
+        {
+          app_id: 500,
+          slug: "webhook-app",
+          name: "Webhook App",
+          private_key: "fake-key",
+          events: ["issues"],
+          webhook_url: "https://app.example/webhook",
+          installations: [
+            {
+              installation_id: 55,
+              account: "octocat",
+              repository_selection: "all",
+            },
+          ],
+        },
+      ],
     });
 
     await app.request(`${base}/repos/octocat/hello-world/issues`, {
@@ -314,9 +331,7 @@ describe("app webhook_url delivery", () => {
       body: JSON.stringify({ title: "App webhook test" }),
     });
 
-    const appCall = mockFetch.mock.calls.find(
-      (c) => c[0] === "https://app.example/webhook",
-    );
+    const appCall = mockFetch.mock.calls.find((c) => c[0] === "https://app.example/webhook");
     expect(appCall).toBeDefined();
 
     const headers = (appCall![1] as RequestInit).headers as Record<string, string>;
@@ -333,20 +348,24 @@ describe("app webhook_url delivery", () => {
     const { app } = createTestApp({
       users: [{ login: "octocat" }],
       repos: [{ owner: "octocat", name: "hello-world" }],
-      apps: [{
-        app_id: 600,
-        slug: "signed-app",
-        name: "Signed App",
-        private_key: "fake-key",
-        events: ["issues"],
-        webhook_url: "https://signed.example/webhook",
-        webhook_secret: secret,
-        installations: [{
-          installation_id: 66,
-          account: "octocat",
-          repository_selection: "all",
-        }],
-      }],
+      apps: [
+        {
+          app_id: 600,
+          slug: "signed-app",
+          name: "Signed App",
+          private_key: "fake-key",
+          events: ["issues"],
+          webhook_url: "https://signed.example/webhook",
+          webhook_secret: secret,
+          installations: [
+            {
+              installation_id: 66,
+              account: "octocat",
+              repository_selection: "all",
+            },
+          ],
+        },
+      ],
     });
 
     await app.request(`${base}/repos/octocat/hello-world/issues`, {
@@ -355,9 +374,7 @@ describe("app webhook_url delivery", () => {
       body: JSON.stringify({ title: "Signed webhook test" }),
     });
 
-    const appCall = mockFetch.mock.calls.find(
-      (c) => c[0] === "https://signed.example/webhook",
-    );
+    const appCall = mockFetch.mock.calls.find((c) => c[0] === "https://signed.example/webhook");
     expect(appCall).toBeDefined();
 
     const headers = (appCall![1] as RequestInit).headers as Record<string, string>;
@@ -370,18 +387,22 @@ describe("app webhook_url delivery", () => {
     const { app } = createTestApp({
       users: [{ login: "octocat" }],
       repos: [{ owner: "octocat", name: "hello-world" }],
-      apps: [{
-        app_id: 700,
-        slug: "no-url-app",
-        name: "No URL App",
-        private_key: "fake-key",
-        events: ["issues"],
-        installations: [{
-          installation_id: 77,
-          account: "octocat",
-          repository_selection: "all",
-        }],
-      }],
+      apps: [
+        {
+          app_id: 700,
+          slug: "no-url-app",
+          name: "No URL App",
+          private_key: "fake-key",
+          events: ["issues"],
+          installations: [
+            {
+              installation_id: 77,
+              account: "octocat",
+              repository_selection: "all",
+            },
+          ],
+        },
+      ],
     });
 
     await app.request(`${base}/repos/octocat/hello-world/issues`, {

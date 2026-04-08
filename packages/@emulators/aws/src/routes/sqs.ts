@@ -1,7 +1,16 @@
 import type { RouteContext } from "@emulators/core";
 import type { Context } from "hono";
 import { getAwsStore } from "../store.js";
-import { awsXmlResponse, awsErrorXml, generateMessageId, generateReceiptHandle, md5, getAccountId, parseQueryString, escapeXml } from "../helpers.js";
+import {
+  awsXmlResponse,
+  awsErrorXml,
+  generateMessageId,
+  generateReceiptHandle,
+  md5,
+  getAccountId,
+  parseQueryString,
+  escapeXml,
+} from "../helpers.js";
 
 export function sqsRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
@@ -191,7 +200,12 @@ ${queueUrlsXml}
 
     const bodyBytes = new TextEncoder().encode(messageBody).byteLength;
     if (bodyBytes > queue.max_message_size) {
-      return awsErrorXml(c, "InvalidParameterValue", `One or more parameters are invalid. Reason: Message must be shorter than ${queue.max_message_size} bytes.`, 400);
+      return awsErrorXml(
+        c,
+        "InvalidParameterValue",
+        `One or more parameters are invalid. Reason: Message must be shorter than ${queue.max_message_size} bytes.`,
+        400,
+      );
     }
 
     const messageId = generateMessageId();
@@ -330,4 +344,3 @@ ${messagesXml}
     return awsXmlResponse(c, xml);
   }
 }
-

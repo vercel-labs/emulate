@@ -18,8 +18,7 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!channel) return slackError(c, "channel_not_found");
 
-    const ch = ss().channels.findOneBy("channel_id", channel)
-      ?? ss().channels.findOneBy("name", channel);
+    const ch = ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
     if (!ch) return slackError(c, "channel_not_found");
 
     const ts = generateTs();
@@ -37,7 +36,9 @@ export function chatRoutes(ctx: RouteContext): void {
 
     // Update parent thread reply count
     if (thread_ts) {
-      const parent = ss().messages.all().find((m) => m.ts === thread_ts && m.channel_id === ch.channel_id);
+      const parent = ss()
+        .messages.all()
+        .find((m) => m.ts === thread_ts && m.channel_id === ch.channel_id);
       if (parent) {
         const replyUsers = parent.reply_users.includes(authUser.login)
           ? parent.reply_users
@@ -49,17 +50,22 @@ export function chatRoutes(ctx: RouteContext): void {
       }
     }
 
-    await webhooks.dispatch("message", {
-      type: "event_callback",
-      event: {
-        type: "message",
-        channel: ch.channel_id,
-        user: authUser.login,
-        text,
-        ts,
-        thread_ts,
+    await webhooks.dispatch(
+      "message",
+      undefined,
+      {
+        type: "event_callback",
+        event: {
+          type: "message",
+          channel: ch.channel_id,
+          user: authUser.login,
+          text,
+          ts,
+          thread_ts,
+        },
       },
-    });
+      "slack",
+    );
 
     return slackOk(c, {
       channel: ch.channel_id,
@@ -86,7 +92,9 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!channel || !ts) return slackError(c, "message_not_found");
 
-    const msg = ss().messages.all().find((m) => m.ts === ts && m.channel_id === channel);
+    const msg = ss()
+      .messages.all()
+      .find((m) => m.ts === ts && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
 
     ss().messages.update(msg.id, { text });
@@ -109,7 +117,9 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!channel || !ts) return slackError(c, "message_not_found");
 
-    const msg = ss().messages.all().find((m) => m.ts === ts && m.channel_id === channel);
+    const msg = ss()
+      .messages.all()
+      .find((m) => m.ts === ts && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
 
     ss().messages.delete(msg.id);
@@ -128,8 +138,7 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!channel) return slackError(c, "channel_not_found");
 
-    const ch = ss().channels.findOneBy("channel_id", channel)
-      ?? ss().channels.findOneBy("name", channel);
+    const ch = ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
     if (!ch) return slackError(c, "channel_not_found");
 
     const ts = generateTs();

@@ -76,9 +76,7 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
       if (token.startsWith("eyJ") && appKeyResolver) {
         try {
           const [, payloadB64] = token.split(".");
-          const payload = JSON.parse(
-            Buffer.from(payloadB64, "base64url").toString()
-          );
+          const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
           const appId = typeof payload.iss === "string" ? parseInt(payload.iss, 10) : payload.iss;
 
           if (typeof appId === "number" && !isNaN(appId)) {
@@ -122,7 +120,7 @@ export function requireAuth() {
           message: "Requires authentication",
           documentation_url: docsUrl,
         },
-        401
+        401,
       );
     }
     await next();
@@ -138,7 +136,7 @@ export function requireAppAuth() {
           message: "A JSON web token could not be decoded",
           documentation_url: docsUrl,
         },
-        401
+        401,
       );
     }
     await next();

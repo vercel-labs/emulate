@@ -15,25 +15,13 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import {
-  assertRepoRead,
-  assertRepoWrite,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
-  return gh.pullRequests
-    .findBy("repo_id", repoId)
-    .find((p) => p.number === pullNumber);
+  return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
 }
 
-function findReview(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  pullNumber: number,
-  reviewId: number
-): GitHubReview | undefined {
+function findReview(gh: GitHubStore, repo: GitHubRepo, pullNumber: number, reviewId: number): GitHubReview | undefined {
   const r = gh.reviews.get(reviewId);
   if (!r || r.repo_id !== repo.id || r.pull_number !== pullNumber) return undefined;
   return r;
@@ -46,7 +34,7 @@ function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delt
 function sortComments(
   comments: GitHubComment[],
   sort: "created" | "updated",
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): GitHubComment[] {
   const mul = direction === "asc" ? 1 : -1;
   const field = sort === "created" ? "created_at" : "updated_at";
@@ -65,8 +53,7 @@ function parseCommentSort(c: Context, defaultDirection: "asc" | "desc") {
   const sortRaw = c.req.query("sort") ?? "created";
   const sort: "created" | "updated" = sortRaw === "updated" ? "updated" : "created";
   const dirRaw = c.req.query("direction");
-  const direction: "asc" | "desc" =
-    dirRaw === "desc" ? "desc" : dirRaw === "asc" ? "asc" : defaultDirection;
+  const direction: "asc" | "desc" = dirRaw === "desc" ? "desc" : dirRaw === "asc" ? "asc" : defaultDirection;
   return { sort, direction };
 }
 
@@ -96,7 +83,7 @@ function dispatchReviewWebhook(
   pr: GitHubPullRequest,
   actor: GitHubUser,
   baseUrl: string,
-  action: "submitted" | "dismissed"
+  action: "submitted" | "dismissed",
 ) {
   const ownerLogin = ownerLoginOf(gh, repo);
   const reviewFmt = formatReview(review, gh, baseUrl);
@@ -112,7 +99,7 @@ function dispatchReviewWebhook(
       sender: formatUser(actor, baseUrl),
     },
     ownerLogin,
-    repo.name
+    repo.name,
   );
 }
 
@@ -133,9 +120,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!pr) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
-    let list = gh.reviews
-      .findBy("repo_id", repo.id)
-      .filter((r) => r.pull_number === pullNumber);
+    const list = gh.reviews.findBy("repo_id", repo.id).filter((r) => r.pull_number === pullNumber);
     list.sort((a, b) => a.id - b.id);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
@@ -164,8 +149,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const raw = await parseJsonBody(c);
 
     const eventRaw = raw.event;
-    const hasEvent =
-      eventRaw === "APPROVE" || eventRaw === "REQUEST_CHANGES" || eventRaw === "COMMENT";
+    const hasEvent = eventRaw === "APPROVE" || eventRaw === "REQUEST_CHANGES" || eventRaw === "COMMENT";
     if (eventRaw !== undefined && eventRaw !== null && !hasEvent) {
       throw new ApiError(422, "Validation failed");
     }
@@ -177,9 +161,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     else throw new ApiError(422, "Validation failed");
 
     const commitId =
-      typeof raw.commit_id === "string" && raw.commit_id.trim()
-        ? raw.commit_id.trim()
-        : pr.head_sha || generateSha();
+      typeof raw.commit_id === "string" && raw.commit_id.trim() ? raw.commit_id.trim() : pr.head_sha || generateSha();
 
     const state: GitHubReview["state"] = event ? eventToState(event) : "PENDING";
     const submittedAt = event ? timestamp() : null;
@@ -203,9 +185,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       const o = entry as Record<string, unknown>;
       if (typeof o.path !== "string" || !o.path.trim()) throw new ApiError(422, "Validation failed");
       const pos =
-        typeof o.position === "number" && Number.isFinite(o.position)
-          ? o.position
-          : parseInt(String(o.position), 10);
+        typeof o.position === "number" && Number.isFinite(o.position) ? o.position : parseInt(String(o.position), 10);
       if (!Number.isFinite(pos)) throw new ApiError(422, "Validation failed");
       if (typeof o.body !== "string") throw new ApiError(422, "Validation failed");
 
@@ -390,12 +370,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
 
     let list = gh.comments
       .findBy("repo_id", repo.id)
-      .filter(
-        (x) =>
-          x.comment_type === "review" &&
-          x.pull_number === pullNumber &&
-          x.review_id === reviewId
-      );
+      .filter((x) => x.comment_type === "review" && x.pull_number === pullNumber && x.review_id === reviewId);
     list = sortComments(list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);

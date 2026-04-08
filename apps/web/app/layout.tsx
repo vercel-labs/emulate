@@ -51,12 +51,7 @@ function Header() {
               width="18"
               style={{ color: "currentcolor" }}
             >
-              <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M8 1L16 15H0L8 1Z"
-                fill="currentColor"
-              />
+              <path fillRule="evenodd" clipRule="evenodd" d="M8 1L16 15H0L8 1Z" fill="currentColor" />
             </svg>
           </Link>
           <span className="text-neutral-300 dark:text-neutral-700">

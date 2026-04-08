@@ -11,6 +11,7 @@ import {
   matchesRedirectUri,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
 } from "@emulators/core";
 import type { OktaOAuthClient, OktaUser } from "../entities.js";
@@ -21,10 +22,7 @@ import {
   resolveOktaIssuer,
   userDisplayName,
 } from "../helpers.js";
-import {
-  findUserByRef,
-  oktaError,
-} from "../route-helpers.js";
+import { findUserByRef, oktaError } from "../route-helpers.js";
 import { getOktaStore } from "../store.js";
 
 const keyPairPromise = generateKeyPair("RS256");
@@ -105,10 +103,7 @@ function buildOAuthBasePath(authServerId: string): string {
   return `/oauth2/${encodeURIComponent(authServerId)}/v1`;
 }
 
-function getClientsForServer(
-  clients: OktaOAuthClient[],
-  authServerId: string,
-): OktaOAuthClient[] {
+function getClientsForServer(clients: OktaOAuthClient[], authServerId: string): OktaOAuthClient[] {
   return clients.filter((client) => client.auth_server_id === authServerId);
 }
 
@@ -268,13 +263,13 @@ function validateClient(
 }
 
 function parseScope(scope: string): string[] {
-  return scope.split(/\s+/).map((part) => part.trim()).filter(Boolean);
+  return scope
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
-function collectUserGroups(
-  oktaStore: ReturnType<typeof getOktaStore>,
-  user: OktaUser,
-): string[] {
+function collectUserGroups(oktaStore: ReturnType<typeof getOktaStore>, user: OktaUser): string[] {
   const memberships = oktaStore.groupMemberships.findBy("user_okta_id", user.okta_id);
   const names: string[] = [];
   for (const membership of memberships) {
@@ -322,10 +317,10 @@ async function createIdToken(
 }
 
 function unauthorizedOAuthError(): Response {
-  return new Response(
-    JSON.stringify({ error: "invalid_token", error_description: "The access token is invalid." }),
-    { status: 401, headers: { "Content-Type": "application/json" } },
-  );
+  return new Response(JSON.stringify({ error: "invalid_token", error_description: "The access token is invalid." }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
@@ -365,10 +360,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
-  const renderAuthorizePage = (
-    c: Context<AppEnv>,
-    authServerId: string,
-  ): Response => {
+  const renderAuthorizePage = (c: Context<AppEnv>, authServerId: string): Response => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
@@ -408,7 +400,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (!matchesRedirectUri(redirectUri, client.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -418,25 +414,27 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const users = oktaStore.users.all();
     const callbackPath = `${buildOAuthBasePath(authServerId)}/authorize/callback`;
     const buttons = users
-      .map((user) => renderUserButton({
-        letter: (user.login[0] ?? "?").toUpperCase(),
-        login: user.login,
-        name: userDisplayName(user),
-        email: user.email,
-        formAction: callbackPath,
-        hiddenFields: {
-          user_ref: user.okta_id,
-          redirect_uri: redirectUri,
-          scope,
-          state,
-          nonce,
-          client_id: clientId,
-          response_mode: responseMode,
-          code_challenge: codeChallenge,
-          code_challenge_method: codeChallengeMethod,
-          auth_server_id: authServerId,
-        },
-      }))
+      .map((user) =>
+        renderUserButton({
+          letter: (user.login[0] ?? "?").toUpperCase(),
+          login: user.login,
+          name: userDisplayName(user),
+          email: user.email,
+          formAction: callbackPath,
+          hiddenFields: {
+            user_ref: user.okta_id,
+            redirect_uri: redirectUri,
+            scope,
+            state,
+            nonce,
+            client_id: clientId,
+            response_mode: responseMode,
+            code_challenge: codeChallenge,
+            code_challenge_method: codeChallengeMethod,
+            auth_server_id: authServerId,
+          },
+        }),
+      )
       .join("\n");
 
     const subtitle = clientName
@@ -456,10 +454,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.get("/oauth2/v1/authorize", (c) => renderAuthorizePage(c, ORG_AUTH_SERVER_ID));
   app.get("/oauth2/:authServerId/v1/authorize", (c) => renderAuthorizePage(c, c.req.param("authServerId")));
 
-  const handleAuthorizeCallback = async (
-    c: Context<AppEnv>,
-    authServerId: string,
-  ): Promise<Response> => {
+  const handleAuthorizeCallback = async (c: Context<AppEnv>, authServerId: string): Promise<Response> => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
@@ -483,10 +478,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const user = findUserByRef(oktaStore, userRef);
     if (!user) {
-      return c.html(
-        renderErrorPage("Unknown user", "The selected user is not available.", SERVICE_LABEL),
-        400,
-      );
+      return c.html(renderErrorPage("Unknown user", "The selected user is not available.", SERVICE_LABEL), 400);
     }
 
     const configuredClients = getClientsForServer(oktaStore.oauthClients.all(), authServerId);
@@ -500,7 +492,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (!matchesRedirectUri(redirectUri, client.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -522,17 +518,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     debug("okta.oauth", `[callback] code=${code.slice(0, 8)}... user=${user.login} server=${authServerId}`);
 
     if (responseMode === "form_post") {
-      const html = `<!DOCTYPE html>
-<html>
-<head><title>Submit</title></head>
-<body onload="document.forms[0].submit()">
-<form method="POST" action="${escapeAttr(redirectUri)}">
-<input type="hidden" name="code" value="${escapeAttr(code)}" />
-<input type="hidden" name="state" value="${escapeAttr(state)}" />
-</form>
-</body>
-</html>`;
-      return c.html(html);
+      return c.html(renderFormPostPage(redirectUri, { code, state }, SERVICE_LABEL));
     }
 
     const url = new URL(redirectUri);
@@ -542,12 +528,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   };
 
   app.post("/oauth2/v1/authorize/callback", (c) => handleAuthorizeCallback(c, ORG_AUTH_SERVER_ID));
-  app.post("/oauth2/:authServerId/v1/authorize/callback", (c) => handleAuthorizeCallback(c, c.req.param("authServerId")));
+  app.post("/oauth2/:authServerId/v1/authorize/callback", (c) =>
+    handleAuthorizeCallback(c, c.req.param("authServerId")),
+  );
 
-  const handleToken = async (
-    c: Context<AppEnv>,
-    authServerId: string,
-  ): Promise<Response> => {
+  const handleToken = async (c: Context<AppEnv>, authServerId: string): Promise<Response> => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
@@ -579,7 +564,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         return c.json({ error: "invalid_grant", error_description: "redirect_uri does not match." }, 400);
       }
       if (validatedClient && validatedClient.client_id !== pending.clientId) {
-        return c.json({ error: "invalid_grant", error_description: "Authorization code was not issued to this client." }, 400);
+        return c.json(
+          { error: "invalid_grant", error_description: "Authorization code was not issued to this client." },
+          400,
+        );
       }
 
       if (pending.codeChallenge !== null) {
@@ -635,14 +623,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         scopes: parseScope(scope),
       });
 
-      const idToken = await createIdToken(
-        oktaStore,
-        user,
-        audienceClient,
-        pending.nonce,
-        server.issuer,
-        scope,
-      );
+      const idToken = await createIdToken(oktaStore, user, audienceClient, pending.nonce, server.issuer, scope);
 
       return c.json({
         token_type: "Bearer",
@@ -663,7 +644,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         return c.json({ error: "invalid_grant", error_description: "Authorization server mismatch." }, 400);
       }
       if (validatedClient && validatedClient.client_id !== existing.clientId) {
-        return c.json({ error: "invalid_grant", error_description: "Refresh token was not issued to this client." }, 400);
+        return c.json(
+          { error: "invalid_grant", error_description: "Refresh token was not issued to this client." },
+          400,
+        );
       }
 
       const user = oktaStore.users.findOneBy("okta_id", existing.userOktaId);
@@ -794,10 +778,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.get("/oauth2/v1/userinfo", (c) => handleUserInfo(c, ORG_AUTH_SERVER_ID));
   app.get("/oauth2/:authServerId/v1/userinfo", (c) => handleUserInfo(c, c.req.param("authServerId")));
 
-  const handleRevoke = async (
-    c: Context<AppEnv>,
-    authServerId: string,
-  ): Promise<Response> => {
+  const handleRevoke = async (c: Context<AppEnv>, authServerId: string): Promise<Response> => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
@@ -812,10 +793,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.post("/oauth2/v1/revoke", (c) => handleRevoke(c, ORG_AUTH_SERVER_ID));
   app.post("/oauth2/:authServerId/v1/revoke", (c) => handleRevoke(c, c.req.param("authServerId")));
 
-  const handleIntrospect = async (
-    c: Context<AppEnv>,
-    authServerId: string,
-  ): Promise<Response> => {
+  const handleIntrospect = async (c: Context<AppEnv>, authServerId: string): Promise<Response> => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
@@ -865,10 +843,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.post("/oauth2/v1/introspect", (c) => handleIntrospect(c, ORG_AUTH_SERVER_ID));
   app.post("/oauth2/:authServerId/v1/introspect", (c) => handleIntrospect(c, c.req.param("authServerId")));
 
-  const handleLogout = (
-    c: Context<AppEnv>,
-    authServerId: string,
-  ): Response => {
+  const handleLogout = (c: Context<AppEnv>, authServerId: string): Response => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
@@ -877,9 +852,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const scopedClients = getClientsForServer(oktaStore.oauthClients.all(), authServerId);
     if (scopedClients.length > 0) {
-      const isAllowed = scopedClients.some((client) =>
-        matchesRedirectUri(postLogoutRedirectUri, client.redirect_uris),
-      );
+      const isAllowed = scopedClients.some((client) => matchesRedirectUri(postLogoutRedirectUri, client.redirect_uris));
       if (!isAllowed) return c.text("Invalid post_logout_redirect_uri", 400);
     }
 

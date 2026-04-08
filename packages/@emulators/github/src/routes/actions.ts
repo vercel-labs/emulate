@@ -1,12 +1,5 @@
 import type { RouteContext, AuthUser } from "@emulators/core";
-import {
-  ApiError,
-  forbidden,
-  parseJsonBody,
-  parsePagination,
-  setLinkHeader,
-  unauthorized,
-} from "@emulators/core";
+import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type {
@@ -19,14 +12,7 @@ import type {
   GitHubWorkflow,
   GitHubWorkflowRun,
 } from "../entities.js";
-import {
-  formatRepo,
-  formatUser,
-  generateNodeId,
-  generateSha,
-  lookupRepo,
-  timestamp,
-} from "../helpers.js";
+import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
 import {
   assertAuthenticatedUser,
   assertRepoAdmin,
@@ -36,10 +22,7 @@ import {
   ownerLoginOf,
 } from "../route-helpers.js";
 
-function listOrgMembersDeduped(
-  gh: GitHubStore,
-  orgId: number
-): { user: GitHubUser; orgRole: "admin" | "member" }[] {
+function listOrgMembersDeduped(gh: GitHubStore, orgId: number): { user: GitHubUser; orgRole: "admin" | "member" }[] {
   const byUser = new Map<number, { user: GitHubUser; isAdmin: boolean }>();
   for (const team of gh.teams.findBy("org_id", orgId)) {
     for (const m of gh.teamMembers.findBy("team_id", team.id)) {
@@ -92,11 +75,7 @@ function resolveWorkflow(gh: GitHubStore, repoId: number, param: string): GitHub
     .find((w) => w.path === decoded || w.path.endsWith(`/${decoded}`) || w.name === decoded);
 }
 
-function resolveRefToBranchAndSha(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  ref: string
-): { branch: string; sha: string } {
+function resolveRefToBranchAndSha(gh: GitHubStore, repo: GitHubRepo, ref: string): { branch: string; sha: string } {
   const name = ref.replace(/^refs\/heads\//, "").replace(/^refs\/tags\//, "");
   const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === name);
   if (branch) return { branch: branch.name, sha: branch.sha };
@@ -104,22 +83,16 @@ function resolveRefToBranchAndSha(
 }
 
 function nextRunNumber(gh: GitHubStore, workflowId: number, repoId: number): number {
-  const runs = gh.workflowRuns
-    .findBy("workflow_id", workflowId)
-    .filter((r) => r.repo_id === repoId);
+  const runs = gh.workflowRuns.findBy("workflow_id", workflowId).filter((r) => r.repo_id === repoId);
   return runs.reduce((m, r) => Math.max(m, r.run_number), 0) + 1;
 }
 
 function findRepoSecret(gh: GitHubStore, repoId: number, name: string): GitHubSecret | undefined {
-  return gh.secrets
-    .all()
-    .find((s) => s.repo_id === repoId && s.org_id === null && s.name === name);
+  return gh.secrets.all().find((s) => s.repo_id === repoId && s.org_id === null && s.name === name);
 }
 
 function findOrgSecret(gh: GitHubStore, orgId: number, name: string): GitHubSecret | undefined {
-  return gh.secrets
-    .all()
-    .find((s) => s.org_id === orgId && s.repo_id === null && s.name === name);
+  return gh.secrets.all().find((s) => s.org_id === orgId && s.repo_id === null && s.name === name);
 }
 
 function listRepoSecrets(gh: GitHubStore, repoId: number): GitHubSecret[] {
@@ -259,12 +232,7 @@ function formatJob(job: GitHubJob, repo: GitHubRepo, gh: GitHubStore, baseUrl: s
   };
 }
 
-function formatArtifact(
-  a: GitHubArtifact,
-  repo: GitHubRepo,
-  gh: GitHubStore,
-  baseUrl: string
-) {
+function formatArtifact(a: GitHubArtifact, repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const run = gh.workflowRuns.get(a.run_id);
   return {
@@ -278,14 +246,22 @@ function formatArtifact(
     digest: null,
     created_at: a.created_at,
     expires_at: a.expires_at,
-    workflow_run: run ? { id: run.id, repository_id: repo.id, head_repository_id: repo.id, head_branch: run.head_branch, head_sha: run.head_sha } : null,
+    workflow_run: run
+      ? {
+          id: run.id,
+          repository_id: repo.id,
+          head_repository_id: repo.id,
+          head_branch: run.head_branch,
+          head_sha: run.head_sha,
+        }
+      : null,
   };
 }
 
 function filterRuns(
   gh: GitHubStore,
   runs: GitHubWorkflowRun[],
-  q: { actor?: string; branch?: string; event?: string; status?: string }
+  q: { actor?: string; branch?: string; event?: string; status?: string },
 ) {
   let out = runs;
   if (q.actor) {
@@ -313,9 +289,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    const workflows = gh.workflows
-      .findBy("repo_id", repo.id)
-      .sort((a, b) => a.path.localeCompare(b.path));
+    const workflows = gh.workflows.findBy("repo_id", repo.id).sort((a, b) => a.path.localeCompare(b.path));
     return c.json({
       total_count: workflows.length,
       workflows: workflows.map((w) => formatWorkflow(w, repo, gh, baseUrl)),
@@ -404,14 +378,18 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
     void webhooks.dispatch(
       "workflow_run",
       "requested",
-      { workflow_run: formatWorkflowRun(created, repo, gh, baseUrl), repository: formatRepo(repo, gh, baseUrl), sender: formatUser(actor, baseUrl) },
+      {
+        workflow_run: formatWorkflowRun(created, repo, gh, baseUrl),
+        repository: formatRepo(repo, gh, baseUrl),
+        sender: formatUser(actor, baseUrl),
+      },
       ownerLogin,
-      repo.name
+      repo.name,
     );
     return c.body(null, 204);
   });
@@ -463,9 +441,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const branch = c.req.query("branch") ?? undefined;
     const event = c.req.query("event") ?? undefined;
     const status = c.req.query("status") ?? undefined;
-    const all = gh.workflowRuns
-      .findBy("repo_id", repo.id)
-      .filter((r) => r.workflow_id === w.id);
+    const all = gh.workflowRuns.findBy("repo_id", repo.id).filter((r) => r.workflow_id === w.id);
     const filtered = filterRuns(gh, all, { actor, branch, event, status });
     const total = filtered.length;
     const slice = filtered.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
@@ -498,7 +474,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         sender: actor ? formatUser(actor, baseUrl) : null,
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
     return c.body(null, 202);
   });
@@ -545,7 +521,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         sender: actor ? formatUser(actor, baseUrl) : null,
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
     return c.json(formatWorkflowRun(created, repo, gh, baseUrl), 201);
   });
@@ -574,11 +550,9 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const runId = parseInt(c.req.param("run_id")!, 10);
     const run = gh.workflowRuns.get(runId);
     if (!run || run.repo_id !== repo.id) throw notFoundResponse();
-    return c.text(
-      `2025-01-01T00:00:00.0000000Z Workflow run ${run.id} logs (stub)\n${run.head_sha}\n`,
-      200,
-      { "Content-Type": "text/plain; charset=utf-8" }
-    );
+    return c.text(`2025-01-01T00:00:00.0000000Z Workflow run ${run.id} logs (stub)\n${run.head_sha}\n`, 200, {
+      "Content-Type": "text/plain; charset=utf-8",
+    });
   });
 
   app.get("/repos/:owner/:repo/actions/runs/:run_id/jobs", (c) => {
@@ -630,9 +604,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
     const { page, per_page } = parsePagination(c);
-    const all = gh.artifacts
-      .findBy("repo_id", repo.id)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const all = gh.artifacts.findBy("repo_id", repo.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
     const total = all.length;
     const slice = all.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
     setLinkHeader(c, total, page, per_page);

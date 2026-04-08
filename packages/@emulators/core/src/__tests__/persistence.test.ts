@@ -17,9 +17,18 @@ interface Repo extends Entity {
 
 describe("serializeValue / deserializeValue", () => {
   it("round-trips a Map", () => {
-    const original = new Map([["a", 1], ["b", 2]]);
+    const original = new Map([
+      ["a", 1],
+      ["b", 2],
+    ]);
     const serialized = serializeValue(original);
-    expect(serialized).toEqual({ __type: "Map", entries: [["a", 1], ["b", 2]] });
+    expect(serialized).toEqual({
+      __type: "Map",
+      entries: [
+        ["a", 1],
+        ["b", 2],
+      ],
+    });
     const restored = deserializeValue(serialized);
     expect(restored).toBeInstanceOf(Map);
     expect(restored).toEqual(original);
@@ -90,7 +99,11 @@ describe("Collection snapshot/restore", () => {
     const col = new Collection<User>(["login"]);
     col.insert({ login: "old" });
 
-    const snap = { items: [{ id: 10, login: "new", created_at: "2025-01-01", updated_at: "2025-01-01" } as User], autoId: 11, indexFields: ["login"] };
+    const snap = {
+      items: [{ id: 10, login: "new", created_at: "2025-01-01", updated_at: "2025-01-01" } as User],
+      autoId: 11,
+      indexFields: ["login"],
+    };
     col.restore(snap);
 
     expect(col.all()).toHaveLength(1);
@@ -202,7 +215,11 @@ describe("filePersistence", () => {
   const tmpPath = join(tmpdir(), `emulate-test-${Date.now()}.json`);
 
   afterEach(() => {
-    try { rmSync(tmpPath); } catch { /* noop */ }
+    try {
+      rmSync(tmpPath);
+    } catch {
+      /* noop */
+    }
   });
 
   it("save writes and load reads a JSON file", async () => {

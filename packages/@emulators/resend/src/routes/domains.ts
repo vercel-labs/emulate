@@ -52,7 +52,12 @@ export function domainRoutes(ctx: RouteContext): void {
       records,
     });
 
-    await webhooks.dispatch("domain.created", undefined, { type: "domain.created", data: { id: uuid, name } }, "resend");
+    await webhooks.dispatch(
+      "domain.created",
+      undefined,
+      { type: "domain.created", data: { id: uuid, name } },
+      "resend",
+    );
 
     return c.json(formatDomain(domain), 200);
   });
@@ -76,7 +81,12 @@ export function domainRoutes(ctx: RouteContext): void {
 
     rs().domains.delete(domain.id);
 
-    await webhooks.dispatch("domain.deleted", undefined, { type: "domain.deleted", data: { id: domain.uuid, name: domain.name } }, "resend");
+    await webhooks.dispatch(
+      "domain.deleted",
+      undefined,
+      { type: "domain.deleted", data: { id: domain.uuid, name: domain.name } },
+      "resend",
+    );
 
     return c.json({ object: "domain", id: domain.uuid, deleted: true });
   });

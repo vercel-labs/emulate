@@ -106,9 +106,7 @@ export function userRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     const firstName = typeof profile.firstName === "string" ? profile.firstName : "Test";
     const lastName = typeof profile.lastName === "string" ? profile.lastName : "User";
     const displayName =
-      typeof profile.displayName === "string"
-        ? profile.displayName
-        : `${firstName} ${lastName}`.trim() || login;
+      typeof profile.displayName === "string" ? profile.displayName : `${firstName} ${lastName}`.trim() || login;
 
     const created = oktaStore.users.insert({
       okta_id: generateOktaId("00u"),
@@ -158,14 +156,16 @@ export function userRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       .map((membership) => oktaStore.groups.findOneBy("okta_id", membership.group_okta_id))
       .filter((group): group is NonNullable<typeof group> => Boolean(group));
 
-    return c.json(groups.map((group) => ({
-      id: group.okta_id,
-      profile: {
-        name: group.name,
-        description: group.description,
-      },
-      type: group.type,
-    })));
+    return c.json(
+      groups.map((group) => ({
+        id: group.okta_id,
+        profile: {
+          name: group.name,
+          description: group.description,
+        },
+        type: group.type,
+      })),
+    );
   });
 
   app.post("/api/v1/users/:userId/lifecycle/activate", (c) => {

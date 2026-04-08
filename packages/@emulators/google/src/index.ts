@@ -1,11 +1,4 @@
-import type {
-  AppEnv,
-  RouteContext,
-  ServicePlugin,
-  Store,
-  TokenMap,
-  WebhookDispatcher,
-} from "@emulators/core";
+import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import type { Hono } from "hono";
 import {
   createLabelRecord,
@@ -152,118 +145,134 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   }
 
   ensureSystemLabels(gs, defaultEmail);
-  seedCalendars(store, [
-    {
-      id: "primary",
-      user_email: defaultEmail,
-      summary: defaultEmail,
-      primary: true,
-      selected: true,
-      time_zone: "UTC",
-    },
-    {
-      id: "cal_team",
-      user_email: defaultEmail,
-      summary: "Team Calendar",
-      description: "Shared team events",
-      selected: true,
-      time_zone: "UTC",
-    },
-  ], defaultEmail);
-  seedCalendarEvents(store, [
-    {
-      id: "evt_standup",
-      user_email: defaultEmail,
-      calendar_id: "primary",
-      summary: "Daily Standup",
-      description: "Team sync",
-      start_date_time: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      end_date_time: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
-      attendees: [
-        { email: defaultEmail, display_name: "Test User" },
-        { email: "teammate@example.com", display_name: "Teammate" },
-      ],
-      conference_entry_points: [
-        {
-          entry_point_type: "video",
-          uri: "https://meet.google.com/emulate-standup",
-          label: "Google Meet",
-        },
-      ],
-      hangout_link: "https://meet.google.com/emulate-standup",
-    },
-  ], defaultEmail);
-  seedDriveItems(store, [
-    {
-      id: "drv_root_receipts",
-      user_email: defaultEmail,
-      name: "Receipts",
-      mime_type: "application/vnd.google-apps.folder",
-      parent_ids: ["root"],
-    },
-    {
-      id: "drv_receipt_pdf",
-      user_email: defaultEmail,
-      name: "March Receipt.pdf",
-      mime_type: "application/pdf",
-      parent_ids: ["drv_root_receipts"],
-      data: "receipt-pdf-data",
-    },
-  ], defaultEmail);
-  seedMessages(store, [
-    {
-      id: "msg_welcome",
-      thread_id: "thr_welcome",
-      user_email: defaultEmail,
-      from: "Welcome Team <welcome@example.com>",
-      to: defaultEmail,
-      subject: "Welcome to your local Gmail emulator",
-      snippet: "Your OAuth flow is set up and Gmail message, thread, and label APIs are ready.",
-      body_text:
-        "Your OAuth flow is set up and Gmail message, thread, and label APIs are ready.\n\nUse this inbox to test Gmail automations locally.",
-      label_ids: ["INBOX", "UNREAD", "CATEGORY_UPDATES"],
-      date: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: "msg_build",
-      thread_id: "thr_build",
-      user_email: defaultEmail,
-      from: "Build Bot <builds@example.com>",
-      to: defaultEmail,
-      subject: "Nightly build finished successfully",
-      snippet: "The latest build completed successfully in 6 minutes.",
-      body_text:
-        "The latest build completed successfully in 6 minutes.\n\nArtifact upload finished and smoke checks passed.",
-      label_ids: ["INBOX", "CATEGORY_UPDATES"],
-      date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: "msg_build_reply",
-      thread_id: "thr_build",
-      user_email: defaultEmail,
-      from: defaultEmail,
-      to: "Build Bot <builds@example.com>",
-      subject: "Re: Nightly build finished successfully",
-      snippet: "Thanks, I will review the artifact after lunch.",
-      body_text: "Thanks, I will review the artifact after lunch.",
-      label_ids: ["SENT"],
-      date: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-      in_reply_to: "<msg_build@emulate.google.local>",
-      references: "<msg_build@emulate.google.local>",
-    },
-    {
-      id: "msg_draft",
-      thread_id: "thr_draft",
-      user_email: defaultEmail,
-      from: defaultEmail,
-      to: "someone@example.com",
-      subject: "Draft follow-up",
-      snippet: "Checking in on the open question from yesterday.",
-      body_text: "Checking in on the open question from yesterday.",
-      label_ids: ["DRAFT"],
-      date: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    },
-  ], defaultEmail);
+  seedCalendars(
+    store,
+    [
+      {
+        id: "primary",
+        user_email: defaultEmail,
+        summary: defaultEmail,
+        primary: true,
+        selected: true,
+        time_zone: "UTC",
+      },
+      {
+        id: "cal_team",
+        user_email: defaultEmail,
+        summary: "Team Calendar",
+        description: "Shared team events",
+        selected: true,
+        time_zone: "UTC",
+      },
+    ],
+    defaultEmail,
+  );
+  seedCalendarEvents(
+    store,
+    [
+      {
+        id: "evt_standup",
+        user_email: defaultEmail,
+        calendar_id: "primary",
+        summary: "Daily Standup",
+        description: "Team sync",
+        start_date_time: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        end_date_time: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+        attendees: [
+          { email: defaultEmail, display_name: "Test User" },
+          { email: "teammate@example.com", display_name: "Teammate" },
+        ],
+        conference_entry_points: [
+          {
+            entry_point_type: "video",
+            uri: "https://meet.google.com/emulate-standup",
+            label: "Google Meet",
+          },
+        ],
+        hangout_link: "https://meet.google.com/emulate-standup",
+      },
+    ],
+    defaultEmail,
+  );
+  seedDriveItems(
+    store,
+    [
+      {
+        id: "drv_root_receipts",
+        user_email: defaultEmail,
+        name: "Receipts",
+        mime_type: "application/vnd.google-apps.folder",
+        parent_ids: ["root"],
+      },
+      {
+        id: "drv_receipt_pdf",
+        user_email: defaultEmail,
+        name: "March Receipt.pdf",
+        mime_type: "application/pdf",
+        parent_ids: ["drv_root_receipts"],
+        data: "receipt-pdf-data",
+      },
+    ],
+    defaultEmail,
+  );
+  seedMessages(
+    store,
+    [
+      {
+        id: "msg_welcome",
+        thread_id: "thr_welcome",
+        user_email: defaultEmail,
+        from: "Welcome Team <welcome@example.com>",
+        to: defaultEmail,
+        subject: "Welcome to your local Gmail emulator",
+        snippet: "Your OAuth flow is set up and Gmail message, thread, and label APIs are ready.",
+        body_text:
+          "Your OAuth flow is set up and Gmail message, thread, and label APIs are ready.\n\nUse this inbox to test Gmail automations locally.",
+        label_ids: ["INBOX", "UNREAD", "CATEGORY_UPDATES"],
+        date: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "msg_build",
+        thread_id: "thr_build",
+        user_email: defaultEmail,
+        from: "Build Bot <builds@example.com>",
+        to: defaultEmail,
+        subject: "Nightly build finished successfully",
+        snippet: "The latest build completed successfully in 6 minutes.",
+        body_text:
+          "The latest build completed successfully in 6 minutes.\n\nArtifact upload finished and smoke checks passed.",
+        label_ids: ["INBOX", "CATEGORY_UPDATES"],
+        date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "msg_build_reply",
+        thread_id: "thr_build",
+        user_email: defaultEmail,
+        from: defaultEmail,
+        to: "Build Bot <builds@example.com>",
+        subject: "Re: Nightly build finished successfully",
+        snippet: "Thanks, I will review the artifact after lunch.",
+        body_text: "Thanks, I will review the artifact after lunch.",
+        label_ids: ["SENT"],
+        date: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+        in_reply_to: "<msg_build@emulate.google.local>",
+        references: "<msg_build@emulate.google.local>",
+      },
+      {
+        id: "msg_draft",
+        thread_id: "thr_draft",
+        user_email: defaultEmail,
+        from: defaultEmail,
+        to: "someone@example.com",
+        subject: "Draft follow-up",
+        snippet: "Checking in on the open question from yesterday.",
+        body_text: "Checking in on the open question from yesterday.",
+        label_ids: ["DRAFT"],
+        date: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      },
+    ],
+    defaultEmail,
+  );
 }
 
 export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSeedConfig): void {
@@ -336,8 +345,7 @@ function seedLabels(store: Store, labels: GoogleSeedLabel[], fallbackEmail: stri
     ensureSystemLabels(gs, userEmail);
 
     const existing =
-      (label.id ? findLabelById(gs, userEmail, label.id) : undefined) ??
-      findLabelByName(gs, userEmail, label.name);
+      (label.id ? findLabelById(gs, userEmail, label.id) : undefined) ?? findLabelByName(gs, userEmail, label.name);
 
     if (existing) continue;
 
@@ -363,29 +371,33 @@ function seedMessages(store: Store, messages: GoogleSeedMessage[], fallbackEmail
 
     if (message.id && gs.messages.findOneBy("gmail_id", message.id)) continue;
 
-    createStoredMessage(gs, {
-      gmail_id: message.id,
-      thread_id: message.thread_id,
-      user_email: userEmail,
-      raw: message.raw ?? null,
-      from: message.from,
-      to: message.to,
-      cc: message.cc ?? null,
-      bcc: message.bcc ?? null,
-      reply_to: message.reply_to ?? null,
-      subject: message.subject,
-      snippet: message.snippet,
-      body_text: message.body_text ?? null,
-      body_html: message.body_html ?? null,
-      label_ids: message.label_ids ?? ["INBOX", "UNREAD"],
-      date: message.date,
-      internal_date: message.internal_date,
-      message_id: message.message_id,
-      references: message.references ?? null,
-      in_reply_to: message.in_reply_to ?? null,
-    }, {
-      createMissingCustomLabels: true,
-    });
+    createStoredMessage(
+      gs,
+      {
+        gmail_id: message.id,
+        thread_id: message.thread_id,
+        user_email: userEmail,
+        raw: message.raw ?? null,
+        from: message.from,
+        to: message.to,
+        cc: message.cc ?? null,
+        bcc: message.bcc ?? null,
+        reply_to: message.reply_to ?? null,
+        subject: message.subject,
+        snippet: message.snippet,
+        body_text: message.body_text ?? null,
+        body_html: message.body_html ?? null,
+        label_ids: message.label_ids ?? ["INBOX", "UNREAD"],
+        date: message.date,
+        internal_date: message.internal_date,
+        message_id: message.message_id,
+        references: message.references ?? null,
+        in_reply_to: message.in_reply_to ?? null,
+      },
+      {
+        createMissingCustomLabels: true,
+      },
+    );
   }
 }
 
@@ -462,13 +474,7 @@ function seedDriveItems(store: Store, items: GoogleSeedDriveItem[], fallbackEmai
 
 export const googlePlugin: ServicePlugin = {
   name: "google",
-  register(
-    app: Hono<AppEnv>,
-    store: Store,
-    webhooks: WebhookDispatcher,
-    baseUrl: string,
-    tokenMap?: TokenMap,
-  ): void {
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     calendarRoutes(ctx);

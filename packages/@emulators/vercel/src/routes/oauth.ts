@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import type { RouteContext } from "@emulators/core";
+import type { RouteContext, Store } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -60,11 +60,23 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     if (integrationsConfigured) {
       const integration = vs.integrations.findOneBy("client_id", client_id);
       if (!integration) {
-        return c.html(renderErrorPage("Application not found", `The client_id '${client_id}' is not registered.`, SERVICE_LABEL), 400);
+        return c.html(
+          renderErrorPage("Application not found", `The client_id '${client_id}' is not registered.`, SERVICE_LABEL),
+          400,
+        );
       }
       if (redirect_uri && !matchesRedirectUri(redirect_uri, integration.redirect_uris)) {
-        console.warn(`[OAuth] redirect_uri mismatch: got "${redirect_uri}", registered: ${JSON.stringify(integration.redirect_uris)}`);
-        return c.html(renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL), 400);
+        console.warn(
+          `[OAuth] redirect_uri mismatch: got "${redirect_uri}", registered: ${JSON.stringify(integration.redirect_uris)}`,
+        );
+        return c.html(
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
+          400,
+        );
       }
       integrationName = integration.name;
     }
@@ -96,9 +108,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       })
       .join("\n");
 
-    const body = users.length === 0
-      ? '<p class="empty">No users in the emulator store.</p>'
-      : userButtons;
+    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
 
     return c.html(renderCardPage("Sign in to Vercel", subtitleText, body, SERVICE_LABEL));
   });
@@ -128,7 +138,10 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       created_at: Date.now(),
     });
 
-    debug("vercel.oauth", `[Vercel callback] generated code: ${code.slice(0, 8)}... for username=${username}, challenge=${code_challenge ? "present" : "none"}, pendingCodes size: ${pendingCodes.size}`);
+    debug(
+      "vercel.oauth",
+      `[Vercel callback] generated code: ${code.slice(0, 8)}... for username=${username}, challenge=${code_challenge ? "present" : "none"}, pendingCodes size: ${pendingCodes.size}`,
+    );
 
     const url = new URL(redirect_uri);
     url.searchParams.set("code", code);
@@ -145,14 +158,21 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const pendingCodes = getPendingCodes(store);
     debug("vercel.oauth", `[Vercel token] Content-Type: ${contentType}`);
     debug("vercel.oauth", `[Vercel token] pendingCodes size: ${pendingCodes.size}`);
-    debug("vercel.oauth", `[Vercel token] pendingCodes keys: ${[...pendingCodes.keys()].map(k => k.slice(0, 8) + "...").join(", ")}`);
+    debug(
+      "vercel.oauth",
+      `[Vercel token] pendingCodes keys: ${[...pendingCodes.keys()].map((k) => k.slice(0, 8) + "...").join(", ")}`,
+    );
 
     const rawText = await c.req.text();
     debug("vercel.oauth", `[Vercel token] raw body: ${rawText.slice(0, 500)}`);
 
     let body: Record<string, unknown>;
     if (contentType.includes("application/json")) {
-      try { body = JSON.parse(rawText); } catch { body = {}; }
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        body = {};
+      }
     } else {
       body = Object.fromEntries(new URLSearchParams(rawText));
     }
@@ -168,18 +188,27 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     debug("vercel.oauth", `[Vercel token] code: ${code.slice(0, 8)}... (len=${code.length})`);
     debug("vercel.oauth", `[Vercel token] client_id: ${bodyClientId}`);
     debug("vercel.oauth", `[Vercel token] client_secret: ${bodyClientSecret.slice(0, 4)}****`);
-    debug("vercel.oauth", `[Vercel token] code_verifier: ${code_verifier ? code_verifier.slice(0, 8) + "..." : "undefined"}`);
+    debug(
+      "vercel.oauth",
+      `[Vercel token] code_verifier: ${code_verifier ? code_verifier.slice(0, 8) + "..." : "undefined"}`,
+    );
 
     const integrationsConfigured = vs.integrations.all().length > 0;
     if (integrationsConfigured) {
       const integration = vs.integrations.findOneBy("client_id", bodyClientId);
       if (!integration) {
         debug("vercel.oauth", `[Vercel token] REJECTED: client_id not found`);
-        return c.json({ error: "invalid_client", error_description: "The client_id and/or client_secret passed are incorrect." }, 401);
+        return c.json(
+          { error: "invalid_client", error_description: "The client_id and/or client_secret passed are incorrect." },
+          401,
+        );
       }
       if (!constantTimeSecretEqual(bodyClientSecret, integration.client_secret)) {
         debug("vercel.oauth", `[Vercel token] REJECTED: client_secret mismatch`);
-        return c.json({ error: "invalid_client", error_description: "The client_id and/or client_secret passed are incorrect." }, 401);
+        return c.json(
+          { error: "invalid_client", error_description: "The client_id and/or client_secret passed are incorrect." },
+          401,
+        );
       }
       debug("vercel.oauth", `[Vercel token] client credentials OK (${integration.name})`);
     }
@@ -187,58 +216,46 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const pending = pendingCodes.get(code);
     if (!pending) {
       debug("vercel.oauth", `[Vercel token] REJECTED: code not found in pendingCodes`);
-      return c.json(
-        { error: "invalid_grant", error_description: "The code passed is incorrect or expired." },
-        400
-      );
+      return c.json({ error: "invalid_grant", error_description: "The code passed is incorrect or expired." }, 400);
     }
     if (isPendingCodeExpired(pending)) {
       debug("vercel.oauth", `[Vercel token] REJECTED: code expired`);
       pendingCodes.delete(code);
-      return c.json(
-        { error: "invalid_grant", error_description: "The code passed is incorrect or expired." },
-        400
-      );
+      return c.json({ error: "invalid_grant", error_description: "The code passed is incorrect or expired." }, 400);
     }
     debug("vercel.oauth", `[Vercel token] code valid, username=${pending.username}, scope=${pending.scope}`);
 
     if (redirect_uri && pending.redirectUri && redirect_uri !== pending.redirectUri) {
-      debug("vercel.oauth", `[Vercel token] REJECTED: redirect_uri mismatch (got "${redirect_uri}", expected "${pending.redirectUri}")`);
+      debug(
+        "vercel.oauth",
+        `[Vercel token] REJECTED: redirect_uri mismatch (got "${redirect_uri}", expected "${pending.redirectUri}")`,
+      );
       pendingCodes.delete(code);
       return c.json(
-        { error: "invalid_grant", error_description: "The redirect_uri does not match the one used during authorization." },
-        400
+        {
+          error: "invalid_grant",
+          error_description: "The redirect_uri does not match the one used during authorization.",
+        },
+        400,
       );
     }
 
     if (pending.codeChallenge != null) {
       if (code_verifier === undefined) {
-        return c.json(
-          { error: "invalid_grant", error_description: "PKCE verification failed." },
-          400
-        );
+        return c.json({ error: "invalid_grant", error_description: "PKCE verification failed." }, 400);
       }
       const method = (pending.codeChallengeMethod ?? "plain").toLowerCase();
       if (method === "s256") {
         const expected = createHash("sha256").update(code_verifier).digest("base64url");
         if (expected !== pending.codeChallenge) {
-          return c.json(
-            { error: "invalid_grant", error_description: "PKCE verification failed." },
-            400
-          );
+          return c.json({ error: "invalid_grant", error_description: "PKCE verification failed." }, 400);
         }
       } else if (method === "plain") {
         if (code_verifier !== pending.codeChallenge) {
-          return c.json(
-            { error: "invalid_grant", error_description: "PKCE verification failed." },
-            400
-          );
+          return c.json({ error: "invalid_grant", error_description: "PKCE verification failed." }, 400);
         }
       } else {
-        return c.json(
-          { error: "invalid_grant", error_description: "PKCE verification failed." },
-          400
-        );
+        return c.json({ error: "invalid_grant", error_description: "PKCE verification failed." }, 400);
       }
     }
 
@@ -250,7 +267,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       debug("vercel.oauth", `[Vercel token] REJECTED: user "${pending.username}" not found`);
       return c.json(
         { error: "invalid_grant", error_description: "The user associated with this code was not found." },
-        400
+        400,
       );
     }
 
@@ -261,7 +278,10 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       tokenMap.set(token, { login: user.username, id: user.id, scopes });
     }
 
-    debug("vercel.oauth", `[Vercel token] SUCCESS: issued token for ${user.username} (scopes: ${scopes.join(",") || "none"})`);
+    debug(
+      "vercel.oauth",
+      `[Vercel token] SUCCESS: issued token for ${user.username} (scopes: ${scopes.join(",") || "none"})`,
+    );
 
     return c.json({
       access_token: token,

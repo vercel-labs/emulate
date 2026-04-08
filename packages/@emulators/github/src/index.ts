@@ -340,21 +340,15 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
 
       if (a.installations) {
         for (const inst of a.installations) {
-          const account =
-            gh.users.findOneBy("login", inst.account) ??
-            gh.orgs.findOneBy("login", inst.account);
+          const account = gh.users.findOneBy("login", inst.account) ?? gh.orgs.findOneBy("login", inst.account);
           if (!account) continue;
 
-          const accountType = gh.users.findOneBy("login", inst.account)
-            ? "User" as const
-            : "Organization" as const;
+          const accountType = gh.users.findOneBy("login", inst.account) ? ("User" as const) : ("Organization" as const);
 
           const repoIds: number[] = [];
           if (inst.repositories) {
             for (const repoFullName of inst.repositories) {
-              const fullName = repoFullName.includes("/")
-                ? repoFullName
-                : `${inst.account}/${repoFullName}`;
+              const fullName = repoFullName.includes("/") ? repoFullName : `${inst.account}/${repoFullName}`;
               const repo = gh.repos.findOneBy("full_name", fullName);
               if (repo) repoIds.push(repo.id);
             }
@@ -384,13 +378,10 @@ function findInstallationsForRepo(
   repoName: string | undefined,
   event: string,
 ): GitHubAppInstallation[] {
-  const ownerEntity =
-    gh.users.findOneBy("login", ownerLogin) ?? gh.orgs.findOneBy("login", ownerLogin);
+  const ownerEntity = gh.users.findOneBy("login", ownerLogin) ?? gh.orgs.findOneBy("login", ownerLogin);
   if (!ownerEntity) return [];
 
-  const repoEntity = repoName
-    ? gh.repos.findOneBy("full_name", `${ownerLogin}/${repoName}`)
-    : null;
+  const repoEntity = repoName ? gh.repos.findOneBy("full_name", `${ownerLogin}/${repoName}`) : null;
 
   const results: GitHubAppInstallation[] = [];
   for (const inst of gh.appInstallations.all()) {
@@ -410,10 +401,7 @@ function findInstallationsForRepo(
   return results;
 }
 
-function enrichPayloadWithInstallation(
-  payload: unknown,
-  installation: GitHubAppInstallation,
-): unknown {
+function enrichPayloadWithInstallation(payload: unknown, installation: GitHubAppInstallation): unknown {
   if (!payload || typeof payload !== "object") return payload;
   return {
     ...(payload as Record<string, unknown>),
@@ -479,9 +467,8 @@ export const githubPlugin: ServicePlugin = {
     ): Promise<void> => {
       const installations = findInstallationsForRepo(gh, owner, repo, event);
 
-      const enrichedPayload = installations.length > 0
-        ? enrichPayloadWithInstallation(payload, installations[0])
-        : payload;
+      const enrichedPayload =
+        installations.length > 0 ? enrichPayloadWithInstallation(payload, installations[0]) : payload;
 
       await originalDispatch(event, action, enrichedPayload, owner, repo);
       await deliverToAppWebhookUrls(gh, event, action, payload, owner, repo);

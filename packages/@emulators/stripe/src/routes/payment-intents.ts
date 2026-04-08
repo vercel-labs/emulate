@@ -17,26 +17,38 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
   app.post("/v1/payment_intents", async (c) => {
     const body = await parseStripeBody(c);
     if (!body.amount || !body.currency) {
-      return stripeError(c, 400, "invalid_request_error", "Missing required param: amount and currency are required.", undefined, "amount");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        "Missing required param: amount and currency are required.",
+        undefined,
+        "amount",
+      );
     }
 
     if (body.customer && !ss.customers.findOneBy("stripe_id", body.customer as string)) {
-      return stripeError(c, 400, "invalid_request_error", `No such customer: '${body.customer}'`, "resource_missing", "customer");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `No such customer: '${body.customer}'`,
+        "resource_missing",
+        "customer",
+      );
     }
 
-    const status: PaymentIntentStatus = body.payment_method
-      ? "requires_confirmation"
-      : "requires_payment_method";
+    const status: PaymentIntentStatus = body.payment_method ? "requires_confirmation" : "requires_payment_method";
 
     const pi = ss.paymentIntents.insert({
       stripe_id: stripeId("pi"),
-      amount: body.amount,
+      amount: body.amount as number,
       currency: (body.currency as string).toLowerCase(),
       status,
-      customer_id: body.customer ?? null,
-      description: body.description ?? null,
-      payment_method: body.payment_method ?? null,
-      metadata: body.metadata ?? {},
+      customer_id: (body.customer as string) ?? null,
+      description: (body.description as string) ?? null,
+      payment_method: (body.payment_method as string) ?? null,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(
@@ -51,7 +63,14 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
 
   app.get("/v1/payment_intents/:id", (c) => {
     const pi = ss.paymentIntents.findOneBy("stripe_id", c.req.param("id"));
-    if (!pi) return stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${c.req.param("id")}'`, "resource_missing");
+    if (!pi)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such payment_intent: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
     const expand = parseExpand(c);
     const result = applyExpand(formatPaymentIntent(pi), expand, expandResolvers);
     return c.json(result);
@@ -59,7 +78,14 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
 
   app.post("/v1/payment_intents/:id", async (c) => {
     const pi = ss.paymentIntents.findOneBy("stripe_id", c.req.param("id"));
-    if (!pi) return stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${c.req.param("id")}'`, "resource_missing");
+    if (!pi)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such payment_intent: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
     const body = await parseStripeBody(c);
 
     const updates: Partial<StripePaymentIntent> = {};
@@ -80,11 +106,24 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
 
   app.post("/v1/payment_intents/:id/confirm", async (c) => {
     const pi = ss.paymentIntents.findOneBy("stripe_id", c.req.param("id"));
-    if (!pi) return stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${c.req.param("id")}'`, "resource_missing");
+    if (!pi)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such payment_intent: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
     const body = await parseStripeBody(c);
 
     if (pi.status !== "requires_confirmation" && pi.status !== "requires_payment_method") {
-      return stripeError(c, 400, "invalid_request_error", `This PaymentIntent's status is ${pi.status}, which does not allow confirmation.`, "payment_intent_unexpected_state");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `This PaymentIntent's status is ${pi.status}, which does not allow confirmation.`,
+        "payment_intent_unexpected_state",
+      );
     }
 
     if (body.payment_method) {
@@ -114,7 +153,18 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
     await webhooks.dispatch(
       "charge.succeeded",
       undefined,
-      { type: "charge.succeeded", data: { object: { id: charge.stripe_id, object: "charge", amount: charge.amount, currency: charge.currency, status: charge.status } } },
+      {
+        type: "charge.succeeded",
+        data: {
+          object: {
+            id: charge.stripe_id,
+            object: "charge",
+            amount: charge.amount,
+            currency: charge.currency,
+            status: charge.status,
+          },
+        },
+      },
       "stripe",
     );
 
@@ -123,10 +173,23 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
 
   app.post("/v1/payment_intents/:id/cancel", async (c) => {
     const pi = ss.paymentIntents.findOneBy("stripe_id", c.req.param("id"));
-    if (!pi) return stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${c.req.param("id")}'`, "resource_missing");
+    if (!pi)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such payment_intent: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
 
     if (pi.status === "succeeded" || pi.status === "canceled") {
-      return stripeError(c, 400, "invalid_request_error", `This PaymentIntent's status is ${pi.status}, which does not allow cancellation.`, "payment_intent_unexpected_state");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `This PaymentIntent's status is ${pi.status}, which does not allow cancellation.`,
+        "payment_intent_unexpected_state",
+      );
     }
 
     const updated = ss.paymentIntents.update(pi.id, { status: "canceled" })!;

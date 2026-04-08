@@ -30,7 +30,9 @@
     "build": "tsup --clean",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "dependencies": {
     "hono": "^4",

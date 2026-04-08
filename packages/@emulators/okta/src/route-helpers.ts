@@ -1,12 +1,7 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { AuthUser, TokenMap, AppEnv } from "@emulators/core";
-import type {
-  OktaApp,
-  OktaAuthorizationServer,
-  OktaGroup,
-  OktaUser,
-} from "./entities.js";
+import type { OktaApp, OktaAuthorizationServer, OktaGroup, OktaUser } from "./entities.js";
 import type { OktaStore } from "./store.js";
 import { resolveOktaIssuer, userDisplayName } from "./helpers.js";
 
@@ -89,10 +84,7 @@ export function findAppByRef(os: OktaStore, appRef: string): OktaApp | undefined
   return os.apps.findOneBy("okta_id", decoded);
 }
 
-export function findAuthorizationServerByRef(
-  os: OktaStore,
-  serverRef: string,
-): OktaAuthorizationServer | undefined {
+export function findAuthorizationServerByRef(os: OktaStore, serverRef: string): OktaAuthorizationServer | undefined {
   const decoded = decodeURIComponent(serverRef);
   return os.authorizationServers.findOneBy("server_id", decoded);
 }
@@ -163,10 +155,7 @@ export function appResponse(baseUrl: string, app: OktaApp): Record<string, unkno
   };
 }
 
-export function authorizationServerResponse(
-  baseUrl: string,
-  server: OktaAuthorizationServer,
-): Record<string, unknown> {
+export function authorizationServerResponse(baseUrl: string, server: OktaAuthorizationServer): Record<string, unknown> {
   return {
     id: server.server_id,
     name: server.name,

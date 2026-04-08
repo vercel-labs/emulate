@@ -7,6 +7,7 @@ import {
   escapeAttr,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
   matchesRedirectUri,
   constantTimeSecretEqual,
@@ -134,9 +135,20 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     claims_supported: [
-      "sub", "iss", "aud", "exp", "iat", "nonce",
-      "name", "email", "given_name", "family_name",
-      "preferred_username", "oid", "tid", "ver",
+      "sub",
+      "iss",
+      "aud",
+      "exp",
+      "iat",
+      "nonce",
+      "name",
+      "email",
+      "given_name",
+      "family_name",
+      "preferred_username",
+      "oid",
+      "tid",
+      "ver",
     ],
     code_challenge_methods_supported: ["plain", "S256"],
   });
@@ -155,12 +167,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const { publicKey } = await keyPairPromise;
     const jwk = await exportJWK(publicKey);
     return c.json({
-      keys: [{
-        ...jwk,
-        kid: KID,
-        use: "sig",
-        alg: "RS256",
-        }],
+      keys: [
+        {
+          ...jwk,
+          kid: KID,
+          use: "sig",
+          alg: "RS256",
+        },
+      ],
     });
   };
 
@@ -191,7 +205,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (redirect_uri && !matchesRedirectUri(redirect_uri, client.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -226,9 +244,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       })
       .join("\n");
 
-    const body = users.length === 0
-      ? '<p class="empty">No users in the emulator store.</p>'
-      : userButtons;
+    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
 
     return c.html(renderCardPage("Sign in with Microsoft", subtitleText, body, SERVICE_LABEL));
   };
@@ -262,7 +278,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (redirect_uri && !matchesRedirectUri(redirect_uri, client.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -284,17 +304,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     debug("microsoft.oauth", `[Microsoft callback] code=${code.slice(0, 8)}... email=${email}`);
 
     if (response_mode === "form_post") {
-      const html = `<!DOCTYPE html>
-<html>
-<head><title>Submit</title></head>
-<body onload="document.forms[0].submit()">
-<form method="POST" action="${escapeAttr(redirect_uri)}">
-<input type="hidden" name="code" value="${escapeAttr(code)}" />
-<input type="hidden" name="state" value="${escapeAttr(state)}" />
-</form>
-</body>
-</html>`;
-      return c.html(html);
+      return c.html(renderFormPostPage(redirect_uri, { code, state }, SERVICE_LABEL));
     }
 
     // Default: query mode redirect
@@ -316,7 +326,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     let body: Record<string, unknown>;
     if (contentType.includes("application/json")) {
-      try { body = JSON.parse(rawText); } catch { body = {}; }
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        body = {};
+      }
     } else {
       body = Object.fromEntries(new URLSearchParams(rawText));
     }
@@ -368,7 +382,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       // Verify redirect_uri matches the one used in the authorization request (RFC 6749 §4.1.3)
       if (pending.redirectUri && redirect_uri && pending.redirectUri !== redirect_uri) {
         pendingMap.delete(code);
-        return c.json({ error: "invalid_grant", error_description: "The redirect_uri does not match the one used in the authorization request." }, 400);
+        return c.json(
+          {
+            error: "invalid_grant",
+            error_description: "The redirect_uri does not match the one used in the authorization request.",
+          },
+          400,
+        );
       }
 
       // PKCE verification
@@ -565,7 +585,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     let body: Record<string, unknown>;
     if (contentType.includes("application/json")) {
-      try { body = JSON.parse(rawText); } catch { body = {}; }
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        body = {};
+      }
     } else {
       body = Object.fromEntries(new URLSearchParams(rawText));
     }
@@ -609,12 +633,15 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     // Look up by oid (the Microsoft object ID)
     const user = ms.users.findOneBy("oid", userId);
     if (!user) {
-      return c.json({
-        error: {
-          code: "Request_ResourceNotFound",
-          message: `Resource '${userId}' does not exist or one of its queried reference-property objects are not present.`,
+      return c.json(
+        {
+          error: {
+            code: "Request_ResourceNotFound",
+            message: `Resource '${userId}' does not exist or one of its queried reference-property objects are not present.`,
+          },
         },
-      }, 404);
+        404,
+      );
     }
 
     return c.json({
@@ -636,9 +663,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       // Validate against registered client redirect URIs
       const allClients = ms.oauthClients.all();
       if (allClients.length > 0) {
-        const allowed = allClients.some((client) =>
-          matchesRedirectUri(post_logout_redirect_uri, client.redirect_uris),
-        );
+        const allowed = allClients.some((client) => matchesRedirectUri(post_logout_redirect_uri, client.redirect_uris));
         if (!allowed) {
           return c.text("Invalid post_logout_redirect_uri", 400);
         }

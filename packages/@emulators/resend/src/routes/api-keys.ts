@@ -22,19 +22,26 @@ export function apiKeyRoutes(ctx: RouteContext): void {
       token,
     });
 
-    return c.json({
-      id: apiKey.uuid,
-      token: apiKey.token,
-    }, 200);
+    return c.json(
+      {
+        id: apiKey.uuid,
+        token: apiKey.token,
+      },
+      200,
+    );
   });
 
   app.get("/api-keys", (c) => {
     const allKeys = rs().apiKeys.all();
-    return c.json(resendList(allKeys.map((key) => ({
-      id: key.uuid,
-      name: key.name,
-      created_at: key.created_at,
-    }))));
+    return c.json(
+      resendList(
+        allKeys.map((key) => ({
+          id: key.uuid,
+          name: key.name,
+          created_at: key.created_at,
+        })),
+      ),
+    );
   });
 
   app.delete("/api-keys/:id", (c) => {

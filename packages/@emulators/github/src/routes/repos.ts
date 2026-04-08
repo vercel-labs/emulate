@@ -1,11 +1,5 @@
 import type { RouteContext } from "@emulators/core";
-import {
-  ApiError,
-  forbidden,
-  parseJsonBody,
-  parsePagination,
-  setLinkHeader,
-} from "@emulators/core";
+import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
@@ -28,15 +22,7 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import type { Collection, Entity } from "@emulators/core";
-import {
-  formatRepo,
-  formatUser,
-  generateNodeId,
-  generateSha,
-  lookupOwner,
-  lookupRepo,
-  timestamp,
-} from "../helpers.js";
+import { formatRepo, formatUser, generateNodeId, generateSha, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
   mit: { key: "mit", name: "MIT License", spdx_id: "MIT" },
@@ -66,12 +52,7 @@ function validateRepoName(name: unknown): string {
   return trimmed;
 }
 
-function seedInitialGit(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  actor: GitHubUser | null,
-  readmeTitle?: string
-) {
+function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | null, readmeTitle?: string) {
   const repoId = repo.id;
   const readme = `# ${readmeTitle ?? repo.name}\n`;
   const size = Buffer.byteLength(readme, "utf8");
@@ -173,11 +154,7 @@ type CreateRepoRecordParams = {
   delete_branch_on_merge?: boolean;
 };
 
-function createRepoRecord(
-  gh: GitHubStore,
-  params: CreateRepoRecordParams,
-  actor: GitHubUser
-): GitHubRepo {
+function createRepoRecord(gh: GitHubStore, params: CreateRepoRecordParams, actor: GitHubUser): GitHubRepo {
   const name = validateRepoName(params.name);
   const fullName = `${params.owner_login}/${name}`;
   if (gh.repos.findOneBy("full_name", fullName)) {
@@ -185,14 +162,9 @@ function createRepoRecord(
   }
 
   const isPrivate = params.private;
-  const visibility = isPrivate
-    ? "private"
-    : ("public" as GitHubRepo["visibility"]);
+  const visibility = isPrivate ? "private" : ("public" as GitHubRepo["visibility"]);
 
-  const license =
-    typeof params.license_template === "string"
-      ? resolveLicenseTemplate(params.license_template)
-      : null;
+  const license = typeof params.license_template === "string" ? resolveLicenseTemplate(params.license_template) : null;
 
   const repo = gh.repos.insert({
     node_id: "",
@@ -325,17 +297,9 @@ function formatTagItem(tag: GitHubTag, repo: GitHubRepo, baseUrl: string) {
   };
 }
 
-function parsePermission(
-  raw: unknown
-): "pull" | "triage" | "push" | "maintain" | "admin" | undefined {
+function parsePermission(raw: unknown): "pull" | "triage" | "push" | "maintain" | "admin" | undefined {
   if (raw === undefined) return undefined;
-  if (
-    raw === "pull" ||
-    raw === "triage" ||
-    raw === "push" ||
-    raw === "maintain" ||
-    raw === "admin"
-  ) {
+  if (raw === "pull" || raw === "triage" || raw === "push" || raw === "maintain" || raw === "admin") {
     return raw;
   }
   return undefined;
@@ -369,25 +333,20 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         has_projects: typeof body.has_projects === "boolean" ? body.has_projects : true,
         has_wiki: typeof body.has_wiki === "boolean" ? body.has_wiki : true,
         auto_init: body.auto_init === true,
-        license_template:
-          typeof body.license_template === "string" ? body.license_template : undefined,
-        gitignore_template:
-          typeof body.gitignore_template === "string" ? body.gitignore_template : undefined,
+        license_template: typeof body.license_template === "string" ? body.license_template : undefined,
+        gitignore_template: typeof body.gitignore_template === "string" ? body.gitignore_template : undefined,
         owner_id: user.id,
         owner_type: "User",
         owner_login: user.login,
         default_branch: "main",
         baseUrl,
-        allow_rebase_merge:
-          typeof body.allow_rebase_merge === "boolean" ? body.allow_rebase_merge : undefined,
-        allow_squash_merge:
-          typeof body.allow_squash_merge === "boolean" ? body.allow_squash_merge : undefined,
-        allow_merge_commit:
-          typeof body.allow_merge_commit === "boolean" ? body.allow_merge_commit : undefined,
+        allow_rebase_merge: typeof body.allow_rebase_merge === "boolean" ? body.allow_rebase_merge : undefined,
+        allow_squash_merge: typeof body.allow_squash_merge === "boolean" ? body.allow_squash_merge : undefined,
+        allow_merge_commit: typeof body.allow_merge_commit === "boolean" ? body.allow_merge_commit : undefined,
         delete_branch_on_merge:
           typeof body.delete_branch_on_merge === "boolean" ? body.delete_branch_on_merge : undefined,
       },
-      user
+      user,
     );
 
     webhooks.dispatch(
@@ -395,7 +354,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       "created",
       { action: "created", repository: formatRepo(finalRepo, gh, baseUrl), sender: formatUser(user, baseUrl) },
       user.login,
-      finalRepo.name
+      finalRepo.name,
     );
 
     return c.json(formatRepo(finalRepo, gh, baseUrl), 201);
@@ -425,25 +384,20 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         has_projects: typeof body.has_projects === "boolean" ? body.has_projects : true,
         has_wiki: typeof body.has_wiki === "boolean" ? body.has_wiki : true,
         auto_init: body.auto_init === true,
-        license_template:
-          typeof body.license_template === "string" ? body.license_template : undefined,
-        gitignore_template:
-          typeof body.gitignore_template === "string" ? body.gitignore_template : undefined,
+        license_template: typeof body.license_template === "string" ? body.license_template : undefined,
+        gitignore_template: typeof body.gitignore_template === "string" ? body.gitignore_template : undefined,
         owner_id: org.id,
         owner_type: "Organization",
         owner_login: org.login,
         default_branch: "main",
         baseUrl,
-        allow_rebase_merge:
-          typeof body.allow_rebase_merge === "boolean" ? body.allow_rebase_merge : undefined,
-        allow_squash_merge:
-          typeof body.allow_squash_merge === "boolean" ? body.allow_squash_merge : undefined,
-        allow_merge_commit:
-          typeof body.allow_merge_commit === "boolean" ? body.allow_merge_commit : undefined,
+        allow_rebase_merge: typeof body.allow_rebase_merge === "boolean" ? body.allow_rebase_merge : undefined,
+        allow_squash_merge: typeof body.allow_squash_merge === "boolean" ? body.allow_squash_merge : undefined,
+        allow_merge_commit: typeof body.allow_merge_commit === "boolean" ? body.allow_merge_commit : undefined,
         delete_branch_on_merge:
           typeof body.delete_branch_on_merge === "boolean" ? body.delete_branch_on_merge : undefined,
       },
-      user
+      user,
     );
 
     webhooks.dispatch(
@@ -451,7 +405,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       "created",
       { action: "created", repository: formatRepo(finalRepo, gh, baseUrl), sender: formatUser(user, baseUrl) },
       org.login,
-      finalRepo.name
+      finalRepo.name,
     );
 
     return c.json(formatRepo(finalRepo, gh, baseUrl), 201);
@@ -517,11 +471,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       if (body.license === null) patch.license = null;
       else if (typeof body.license === "object" && body.license !== null) {
         const L = body.license as Record<string, unknown>;
-        if (
-          typeof L.key === "string" &&
-          typeof L.name === "string" &&
-          typeof L.spdx_id === "string"
-        ) {
+        if (typeof L.key === "string" && typeof L.name === "string" && typeof L.spdx_id === "string") {
           patch.license = { key: L.key, name: L.name, spdx_id: L.spdx_id };
         }
       }
@@ -551,7 +501,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       "edited",
       { action: "edited", repository: formatRepo(updated, gh, baseUrl), sender: formatUser(user, baseUrl) },
       ownerLoginOf(gh, updated),
-      updated.name
+      updated.name,
     );
 
     return c.json(formatRepo(updated, gh, baseUrl));
@@ -571,7 +521,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       "deleted",
       { action: "deleted", repository: formatRepo(repo, gh, baseUrl), sender: formatUser(user, baseUrl) },
       owner,
-      repoName
+      repoName,
     );
 
     deleteRepoCascade(gh, repo);
@@ -596,10 +546,8 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const user = assertAuthenticatedUser(gh, authUser);
     if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
 
-    const body = await parseJsonBody(c) as { names?: unknown };
-    const names = Array.isArray(body.names)
-      ? body.names.filter((n): n is string => typeof n === "string")
-      : [];
+    const body = (await parseJsonBody(c)) as { names?: unknown };
+    const names = Array.isArray(body.names) ? body.names.filter((n): n is string => typeof n === "string") : [];
     const updated = gh.repos.update(repo.id, { topics: names });
     if (!updated) throw notFoundResponse();
     return c.json({ names: updated.topics });
@@ -626,8 +574,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       .map((col) => gh.users.get(col.user_id))
       .filter((u): u is GitHubUser => Boolean(u));
 
-    const ownerUser =
-      repo.owner_type === "User" ? gh.users.get(repo.owner_id) : undefined;
+    const ownerUser = repo.owner_type === "User" ? gh.users.get(repo.owner_id) : undefined;
 
     const map = new Map<number, GitHubUser>();
     if (ownerUser) map.set(ownerUser.id, ownerUser);
@@ -644,7 +591,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       slice.map((u) => ({
         ...formatUser(u, baseUrl),
         contributions: 1,
-      }))
+      })),
     );
   });
 
@@ -679,7 +626,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const user = assertAuthenticatedUser(gh, authUser);
     assertRepoRead(gh, authUser, parent);
 
-    const body = await parseJsonBody(c) as {
+    const body = (await parseJsonBody(c)) as {
       organization?: unknown;
       name?: unknown;
     };
@@ -687,10 +634,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     let ownerType: "User" | "Organization" = "User";
     let ownerId = user.id;
     let fullName = "";
-    let forkName =
-      typeof body.name === "string" && body.name.trim()
-        ? validateRepoName(body.name)
-        : parent.name;
+    const forkName = typeof body.name === "string" && body.name.trim() ? validateRepoName(body.name) : parent.name;
 
     if (typeof body.organization === "string" && body.organization.trim()) {
       const org = gh.orgs.findOneBy("login", body.organization.trim());
@@ -767,7 +711,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       "created",
       { action: "created", repository: formatRepo(finalRepo, gh, baseUrl), sender: formatUser(user, baseUrl) },
       ownerLogin,
-      finalRepo.name
+      finalRepo.name,
     );
 
     return c.json(formatRepo(finalRepo, gh, baseUrl), 202);
@@ -787,9 +731,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         if (!u) return null;
         return { user: u, permission: col.permission };
       })
-      .filter((x): x is { user: GitHubUser; permission: GitHubCollaborator["permission"] } =>
-        Boolean(x)
-      )
+      .filter((x): x is { user: GitHubUser; permission: GitHubCollaborator["permission"] } => Boolean(x))
       .sort((a, b) => a.user.login.localeCompare(b.user.login));
 
     const { page, per_page } = parsePagination(c);
@@ -814,12 +756,10 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
 
-    const body = await parseJsonBody(c) as { permission?: unknown };
+    const body = (await parseJsonBody(c)) as { permission?: unknown };
     const permission = parsePermission(body.permission) ?? "push";
 
-    const existing = gh.collaborators
-      .findBy("repo_id", repo.id)
-      .find((c) => c.user_id === target.id);
+    const existing = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === target.id);
     if (existing) {
       gh.collaborators.update(existing.id, { permission });
     } else {
@@ -846,9 +786,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
 
-    const existing = gh.collaborators
-      .findBy("repo_id", repo.id)
-      .find((col) => col.user_id === target.id);
+    const existing = gh.collaborators.findBy("repo_id", repo.id).find((col) => col.user_id === target.id);
     if (existing) {
       gh.collaborators.delete(existing.id);
     }
@@ -883,9 +821,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       });
     }
 
-    const collab = gh.collaborators
-      .findBy("repo_id", repo.id)
-      .find((col) => col.user_id === target.id);
+    const collab = gh.collaborators.findBy("repo_id", repo.id).find((col) => col.user_id === target.id);
     if (!collab) throw notFoundResponse();
 
     const roleName =
@@ -915,7 +851,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const actor = assertAuthenticatedUser(gh, authUser);
     if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
 
-    const body = await parseJsonBody(c) as { new_owner?: unknown };
+    const body = (await parseJsonBody(c)) as { new_owner?: unknown };
     if (typeof body.new_owner !== "string" || !body.new_owner.trim()) {
       throw new ApiError(422, "new_owner is required");
     }
@@ -940,7 +876,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       "transferred",
       { action: "transferred", repository: formatRepo(updated, gh, baseUrl), sender: formatUser(actor, baseUrl) },
       newOwner.login,
-      updated.name
+      updated.name,
     );
 
     return c.json(formatRepo(updated, gh, baseUrl));
@@ -953,9 +889,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
 
-    const tags = [...gh.tags.findBy("repo_id", repo.id)].sort((a, b) =>
-      a.tag.localeCompare(b.tag)
-    );
+    const tags = [...gh.tags.findBy("repo_id", repo.id)].sort((a, b) => a.tag.localeCompare(b.tag));
 
     const { page, per_page } = parsePagination(c);
     const total = tags.length;

@@ -6,6 +6,7 @@ import {
   escapeAttr,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
   matchesRedirectUri,
   bodyStr,
@@ -79,9 +80,7 @@ async function createIdToken(
 ): Promise<string> {
   const { privateKey } = await keyPairPromise;
 
-  const email = user.is_private_email && user.private_relay_email
-    ? user.private_relay_email
-    : user.email;
+  const email = user.is_private_email && user.private_relay_email ? user.private_relay_email : user.email;
 
   const now = Math.floor(Date.now() / 1000);
 
@@ -123,9 +122,18 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       scopes_supported: ["openid", "email", "name"],
       token_endpoint_auth_methods_supported: ["client_secret_post"],
       claims_supported: [
-        "aud", "email", "email_verified", "exp", "iat",
-        "is_private_email", "iss", "nonce", "nonce_supported",
-        "real_user_status", "sub", "transfer_sub",
+        "aud",
+        "email",
+        "email_verified",
+        "exp",
+        "iat",
+        "is_private_email",
+        "iss",
+        "nonce",
+        "nonce_supported",
+        "real_user_status",
+        "sub",
+        "transfer_sub",
       ],
     });
   });
@@ -136,12 +144,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const { publicKey } = await keyPairPromise;
     const jwk = await exportJWK(publicKey);
     return c.json({
-      keys: [{
-        ...jwk,
-        kid: KID,
-        use: "sig",
-        alg: "RS256",
-      }],
+      keys: [
+        {
+          ...jwk,
+          kid: KID,
+          use: "sig",
+          alg: "RS256",
+        },
+      ],
     });
   });
 
@@ -167,7 +177,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (redirect_uri && !matchesRedirectUri(redirect_uri, client.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -200,9 +214,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       })
       .join("\n");
 
-    const body = users.length === 0
-      ? '<p class="empty">No users in the emulator store.</p>'
-      : userButtons;
+    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
 
     return c.html(renderCardPage("Sign in with Apple", subtitleText, body, SERVICE_LABEL));
   });
@@ -254,18 +266,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     if (response_mode === "form_post") {
-      // Return auto-submit form that POSTs to redirect_uri
-      const html = `<!DOCTYPE html>
-<html>
-<head><title>Submit</title></head>
-<body onload="document.forms[0].submit()">
-<form method="POST" action="${escapeAttr(redirect_uri)}">
-<input type="hidden" name="code" value="${escapeAttr(code)}" />
-<input type="hidden" name="state" value="${escapeAttr(state)}" />${userJson ? `\n<input type="hidden" name="user" value="${escapeAttr(userJson)}" />` : ""}
-</form>
-</body>
-</html>`;
-      return c.html(html);
+      const fields: Record<string, string> = { code, state };
+      if (userJson) fields.user = userJson;
+      return c.html(renderFormPostPage(redirect_uri, fields, SERVICE_LABEL));
     }
 
     // Default: query mode redirect
@@ -368,7 +371,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       });
     }
 
-    return c.json({ error: "unsupported_grant_type", error_description: "Only authorization_code and refresh_token are supported." }, 400);
+    return c.json(
+      {
+        error: "unsupported_grant_type",
+        error_description: "Only authorization_code and refresh_token are supported.",
+      },
+      400,
+    );
   });
 
   // ---------- Token revocation ----------

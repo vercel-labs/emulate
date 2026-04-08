@@ -26,7 +26,10 @@ export function getOktaStore(store: Store): OktaStore {
     apps: store.collection<OktaApp>("okta.apps", ["okta_id", "name"]),
     oauthClients: store.collection<OktaOAuthClient>("okta.oauth_clients", ["client_id", "auth_server_id"]),
     authorizationServers: store.collection<OktaAuthorizationServer>("okta.auth_servers", ["server_id"]),
-    groupMemberships: store.collection<OktaGroupMembership>("okta.group_memberships", ["group_okta_id", "user_okta_id"]),
+    groupMemberships: store.collection<OktaGroupMembership>("okta.group_memberships", [
+      "group_okta_id",
+      "user_okta_id",
+    ]),
     appAssignments: store.collection<OktaAppAssignment>("okta.app_assignments", ["app_okta_id", "user_okta_id"]),
   };
 }

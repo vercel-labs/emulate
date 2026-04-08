@@ -115,9 +115,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: MongoAtla
       const groupId = projectIdMap.get(cl.project);
       if (!groupId) continue;
 
-      const existing = ms.clusters.all().find(
-        (ec) => ec.group_id === groupId && ec.name === cl.name,
-      );
+      const existing = ms.clusters.all().find((ec) => ec.group_id === groupId && ec.name === cl.name);
       if (existing) {
         clusterIdMap.set(cl.name, existing.cluster_id);
         continue;
@@ -163,9 +161,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: MongoAtla
       const groupId = projectIdMap.get(u.project);
       if (!groupId) continue;
 
-      const existing = ms.users.all().find(
-        (eu) => eu.group_id === groupId && eu.username === u.username,
-      );
+      const existing = ms.users.all().find((eu) => eu.group_id === groupId && eu.username === u.username);
       if (existing) continue;
 
       ms.users.insert({
@@ -182,18 +178,16 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: MongoAtla
       const clusterId = clusterIdMap.get(db.cluster);
       if (!clusterId) continue;
 
-      const existingDb = ms.databases.all().find(
-        (edb) => edb.cluster_id === clusterId && edb.name === db.name,
-      );
+      const existingDb = ms.databases.all().find((edb) => edb.cluster_id === clusterId && edb.name === db.name);
       if (!existingDb) {
         ms.databases.insert({ cluster_id: clusterId, name: db.name });
       }
 
       if (db.collections) {
         for (const colName of db.collections) {
-          const existingCol = ms.collections.all().find(
-            (ec) => ec.cluster_id === clusterId && ec.database === db.name && ec.name === colName,
-          );
+          const existingCol = ms.collections
+            .all()
+            .find((ec) => ec.cluster_id === clusterId && ec.database === db.name && ec.name === colName);
           if (!existingCol) {
             ms.collections.insert({ cluster_id: clusterId, database: db.name, name: colName });
           }

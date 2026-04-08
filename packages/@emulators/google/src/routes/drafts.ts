@@ -14,7 +14,13 @@ import {
   sendDraftMessage,
   updateDraftMessage,
 } from "../helpers.js";
-import { getRecord, getString, parseGoogleBody, parseMessageInputFromBody, requireGmailUser } from "../route-helpers.js";
+import {
+  getRecord,
+  getString,
+  parseGoogleBody,
+  parseMessageInputFromBody,
+  requireGmailUser,
+} from "../route-helpers.js";
 import { getGoogleStore } from "../store.js";
 
 export function draftRoutes({ app, store }: RouteContext): void {
@@ -35,13 +41,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
 
       return c.json(formatDraftResource(gs, draft, "full"));
     } catch {
-      return googleApiError(
-        c,
-        400,
-        "Invalid raw MIME message payload.",
-        "invalidArgument",
-        "INVALID_ARGUMENT",
-      );
+      return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
     }
   };
 
@@ -154,13 +154,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
 
       return c.json(formatDraftResource(gs, updated.draft, "full"));
     } catch {
-      return googleApiError(
-        c,
-        400,
-        "Invalid raw MIME message payload.",
-        "invalidArgument",
-        "INVALID_ARGUMENT",
-      );
+      return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
     }
   });
 

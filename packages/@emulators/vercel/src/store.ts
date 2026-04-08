@@ -1,8 +1,20 @@
 import { Store, type Collection } from "@emulators/core";
 import type {
-  VercelUser, VercelTeam, VercelTeamMember, VercelProject, VercelDeployment,
-  VercelDeploymentAlias, VercelBuild, VercelDeploymentEvent, VercelFile,
-  VercelDeploymentFile, VercelDomain, VercelEnvVar, VercelProtectionBypass, VercelIntegration, VercelApiKey,
+  VercelUser,
+  VercelTeam,
+  VercelTeamMember,
+  VercelProject,
+  VercelDeployment,
+  VercelDeploymentAlias,
+  VercelBuild,
+  VercelDeploymentEvent,
+  VercelFile,
+  VercelDeploymentFile,
+  VercelDomain,
+  VercelEnvVar,
+  VercelProtectionBypass,
+  VercelIntegration,
+  VercelApiKey,
 } from "./entities.js";
 
 export interface VercelStore {
@@ -30,7 +42,10 @@ export function getVercelStore(store: Store): VercelStore {
     teamMembers: store.collection<VercelTeamMember>("vercel.team_members", ["teamId", "userId"]),
     projects: store.collection<VercelProject>("vercel.projects", ["uid", "name", "accountId"]),
     deployments: store.collection<VercelDeployment>("vercel.deployments", ["uid", "projectId", "url"]),
-    deploymentAliases: store.collection<VercelDeploymentAlias>("vercel.deployment_aliases", ["deploymentId", "projectId"]),
+    deploymentAliases: store.collection<VercelDeploymentAlias>("vercel.deployment_aliases", [
+      "deploymentId",
+      "projectId",
+    ]),
     builds: store.collection<VercelBuild>("vercel.builds", ["deploymentId"]),
     deploymentEvents: store.collection<VercelDeploymentEvent>("vercel.deployment_events", ["deploymentId"]),
     files: store.collection<VercelFile>("vercel.files", ["digest"]),

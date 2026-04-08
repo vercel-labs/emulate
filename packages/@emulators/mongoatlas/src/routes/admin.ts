@@ -39,7 +39,9 @@ export function adminRoutes(ctx: RouteContext): void {
       return mongoError(c, "INVALID_PARAMETER", "name is required");
     }
 
-    const existing = ms().projects.all().find((p) => p.name === body.name);
+    const existing = ms()
+      .projects.all()
+      .find((p) => p.name === body.name);
     if (existing) {
       return mongoError(c, "DUPLICATE_GROUP_NAME", `Group name '${body.name}' already exists.`, 409);
     }
@@ -64,7 +66,9 @@ export function adminRoutes(ctx: RouteContext): void {
     }
 
     // Cascade delete clusters in this project
-    const clusters = ms().clusters.all().filter((cl) => cl.group_id === groupId);
+    const clusters = ms()
+      .clusters.all()
+      .filter((cl) => cl.group_id === groupId);
     for (const cluster of clusters) {
       deleteClusterData(ms, cluster.cluster_id);
       ms().clusters.delete(cluster.id);
@@ -84,7 +88,9 @@ export function adminRoutes(ctx: RouteContext): void {
       return mongoError(c, "GROUP_NOT_FOUND", `Group '${groupId}' not found.`, 404);
     }
 
-    const clusters = ms().clusters.all().filter((cl) => cl.group_id === groupId);
+    const clusters = ms()
+      .clusters.all()
+      .filter((cl) => cl.group_id === groupId);
     return mongoOk(c, {
       results: clusters.map(formatCluster),
       totalCount: clusters.length,
@@ -95,9 +101,9 @@ export function adminRoutes(ctx: RouteContext): void {
   app.get("/api/atlas/v2/groups/:groupId/clusters/:clusterName", (c) => {
     const groupId = c.req.param("groupId");
     const clusterName = c.req.param("clusterName");
-    const cluster = ms().clusters.all().find(
-      (cl) => cl.group_id === groupId && cl.name === clusterName,
-    );
+    const cluster = ms()
+      .clusters.all()
+      .find((cl) => cl.group_id === groupId && cl.name === clusterName);
 
     if (!cluster) {
       return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
@@ -130,9 +136,9 @@ export function adminRoutes(ctx: RouteContext): void {
       return mongoError(c, "INVALID_PARAMETER", "name is required");
     }
 
-    const existing = ms().clusters.all().find(
-      (cl) => cl.group_id === groupId && cl.name === body.name,
-    );
+    const existing = ms()
+      .clusters.all()
+      .find((cl) => cl.group_id === groupId && cl.name === body.name);
     if (existing) {
       return mongoError(c, "DUPLICATE_CLUSTER_NAME", `Cluster '${body.name}' already exists.`, 409);
     }
@@ -167,9 +173,9 @@ export function adminRoutes(ctx: RouteContext): void {
   app.patch("/api/atlas/v2/groups/:groupId/clusters/:clusterName", async (c) => {
     const groupId = c.req.param("groupId");
     const clusterName = c.req.param("clusterName");
-    const cluster = ms().clusters.all().find(
-      (cl) => cl.group_id === groupId && cl.name === clusterName,
-    );
+    const cluster = ms()
+      .clusters.all()
+      .find((cl) => cl.group_id === groupId && cl.name === clusterName);
 
     if (!cluster) {
       return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
@@ -203,9 +209,9 @@ export function adminRoutes(ctx: RouteContext): void {
   app.delete("/api/atlas/v2/groups/:groupId/clusters/:clusterName", (c) => {
     const groupId = c.req.param("groupId");
     const clusterName = c.req.param("clusterName");
-    const cluster = ms().clusters.all().find(
-      (cl) => cl.group_id === groupId && cl.name === clusterName,
-    );
+    const cluster = ms()
+      .clusters.all()
+      .find((cl) => cl.group_id === groupId && cl.name === clusterName);
 
     if (!cluster) {
       return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
@@ -227,7 +233,9 @@ export function adminRoutes(ctx: RouteContext): void {
   // List database users
   app.get("/api/atlas/v2/groups/:groupId/databaseUsers", (c) => {
     const groupId = c.req.param("groupId");
-    const users = ms().users.all().filter((u) => u.group_id === groupId);
+    const users = ms()
+      .users.all()
+      .filter((u) => u.group_id === groupId);
     return mongoOk(c, {
       results: users.map(formatUser),
       totalCount: users.length,
@@ -238,7 +246,9 @@ export function adminRoutes(ctx: RouteContext): void {
   app.get("/api/atlas/v2/groups/:groupId/databaseUsers/admin/:username", (c) => {
     const groupId = c.req.param("groupId");
     const username = c.req.param("username");
-    const user = ms().users.all().find((u) => u.group_id === groupId && u.username === username);
+    const user = ms()
+      .users.all()
+      .find((u) => u.group_id === groupId && u.username === username);
 
     if (!user) {
       return mongoError(c, "USER_NOT_FOUND", `Database user '${username}' not found.`, 404);
@@ -261,7 +271,9 @@ export function adminRoutes(ctx: RouteContext): void {
       return mongoError(c, "INVALID_PARAMETER", "username is required");
     }
 
-    const existing = ms().users.all().find((u) => u.group_id === groupId && u.username === body.username);
+    const existing = ms()
+      .users.all()
+      .find((u) => u.group_id === groupId && u.username === body.username);
     if (existing) {
       return mongoError(c, "DUPLICATE_USER", `User '${body.username}' already exists.`, 409);
     }
@@ -281,7 +293,9 @@ export function adminRoutes(ctx: RouteContext): void {
   app.delete("/api/atlas/v2/groups/:groupId/databaseUsers/admin/:username", (c) => {
     const groupId = c.req.param("groupId");
     const username = c.req.param("username");
-    const user = ms().users.all().find((u) => u.group_id === groupId && u.username === username);
+    const user = ms()
+      .users.all()
+      .find((u) => u.group_id === groupId && u.username === username);
 
     if (!user) {
       return mongoError(c, "USER_NOT_FOUND", `Database user '${username}' not found.`, 404);
@@ -297,15 +311,17 @@ export function adminRoutes(ctx: RouteContext): void {
   app.get("/api/atlas/v2/groups/:groupId/clusters/:clusterName/databases", (c) => {
     const groupId = c.req.param("groupId");
     const clusterName = c.req.param("clusterName");
-    const cluster = ms().clusters.all().find(
-      (cl) => cl.group_id === groupId && cl.name === clusterName,
-    );
+    const cluster = ms()
+      .clusters.all()
+      .find((cl) => cl.group_id === groupId && cl.name === clusterName);
 
     if (!cluster) {
       return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
-    const databases = ms().databases.all().filter((db) => db.cluster_id === cluster.cluster_id);
+    const databases = ms()
+      .databases.all()
+      .filter((db) => db.cluster_id === cluster.cluster_id);
     return mongoOk(c, {
       results: databases.map((db) => ({ databaseName: db.name })),
       totalCount: databases.length,
@@ -317,17 +333,17 @@ export function adminRoutes(ctx: RouteContext): void {
     const groupId = c.req.param("groupId");
     const clusterName = c.req.param("clusterName");
     const databaseName = c.req.param("databaseName");
-    const cluster = ms().clusters.all().find(
-      (cl) => cl.group_id === groupId && cl.name === clusterName,
-    );
+    const cluster = ms()
+      .clusters.all()
+      .find((cl) => cl.group_id === groupId && cl.name === clusterName);
 
     if (!cluster) {
       return mongoError(c, "CLUSTER_NOT_FOUND", `Cluster '${clusterName}' not found.`, 404);
     }
 
-    const collections = ms().collections.all().filter(
-      (col) => col.cluster_id === cluster.cluster_id && col.database === databaseName,
-    );
+    const collections = ms()
+      .collections.all()
+      .filter((col) => col.cluster_id === cluster.cluster_id && col.database === databaseName);
     return mongoOk(c, {
       results: collections.map((col) => ({ collectionName: col.name, databaseName })),
       totalCount: collections.length,
@@ -336,17 +352,29 @@ export function adminRoutes(ctx: RouteContext): void {
 }
 
 function deleteClusterData(ms: () => ReturnType<typeof getMongoAtlasStore>, clusterId: string): void {
-  const docs = ms().documents.all().filter((d) => d.cluster_id === clusterId);
+  const docs = ms()
+    .documents.all()
+    .filter((d) => d.cluster_id === clusterId);
   for (const doc of docs) ms().documents.delete(doc.id);
 
-  const cols = ms().collections.all().filter((col) => col.cluster_id === clusterId);
+  const cols = ms()
+    .collections.all()
+    .filter((col) => col.cluster_id === clusterId);
   for (const col of cols) ms().collections.delete(col.id);
 
-  const dbs = ms().databases.all().filter((db) => db.cluster_id === clusterId);
+  const dbs = ms()
+    .databases.all()
+    .filter((db) => db.cluster_id === clusterId);
   for (const db of dbs) ms().databases.delete(db.id);
 }
 
-function formatProject(p: { group_id: string; name: string; org_id: string; cluster_count: number; created_at: string }) {
+function formatProject(p: {
+  group_id: string;
+  name: string;
+  org_id: string;
+  cluster_count: number;
+  created_at: string;
+}) {
   return {
     id: p.group_id,
     name: p.name,

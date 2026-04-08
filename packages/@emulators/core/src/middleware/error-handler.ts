@@ -30,7 +30,7 @@ export function createApiErrorHandler(documentationUrl?: string): ErrorHandler {
         message,
         documentation_url: getDocsUrl(c),
       },
-      status as ContentfulStatusCode
+      status as ContentfulStatusCode,
     );
   };
 }
@@ -51,7 +51,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public errors?: Array<{ resource: string; field: string; code: string }>
+    public errors?: Array<{ resource: string; field: string; code: string }>,
   ) {
     super(message);
     this.name = "ApiError";

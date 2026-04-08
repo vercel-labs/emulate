@@ -18,7 +18,9 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     if (!name) return slackError(c, "invalid_name");
 
-    const msg = ss().messages.all().find((m) => m.ts === timestamp && m.channel_id === channel);
+    const msg = ss()
+      .messages.all()
+      .find((m) => m.ts === timestamp && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
 
     const reactions = [...msg.reactions];
@@ -35,15 +37,20 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     ss().messages.update(msg.id, { reactions });
 
-    await webhooks.dispatch("reaction_added", {
-      type: "event_callback",
-      event: {
-        type: "reaction_added",
-        user: authUser.login,
-        reaction: name,
-        item: { type: "message", channel, ts: timestamp },
+    await webhooks.dispatch(
+      "reaction_added",
+      undefined,
+      {
+        type: "event_callback",
+        event: {
+          type: "reaction_added",
+          user: authUser.login,
+          reaction: name,
+          item: { type: "message", channel, ts: timestamp },
+        },
       },
-    });
+      "slack",
+    );
 
     return slackOk(c, {});
   });
@@ -60,7 +67,9 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     if (!name) return slackError(c, "invalid_name");
 
-    const msg = ss().messages.all().find((m) => m.ts === timestamp && m.channel_id === channel);
+    const msg = ss()
+      .messages.all()
+      .find((m) => m.ts === timestamp && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
 
     const reactions = [...msg.reactions];
@@ -75,15 +84,20 @@ export function reactionsRoutes(ctx: RouteContext): void {
     const filtered = reactions.filter((r) => r.count > 0);
     ss().messages.update(msg.id, { reactions: filtered });
 
-    await webhooks.dispatch("reaction_removed", {
-      type: "event_callback",
-      event: {
-        type: "reaction_removed",
-        user: authUser.login,
-        reaction: name,
-        item: { type: "message", channel, ts: timestamp },
+    await webhooks.dispatch(
+      "reaction_removed",
+      undefined,
+      {
+        type: "event_callback",
+        event: {
+          type: "reaction_removed",
+          user: authUser.login,
+          reaction: name,
+          item: { type: "message", channel, ts: timestamp },
+        },
       },
-    });
+      "slack",
+    );
 
     return slackOk(c, {});
   });
@@ -97,7 +111,9 @@ export function reactionsRoutes(ctx: RouteContext): void {
     const channel = typeof body.channel === "string" ? body.channel : "";
     const timestamp = typeof body.timestamp === "string" ? body.timestamp : "";
 
-    const msg = ss().messages.all().find((m) => m.ts === timestamp && m.channel_id === channel);
+    const msg = ss()
+      .messages.all()
+      .find((m) => m.ts === timestamp && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
 
     return slackOk(c, {

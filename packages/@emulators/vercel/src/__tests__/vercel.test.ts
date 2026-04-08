@@ -22,7 +22,7 @@ function createTestApp() {
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer test-token" };
 }
 

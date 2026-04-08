@@ -170,19 +170,19 @@ function createTestApp() {
   return { app };
 }
 
-function authHeaders(extra?: HeadersInit): HeadersInit {
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return { Authorization: "Bearer test-token", ...extra };
 }
 
 async function jsonRequest(
   app: Hono,
   path: string,
-  init?: RequestInit & { body?: unknown },
+  init?: Omit<RequestInit, "body" | "headers"> & { body?: unknown; headers?: Record<string, string> },
 ) {
   const headers = authHeaders({ "Content-Type": "application/json", ...(init?.headers ?? {}) });
   const body =
     init?.body === undefined || typeof init.body === "string"
-      ? (init?.body as BodyInit | undefined)
+      ? (init?.body as string | undefined)
       : JSON.stringify(init.body);
 
   return app.request(`${base}${path}`, {
@@ -192,12 +192,7 @@ async function jsonRequest(
   });
 }
 
-async function formRequest(
-  app: Hono,
-  path: string,
-  body: Record<string, string>,
-  init?: RequestInit,
-) {
+async function formRequest(app: Hono, path: string, body: Record<string, string>, init?: RequestInit) {
   return app.request(`${base}${path}`, {
     ...init,
     method: init?.method ?? "POST",
@@ -335,10 +330,9 @@ describe("Google plugin integration", () => {
     expect(Buffer.from(attachment.data, "base64url").toString("utf8")).toBe("fake-pdf-data");
     expect(attachment.size).toBe(Buffer.byteLength("fake-pdf-data", "utf8"));
 
-    const listRes = await app.request(
-      `${base}/gmail/v1/users/me/messages?q=${encodeURIComponent("has:attachment")}`,
-      { headers: authHeaders() },
-    );
+    const listRes = await app.request(`${base}/gmail/v1/users/me/messages?q=${encodeURIComponent("has:attachment")}`, {
+      headers: authHeaders(),
+    });
     expect(listRes.status).toBe(200);
     const listBody = (await listRes.json()) as {
       messages: Array<{ id: string }>;
@@ -367,7 +361,12 @@ describe("Google plugin integration", () => {
     expect(createRes.status).toBe(200);
     const created = (await createRes.json()) as {
       id: string;
-      message: { id: string; threadId: string; labelIds: string[]; payload: { headers: Array<{ name: string; value: string }> } };
+      message: {
+        id: string;
+        threadId: string;
+        labelIds: string[];
+        payload: { headers: Array<{ name: string; value: string }> };
+      };
     };
 
     expect(created.id).toMatch(/^r-\d+$/);
@@ -382,7 +381,9 @@ describe("Google plugin integration", () => {
     const listBody = (await listRes.json()) as {
       drafts: Array<{ id: string; message?: { id: string; threadId: string } }>;
     };
-    expect(listBody.drafts.some((draft) => draft.id === created.id && draft.message?.id === created.message.id)).toBe(true);
+    expect(listBody.drafts.some((draft) => draft.id === created.id && draft.message?.id === created.message.id)).toBe(
+      true,
+    );
 
     const getRes = await app.request(`${base}/gmail/v1/users/me/drafts/${created.id}?format=full`, {
       headers: authHeaders(),
@@ -412,7 +413,9 @@ describe("Google plugin integration", () => {
     expect(updated.id).toBe(created.id);
     expect(updated.message.id).toBe(created.message.id);
     expect(updated.message.labelIds).toContain("DRAFT");
-    expect(updated.message.payload.headers.find((header) => header.name === "Subject")?.value).toBe("Draft review updated");
+    expect(updated.message.payload.headers.find((header) => header.name === "Subject")?.value).toBe(
+      "Draft review updated",
+    );
 
     const sendRes = await jsonRequest(app, "/gmail/v1/users/me/drafts/send", {
       method: "POST",
@@ -514,7 +517,9 @@ describe("Google plugin integration", () => {
     };
 
     expect(BigInt(historyBody.historyId)).toBeGreaterThan(BigInt(watch.historyId));
-    expect(historyBody.history.some((entry) => entry.messagesAdded?.some((item) => item.message.id === imported.id))).toBe(true);
+    expect(
+      historyBody.history.some((entry) => entry.messagesAdded?.some((item) => item.message.id === imported.id)),
+    ).toBe(true);
     expect(
       historyBody.history.some((entry) =>
         entry.labelsAdded?.some((item) => item.message.id === imported.id && item.labelIds.includes("STARRED")),
@@ -595,9 +600,7 @@ describe("Google plugin integration", () => {
     const listedFilters = (await listFiltersRes.json()) as {
       filter: Array<{ id: string }>;
     };
-    expect(listedFilters.filter).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: filter.id })]),
-    );
+    expect(listedFilters.filter).toEqual(expect.arrayContaining([expect.objectContaining({ id: filter.id })]));
 
     const filteredRaw = buildRawMessage({
       from: "Billing <billing@example.com>",
@@ -744,11 +747,7 @@ describe("Google plugin integration", () => {
     const listBody = (await listRes.json()) as {
       threads: Array<{ id: string; snippet: string; historyId: string }>;
     };
-    expect(listBody.threads.map((thread) => thread.id)).toEqual([
-      "thread_support",
-      "thread_billing",
-      "thread_release",
-    ]);
+    expect(listBody.threads.map((thread) => thread.id)).toEqual(["thread_support", "thread_billing", "thread_release"]);
 
     const modifyRes = await jsonRequest(app, "/gmail/v1/users/me/threads/thread_support/modify", {
       method: "POST",
@@ -956,13 +955,10 @@ describe("Google plugin integration", () => {
       },
     ]);
 
-    const deleteEventRes = await app.request(
-      `${base}/calendar/v3/calendars/primary/events/${createdEvent.id}`,
-      {
-        method: "DELETE",
-        headers: authHeaders(),
-      },
-    );
+    const deleteEventRes = await app.request(`${base}/calendar/v3/calendars/primary/events/${createdEvent.id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
     expect(deleteEventRes.status).toBe(204);
 
     const afterDeleteRes = await app.request(

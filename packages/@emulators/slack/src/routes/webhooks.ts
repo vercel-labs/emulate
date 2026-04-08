@@ -43,17 +43,18 @@ export function webhookRoutes(ctx: RouteContext): void {
     }
 
     // Find target channel: explicit channel, webhook default, or #general
-    const webhook = ss().incomingWebhooks.all().find(
-      (w) => w.token === c.req.param("token")
-    );
+    const webhook = ss()
+      .incomingWebhooks.all()
+      .find((w) => w.token === c.req.param("token"));
 
     let targetChannel = channelName
       ? (ss().channels.findOneBy("name", channelName) ?? ss().channels.findOneBy("channel_id", channelName))
       : null;
 
     if (!targetChannel && webhook) {
-      targetChannel = ss().channels.findOneBy("name", webhook.default_channel)
-        ?? ss().channels.findOneBy("channel_id", webhook.default_channel);
+      targetChannel =
+        ss().channels.findOneBy("name", webhook.default_channel) ??
+        ss().channels.findOneBy("channel_id", webhook.default_channel);
     }
 
     if (!targetChannel) {
@@ -80,18 +81,23 @@ export function webhookRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    await webhooks.dispatch("message", {
-      type: "event_callback",
-      event: {
-        type: "message",
-        subtype: "bot_message",
-        channel: targetChannel.channel_id,
-        bot_id: botId,
-        text: text || "(rich message)",
-        ts,
-        thread_ts: threadTs,
+    await webhooks.dispatch(
+      "message",
+      undefined,
+      {
+        type: "event_callback",
+        event: {
+          type: "message",
+          subtype: "bot_message",
+          channel: targetChannel.channel_id,
+          bot_id: botId,
+          text: text || "(rich message)",
+          ts,
+          thread_ts: threadTs,
+        },
       },
-    });
+      "slack",
+    );
 
     return c.text("ok");
   });

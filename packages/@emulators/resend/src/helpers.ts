@@ -6,12 +6,7 @@ export function generateUuid(): string {
   return randomUUID();
 }
 
-export function resendError(
-  c: Context,
-  statusCode: number,
-  name: string,
-  message: string,
-) {
+export function resendError(c: Context, statusCode: number, name: string, message: string) {
   return c.json({ statusCode, name, message }, statusCode as ContentfulStatusCode);
 }
 

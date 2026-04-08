@@ -28,10 +28,18 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
 
   app.post("/v1/checkout/sessions", async (c) => {
     const body = await parseStripeBody(c);
-    if (!body.mode) return stripeError(c, 400, "invalid_request_error", "Missing required param: mode.", undefined, "mode");
+    if (!body.mode)
+      return stripeError(c, 400, "invalid_request_error", "Missing required param: mode.", undefined, "mode");
 
     if (body.customer && !ss.customers.findOneBy("stripe_id", body.customer as string)) {
-      return stripeError(c, 400, "invalid_request_error", `No such customer: '${body.customer}'`, "resource_missing", "customer");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `No such customer: '${body.customer}'`,
+        "resource_missing",
+        "customer",
+      );
     }
 
     const lineItems: Array<{ price: string; quantity: number }> = [];
@@ -42,17 +50,45 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
       for (let i = 0; i < body.line_items.length; i++) {
         const li = body.line_items[i] as Record<string, unknown>;
         if (!li || typeof li !== "object") {
-          return stripeError(c, 400, "invalid_request_error", `Invalid line_items[${i}]: must be an object.`, undefined, `line_items[${i}]`);
+          return stripeError(
+            c,
+            400,
+            "invalid_request_error",
+            `Invalid line_items[${i}]: must be an object.`,
+            undefined,
+            `line_items[${i}]`,
+          );
         }
         if (!li.price || typeof li.price !== "string") {
-          return stripeError(c, 400, "invalid_request_error", `Missing required param: line_items[${i}][price].`, undefined, `line_items[${i}][price]`);
+          return stripeError(
+            c,
+            400,
+            "invalid_request_error",
+            `Missing required param: line_items[${i}][price].`,
+            undefined,
+            `line_items[${i}][price]`,
+          );
         }
         if (!ss.prices.findOneBy("stripe_id", li.price)) {
-          return stripeError(c, 400, "invalid_request_error", `No such price: '${li.price}'`, "resource_missing", `line_items[${i}][price]`);
+          return stripeError(
+            c,
+            400,
+            "invalid_request_error",
+            `No such price: '${li.price}'`,
+            "resource_missing",
+            `line_items[${i}][price]`,
+          );
         }
         const qty = typeof li.quantity === "number" ? li.quantity : parseInt(li.quantity as string, 10);
         if (!Number.isFinite(qty) || qty < 1) {
-          return stripeError(c, 400, "invalid_request_error", `Invalid line_items[${i}][quantity]: must be a positive integer.`, undefined, `line_items[${i}][quantity]`);
+          return stripeError(
+            c,
+            400,
+            "invalid_request_error",
+            `Invalid line_items[${i}][quantity]: must be a positive integer.`,
+            undefined,
+            `line_items[${i}][quantity]`,
+          );
         }
         lineItems.push({ price: li.price, quantity: qty });
       }
@@ -60,7 +96,7 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
 
     const session = ss.checkoutSessions.insert({
       stripe_id: stripeId("cs"),
-      mode: body.mode as string,
+      mode: body.mode as StripeCheckoutSession["mode"],
       status: "open",
       payment_status: "unpaid",
       customer_id: (body.customer as string) ?? null,
@@ -74,15 +110,35 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
 
   app.get("/v1/checkout/sessions/:id", (c) => {
     const session = ss.checkoutSessions.findOneBy("stripe_id", c.req.param("id"));
-    if (!session) return stripeError(c, 404, "invalid_request_error", `No such checkout session: '${c.req.param("id")}'`, "resource_missing");
+    if (!session)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such checkout session: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
     return c.json(formatSession(session, baseUrl));
   });
 
   app.post("/v1/checkout/sessions/:id/expire", async (c) => {
     const session = ss.checkoutSessions.findOneBy("stripe_id", c.req.param("id"));
-    if (!session) return stripeError(c, 404, "invalid_request_error", `No such checkout session: '${c.req.param("id")}'`, "resource_missing");
+    if (!session)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such checkout session: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
     if (session.status !== "open") {
-      return stripeError(c, 400, "invalid_request_error", "Only open sessions can be expired.", "checkout_session_not_open");
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        "Only open sessions can be expired.",
+        "checkout_session_not_open",
+      );
     }
     const updated = ss.checkoutSessions.update(session.id, { status: "expired" })!;
 
@@ -110,25 +166,45 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
   app.get("/checkout/:id", (c) => {
     const session = ss.checkoutSessions.findOneBy("stripe_id", c.req.param("id"));
     if (!session) {
-      return c.html(renderCardPage("Session Not Found", "This checkout session does not exist.", '<p class="empty">The session ID is invalid or has been removed.</p>', SERVICE_LABEL), 404);
+      return c.html(
+        renderCardPage(
+          "Session Not Found",
+          "This checkout session does not exist.",
+          '<p class="empty">The session ID is invalid or has been removed.</p>',
+          SERVICE_LABEL,
+        ),
+        404,
+      );
     }
     if (session.status !== "open") {
-      return c.html(renderCardPage("Session Expired", "This checkout session is no longer available.", `<p class="empty">Status: ${escapeHtml(session.status)}</p>`, SERVICE_LABEL));
+      return c.html(
+        renderCardPage(
+          "Session Expired",
+          "This checkout session is no longer available.",
+          `<p class="empty">Status: ${escapeHtml(session.status)}</p>`,
+          SERVICE_LABEL,
+        ),
+      );
     }
 
-    const lineItemsHtml = session.line_items.length > 0
-      ? session.line_items.map((li) => {
-          const priceObj = ss.prices.findOneBy("stripe_id", li.price);
-          const product = priceObj ? ss.products.findOneBy("stripe_id", priceObj.product_id) : null;
-          const name = product?.name ?? li.price;
-          const amount = priceObj ? `$${(priceObj.unit_amount! / 100).toFixed(2)} ${priceObj.currency.toUpperCase()}` : "";
-          return `<div class="org-row">
+    const lineItemsHtml =
+      session.line_items.length > 0
+        ? session.line_items
+            .map((li) => {
+              const priceObj = ss.prices.findOneBy("stripe_id", li.price);
+              const product = priceObj ? ss.products.findOneBy("stripe_id", priceObj.product_id) : null;
+              const name = product?.name ?? li.price;
+              const amount = priceObj
+                ? `$${(priceObj.unit_amount! / 100).toFixed(2)} ${priceObj.currency.toUpperCase()}`
+                : "";
+              return `<div class="org-row">
             <span class="org-icon">$</span>
             <span class="org-name">${escapeHtml(name)}</span>
             <span class="emu-bar-service">${escapeHtml(amount)} x ${li.quantity}</span>
           </div>`;
-        }).join("")
-      : '<p class="empty">No line items</p>';
+            })
+            .join("")
+        : '<p class="empty">No line items</p>';
 
     const body = `
       ${lineItemsHtml}
@@ -143,7 +219,9 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
       ${session.cancel_url ? `<p class="info-text"><a href="${escapeAttr(session.cancel_url)}" class="btn-revoke">Cancel</a></p>` : ""}
     `;
 
-    return c.html(renderCardPage("Checkout", `Complete your ${escapeHtml(session.mode)} payment.`, body, SERVICE_LABEL));
+    return c.html(
+      renderCardPage("Checkout", `Complete your ${escapeHtml(session.mode)} payment.`, body, SERVICE_LABEL),
+    );
   });
 
   app.post("/checkout/:id/complete", async (c) => {
@@ -165,6 +243,13 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
       return c.redirect(session.success_url);
     }
 
-    return c.html(renderCardPage("Payment Complete", "Your payment was successful.", '<p class="empty check">Payment received</p>', SERVICE_LABEL));
+    return c.html(
+      renderCardPage(
+        "Payment Complete",
+        "Your payment was successful.",
+        '<p class="empty check">Payment received</p>',
+        SERVICE_LABEL,
+      ),
+    );
   });
 }

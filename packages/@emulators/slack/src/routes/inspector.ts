@@ -25,12 +25,12 @@ function renderMessage(msg: SlackMessage, users: Map<string, string>): string {
   const displayName = users.get(msg.user) ?? msg.user;
   const isBot = msg.subtype === "bot_message";
   const letter = isBot ? "B" : (displayName[0] ?? "?").toUpperCase();
-  const threadBadge = msg.reply_count > 0
-    ? ` <span class="badge badge-requested">${msg.reply_count} ${msg.reply_count === 1 ? "reply" : "replies"}</span>`
-    : "";
-  const threadIndicator = msg.thread_ts && msg.thread_ts !== msg.ts
-    ? `<span class="badge badge-denied">thread</span> `
-    : "";
+  const threadBadge =
+    msg.reply_count > 0
+      ? ` <span class="badge badge-requested">${msg.reply_count} ${msg.reply_count === 1 ? "reply" : "replies"}</span>`
+      : "";
+  const threadIndicator =
+    msg.thread_ts && msg.thread_ts !== msg.ts ? `<span class="badge badge-denied">thread</span> ` : "";
 
   return `<div class="org-row">
   <span class="org-icon">${escapeHtml(letter)}</span>
@@ -57,16 +57,20 @@ export function inspectorRoutes(ctx: RouteContext): void {
 
   // Message Inspector - the visual dashboard
   app.get("/", (c) => {
-    const channels = ss().channels.all().filter((ch) => !ch.is_archived);
+    const channels = ss()
+      .channels.all()
+      .filter((ch) => !ch.is_archived);
     const team = ss().teams.all()[0];
 
     if (channels.length === 0) {
-      return c.html(renderSettingsPage(
-        "Slack Inspector",
-        "<p class='empty'>No channels</p>",
-        "<p class='empty'>No channels in the emulator store.</p>",
-        SERVICE_LABEL
-      ));
+      return c.html(
+        renderSettingsPage(
+          "Slack Inspector",
+          "<p class='empty'>No channels</p>",
+          "<p class='empty'>No channels in the emulator store.</p>",
+          SERVICE_LABEL,
+        ),
+      );
     }
 
     // Pick active channel from query param or default to first
@@ -84,17 +88,18 @@ export function inspectorRoutes(ctx: RouteContext): void {
     }
 
     // Get messages for the active channel, newest first
-    const messages = ss().messages
-      .findBy("channel_id", activeChannel.channel_id)
+    const messages = ss()
+      .messages.findBy("channel_id", activeChannel.channel_id)
       .sort((a, b) => (b.ts > a.ts ? 1 : -1))
       .slice(0, 50);
 
     const sidebar = renderChannelSidebar(channels, activeChannel.channel_id);
 
     // Build the message list
-    const messageHtml = messages.length === 0
-      ? '<p class="empty">No messages yet. Post one with chat.postMessage or an incoming webhook.</p>'
-      : messages.map((m) => renderMessage(m, userMap)).join("\n<div style='height:8px'></div>\n");
+    const messageHtml =
+      messages.length === 0
+        ? '<p class="empty">No messages yet. Post one with chat.postMessage or an incoming webhook.</p>'
+        : messages.map((m) => renderMessage(m, userMap)).join("\n<div style='height:8px'></div>\n");
 
     const stats = `${ss().users.all().length} users, ${channels.length} channels, ${ss().messages.all().length} messages`;
 
@@ -114,11 +119,6 @@ export function inspectorRoutes(ctx: RouteContext): void {
   ${messageHtml}
 </div>`;
 
-    return c.html(renderSettingsPage(
-      `${team?.name ?? "Slack"} - Message Inspector`,
-      sidebar,
-      bodyHtml,
-      SERVICE_LABEL
-    ));
+    return c.html(renderSettingsPage(`${team?.name ?? "Slack"} - Message Inspector`, sidebar, bodyHtml, SERVICE_LABEL));
   });
 }

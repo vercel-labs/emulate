@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher, authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
+import {
+  Store,
+  WebhookDispatcher,
+  authMiddleware,
+  createApiErrorHandler,
+  createErrorHandler,
+  type TokenMap,
+} from "@emulators/core";
 import { awsPlugin, seedFromConfig, getAwsStore } from "../index.js";
 
 const base = "http://localhost:4000";
@@ -25,7 +32,7 @@ function createTestApp() {
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer test-aws-token" };
 }
 

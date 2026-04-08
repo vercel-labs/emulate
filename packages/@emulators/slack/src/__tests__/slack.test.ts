@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher, authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
+import {
+  Store,
+  WebhookDispatcher,
+  authMiddleware,
+  createApiErrorHandler,
+  createErrorHandler,
+  type TokenMap,
+} from "@emulators/core";
 import { slackPlugin, seedFromConfig, getSlackStore } from "../index.js";
 
 const base = "http://localhost:4000";
@@ -32,7 +39,7 @@ function createTestApp() {
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): HeadersInit {
+function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer xoxb-test-token", "Content-Type": "application/json" };
 }
 
@@ -49,7 +56,7 @@ describe("Slack plugin - auth.test", () => {
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.user_id).toBe("U000000001");
     expect(body.team).toBeDefined();
@@ -60,7 +67,7 @@ describe("Slack plugin - auth.test", () => {
       method: "POST",
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("not_authed");
   });
@@ -84,7 +91,7 @@ describe("Slack plugin - chat.postMessage", () => {
       body: JSON.stringify({ channel: ch.channel_id, text: "hello world" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.ts).toBeDefined();
     expect(body.message.text).toBe("hello world");
@@ -97,7 +104,7 @@ describe("Slack plugin - chat.postMessage", () => {
       body: JSON.stringify({ channel: "general", text: "by name" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
   });
 
@@ -108,7 +115,7 @@ describe("Slack plugin - chat.postMessage", () => {
       body: JSON.stringify({ channel: "nonexistent", text: "hello" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("channel_not_found");
   });
@@ -123,7 +130,7 @@ describe("Slack plugin - chat.postMessage", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "parent" }),
     });
-    const parent = await parentRes.json() as any;
+    const parent = (await parentRes.json()) as any;
 
     // Post reply
     const replyRes = await app.request(`${base}/api/chat.postMessage`, {
@@ -131,7 +138,7 @@ describe("Slack plugin - chat.postMessage", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "reply", thread_ts: parent.ts }),
     });
-    const reply = await replyRes.json() as any;
+    const reply = (await replyRes.json()) as any;
     expect(reply.ok).toBe(true);
     expect(reply.message.thread_ts).toBe(parent.ts);
   });
@@ -146,7 +153,7 @@ describe("Slack plugin - chat.postMessage", () => {
       body: `channel=${ch.channel_id}&text=urlencoded+message`,
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.message.text).toBe("urlencoded message");
   });
@@ -169,14 +176,14 @@ describe("Slack plugin - chat.update", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "original" }),
     });
-    const posted = await postRes.json() as any;
+    const posted = (await postRes.json()) as any;
 
     const updateRes = await app.request(`${base}/api/chat.update`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, ts: posted.ts, text: "updated" }),
     });
-    const updated = await updateRes.json() as any;
+    const updated = (await updateRes.json()) as any;
     expect(updated.ok).toBe(true);
     expect(updated.text).toBe("updated");
   });
@@ -199,14 +206,14 @@ describe("Slack plugin - chat.delete", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "to delete" }),
     });
-    const posted = await postRes.json() as any;
+    const posted = (await postRes.json()) as any;
 
     const deleteRes = await app.request(`${base}/api/chat.delete`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, ts: posted.ts }),
     });
-    const deleted = await deleteRes.json() as any;
+    const deleted = (await deleteRes.json()) as any;
     expect(deleted.ok).toBe(true);
   });
 });
@@ -225,7 +232,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.channels.length).toBeGreaterThanOrEqual(2);
     expect(body.channels[0].name).toBeDefined();
@@ -240,7 +247,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.channel.id).toBe(ch.channel_id);
     expect(body.channel.name).toBe(ch.name);
@@ -252,7 +259,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "test-channel" }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.channel.name).toBe("test-channel");
     expect(body.channel.id).toMatch(/^C/);
@@ -264,7 +271,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "general" }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("name_taken");
   });
@@ -290,7 +297,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.messages.length).toBe(2);
   });
@@ -304,7 +311,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "parent" }),
     });
-    const parent = await parentRes.json() as any;
+    const parent = (await parentRes.json()) as any;
 
     await app.request(`${base}/api/chat.postMessage`, {
       method: "POST",
@@ -322,7 +329,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, ts: parent.ts }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.messages.length).toBe(3); // parent + 2 replies (Slack includes the parent)
   });
@@ -334,7 +341,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ name: "join-test" }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
     const channelId = created.channel.id;
 
     // Leave
@@ -343,7 +350,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: channelId }),
     });
-    expect((await leaveRes.json() as any).ok).toBe(true);
+    expect(((await leaveRes.json()) as any).ok).toBe(true);
 
     // Rejoin
     const joinRes = await app.request(`${base}/api/conversations.join`, {
@@ -351,7 +358,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: channelId }),
     });
-    const joined = await joinRes.json() as any;
+    const joined = (await joinRes.json()) as any;
     expect(joined.ok).toBe(true);
     expect(joined.channel.num_members).toBe(1);
   });
@@ -365,7 +372,7 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.members.length).toBeGreaterThanOrEqual(1);
   });
@@ -383,7 +390,7 @@ describe("Slack plugin - users", () => {
       method: "POST",
       headers: authHeaders(),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.members.length).toBeGreaterThanOrEqual(1);
     expect(body.members[0].name).toBeDefined();
@@ -395,7 +402,7 @@ describe("Slack plugin - users", () => {
       headers: authHeaders(),
       body: JSON.stringify({ user: "U000000001" }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.user.id).toBe("U000000001");
   });
@@ -406,7 +413,7 @@ describe("Slack plugin - users", () => {
       headers: authHeaders(),
       body: JSON.stringify({ email: "admin@emulate.dev" }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.user.profile.email).toBe("admin@emulate.dev");
   });
@@ -417,7 +424,7 @@ describe("Slack plugin - users", () => {
       headers: authHeaders(),
       body: JSON.stringify({ user: "U999999999" }),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("user_not_found");
   });
@@ -441,7 +448,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "react to me" }),
     });
-    const posted = await postRes.json() as any;
+    const posted = (await postRes.json()) as any;
 
     // Add reaction
     const addRes = await app.request(`${base}/api/reactions.add`, {
@@ -449,7 +456,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, timestamp: posted.ts, name: "thumbsup" }),
     });
-    expect((await addRes.json() as any).ok).toBe(true);
+    expect(((await addRes.json()) as any).ok).toBe(true);
 
     // Get reactions
     const getRes = await app.request(`${base}/api/reactions.get`, {
@@ -457,7 +464,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, timestamp: posted.ts }),
     });
-    const body = await getRes.json() as any;
+    const body = (await getRes.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.message.reactions[0].name).toBe("thumbsup");
     expect(body.message.reactions[0].count).toBe(1);
@@ -472,7 +479,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "react and remove" }),
     });
-    const posted = await postRes.json() as any;
+    const posted = (await postRes.json()) as any;
 
     await app.request(`${base}/api/reactions.add`, {
       method: "POST",
@@ -485,7 +492,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, timestamp: posted.ts, name: "thumbsup" }),
     });
-    expect((await removeRes.json() as any).ok).toBe(true);
+    expect(((await removeRes.json()) as any).ok).toBe(true);
 
     // Verify removed
     const getRes = await app.request(`${base}/api/reactions.get`, {
@@ -493,7 +500,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, timestamp: posted.ts }),
     });
-    const body = await getRes.json() as any;
+    const body = (await getRes.json()) as any;
     expect(body.message.reactions).toEqual([]);
   });
 
@@ -506,7 +513,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, text: "double react" }),
     });
-    const posted = await postRes.json() as any;
+    const posted = (await postRes.json()) as any;
 
     await app.request(`${base}/api/reactions.add`, {
       method: "POST",
@@ -519,7 +526,7 @@ describe("Slack plugin - reactions", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel: ch.channel_id, timestamp: posted.ts, name: "heart" }),
     });
-    const dupe = await dupeRes.json() as any;
+    const dupe = (await dupeRes.json()) as any;
     expect(dupe.ok).toBe(false);
     expect(dupe.error).toBe("already_reacted");
   });
@@ -537,7 +544,7 @@ describe("Slack plugin - team.info", () => {
       method: "POST",
       headers: authHeaders(),
     });
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.team.name).toBe("Emulate");
     expect(body.team.domain).toBe("emulate");
@@ -604,7 +611,7 @@ describe("Slack plugin - OAuth flow", () => {
 
   it("renders the consent page", async () => {
     const res = await app.request(
-      `${base}/oauth/v2/authorize?client_id=12345.67890&redirect_uri=http://localhost:3000/callback&scope=chat:write&state=xyz`
+      `${base}/oauth/v2/authorize?client_id=12345.67890&redirect_uri=http://localhost:3000/callback&scope=chat:write&state=xyz`,
     );
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -614,7 +621,9 @@ describe("Slack plugin - OAuth flow", () => {
   });
 
   it("rejects unknown client_id", async () => {
-    const res = await app.request(`${base}/oauth/v2/authorize?client_id=invalid&redirect_uri=http://localhost:3000/callback`);
+    const res = await app.request(
+      `${base}/oauth/v2/authorize?client_id=invalid&redirect_uri=http://localhost:3000/callback`,
+    );
     expect(res.status).toBe(400);
     const html = await res.text();
     expect(html).toContain("Application not found");
@@ -623,7 +632,7 @@ describe("Slack plugin - OAuth flow", () => {
   it("completes the token exchange", async () => {
     // Get the consent page to verify it loads
     const authRes = await app.request(
-      `${base}/oauth/v2/authorize?client_id=12345.67890&redirect_uri=http://localhost:3000/callback&scope=chat:write&state=xyz`
+      `${base}/oauth/v2/authorize?client_id=12345.67890&redirect_uri=http://localhost:3000/callback&scope=chat:write&state=xyz`,
     );
     expect(authRes.status).toBe(200);
 
@@ -644,7 +653,7 @@ describe("Slack plugin - OAuth flow", () => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: `code=${code}&client_id=12345.67890&client_secret=test-secret`,
     });
-    const token = await tokenRes.json() as any;
+    const token = (await tokenRes.json()) as any;
     expect(token.ok).toBe(true);
     expect(token.access_token).toMatch(/^xoxb-/);
     expect(token.team.name).toBe("Emulate");

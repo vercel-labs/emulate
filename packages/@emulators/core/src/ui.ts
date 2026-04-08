@@ -1,9 +1,5 @@
 export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 export function escapeAttr(s: string): string {
@@ -155,6 +151,35 @@ body{
 .app-link-name{font-weight:600;font-size:.875rem;color:#33ff00;}
 .app-link-scopes{font-size:.6875rem;color:#1a8c00;margin-top:1px;}
 .empty{color:#1a8c00;text-align:center;padding:28px 0;font-size:.875rem;}
+
+.inspector-layout{max-width:960px;margin:0 auto;padding:28px 20px;}
+.inspector-tabs{display:flex;gap:4px;margin-bottom:20px;}
+.inspector-tabs a{
+  padding:7px 16px;border-radius:6px;text-decoration:none;
+  font-size:.8125rem;color:#1a8c00;border:1px solid transparent;
+  transition:color .15s,border-color .15s;
+}
+.inspector-tabs a:hover{color:#33ff00;}
+.inspector-tabs a.active{color:#33ff00;font-weight:600;border-color:#0a3300;background:#0a3300;}
+.inspector-section{margin-bottom:24px;}
+.inspector-section h2{
+  font-family:'Geist Pixel',monospace;
+  font-size:1rem;font-weight:600;color:#33ff00;margin-bottom:10px;
+}
+.inspector-section h3{
+  font-family:'Geist Pixel',monospace;
+  font-size:.875rem;font-weight:600;color:#1a8c00;margin:16px 0 8px;
+}
+.inspector-table{width:100%;border-collapse:collapse;margin-bottom:12px;}
+.inspector-table th,.inspector-table td{
+  text-align:left;padding:8px 12px;border-bottom:1px solid #0a3300;
+  font-size:.8125rem;
+}
+.inspector-table th{color:#1a8c00;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;}
+.inspector-table td{color:#33ff00;}
+.inspector-table tbody tr{transition:background .1s;}
+.inspector-table tbody tr:hover{background:#0a3300;}
+.inspector-empty{color:#1a8c00;text-align:center;padding:20px 0;font-size:.8125rem;}
 `;
 
 const POWERED_BY = `<div class="powered-by">Powered by <a href="https://emulate.dev" target="_blank" rel="noopener">emulate</a></div>`;
@@ -177,17 +202,13 @@ function head(title: string): string {
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="icon" href="/_emulate/favicon.ico"/>
 <title>${escapeHtml(title)} | emulate</title>
 <style>${CSS}</style>
 </head>`;
 }
 
-export function renderCardPage(
-  title: string,
-  subtitle: string,
-  body: string,
-  service?: string
-): string {
+export function renderCardPage(title: string, subtitle: string, body: string, service?: string): string {
   return `${head(title)}
 <body>
 ${emuBar(service)}
@@ -216,18 +237,67 @@ ${POWERED_BY}
 </body></html>`;
 }
 
-export function renderSettingsPage(
-  title: string,
-  sidebarHtml: string,
-  bodyHtml: string,
-  service?: string
-): string {
+export function renderSettingsPage(title: string, sidebarHtml: string, bodyHtml: string, service?: string): string {
   return `${head(title)}
 <body>
 ${emuBar(service)}
 <div class="settings-layout">
   <nav class="settings-sidebar">${sidebarHtml}</nav>
   <div class="settings-main">${bodyHtml}</div>
+</div>
+${POWERED_BY}
+</body></html>`;
+}
+
+export interface InspectorTab {
+  id: string;
+  label: string;
+  href: string;
+}
+
+export function renderInspectorPage(
+  title: string,
+  tabs: InspectorTab[],
+  activeTab: string,
+  body: string,
+  service?: string,
+): string {
+  const tabLinks = tabs
+    .map(
+      (t) => `<a href="${escapeAttr(t.href)}" class="${t.id === activeTab ? "active" : ""}">${escapeHtml(t.label)}</a>`,
+    )
+    .join("");
+
+  return `${head(title)}
+<body>
+${emuBar(service)}
+<div class="inspector-layout">
+  <nav class="inspector-tabs">${tabLinks}</nav>
+  ${body}
+</div>
+${POWERED_BY}
+</body></html>`;
+}
+
+export function renderFormPostPage(action: string, fields: Record<string, string>, service?: string): string {
+  const hiddens = Object.entries(fields)
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(v)}"/>`)
+    .join("\n");
+
+  return `${head("Redirecting")}
+<body onload="document.forms[0].submit()">
+${emuBar(service)}
+<div class="content">
+  <div class="content-inner" style="text-align:center">
+    <div class="card-subtitle">Redirecting&hellip;</div>
+    <form method="POST" action="${escapeAttr(action)}">
+${hiddens}
+    <noscript><button type="submit" class="user-btn" style="margin-top:12px;justify-content:center">
+      <span class="user-login">Continue</span>
+    </button></noscript>
+    </form>
+  </div>
 </div>
 ${POWERED_BY}
 </body></html>`;
@@ -247,12 +317,8 @@ export function renderUserButton(opts: UserButtonOptions): string {
     .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(v)}"/>`)
     .join("");
 
-  const nameLine = opts.name
-    ? `<div class="user-meta">${escapeHtml(opts.name)}</div>`
-    : "";
-  const emailLine = opts.email
-    ? `<div class="user-email">${escapeHtml(opts.email)}</div>`
-    : "";
+  const nameLine = opts.name ? `<div class="user-meta">${escapeHtml(opts.name)}</div>` : "";
+  const emailLine = opts.email ? `<div class="user-email">${escapeHtml(opts.email)}</div>` : "";
 
   return `<form class="user-form" method="post" action="${escapeAttr(opts.formAction)}">
 ${hiddens}

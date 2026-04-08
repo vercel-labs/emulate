@@ -12,24 +12,14 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import {
-  assertRepoRead,
-  assertRepoWrite,
-  getActorUser,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { assertRepoRead, assertRepoWrite, getActorUser, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 /** Draft releases are omitted for anonymous API clients; any authenticated user may see them once repo read is allowed. */
 function isAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | undefined): boolean {
   return Boolean(authUser && getActorUser(gh, authUser));
 }
 
-function assertReleaseVisible(
-  gh: GitHubStore,
-  authUser: AuthUser | undefined,
-  release: GitHubRelease
-) {
+function assertReleaseVisible(gh: GitHubStore, authUser: AuthUser | undefined, release: GitHubRelease) {
   if (release.draft && !isAuthenticatedActor(gh, authUser)) {
     throw notFoundResponse();
   }
@@ -70,7 +60,7 @@ function dispatchReleaseWebhook(
   actor: GitHubUser,
   release: GitHubRelease,
   action: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
   const relFmt = formatRelease(release, gh, baseUrl);
   if (!relFmt) return;
@@ -85,7 +75,7 @@ function dispatchReleaseWebhook(
       sender: formatUser(actor, baseUrl),
     },
     ownerLogin,
-    repo.name
+    repo.name,
   );
 }
 
@@ -114,9 +104,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const start = (page - 1) * per_page;
     const pageItems = list.slice(start, start + per_page);
 
-    const out = pageItems
-      .map((r) => formatRelease(r, gh, baseUrl))
-      .filter(Boolean);
+    const out = pageItems.map((r) => formatRelease(r, gh, baseUrl)).filter(Boolean);
     return c.json(out);
   });
 
@@ -129,10 +117,8 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
 
     const body = await parseJsonBody(c);
     const tagName = typeof body.tag_name === "string" ? body.tag_name : "";
-    const target =
-      typeof body.target_commitish === "string" ? body.target_commitish : undefined;
-    const prev =
-      typeof body.previous_tag_name === "string" ? body.previous_tag_name : undefined;
+    const target = typeof body.target_commitish === "string" ? body.target_commitish : undefined;
+    const prev = typeof body.previous_tag_name === "string" ? body.previous_tag_name : undefined;
     return c.json({
       name: tagName ? `Release ${tagName}` : "Release",
       body: `## What's changed\n\n_Auto-generated release notes (stub)._\n\n<!-- target: ${target ?? "default"} previous: ${prev ?? "none"} -->`,
@@ -146,9 +132,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
 
-    const candidates = releasesForRepo(gh, repo.id).filter(
-      (r) => !r.draft && !r.prerelease && r.published_at
-    );
+    const candidates = releasesForRepo(gh, repo.id).filter((r) => !r.draft && !r.prerelease && r.published_at);
     if (candidates.length === 0) throw notFoundResponse();
 
     candidates.sort((a, b) => {
@@ -266,15 +250,12 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const draft = typeof body.draft === "boolean" ? body.draft : false;
     const prerelease = typeof body.prerelease === "boolean" ? body.prerelease : false;
 
-    let name: string | null =
-      typeof body.name === "string" || body.name === null ? (body.name as string | null) : null;
+    let name: string | null = typeof body.name === "string" || body.name === null ? (body.name as string | null) : null;
     let releaseBody: string | null =
       typeof body.body === "string" || body.body === null ? (body.body as string | null) : null;
 
     if (body.generate_release_notes === true) {
-      releaseBody =
-        releaseBody ??
-        `## What's changed\n\n_Auto-generated release notes (stub) for ${tag_name}._`;
+      releaseBody = releaseBody ?? `## What's changed\n\n_Auto-generated release notes (stub) for ${tag_name}._`;
       name = name ?? `Release ${tag_name}`;
     }
 
@@ -446,8 +427,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const buf = await c.req.arrayBuffer();
     const size = buf.byteLength;
 
-    const contentType =
-      c.req.header("Content-Type")?.split(";")[0]?.trim() || "application/octet-stream";
+    const contentType = c.req.header("Content-Type")?.split(";")[0]?.trim() || "application/octet-stream";
 
     const row = gh.releaseAssets.insert({
       node_id: "",

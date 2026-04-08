@@ -88,15 +88,17 @@ export function threadRoutes({ app, store }: RouteContext): void {
     const removeLabelIds = getStringArray(body, "removeLabelIds");
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(
+        c,
+        400,
+        `Invalid label IDs: ${missingLabelIds.join(", ")}`,
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
     }
 
     const updated = messages.map((message) =>
-      markMessageModified(
-        gs,
-        message,
-        applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds),
-      ),
+      markMessageModified(gs, message, applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds)),
     );
 
     return c.json(formatThreadResource(gs, updated, "full"));

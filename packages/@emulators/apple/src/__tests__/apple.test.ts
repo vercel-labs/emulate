@@ -101,7 +101,8 @@ async function exchangeCode(
     grant_type: "authorization_code",
     code,
     client_id: options.client_id ?? "test-client",
-    client_secret: "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJ0ZWFtLWlkIiwiYXVkIjoiaHR0cHM6Ly9hcHBsZWlkLmFwcGxlLmNvbSIsInN1YiI6InRlc3QtY2xpZW50In0.fake",
+    client_secret:
+      "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJ0ZWFtLWlkIiwiYXVkIjoiaHR0cHM6Ly9hcHBsZWlkLmFwcGxlLmNvbSIsInN1YiI6InRlc3QtY2xpZW50In0.fake",
     redirect_uri: options.redirect_uri ?? "http://localhost:3000/callback",
   });
 
@@ -127,7 +128,7 @@ describe("Apple plugin integration", () => {
   it("GET /.well-known/openid-configuration returns Apple OIDC discovery document", async () => {
     const res = await app.request(`${base}/.well-known/openid-configuration`);
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.issuer).toBe(base);
     expect(body.authorization_endpoint).toBe(`${base}/auth/authorize`);
     expect(body.token_endpoint).toBe(`${base}/auth/token`);
@@ -149,7 +150,7 @@ describe("Apple plugin integration", () => {
   it("GET /auth/keys returns JWKS with proper RSA key structure", async () => {
     const res = await app.request(`${base}/auth/keys`);
     expect(res.status).toBe(200);
-    const body = await res.json() as { keys: Array<Record<string, unknown>> };
+    const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
     expect(body.keys).toHaveLength(1);
     const key = body.keys[0];
     expect(key.kty).toBe("RSA");
@@ -181,7 +182,7 @@ describe("Apple plugin integration", () => {
 
     const tokenRes = await exchangeCode(app, code);
     expect(tokenRes.status).toBe(200);
-    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     expect(tokenBody.access_token).toBeDefined();
     expect((tokenBody.access_token as string).startsWith("apple_")).toBe(true);
     expect(tokenBody.refresh_token).toBeDefined();
@@ -211,7 +212,7 @@ describe("Apple plugin integration", () => {
   it("exchanges refresh_token for new access_token without new refresh_token", async () => {
     const { code } = await getAuthCode(app);
     const tokenRes = await exchangeCode(app, code);
-    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     const refreshToken = tokenBody.refresh_token as string;
 
     const refreshFormData = new URLSearchParams({
@@ -228,7 +229,7 @@ describe("Apple plugin integration", () => {
     });
 
     expect(refreshRes.status).toBe(200);
-    const refreshBody = await refreshRes.json() as Record<string, unknown>;
+    const refreshBody = (await refreshRes.json()) as Record<string, unknown>;
     expect(refreshBody.access_token).toBeDefined();
     expect((refreshBody.access_token as string).startsWith("apple_")).toBe(true);
     expect(refreshBody.id_token).toBeDefined();
@@ -269,7 +270,7 @@ describe("Apple plugin integration", () => {
     // Second exchange fails
     const res2 = await exchangeCode(app, code);
     expect(res2.status).toBe(400);
-    const body = await res2.json() as Record<string, unknown>;
+    const body = (await res2.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid_grant");
   });
 
@@ -313,7 +314,7 @@ describe("Apple plugin integration", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("unsupported_grant_type");
   });
 });

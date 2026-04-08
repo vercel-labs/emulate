@@ -1,10 +1,7 @@
 import { redirect } from "next/navigation";
 import { providers, getCallbackUrl } from "@/lib/providers";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ provider: string }> }) {
   const { provider: slug } = await params;
   const provider = providers[slug];
   if (!provider) {

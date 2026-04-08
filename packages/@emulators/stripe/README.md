@@ -1,6 +1,6 @@
 # @emulators/stripe
 
-Stripe API emulation with customers, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -18,6 +18,12 @@ npm install @emulators/stripe
 - `POST /v1/customers/:id` — update customer
 - `DELETE /v1/customers/:id` — delete customer
 - `GET /v1/customers` — list customers
+
+### Payment Methods
+- `GET /v1/payment_methods` — list payment methods
+
+### Customer Sessions
+- `POST /v1/customer_sessions` — create customer session
 
 ### Payment Intents
 - `POST /v1/payment_intents` — create payment intent

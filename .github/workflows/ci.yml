@@ -24,4 +24,10 @@ jobs:
 
       - run: pnpm build
 
+      - run: pnpm format:check
+
+      - run: pnpm type-check
+
+      - run: pnpm lint
+
       - run: pnpm test

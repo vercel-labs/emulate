@@ -21,13 +21,14 @@ export function productRoutes({ app, store, webhooks }: RouteContext): void {
 
   app.post("/v1/products", async (c) => {
     const body = await parseStripeBody(c);
-    if (!body.name) return stripeError(c, 400, "invalid_request_error", "Missing required param: name.", undefined, "name");
+    if (!body.name)
+      return stripeError(c, 400, "invalid_request_error", "Missing required param: name.", undefined, "name");
     const product = ss.products.insert({
       stripe_id: stripeId("prod"),
       name: body.name as string,
       description: (body.description as string) ?? null,
-      active: body.active ?? true,
-      metadata: body.metadata ?? {},
+      active: (body.active as boolean) ?? true,
+      metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
     await webhooks.dispatch(
@@ -42,7 +43,14 @@ export function productRoutes({ app, store, webhooks }: RouteContext): void {
 
   app.get("/v1/products/:id", (c) => {
     const product = ss.products.findOneBy("stripe_id", c.req.param("id"));
-    if (!product) return stripeError(c, 404, "invalid_request_error", `No such product: '${c.req.param("id")}'`, "resource_missing");
+    if (!product)
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such product: '${c.req.param("id")}'`,
+        "resource_missing",
+      );
     return c.json(formatProduct(product));
   });
 

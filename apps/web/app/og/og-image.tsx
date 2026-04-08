@@ -4,8 +4,7 @@ import { join } from "node:path";
 
 export { getPageTitle } from "@/lib/page-titles";
 
-let fontCache: { geistRegular: Buffer; geistPixelSquare: Buffer } | null =
-  null;
+let fontCache: { geistRegular: Buffer; geistPixelSquare: Buffer } | null = null;
 
 async function loadFonts() {
   if (fontCache) return fontCache;

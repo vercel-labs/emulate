@@ -197,9 +197,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       let appKeyResolver: AppKeyResolver | undefined;
       const { app, store, tokenMap } = createServer(plugin, {
         baseUrl,
-        appKeyResolver: entry.emulator.createAppKeyResolver
-          ? (appId) => appKeyResolver!(appId)
-          : undefined,
+        appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
       });
 
       if (entry.emulator.createAppKeyResolver) {

@@ -35,9 +35,7 @@ export interface ParsedDriveUpload {
 
 export function createDriveItemRecord(gs: GoogleStore, input: GoogleDriveItemInput): GoogleDriveItem {
   const itemId = input.google_id ?? generateUid("drv");
-  const existing = gs.driveItems
-    .findBy("user_email", input.user_email)
-    .find((item) => item.google_id === itemId);
+  const existing = gs.driveItems.findBy("user_email", input.user_email).find((item) => item.google_id === itemId);
   if (existing) return existing;
 
   const item = gs.driveItems.insert({
@@ -56,9 +54,7 @@ export function createDriveItemRecord(gs: GoogleStore, input: GoogleDriveItemInp
 }
 
 export function getDriveItemById(gs: GoogleStore, userEmail: string, fileId: string): GoogleDriveItem | undefined {
-  return gs.driveItems
-    .findBy("user_email", userEmail)
-    .find((item) => item.google_id === fileId);
+  return gs.driveItems.findBy("user_email", userEmail).find((item) => item.google_id === fileId);
 }
 
 export function listDriveItems(
@@ -70,7 +66,7 @@ export function listDriveItems(
   const parsed = parseDriveQuery(options.q ?? null);
 
   if (parsed.parentId) {
-    items = items.filter((item) => item.parent_google_ids.includes(parsed.parentId));
+    items = items.filter((item) => item.parent_google_ids.includes(parsed.parentId!));
   }
 
   if (parsed.requireNotTrashed) {

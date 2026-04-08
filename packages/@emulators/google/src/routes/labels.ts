@@ -50,18 +50,13 @@ export function labelRoutes({ app, store }: RouteContext): void {
     }
 
     if (findLabelByName(gs, authEmail, name)) {
-      return googleApiError(
-        c,
-        400,
-        "Label name exists or conflicts",
-        "failedPrecondition",
-        "FAILED_PRECONDITION",
-      );
+      return googleApiError(c, 400, "Label name exists or conflicts", "failedPrecondition", "FAILED_PRECONDITION");
     }
 
-    const color = body.color && typeof body.color === "object" && !Array.isArray(body.color)
-      ? (body.color as Record<string, unknown>)
-      : undefined;
+    const color =
+      body.color && typeof body.color === "object" && !Array.isArray(body.color)
+        ? (body.color as Record<string, unknown>)
+        : undefined;
 
     const label = createLabelRecord(gs, {
       user_email: authEmail,
@@ -70,13 +65,8 @@ export function labelRoutes({ app, store }: RouteContext): void {
       message_list_visibility: getString(body, "messageListVisibility", "message_list_visibility") ?? "show",
       label_list_visibility: getString(body, "labelListVisibility", "label_list_visibility") ?? "labelShow",
       color_background:
-        typeof color?.backgroundColor === "string"
-          ? color.backgroundColor
-          : getString(body, "color_background"),
-      color_text:
-        typeof color?.textColor === "string"
-          ? color.textColor
-          : getString(body, "color_text"),
+        typeof color?.backgroundColor === "string" ? color.backgroundColor : getString(body, "color_background"),
+      color_text: typeof color?.textColor === "string" ? color.textColor : getString(body, "color_text"),
     });
 
     return c.json(formatLabelResource(gs, label));
@@ -117,15 +107,11 @@ export function labelRoutes({ app, store }: RouteContext): void {
   });
 }
 
-async function saveLabel(
-  c: Context,
-  gs: ReturnType<typeof getGoogleStore>,
-  replaceMissingFields: boolean,
-) {
+async function saveLabel(c: Context, gs: ReturnType<typeof getGoogleStore>, replaceMissingFields: boolean) {
   const authEmail = requireGmailUser(c);
   if (authEmail instanceof Response) return authEmail;
 
-  const label = findLabelById(gs, authEmail, c.req.param("id"));
+  const label = findLabelById(gs, authEmail, c.req.param("id")!);
   if (!label) {
     return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
   }
@@ -136,20 +122,15 @@ async function saveLabel(
 
   const body = await parseGoogleBody(c);
   const name = getString(body, "name")?.trim();
-  const color = body.color && typeof body.color === "object" && !Array.isArray(body.color)
-    ? (body.color as Record<string, unknown>)
-    : undefined;
+  const color =
+    body.color && typeof body.color === "object" && !Array.isArray(body.color)
+      ? (body.color as Record<string, unknown>)
+      : undefined;
 
   if (name) {
     const conflicting = findLabelByName(gs, authEmail, name);
     if (conflicting && conflicting.gmail_id !== label.gmail_id) {
-      return googleApiError(
-        c,
-        400,
-        "Label name exists or conflicts",
-        "failedPrecondition",
-        "FAILED_PRECONDITION",
-      );
+      return googleApiError(c, 400, "Label name exists or conflicts", "failedPrecondition", "FAILED_PRECONDITION");
     }
   }
 
@@ -164,11 +145,11 @@ async function saveLabel(
     color_background:
       typeof color?.backgroundColor === "string"
         ? color.backgroundColor
-        : getString(body, "color_background") ?? (replaceMissingFields ? null : undefined),
+        : (getString(body, "color_background") ?? (replaceMissingFields ? null : undefined)),
     color_text:
       typeof color?.textColor === "string"
         ? color.textColor
-        : getString(body, "color_text") ?? (replaceMissingFields ? null : undefined),
+        : (getString(body, "color_text") ?? (replaceMissingFields ? null : undefined)),
   });
 
   return c.json(formatLabelResource(gs, updated));

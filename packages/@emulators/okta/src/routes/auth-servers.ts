@@ -10,7 +10,10 @@ import {
 import { getOktaStore } from "../store.js";
 
 function normalizeServerId(name: string): string {
-  const compact = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  const compact = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-");
   if (compact.length > 0) return compact;
   return generateOktaId("as");
 }

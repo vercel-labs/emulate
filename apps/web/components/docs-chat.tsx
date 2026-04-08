@@ -140,9 +140,13 @@ export function DocsChat({
   const [open, setOpen] = useState(defaultOpen);
   const [input, setInput] = useState("");
   const isDesktop = useSyncExternalStore(subscribeToDesktopQuery, getIsDesktop, () => false);
-  const hasMounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  const hasMounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
   const [desktopWidth, setDesktopWidth] = useState(
-    Math.min(DESKTOP_MAX_WIDTH, Math.max(DESKTOP_MIN_WIDTH, defaultWidth))
+    Math.min(DESKTOP_MAX_WIDTH, Math.max(DESKTOP_MIN_WIDTH, defaultWidth)),
   );
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -197,10 +201,7 @@ export function DocsChat({
 
       const onPointerMove = (ev: globalThis.PointerEvent) => {
         const delta = startX - ev.clientX;
-        const newWidth = Math.min(
-          DESKTOP_MAX_WIDTH,
-          Math.max(DESKTOP_MIN_WIDTH, startWidth + delta)
-        );
+        const newWidth = Math.min(DESKTOP_MAX_WIDTH, Math.max(DESKTOP_MIN_WIDTH, startWidth + delta));
         setDesktopWidth(newWidth);
       };
 
@@ -214,7 +215,7 @@ export function DocsChat({
       document.addEventListener("pointermove", onPointerMove);
       document.addEventListener("pointerup", onPointerUp);
     },
-    [desktopWidth]
+    [desktopWidth],
   );
 
   useEffect(() => {
@@ -300,7 +301,7 @@ export function DocsChat({
       sendMessage({ text: input });
       setInput("");
     },
-    [input, isLoading, sendMessage]
+    [input, isLoading, sendMessage],
   );
 
   const handleClear = useCallback(() => {
@@ -315,9 +316,7 @@ export function DocsChat({
   const chatPanel = (
     <>
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200 dark:border-neutral-800 shrink-0">
-        <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-          emulate docs
-        </span>
+        <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">emulate docs</span>
         <div className="flex items-center gap-3">
           {showMessages && (
             <button

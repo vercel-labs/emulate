@@ -1,5 +1,5 @@
 import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
-import { SERVICE_REGISTRY, SERVICE_NAMES } from "../registry.js";
+import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -68,9 +68,9 @@ function loadSeedConfig(seedPath?: string): LoadResult | null {
   return null;
 }
 
-function inferServicesFromConfig(config: SeedConfig): string[] | null {
+function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
   const found = SERVICE_NAMES.filter((k) => k in config);
-  return found.length > 0 ? found : null;
+  return found.length > 0 ? [...found] : null;
 }
 
 export async function startCommand(options: StartOptions): Promise<void> {
@@ -80,13 +80,13 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const seedConfig = loaded?.config ?? null;
   const configSource = loaded?.source ?? null;
 
-  let services: string[];
+  let services: ServiceName[];
   if (options.service) {
-    services = options.service.split(",").map((s) => s.trim());
+    services = options.service.split(",").map((s) => s.trim()) as ServiceName[];
   } else if (seedConfig) {
-    services = inferServicesFromConfig(seedConfig) ?? SERVICE_NAMES;
+    services = inferServicesFromConfig(seedConfig) ?? [...SERVICE_NAMES];
   } else {
-    services = SERVICE_NAMES;
+    services = [...SERVICE_NAMES];
   }
 
   for (const svc of services) {
@@ -120,6 +120,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
     const baseUrl = `http://localhost:${port}`;
     serviceUrls.push({ name: svc, url: baseUrl });
 
+    // eslint-disable-next-line prefer-const -- reassigned after closure captures it
     let cachedResolver: AppKeyResolver | undefined;
     const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
       ? (appId) => cachedResolver!(appId)

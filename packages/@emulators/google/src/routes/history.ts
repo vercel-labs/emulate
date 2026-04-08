@@ -32,9 +32,7 @@ export function historyRoutes({ app, store }: RouteContext): void {
       return googleApiError(c, 400, "Start history ID is required.", "invalidArgument", "INVALID_ARGUMENT");
     }
 
-    const historyTypes = url.searchParams
-      .getAll("historyTypes")
-      .filter(isHistoryChangeType);
+    const historyTypes = url.searchParams.getAll("historyTypes").filter(isHistoryChangeType);
 
     return c.json(
       listHistoryForUser(gs, authEmail, {
@@ -60,7 +58,13 @@ export function historyRoutes({ app, store }: RouteContext): void {
     const labelIds = getStringArray(body, "labelIds");
     const missingLabelIds = findMissingLabelIds(gs, authEmail, labelIds);
     if (missingLabelIds.length > 0) {
-      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(
+        c,
+        400,
+        `Invalid label IDs: ${missingLabelIds.join(", ")}`,
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
     }
 
     const expiration = String(Date.now() + 24 * 60 * 60 * 1000);

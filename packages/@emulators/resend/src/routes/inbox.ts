@@ -18,11 +18,12 @@ export function inboxRoutes(ctx: RouteContext): void {
     } else {
       for (const email of emails) {
         const letter = (email.from?.[0] ?? "?").toUpperCase();
-        const statusClass = email.status === "delivered"
-          ? "badge-granted"
-          : email.status === "bounced"
-            ? "badge-denied"
-            : "badge-requested";
+        const statusClass =
+          email.status === "delivered"
+            ? "badge-granted"
+            : email.status === "bounced"
+              ? "badge-denied"
+              : "badge-requested";
 
         body += `<a href="/inbox/${escapeAttr(email.uuid)}" class="app-link">
   <span class="org-icon">${escapeHtml(letter)}</span>
@@ -59,11 +60,8 @@ export function inboxRoutes(ctx: RouteContext): void {
       return c.html(html, 404);
     }
 
-    const statusClass = email.status === "delivered"
-      ? "badge-granted"
-      : email.status === "bounced"
-        ? "badge-denied"
-        : "badge-requested";
+    const statusClass =
+      email.status === "delivered" ? "badge-granted" : email.status === "bounced" ? "badge-denied" : "badge-requested";
 
     let tagsHtml = "";
     if (email.tags.length > 0) {
@@ -113,12 +111,7 @@ ${previewContent}
   ${email.scheduled_at ? ` | <strong>Scheduled:</strong> ${escapeHtml(email.scheduled_at)}` : ""}
 </div>`;
 
-    const html = renderCardPage(
-      email.subject,
-      `Email ${escapeHtml(email.uuid)}`,
-      body,
-      SERVICE_LABEL,
-    );
+    const html = renderCardPage(email.subject, `Email ${escapeHtml(email.uuid)}`, body, SERVICE_LABEL);
 
     return c.html(html);
   });

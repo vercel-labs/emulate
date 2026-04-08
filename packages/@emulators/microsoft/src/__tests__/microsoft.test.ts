@@ -131,7 +131,7 @@ describe("Microsoft plugin integration", () => {
   it("GET /.well-known/openid-configuration returns Microsoft OIDC discovery document", async () => {
     const res = await app.request(`${base}/.well-known/openid-configuration`);
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.issuer).toContain("/v2.0");
     expect(body.authorization_endpoint).toBe(`${base}/oauth2/v2.0/authorize`);
     expect(body.token_endpoint).toBe(`${base}/oauth2/v2.0/token`);
@@ -154,7 +154,7 @@ describe("Microsoft plugin integration", () => {
     const tenantId = "my-tenant-id";
     const res = await app.request(`${base}/${tenantId}/v2.0/.well-known/openid-configuration`);
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.issuer).toBe(`${base}/${tenantId}/v2.0`);
     expect(body.authorization_endpoint).toBe(`${base}/${tenantId}/oauth2/v2.0/authorize`);
     expect(body.token_endpoint).toBe(`${base}/${tenantId}/oauth2/v2.0/token`);
@@ -178,7 +178,7 @@ describe("Microsoft plugin integration", () => {
   it("GET /discovery/v2.0/keys returns JWKS with RSA public key", async () => {
     const res = await app.request(`${base}/discovery/v2.0/keys`);
     expect(res.status).toBe(200);
-    const body = await res.json() as { keys: Array<Record<string, unknown>> };
+    const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
     expect(body.keys).toHaveLength(1);
     const key = body.keys[0];
     expect(key.kty).toBe("RSA");
@@ -256,7 +256,7 @@ describe("Microsoft plugin integration", () => {
 
     const tokenRes = await exchangeCode(app, code);
     expect(tokenRes.status).toBe(200);
-    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     expect(tokenBody.access_token).toBeDefined();
     expect((tokenBody.access_token as string).startsWith("microsoft_")).toBe(true);
     expect(tokenBody.refresh_token).toBeDefined();
@@ -300,7 +300,7 @@ describe("Microsoft plugin integration", () => {
   it("exchanges refresh_token for new access_token with rotated refresh_token", async () => {
     const { code } = await getAuthCode(app);
     const tokenRes = await exchangeCode(app, code);
-    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     const refreshToken = tokenBody.refresh_token as string;
 
     const refreshFormData = new URLSearchParams({
@@ -317,7 +317,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(refreshRes.status).toBe(200);
-    const refreshBody = await refreshRes.json() as Record<string, unknown>;
+    const refreshBody = (await refreshRes.json()) as Record<string, unknown>;
     expect(refreshBody.access_token).toBeDefined();
     expect((refreshBody.access_token as string).startsWith("microsoft_")).toBe(true);
     expect(refreshBody.id_token).toBeDefined();
@@ -340,7 +340,7 @@ describe("Microsoft plugin integration", () => {
     // Second exchange fails
     const res2 = await exchangeCode(app, code);
     expect(res2.status).toBe(400);
-    const body = await res2.json() as Record<string, unknown>;
+    const body = (await res2.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid_grant");
   });
 
@@ -368,7 +368,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("unsupported_grant_type");
   });
 
@@ -377,14 +377,14 @@ describe("Microsoft plugin integration", () => {
   it("GET /oidc/userinfo returns user info when authenticated", async () => {
     const { code } = await getAuthCode(app);
     const tokenRes = await exchangeCode(app, code);
-    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     const accessToken = tokenBody.access_token as string;
 
     const res = await app.request(`${base}/oidc/userinfo`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.sub).toBeDefined();
     expect(body.email).toBe("testuser@example.com");
     expect(body.name).toBe("Test User");
@@ -396,14 +396,14 @@ describe("Microsoft plugin integration", () => {
   it("GET /v1.0/me returns Graph-style user profile when authenticated", async () => {
     const { code } = await getAuthCode(app);
     const tokenRes = await exchangeCode(app, code);
-    const tokenBody = await tokenRes.json() as Record<string, unknown>;
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     const accessToken = tokenBody.access_token as string;
 
     const res = await app.request(`${base}/v1.0/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.displayName).toBe("Test User");
     expect(body.mail).toBe("testuser@example.com");
     expect(body.userPrincipalName).toBe("testuser@example.com");
@@ -415,7 +415,9 @@ describe("Microsoft plugin integration", () => {
 
   it("GET /oauth2/v2.0/logout redirects when post_logout_redirect_uri is registered", async () => {
     const redirectUri = "http://localhost:3000/callback";
-    const res = await app.request(`${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`);
+    const res = await app.request(
+      `${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`,
+    );
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(redirectUri);
   });
@@ -429,7 +431,9 @@ describe("Microsoft plugin integration", () => {
 
   it("GET /oauth2/v2.0/logout rejects unregistered post_logout_redirect_uri", async () => {
     const redirectUri = "http://evil.example.com/phishing";
-    const res = await app.request(`${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`);
+    const res = await app.request(
+      `${base}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`,
+    );
     expect(res.status).toBe(400);
     const body = await res.text();
     expect(body).toBe("Invalid post_logout_redirect_uri");
@@ -478,7 +482,7 @@ describe("Microsoft plugin integration", () => {
     const { code } = await getAuthCode(app);
     const res = await exchangeCode(app, code, { client_secret: "wrong-secret" });
     expect(res.status).toBe(401);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid_client");
   });
 
@@ -504,7 +508,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.access_token).toBeDefined();
     expect((body.access_token as string).startsWith("microsoft_")).toBe(true);
   });
@@ -529,7 +533,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(401);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid_client");
   });
 
@@ -550,7 +554,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.access_token).toBeDefined();
     expect((body.access_token as string).startsWith("microsoft_")).toBe(true);
     expect(body.token_type).toBe("Bearer");
@@ -575,7 +579,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(401);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid_client");
   });
 
@@ -596,7 +600,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.access_token).toBeDefined();
   });
 
@@ -658,7 +662,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.access_token).toBeDefined();
     expect((body.access_token as string).startsWith("microsoft_")).toBe(true);
     expect(body.token_type).toBe("Bearer");
@@ -683,7 +687,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.scope).toBe("https://graph.microsoft.com/.default");
   });
 
@@ -702,7 +706,7 @@ describe("Microsoft plugin integration", () => {
     });
 
     expect(res.status).toBe(401);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.error).toBe("invalid_client");
   });
 
@@ -715,7 +719,7 @@ describe("Microsoft plugin integration", () => {
 
     const res = await app.request(`${base}/v1.0/users/${user!.oid}`);
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.id).toBe(user!.oid);
     expect(body.displayName).toBe("Test User");
     expect(body.mail).toBe("testuser@example.com");
@@ -726,7 +730,7 @@ describe("Microsoft plugin integration", () => {
   it("GET /v1.0/users/:id returns 404 for unknown user id", async () => {
     const res = await app.request(`${base}/v1.0/users/00000000-0000-0000-0000-000000000000`);
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: Record<string, unknown> };
+    const body = (await res.json()) as { error: Record<string, unknown> };
     expect(body.error.code).toBe("Request_ResourceNotFound");
   });
 });

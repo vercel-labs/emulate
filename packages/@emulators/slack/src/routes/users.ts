@@ -16,7 +16,9 @@ export function usersRoutes(ctx: RouteContext): void {
     const limit = Math.min(Number(body.limit) || 100, 1000);
     const cursor = typeof body.cursor === "string" ? body.cursor : "";
 
-    const allUsers = ss().users.all().filter((u) => !u.deleted);
+    const allUsers = ss()
+      .users.all()
+      .filter((u) => !u.deleted);
 
     let startIndex = 0;
     if (cursor) {
@@ -25,9 +27,7 @@ export function usersRoutes(ctx: RouteContext): void {
     }
 
     const page = allUsers.slice(startIndex, startIndex + limit);
-    const nextCursor = startIndex + limit < allUsers.length
-      ? allUsers[startIndex + limit].user_id
-      : "";
+    const nextCursor = startIndex + limit < allUsers.length ? allUsers[startIndex + limit].user_id : "";
 
     return slackOk(c, {
       members: page.map(formatUser),
