@@ -1113,8 +1113,10 @@ describe("Google plugin integration", () => {
     expect(doc.version).toBe("v3");
     expect(doc.id).toBe("calendar:v3");
 
-    // Verify rootUrl reflects the server origin
+    // Verify URLs reflect the server origin (baseUrl/basePath required by SDKs)
     expect(doc.rootUrl).toMatch(/^https?:\/\//);
+    expect(doc.baseUrl).toMatch(/^https?:\/\/.*\/calendar\/v3\/$/);
+    expect(doc.basePath).toBe("/calendar/v3/");
     expect(doc.servicePath).toBe("calendar/v3/");
 
     // Verify all implemented resources are described
