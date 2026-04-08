@@ -31,8 +31,8 @@ export function emailAddressRoutes({ app, store, tokenMap }: RouteContext): void
     const body = await readJsonBody(c);
     const userId = body.user_id as string;
     const emailAddr = body.email_address as string;
-    const verified = body.verified as boolean ?? false;
-    const primary = body.primary as boolean ?? false;
+    const verified = (body.verified as boolean) ?? false;
+    const primary = (body.primary as boolean) ?? false;
 
     if (!userId || !emailAddr) {
       return clerkError(c, 422, "INVALID_REQUEST_BODY", "user_id and email_address are required");

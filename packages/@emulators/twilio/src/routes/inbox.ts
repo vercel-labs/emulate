@@ -19,7 +19,9 @@ export function inboxRoutes(ctx: RouteContext): void {
     let contentHtml = "";
 
     if (tab === "messages") {
-      const messages = ts().messages.all().sort((a, b) => b.id - a.id);
+      const messages = ts()
+        .messages.all()
+        .sort((a, b) => b.id - a.id);
       const rows = messages
         .map(
           (m) =>
@@ -43,7 +45,9 @@ export function inboxRoutes(ctx: RouteContext): void {
           </table>
         </div>`;
     } else if (tab === "verifications") {
-      const verifications = ts().verifications.all().sort((a, b) => b.id - a.id);
+      const verifications = ts()
+        .verifications.all()
+        .sort((a, b) => b.id - a.id);
       const rows = verifications
         .map(
           (v) =>
@@ -67,7 +71,9 @@ export function inboxRoutes(ctx: RouteContext): void {
           </table>
         </div>`;
     } else if (tab === "calls") {
-      const calls = ts().calls.all().sort((a, b) => b.id - a.id);
+      const calls = ts()
+        .calls.all()
+        .sort((a, b) => b.id - a.id);
       const rows = calls
         .map(
           (call) =>

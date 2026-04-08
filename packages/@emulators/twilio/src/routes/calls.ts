@@ -35,19 +35,22 @@ export function callRoutes(ctx: RouteContext): void {
       end_time: now,
     });
 
-    return c.json({
-      sid: call.sid,
-      account_sid: call.account_sid,
-      to: call.to,
-      from: call.from,
-      status: call.status,
-      direction: call.direction,
-      duration: call.duration,
-      start_time: call.start_time,
-      end_time: call.end_time,
-      date_created: call.created_at,
-      uri: `/2010-04-01/Accounts/${accountSid}/Calls/${call.sid}.json`,
-    }, 201);
+    return c.json(
+      {
+        sid: call.sid,
+        account_sid: call.account_sid,
+        to: call.to,
+        from: call.from,
+        status: call.status,
+        direction: call.direction,
+        duration: call.duration,
+        start_time: call.start_time,
+        end_time: call.end_time,
+        date_created: call.created_at,
+        uri: `/2010-04-01/Accounts/${accountSid}/Calls/${call.sid}.json`,
+      },
+      201,
+    );
   });
 
   // List calls

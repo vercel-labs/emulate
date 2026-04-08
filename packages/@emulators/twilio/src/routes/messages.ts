@@ -36,20 +36,23 @@ export function messageRoutes(ctx: RouteContext): void {
       date_sent: now,
     });
 
-    return c.json({
-      sid: message.sid,
-      account_sid: message.account_sid,
-      to: message.to,
-      from: message.from,
-      body: message.body,
-      status: message.status,
-      direction: message.direction,
-      num_segments: message.num_segments,
-      date_created: message.created_at,
-      date_sent: message.date_sent,
-      date_updated: message.updated_at,
-      uri: `/2010-04-01/Accounts/${accountSid}/Messages/${message.sid}.json`,
-    }, 201);
+    return c.json(
+      {
+        sid: message.sid,
+        account_sid: message.account_sid,
+        to: message.to,
+        from: message.from,
+        body: message.body,
+        status: message.status,
+        direction: message.direction,
+        num_segments: message.num_segments,
+        date_created: message.created_at,
+        date_sent: message.date_sent,
+        date_updated: message.updated_at,
+        uri: `/2010-04-01/Accounts/${accountSid}/Messages/${message.sid}.json`,
+      },
+      201,
+    );
   });
 
   // List messages

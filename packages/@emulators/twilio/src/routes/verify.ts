@@ -35,15 +35,18 @@ export function verifyRoutes(ctx: RouteContext): void {
       expires_at: expiresAt,
     });
 
-    return c.json({
-      sid: verification.sid,
-      service_sid: verification.service_sid,
-      to: verification.to,
-      channel: verification.channel,
-      status: verification.status,
-      date_created: verification.created_at,
-      date_updated: verification.updated_at,
-    }, 201);
+    return c.json(
+      {
+        sid: verification.sid,
+        service_sid: verification.service_sid,
+        to: verification.to,
+        channel: verification.channel,
+        status: verification.status,
+        date_created: verification.created_at,
+        date_updated: verification.updated_at,
+      },
+      201,
+    );
   });
 
   // Check verification
