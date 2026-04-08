@@ -172,6 +172,169 @@ describe("Resend plugin - Emails", () => {
   });
 });
 
+describe("Resend plugin - Idempotency-Key", () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    app = createTestApp().app;
+  });
+
+  it("deduplicates emails with the same Idempotency-Key", async () => {
+    const payload = { from: "a@b.com", to: "c@d.com", subject: "Dedup" };
+    const headers = { ...authHeaders(), "Idempotency-Key": "key-123" };
+
+    const r1 = await app.request(`${base}/emails`, {
+      method: "POST", headers, body: JSON.stringify(payload),
+    });
+    const r2 = await app.request(`${base}/emails`, {
+      method: "POST", headers, body: JSON.stringify(payload),
+    });
+
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const id1 = ((await r1.json()) as { id: string }).id;
+    const id2 = ((await r2.json()) as { id: string }).id;
+    expect(id1).toBe(id2);
+
+    // Verify only one email was created
+    const list = await app.request(`${base}/emails`, { headers: authHeaders() });
+    const emails = ((await list.json()) as { data: any[] }).data;
+    expect(emails.filter((e: any) => e.subject === "Dedup")).toHaveLength(1);
+  });
+
+  it("different Idempotency-Keys create separate emails", async () => {
+    const payload = { from: "a@b.com", to: "c@d.com", subject: "Separate" };
+
+    const r1 = await app.request(`${base}/emails`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Idempotency-Key": "key-A" },
+      body: JSON.stringify(payload),
+    });
+    const r2 = await app.request(`${base}/emails`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Idempotency-Key": "key-B" },
+      body: JSON.stringify(payload),
+    });
+
+    const id1 = ((await r1.json()) as { id: string }).id;
+    const id2 = ((await r2.json()) as { id: string }).id;
+    expect(id1).not.toBe(id2);
+  });
+
+  it("returns 409 when same key is used with a different payload", async () => {
+    const headers = { ...authHeaders(), "Idempotency-Key": "key-conflict" };
+
+    const r1 = await app.request(`${base}/emails`, {
+      method: "POST", headers,
+      body: JSON.stringify({ from: "a@b.com", to: "c@d.com", subject: "Original" }),
+    });
+    expect(r1.status).toBe(200);
+
+    const r2 = await app.request(`${base}/emails`, {
+      method: "POST", headers,
+      body: JSON.stringify({ from: "a@b.com", to: "c@d.com", subject: "Different" }),
+    });
+    expect(r2.status).toBe(409);
+    const body = (await r2.json()) as { name: string; message: string };
+    expect(body.name).toBe("invalid_idempotent_request");
+  });
+
+  it("no Idempotency-Key header sends normally without dedup", async () => {
+    const payload = { from: "a@b.com", to: "c@d.com", subject: "NoKey" };
+
+    const r1 = await app.request(`${base}/emails`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify(payload),
+    });
+    const r2 = await app.request(`${base}/emails`, {
+      method: "POST", headers: authHeaders(), body: JSON.stringify(payload),
+    });
+
+    const id1 = ((await r1.json()) as { id: string }).id;
+    const id2 = ((await r2.json()) as { id: string }).id;
+    expect(id1).not.toBe(id2);
+  });
+
+  it("deduplicates batch emails with the same Idempotency-Key", async () => {
+    const batch = [
+      { from: "a@b.com", to: "c@d.com", subject: "B1" },
+      { from: "a@b.com", to: "e@f.com", subject: "B2" },
+    ];
+    const headers = { ...authHeaders(), "Idempotency-Key": "batch-key-1" };
+
+    const r1 = await app.request(`${base}/emails/batch`, {
+      method: "POST", headers, body: JSON.stringify(batch),
+    });
+    const r2 = await app.request(`${base}/emails/batch`, {
+      method: "POST", headers, body: JSON.stringify(batch),
+    });
+
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    const data1 = ((await r1.json()) as { data: Array<{ id: string }> }).data;
+    const data2 = ((await r2.json()) as { data: Array<{ id: string }> }).data;
+    expect(data1.length).toBe(2);
+    expect(data2.length).toBe(2);
+    expect(data1[0].id).toBe(data2[0].id);
+    expect(data1[1].id).toBe(data2[1].id);
+  });
+
+  it("does not dispatch webhooks on deduplicated request", async () => {
+    const ctx = createTestApp();
+    const a = ctx.app;
+    let webhookCount = 0;
+    const orig = ctx.webhooks.dispatch.bind(ctx.webhooks);
+    ctx.webhooks.dispatch = async (...args: any[]) => { webhookCount++; return (orig as any)(...args); };
+
+    await a.request(`${base}/emails`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Idempotency-Key": "wh-dedup" },
+      body: JSON.stringify({ from: "a@b.com", to: "c@d.com", subject: "WH" }),
+    });
+    webhookCount = 0;
+    await a.request(`${base}/emails`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Idempotency-Key": "wh-dedup" },
+      body: JSON.stringify({ from: "a@b.com", to: "c@d.com", subject: "WH" }),
+    });
+    expect(webhookCount).toBe(0);
+  });
+
+  it("does not expose idempotency_key in API responses", async () => {
+    const r = await app.request(`${base}/emails`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Idempotency-Key": "hidden-key" },
+      body: JSON.stringify({ from: "a@b.com", to: "c@d.com", subject: "Hidden" }),
+    });
+    const { id } = (await r.json()) as { id: string };
+
+    const detail = await app.request(`${base}/emails/${id}`, { headers: authHeaders() });
+    const detailBody = (await detail.json()) as any;
+    expect(detailBody.idempotency_key).toBeUndefined();
+
+    const list = await app.request(`${base}/emails`, { headers: authHeaders() });
+    const listBody = (await list.json()) as any;
+    expect(listBody.data.every((e: any) => e.idempotency_key === undefined)).toBe(true);
+  });
+
+  it("batch returns 409 when same key is used with a different payload", async () => {
+    const headers = { ...authHeaders(), "Idempotency-Key": "batch-conflict" };
+
+    const r1 = await app.request(`${base}/emails/batch`, {
+      method: "POST", headers,
+      body: JSON.stringify([{ from: "a@b.com", to: "c@d.com", subject: "Original" }]),
+    });
+    expect(r1.status).toBe(200);
+
+    const r2 = await app.request(`${base}/emails/batch`, {
+      method: "POST", headers,
+      body: JSON.stringify([{ from: "a@b.com", to: "c@d.com", subject: "Changed" }]),
+    });
+    expect(r2.status).toBe(409);
+    const body = (await r2.json()) as { name: string };
+    expect(body.name).toBe("invalid_idempotent_request");
+  });
+});
+
 describe("Resend plugin - Domains", () => {
   let app: Hono;
 

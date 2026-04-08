@@ -11,7 +11,7 @@ export interface ResendStore {
 
 export function getResendStore(store: Store): ResendStore {
   return {
-    emails: store.collection<ResendEmail>("resend.emails", ["uuid"]),
+    emails: store.collection<ResendEmail>("resend.emails", ["uuid", "idempotency_key"]),
     domains: store.collection<ResendDomain>("resend.domains", ["uuid", "name"]),
     apiKeys: store.collection<ResendApiKey>("resend.api_keys", ["uuid"]),
     audiences: store.collection<ResendAudience>("resend.audiences", ["uuid"]),
