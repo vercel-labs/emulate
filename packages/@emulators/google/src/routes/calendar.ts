@@ -21,8 +21,91 @@ import {
 } from "../route-helpers.js";
 import { getGoogleStore } from "../store.js";
 
-export function calendarRoutes({ app, store }: RouteContext): void {
+export function calendarRoutes({ app, store, baseUrl }: RouteContext): void {
   const gs = getGoogleStore(store);
+
+  // Google API Discovery Document for Calendar v3.
+  // Enables google-api-python-client build("calendar", "v3") and similar SDK bootstrapping.
+  // Returns a minimal document describing the routes this emulator actually implements.
+  // No auth required — matches real Google behavior.
+  app.get("/discovery/v1/apis/calendar/v3/rest", (c) => {
+    const origin = baseUrl || new URL(c.req.url).origin;
+    return c.json({
+      kind: "discovery#restDescription",
+      discoveryVersion: "v1",
+      id: "calendar:v3",
+      name: "calendar",
+      version: "v3",
+      title: "Google Calendar API",
+      description: "Emulated Google Calendar API",
+      protocol: "rest",
+      rootUrl: `${origin}/`,
+      servicePath: "calendar/v3/",
+      batchPath: "batch/calendar/v3",
+      parameters: {},
+      schemas: {},
+      resources: {
+        calendarList: {
+          methods: {
+            list: {
+              id: "calendar.calendarList.list",
+              path: "users/me/calendarList",
+              httpMethod: "GET",
+              description: "Returns the calendars on the user's calendar list.",
+              response: { $ref: "CalendarList" },
+            },
+          },
+        },
+        events: {
+          methods: {
+            list: {
+              id: "calendar.events.list",
+              path: "calendars/{calendarId}/events",
+              httpMethod: "GET",
+              description: "Returns events on the specified calendar.",
+              parameters: {
+                calendarId: { type: "string", required: true, location: "path" },
+              },
+              response: { $ref: "Events" },
+            },
+            insert: {
+              id: "calendar.events.insert",
+              path: "calendars/{calendarId}/events",
+              httpMethod: "POST",
+              description: "Creates an event.",
+              parameters: {
+                calendarId: { type: "string", required: true, location: "path" },
+              },
+              request: { $ref: "Event" },
+              response: { $ref: "Event" },
+            },
+            delete: {
+              id: "calendar.events.delete",
+              path: "calendars/{calendarId}/events/{eventId}",
+              httpMethod: "DELETE",
+              description: "Deletes an event.",
+              parameters: {
+                calendarId: { type: "string", required: true, location: "path" },
+                eventId: { type: "string", required: true, location: "path" },
+              },
+            },
+          },
+        },
+        freebusy: {
+          methods: {
+            query: {
+              id: "calendar.freebusy.query",
+              path: "freeBusy",
+              httpMethod: "POST",
+              description: "Returns free/busy information for a set of calendars and groups.",
+              request: { $ref: "FreeBusyRequest" },
+              response: { $ref: "FreeBusyResponse" },
+            },
+          },
+        },
+      },
+    });
+  });
 
   app.get("/calendar/v3/users/:userId/calendarList", (c) => {
     const authEmail = requireGmailUser(c);
