@@ -215,9 +215,10 @@ ${prefixesXml}
       return awsXmlResponse(c, xml);
     }
 
-    const body = await c.req.text();
+    const bodyBuffer = Buffer.from(await c.req.arrayBuffer());
+    const body = bodyBuffer.toString("base64");
     const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
-    const etag = md5(body);
+    const etag = md5(bodyBuffer);
 
     // Extract user metadata (x-amz-meta-*)
     const metadata: Record<string, string> = {};
@@ -235,7 +236,7 @@ ${prefixesXml}
       aws().s3Objects.update(existing.id, {
         body,
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: bodyBuffer.byteLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -246,7 +247,7 @@ ${prefixesXml}
         key,
         body,
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: bodyBuffer.byteLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -284,7 +285,7 @@ ${prefixesXml}
       headers[`x-amz-meta-${k}`] = v;
     }
 
-    return c.text(obj.body, 200, headers);
+    return c.body(Buffer.from(obj.body, "base64"), 200, headers);
   });
 
   // HeadObject - HEAD /s3/:bucket/:key{.+}
