@@ -22,9 +22,7 @@ export default async function VerifyPage() {
         <CardContent className="flex flex-col gap-4">
           <VerifyForm />
           <div className="rounded-lg border border-dashed border-border bg-muted/50 p-3 text-center">
-            <p className="text-xs text-muted-foreground mb-2">
-              Using the emulator? View the email in the inbox:
-            </p>
+            <p className="text-xs text-muted-foreground mb-2">Using the emulator? View the email in the inbox:</p>
             <a
               href="/emulate/resend/inbox"
               target="_blank"

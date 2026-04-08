@@ -1,18 +1,6 @@
 import type { Hono } from "hono";
-import type {
-  AppEnv,
-  RouteContext,
-  ServicePlugin,
-  Store,
-  TokenMap,
-  WebhookDispatcher,
-} from "@emulators/core";
-import {
-  generateClerkId,
-  nowUnix,
-  createDefaultUser,
-  createDefaultEmailAddress,
-} from "./helpers.js";
+import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
+import { generateClerkId, nowUnix, createDefaultUser, createDefaultEmailAddress } from "./helpers.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { userRoutes } from "./routes/users.js";
 import { emailAddressRoutes } from "./routes/email-addresses.js";
@@ -68,9 +56,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   const userInput = createDefaultUser();
   const user = cs.users.insert(userInput);
 
-  const email = cs.emailAddresses.insert(
-    createDefaultEmailAddress(user.clerk_id, "test@example.com", true),
-  );
+  const email = cs.emailAddresses.insert(createDefaultEmailAddress(user.clerk_id, "test@example.com", true));
 
   cs.users.update(user.id, { primary_email_address_id: email.email_id });
 
@@ -145,7 +131,12 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
 
   if (config.organizations) {
     for (const orgCfg of config.organizations) {
-      const existingSlug = orgCfg.slug ?? orgCfg.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const existingSlug =
+        orgCfg.slug ??
+        orgCfg.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
       const existing = cs.organizations.findOneBy("slug", existingSlug);
       if (existing) continue;
 
@@ -175,9 +166,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
           const user = cs.users.findOneBy("clerk_id", emailEntry.user_id);
           if (!user) continue;
 
-          const existingMembership = cs.memberships
-            .findBy("org_id", orgId)
-            .find((m) => m.user_id === user.clerk_id);
+          const existingMembership = cs.memberships.findBy("org_id", orgId).find((m) => m.user_id === user.clerk_id);
           if (existingMembership) continue;
 
           const role = memberCfg.role.startsWith("org:") ? memberCfg.role : `org:${memberCfg.role}`;
@@ -186,9 +175,15 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
             org_id: orgId,
             user_id: user.clerk_id,
             role,
-            permissions: role === "org:admin"
-              ? ["org:sys_profile:manage", "org:sys_profile:delete", "org:sys_memberships:read", "org:sys_memberships:manage"]
-              : ["org:sys_memberships:read"],
+            permissions:
+              role === "org:admin"
+                ? [
+                    "org:sys_profile:manage",
+                    "org:sys_profile:delete",
+                    "org:sys_memberships:read",
+                    "org:sys_memberships:manage",
+                  ]
+                : ["org:sys_memberships:read"],
             public_metadata: {},
             private_metadata: {},
             created_at_unix: now,
@@ -223,13 +218,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
 
 export const clerkPlugin: ServicePlugin = {
   name: "clerk",
-  register(
-    app: Hono<AppEnv>,
-    store: Store,
-    webhooks: WebhookDispatcher,
-    baseUrl: string,
-    tokenMap?: TokenMap,
-  ): void {
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userRoutes(ctx);
