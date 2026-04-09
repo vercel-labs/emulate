@@ -44,7 +44,7 @@ describe("AWS plugin - S3 Buckets", () => {
   });
 
   it("lists default buckets", async () => {
-    const res = await app.request(`${base}/s3/`, { method: "GET", headers: authHeaders() });
+    const res = await app.request(`${base}/`, { method: "GET", headers: authHeaders() });
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("emulate-default");
@@ -52,50 +52,50 @@ describe("AWS plugin - S3 Buckets", () => {
   });
 
   it("creates a bucket", async () => {
-    const res = await app.request(`${base}/s3/my-test-bucket`, {
+    const res = await app.request(`${base}/my-test-bucket`, {
       method: "PUT",
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
 
     // Verify bucket appears in list
-    const listRes = await app.request(`${base}/s3/`, { method: "GET", headers: authHeaders() });
+    const listRes = await app.request(`${base}/`, { method: "GET", headers: authHeaders() });
     const text = await listRes.text();
     expect(text).toContain("my-test-bucket");
   });
 
   it("rejects duplicate bucket", async () => {
-    await app.request(`${base}/s3/dup-bucket`, { method: "PUT", headers: authHeaders() });
-    const res = await app.request(`${base}/s3/dup-bucket`, { method: "PUT", headers: authHeaders() });
+    await app.request(`${base}/dup-bucket`, { method: "PUT", headers: authHeaders() });
+    const res = await app.request(`${base}/dup-bucket`, { method: "PUT", headers: authHeaders() });
     expect(res.status).toBe(409);
     const text = await res.text();
     expect(text).toContain("BucketAlreadyOwnedByYou");
   });
 
   it("deletes a bucket", async () => {
-    await app.request(`${base}/s3/del-bucket`, { method: "PUT", headers: authHeaders() });
-    const res = await app.request(`${base}/s3/del-bucket`, { method: "DELETE", headers: authHeaders() });
+    await app.request(`${base}/del-bucket`, { method: "PUT", headers: authHeaders() });
+    const res = await app.request(`${base}/del-bucket`, { method: "DELETE", headers: authHeaders() });
     expect(res.status).toBe(204);
   });
 
   it("rejects deleting non-empty bucket", async () => {
-    await app.request(`${base}/s3/full-bucket`, { method: "PUT", headers: authHeaders() });
-    await app.request(`${base}/s3/full-bucket/file.txt`, {
+    await app.request(`${base}/full-bucket`, { method: "PUT", headers: authHeaders() });
+    await app.request(`${base}/full-bucket/file.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "hello",
     });
-    const res = await app.request(`${base}/s3/full-bucket`, { method: "DELETE", headers: authHeaders() });
+    const res = await app.request(`${base}/full-bucket`, { method: "DELETE", headers: authHeaders() });
     expect(res.status).toBe(409);
     const text = await res.text();
     expect(text).toContain("BucketNotEmpty");
   });
 
   it("checks bucket existence with HEAD", async () => {
-    const res = await app.request(`${base}/s3/emulate-default`, { method: "HEAD", headers: authHeaders() });
+    const res = await app.request(`${base}/emulate-default`, { method: "HEAD", headers: authHeaders() });
     expect(res.status).toBe(200);
 
-    const notFound = await app.request(`${base}/s3/nonexistent`, { method: "HEAD", headers: authHeaders() });
+    const notFound = await app.request(`${base}/nonexistent`, { method: "HEAD", headers: authHeaders() });
     expect(notFound.status).toBe(404);
   });
 });
@@ -108,7 +108,7 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("puts and gets an object", async () => {
-    const putRes = await app.request(`${base}/s3/emulate-default/test.txt`, {
+    const putRes = await app.request(`${base}/emulate-default/test.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "hello world",
@@ -116,7 +116,7 @@ describe("AWS plugin - S3 Objects", () => {
     expect(putRes.status).toBe(200);
     expect(putRes.headers.get("ETag")).toBeDefined();
 
-    const getRes = await app.request(`${base}/s3/emulate-default/test.txt`, {
+    const getRes = await app.request(`${base}/emulate-default/test.txt`, {
       method: "GET",
       headers: authHeaders(),
     });
@@ -127,7 +127,7 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("returns 404 for missing object", async () => {
-    const res = await app.request(`${base}/s3/emulate-default/missing.txt`, {
+    const res = await app.request(`${base}/emulate-default/missing.txt`, {
       method: "GET",
       headers: authHeaders(),
     });
@@ -137,18 +137,18 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("overwrites an existing object", async () => {
-    await app.request(`${base}/s3/emulate-default/overwrite.txt`, {
+    await app.request(`${base}/emulate-default/overwrite.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "version 1",
     });
-    await app.request(`${base}/s3/emulate-default/overwrite.txt`, {
+    await app.request(`${base}/emulate-default/overwrite.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "version 2",
     });
 
-    const res = await app.request(`${base}/s3/emulate-default/overwrite.txt`, {
+    const res = await app.request(`${base}/emulate-default/overwrite.txt`, {
       method: "GET",
       headers: authHeaders(),
     });
@@ -157,19 +157,19 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("deletes an object", async () => {
-    await app.request(`${base}/s3/emulate-default/to-delete.txt`, {
+    await app.request(`${base}/emulate-default/to-delete.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "delete me",
     });
 
-    const delRes = await app.request(`${base}/s3/emulate-default/to-delete.txt`, {
+    const delRes = await app.request(`${base}/emulate-default/to-delete.txt`, {
       method: "DELETE",
       headers: authHeaders(),
     });
     expect(delRes.status).toBe(204);
 
-    const getRes = await app.request(`${base}/s3/emulate-default/to-delete.txt`, {
+    const getRes = await app.request(`${base}/emulate-default/to-delete.txt`, {
       method: "GET",
       headers: authHeaders(),
     });
@@ -177,18 +177,18 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("lists objects in a bucket", async () => {
-    await app.request(`${base}/s3/emulate-default/dir/a.txt`, {
+    await app.request(`${base}/emulate-default/dir/a.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "a",
     });
-    await app.request(`${base}/s3/emulate-default/dir/b.txt`, {
+    await app.request(`${base}/emulate-default/dir/b.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "b",
     });
 
-    const res = await app.request(`${base}/s3/emulate-default?prefix=dir/`, {
+    const res = await app.request(`${base}/emulate-default?prefix=dir/`, {
       method: "GET",
       headers: authHeaders(),
     });
@@ -199,13 +199,13 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("handles HEAD for objects", async () => {
-    await app.request(`${base}/s3/emulate-default/head-test.txt`, {
+    await app.request(`${base}/emulate-default/head-test.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "head test",
     });
 
-    const res = await app.request(`${base}/s3/emulate-default/head-test.txt`, {
+    const res = await app.request(`${base}/emulate-default/head-test.txt`, {
       method: "HEAD",
       headers: authHeaders(),
     });
@@ -214,13 +214,13 @@ describe("AWS plugin - S3 Objects", () => {
   });
 
   it("copies an object with x-amz-copy-source", async () => {
-    await app.request(`${base}/s3/emulate-default/source.txt`, {
+    await app.request(`${base}/emulate-default/source.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "text/plain" },
       body: "copy me",
     });
 
-    const copyRes = await app.request(`${base}/s3/emulate-default/dest.txt`, {
+    const copyRes = await app.request(`${base}/emulate-default/dest.txt`, {
       method: "PUT",
       headers: { ...authHeaders(), "x-amz-copy-source": "/emulate-default/source.txt" },
     });
@@ -228,13 +228,233 @@ describe("AWS plugin - S3 Objects", () => {
     const copyText = await copyRes.text();
     expect(copyText).toContain("CopyObjectResult");
 
-    const getRes = await app.request(`${base}/s3/emulate-default/dest.txt`, {
+    const getRes = await app.request(`${base}/emulate-default/dest.txt`, {
       method: "GET",
       headers: authHeaders(),
     });
     expect(getRes.status).toBe(200);
     const body = await getRes.text();
     expect(body).toBe("copy me");
+  });
+});
+
+describe("AWS plugin - S3 ListObjectsV2 pagination", () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    app = createTestApp().app;
+  });
+
+  it("paginates with max-keys and continuation-token", async () => {
+    // Upload 5 objects
+    for (let i = 0; i < 5; i++) {
+      await app.request(`${base}/emulate-default/page-${String(i).padStart(2, "0")}.txt`, {
+        method: "PUT",
+        headers: { ...authHeaders(), "Content-Type": "text/plain" },
+        body: `file ${i}`,
+      });
+    }
+
+    // First page: max-keys=2
+    const page1 = await app.request(`${base}/emulate-default?max-keys=2`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(page1.status).toBe(200);
+    const text1 = await page1.text();
+    expect(text1).toContain("<IsTruncated>true</IsTruncated>");
+    expect(text1).toContain("<KeyCount>2</KeyCount>");
+    expect(text1).toContain("NextContinuationToken");
+
+    // Extract continuation token
+    const tokenMatch = text1.match(/<NextContinuationToken>(.*?)<\/NextContinuationToken>/);
+    expect(tokenMatch).toBeTruthy();
+    const token = tokenMatch![1];
+
+    // Second page
+    const page2 = await app.request(
+      `${base}/emulate-default?max-keys=2&continuation-token=${encodeURIComponent(token)}`,
+      { method: "GET", headers: authHeaders() },
+    );
+    expect(page2.status).toBe(200);
+    const text2 = await page2.text();
+    expect(text2).toContain("<KeyCount>2</KeyCount>");
+    expect(text2).toContain("<ContinuationToken>");
+
+    // Third page (last)
+    const tokenMatch2 = text2.match(/<NextContinuationToken>(.*?)<\/NextContinuationToken>/);
+    expect(tokenMatch2).toBeTruthy();
+    const page3 = await app.request(
+      `${base}/emulate-default?max-keys=2&continuation-token=${encodeURIComponent(tokenMatch2![1])}`,
+      { method: "GET", headers: authHeaders() },
+    );
+    const text3 = await page3.text();
+    expect(text3).toContain("<IsTruncated>false</IsTruncated>");
+    expect(text3).toContain("<KeyCount>1</KeyCount>");
+    expect(text3).not.toContain("NextContinuationToken");
+  });
+
+  it("supports start-after parameter", async () => {
+    await app.request(`${base}/emulate-default/sa-a.txt`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "text/plain" },
+      body: "a",
+    });
+    await app.request(`${base}/emulate-default/sa-b.txt`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "text/plain" },
+      body: "b",
+    });
+    await app.request(`${base}/emulate-default/sa-c.txt`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "text/plain" },
+      body: "c",
+    });
+
+    const res = await app.request(`${base}/emulate-default?start-after=sa-a.txt`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("<Key>sa-a.txt</Key>");
+    expect(text).toContain("<Key>sa-b.txt</Key>");
+    expect(text).toContain("<Key>sa-c.txt</Key>");
+    expect(text).toContain("<StartAfter>sa-a.txt</StartAfter>");
+  });
+});
+
+describe("AWS plugin - S3 Presigned POST", () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    app = createTestApp().app;
+  });
+
+  it("uploads a file via presigned POST", async () => {
+    const form = new FormData();
+    form.append("key", "upload.txt");
+    form.append("Content-Type", "text/plain");
+    form.append("file", new Blob(["hello upload"], { type: "text/plain" }));
+
+    const res = await app.request(`${base}/emulate-default`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(204);
+
+    // Verify the object was stored
+    const getRes = await app.request(`${base}/emulate-default/upload.txt`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(getRes.status).toBe(200);
+    const body = await getRes.text();
+    expect(body).toBe("hello upload");
+  });
+
+  it("returns 201 XML when success_action_status is 201", async () => {
+    const form = new FormData();
+    form.append("key", "upload-201.txt");
+    form.append("Content-Type", "text/plain");
+    form.append("success_action_status", "201");
+    form.append("file", new Blob(["data"], { type: "text/plain" }));
+
+    const res = await app.request(`${base}/emulate-default`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    const text = await res.text();
+    expect(text).toContain("<PostResponse>");
+    expect(text).toContain("<Key>upload-201.txt</Key>");
+    expect(text).toContain("<ETag>");
+  });
+
+  it("validates policy with content-length-range", async () => {
+    const policy = Buffer.from(
+      JSON.stringify({
+        expiration: new Date(Date.now() + 60_000).toISOString(),
+        conditions: [{ bucket: "emulate-default" }, ["content-length-range", 0, 5]],
+      }),
+    ).toString("base64");
+
+    const form = new FormData();
+    form.append("key", "too-big.txt");
+    form.append("Policy", policy);
+    form.append("X-Amz-Signature", "fake");
+    form.append("file", new Blob(["this is way too big for the limit"], { type: "text/plain" }));
+
+    const res = await app.request(`${base}/emulate-default`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain("EntityTooLarge");
+  });
+
+  it("validates policy with starts-with on Content-Type", async () => {
+    const policy = Buffer.from(
+      JSON.stringify({
+        expiration: new Date(Date.now() + 60_000).toISOString(),
+        conditions: [{ bucket: "emulate-default" }, ["starts-with", "$Content-Type", "image/"]],
+      }),
+    ).toString("base64");
+
+    const form = new FormData();
+    form.append("key", "wrong-type.txt");
+    form.append("Content-Type", "text/plain");
+    form.append("Policy", policy);
+    form.append("X-Amz-Signature", "fake");
+    form.append("file", new Blob(["data"], { type: "text/plain" }));
+
+    const res = await app.request(`${base}/emulate-default`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(403);
+    const text = await res.text();
+    expect(text).toContain("AccessDenied");
+    expect(text).toContain("starts-with");
+  });
+
+  it("rejects expired policy", async () => {
+    const policy = Buffer.from(
+      JSON.stringify({
+        expiration: new Date(Date.now() - 60_000).toISOString(),
+        conditions: [{ bucket: "emulate-default" }],
+      }),
+    ).toString("base64");
+
+    const form = new FormData();
+    form.append("key", "expired.txt");
+    form.append("Policy", policy);
+    form.append("X-Amz-Signature", "fake");
+    form.append("file", new Blob(["data"], { type: "text/plain" }));
+
+    const res = await app.request(`${base}/emulate-default`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(403);
+    const text = await res.text();
+    expect(text).toContain("AccessDenied");
+    expect(text).toContain("expired");
+  });
+
+  it("returns 404 for non-existent bucket", async () => {
+    const form = new FormData();
+    form.append("key", "file.txt");
+    form.append("file", new Blob(["data"], { type: "text/plain" }));
+
+    const res = await app.request(`${base}/no-such-bucket`, {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(404);
+    const text = await res.text();
+    expect(text).toContain("NoSuchBucket");
   });
 });
 
@@ -666,7 +886,7 @@ describe("AWS plugin - Inspector", () => {
   });
 
   it("renders the S3 inspector page", async () => {
-    const res = await app.request(`${base}/`);
+    const res = await app.request(`${base}/_inspector`);
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("AWS Emulator");
@@ -675,7 +895,7 @@ describe("AWS plugin - Inspector", () => {
   });
 
   it("shows SQS tab", async () => {
-    const res = await app.request(`${base}/?tab=sqs`);
+    const res = await app.request(`${base}/_inspector?tab=sqs`);
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("SQS Queues");
@@ -683,10 +903,57 @@ describe("AWS plugin - Inspector", () => {
   });
 
   it("shows IAM tab", async () => {
-    const res = await app.request(`${base}/?tab=iam`);
+    const res = await app.request(`${base}/_inspector?tab=iam`);
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("IAM Users");
     expect(html).toContain("admin");
+  });
+
+  it("does not serve inspector at GET / (reserved for ListBuckets)", async () => {
+    const res = await app.request(`${base}/`, { method: "GET", headers: authHeaders() });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Should be XML ListBuckets response, not HTML inspector
+    expect(text).toContain("ListAllMyBucketsResult");
+    expect(text).not.toContain("<!DOCTYPE html>");
+  });
+});
+
+describe("AWS plugin - S3 backward-compat /s3/ aliases", () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    app = createTestApp().app;
+  });
+
+  it("lists buckets via /s3/", async () => {
+    const res = await app.request(`${base}/s3/`, { method: "GET", headers: authHeaders() });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("ListAllMyBucketsResult");
+    expect(text).toContain("emulate-default");
+  });
+
+  it("creates and lists objects via /s3/ prefix", async () => {
+    await app.request(`${base}/s3/emulate-default/compat.txt`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "text/plain" },
+      body: "backward compat",
+    });
+
+    const getRes = await app.request(`${base}/s3/emulate-default/compat.txt`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(getRes.status).toBe(200);
+    expect(await getRes.text()).toBe("backward compat");
+
+    const listRes = await app.request(`${base}/s3/emulate-default?prefix=compat`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(listRes.status).toBe(200);
+    expect(await listRes.text()).toContain("compat.txt");
   });
 });
