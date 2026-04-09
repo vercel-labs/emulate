@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import type { RouteContext } from "@emulators/core";
+import type { Context } from "hono";
+import type { AppEnv, RouteContext } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -65,6 +66,22 @@ function isPendingCodeExpired(p: PendingCode): boolean {
 }
 
 const SERVICE_LABEL = "Microsoft";
+type TenantSegment = string | null;
+
+function normalizeTenantId(tenant: TenantSegment): string {
+  if (!tenant || tenant === "common" || tenant === "organizations" || tenant === "consumers") {
+    return DEFAULT_TENANT_ID;
+  }
+  return tenant;
+}
+
+function buildTenantPath(tenant: TenantSegment, path: string): string {
+  return tenant ? `/${tenant}${path}` : path;
+}
+
+function buildTenantUrl(baseUrl: string, tenant: TenantSegment, path: string): string {
+  return `${baseUrl}${buildTenantPath(tenant, path)}`;
+}
 
 async function createIdToken(
   user: MicrosoftUser,
@@ -103,13 +120,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   // Microsoft uses /{tenant}/v2.0/.well-known/openid-configuration
   // We also serve at /.well-known/openid-configuration for convenience.
 
-  const oidcConfig = (tenantId: string) => ({
-    issuer: `${baseUrl}/${tenantId}/v2.0`,
-    authorization_endpoint: `${baseUrl}/oauth2/v2.0/authorize`,
-    token_endpoint: `${baseUrl}/oauth2/v2.0/token`,
+  const oidcConfig = (tenantId: TenantSegment) => ({
+    issuer: `${baseUrl}/${normalizeTenantId(tenantId)}/v2.0`,
+    authorization_endpoint: buildTenantUrl(baseUrl, tenantId, "/oauth2/v2.0/authorize"),
+    token_endpoint: buildTenantUrl(baseUrl, tenantId, "/oauth2/v2.0/token"),
     userinfo_endpoint: `${baseUrl}/oidc/userinfo`,
-    end_session_endpoint: `${baseUrl}/oauth2/v2.0/logout`,
-    jwks_uri: `${baseUrl}/discovery/v2.0/keys`,
+    end_session_endpoint: buildTenantUrl(baseUrl, tenantId, "/oauth2/v2.0/logout"),
+    jwks_uri: buildTenantUrl(baseUrl, tenantId, "/discovery/v2.0/keys"),
     response_types_supported: ["code"],
     response_modes_supported: ["query", "fragment", "form_post"],
     subject_types_supported: ["pairwise"],
@@ -141,17 +158,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   });
 
   app.get("/:tenant/v2.0/.well-known/openid-configuration", (c) => {
-    const tenant = c.req.param("tenant");
-    return c.json(
-      oidcConfig(
-        tenant === "common" || tenant === "organizations" || tenant === "consumers" ? DEFAULT_TENANT_ID : tenant,
-      ),
-    );
+    return c.json(oidcConfig(normalizeTenantId(c.req.param("tenant"))));
   });
 
   // ---------- JWKS ----------
 
-  app.get("/discovery/v2.0/keys", async (c) => {
+  const handleJwks = async (c: Context<AppEnv>) => {
     const { publicKey } = await keyPairPromise;
     const jwk = await exportJWK(publicKey);
     return c.json({
@@ -164,11 +176,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         },
       ],
     });
-  });
+  };
+
+  app.get("/discovery/v2.0/keys", handleJwks);
+  app.get("/:tenant/discovery/v2.0/keys", handleJwks);
 
   // ---------- Authorization page ----------
 
-  app.get("/oauth2/v2.0/authorize", (c) => {
+  const handleAuthorize = (c: Context<AppEnv>, tenant: TenantSegment) => {
     const client_id = c.req.query("client_id") ?? "";
     const redirect_uri = c.req.query("redirect_uri") ?? "";
     const scope = c.req.query("scope") ?? "";
@@ -213,7 +228,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           login: user.email,
           name: user.name,
           email: user.email,
-          formAction: "/oauth2/v2.0/authorize/callback",
+          formAction: buildTenantPath(tenant, "/oauth2/v2.0/authorize/callback"),
           hiddenFields: {
             email: user.email,
             redirect_uri,
@@ -232,11 +247,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
 
     return c.html(renderCardPage("Sign in with Microsoft", subtitleText, body, SERVICE_LABEL));
-  });
+  };
+
+  app.get("/oauth2/v2.0/authorize", (c) => handleAuthorize(c, null));
+  app.get("/:tenant/oauth2/v2.0/authorize", (c) => handleAuthorize(c, c.req.param("tenant")));
 
   // ---------- Authorization callback ----------
 
-  app.post("/oauth2/v2.0/authorize/callback", async (c) => {
+  const handleAuthorizeCallback = async (c: Context<AppEnv>) => {
     const body = await c.req.parseBody();
     const email = bodyStr(body.email);
     const redirect_uri = bodyStr(body.redirect_uri);
@@ -295,11 +313,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     if (state) url.searchParams.set("state", state);
 
     return c.redirect(url.toString(), 302);
-  });
+  };
+
+  app.post("/oauth2/v2.0/authorize/callback", handleAuthorizeCallback);
+  app.post("/:tenant/oauth2/v2.0/authorize/callback", handleAuthorizeCallback);
 
   // ---------- Token exchange ----------
 
-  app.post("/oauth2/v2.0/token", async (c) => {
+  const handleToken = async (c: Context<AppEnv>) => {
     const contentType = c.req.header("Content-Type") ?? "";
     const rawText = await c.req.text();
 
@@ -500,14 +521,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       });
     }
 
-    return c.json(
-      {
-        error: "unsupported_grant_type",
-        error_description: "Only authorization_code, refresh_token, and client_credentials are supported.",
-      },
-      400,
-    );
-  });
+    return c.json({ error: "unsupported_grant_type", error_description: "Only authorization_code, refresh_token, and client_credentials are supported." }, 400);
+  };
+
+  app.post("/oauth2/v2.0/token", handleToken);
+  app.post("/:tenant/oauth2/v2.0/token", handleToken);
 
   // ---------- UserInfo (Microsoft Graph /oidc/userinfo) ----------
 
@@ -639,7 +657,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
   // ---------- Logout ----------
 
-  app.get("/oauth2/v2.0/logout", (c) => {
+  const handleLogout = (c: Context<AppEnv>) => {
     const post_logout_redirect_uri = c.req.query("post_logout_redirect_uri");
     if (post_logout_redirect_uri) {
       // Validate against registered client redirect URIs
@@ -653,11 +671,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.redirect(post_logout_redirect_uri, 302);
     }
     return c.text("Logged out", 200);
-  });
+  };
+
+  app.get("/oauth2/v2.0/logout", handleLogout);
+  app.get("/:tenant/oauth2/v2.0/logout", handleLogout);
 
   // ---------- Token revocation ----------
 
-  app.post("/oauth2/v2.0/revoke", async (c) => {
+  const handleRevoke = async (c: Context<AppEnv>) => {
     const contentType = c.req.header("Content-Type") ?? "";
     const rawText = await c.req.text();
 
@@ -684,5 +705,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     return c.body(null, 200);
-  });
+  };
+
+  app.post("/oauth2/v2.0/revoke", handleRevoke);
+  app.post("/:tenant/oauth2/v2.0/revoke", handleRevoke);
 }
