@@ -90,6 +90,27 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
     await next();
   });
 
+  const startedAt = Date.now();
+
+  app.get("/_emulate/health", (c) =>
+    c.json({
+      status: "ready",
+      service: plugin.name,
+      uptime_ms: Date.now() - startedAt,
+    }),
+  );
+
+  app.post("/_emulate/snapshot", (c) => {
+    const snap = store.snapshot();
+    return c.json(snap);
+  });
+
+  app.put("/_emulate/snapshot", async (c) => {
+    const snap = await c.req.json();
+    store.restore(snap);
+    return c.json({ ok: true });
+  });
+
   plugin.register(app, store, webhooks, baseUrl, tokenMap);
 
   app.notFound((c) =>

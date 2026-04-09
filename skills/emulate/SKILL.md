@@ -96,7 +96,21 @@ await vercel.close()
 |--------|-------------|
 | `url` | Base URL of the running server |
 | `reset()` | Wipe the store and replay seed data |
+| `snapshot()` | Return a serializable snapshot of the current store state |
+| `restore(snapshot)` | Restore the store to a previously saved snapshot |
 | `close()` | Shut down the HTTP server, returns a Promise |
+
+### Snapshots
+
+Save and restore emulator state for reproducible test scenarios:
+
+```typescript
+const snap = github.snapshot()
+// ... run tests that mutate state ...
+github.restore(snap) // back to the saved state
+```
+
+Each service also exposes HTTP control endpoints at `/_emulate/snapshot` (POST to save, PUT to restore) and `/_emulate/health` (GET for readiness checks).
 
 ## Vitest / Jest Setup
 
