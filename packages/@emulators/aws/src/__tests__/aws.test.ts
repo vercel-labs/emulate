@@ -213,6 +213,26 @@ describe("AWS plugin - S3 Objects", () => {
     expect(res.headers.get("Content-Type")).toBe("text/plain");
   });
 
+  it("puts and gets binary data intact", async () => {
+    const binaryData = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0xfd, 0x80, 0x7f]);
+    const putRes = await app.request(`${base}/s3/emulate-default/binary.bin`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/octet-stream" },
+      body: binaryData,
+    });
+    expect(putRes.status).toBe(200);
+
+    const getRes = await app.request(`${base}/s3/emulate-default/binary.bin`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(getRes.status).toBe(200);
+    const responseBuffer = Buffer.from(await getRes.arrayBuffer());
+    expect(responseBuffer).toEqual(binaryData);
+    expect(getRes.headers.get("Content-Length")).toBe(String(binaryData.length));
+    expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
+  });
+
   it("copies an object with x-amz-copy-source", async () => {
     await app.request(`${base}/s3/emulate-default/source.txt`, {
       method: "PUT",
