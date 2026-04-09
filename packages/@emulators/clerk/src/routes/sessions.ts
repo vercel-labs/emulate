@@ -120,16 +120,7 @@ export function sessionRoutes({ app, store, baseUrl, tokenMap }: RouteContext): 
       }
     }
 
-    const jwt = await createSessionToken(
-      store,
-      user,
-      sessionId,
-      baseUrl,
-      orgId,
-      orgRole,
-      orgSlug,
-      orgPermissions,
-    );
+    const jwt = await createSessionToken(store, user, sessionId, baseUrl, orgId, orgRole, orgSlug, orgPermissions);
 
     cs.sessions.update(session.id, { last_active_at: nowUnix() });
 

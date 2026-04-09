@@ -156,21 +156,21 @@ describe("Clerk plugin integration", () => {
     it("returns discovery document", async () => {
       const res = await app.request(`${base}/.well-known/openid-configuration`);
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.issuer).toBe(base);
       expect(body.authorization_endpoint).toBe(`${base}/oauth/authorize`);
       expect(body.token_endpoint).toBe(`${base}/oauth/token`);
       expect(body.jwks_uri).toBe(`${base}/v1/jwks`);
       expect(body.userinfo_endpoint).toBe(`${base}/oauth/userinfo`);
       expect(body.code_challenge_methods_supported).toEqual(["plain", "S256"]);
-      expect((body.claims_supported as string[])).toContain("org_id");
-      expect((body.claims_supported as string[])).toContain("sid");
+      expect(body.claims_supported as string[]).toContain("org_id");
+      expect(body.claims_supported as string[]).toContain("sid");
     });
 
     it("returns JWKS with RS256 key", async () => {
       const res = await app.request(`${base}/v1/jwks`);
       expect(res.status).toBe(200);
-      const body = await res.json() as { keys: Array<Record<string, unknown>> };
+      const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
       expect(body.keys).toHaveLength(1);
       expect(body.keys[0].kty).toBe("RSA");
       expect(body.keys[0].kid).toBe("emulate-clerk-1");
@@ -207,7 +207,7 @@ describe("Clerk plugin integration", () => {
 
       const tokenRes = await exchangeCode(app, code);
       expect(tokenRes.status).toBe(200);
-      const body = await tokenRes.json() as Record<string, unknown>;
+      const body = (await tokenRes.json()) as Record<string, unknown>;
       expect((body.access_token as string).startsWith("clerk_")).toBe(true);
       expect(body.token_type).toBe("Bearer");
       expect(body.expires_in).toBe(3600);
@@ -225,7 +225,7 @@ describe("Clerk plugin integration", () => {
       expect(first.status).toBe(200);
       const second = await exchangeCode(app, code);
       expect(second.status).toBe(400);
-      const body = await second.json() as Record<string, unknown>;
+      const body = (await second.json()) as Record<string, unknown>;
       expect(body.error).toBe("invalid_grant");
     });
 
@@ -266,7 +266,7 @@ describe("Clerk plugin integration", () => {
     it("rejects requests without auth", async () => {
       const res = await app.request(`${base}/v1/users`);
       expect(res.status).toBe(401);
-      const body = await res.json() as { errors: Array<{ code: string }> };
+      const body = (await res.json()) as { errors: Array<{ code: string }> };
       expect(body.errors[0].code).toBe("UNAUTHORIZED");
     });
 
@@ -282,7 +282,7 @@ describe("Clerk plugin integration", () => {
     it("lists users with pagination", async () => {
       const res = await app.request(`${base}/v1/users`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: unknown[]; total_count: number; has_more: boolean };
+      const body = (await res.json()) as { data: unknown[]; total_count: number; has_more: boolean };
       expect(body.total_count).toBeGreaterThanOrEqual(3);
       expect(body.has_more).toBe(false);
       expect(body.data.length).toBeGreaterThanOrEqual(3);
@@ -291,7 +291,7 @@ describe("Clerk plugin integration", () => {
     it("lists users with limit and offset", async () => {
       const res = await app.request(`${base}/v1/users?limit=1&offset=0`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: unknown[]; total_count: number; has_more: boolean };
+      const body = (await res.json()) as { data: unknown[]; total_count: number; has_more: boolean };
       expect(body.data).toHaveLength(1);
       expect(body.has_more).toBe(true);
     });
@@ -299,7 +299,7 @@ describe("Clerk plugin integration", () => {
     it("filters users by query", async () => {
       const res = await app.request(`${base}/v1/users?query=alice`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: Array<{ first_name: string }>; total_count: number };
+      const body = (await res.json()) as { data: Array<{ first_name: string }>; total_count: number };
       expect(body.total_count).toBe(1);
       expect(body.data[0].first_name).toBe("Alice");
     });
@@ -307,7 +307,7 @@ describe("Clerk plugin integration", () => {
     it("filters users by email_address", async () => {
       const res = await app.request(`${base}/v1/users?email_address=bob@example.com`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: Array<{ first_name: string }>; total_count: number };
+      const body = (await res.json()) as { data: Array<{ first_name: string }>; total_count: number };
       expect(body.total_count).toBe(1);
       expect(body.data[0].first_name).toBe("Bob");
     });
@@ -324,9 +324,9 @@ describe("Clerk plugin integration", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("user");
-      expect((body.id as string)).toMatch(/^user_/);
+      expect(body.id as string).toMatch(/^user_/);
       expect(body.first_name).toBe("New");
       expect(body.password_enabled).toBe(true);
       expect((body.email_addresses as Array<{ email_address: string }>)[0].email_address).toBe("new@example.com");
@@ -337,7 +337,7 @@ describe("Clerk plugin integration", () => {
       const user = cs.users.all().find((u) => u.first_name === "Alice")!;
       const res = await app.request(`${base}/v1/users/${user.clerk_id}`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.first_name).toBe("Alice");
     });
 
@@ -355,7 +355,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ first_name: "Alicia" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.first_name).toBe("Alicia");
     });
 
@@ -367,7 +367,7 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("deleted_object");
       expect(body.deleted).toBe(true);
     });
@@ -381,14 +381,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
       });
       expect(banRes.status).toBe(200);
-      expect((await banRes.json() as Record<string, unknown>).banned).toBe(true);
+      expect(((await banRes.json()) as Record<string, unknown>).banned).toBe(true);
 
       const unbanRes = await app.request(`${base}/v1/users/${user.clerk_id}/unban`, {
         method: "POST",
         headers: authHeaders(),
       });
       expect(unbanRes.status).toBe(200);
-      expect((await unbanRes.json() as Record<string, unknown>).banned).toBe(false);
+      expect(((await unbanRes.json()) as Record<string, unknown>).banned).toBe(false);
     });
 
     it("locks and unlocks a user", async () => {
@@ -400,14 +400,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
       });
       expect(lockRes.status).toBe(200);
-      expect((await lockRes.json() as Record<string, unknown>).locked).toBe(true);
+      expect(((await lockRes.json()) as Record<string, unknown>).locked).toBe(true);
 
       const unlockRes = await app.request(`${base}/v1/users/${user.clerk_id}/unlock`, {
         method: "POST",
         headers: authHeaders(),
       });
       expect(unlockRes.status).toBe(200);
-      expect((await unlockRes.json() as Record<string, unknown>).locked).toBe(false);
+      expect(((await unlockRes.json()) as Record<string, unknown>).locked).toBe(false);
     });
 
     it("updates metadata (merge)", async () => {
@@ -426,7 +426,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ public_metadata: { role: "admin" } }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       const meta = body.public_metadata as Record<string, unknown>;
       expect(meta.plan).toBe("pro");
       expect(meta.role).toBe("admin");
@@ -435,7 +435,7 @@ describe("Clerk plugin integration", () => {
     it("returns user count", async () => {
       const res = await app.request(`${base}/v1/users/count`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { total_count: number };
+      const body = (await res.json()) as { total_count: number };
       expect(body.total_count).toBeGreaterThanOrEqual(3);
     });
 
@@ -448,7 +448,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ password: "alice123" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { verified: boolean };
+      const body = (await res.json()) as { verified: boolean };
       expect(body.verified).toBe(true);
     });
 
@@ -461,7 +461,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ password: "wrong" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { verified: boolean };
+      const body = (await res.json()) as { verified: boolean };
       expect(body.verified).toBe(false);
     });
   });
@@ -480,7 +480,7 @@ describe("Clerk plugin integration", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("email_address");
       expect(body.email_address).toBe("alice2@example.com");
       expect((body.verification as Record<string, unknown>).status).toBe("verified");
@@ -491,7 +491,7 @@ describe("Clerk plugin integration", () => {
       const email = cs.emailAddresses.all().find((e) => e.email_address === "alice@example.com")!;
       const res = await app.request(`${base}/v1/email_addresses/${email.email_id}`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.email_address).toBe("alice@example.com");
     });
 
@@ -504,14 +504,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ user_id: user.clerk_id, email_address: "delete-me@example.com" }),
       });
-      const created = await createRes.json() as Record<string, unknown>;
+      const created = (await createRes.json()) as Record<string, unknown>;
 
       const res = await app.request(`${base}/v1/email_addresses/${created.id}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("deleted_object");
       expect(body.deleted).toBe(true);
     });
@@ -521,7 +521,7 @@ describe("Clerk plugin integration", () => {
     it("lists organizations", async () => {
       const res = await app.request(`${base}/v1/organizations`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: Array<Record<string, unknown>>; total_count: number };
+      const body = (await res.json()) as { data: Array<Record<string, unknown>>; total_count: number };
       expect(body.total_count).toBeGreaterThanOrEqual(1);
       const acme = body.data.find((o) => o.slug === "acme");
       expect(acme).toBeDefined();
@@ -533,7 +533,7 @@ describe("Clerk plugin integration", () => {
       const org = cs.organizations.findOneBy("slug", "acme")!;
       const res = await app.request(`${base}/v1/organizations/${org.clerk_id}`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.name).toBe("Acme Corp");
     });
 
@@ -542,7 +542,7 @@ describe("Clerk plugin integration", () => {
       const org = cs.organizations.findOneBy("slug", "acme")!;
       const res = await app.request(`${base}/v1/organizations/acme`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.id).toBe(org.clerk_id);
     });
 
@@ -553,11 +553,11 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ name: "New Org", slug: "new-org" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("organization");
       expect(body.name).toBe("New Org");
       expect(body.slug).toBe("new-org");
-      expect((body.id as string)).toMatch(/^org_/);
+      expect(body.id as string).toMatch(/^org_/);
     });
 
     it("updates an organization", async () => {
@@ -569,7 +569,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ name: "Acme Inc" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.name).toBe("Acme Inc");
     });
 
@@ -579,14 +579,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ name: "Delete Me" }),
       });
-      const created = await createRes.json() as Record<string, unknown>;
+      const created = (await createRes.json()) as Record<string, unknown>;
 
       const res = await app.request(`${base}/v1/organizations/${created.id}`, {
         method: "DELETE",
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.deleted).toBe(true);
     });
   });
@@ -597,7 +597,7 @@ describe("Clerk plugin integration", () => {
       const org = cs.organizations.findOneBy("slug", "acme")!;
       const res = await app.request(`${base}/v1/organizations/${org.clerk_id}/memberships`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: Array<Record<string, unknown>>; total_count: number };
+      const body = (await res.json()) as { data: Array<Record<string, unknown>>; total_count: number };
       expect(body.total_count).toBe(2);
     });
 
@@ -609,7 +609,7 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ name: "Membership Test", slug: "membership-test" }),
       });
-      const org = await createRes.json() as Record<string, unknown>;
+      const org = (await createRes.json()) as Record<string, unknown>;
 
       const user = cs.users.all().find((u) => u.first_name === "Alice")!;
       const res = await app.request(`${base}/v1/organizations/${org.id}/memberships`, {
@@ -618,7 +618,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ user_id: user.clerk_id, role: "org:admin" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.role).toBe("org:admin");
     });
 
@@ -633,7 +633,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ role: "org:admin" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.role).toBe("org:admin");
     });
 
@@ -647,7 +647,7 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.deleted).toBe(true);
     });
 
@@ -662,7 +662,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ user_id: aliceUser.clerk_id, role: "org:member" }),
       });
       expect(res.status).toBe(422);
-      const body = await res.json() as { errors: Array<{ code: string }> };
+      const body = (await res.json()) as { errors: Array<{ code: string }> };
       expect(body.errors[0].code).toBe("DUPLICATE_RECORD");
     });
   });
@@ -678,7 +678,7 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ email_address: "invite@example.com", role: "org:member" }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("organization_invitation");
       expect(body.email_address).toBe("invite@example.com");
       expect(body.status).toBe("pending");
@@ -694,9 +694,11 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ email_address: "inv1@example.com" }),
       });
 
-      const res = await app.request(`${base}/v1/organizations/${org.clerk_id}/invitations?status=pending`, { headers: authHeaders() });
+      const res = await app.request(`${base}/v1/organizations/${org.clerk_id}/invitations?status=pending`, {
+        headers: authHeaders(),
+      });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: unknown[]; total_count: number };
+      const body = (await res.json()) as { data: unknown[]; total_count: number };
       expect(body.total_count).toBeGreaterThanOrEqual(1);
     });
 
@@ -709,14 +711,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ email_address: "revoke@example.com" }),
       });
-      const invitation = await createRes.json() as Record<string, unknown>;
+      const invitation = (await createRes.json()) as Record<string, unknown>;
 
       const res = await app.request(`${base}/v1/organizations/${org.clerk_id}/invitations/${invitation.id}/revoke`, {
         method: "POST",
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.status).toBe("revoked");
     });
 
@@ -733,7 +735,7 @@ describe("Clerk plugin integration", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Array<Record<string, unknown>>;
+      const body = (await res.json()) as Array<Record<string, unknown>>;
       expect(body).toHaveLength(2);
     });
   });
@@ -749,9 +751,9 @@ describe("Clerk plugin integration", () => {
         body: JSON.stringify({ user_id: user.clerk_id }),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.object).toBe("session");
-      expect((body.id as string)).toMatch(/^sess_/);
+      expect(body.id as string).toMatch(/^sess_/);
       expect(body.status).toBe("active");
       expect(body.user_id).toBe(user.clerk_id);
     });
@@ -768,7 +770,7 @@ describe("Clerk plugin integration", () => {
 
       const res = await app.request(`${base}/v1/sessions`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = await res.json() as { data: unknown[]; total_count: number };
+      const body = (await res.json()) as { data: unknown[]; total_count: number };
       expect(body.total_count).toBeGreaterThanOrEqual(1);
     });
 
@@ -781,14 +783,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ user_id: user.clerk_id }),
       });
-      const session = await createRes.json() as Record<string, unknown>;
+      const session = (await createRes.json()) as Record<string, unknown>;
 
       const res = await app.request(`${base}/v1/sessions/${session.id}/revoke`, {
         method: "POST",
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, unknown>;
+      const body = (await res.json()) as Record<string, unknown>;
       expect(body.status).toBe("revoked");
     });
 
@@ -801,14 +803,14 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ user_id: user.clerk_id }),
       });
-      const session = await createRes.json() as Record<string, unknown>;
+      const session = (await createRes.json()) as Record<string, unknown>;
 
       const res = await app.request(`${base}/v1/sessions/${session.id}/tokens`, {
         method: "POST",
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = await res.json() as { object: string; jwt: string };
+      const body = (await res.json()) as { object: string; jwt: string };
       expect(body.object).toBe("token");
       expect(body.jwt).toBeTruthy();
 
@@ -829,13 +831,13 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ user_id: aliceUser.clerk_id }),
       });
-      const session = await createRes.json() as Record<string, unknown>;
+      const session = (await createRes.json()) as Record<string, unknown>;
 
       const res = await app.request(`${base}/v1/sessions/${session.id}/tokens`, {
         method: "POST",
         headers: authHeaders(),
       });
-      const body = await res.json() as { jwt: string };
+      const body = (await res.json()) as { jwt: string };
       const claims = decodeJwt(body.jwt);
       expect(claims.org_id).toMatch(/^org_/);
       expect(claims.org_role).toBe("org:admin");
@@ -851,7 +853,7 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
         body: JSON.stringify({ user_id: user.clerk_id }),
       });
-      const session = await createRes.json() as Record<string, unknown>;
+      const session = (await createRes.json()) as Record<string, unknown>;
 
       await app.request(`${base}/v1/sessions/${session.id}/revoke`, {
         method: "POST",
@@ -911,7 +913,9 @@ describe("Clerk plugin integration", () => {
     it("returns Clerk error format", async () => {
       const res = await app.request(`${base}/v1/users/user_nonexistent`, { headers: authHeaders() });
       expect(res.status).toBe(404);
-      const body = await res.json() as { errors: Array<{ code: string; message: string; long_message: string; meta: unknown }> };
+      const body = (await res.json()) as {
+        errors: Array<{ code: string; message: string; long_message: string; meta: unknown }>;
+      };
       expect(body.errors).toHaveLength(1);
       expect(body.errors[0].code).toBe("RESOURCE_NOT_FOUND");
       expect(body.errors[0].message).toBeDefined();

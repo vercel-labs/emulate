@@ -162,7 +162,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (!matchesRedirectUri(redirectUri, oauthApp.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -228,10 +232,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const user = clerkStore.users.findOneBy("clerk_id", userRef);
     if (!user) {
-      return c.html(
-        renderErrorPage("Unknown user", "The selected user is not available.", SERVICE_LABEL),
-        400,
-      );
+      return c.html(renderErrorPage("Unknown user", "The selected user is not available.", SERVICE_LABEL), 400);
     }
 
     const oauthApps = clerkStore.oauthApps.all();
@@ -245,7 +246,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
       if (!matchesRedirectUri(redirectUri, oauthApp.redirect_uris)) {
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
           400,
         );
       }
@@ -275,7 +280,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     if (contentType.includes("application/json")) {
       try {
-        const parsed = await c.req.json() as Record<string, unknown>;
+        const parsed = (await c.req.json()) as Record<string, unknown>;
         for (const [key, value] of Object.entries(parsed)) {
           if (typeof value === "string") body[key] = value;
         }
@@ -306,7 +311,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     if (grantType !== "authorization_code") {
-      return c.json({ error: "unsupported_grant_type", error_description: "Only authorization_code is supported." }, 400);
+      return c.json(
+        { error: "unsupported_grant_type", error_description: "Only authorization_code is supported." },
+        400,
+      );
     }
 
     const pending = getPendingCodes(store).get(code);

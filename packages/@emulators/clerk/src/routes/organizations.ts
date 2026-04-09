@@ -55,7 +55,12 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
     const name = body.name as string;
     if (!name) return clerkError(c, 422, "INVALID_REQUEST_BODY", "name is required");
 
-    const slug = (body.slug as string) ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug =
+      (body.slug as string) ??
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
     const now = nowUnix();
 
     const org = cs.organizations.insert({
@@ -83,7 +88,14 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
           org_id: org.clerk_id,
           user_id: userId,
           role: "org:admin",
-          permissions: ["org:sys_profile:manage", "org:sys_profile:delete", "org:sys_memberships:read", "org:sys_memberships:manage", "org:sys_domains:read", "org:sys_domains:manage"],
+          permissions: [
+            "org:sys_profile:manage",
+            "org:sys_profile:delete",
+            "org:sys_memberships:read",
+            "org:sys_memberships:manage",
+            "org:sys_domains:read",
+            "org:sys_domains:manage",
+          ],
           public_metadata: {},
           private_metadata: {},
           created_at_unix: now,
