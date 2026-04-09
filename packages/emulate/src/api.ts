@@ -1,5 +1,5 @@
-import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
-import { SERVICE_REGISTRY } from "./registry.js";
+import { createServer, type AppKeyResolver } from "@emulators/core";
+import { resolveServiceEntries } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { serve } from "@hono/node-server";
@@ -11,10 +11,11 @@ export interface SeedConfig {
 }
 
 export interface EmulatorOptions {
-  service: ServiceName;
+  service: ServiceName | (string & {});
   port?: number;
   seed?: SeedConfig;
   baseUrl?: string;
+  plugins?: string[];
 }
 
 export interface Emulator {
@@ -24,9 +25,10 @@ export interface Emulator {
 }
 
 export async function createEmulator(options: EmulatorOptions): Promise<Emulator> {
-  const { service, port = 4000, seed: seedConfig } = options;
+  const { service, port = 4000, seed: seedConfig, plugins = [] } = options;
 
-  const entry = SERVICE_REGISTRY[service];
+  const registry = await resolveServiceEntries(plugins);
+  const entry = registry[service];
   if (!entry) {
     throw new Error(`Unknown service: ${service}`);
   }
