@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getPendingSignIn } from "@/lib/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,9 +32,9 @@ export default async function VerifyPage() {
               Open Resend Inbox
             </a>
           </div>
-          <a href="/" className="text-sm text-center text-muted-foreground hover:text-foreground transition-colors">
+          <Link href="/" className="text-sm text-center text-muted-foreground hover:text-foreground transition-colors">
             Use a different email
-          </a>
+          </Link>
         </CardContent>
       </Card>
     </div>
