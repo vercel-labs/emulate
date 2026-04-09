@@ -1,4 +1,5 @@
 import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@emulators/core";
+import { resolve } from "path";
 
 export interface LoadedService {
   plugin: ServicePlugin;
@@ -12,6 +13,46 @@ export interface ServiceEntry {
   load(): Promise<LoadedService>;
   defaultFallback(svcSeedConfig?: Record<string, unknown>): AuthFallback;
   initConfig: Record<string, unknown>;
+}
+
+export interface ExternalPluginModule {
+  plugin?: ServicePlugin;
+  default?: ServicePlugin;
+  seedFromConfig?(store: Store, baseUrl: string, config: unknown): void;
+  label?: string;
+  endpoints?: string;
+  defaultFallback?(svcSeedConfig?: Record<string, unknown>): AuthFallback;
+  initConfig?: Record<string, unknown>;
+}
+
+export async function loadExternalPlugin(specifier: string): Promise<{ name: string; entry: ServiceEntry }> {
+  const modulePath = specifier.startsWith(".") || specifier.startsWith("/")
+    ? resolve(specifier)
+    : specifier;
+
+  const mod = await import(modulePath) as ExternalPluginModule;
+  const plugin = mod.plugin ?? mod.default;
+  if (!plugin || typeof plugin.register !== "function" || typeof plugin.name !== "string") {
+    throw new Error(
+      `Plugin "${specifier}" must export a ServicePlugin (as "plugin" or default export)`,
+    );
+  }
+
+  const name = plugin.name;
+  const entry: ServiceEntry = {
+    label: mod.label ?? `${name} (external plugin)`,
+    endpoints: mod.endpoints ?? "",
+    async load() {
+      return {
+        plugin,
+        seedFromConfig: mod.seedFromConfig,
+      };
+    },
+    defaultFallback: mod.defaultFallback ?? (() => ({ login: "admin", id: 1, scopes: [] })),
+    initConfig: mod.initConfig ?? {},
+  };
+
+  return { name, entry };
 }
 
 const SERVICE_NAME_LIST = [
@@ -464,3 +505,18 @@ export const DEFAULT_TOKENS = {
     },
   },
 };
+
+export async function resolveServiceEntries(pluginSpecifiers: string[] = []): Promise<Record<string, ServiceEntry>> {
+  const externalEntries: Record<string, ServiceEntry> = {};
+
+  for (const specifier of pluginSpecifiers) {
+    const { name, entry } = await loadExternalPlugin(specifier);
+    externalEntries[name] = entry;
+  }
+
+  return { ...SERVICE_REGISTRY, ...externalEntries };
+}
+
+export function getBuiltInServiceNames(): string[] {
+  return [...SERVICE_NAMES];
+}

@@ -21,6 +21,7 @@ program
   .option("-p, --port <port>", "Base port", defaultPort)
   .option("-s, --service <services>", "Comma-separated services to enable")
   .option("--seed <file>", "Path to seed config file")
+  .option("--plugin <plugins>", "Comma-separated external plugin paths or package names")
   .action(async (opts) => {
     const port = parseInt(opts.port, 10);
     if (Number.isNaN(port) || port < 1 || port > 65535) {
@@ -31,6 +32,7 @@ program
       port,
       service: opts.service,
       seed: opts.seed,
+      plugin: opts.plugin,
     });
   });
 
@@ -38,16 +40,18 @@ program
   .command("init")
   .description("Generate a starter config file")
   .option("-s, --service <service>", "Service to generate config for", "all")
-  .action((opts) => {
-    initCommand({ service: opts.service });
+  .option("--plugin <plugins>", "Comma-separated external plugin paths or package names")
+  .action(async (opts) => {
+    await initCommand({ service: opts.service, plugin: opts.plugin });
   });
 
 program
   .command("list")
   .alias("list-services")
   .description("List available services")
-  .action(() => {
-    listCommand();
+  .option("--plugin <plugins>", "Comma-separated external plugin paths or package names")
+  .action(async (opts) => {
+    await listCommand({ plugin: opts.plugin });
   });
 
 program.parse();

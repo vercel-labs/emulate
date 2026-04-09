@@ -1,5 +1,5 @@
 import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
-import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
+import { resolveServiceEntries, getBuiltInServiceNames } from "../registry.js";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -13,6 +13,7 @@ export interface StartOptions {
   port: number;
   service?: string;
   seed?: string;
+  plugin?: string;
 }
 
 interface SeedConfig {
@@ -68,8 +69,8 @@ function loadSeedConfig(seedPath?: string): LoadResult | null {
   return null;
 }
 
-function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
-  const found = SERVICE_NAMES.filter((k) => k in config);
+function inferServicesFromConfig(config: SeedConfig, availableServices: string[]): string[] | null {
+  const found = availableServices.filter((k) => k in config);
   return found.length > 0 ? [...found] : null;
 }
 
@@ -80,17 +81,29 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const seedConfig = loaded?.config ?? null;
   const configSource = loaded?.source ?? null;
 
-  let services: ServiceName[];
+  const pluginSpecifiers = options.plugin?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+  let allEntries: Record<string, Awaited<ReturnType<typeof resolveServiceEntries>>[string]>;
+  try {
+    allEntries = await resolveServiceEntries(pluginSpecifiers);
+  } catch (err) {
+    console.error(`Failed to load plugins: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+
+  const builtInServices = getBuiltInServiceNames();
+  const externalServices = Object.keys(allEntries).filter((name) => !builtInServices.includes(name));
+
+  let services: string[];
   if (options.service) {
-    services = options.service.split(",").map((s) => s.trim()) as ServiceName[];
+    services = options.service.split(",").map((s) => s.trim());
   } else if (seedConfig) {
-    services = inferServicesFromConfig(seedConfig) ?? [...SERVICE_NAMES];
+    services = inferServicesFromConfig(seedConfig, Object.keys(allEntries)) ?? [...builtInServices, ...externalServices];
   } else {
-    services = [...SERVICE_NAMES];
+    services = [...builtInServices, ...externalServices];
   }
 
   for (const svc of services) {
-    if (!SERVICE_REGISTRY[svc]) {
+    if (!allEntries[svc]) {
       console.error(`Unknown service: ${svc}`);
       process.exit(1);
     }
@@ -112,7 +125,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
   for (let i = 0; i < services.length; i++) {
     const svc = services[i];
-    const entry = SERVICE_REGISTRY[svc];
+    const entry = allEntries[svc];
     const loadedSvc = await entry.load();
 
     const svcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
