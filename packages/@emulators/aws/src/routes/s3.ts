@@ -1,17 +1,18 @@
 import type { RouteContext } from "@emulators/core";
 import { getAwsStore } from "../store.js";
-import { awsXmlResponse, awsErrorXml, md5, generateMessageId, escapeXml } from "../helpers.js";
+import { awsXmlResponse, awsErrorXml, md5, escapeXml } from "../helpers.js";
 
 export function s3Routes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
   const aws = () => getAwsStore(store);
 
-  // ListBuckets - GET /s3/
-  app.get("/s3/", (c) => {
+  // --- Handler functions (shared between root and /s3/ paths) ---
+
+  const handleListBuckets = (c: any) => {
     const buckets = aws().s3Buckets.all();
     const bucketXml = buckets
       .map(
-        (b) => `    <Bucket>
+        (b: any) => `    <Bucket>
       <Name>${escapeXml(b.bucket_name)}</Name>
       <CreationDate>${b.creation_date}</CreationDate>
     </Bucket>`,
@@ -29,10 +30,9 @@ ${bucketXml}
   </Buckets>
 </ListAllMyBucketsResult>`;
     return awsXmlResponse(c, xml);
-  });
+  };
 
-  // CreateBucket - PUT /s3/:bucket
-  app.put("/s3/:bucket", (c) => {
+  const handleCreateBucket = (c: any) => {
     const bucketName = c.req.param("bucket");
     const existing = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (existing) {
@@ -53,10 +53,9 @@ ${bucketXml}
     });
 
     return c.text("", 200, { Location: `/${bucketName}` });
-  });
+  };
 
-  // DeleteBucket - DELETE /s3/:bucket
-  app.delete("/s3/:bucket", (c) => {
+  const handleDeleteBucket = (c: any) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -70,20 +69,18 @@ ${bucketXml}
 
     aws().s3Buckets.delete(bucket.id);
     return c.body(null, 204);
-  });
+  };
 
-  // HeadBucket - HEAD /s3/:bucket
-  app.on("HEAD", "/s3/:bucket", (c) => {
+  const handleHeadBucket = (c: any) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
       return c.text("", 404);
     }
     return c.text("", 200, { "x-amz-bucket-region": bucket.region });
-  });
+  };
 
-  // ListObjects (v2) - GET /s3/:bucket
-  app.get("/s3/:bucket", (c) => {
+  const handleListObjects = (c: any) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -93,10 +90,22 @@ ${bucketXml}
     const prefix = c.req.query("prefix") ?? "";
     const delimiter = c.req.query("delimiter") ?? "";
     const maxKeys = Math.min(parseInt(c.req.query("max-keys") ?? "1000", 10), 1000);
+    const continuationToken = c.req.query("continuation-token");
+    const startAfter = c.req.query("start-after");
 
     let objects = aws().s3Objects.findBy("bucket_name", bucketName);
     if (prefix) {
-      objects = objects.filter((o) => o.key.startsWith(prefix));
+      objects = objects.filter((o: any) => o.key.startsWith(prefix));
+    }
+
+    // Sort by key for stable pagination
+    objects.sort((a: any, b: any) => a.key.localeCompare(b.key));
+
+    // Apply continuation-token or start-after
+    const marker = continuationToken ?? startAfter;
+    if (marker) {
+      const startIndex = objects.findIndex((o: any) => o.key > marker);
+      objects = startIndex >= 0 ? objects.slice(startIndex) : [];
     }
 
     const commonPrefixes: string[] = [];
@@ -105,7 +114,7 @@ ${bucketXml}
       const prefixSet = new Set<string>();
       contents = [];
       for (const obj of objects) {
-        const remaining = obj.key.slice(prefix.length);
+        const remaining = (obj as any).key.slice(prefix.length);
         const delimIndex = remaining.indexOf(delimiter);
         if (delimIndex >= 0) {
           prefixSet.add(prefix + remaining.slice(0, delimIndex + delimiter.length));
@@ -118,10 +127,11 @@ ${bucketXml}
 
     const truncated = contents.length > maxKeys;
     const page = contents.slice(0, maxKeys);
+    const nextToken = truncated ? (page[page.length - 1] as any).key : undefined;
 
     const contentsXml = page
       .map(
-        (o) => `  <Contents>
+        (o: any) => `  <Contents>
     <Key>${escapeXml(o.key)}</Key>
     <LastModified>${o.last_modified}</LastModified>
     <ETag>"${o.etag}"</ETag>
@@ -141,16 +151,127 @@ ${bucketXml}
   <Prefix>${escapeXml(prefix)}</Prefix>
   <MaxKeys>${maxKeys}</MaxKeys>
   <IsTruncated>${truncated}</IsTruncated>
-  <KeyCount>${page.length}</KeyCount>
+  <KeyCount>${page.length}</KeyCount>${continuationToken ? `\n  <ContinuationToken>${escapeXml(continuationToken)}</ContinuationToken>` : ""}${nextToken ? `\n  <NextContinuationToken>${escapeXml(nextToken)}</NextContinuationToken>` : ""}${startAfter ? `\n  <StartAfter>${escapeXml(startAfter)}</StartAfter>` : ""}
 ${contentsXml}
 ${prefixesXml}
 </ListBucketResult>`;
     return awsXmlResponse(c, xml);
-  });
+  };
 
-  // PutObject - PUT /s3/:bucket/:key{.+}
-  // Also handles CopyObject when x-amz-copy-source header is present
-  app.put("/s3/:bucket/:key{.+}", async (c) => {
+  const handlePresignedPost = async (c: any) => {
+    const bucketName = c.req.param("bucket");
+    const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
+    if (!bucket) {
+      return awsErrorXml(c, "NoSuchBucket", "The specified bucket does not exist.", 404);
+    }
+
+    const body = await c.req.parseBody();
+
+    const key = body["key"] as string;
+    if (!key) {
+      return awsErrorXml(c, "InvalidArgument", "Bucket POST must contain a field named 'key'.", 400);
+    }
+
+    const file = body["file"];
+    if (!file || !(file instanceof File)) {
+      return awsErrorXml(c, "InvalidArgument", "Bucket POST must contain a file field.", 400);
+    }
+
+    // Policy validation
+    const policyB64 = body["Policy"] as string;
+    if (policyB64) {
+      let policy: { expiration?: string; conditions?: unknown[] };
+      try {
+        policy = JSON.parse(Buffer.from(policyB64, "base64").toString());
+      } catch {
+        return awsErrorXml(c, "InvalidPolicyDocument", "Invalid Policy: Invalid JSON.", 400);
+      }
+
+      // Check expiration
+      if (policy.expiration) {
+        const expDate = new Date(policy.expiration);
+        if (expDate.getTime() < Date.now()) {
+          return awsErrorXml(c, "AccessDenied", "Invalid according to Policy: Policy expired.", 403);
+        }
+      }
+
+      // Enforce conditions
+      if (Array.isArray(policy.conditions)) {
+        for (const condition of policy.conditions) {
+          if (!Array.isArray(condition)) continue;
+
+          if (condition[0] === "content-length-range") {
+            const min = condition[1] as number;
+            const max = condition[2] as number;
+            if (file.size < min || file.size > max) {
+              return awsErrorXml(c, "EntityTooLarge", "Your proposed upload exceeds the maximum allowed size.", 400);
+            }
+          } else if (condition[0] === "starts-with") {
+            const field = (condition[1] as string).replace(/^\$/, "");
+            const prefix = condition[2] as string;
+            const value = (body[field] as string) ?? "";
+            if (!value.startsWith(prefix)) {
+              return awsErrorXml(
+                c,
+                "AccessDenied",
+                `Invalid according to Policy: Policy Condition failed: ["starts-with", "$${field}", "${prefix}"]`,
+                403,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Store the object
+    const fileContent = await file.text();
+    const contentType = (body["Content-Type"] as string) ?? file.type ?? "application/octet-stream";
+    const etag = md5(fileContent);
+    const contentLength = new TextEncoder().encode(fileContent).byteLength;
+
+    const existing = aws()
+      .s3Objects.findBy("bucket_name", bucketName)
+      .find((o: any) => o.key === key);
+
+    if (existing) {
+      aws().s3Objects.update(existing.id, {
+        body: fileContent,
+        content_type: contentType,
+        content_length: contentLength,
+        etag,
+        last_modified: new Date().toISOString(),
+        metadata: {},
+      });
+    } else {
+      aws().s3Objects.insert({
+        bucket_name: bucketName,
+        key,
+        body: fileContent,
+        content_type: contentType,
+        content_length: contentLength,
+        etag,
+        last_modified: new Date().toISOString(),
+        metadata: {},
+      });
+    }
+
+    // Check success_action_status
+    const successStatus = parseInt(body["success_action_status"] as string, 10);
+    if (successStatus === 201) {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<PostResponse>
+  <Location>${escapeXml(baseUrl)}/${escapeXml(bucketName)}/${escapeXml(key)}</Location>
+  <Bucket>${escapeXml(bucketName)}</Bucket>
+  <Key>${escapeXml(key)}</Key>
+  <ETag>"${etag}"</ETag>
+</PostResponse>`;
+      return awsXmlResponse(c, xml, 201);
+    }
+
+    return c.body(null, 204);
+  };
+
+  const handlePutObject = async (c: any) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
@@ -173,7 +294,7 @@ ${prefixesXml}
 
       const srcObj = aws()
         .s3Objects.findBy("bucket_name", srcBucket)
-        .find((o) => o.key === srcKey);
+        .find((o: any) => o.key === srcKey);
       if (!srcObj) {
         return awsErrorXml(c, "NoSuchKey", "The specified source key does not exist.", 404);
       }
@@ -183,7 +304,7 @@ ${prefixesXml}
 
       const existing = aws()
         .s3Objects.findBy("bucket_name", bucketName)
-        .find((o) => o.key === key);
+        .find((o: any) => o.key === key);
 
       if (existing) {
         aws().s3Objects.update(existing.id, {
@@ -229,7 +350,7 @@ ${prefixesXml}
 
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o) => o.key === key);
+      .find((o: any) => o.key === key);
 
     if (existing) {
       aws().s3Objects.update(existing.id, {
@@ -254,10 +375,9 @@ ${prefixesXml}
     }
 
     return c.text("", 200, { ETag: `"${etag}"` });
-  });
+  };
 
-  // GetObject - GET /s3/:bucket/:key{.+}
-  app.get("/s3/:bucket/:key{.+}", (c) => {
+  const handleGetObject = (c: any) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
@@ -268,7 +388,7 @@ ${prefixesXml}
 
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o) => o.key === key);
+      .find((o: any) => o.key === key);
 
     if (!obj) {
       return awsErrorXml(c, "NoSuchKey", "The specified key does not exist.", 404);
@@ -285,16 +405,15 @@ ${prefixesXml}
     }
 
     return c.text(obj.body, 200, headers);
-  });
+  };
 
-  // HeadObject - HEAD /s3/:bucket/:key{.+}
-  app.on("HEAD", "/s3/:bucket/:key{.+}", (c) => {
+  const handleHeadObject = (c: any) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o) => o.key === key);
+      .find((o: any) => o.key === key);
 
     if (!obj) {
       return c.text("", 404);
@@ -306,16 +425,15 @@ ${prefixesXml}
       ETag: `"${obj.etag}"`,
       "Last-Modified": obj.last_modified,
     });
-  });
+  };
 
-  // DeleteObject - DELETE /s3/:bucket/:key{.+}
-  app.delete("/s3/:bucket/:key{.+}", (c) => {
+  const handleDeleteObject = (c: any) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o) => o.key === key);
+      .find((o: any) => o.key === key);
 
     if (obj) {
       aws().s3Objects.delete(obj.id);
@@ -323,5 +441,30 @@ ${prefixesXml}
 
     // S3 returns 204 even if the key doesn't exist
     return c.body(null, 204);
-  });
+  };
+
+  // --- Backward-compat aliases (legacy /s3/ prefix, registered first so
+  //     the static /s3 segment is not shadowed by /:bucket wildcards) ---
+  app.get("/s3/", handleListBuckets);
+  app.put("/s3/:bucket", handleCreateBucket);
+  app.delete("/s3/:bucket", handleDeleteBucket);
+  app.on("HEAD", "/s3/:bucket", handleHeadBucket);
+  app.get("/s3/:bucket", handleListObjects);
+  app.post("/s3/:bucket", handlePresignedPost);
+  app.put("/s3/:bucket/:key{.+}", handlePutObject);
+  app.get("/s3/:bucket/:key{.+}", handleGetObject);
+  app.on("HEAD", "/s3/:bucket/:key{.+}", handleHeadObject);
+  app.delete("/s3/:bucket/:key{.+}", handleDeleteObject);
+
+  // --- Primary routes (AWS SDK-compatible, root paths) ---
+  app.get("/", handleListBuckets);
+  app.put("/:bucket", handleCreateBucket);
+  app.delete("/:bucket", handleDeleteBucket);
+  app.on("HEAD", "/:bucket", handleHeadBucket);
+  app.get("/:bucket", handleListObjects);
+  app.post("/:bucket", handlePresignedPost);
+  app.put("/:bucket/:key{.+}", handlePutObject);
+  app.get("/:bucket/:key{.+}", handleGetObject);
+  app.on("HEAD", "/:bucket/:key{.+}", handleHeadObject);
+  app.delete("/:bucket/:key{.+}", handleDeleteObject);
 }

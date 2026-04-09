@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with REST-style S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
 
 ## Start
 
@@ -32,7 +32,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
-curl http://localhost:4006/s3/ \
+curl http://localhost:4006/ \
   -H "Authorization: Bearer test_token_admin"
 ```
 
@@ -50,7 +50,7 @@ AWS_EMULATOR_URL=http://localhost:4006
 import { S3Client } from '@aws-sdk/client-s3'
 
 const s3 = new S3Client({
-  endpoint: `${process.env.AWS_EMULATOR_URL}/s3`,
+  endpoint: process.env.AWS_EMULATOR_URL,
   region: 'us-east-1',
   credentials: {
     accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
@@ -120,48 +120,50 @@ Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-d
 
 ### S3
 
+S3 routes use root paths matching the real AWS S3 wire format. Legacy `/s3/` prefixed paths are also supported.
+
 ```bash
 # List all buckets
-curl http://localhost:4006/s3/ \
+curl http://localhost:4006/ \
   -H "Authorization: Bearer $TOKEN"
 
 # Create bucket
-curl -X PUT http://localhost:4006/s3/my-bucket \
+curl -X PUT http://localhost:4006/my-bucket \
   -H "Authorization: Bearer $TOKEN"
 
 # Delete bucket (must be empty)
-curl -X DELETE http://localhost:4006/s3/my-bucket \
+curl -X DELETE http://localhost:4006/my-bucket \
   -H "Authorization: Bearer $TOKEN"
 
 # Head bucket (check existence, get region)
-curl -I http://localhost:4006/s3/my-bucket \
+curl -I http://localhost:4006/my-bucket \
   -H "Authorization: Bearer $TOKEN"
 
-# List objects (with prefix and delimiter filtering)
-curl "http://localhost:4006/s3/my-bucket?prefix=uploads/&delimiter=/&max-keys=100" \
+# List objects (with prefix, delimiter, pagination)
+curl "http://localhost:4006/my-bucket?prefix=uploads/&delimiter=/&max-keys=100" \
   -H "Authorization: Bearer $TOKEN"
 
 # Put object
-curl -X PUT http://localhost:4006/s3/my-bucket/path/to/file.txt \
+curl -X PUT http://localhost:4006/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: text/plain" \
   -H "x-amz-meta-author: test" \
   --data-binary "file contents"
 
 # Get object
-curl http://localhost:4006/s3/my-bucket/path/to/file.txt \
+curl http://localhost:4006/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN"
 
 # Head object (metadata only)
-curl -I http://localhost:4006/s3/my-bucket/path/to/file.txt \
+curl -I http://localhost:4006/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN"
 
 # Delete object
-curl -X DELETE http://localhost:4006/s3/my-bucket/path/to/file.txt \
+curl -X DELETE http://localhost:4006/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN"
 
 # Copy object
-curl -X PUT http://localhost:4006/s3/dest-bucket/copy.txt \
+curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-amz-copy-source: /source-bucket/original.txt"
 ```
@@ -315,9 +317,9 @@ curl -X POST http://localhost:4006/sts/ \
 
 ```bash
 # HTML dashboard (shows S3, SQS, IAM state)
-curl http://localhost:4006/?tab=s3
-curl http://localhost:4006/?tab=sqs
-curl http://localhost:4006/?tab=iam
+curl http://localhost:4006/_inspector?tab=s3
+curl http://localhost:4006/_inspector?tab=sqs
+curl http://localhost:4006/_inspector?tab=iam
 ```
 
 ## Common Patterns
@@ -329,17 +331,17 @@ TOKEN="test_token_admin"
 BASE="http://localhost:4006"
 
 # Create bucket
-curl -X PUT $BASE/s3/my-data \
+curl -X PUT $BASE/my-data \
   -H "Authorization: Bearer $TOKEN"
 
 # Upload file
-curl -X PUT $BASE/s3/my-data/config.json \
+curl -X PUT $BASE/my-data/config.json \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-binary '{"key": "value"}'
 
 # Download file
-curl $BASE/s3/my-data/config.json \
+curl $BASE/my-data/config.json \
   -H "Authorization: Bearer $TOKEN"
 ```
 

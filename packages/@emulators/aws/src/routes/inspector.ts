@@ -6,16 +6,16 @@ import { escapeXml } from "../helpers.js";
 const SERVICE_LABEL = "AWS";
 
 const TABS: InspectorTab[] = [
-  { id: "s3", label: "S3", href: "/?tab=s3" },
-  { id: "sqs", label: "SQS", href: "/?tab=sqs" },
-  { id: "iam", label: "IAM", href: "/?tab=iam" },
+  { id: "s3", label: "S3", href: "/_inspector?tab=s3" },
+  { id: "sqs", label: "SQS", href: "/_inspector?tab=sqs" },
+  { id: "iam", label: "IAM", href: "/_inspector?tab=iam" },
 ];
 
 export function inspectorRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
   const aws = () => getAwsStore(store);
 
-  app.get("/", (c) => {
+  app.get("/_inspector", (c) => {
     const tab = c.req.query("tab") ?? "s3";
     const s3Store = aws();
 
