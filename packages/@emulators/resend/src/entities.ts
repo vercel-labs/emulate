@@ -15,6 +15,7 @@ export interface ResendEmail extends Entity {
   status: "sent" | "delivered" | "bounced" | "canceled" | "scheduled";
   scheduled_at: string | null;
   last_event: string;
+  idempotency_key: string | null;
 }
 
 export interface ResendDomain extends Entity {
