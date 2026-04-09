@@ -379,7 +379,14 @@ describe("Stripe plugin", () => {
         }),
       });
       expect(res.status).toBe(200);
-      const session = (await res.json()) as { object: string; client_secret: string; customer: string; components: Record<string, unknown>; created: number; expires_at: number };
+      const session = (await res.json()) as {
+        object: string;
+        client_secret: string;
+        customer: string;
+        components: Record<string, unknown>;
+        created: number;
+        expires_at: number;
+      };
       expect(session.object).toBe("customer_session");
       expect(session.client_secret).toBeTruthy();
       expect(session.customer).toBe(cust.id);
