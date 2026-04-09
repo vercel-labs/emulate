@@ -12,7 +12,7 @@ export {
   serializeValue,
   deserializeValue,
 } from "./store.js";
-export { createServer, type ServerOptions } from "./server.js";
+export { createServer, type ServerOptions, type RequestLogEntry } from "./server.js";
 export { type ServicePlugin, type RouteContext } from "./plugin.js";
 export { WebhookDispatcher, type WebhookSubscription, type WebhookDelivery } from "./webhooks.js";
 export {

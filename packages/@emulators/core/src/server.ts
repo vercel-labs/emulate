@@ -13,6 +13,14 @@ import {
 import type { ServicePlugin } from "./plugin.js";
 import { registerFontRoutes } from "./fonts.js";
 
+export interface RequestLogEntry {
+  method: string;
+  path: string;
+  status: number;
+  duration_ms: number;
+  timestamp: string;
+}
+
 export interface ServerOptions {
   port?: number;
   baseUrl?: string;
@@ -90,6 +98,39 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
     await next();
   });
 
+  const MAX_LOG_ENTRIES = 1000;
+  const requestLog: RequestLogEntry[] = [];
+
+  app.get("/_emulate/requests", (c) => {
+    const limit = Number(c.req.query("limit")) || requestLog.length;
+    return c.json(requestLog.slice(-limit));
+  });
+
+  app.delete("/_emulate/requests", (c) => {
+    requestLog.length = 0;
+    return c.json({ ok: true });
+  });
+
+  app.use("*", async (c, next) => {
+    if (c.req.path.startsWith("/_emulate/")) {
+      await next();
+      return;
+    }
+    const start = Date.now();
+    await next();
+    const entry: RequestLogEntry = {
+      method: c.req.method,
+      path: c.req.path,
+      status: c.res.status,
+      duration_ms: Date.now() - start,
+      timestamp: new Date().toISOString(),
+    };
+    requestLog.push(entry);
+    if (requestLog.length > MAX_LOG_ENTRIES) {
+      requestLog.splice(0, requestLog.length - MAX_LOG_ENTRIES);
+    }
+  });
+
   plugin.register(app, store, webhooks, baseUrl, tokenMap);
 
   app.notFound((c) =>
@@ -102,5 +143,5 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
     ),
   );
 
-  return { app, store, webhooks, port, baseUrl, tokenMap };
+  return { app, store, webhooks, port, baseUrl, tokenMap, requestLog };
 }
