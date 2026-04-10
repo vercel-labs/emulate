@@ -1,13 +1,14 @@
 import { writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { stringify as yamlStringify } from "yaml";
-import { SERVICE_REGISTRY, SERVICE_NAMES, DEFAULT_TOKENS, type ServiceName } from "../registry.js";
+import { DEFAULT_TOKENS, getBuiltInServiceNames, resolveServiceEntries } from "../registry.js";
 
 interface InitOptions {
   service: string;
+  plugin?: string;
 }
 
-export function initCommand(options: InitOptions): void {
+export async function initCommand(options: InitOptions): Promise<void> {
   const filename = "emulate.config.yaml";
   const fullPath = resolve(filename);
 
@@ -16,16 +17,21 @@ export function initCommand(options: InitOptions): void {
     process.exit(1);
   }
 
+  const pluginSpecifiers = options.plugin?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+  const registry = await resolveServiceEntries(pluginSpecifiers);
+  const builtInServices = getBuiltInServiceNames();
+  const availableServices = Object.keys(registry);
+
   let config: Record<string, unknown>;
   if (options.service === "all") {
     config = { ...DEFAULT_TOKENS };
-    for (const name of SERVICE_NAMES) {
-      Object.assign(config, SERVICE_REGISTRY[name].initConfig);
+    for (const name of availableServices) {
+      Object.assign(config, registry[name].initConfig);
     }
   } else {
-    const entry = SERVICE_REGISTRY[options.service as ServiceName];
+    const entry = registry[options.service];
     if (!entry) {
-      console.error(`Unknown service: ${options.service}. Available: ${SERVICE_NAMES.join(", ")}, all`);
+      console.error(`Unknown service: ${options.service}. Available: ${availableServices.join(", ")}, all`);
       process.exit(1);
     }
     config = { ...DEFAULT_TOKENS, ...entry.initConfig };

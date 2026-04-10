@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { resolve } from "path";
 import { createEmulator } from "../api.js";
 
 describe("createEmulator", () => {
@@ -59,7 +60,21 @@ describe("createEmulator", () => {
   });
 
   it("throws on unknown service", async () => {
-    // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");
+  });
+
+  it("starts an external plugin", async () => {
+    const echo = await createEmulator({
+      service: "echo",
+      port: 14030,
+      plugins: [resolve("src/__tests__/fixtures/echo-plugin.ts")],
+    });
+
+    const res = await fetch(`${echo.url}/ping`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; service: string };
+    expect(body).toEqual({ ok: true, service: "echo" });
+
+    await echo.close();
   });
 });
