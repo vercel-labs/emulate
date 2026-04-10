@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { stringify as yamlStringify } from "yaml";
-import { DEFAULT_TOKENS, getBuiltInServiceNames, resolveServiceEntries } from "../registry.js";
+import { DEFAULT_TOKENS, resolveServiceEntries } from "../registry.js";
 
 interface InitOptions {
   service: string;
@@ -17,15 +17,18 @@ export async function initCommand(options: InitOptions): Promise<void> {
     process.exit(1);
   }
 
-  const pluginSpecifiers = options.plugin?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+  const pluginSpecifiers =
+    options.plugin
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean) ?? [];
   const registry = await resolveServiceEntries(pluginSpecifiers);
-  const builtInServices = getBuiltInServiceNames();
   const availableServices = Object.keys(registry);
 
   let config: Record<string, unknown>;
   if (options.service === "all") {
     config = { ...DEFAULT_TOKENS };
-    for (const name of builtInServices) {
+    for (const name of availableServices) {
       Object.assign(config, registry[name].initConfig);
     }
   } else {
