@@ -159,6 +159,7 @@ const EXTRACTORS: Record<string, (recordings: RecordedExchange[]) => Record<stri
 
 export async function recordCommand(options: RecordOptions): Promise<void> {
   const { port, upstream, service, output } = options;
+  const normalizedUpstream = upstream.replace(/\/+$/, "");
   const recordings: RecordedExchange[] = [];
 
   const app = new Hono();
@@ -168,7 +169,7 @@ export async function recordCommand(options: RecordOptions): Promise<void> {
     const path = c.req.path;
     const method = c.req.method;
 
-    const upstreamUrl = `${upstream}${path}${new URL(c.req.url).search}`;
+    const upstreamUrl = `${normalizedUpstream}${path}${new URL(c.req.url).search}`;
 
     const headers = new Headers(c.req.raw.headers);
     headers.delete("host");
@@ -178,12 +179,18 @@ export async function recordCommand(options: RecordOptions): Promise<void> {
       requestBody = await c.req.text();
     }
 
-    const upstreamRes = await fetch(upstreamUrl, {
-      method,
-      headers,
-      body: requestBody,
-      signal: AbortSignal.timeout(30000),
-    });
+    let upstreamRes: Response;
+    try {
+      upstreamRes = await fetch(upstreamUrl, {
+        method,
+        headers,
+        body: requestBody,
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.text(`Upstream request failed: ${message}`, 502);
+    }
 
     const responseBody = await upstreamRes.text();
 
