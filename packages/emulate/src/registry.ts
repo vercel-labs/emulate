@@ -1,5 +1,5 @@
 import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@emulators/core";
-import { resolve } from "path";
+import { isAbsolute, resolve } from "path";
 
 export interface LoadedService {
   plugin: ServicePlugin;
@@ -26,7 +26,7 @@ export interface ExternalPluginModule {
 }
 
 export async function loadExternalPlugin(specifier: string): Promise<{ name: string; entry: ServiceEntry }> {
-  const modulePath = specifier.startsWith(".") || specifier.startsWith("/")
+  const modulePath = specifier.startsWith(".") || isAbsolute(specifier)
     ? resolve(specifier)
     : specifier;
 

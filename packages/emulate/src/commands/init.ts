@@ -25,7 +25,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
   let config: Record<string, unknown>;
   if (options.service === "all") {
     config = { ...DEFAULT_TOKENS };
-    for (const name of builtInServices) {
+    for (const name of availableServices) {
       Object.assign(config, registry[name].initConfig);
     }
   } else {
