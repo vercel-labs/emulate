@@ -1,8 +1,8 @@
-import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@emulators/core";
+import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
 
 export interface LoadedService {
   plugin: ServicePlugin;
-  seedFromConfig?(store: Store, baseUrl: string, config: unknown): void;
+  seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
 }
 
@@ -22,6 +22,7 @@ const SERVICE_NAME_LIST = [
   "apple",
   "microsoft",
   "okta",
+  "auth0",
   "aws",
   "resend",
   "stripe",
@@ -323,6 +324,43 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             name: "Sample OIDC Client",
             redirect_uris: ["http://localhost:3000/callback"],
             auth_server_id: "default",
+          },
+        ],
+      },
+    },
+  },
+
+  auth0: {
+    label: "Auth0 OAuth 2.0 / OpenID Connect + Management API emulator",
+    endpoints:
+      "OIDC discovery, JWKS, OAuth token (client_credentials, password-realm, refresh_token), userinfo, revoke, Management API users, users-by-email, tickets",
+    async load() {
+      const mod = await import("@emulators/auth0");
+      return { plugin: mod.auth0Plugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@auth0.local";
+      return { login: firstEmail, id: 1, scopes: ["openid", "profile", "email"] };
+    },
+    initConfig: {
+      auth0: {
+        connections: [{ name: "Username-Password-Authentication" }],
+        users: [
+          {
+            email: "testuser@auth0.local",
+            password: "Test1234!",
+            email_verified: true,
+            given_name: "Test",
+            family_name: "User",
+          },
+        ],
+        oauth_clients: [
+          {
+            client_id: "auth0-test-client",
+            client_secret: "auth0-test-secret",
+            name: "Sample Auth0 Client",
+            redirect_uris: ["http://localhost:3000/callback"],
+            grant_types: ["authorization_code", "refresh_token", "client_credentials"],
           },
         ],
       },
