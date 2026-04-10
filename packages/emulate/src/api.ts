@@ -10,7 +10,7 @@ export interface SeedConfig {
 }
 
 export interface EmulatorOptions {
-  service: ServiceName | string;
+  service: ServiceName | (string & {});
   port?: number;
   seed?: SeedConfig;
   plugins?: string[];

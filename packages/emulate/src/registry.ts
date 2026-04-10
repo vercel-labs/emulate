@@ -507,10 +507,16 @@ export const DEFAULT_TOKENS = {
 };
 
 export async function resolveServiceEntries(pluginSpecifiers: string[] = []): Promise<Record<string, ServiceEntry>> {
-  const externalEntries: Record<string, ServiceEntry> = {};
+  const results = await Promise.all(pluginSpecifiers.map(loadExternalPlugin));
 
-  for (const specifier of pluginSpecifiers) {
-    const { name, entry } = await loadExternalPlugin(specifier);
+  const externalEntries: Record<string, ServiceEntry> = {};
+  for (const { name, entry } of results) {
+    if (name in SERVICE_REGISTRY) {
+      throw new Error(`Plugin "${name}" conflicts with built-in service "${name}"`);
+    }
+    if (name in externalEntries) {
+      throw new Error(`Duplicate plugin name "${name}"`);
+    }
     externalEntries[name] = entry;
   }
 
