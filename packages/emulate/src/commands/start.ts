@@ -128,14 +128,20 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-    const { app, store } = createServer(loadedSvc.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
+    const { app, store, webhooks } = createServer(loadedSvc.plugin, {
+      port,
+      baseUrl,
+      tokens,
+      appKeyResolver,
+      fallbackUser,
+    });
     cachedResolver = loadedSvc.createAppKeyResolver?.(store);
     stores.push(store);
 
     loadedSvc.plugin.seed?.(store, baseUrl);
 
     if (svcSeedConfig && loadedSvc.seedFromConfig) {
-      loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig);
+      loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
     }
 
     const httpServer = serve({ fetch: app.fetch, port });
