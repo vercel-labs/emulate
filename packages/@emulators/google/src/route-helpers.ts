@@ -19,16 +19,14 @@ export function requireGmailUser(c: Context): string | Response {
     return authEmail;
   }
 
-  if (!matchesRequestedUser(c.req.param("userId"), authEmail)) {
+  if (!matchesRequestedUser(c.req.param("userId") ?? "", authEmail)) {
     return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
   }
 
   return authEmail;
 }
 
-export async function parseGoogleBody(
-  c: Context,
-): Promise<Record<string, unknown>> {
+export async function parseGoogleBody(c: Context): Promise<Record<string, unknown>> {
   const contentType = c.req.header("Content-Type") ?? "";
   const rawText = await c.req.text();
 

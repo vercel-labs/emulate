@@ -1,11 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import {
-  authMiddleware,
-  requireAuth,
-  requireAppAuth,
-  type TokenMap,
-} from "../middleware/auth.js";
+import { authMiddleware, requireAuth, requireAppAuth, type TokenMap, type AppEnv } from "../middleware/auth.js";
 
 describe("authMiddleware", () => {
   let tokenMap: TokenMap;
@@ -17,7 +12,7 @@ describe("authMiddleware", () => {
   it("sets authUser on context when the token exists in tokenMap", async () => {
     tokenMap.set("test-token", { login: "testuser", id: 1, scopes: ["repo"] });
 
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", authMiddleware(tokenMap));
     app.get("/test", (c) => c.json({ user: c.get("authUser") }));
 
@@ -33,7 +28,7 @@ describe("authMiddleware", () => {
   it("maps unknown tokens to fallbackUser when configured", async () => {
     const fallbackUser = { login: "fallback", id: 99, scopes: ["read:org"] };
 
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", authMiddleware(tokenMap, undefined, fallbackUser));
     app.get("/test", (c) => c.json({ user: c.get("authUser") }));
 
@@ -50,7 +45,7 @@ describe("authMiddleware", () => {
   it("does not set authUser when there is no Authorization header", async () => {
     tokenMap.set("test-token", { login: "testuser", id: 1, scopes: ["repo"] });
 
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", authMiddleware(tokenMap));
     app.get("/test", (c) => c.json({ user: c.get("authUser") ?? null }));
 
@@ -71,7 +66,7 @@ describe("requireAuth", () => {
   });
 
   it("returns 401 when authUser is not set", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", authMiddleware(tokenMap));
     app.use("*", requireAuth());
     app.get("/protected", (c) => c.json({ ok: true }));
@@ -85,7 +80,7 @@ describe("requireAuth", () => {
   });
 
   it("passes through when authUser exists", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", authMiddleware(tokenMap));
     app.use("*", requireAuth());
     app.get("/protected", (c) => c.json({ user: c.get("authUser") }));
@@ -102,7 +97,7 @@ describe("requireAuth", () => {
 
 describe("requireAppAuth", () => {
   it("returns 401 when authApp is not set", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", requireAppAuth());
     app.get("/app-route", (c) => c.json({ ok: true }));
 
@@ -115,7 +110,7 @@ describe("requireAppAuth", () => {
   });
 
   it("passes through when authApp exists", async () => {
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => {
       c.set("authApp", { appId: 42, slug: "my-app", name: "My App" });
       await next();

@@ -43,6 +43,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
 
   const baseUrl = `http://localhost:${port}`;
 
+  // eslint-disable-next-line prefer-const -- reassigned after closure captures it
   let cachedResolver: AppKeyResolver | undefined;
   const appKeyResolver: AppKeyResolver | undefined = loaded.createAppKeyResolver
     ? (appId) => cachedResolver!(appId)

@@ -19,7 +19,7 @@ const addShebang = async () => {
 
 const shared = {
   define: {
-    "PKG_VERSION": JSON.stringify(pkg.version),
+    PKG_VERSION: JSON.stringify(pkg.version),
   },
 };
 

@@ -56,12 +56,7 @@ function fullRefFromParam(refParam: string): string {
   return refParam.startsWith("refs/") ? refParam : `refs/${refParam}`;
 }
 
-function isDescendantOf(
-  gh: GitHubStore,
-  repoId: number,
-  ancestorSha: string,
-  descendantSha: string
-): boolean {
+function isDescendantOf(gh: GitHubStore, repoId: number, ancestorSha: string, descendantSha: string): boolean {
   const visiting = new Set<string>();
   const stack = [descendantSha];
   while (stack.length) {
@@ -76,11 +71,7 @@ function isDescendantOf(
   return false;
 }
 
-function resolveGitObjectType(
-  gh: GitHubStore,
-  repoId: number,
-  sha: string
-): "commit" | "tag" | "blob" | "tree" {
+function resolveGitObjectType(gh: GitHubStore, repoId: number, sha: string): "commit" | "tag" | "blob" | "tree" {
   if (findCommitBySha(gh, repoId, sha)) return "commit";
   if (findTagObjectBySha(gh, repoId, sha)) return "tag";
   if (findTreeBySha(gh, repoId, sha)) return "tree";
@@ -92,7 +83,7 @@ function objectApiUrl(
   repo: GitHubRepo,
   baseUrl: string,
   type: "commit" | "tag" | "blob" | "tree",
-  sha: string
+  sha: string,
 ): string {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   switch (type) {
@@ -107,13 +98,7 @@ function objectApiUrl(
   }
 }
 
-function formatRefJson(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  fullRef: string,
-  sha: string,
-  baseUrl: string
-) {
+function formatRefJson(gh: GitHubStore, repo: GitHubRepo, fullRef: string, sha: string, baseUrl: string) {
   const refRec = gh.refs.findBy("repo_id", repo.id).find((r) => r.ref === fullRef);
   const type = resolveGitObjectType(gh, repo.id, sha);
   const shortRef = fullRef.startsWith("refs/") ? fullRef.slice(5) : fullRef;
@@ -158,7 +143,7 @@ function expandTreeEntries(
   repoId: number,
   entries: GitHubTree["tree"],
   recursive: boolean,
-  prefix = ""
+  prefix = "",
 ): GitHubTree["tree"] {
   const out: GitHubTree["tree"] = [];
   for (const e of entries) {
@@ -216,12 +201,7 @@ function formatCommitJson(gh: GitHubStore, repo: GitHubRepo, c: GitHubCommit, ba
   };
 }
 
-function protectionEntityToGitHub(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  bp: GitHubBranchProtection,
-  baseUrl: string
-) {
+function protectionEntityToGitHub(gh: GitHubStore, repo: GitHubRepo, bp: GitHubBranchProtection, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const encBranch = encodeURIComponent(bp.branch_name);
   const base = `${repoUrl}/branches/${encBranch}/protection`;
@@ -248,8 +228,7 @@ function protectionEntityToGitHub(
           url: `${base}/required_pull_request_reviews`,
           dismiss_stale_reviews: bp.required_pull_request_reviews.dismiss_stale_reviews,
           require_code_owner_reviews: bp.required_pull_request_reviews.require_code_owner_reviews,
-          required_approving_review_count:
-            bp.required_pull_request_reviews.required_approving_review_count,
+          required_approving_review_count: bp.required_pull_request_reviews.required_approving_review_count,
         }
       : null,
     restrictions: bp.restrictions
@@ -289,10 +268,9 @@ function protectionEntityToGitHub(
   };
 }
 
-function parseProtectionPutBody(body: Record<string, unknown>): Omit<
-  GitHubBranchProtection,
-  "id" | "repo_id" | "branch_name" | "created_at" | "updated_at"
-> {
+function parseProtectionPutBody(
+  body: Record<string, unknown>,
+): Omit<GitHubBranchProtection, "id" | "repo_id" | "branch_name" | "created_at" | "updated_at"> {
   const rsc = body.required_status_checks;
   let required_status_checks: GitHubBranchProtection["required_status_checks"] = null;
   if (rsc && typeof rsc === "object" && rsc !== null) {
@@ -373,7 +351,7 @@ function parseProtectionPutBody(body: Record<string, unknown>): Omit<
     required_signatures: Boolean(
       typeof body.required_signatures === "boolean"
         ? body.required_signatures
-        : (body.required_signatures as { enabled?: boolean } | undefined)?.enabled
+        : (body.required_signatures as { enabled?: boolean } | undefined)?.enabled,
     ),
   };
 }
@@ -390,9 +368,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp || !bp.required_status_checks) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -416,15 +392,13 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     const body = await parseJsonBody(c);
-    const strict = typeof body.strict === "boolean" ? body.strict : bp.required_status_checks?.strict ?? false;
+    const strict = typeof body.strict === "boolean" ? body.strict : (bp.required_status_checks?.strict ?? false);
     const contexts = Array.isArray(body.contexts)
       ? body.contexts.filter((x): x is string => typeof x === "string")
-      : bp.required_status_checks?.contexts ?? [];
+      : (bp.required_status_checks?.contexts ?? []);
     gh.branchProtections.update(bp.id, {
       required_status_checks: { strict, contexts },
     });
@@ -447,9 +421,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -467,9 +439,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp || !bp.required_pull_request_reviews) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -490,9 +460,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     const body = await parseJsonBody(c);
     const prev = bp.required_pull_request_reviews ?? {
@@ -506,9 +474,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
           ? body.required_approving_review_count
           : prev.required_approving_review_count,
       dismiss_stale_reviews:
-        typeof body.dismiss_stale_reviews === "boolean"
-          ? body.dismiss_stale_reviews
-          : prev.dismiss_stale_reviews,
+        typeof body.dismiss_stale_reviews === "boolean" ? body.dismiss_stale_reviews : prev.dismiss_stale_reviews,
       require_code_owner_reviews:
         typeof body.require_code_owner_reviews === "boolean"
           ? body.require_code_owner_reviews
@@ -531,9 +497,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     return c.json(protectionEntityToGitHub(gh, repo, bp, baseUrl));
   });
@@ -549,9 +513,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     if (!b) throw notFoundResponse();
     const body = await parseJsonBody(c);
     const parsed = parseProtectionPutBody(body);
-    const existing = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const existing = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (existing) {
       gh.branchProtections.update(existing.id, { ...parsed });
     } else {
@@ -562,9 +524,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       } as Omit<GitHubBranchProtection, "id" | "created_at" | "updated_at">);
     }
     gh.branches.update(b.id, { protected: true });
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch)!;
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch)!;
     webhooks.dispatch(
       "branch_protection_rule",
       "edited",
@@ -574,7 +534,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         repository: formatRepo(repo, gh, baseUrl),
       },
       ownerLoginOf(gh, repo),
-      repo.name
+      repo.name,
     );
     return c.json(protectionEntityToGitHub(gh, repo, bp, baseUrl));
   });
@@ -586,9 +546,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branch);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (bp) gh.branchProtections.delete(bp.id);
     const b = findBranchByName(gh, repo.id, branch);
     if (b) gh.branches.update(b.id, { protected: false });
@@ -607,9 +565,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const commit = findCommitBySha(gh, repo.id, branch.sha);
     const base = formatBranch(branch, repo, baseUrl);
     if (!branch.protected) return c.json(base);
-    const bp = gh.branchProtections
-      .findBy("repo_id", repo.id)
-      .find((p) => p.branch_name === branchName);
+    const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branchName);
     return c.json({
       ...base,
       protection: {
@@ -639,9 +595,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    let list = [...gh.branches.findBy("repo_id", repo.id)].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
+    let list = [...gh.branches.findBy("repo_id", repo.id)].sort((a, b) => a.name.localeCompare(b.name));
     const prot = c.req.query("protected");
     if (prot === "true") list = list.filter((b) => b.protected);
     else if (prot === "false") list = list.filter((b) => !b.protected);
@@ -689,7 +643,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const user = assertRepoWrite(gh, c.get("authUser"), repo);
-    const body = await parseJsonBody(c) as { ref?: unknown; sha?: unknown };
+    const body = (await parseJsonBody(c)) as { ref?: unknown; sha?: unknown };
     if (typeof body.ref !== "string" || !body.ref.startsWith("refs/")) {
       throw new ApiError(422, "Invalid ref");
     }
@@ -723,7 +677,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         sender: formatUser(user, baseUrl),
       },
       ownerLoginOf(gh, repo),
-      repo.name
+      repo.name,
     );
     const r = gh.refs.get(refRow.id)!;
     return c.json(formatRefJson(gh, repo, r.ref, r.sha, baseUrl), 201);
@@ -739,7 +693,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
-    const body = await parseJsonBody(c) as { sha?: unknown; force?: unknown };
+    const body = (await parseJsonBody(c)) as { sha?: unknown; force?: unknown };
     if (typeof body.sha !== "string") {
       throw new ApiError(422, "sha is required");
     }
@@ -772,7 +726,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         sender: formatUser(user, baseUrl),
       },
       ownerLoginOf(gh, repo),
-      repo.name
+      repo.name,
     );
     const updated = gh.refs.get(r.id)!;
     return c.json(formatRefJson(gh, repo, updated.ref, updated.sha, baseUrl));
@@ -924,7 +878,11 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
 
     for (const raw of items) {
-      if (typeof raw.path !== "string" || typeof raw.mode !== "string" || (raw.type !== "blob" && raw.type !== "tree")) {
+      if (
+        typeof raw.path !== "string" ||
+        typeof raw.mode !== "string" ||
+        (raw.type !== "blob" && raw.type !== "tree")
+      ) {
         throw new ApiError(422, "Each tree entry needs path, mode, type (blob|tree)");
       }
       if (raw.sha !== undefined && raw.content !== undefined) {
@@ -973,7 +931,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         tree: saved.tree,
         truncated: saved.truncated,
       },
-      201
+      201,
     );
   });
 
@@ -989,10 +947,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const blob = findBlobBySha(gh, repo.id, fileSha);
     if (!blob) throw notFoundResponse();
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-    const content =
-      blob.encoding === "base64"
-        ? blob.content
-        : Buffer.from(blob.content, "utf8").toString("base64");
+    const content = blob.encoding === "base64" ? blob.content : Buffer.from(blob.content, "utf8").toString("base64");
     return c.json({
       sha: blob.sha,
       node_id: blob.node_id,
@@ -1009,7 +964,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoWrite(gh, c.get("authUser"), repo);
-    const body = await parseJsonBody(c) as {
+    const body = (await parseJsonBody(c)) as {
       content?: unknown;
       encoding?: unknown;
     };
@@ -1034,7 +989,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
           url: `${repoUrl}/git/blobs/${saved.sha}`,
           size: saved.size,
         },
-        201
+        201,
       );
     }
     const raw = body.content;
@@ -1057,7 +1012,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         url: `${repoUrl}/git/blobs/${saved.sha}`,
         size: saved.size,
       },
-      201
+      201,
     );
   });
 
@@ -1087,12 +1042,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       object: {
         type: tag.object_type,
         sha: tag.object_sha,
-        url: objectApiUrl(
-          repo,
-          baseUrl,
-          resolveGitObjectType(gh, repo.id, tag.object_sha),
-          tag.object_sha
-        ),
+        url: objectApiUrl(repo, baseUrl, resolveGitObjectType(gh, repo.id, tag.object_sha), tag.object_sha),
       },
       verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
     });
@@ -1149,16 +1099,11 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         object: {
           type: saved.object_type,
           sha: saved.object_sha,
-          url: objectApiUrl(
-            repo,
-            baseUrl,
-            resolveGitObjectType(gh, repo.id, saved.object_sha),
-            saved.object_sha
-          ),
+          url: objectApiUrl(repo, baseUrl, resolveGitObjectType(gh, repo.id, saved.object_sha), saved.object_sha),
         },
         verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
       },
-      201
+      201,
     );
   });
 }

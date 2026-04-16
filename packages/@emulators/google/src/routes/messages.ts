@@ -25,59 +25,57 @@ import { getGoogleStore } from "../store.js";
 export function messageRoutes({ app, store }: RouteContext): void {
   const gs = getGoogleStore(store);
 
-  const createHandler =
-    (mode: "insert" | "import" | "send") =>
-    async (c: Context) => {
-      const authEmail = requireGmailUser(c);
-      if (authEmail instanceof Response) return authEmail;
+  const createHandler = (mode: "insert" | "import" | "send") => async (c: Context) => {
+    const authEmail = requireGmailUser(c);
+    if (authEmail instanceof Response) return authEmail;
 
-      const body = await parseGoogleBody(c);
-      const labelIds = getStringArray(body, "labelIds");
-      const defaultLabelIds =
-        mode === "send"
-          ? dedupeLabelIds([...labelIds, "SENT"])
-          : labelIds.length > 0
-            ? labelIds
-            : mode === "import"
-              ? ["INBOX", "UNREAD"]
-              : [];
+    const body = await parseGoogleBody(c);
+    const labelIds = getStringArray(body, "labelIds");
+    const defaultLabelIds =
+      mode === "send"
+        ? dedupeLabelIds([...labelIds, "SENT"])
+        : labelIds.length > 0
+          ? labelIds
+          : mode === "import"
+            ? ["INBOX", "UNREAD"]
+            : [];
 
-      const missingLabelIds = findMissingLabelIds(gs, authEmail, defaultLabelIds);
-      if (missingLabelIds.length > 0) {
-        return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
-      }
+    const missingLabelIds = findMissingLabelIds(gs, authEmail, defaultLabelIds);
+    if (missingLabelIds.length > 0) {
+      return googleApiError(
+        c,
+        400,
+        `Invalid label IDs: ${missingLabelIds.join(", ")}`,
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
+    }
 
-      const messageInput = parseMessageInputFromBody(body, {
-        from: mode === "send" ? authEmail : undefined,
+    const messageInput = parseMessageInputFromBody(body, {
+      from: mode === "send" ? authEmail : undefined,
+    });
+    if (!messageInput.raw && (!messageInput.from || !messageInput.to)) {
+      return googleApiError(
+        c,
+        400,
+        "A raw MIME message or explicit from/to fields are required.",
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
+    }
+
+    try {
+      const message = createStoredMessage(gs, {
+        user_email: authEmail,
+        ...messageInput,
+        label_ids: defaultLabelIds,
       });
-      if (!messageInput.raw && (!messageInput.from || !messageInput.to)) {
-        return googleApiError(
-          c,
-          400,
-          "A raw MIME message or explicit from/to fields are required.",
-          "invalidArgument",
-          "INVALID_ARGUMENT",
-        );
-      }
 
-      try {
-        const message = createStoredMessage(gs, {
-          user_email: authEmail,
-          ...messageInput,
-          label_ids: defaultLabelIds,
-        });
-
-        return c.json(formatMessageResource(gs, message, "full"));
-      } catch {
-        return googleApiError(
-          c,
-          400,
-          "Invalid raw MIME message payload.",
-          "invalidArgument",
-          "INVALID_ARGUMENT",
-        );
-      }
-    };
+      return c.json(formatMessageResource(gs, message, "full"));
+    } catch {
+      return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
+    }
+  };
 
   app.get("/gmail/v1/users/:userId/messages", (c) => {
     const authEmail = requireGmailUser(c);
@@ -116,18 +114,20 @@ export function messageRoutes({ app, store }: RouteContext): void {
 
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(
+        c,
+        400,
+        `Invalid label IDs: ${missingLabelIds.join(", ")}`,
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
     }
 
     for (const messageId of ids) {
       const message = getMessageById(gs, authEmail, messageId);
       if (!message) continue;
 
-      markMessageModified(
-        gs,
-        message,
-        applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds),
-      );
+      markMessageModified(gs, message, applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds));
     }
 
     return c.body(null, 204);
@@ -210,7 +210,13 @@ export function messageRoutes({ app, store }: RouteContext): void {
     const removeLabelIds = getStringArray(body, "removeLabelIds");
     const missingLabelIds = findMissingLabelIds(gs, authEmail, [...addLabelIds, ...removeLabelIds]);
     if (missingLabelIds.length > 0) {
-      return googleApiError(c, 400, `Invalid label IDs: ${missingLabelIds.join(", ")}`, "invalidArgument", "INVALID_ARGUMENT");
+      return googleApiError(
+        c,
+        400,
+        `Invalid label IDs: ${missingLabelIds.join(", ")}`,
+        "invalidArgument",
+        "INVALID_ARGUMENT",
+      );
     }
 
     const updated = markMessageModified(
@@ -230,7 +236,9 @@ export function messageRoutes({ app, store }: RouteContext): void {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
-    return c.json(formatMessageResource(gs, markMessageModified(gs, message, trashLabelIds(message.label_ids)), "full"));
+    return c.json(
+      formatMessageResource(gs, markMessageModified(gs, message, trashLabelIds(message.label_ids)), "full"),
+    );
   });
 
   app.post("/gmail/v1/users/:userId/messages/:id/untrash", (c) => {
@@ -242,7 +250,9 @@ export function messageRoutes({ app, store }: RouteContext): void {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
-    return c.json(formatMessageResource(gs, markMessageModified(gs, message, untrashLabelIds(message.label_ids)), "full"));
+    return c.json(
+      formatMessageResource(gs, markMessageModified(gs, message, untrashLabelIds(message.label_ids)), "full"),
+    );
   });
 
   app.delete("/gmail/v1/users/:userId/messages/:id", (c) => {

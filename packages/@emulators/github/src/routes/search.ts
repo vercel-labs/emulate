@@ -11,14 +11,7 @@ import type {
   GitHubRepo,
   GitHubUser,
 } from "../entities.js";
-import {
-  formatIssue,
-  formatOrgBrief,
-  formatPullRequest,
-  formatRepo,
-  formatUser,
-  lookupRepo,
-} from "../helpers.js";
+import { formatIssue, formatOrgBrief, formatPullRequest, formatRepo, formatUser, lookupRepo } from "../helpers.js";
 import { canAccessRepo } from "../route-helpers.js";
 
 /** Parsed GitHub-style search query (q parameter). */
@@ -66,9 +59,7 @@ function tokenizeSearchQuery(q: string): string[] {
   return tokens;
 }
 
-function parseRangeToken(
-  raw: string
-): { op: string; value: number | string } | null {
+function parseRangeToken(raw: string): { op: string; value: number | string } | null {
   const range = /^(\d+)\.\.(\d+)$/.exec(raw);
   if (range) {
     return { op: "..", value: `${range[1]}..${range[2]}` };
@@ -170,7 +161,7 @@ function ownerLogin(gh: GitHubStore, repo: GitHubRepo): string {
 function matchesNumericPredicate(
   actual: number,
   preds: Array<{ op: string; value: number | string }>,
-  equalsFromQualifiers: string[]
+  equalsFromQualifiers: string[],
 ): boolean {
   for (const e of equalsFromQualifiers) {
     if (/^\d+$/.test(e) && actual !== parseInt(e, 10)) return false;
@@ -202,7 +193,7 @@ function filterRepos(
   gh: GitHubStore,
   repos: GitHubRepo[],
   parsed: ParsedSearchQuery,
-  authUser: AuthUser | undefined
+  authUser: AuthUser | undefined,
 ): GitHubRepo[] {
   const qUser = parsed.qualifiers.get("user")?.[0];
   const qOrg = parsed.qualifiers.get("org")?.[0];
@@ -296,10 +287,7 @@ function filterRepos(
       if (v === "only" && repo.fork) return false;
     }
 
-    const searchIn =
-      inScopes.length > 0
-        ? inScopes.map((s) => s.toLowerCase())
-        : ["name", "description", "topics"];
+    const searchIn = inScopes.length > 0 ? inScopes.map((s) => s.toLowerCase()) : ["name", "description", "topics"];
 
     const text = parsed.text;
     if (text.length) {
@@ -354,7 +342,7 @@ function issuePrMatchesFilters(
   parsed: ParsedSearchQuery,
   repo: GitHubRepo,
   issue: GitHubIssue | null,
-  pr: GitHubPullRequest | null
+  pr: GitHubPullRequest | null,
 ): boolean {
   const repoSpecs = parsed.qualifiers.get("repo") ?? [];
   for (const rs of repoSpecs) {
@@ -367,10 +355,10 @@ function issuePrMatchesFilters(
   }
 
   const isVals = [...(parsed.qualifiers.get("is") ?? []), ...(parsed.qualifiers.get("type") ?? [])].map((x) =>
-    x.toLowerCase()
+    x.toLowerCase(),
   );
   const negIs = [...(parsed.negations.get("is") ?? []), ...(parsed.negations.get("type") ?? [])].map((x) =>
-    x.toLowerCase()
+    x.toLowerCase(),
   );
 
   const isPr = pr !== null || issue?.is_pull_request === true;
@@ -449,20 +437,20 @@ function issuePrMatchesFilters(
     const u = gh.users.findOneBy("login", a);
     const uid = u?.id;
     if (!uid) return false;
-    const ids = isPr && pr ? pr.assignee_ids : issue?.assignee_ids ?? [];
+    const ids = isPr && pr ? pr.assignee_ids : (issue?.assignee_ids ?? []);
     if (!ids.includes(uid)) return false;
   }
   for (const a of parsed.negations.get("assignee") ?? []) {
     const u = gh.users.findOneBy("login", a);
     const uid = u?.id;
     if (uid === undefined) continue;
-    const ids = isPr && pr ? pr.assignee_ids : issue?.assignee_ids ?? [];
+    const ids = isPr && pr ? pr.assignee_ids : (issue?.assignee_ids ?? []);
     if (ids.includes(uid)) return false;
   }
 
   const labels = parsed.qualifiers.get("label") ?? [];
   for (const lb of labels) {
-    const labelIds = isPr && pr ? pr.label_ids : issue?.label_ids ?? [];
+    const labelIds = isPr && pr ? pr.label_ids : (issue?.label_ids ?? []);
     const names = labelIds
       .map((id) => gh.labels.get(id))
       .filter(Boolean)
@@ -470,7 +458,7 @@ function issuePrMatchesFilters(
     if (!names.includes(lb.toLowerCase())) return false;
   }
   for (const lb of parsed.negations.get("label") ?? []) {
-    const labelIds = isPr && pr ? pr.label_ids : issue?.label_ids ?? [];
+    const labelIds = isPr && pr ? pr.label_ids : (issue?.label_ids ?? []);
     const names = labelIds
       .map((id) => gh.labels.get(id))
       .filter(Boolean)
@@ -492,7 +480,7 @@ function issuePrMatchesFilters(
 
   const commentRanges = parsed.ranges.get("comments") ?? [];
   const commentEq = parsed.qualifiers.get("comments") ?? [];
-  const n = isPr && pr ? pr.comments : issue?.comments ?? 0;
+  const n = isPr && pr ? pr.comments : (issue?.comments ?? 0);
   if (!matchesNumericPredicate(n, commentRanges, commentEq)) return false;
   for (const nv of parsed.negations.get("comments") ?? []) {
     const r = parseRangeToken(nv);
@@ -503,8 +491,8 @@ function issuePrMatchesFilters(
 
   const text = parsed.text.trim();
   if (text.length) {
-    const title = isPr && pr ? pr.title : issue?.title ?? "";
-    const body = isPr && pr ? pr.body ?? "" : issue?.body ?? "";
+    const title = isPr && pr ? pr.title : (issue?.title ?? "");
+    const body = isPr && pr ? (pr.body ?? "") : (issue?.body ?? "");
     if (!textMatches(title, text) && !textMatches(body, text)) return false;
   }
 
@@ -663,7 +651,12 @@ function formatSearchCommit(gh: GitHubStore, commit: GitHubCommit, repo: GitHubR
   };
 }
 
-function loginMatchesCommitAuthor(gh: GitHubStore, login: string, commit: GitHubCommit, role: "author" | "committer"): boolean {
+function loginMatchesCommitAuthor(
+  gh: GitHubStore,
+  login: string,
+  commit: GitHubCommit,
+  role: "author" | "committer",
+): boolean {
   const u = gh.users.findOneBy("login", login);
   const email = (role === "author" ? commit.author_email : commit.committer_email).toLowerCase();
   if (u) {
@@ -693,17 +686,13 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
 
     if (sortRaw === "stars") {
       list.sort((a, b) =>
-        order === "desc"
-          ? b.stargazers_count - a.stargazers_count
-          : a.stargazers_count - b.stargazers_count
+        order === "desc" ? b.stargazers_count - a.stargazers_count : a.stargazers_count - b.stargazers_count,
       );
     } else if (sortRaw === "forks") {
-      list.sort((a, b) =>
-        order === "desc" ? b.forks_count - a.forks_count : a.forks_count - b.forks_count
-      );
+      list.sort((a, b) => (order === "desc" ? b.forks_count - a.forks_count : a.forks_count - b.forks_count));
     } else if (sortRaw === "updated") {
       list.sort((a, b) =>
-        order === "desc" ? b.updated_at.localeCompare(a.updated_at) : a.updated_at.localeCompare(b.updated_at)
+        order === "desc" ? b.updated_at.localeCompare(a.updated_at) : a.updated_at.localeCompare(b.updated_at),
       );
     } else {
       list.sort((a, b) => repoRelevance(b, parsed) - repoRelevance(a, parsed));
@@ -738,9 +727,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       if (!repo) continue;
       if (!repoVisibleForSearch(repo, gh, authUser)) continue;
       if (issue.is_pull_request) {
-        const pr = gh.pullRequests
-          .findBy("repo_id", issue.repo_id)
-          .find((p) => p.number === issue.number);
+        const pr = gh.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number);
         if (!pr) continue;
         if (!issuePrMatchesFilters(gh, parsed, repo, issue, pr)) continue;
         hits.push({ kind: "pr", pr });
@@ -751,9 +738,8 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     function relevance(h: Hit): number {
-      const title =
-        h.kind === "issue" ? h.issue.title : h.pr.title;
-      const body = h.kind === "issue" ? h.issue.body ?? "" : h.pr.body ?? "";
+      const title = h.kind === "issue" ? h.issue.title : h.pr.title;
+      const body = h.kind === "issue" ? (h.issue.body ?? "") : (h.pr.body ?? "");
       const t = parsed.text.trim().toLowerCase();
       if (!t) return 1;
       let s = 0;
@@ -762,7 +748,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       return s;
     }
 
-    let sorted = [...hits];
+    const sorted = [...hits];
     if (sortRaw === "created") {
       sorted.sort((a, b) => {
         const ca = a.kind === "issue" ? a.issue.created_at : a.pr.created_at;
@@ -847,7 +833,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       return s;
     }
 
-    let list = [...hits];
+    const list = [...hits];
     if (sortRaw === "followers") {
       list.sort((a, b) => {
         const fa = a.kind === "user" ? a.u.followers : a.o.followers;
@@ -875,9 +861,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     const slice = list.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
     setLinkHeader(c, total, page, per_page);
 
-    const items = slice.map((h) =>
-      h.kind === "user" ? formatUser(h.u, baseUrl) : formatOrgBrief(h.o, baseUrl)
-    );
+    const items = slice.map((h) => (h.kind === "user" ? formatUser(h.u, baseUrl) : formatOrgBrief(h.o, baseUrl)));
 
     return c.json({
       total_count: total,
@@ -1139,9 +1123,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     let labels = gh.labels.findBy("repo_id", repositoryId);
     if (text.length) {
       labels = labels.filter(
-        (l) =>
-          l.name.toLowerCase().includes(text) ||
-          (l.description && l.description.toLowerCase().includes(text))
+        (l) => l.name.toLowerCase().includes(text) || (l.description && l.description.toLowerCase().includes(text)),
       );
     }
 

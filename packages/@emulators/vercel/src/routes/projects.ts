@@ -85,9 +85,7 @@ function deleteProjectCascade(vs: VercelStore, project: VercelProject): void {
   vs.projects.delete(project.id);
 }
 
-function protectionMetaForRow(
-  row: VercelProtectionBypass
-): { createdAt: number; createdBy: string; scope: string } {
+function protectionMetaForRow(row: VercelProtectionBypass): { createdAt: number; createdBy: string; scope: string } {
   return {
     createdAt: new Date(row.created_at).getTime(),
     createdBy: row.createdBy,
@@ -125,7 +123,9 @@ export function projectsRoutes({ app, store, baseUrl }: RouteContext): void {
       return vercelErr(c, 400, "bad_request", "Missing required field: name");
     }
 
-    const existing = vs.projects.findBy("name", name as VercelProject["name"]).filter((p) => p.accountId === scope.accountId);
+    const existing = vs.projects
+      .findBy("name", name as VercelProject["name"])
+      .filter((p) => p.accountId === scope.accountId);
     if (existing.length > 0) {
       return vercelErr(c, 409, "project_already_exists", "A project with this name already exists");
     }
@@ -188,7 +188,9 @@ export function projectsRoutes({ app, store, baseUrl }: RouteContext): void {
               ? ev.type
               : "encrypted",
           target: Array.isArray(ev.target)
-            ? (ev.target.filter((t) => t === "production" || t === "preview" || t === "development") as VercelEnvVar["target"])
+            ? (ev.target.filter(
+                (t) => t === "production" || t === "preview" || t === "development",
+              ) as VercelEnvVar["target"])
             : ["production", "preview", "development"],
           gitBranch: typeof ev.gitBranch === "string" ? ev.gitBranch : null,
           customEnvironmentIds: Array.isArray(ev.customEnvironmentIds) ? (ev.customEnvironmentIds as string[]) : [],
@@ -261,25 +263,44 @@ export function projectsRoutes({ app, store, baseUrl }: RouteContext): void {
 
     if ("name" in body && typeof body.name === "string") patch.name = body.name.trim();
     if ("buildCommand" in body) {
-      patch.buildCommand = body.buildCommand === null ? null : typeof body.buildCommand === "string" ? body.buildCommand : project.buildCommand;
+      patch.buildCommand =
+        body.buildCommand === null
+          ? null
+          : typeof body.buildCommand === "string"
+            ? body.buildCommand
+            : project.buildCommand;
     }
     if ("devCommand" in body) {
-      patch.devCommand = body.devCommand === null ? null : typeof body.devCommand === "string" ? body.devCommand : project.devCommand;
+      patch.devCommand =
+        body.devCommand === null ? null : typeof body.devCommand === "string" ? body.devCommand : project.devCommand;
     }
     if ("installCommand" in body) {
       patch.installCommand =
-        body.installCommand === null ? null : typeof body.installCommand === "string" ? body.installCommand : project.installCommand;
+        body.installCommand === null
+          ? null
+          : typeof body.installCommand === "string"
+            ? body.installCommand
+            : project.installCommand;
     }
     if ("outputDirectory" in body) {
       patch.outputDirectory =
-        body.outputDirectory === null ? null : typeof body.outputDirectory === "string" ? body.outputDirectory : project.outputDirectory;
+        body.outputDirectory === null
+          ? null
+          : typeof body.outputDirectory === "string"
+            ? body.outputDirectory
+            : project.outputDirectory;
     }
     if ("framework" in body) {
-      patch.framework = body.framework === null ? null : typeof body.framework === "string" ? body.framework : project.framework;
+      patch.framework =
+        body.framework === null ? null : typeof body.framework === "string" ? body.framework : project.framework;
     }
     if ("rootDirectory" in body) {
       patch.rootDirectory =
-        body.rootDirectory === null ? null : typeof body.rootDirectory === "string" ? body.rootDirectory : project.rootDirectory;
+        body.rootDirectory === null
+          ? null
+          : typeof body.rootDirectory === "string"
+            ? body.rootDirectory
+            : project.rootDirectory;
     }
     if ("gitForkProtection" in body && typeof body.gitForkProtection === "boolean") {
       patch.gitForkProtection = body.gitForkProtection;

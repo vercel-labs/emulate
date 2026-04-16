@@ -11,12 +11,7 @@ export function parsePagination(c: Context): PaginationParams {
   return { page, per_page };
 }
 
-export function setLinkHeader(
-  c: Context,
-  totalCount: number,
-  page: number,
-  perPage: number
-): void {
+export function setLinkHeader(c: Context, totalCount: number, page: number, perPage: number): void {
   const lastPage = Math.max(1, Math.ceil(totalCount / perPage));
   const baseUrl = new URL(c.req.url);
   const links: string[] = [];

@@ -2,12 +2,7 @@ import type { Context } from "hono";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import {
-  assertIssueWrite,
-  assertRepoRead,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { assertIssueWrite, assertRepoRead, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubIssue, GitHubIssueEvent, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
 import {
@@ -20,14 +15,8 @@ import {
   timestamp,
 } from "../helpers.js";
 
-function findIssueForRepo(
-  gh: GitHubStore,
-  repoId: number,
-  issueNumber: number
-): GitHubIssue | undefined {
-  return gh.issues
-    .findBy("repo_id", repoId)
-    .find((i) => i.number === issueNumber && !i.is_pull_request);
+function findIssueForRepo(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
+  return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber && !i.is_pull_request);
 }
 
 function adjustRepoOpenIssues(gh: GitHubStore, repoId: number, delta: number) {
@@ -51,12 +40,7 @@ function getOrCreateLabel(gh: GitHubStore, repo: GitHubRepo, name: string): GitH
   return gh.labels.get(label.id)!;
 }
 
-function resolveLabelIds(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  raw: unknown,
-  createMissing: boolean
-): number[] {
+function resolveLabelIds(gh: GitHubStore, repo: GitHubRepo, raw: unknown, createMissing: boolean): number[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
     throw new ApiError(422, "Validation failed");
@@ -97,11 +81,8 @@ function insertIssueEvent(
   event: string,
   actorId: number,
   extra?: Partial<
-    Pick<
-      GitHubIssueEvent,
-      "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename"
-    >
-  >
+    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
+  >,
 ): GitHubIssueEvent {
   const row = gh.issueEvents.insert({
     node_id: "",
@@ -126,7 +107,7 @@ function formatIssueEventApi(
   gh: GitHubStore,
   repo: GitHubRepo,
   issue: GitHubIssue,
-  baseUrl: string
+  baseUrl: string,
 ) {
   const actor = gh.users.get(ev.actor_id);
   const issueJson = formatIssue(issue, gh, baseUrl);
@@ -141,14 +122,12 @@ function formatIssueEventApi(
     created_at: ev.created_at,
     label:
       ev.label_name !== null
-        ? gh.labels
-            .findBy("repo_id", repo.id)
-            .find((l) => l.name === ev.label_name)
-            ? {
-                name: ev.label_name,
-                color: gh.labels.findBy("repo_id", repo.id).find((l) => l.name === ev.label_name)!.color,
-              }
-            : { name: ev.label_name, color: "ededed" }
+        ? gh.labels.findBy("repo_id", repo.id).find((l) => l.name === ev.label_name)
+          ? {
+              name: ev.label_name,
+              color: gh.labels.findBy("repo_id", repo.id).find((l) => l.name === ev.label_name)!.color,
+            }
+          : { name: ev.label_name, color: "ededed" }
         : null,
     assignee:
       ev.assignee_id !== null && gh.users.get(ev.assignee_id)
@@ -163,7 +142,7 @@ function formatIssueEventApi(
 function sortIssues(
   issues: GitHubIssue[],
   sort: "created" | "updated" | "comments",
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): GitHubIssue[] {
   const mul = direction === "asc" ? 1 : -1;
   const field = sort === "created" ? "created_at" : sort === "updated" ? "updated_at" : "comments";
@@ -232,8 +211,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo.has_issues) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
-    const { state, labelNames, sort, direction, milestoneQ, assigneeQ, creatorQ, sinceQ } =
-      parseIssueListFilters(c);
+    const { state, labelNames, sort, direction, milestoneQ, assigneeQ, creatorQ, sinceQ } = parseIssueListFilters(c);
 
     let list = gh.issues.findBy("repo_id", repo.id).filter((i) => !i.is_pull_request);
 
@@ -372,7 +350,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(issueFmt, 201);
@@ -452,10 +430,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       if (body.milestone === null) {
         patch.milestone_id = null;
       } else {
-        const mn =
-          typeof body.milestone === "number"
-            ? body.milestone
-            : parseInt(String(body.milestone), 10);
+        const mn = typeof body.milestone === "number" ? body.milestone : parseInt(String(body.milestone), 10);
         if (!Number.isFinite(mn)) throw new ApiError(422, "Validation failed");
         const ms = gh.milestones.findBy("repo_id", repo.id).find((m) => m.number === mn);
         if (!ms) throw new ApiError(422, "Validation failed");
@@ -508,7 +483,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     } else if (patch.state === "open" && oldState === "closed") {
       adjustRepoOpenIssues(gh, repo.id, 1);
@@ -523,7 +498,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     }
 
@@ -546,7 +521,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
       }
@@ -566,7 +541,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
                 sender: formatUser(actor, baseUrl),
               },
               ownerLogin,
-              repo.name
+              repo.name,
             );
           }
         }
@@ -590,7 +565,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
       }
@@ -609,7 +584,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
       }
@@ -618,8 +593,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if ("milestone" in body) {
       const newMs = issue.milestone_id;
       if (prevMilestoneId !== newMs) {
-        const oldTitle = prevMilestoneId ? gh.milestones.get(prevMilestoneId)?.title ?? null : null;
-        const newTitle = newMs ? gh.milestones.get(newMs)?.title ?? null : null;
+        const oldTitle = prevMilestoneId ? (gh.milestones.get(prevMilestoneId)?.title ?? null) : null;
+        const newTitle = newMs ? (gh.milestones.get(newMs)?.title ?? null) : null;
         if (prevMilestoneId !== null) {
           insertIssueEvent(gh, repo, issue.number, "demilestoned", actor.id, {
             milestone_title: oldTitle,
@@ -635,7 +610,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
         if (newMs !== null) {
@@ -653,7 +628,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
       }
@@ -679,7 +654,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           },
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     }
 
@@ -727,7 +702,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.body(null, 204);
@@ -761,7 +736,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.body(null, 204);
@@ -782,9 +757,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!issue || issue.is_pull_request) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
-    let events = gh.issueEvents
-      .findBy("repo_id", repo.id)
-      .filter((e) => e.issue_number === issueNumber);
+    let events = gh.issueEvents.findBy("repo_id", repo.id).filter((e) => e.issue_number === issueNumber);
     events.sort((a, b) => a.created_at.localeCompare(b.created_at));
     const total = events.length;
     setLinkHeader(c, total, page, per_page);
@@ -812,7 +785,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
 
-    const body = await parseJsonBody(c) as { assignees?: unknown };
+    const body = (await parseJsonBody(c)) as { assignees?: unknown };
     const logins = Array.isArray(body.assignees)
       ? body.assignees.filter((x): x is string => typeof x === "string")
       : [];
@@ -837,7 +810,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     }
 
@@ -860,7 +833,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
 
-    const body = await parseJsonBody(c) as { assignees?: unknown };
+    const body = (await parseJsonBody(c)) as { assignees?: unknown };
     const logins = Array.isArray(body.assignees)
       ? body.assignees.filter((x): x is string => typeof x === "string")
       : [];
@@ -885,7 +858,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
             sender: formatUser(actor, baseUrl),
           },
           ownerLogin,
-          repo.name
+          repo.name,
         );
       }
     }

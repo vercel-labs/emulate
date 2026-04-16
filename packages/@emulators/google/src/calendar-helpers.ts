@@ -115,9 +115,7 @@ export function getCalendarById(gs: GoogleStore, userEmail: string, calendarId: 
     return calendars.find((calendar) => calendar.primary) ?? calendars[0];
   }
 
-  return gs.calendars
-    .findBy("user_email", userEmail)
-    .find((calendar) => calendar.google_id === calendarId);
+  return gs.calendars.findBy("user_email", userEmail).find((calendar) => calendar.google_id === calendarId);
 }
 
 export function formatCalendarResource(calendar: GoogleCalendar) {
@@ -313,11 +311,7 @@ function buildCalendarEventLink(calendarId: string, eventId: string): string {
   return `https://calendar.google.com/calendar/u/0/r/eventedit/${calendarId}/${eventId}`;
 }
 
-function formatCalendarDateRange(
-  event: GoogleCalendarEvent,
-  prefix: "start" | "end",
-  timeZone: string,
-) {
+function formatCalendarDateRange(event: GoogleCalendarEvent, prefix: "start" | "end", timeZone: string) {
   const dateTime = prefix === "start" ? event.start_date_time : event.end_date_time;
   const date = prefix === "start" ? event.start_date : event.end_date;
 

@@ -1,25 +1,13 @@
 import type { RouteContext } from "@emulators/core";
-import {
-  ApiError,
-  parseJsonBody,
-  parsePagination,
-  setLinkHeader,
-  unauthorized,
-} from "@emulators/core";
+import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
 import { assertAuthenticatedUser, canAccessRepo, notFoundResponse } from "../route-helpers.js";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
 import { formatOrgBrief, formatRepo, formatUser, formatUserFull } from "../helpers.js";
 
-function listReposForUser(
-  gh: GitHubStore,
-  user: GitHubUser,
-  type: "all" | "owner" | "member"
-): GitHubRepo[] {
-  const owned = gh.repos.all().filter(
-    (r) => r.owner_id === user.id && r.owner_type === "User"
-  );
+function listReposForUser(gh: GitHubStore, user: GitHubUser, type: "all" | "owner" | "member"): GitHubRepo[] {
+  const owned = gh.repos.all().filter((r) => r.owner_id === user.id && r.owner_type === "User");
   const member = gh.collaborators
     .findBy("user_id", user.id)
     .map((c) => gh.repos.get(c.repo_id))
@@ -38,7 +26,7 @@ function listReposForUser(
 function sortRepos(
   repos: GitHubRepo[],
   sort: "created" | "updated" | "pushed" | "full_name",
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): GitHubRepo[] {
   const mul = direction === "asc" ? 1 : -1;
   const sorted = [...repos];
@@ -46,12 +34,7 @@ function sortRepos(
     if (sort === "full_name") {
       return a.full_name.localeCompare(b.full_name) * mul;
     }
-    const field =
-      sort === "created"
-        ? "created_at"
-        : sort === "updated"
-          ? "updated_at"
-          : "pushed_at";
+    const field = sort === "created" ? "created_at" : sort === "updated" ? "updated_at" : "pushed_at";
     const av = a[field] ?? "";
     const bv = b[field] ?? "";
     if (av < bv) return -1 * mul;
@@ -68,9 +51,7 @@ function orgsForUser(gh: GitHubStore, userId: number) {
     const team = gh.teams.get(m.team_id);
     if (team) orgIds.add(team.org_id);
   }
-  const orgs = [...orgIds]
-    .map((id) => gh.orgs.get(id))
-    .filter((o): o is NonNullable<typeof o> => Boolean(o));
+  const orgs = [...orgIds].map((id) => gh.orgs.get(id)).filter((o): o is NonNullable<typeof o> => Boolean(o));
   orgs.sort((a, b) => a.login.localeCompare(b.login));
   return orgs;
 }
@@ -155,12 +136,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     const type = typeRaw as "all" | "owner" | "member";
 
     const sortRaw = (c.req.query("sort") ?? "full_name").toLowerCase();
-    if (
-      sortRaw !== "created" &&
-      sortRaw !== "updated" &&
-      sortRaw !== "pushed" &&
-      sortRaw !== "full_name"
-    ) {
+    if (sortRaw !== "created" && sortRaw !== "updated" && sortRaw !== "pushed" && sortRaw !== "full_name") {
       throw new ApiError(422, "Invalid sort parameter");
     }
     const sort = sortRaw as "created" | "updated" | "pushed" | "full_name";
@@ -174,7 +150,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const { page, per_page } = parsePagination(c);
     const allRepos = sortRepos(listReposForUser(gh, user, type), sort, direction).filter((r) =>
-      canAccessRepo(gh, authUser, r)
+      canAccessRepo(gh, authUser, r),
     );
     const total = allRepos.length;
     const start = (page - 1) * per_page;
@@ -186,10 +162,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
 
   app.get("/users", (c) => {
     const since = Math.max(0, parseInt(c.req.query("since") ?? "0", 10) || 0);
-    const perPage = Math.min(
-      100,
-      Math.max(1, parseInt(c.req.query("per_page") ?? "30", 10) || 30)
-    );
+    const perPage = Math.min(100, Math.max(1, parseInt(c.req.query("per_page") ?? "30", 10) || 30));
 
     const ordered = gh.users
       .all()
@@ -222,12 +195,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     const type = typeRaw as "all" | "owner" | "member";
 
     const sortRaw = (c.req.query("sort") ?? "full_name").toLowerCase();
-    if (
-      sortRaw !== "created" &&
-      sortRaw !== "updated" &&
-      sortRaw !== "pushed" &&
-      sortRaw !== "full_name"
-    ) {
+    if (sortRaw !== "created" && sortRaw !== "updated" && sortRaw !== "pushed" && sortRaw !== "full_name") {
       throw new ApiError(422, "Invalid sort parameter");
     }
     const sort = sortRaw as "created" | "updated" | "pushed" | "full_name";

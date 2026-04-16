@@ -1,6 +1,6 @@
-# Microsoft API
+# Microsoft Entra ID
 
-The Microsoft emulator provides Microsoft Entra OAuth 2.0 / OpenID Connect plus Microsoft Graph-style Outlook, calendar, and OneDrive surfaces for local development and tests.
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and Microsoft Graph mail, calendar, and drive surfaces for local development and tests.
 
 ## Configuration
 
@@ -14,31 +14,53 @@ microsoft:
       client_secret: emu_microsoft_client_secret
       name: Code App (Microsoft)
       redirect_uris:
+        - http://localhost:3000/api/auth/callback/microsoft-entra-id
         - http://localhost:3000/api/microsoft/linking/callback
         - http://localhost:3000/api/microsoft/calendar/callback
         - http://localhost:3000/api/microsoft/drive/callback
   categories:
-    - display_name: Follow Up
+    - id: cat_follow_up
+      user_email: testuser@outlook.com
+      display_name: Follow Up
       color: preset4
   calendars:
     - id: primary
+      user_email: testuser@outlook.com
       name: Calendar
       is_default_calendar: true
+  drive_items:
+    - id: drv_invoices
+      user_email: testuser@outlook.com
+      name: Invoices
+      is_folder: true
 ```
 
-## Covered Graph Surface
+## OAuth Endpoints
 
-- `/oauth2/v2.0/*` authorization, token, logout, and revoke endpoints
-- `/.well-known/openid-configuration` and `/discovery/v2.0/keys`
-- `/v1.0/me` and `/v1.0/me/photo/$value`
-- `/v1.0/me/messages*` for listing, drafts, replies, forwarding, moving, sending, and attachments
-- `/v1.0/me/mailFolders*`, `/v1.0/me/outlook/masterCategories*`, and `/v1.0/me/mailFolders/inbox/messageRules*`
-- `/v1.0/subscriptions` and `/$batch`
-- `/v1.0/me/calendars` and calendar view endpoints
-- `/v1.0/me/drive/*` for folder browsing, simple uploads, downloads, and moves
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /:tenant/v2.0/.well-known/openid-configuration` - tenant-scoped OIDC discovery
+- `GET /discovery/v2.0/keys` - JSON Web Key Set (JWKS)
+- `GET /oauth2/v2.0/authorize` - authorization endpoint (shows user picker)
+- `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, and client credentials grants)
+- `GET /oidc/userinfo` - OpenID Connect user info
+- `GET /oauth2/v2.0/logout` - end session / logout
+- `POST /oauth2/v2.0/revoke` - token revocation
+
+## Microsoft Graph Surface
+
+- `GET /v1.0/me` and `GET /v1.0/me/photo/$value`
+- `GET /v1.0/me/messages`, `POST /v1.0/me/messages`, `GET|PATCH|DELETE /v1.0/me/messages/:messageId`
+- `POST /v1.0/me/messages/:messageId/send`, `createReply`, `createReplyAll`, `forward`, and `move`
+- `GET /v1.0/me/messages/:messageId/attachments/:attachmentId`, `POST /attachments`, `POST /attachments/createUploadSession`
+- `GET|POST /v1.0/me/mailFolders`, `GET /v1.0/me/mailFolders/:folderId`, `GET /v1.0/me/mailFolders/:folderId/childFolders`
+- `GET|POST /v1.0/me/outlook/masterCategories`, `GET|DELETE /v1.0/me/outlook/masterCategories/:categoryId`
+- `GET|POST /v1.0/me/mailFolders/inbox/messageRules`, `PATCH|DELETE /v1.0/me/mailFolders/inbox/messageRules/:ruleId`
+- `POST /v1.0/subscriptions`, `DELETE /v1.0/subscriptions/:subscriptionId`, `POST /v1.0/$batch`
+- `GET /v1.0/me/calendars`, `GET /v1.0/me/calendar/calendarView`, `GET /v1.0/me/calendars/:calendarId/calendarView`
+- `GET|POST /v1.0/me/drive/root/children`, `GET|PATCH /v1.0/me/drive/items/:itemId`, `GET|POST /v1.0/me/drive/items/:itemId/children`, `PUT /v1.0/me/drive/items/:parentId:/:filename:/content`, `GET /v1.0/me/drive/items/:itemId/content`
 
 ## Notes
 
-- The message and drive APIs are scoped to the local seeded user and support mutable state during a test run.
-- Upload sessions are supported for large Outlook draft attachments.
-- The emulator intentionally implements the practical Microsoft Graph subset used by local app flows rather than the entire Graph surface.
+- The message, calendar, and drive APIs are scoped to the seeded user and support mutable state during a test run.
+- Upload sessions are supported for large Outlook draft attachments, including multi-chunk uploads.
+- The emulator implements the practical Microsoft Graph subset used by local app flows rather than the full Graph surface.

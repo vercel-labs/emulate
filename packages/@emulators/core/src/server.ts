@@ -3,7 +3,13 @@ import { cors } from "hono/cors";
 import { Store } from "./store.js";
 import { WebhookDispatcher } from "./webhooks.js";
 import { createApiErrorHandler, createErrorHandler } from "./middleware/error-handler.js";
-import { authMiddleware, type AuthFallback, type TokenMap, type AppKeyResolver, type AppEnv } from "./middleware/auth.js";
+import {
+  authMiddleware,
+  type AuthFallback,
+  type TokenMap,
+  type AppKeyResolver,
+  type AppEnv,
+} from "./middleware/auth.js";
 import type { ServicePlugin } from "./plugin.js";
 import { registerFontRoutes } from "./fonts.js";
 
@@ -77,7 +83,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
           message: "API rate limit exceeded",
           documentation_url: docsUrl,
         },
-        403
+        403,
       );
     }
 
@@ -92,8 +98,8 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
         message: "Not Found",
         documentation_url: docsUrl,
       },
-      404
-    )
+      404,
+    ),
   );
 
   return { app, store, webhooks, port, baseUrl, tokenMap };

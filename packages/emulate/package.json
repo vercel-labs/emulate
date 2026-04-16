@@ -1,6 +1,6 @@
 {
   "name": "emulate",
-  "version": "0.4.5",
+  "version": "0.4.1",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -15,7 +15,7 @@
   },
   "main": "./dist/api.js",
   "types": "./dist/api.d.ts",
-  "homepage": "https://github.com/vercel-labs/emulate",
+  "homepage": "https://emulate.dev",
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel-labs/emulate.git",
@@ -39,9 +39,6 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "bin": {
     "emulate": "./dist/index.js"
   },
@@ -50,23 +47,30 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@hono/node-server": "^1",
     "commander": "^14",
     "picocolors": "^1.1.1",
-    "yaml": "^2.8.3"
+    "yaml": "^2"
   },
   "devDependencies": {
     "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",
+    "@emulators/okta": "workspace:*",
     "@emulators/aws": "workspace:*",
     "@emulators/google": "workspace:*",
+    "@emulators/mongoatlas": "workspace:*",
     "@emulators/slack": "workspace:*",
     "@emulators/vercel": "workspace:*",
+    "@emulators/resend": "workspace:*",
+    "@emulators/stripe": "workspace:*",
+    "@emulators/clerk": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

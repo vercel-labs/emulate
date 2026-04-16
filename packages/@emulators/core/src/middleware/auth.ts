@@ -24,6 +24,29 @@ export interface AuthInstallation {
 
 export type TokenMap = Map<string, AuthUser>;
 
+export interface TokenEntry {
+  token: string;
+  login: string;
+  id: number;
+  scopes: string[];
+}
+
+export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
+  return [...tokenMap.entries()].map(([token, user]) => ({
+    token,
+    login: user.login,
+    id: user.id,
+    scopes: user.scopes,
+  }));
+}
+
+export function restoreTokenMap(tokenMap: TokenMap, tokens: TokenEntry[]): void {
+  tokenMap.clear();
+  for (const t of tokens) {
+    tokenMap.set(t.token, { login: t.login, id: t.id, scopes: t.scopes });
+  }
+}
+
 export type AppEnv = {
   Variables: {
     authUser?: AuthUser;
@@ -53,9 +76,7 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
       if (token.startsWith("eyJ") && appKeyResolver) {
         try {
           const [, payloadB64] = token.split(".");
-          const payload = JSON.parse(
-            Buffer.from(payloadB64, "base64url").toString()
-          );
+          const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
           const appId = typeof payload.iss === "string" ? parseInt(payload.iss, 10) : payload.iss;
 
           if (typeof appId === "number" && !isNaN(appId)) {
@@ -99,7 +120,7 @@ export function requireAuth() {
           message: "Requires authentication",
           documentation_url: docsUrl,
         },
-        401
+        401,
       );
     }
     await next();
@@ -115,7 +136,7 @@ export function requireAppAuth() {
           message: "A JSON web token could not be decoded",
           documentation_url: docsUrl,
         },
-        401
+        401,
       );
     }
     await next();

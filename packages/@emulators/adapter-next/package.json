@@ -1,0 +1,44 @@
+{
+  "name": "@emulators/adapter-next",
+  "version": "0.4.1",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "homepage": "https://emulate.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/adapter-next"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel-labs/emulate/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup --clean",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist .turbo",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@emulators/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8",
+    "typescript": "^5.7"
+  }
+}

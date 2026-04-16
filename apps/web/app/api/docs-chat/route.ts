@@ -12,9 +12,9 @@ export const maxDuration = 60;
 
 const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
 
-const SYSTEM_PROMPT = `You are a helpful documentation assistant for emulate, a local drop-in replacement for GitHub, Vercel, and Google APIs used in CI and no-network sandboxes.
+const SYSTEM_PROMPT = `You are a helpful documentation assistant for emulate, a local drop-in replacement for Vercel, GitHub, Google, Slack, Apple, Microsoft, AWS, Okta, MongoDB Atlas, Resend, and Stripe APIs used in CI and no-network sandboxes.
 
-emulate provides fully stateful, production-fidelity API emulation, not mocks. The CLI is installed as the "emulate" npm package and run via "npx emulate" or just "emulate" after install.
+emulate provides fully stateful, production-fidelity API emulation, not mocks. The CLI is installed as the "emulate" npm package and run via "npx emulate" or just "emulate". It also supports a programmatic API via createEmulator and a Next.js adapter (@emulators/adapter-next) for embedding emulators in your app.
 
 You have access to the full emulate documentation via the bash and readFile tools. The docs are available as markdown files in the /workspace/ directory.
 
@@ -35,15 +35,13 @@ async function loadDocsFiles(): Promise<Record<string, string>> {
     allDocsPages.map(async (page) => {
       const slug = page.href.replace(/^\//, "");
       const cwd = /* turbopackIgnore: true */ process.cwd();
-      const filePath = slug
-        ? join(cwd, "app", slug, "page.mdx")
-        : join(cwd, "app", "page.mdx");
+      const filePath = slug ? join(cwd, "app", slug, "page.mdx") : join(cwd, "app", "page.mdx");
 
       const raw = await readFile(filePath, "utf-8");
       const md = mdxToCleanMarkdown(raw);
       const fileName = slug ? `/${slug}.md` : "/index.md";
       return { fileName, md };
-    })
+    }),
   );
 
   for (const result of results) {
@@ -75,10 +73,7 @@ export async function POST(req: Request) {
   const headersList = await headers();
   const ip = headersList.get("x-forwarded-for")?.split(",")[0] ?? "anonymous";
 
-  const [minuteResult, dailyResult] = await Promise.all([
-    minuteRateLimit.limit(ip),
-    dailyRateLimit.limit(ip),
-  ]);
+  const [minuteResult, dailyResult] = await Promise.all([minuteRateLimit.limit(ip), dailyRateLimit.limit(ip)]);
 
   if (!minuteResult.success || !dailyResult.success) {
     const isMinuteLimit = !minuteResult.success;
@@ -92,7 +87,7 @@ export async function POST(req: Request) {
       {
         status: 429,
         headers: { "Content-Type": "application/json" },
-      }
+      },
     );
   }
 

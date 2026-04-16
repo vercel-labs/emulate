@@ -29,7 +29,7 @@ export function Search() {
       setResults([]);
       router.push(href);
     },
-    [router]
+    [router],
   );
 
   useEffect(() => {
@@ -119,7 +119,17 @@ export function Search() {
         onClick={() => setOpen(true)}
         className="hidden sm:flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/25 transition-colors"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
@@ -134,7 +144,17 @@ export function Search() {
         className="sm:hidden flex items-center text-muted-foreground hover:text-foreground transition-colors"
         aria-label="Search docs"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
@@ -144,7 +164,18 @@ export function Search() {
         <DialogContent showCloseButton={false} className="gap-0 p-0 sm:max-w-lg">
           <DialogTitle className="sr-only">Search documentation</DialogTitle>
           <div className="flex items-center gap-2 border-b border-border/50 px-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 text-muted-foreground"
+            >
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.3-4.3" />
             </svg>
@@ -158,7 +189,17 @@ export function Search() {
             />
             {query && (
               <button onClick={() => setQuery("")} className="text-muted-foreground hover:text-foreground">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M18 6 6 18" />
                   <path d="m6 6 12 12" />
                 </svg>
@@ -174,9 +215,7 @@ export function Search() {
             ) : hasQuery && results.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">No results found.</p>
             ) : !hasQuery ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Type to search documentation...
-              </p>
+              <p className="py-6 text-center text-sm text-muted-foreground">Type to search documentation...</p>
             ) : (
               results.map((item, i) => (
                 <button
@@ -186,14 +225,12 @@ export function Search() {
                   onMouseEnter={() => setActiveIndex(i)}
                   className={cn(
                     "flex w-full flex-col gap-1 rounded-md px-3 py-2 text-left transition-colors",
-                    i === activeIndex ? "bg-muted text-foreground" : "text-foreground"
+                    i === activeIndex ? "bg-muted text-foreground" : "text-foreground",
                   )}
                 >
                   <span className="text-sm font-medium">{item.title}</span>
                   {item.snippet && (
-                    <span className="line-clamp-2 text-xs text-muted-foreground leading-relaxed">
-                      {item.snippet}
-                    </span>
+                    <span className="line-clamp-2 text-xs text-muted-foreground leading-relaxed">{item.snippet}</span>
                   )}
                 </button>
               ))

@@ -4,29 +4,15 @@ import { Code } from "@/components/code";
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
     h1: (props) => (
-      <h1
-        className="mb-6 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
-        {...props}
-      />
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100" {...props} />
     ),
     h2: (props) => (
-      <h2
-        className="mb-4 mt-12 text-lg font-semibold text-neutral-900 first:mt-0 dark:text-neutral-100"
-        {...props}
-      />
+      <h2 className="mb-4 mt-12 text-lg font-semibold text-neutral-900 first:mt-0 dark:text-neutral-100" {...props} />
     ),
     h3: (props) => (
-      <h3
-        className="mb-3 mt-8 text-base font-semibold text-neutral-900 dark:text-neutral-100"
-        {...props}
-      />
+      <h3 className="mb-3 mt-8 text-base font-semibold text-neutral-900 dark:text-neutral-100" {...props} />
     ),
-    p: (props) => (
-      <p
-        className="mb-4 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400"
-        {...props}
-      />
-    ),
+    p: (props) => <p className="mb-4 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400" {...props} />,
     ul: (props) => <ul className="mb-4 list-disc space-y-1 pl-5 text-sm" {...props} />,
     ol: (props) => <ol className="mb-4 list-decimal space-y-1 pl-5 text-sm" {...props} />,
     li: (props) => <li className="text-neutral-600 dark:text-neutral-400" {...props} />,
@@ -40,11 +26,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
       if (className) {
         return <code className={className}>{children}</code>;
       }
-      return (
-        <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-[13px] dark:bg-neutral-800">
-          {children}
-        </code>
-      );
+      return <code className="rounded bg-neutral-100 px-1.5 py-0.5 text-[13px] dark:bg-neutral-800">{children}</code>;
     },
     pre: async ({ children }: { children?: React.ReactNode }) => {
       const codeElement = children as React.ReactElement<{
@@ -81,9 +63,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
       />
     ),
     hr: () => <hr className="my-8 border-neutral-200 dark:border-neutral-800" />,
-    strong: (props) => (
-      <strong className="font-medium text-neutral-900 dark:text-neutral-100" {...props} />
-    ),
+    strong: (props) => <strong className="font-medium text-neutral-900 dark:text-neutral-100" {...props} />,
     ...components,
   };
 }

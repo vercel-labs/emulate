@@ -1,6 +1,6 @@
 {
   "name": "@emulators/aws",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,9 @@
     "build": "tsup --clean",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@emulators/core": "workspace:*",

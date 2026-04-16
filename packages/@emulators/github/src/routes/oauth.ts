@@ -105,14 +105,20 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       if (!oauthApp) {
         return c.html(
           renderErrorPage("Application not found", `The client_id '${client_id}' is not registered.`, SERVICE_LABEL),
-          400
+          400,
         );
       }
       if (redirect_uri && !matchesRedirectUri(redirect_uri, oauthApp.redirect_uris)) {
-        console.warn(`[OAuth] redirect_uri mismatch: got "${redirect_uri}", registered: ${JSON.stringify(oauthApp.redirect_uris)}`);
+        console.warn(
+          `[OAuth] redirect_uri mismatch: got "${redirect_uri}", registered: ${JSON.stringify(oauthApp.redirect_uris)}`,
+        );
         return c.html(
-          renderErrorPage("Redirect URI mismatch", "The redirect_uri is not registered for this application.", SERVICE_LABEL),
-          400
+          renderErrorPage(
+            "Redirect URI mismatch",
+            "The redirect_uri is not registered for this application.",
+            SERVICE_LABEL,
+          ),
+          400,
         );
       }
       oauthAppForSubtitle = oauthApp;
@@ -145,9 +151,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       })
       .join("\n");
 
-    const body = users.length === 0
-      ? '<p class="empty">No users in the emulator store.</p>'
-      : userButtons;
+    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
 
     return c.html(renderCardPage("Sign in to GitHub", subtitleText, body, SERVICE_LABEL));
   });
@@ -171,7 +175,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       created_at: Date.now(),
     });
 
-    debug("github.oauth", `[OAuth callback] generated code: ${code.slice(0, 8)}... for login=${login}, pendingCodes size: ${getPendingCodes(store).size}`);
+    debug(
+      "github.oauth",
+      `[OAuth callback] generated code: ${code.slice(0, 8)}... for login=${login}, pendingCodes size: ${getPendingCodes(store).size}`,
+    );
 
     const sessionId = randomBytes(24).toString("base64url");
     getSessionMap(store).set(sessionId, login);
@@ -191,7 +198,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     debug("github.oauth", `[OAuth token] Content-Type: ${contentType}`);
     debug("github.oauth", `[OAuth token] Accept: ${accept}`);
     debug("github.oauth", `[OAuth token] pendingCodes size: ${getPendingCodes(store).size}`);
-    debug("github.oauth", `[OAuth token] pendingCodes keys: ${[...getPendingCodes(store).keys()].map(k => k.slice(0, 8) + "...").join(", ")}`);
+    debug(
+      "github.oauth",
+      `[OAuth token] pendingCodes keys: ${[...getPendingCodes(store).keys()].map((k) => k.slice(0, 8) + "...").join(", ")}`,
+    );
 
     const rawText = await c.req.text();
     debug("github.oauth", `[OAuth token] raw body: ${rawText.slice(0, 500)}`);
@@ -226,7 +236,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           error: "incorrect_client_credentials",
           error_description: "The client_id and/or client_secret passed are incorrect.",
         },
-        200
+        200,
       );
     };
 
@@ -251,7 +261,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       debug("github.oauth", `[OAuth token] REJECTED: code not found in pendingCodes or expired`);
       return c.json(
         { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
-        200
+        200,
       );
     }
 
@@ -263,14 +273,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       debug("github.oauth", `[OAuth token] REJECTED: user "${pending.login}" not found in store`);
       return c.json(
         { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
-        200
+        200,
       );
     }
 
     const token = "gho_" + randomBytes(20).toString("base64url");
-    const scopes = pending.scope
-      ? pending.scope.split(/[,\s]+/).filter(Boolean)
-      : ["repo", "user"];
+    const scopes = pending.scope ? pending.scope.split(/[,\s]+/).filter(Boolean) : ["repo", "user"];
 
     if (tokenMap) {
       tokenMap.set(token, { login: user.login, id: user.id, scopes });
@@ -278,14 +286,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const oauthApp = gh.oauthApps.findOneBy("client_id", pending.clientId);
     if (oauthApp) {
-      const existingGrant = gh.oauthGrants.all().find(
-        (g) => g.user_id === user.id && g.client_id === pending.clientId
-      );
+      const existingGrant = gh.oauthGrants.all().find((g) => g.user_id === user.id && g.client_id === pending.clientId);
       const orgAccess: Record<string, "granted" | "denied" | "requested"> = {};
       for (const org of gh.orgs.all()) {
-        const isMember = gh.teamMembers.all().some(
-          (tm) => tm.user_id === user.id && gh.teams.get(tm.team_id)?.org_id === org.id
-        );
+        const isMember = gh.teamMembers
+          .all()
+          .some((tm) => tm.user_id === user.id && gh.teams.get(tm.team_id)?.org_id === org.id);
         if (isMember) orgAccess[org.login] = "granted";
       }
 
@@ -309,8 +315,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const scopeOut = pending.scope;
 
     if (wantsFormEncoded) {
-      const formBody =
-        `access_token=${encodeURIComponent(token)}&token_type=bearer&scope=${encodeURIComponent(scopeOut)}`;
+      const formBody = `access_token=${encodeURIComponent(token)}&token_type=bearer&scope=${encodeURIComponent(scopeOut)}`;
       c.header("Content-Type", "application/x-www-form-urlencoded");
       return c.body(formBody, 200);
     }
@@ -347,19 +352,19 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   // ---------- Settings: list authorized apps ----------
 
   const SCOPE_LABELS: Record<string, string> = {
-    "repo": "Full control of private repositories",
+    repo: "Full control of private repositories",
     "read:user": "Read all user profile data",
     "user:email": "Access user email addresses (read-only)",
-    "user": "Full control of user profile",
-    "workflow": "Update GitHub action workflows",
+    user: "Full control of user profile",
+    workflow: "Update GitHub action workflows",
     "admin:org": "Full control of orgs and teams",
     "admin:repo_hook": "Full control of repository hooks",
     "read:org": "Read org and team membership",
     "write:repo_hook": "Write repository hooks",
     "read:repo_hook": "Read repository hooks",
-    "delete_repo": "Delete repositories",
-    "gist": "Create gists",
-    "notifications": "Access notifications",
+    delete_repo: "Delete repositories",
+    gist: "Create gists",
+    notifications: "Access notifications",
     "write:packages": "Upload packages",
     "read:packages": "Download packages",
     "admin:gpg_key": "Full control of GPG keys",
@@ -376,7 +381,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.get("/settings/applications", (c) => {
     const sessionUser = resolveSessionUser(c);
     if (!sessionUser) {
-      return c.html(renderErrorPage("Unauthorized", "You must be authenticated to view this page.", SERVICE_LABEL), 401);
+      return c.html(
+        renderErrorPage("Unauthorized", "You must be authenticated to view this page.", SERVICE_LABEL),
+        401,
+      );
     }
 
     const grants = gh.oauthGrants.findBy("user_id", sessionUser.id);
@@ -389,19 +397,21 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           <p class="empty">No authorized applications. Apps you authorize will appear here.</p>
         </div>`;
     } else {
-      const appLinks = grants.map((grant) => {
-        const oauthApp = gh.oauthApps.findOneBy("client_id", grant.client_id);
-        const name = oauthApp?.name ?? grant.client_id;
-        const letter = escapeHtml((name[0] ?? "?").toUpperCase());
-        const scopeText = grant.scopes.length > 0 ? grant.scopes.join(", ") : "No scopes";
-        return `<a href="/settings/connections/applications/${escapeAttr(grant.client_id)}" class="app-link">
+      const appLinks = grants
+        .map((grant) => {
+          const oauthApp = gh.oauthApps.findOneBy("client_id", grant.client_id);
+          const name = oauthApp?.name ?? grant.client_id;
+          const letter = escapeHtml((name[0] ?? "?").toUpperCase());
+          const scopeText = grant.scopes.length > 0 ? grant.scopes.join(", ") : "No scopes";
+          return `<a href="/settings/connections/applications/${escapeAttr(grant.client_id)}" class="app-link">
           <div class="s-icon">${letter}</div>
           <div>
             <div class="app-link-name">${escapeHtml(name)}</div>
             <div class="app-link-scopes">${escapeHtml(scopeText)}</div>
           </div>
         </a>`;
-      }).join("\n");
+        })
+        .join("\n");
 
       bodyHtml = `
         <div class="section-heading">Authorized OAuth Apps</div>
@@ -416,14 +426,15 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.get("/settings/connections/applications/:client_id", (c) => {
     const sessionUser = resolveSessionUser(c);
     if (!sessionUser) {
-      return c.html(renderErrorPage("Unauthorized", "You must be authenticated to view this page.", SERVICE_LABEL), 401);
+      return c.html(
+        renderErrorPage("Unauthorized", "You must be authenticated to view this page.", SERVICE_LABEL),
+        401,
+      );
     }
 
     const clientId = c.req.param("client_id");
 
-    const grant = gh.oauthGrants.all().find(
-      (g) => g.user_id === sessionUser.id && g.client_id === clientId
-    );
+    const grant = gh.oauthGrants.all().find((g) => g.user_id === sessionUser.id && g.client_id === clientId);
     if (!grant) {
       return c.html(renderErrorPage("Not Found", "No authorization found for this application.", SERVICE_LABEL), 404);
     }
@@ -432,25 +443,28 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const appName = oauthApp?.name ?? clientId;
     const appLetter = escapeHtml((appName[0] ?? "?").toUpperCase());
     const lastUsed = new Date(grant.updated_at).toLocaleDateString("en-US", {
-      year: "numeric", month: "long", day: "numeric",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     });
 
-    const permRows = grant.scopes.map((s) =>
-      `<li><span class="check">&#10003;</span> ${escapeHtml(scopeLabel(s))}</li>`
-    ).join("\n");
+    const permRows = grant.scopes
+      .map((s) => `<li><span class="check">&#10003;</span> ${escapeHtml(scopeLabel(s))}</li>`)
+      .join("\n");
 
-    const orgRows = Object.entries(grant.org_access).map(([org, status]) => {
-      const letter = escapeHtml((org[0] ?? "?").toUpperCase());
-      const badgeClass = status === "granted" ? "badge-granted"
-        : status === "denied" ? "badge-denied"
-        : "badge-requested";
-      const icon = status === "granted" ? "&#10003;" : status === "denied" ? "&#10007;" : "&#8943;";
-      return `<div class="org-row">
+    const orgRows = Object.entries(grant.org_access)
+      .map(([org, status]) => {
+        const letter = escapeHtml((org[0] ?? "?").toUpperCase());
+        const badgeClass =
+          status === "granted" ? "badge-granted" : status === "denied" ? "badge-denied" : "badge-requested";
+        const icon = status === "granted" ? "&#10003;" : status === "denied" ? "&#10007;" : "&#8943;";
+        return `<div class="org-row">
         <div class="org-icon">${letter}</div>
         <span class="org-name">${escapeHtml(org)}</span>
         <span class="badge ${badgeClass}">${icon}</span>
       </div>`;
-    }).join("\n");
+      })
+      .join("\n");
 
     const bodyHtml = `
       <div class="s-card">
@@ -475,11 +489,15 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         </ul>
       </div>
 
-      ${orgRows ? `<div class="s-card">
+      ${
+        orgRows
+          ? `<div class="s-card">
         <div class="section-heading">Organization access</div>
         ${orgRows}
         <p class="info-text">Applications act on your behalf. Organizations control which apps may access their private data.</p>
-      </div>` : ""}`;
+      </div>`
+          : ""
+      }`;
 
     return c.html(renderSettingsPage(appName, sidebarHtml, bodyHtml, SERVICE_LABEL));
   });
@@ -489,14 +507,15 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.post("/settings/connections/applications/:client_id/revoke", (c) => {
     const sessionUser = resolveSessionUser(c);
     if (!sessionUser) {
-      return c.html(renderErrorPage("Unauthorized", "You must be authenticated to perform this action.", SERVICE_LABEL), 401);
+      return c.html(
+        renderErrorPage("Unauthorized", "You must be authenticated to perform this action.", SERVICE_LABEL),
+        401,
+      );
     }
 
     const clientId = c.req.param("client_id");
 
-    const grant = gh.oauthGrants.all().find(
-      (g) => g.user_id === sessionUser.id && g.client_id === clientId
-    );
+    const grant = gh.oauthGrants.all().find((g) => g.user_id === sessionUser.id && g.client_id === clientId);
     if (grant) {
       gh.oauthGrants.delete(grant.id);
     }

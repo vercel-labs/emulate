@@ -1,7 +1,15 @@
 import type { RouteContext } from "@emulators/core";
 import type { Context } from "hono";
 import { getAwsStore } from "../store.js";
-import { awsXmlResponse, awsErrorXml, generateAwsId, generateMessageId, getAccountId, parseQueryString, escapeXml } from "../helpers.js";
+import {
+  awsXmlResponse,
+  awsErrorXml,
+  generateAwsId,
+  generateMessageId,
+  getAccountId,
+  parseQueryString,
+  escapeXml,
+} from "../helpers.js";
 import { randomBytes } from "crypto";
 
 export function iamRoutes(ctx: RouteContext): void {
@@ -174,7 +182,10 @@ ${usersXml}
     const accessKeyId = "AKIA" + randomBytes(8).toString("hex").toUpperCase();
     const secretAccessKey = randomBytes(30).toString("base64");
 
-    const keys = [...user.access_keys, { access_key_id: accessKeyId, secret_access_key: secretAccessKey, status: "Active" as const }];
+    const keys = [
+      ...user.access_keys,
+      { access_key_id: accessKeyId, secret_access_key: secretAccessKey, status: "Active" as const },
+    ];
     aws().iamUsers.update(user.id, { access_keys: keys });
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -380,7 +391,9 @@ ${rolesXml}
     const sessionName = params["RoleSessionName"] ?? "session";
 
     // Find the role by ARN
-    const role = aws().iamRoles.all().find((r) => r.arn === roleArn);
+    const role = aws()
+      .iamRoles.all()
+      .find((r) => r.arn === roleArn);
     if (!role) {
       return awsErrorXml(c, "NoSuchEntity", `The role specified cannot be found.`, 404);
     }

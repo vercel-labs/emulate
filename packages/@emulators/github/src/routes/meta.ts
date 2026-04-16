@@ -71,13 +71,13 @@ export function metaRoutes({ app, baseUrl }: RouteContext): void {
       "+1": `${baseUrl}/emojis/+1.png`,
       "-1": `${baseUrl}/emojis/-1.png`,
       "100": `${baseUrl}/emojis/100.png`,
-      "tada": `${baseUrl}/emojis/tada.png`,
-      "rocket": `${baseUrl}/emojis/rocket.png`,
-      "heart": `${baseUrl}/emojis/heart.png`,
-      "eyes": `${baseUrl}/emojis/eyes.png`,
-      "thinking": `${baseUrl}/emojis/thinking.png`,
-      "thumbsup": `${baseUrl}/emojis/thumbsup.png`,
-      "thumbsdown": `${baseUrl}/emojis/thumbsdown.png`,
+      tada: `${baseUrl}/emojis/tada.png`,
+      rocket: `${baseUrl}/emojis/rocket.png`,
+      heart: `${baseUrl}/emojis/heart.png`,
+      eyes: `${baseUrl}/emojis/eyes.png`,
+      thinking: `${baseUrl}/emojis/thinking.png`,
+      thumbsup: `${baseUrl}/emojis/thumbsup.png`,
+      thumbsdown: `${baseUrl}/emojis/thumbsdown.png`,
     });
   });
 

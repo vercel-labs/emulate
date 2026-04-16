@@ -19,7 +19,6 @@ import { oauthRoutes } from "./routes/oauth.js";
 export { getMicrosoftStore, type MicrosoftStore } from "./store.js";
 export * from "./entities.js";
 
-
 export interface MicrosoftSeedConfig {
   port?: number;
   users?: Array<{

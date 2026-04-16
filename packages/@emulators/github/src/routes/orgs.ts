@@ -1,20 +1,8 @@
 import type { RouteContext, AuthUser } from "@emulators/core";
-import {
-  ApiError,
-  parseJsonBody,
-  parsePagination,
-  setLinkHeader,
-  unauthorized,
-  forbidden,
-} from "@emulators/core";
+import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized, forbidden } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
-import type {
-  GitHubOrg,
-  GitHubRepo,
-  GitHubTeam,
-  GitHubUser,
-} from "../entities.js";
+import type { GitHubOrg, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
 import {
   formatOrgBrief,
   formatOrgFull,
@@ -53,11 +41,7 @@ function teamsForOrg(gh: GitHubStore, orgId: number): GitHubTeam[] {
   return gh.teams.findBy("org_id", orgId);
 }
 
-function getTeamByOrgSlug(
-  gh: GitHubStore,
-  org: GitHubOrg,
-  slug: string
-): GitHubTeam | undefined {
+function getTeamByOrgSlug(gh: GitHubStore, org: GitHubOrg, slug: string): GitHubTeam | undefined {
   return teamsForOrg(gh, org.id).find((t) => t.slug === slug);
 }
 
@@ -73,8 +57,7 @@ function slugifyFromName(name: string): string {
 function uniqueTeamSlug(gh: GitHubStore, orgId: number, base: string): string {
   let slug = base;
   let n = 2;
-  const taken = (s: string) =>
-    teamsForOrg(gh, orgId).some((t) => t.slug === s);
+  const taken = (s: string) => teamsForOrg(gh, orgId).some((t) => t.slug === s);
   while (taken(slug)) {
     slug = `${base}-${n}`;
     n += 1;
@@ -89,9 +72,7 @@ function orgsForAuthenticatedUser(gh: GitHubStore, userId: number): GitHubOrg[] 
     const team = gh.teams.get(m.team_id);
     if (team) orgIds.add(team.org_id);
   }
-  const orgs = [...orgIds]
-    .map((id) => gh.orgs.get(id))
-    .filter((o): o is GitHubOrg => Boolean(o));
+  const orgs = [...orgIds].map((id) => gh.orgs.get(id)).filter((o): o is GitHubOrg => Boolean(o));
   orgs.sort((a, b) => a.login.localeCompare(b.login));
   return orgs;
 }
@@ -174,9 +155,7 @@ function deleteTeamCascade(gh: GitHubStore, team: GitHubTeam) {
 
 function removeUserFromAllOrgTeams(gh: GitHubStore, orgId: number, userId: number) {
   for (const team of teamsForOrg(gh, orgId)) {
-    const memberships = gh.teamMembers
-      .findBy("team_id", team.id)
-      .filter((m) => m.user_id === userId);
+    const memberships = gh.teamMembers.findBy("team_id", team.id).filter((m) => m.user_id === userId);
     for (const m of memberships) {
       gh.teamMembers.delete(m.id);
     }
@@ -197,7 +176,7 @@ function formatTeamMembership(
   orgLogin: string,
   teamSlug: string,
   user: GitHubUser,
-  role: "member" | "maintainer"
+  role: "member" | "maintainer",
 ) {
   return {
     url: membershipUrl(baseUrl, orgLogin, teamSlug, user.login),
@@ -212,10 +191,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
 
   app.get("/organizations", (c) => {
     const since = Math.max(0, parseInt(c.req.query("since") ?? "0", 10) || 0);
-    const perPage = Math.min(
-      100,
-      Math.max(1, parseInt(c.req.query("per_page") ?? "30", 10) || 30)
-    );
+    const perPage = Math.min(100, Math.max(1, parseInt(c.req.query("per_page") ?? "30", 10) || 30));
 
     const ordered = gh.orgs
       .all()
@@ -374,9 +350,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const teamRole: "member" | "maintainer" = roleRaw === "admin" ? "maintainer" : "member";
 
     const membersTeam = getOrCreateMembersTeam(gh, org);
-    const existing = gh.teamMembers
-      .findBy("team_id", membersTeam.id)
-      .find((m) => m.user_id === user.id);
+    const existing = gh.teamMembers.findBy("team_id", membersTeam.id).find((m) => m.user_id === user.id);
     if (existing) {
       gh.teamMembers.update(existing.id, { role: teamRole });
     } else {
@@ -431,8 +405,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     }
 
     const baseSlug = uniqueTeamSlug(gh, org.id, slugifyFromName(name));
-    const privacy =
-      body.privacy === "secret" || body.privacy === "closed" ? body.privacy : "closed";
+    const privacy = body.privacy === "secret" || body.privacy === "closed" ? body.privacy : "closed";
     const permission = typeof body.permission === "string" ? body.permission : "pull";
     const description =
       body.description === null ? null : typeof body.description === "string" ? body.description : null;
@@ -556,12 +529,9 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!user) throw notFound();
 
     const body = await parseJsonBody(c);
-    const role: "member" | "maintainer" =
-      body.role === "maintainer" ? "maintainer" : "member";
+    const role: "member" | "maintainer" = body.role === "maintainer" ? "maintainer" : "member";
 
-    const existing = gh.teamMembers
-      .findBy("team_id", team.id)
-      .find((m) => m.user_id === user.id);
+    const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
     if (existing) {
       gh.teamMembers.update(existing.id, { role });
     } else {
@@ -581,9 +551,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
 
-    const existing = gh.teamMembers
-      .findBy("team_id", team.id)
-      .find((m) => m.user_id === user.id);
+    const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
     if (existing) {
       gh.teamMembers.delete(existing.id);
       syncTeamMemberCount(gh, team.id);
@@ -599,9 +567,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
 
-    const m = gh.teamMembers
-      .findBy("team_id", team.id)
-      .find((x) => x.user_id === user.id);
+    const m = gh.teamMembers.findBy("team_id", team.id).find((x) => x.user_id === user.id);
     if (!m) throw notFound();
 
     return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, m.role));

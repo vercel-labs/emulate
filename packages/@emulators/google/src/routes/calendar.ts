@@ -73,7 +73,10 @@ export function calendarRoutes({ app, store }: RouteContext): void {
     const requestBody = getRecord(body, "requestBody") ?? body;
     const eventInput = parseCalendarEventInputFromBody(requestBody);
 
-    if ((!eventInput.start_date_time && !eventInput.start_date) || (!eventInput.end_date_time && !eventInput.end_date)) {
+    if (
+      (!eventInput.start_date_time && !eventInput.start_date) ||
+      (!eventInput.end_date_time && !eventInput.end_date)
+    ) {
       return googleApiError(c, 400, "Event start and end are required.", "invalidArgument", "INVALID_ARGUMENT");
     }
 

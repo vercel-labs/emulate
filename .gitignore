@@ -7,3 +7,9 @@ emulate.config.yaml
 emulate.config.yml
 .env*
 !.env.example
+
+# emulate CLI README is copied from root by prepack
+packages/emulate/README.md
+
+# opensrc - source code for packages
+opensrc/

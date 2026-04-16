@@ -74,16 +74,15 @@ function findDeploymentByIdOrUrl(vs: VercelStore, idOrUrl: string): VercelDeploy
   );
 }
 
-function assertDeploymentAccess(
-  vs: VercelStore,
-  dep: VercelDeployment,
-  accountId: string
-): boolean {
+function assertDeploymentAccess(vs: VercelStore, dep: VercelDeployment, accountId: string): boolean {
   const project = vs.projects.findOneBy("uid", dep.projectId as VercelProject["uid"]);
   return !!project && project.accountId === accountId;
 }
 
-function defaultProjectPayload(name: string, accountId: string): Omit<VercelProject, "id" | "created_at" | "updated_at"> {
+function defaultProjectPayload(
+  name: string,
+  accountId: string,
+): Omit<VercelProject, "id" | "created_at" | "updated_at"> {
   return {
     uid: generateUid("prj"),
     name,
@@ -123,15 +122,13 @@ function resolveOrCreateProject(
   vs: VercelStore,
   accountId: string,
   name: string,
-  projectField: unknown
+  projectField: unknown,
 ): VercelProject {
   if (typeof projectField === "string" && projectField.trim()) {
     const byId = lookupProject(vs, projectField.trim(), accountId);
     if (byId) return byId;
   }
-  const existing = vs.projects
-    .findBy("name", name as VercelProject["name"])
-    .find((p) => p.accountId === accountId);
+  const existing = vs.projects.findBy("name", name as VercelProject["name"]).find((p) => p.accountId === accountId);
   if (existing) return existing;
   return vs.projects.insert(defaultProjectPayload(name, accountId));
 }
@@ -160,8 +157,7 @@ function parseGitSource(raw: unknown): VercelDeployment["gitSource"] {
     type: typeof g.type === "string" ? g.type : "github",
     ref: typeof g.ref === "string" ? g.ref : "",
     sha: typeof g.sha === "string" ? g.sha : "",
-    repoId:
-      typeof g.repoId === "string" ? g.repoId : typeof g.repoId === "number" ? String(g.repoId) : "",
+    repoId: typeof g.repoId === "string" ? g.repoId : typeof g.repoId === "number" ? String(g.repoId) : "",
     org: typeof g.org === "string" ? g.org : "",
     repo: typeof g.repo === "string" ? g.repo : "",
     message: typeof g.message === "string" ? g.message : "",
@@ -363,7 +359,7 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
         payload: e.payload,
         date: e.date,
         serial: e.serial,
-      }))
+      })),
     );
   });
 
@@ -413,9 +409,7 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const targetRaw = body.target;
     const target: VercelDeployment["target"] =
-      targetRaw === "production" || targetRaw === "preview" || targetRaw === "staging"
-        ? targetRaw
-        : "preview";
+      targetRaw === "production" || targetRaw === "preview" || targetRaw === "staging" ? targetRaw : "preview";
 
     const meta: Record<string, string> = {};
     if (body.meta && typeof body.meta === "object" && body.meta !== null) {

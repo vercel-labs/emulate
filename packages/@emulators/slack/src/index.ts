@@ -101,7 +101,11 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     is_private: false,
     is_archived: false,
     topic: { value: "Random stuff", creator: userId, last_set: Math.floor(Date.now() / 1000) },
-    purpose: { value: "A place for non-work-related chatter", creator: userId, last_set: Math.floor(Date.now() / 1000) },
+    purpose: {
+      value: "A place for non-work-related chatter",
+      creator: userId,
+      last_set: Math.floor(Date.now() / 1000),
+    },
     members: [userId],
     creator: userId,
     num_members: 1,

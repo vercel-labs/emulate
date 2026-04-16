@@ -173,10 +173,7 @@ describe("WebhookDispatcher", () => {
       await d.dispatch("push", undefined, { ref: "main" }, "acme");
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
-      expect(mockFetch.mock.calls.map((c) => c[0])).toEqual([
-        "https://hooks.example/1",
-        "https://hooks.example/2",
-      ]);
+      expect(mockFetch.mock.calls.map((c) => c[0])).toEqual(["https://hooks.example/1", "https://hooks.example/2"]);
     });
 
     it("respects event filtering (and allows ping for any subscription)", async () => {
@@ -374,7 +371,7 @@ describe("WebhookDispatcher", () => {
           events: ["push"],
           active: true,
           owner: "o",
-        }).id
+        }).id,
       ).toBe(1);
       expect(
         b.register({
@@ -382,7 +379,7 @@ describe("WebhookDispatcher", () => {
           events: ["push"],
           active: true,
           owner: "o",
-        }).id
+        }).id,
       ).toBe(1);
 
       a.clear();
@@ -392,7 +389,7 @@ describe("WebhookDispatcher", () => {
           events: ["push"],
           active: true,
           owner: "o",
-        }).id
+        }).id,
       ).toBe(1);
 
       expect(
@@ -401,7 +398,7 @@ describe("WebhookDispatcher", () => {
           events: ["push"],
           active: true,
           owner: "o",
-        }).id
+        }).id,
       ).toBe(2);
     });
   });

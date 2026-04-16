@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from "crypto";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const ACCOUNT_ID = "123456789012";
 const DEFAULT_REGION = "us-east-1";
@@ -34,11 +35,11 @@ export function getDefaultRegion(): string {
   return DEFAULT_REGION;
 }
 
-export function awsXmlResponse(c: Context, xml: string, status = 200) {
+export function awsXmlResponse(c: Context, xml: string, status: ContentfulStatusCode = 200) {
   return c.text(xml, status, { "Content-Type": "application/xml" });
 }
 
-export function awsErrorXml(c: Context, code: string, message: string, status = 400) {
+export function awsErrorXml(c: Context, code: string, message: string, status: ContentfulStatusCode = 400) {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <ErrorResponse>
   <Error>

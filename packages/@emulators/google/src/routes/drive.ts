@@ -9,7 +9,13 @@ import {
   updateDriveItemRecord,
 } from "../drive-helpers.js";
 import { googleApiError } from "../helpers.js";
-import { getRecord, getString, parseDriveItemInputFromBody, parseGoogleBody, requireGoogleAuth } from "../route-helpers.js";
+import {
+  getRecord,
+  getString,
+  parseDriveItemInputFromBody,
+  parseGoogleBody,
+  requireGoogleAuth,
+} from "../route-helpers.js";
 import { getGoogleStore } from "../store.js";
 
 export function driveRoutes({ app, store }: RouteContext): void {
@@ -92,7 +98,7 @@ export function driveRoutes({ app, store }: RouteContext): void {
     const authEmail = requireGoogleAuth(c);
     if (authEmail instanceof Response) return authEmail;
 
-    const item = getDriveItemById(gs, authEmail, c.req.param("fileId"));
+    const item = getDriveItemById(gs, authEmail, c.req.param("fileId")!);
     if (!item) {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }

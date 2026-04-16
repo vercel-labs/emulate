@@ -33,10 +33,7 @@ function parseQueryBoolean(raw: string | undefined): boolean {
   return v === "true" || v === "1" || v === "yes";
 }
 
-function targetsOverlap(
-  a: VercelEnvVar["target"],
-  b: VercelEnvVar["target"]
-): boolean {
+function targetsOverlap(a: VercelEnvVar["target"], b: VercelEnvVar["target"]): boolean {
   const set = new Set(a);
   return b.some((t) => set.has(t));
 }
@@ -46,14 +43,11 @@ function findEnvByKeyAndTargetsOverlap(
   projectUid: string,
   key: string,
   targets: VercelEnvVar["target"],
-  excludeId?: number
+  excludeId?: number,
 ): VercelEnvVar | undefined {
   const list = vs.envVars.findBy("projectId", projectUid as VercelEnvVar["projectId"]);
   return list.find(
-    (e) =>
-      e.key === key &&
-      (excludeId === undefined || e.id !== excludeId) &&
-      targetsOverlap(e.target, targets)
+    (e) => e.key === key && (excludeId === undefined || e.id !== excludeId) && targetsOverlap(e.target, targets),
   );
 }
 
@@ -83,9 +77,10 @@ function parseCustomEnvironmentIds(raw: unknown): string[] | "invalid" {
   return ids;
 }
 
-function parseEnvRow(
-  body: Record<string, unknown>
-): { row: Omit<VercelEnvVar, "id" | "uid" | "projectId" | "created_at" | "updated_at">; error: string | null } {
+function parseEnvRow(body: Record<string, unknown>): {
+  row: Omit<VercelEnvVar, "id" | "uid" | "projectId" | "created_at" | "updated_at">;
+  error: string | null;
+} {
   const key = typeof body.key === "string" ? body.key : "";
   if (!key.trim()) {
     return { row: {} as never, error: "Missing required field: key" };
@@ -100,12 +95,18 @@ function parseEnvRow(
 
   const type = parseType(body.type);
   if (type === "invalid") {
-    return { row: {} as never, error: "Invalid value: type must be one of system, encrypted, plain, secret, sensitive" };
+    return {
+      row: {} as never,
+      error: "Invalid value: type must be one of system, encrypted, plain, secret, sensitive",
+    };
   }
 
   const target = parseTarget(body.target);
   if (target === "invalid") {
-    return { row: {} as never, error: "Invalid value: target must be a non-empty array of production, preview, development" };
+    return {
+      row: {} as never,
+      error: "Invalid value: target must be a non-empty array of production, preview, development",
+    };
   }
 
   const customEnvironmentIds = parseCustomEnvironmentIds(body.customEnvironmentIds);
@@ -150,11 +151,7 @@ function parseEnvRow(
   };
 }
 
-function findEnvByUidInProject(
-  vs: VercelStore,
-  projectUid: string,
-  uid: string
-): VercelEnvVar | undefined {
+function findEnvByUidInProject(vs: VercelStore, projectUid: string, uid: string): VercelEnvVar | undefined {
   const list = vs.envVars.findBy("projectId", projectUid as VercelEnvVar["projectId"]);
   return list.find((e) => e.uid === uid);
 }
@@ -237,9 +234,7 @@ export function envRoutes({ app, store }: RouteContext): void {
       const { row } = parsed;
 
       const existingDb = findEnvByKeyAndTargetsOverlap(vs, project.uid, row.key, row.target);
-      const existingPending = pending.find(
-        (e) => e.key === row.key && targetsOverlap(e.target, row.target)
-      );
+      const existingPending = pending.find((e) => e.key === row.key && targetsOverlap(e.target, row.target));
 
       if (upsert) {
         const toUpdate = existingDb ?? existingPending;
@@ -268,7 +263,7 @@ export function envRoutes({ app, store }: RouteContext): void {
             c,
             409,
             "env_already_exists",
-            `An environment variable with key "${row.key}" and overlapping targets already exists`
+            `An environment variable with key "${row.key}" and overlapping targets already exists`,
           );
         }
       }
@@ -353,14 +348,24 @@ export function envRoutes({ app, store }: RouteContext): void {
     if ("type" in body) {
       const t = parseType(body.type);
       if (t === "invalid") {
-        return vercelErr(c, 400, "bad_request", "Invalid value: type must be one of system, encrypted, plain, secret, sensitive");
+        return vercelErr(
+          c,
+          400,
+          "bad_request",
+          "Invalid value: type must be one of system, encrypted, plain, secret, sensitive",
+        );
       }
       patch.type = t;
     }
     if ("target" in body) {
       const t = parseTarget(body.target);
       if (t === "invalid") {
-        return vercelErr(c, 400, "bad_request", "Invalid value: target must be a non-empty array of production, preview, development");
+        return vercelErr(
+          c,
+          400,
+          "bad_request",
+          "Invalid value: target must be a non-empty array of production, preview, development",
+        );
       }
       patch.target = t;
     }
@@ -399,7 +404,7 @@ export function envRoutes({ app, store }: RouteContext): void {
         c,
         409,
         "env_already_exists",
-        `An environment variable with key "${nextKey}" and overlapping targets already exists`
+        `An environment variable with key "${nextKey}" and overlapping targets already exists`,
       );
     }
 

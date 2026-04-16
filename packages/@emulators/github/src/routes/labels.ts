@@ -3,7 +3,14 @@ import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
-import type { GitHubIssue, GitHubIssueEvent, GitHubLabel, GitHubMilestone, GitHubRepo, GitHubUser } from "../entities.js";
+import type {
+  GitHubIssue,
+  GitHubIssueEvent,
+  GitHubLabel,
+  GitHubMilestone,
+  GitHubRepo,
+  GitHubUser,
+} from "../entities.js";
 import {
   formatIssue,
   formatLabel,
@@ -16,12 +23,7 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import {
-  assertIssueWrite,
-  assertRepoRead,
-  notFoundResponse,
-  ownerLoginOf,
-} from "../route-helpers.js";
+import { assertIssueWrite, assertRepoRead, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -31,12 +33,7 @@ function findPullByNumber(gh: GitHubStore, repoId: number, num: number) {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === num);
 }
 
-function formatIssueOrPullPayload(
-  gh: GitHubStore,
-  issue: GitHubIssue,
-  current: GitHubIssue,
-  baseUrl: string
-) {
+function formatIssueOrPullPayload(gh: GitHubStore, issue: GitHubIssue, current: GitHubIssue, baseUrl: string) {
   if (issue.is_pull_request) {
     const pr = findPullByNumber(gh, issue.repo_id, issue.number);
     return pr ? formatPullRequest(pr, gh, baseUrl) : null;
@@ -60,11 +57,8 @@ function insertIssueEvent(
   event: string,
   actorId: number,
   extra?: Partial<
-    Pick<
-      GitHubIssueEvent,
-      "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename"
-    >
-  >
+    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
+  >,
 ): GitHubIssueEvent {
   const row = gh.issueEvents.insert({
     node_id: "",
@@ -94,7 +88,7 @@ function normalizeColor(raw: unknown): string {
   if (typeof raw !== "string" || !raw.trim()) {
     throw new ApiError(422, "Validation failed");
   }
-  let s = raw.trim().replace(/^#/, "");
+  const s = raw.trim().replace(/^#/, "");
   if (!/^[0-9a-fA-F]{6}$/.test(s)) {
     throw new ApiError(422, "Validation failed");
   }
@@ -157,7 +151,7 @@ function recalcMilestoneIssueCounts(gh: GitHubStore, repoId: number, milestoneId
 function sortMilestones(
   list: GitHubMilestone[],
   sort: "due_on" | "completeness",
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
 ): GitHubMilestone[] {
   const mul = direction === "asc" ? 1 : -1;
   const sorted = [...list];
@@ -193,7 +187,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     assertRepoRead(gh, c.get("authUser"), repo);
 
     const { page, per_page } = parsePagination(c);
-    let list = gh.labels.findBy("repo_id", repo.id).slice();
+    const list = gh.labels.findBy("repo_id", repo.id).slice();
     list.sort((a, b) => a.name.localeCompare(b.name));
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
@@ -216,10 +210,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const dup = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (dup) throw new ApiError(422, "Validation failed");
 
-    const color =
-      body.color !== undefined && body.color !== null
-        ? normalizeColor(body.color)
-        : randomLabelColor();
+    const color = body.color !== undefined && body.color !== null ? normalizeColor(body.color) : randomLabelColor();
     const description =
       typeof body.description === "string" || body.description === null ? (body.description as string | null) : null;
 
@@ -245,7 +236,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(formatLabel(label, repo, baseUrl), 201);
@@ -291,9 +282,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     }
     if ("description" in body) {
       patch.description =
-        typeof body.description === "string" || body.description === null
-          ? (body.description as string | null)
-          : null;
+        typeof body.description === "string" || body.description === null ? (body.description as string | null) : null;
     }
 
     const updated = gh.labels.update(labelId, patch);
@@ -311,7 +300,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(formatLabel(label, repo, baseUrl));
@@ -343,7 +332,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.body(null, 204);
@@ -411,7 +400,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
       }
@@ -461,7 +450,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
             sender: formatUser(actor, baseUrl),
           },
           ownerLogin,
-          repo.name
+          repo.name,
         );
       }
     }
@@ -481,7 +470,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
               sender: formatUser(actor, baseUrl),
             },
             ownerLogin,
-            repo.name
+            repo.name,
           );
         }
       }
@@ -530,7 +519,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     const labelsJson = after.label_ids
@@ -637,7 +626,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
       creator_id: actor.id,
     } as Omit<GitHubMilestone, "id" | "created_at" | "updated_at">);
     gh.milestones.update(row.id, { node_id: generateNodeId("Milestone", row.id) });
-    let m = recalcMilestoneIssueCounts(gh, repo.id, row.id)!;
+    const m = recalcMilestoneIssueCounts(gh, repo.id, row.id)!;
 
     const ownerLogin = ownerLoginOf(gh, repo);
     webhooks.dispatch(
@@ -650,7 +639,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.json(formatMilestone(m, repo, gh, baseUrl), 201);
@@ -696,9 +685,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     }
     if ("description" in body) {
       patch.description =
-        typeof body.description === "string" || body.description === null
-          ? (body.description as string | null)
-          : null;
+        typeof body.description === "string" || body.description === null ? (body.description as string | null) : null;
     }
     if ("due_on" in body) {
       if (body.due_on === null) patch.due_on = null;
@@ -729,7 +716,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     } else if (patch.state === "open" && prevState === "closed") {
       webhooks.dispatch(
@@ -742,7 +729,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     } else {
       webhooks.dispatch(
@@ -755,7 +742,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
           sender: formatUser(actor, baseUrl),
         },
         ownerLogin,
-        repo.name
+        repo.name,
       );
     }
 
@@ -796,7 +783,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         sender: formatUser(actor, baseUrl),
       },
       ownerLogin,
-      repo.name
+      repo.name,
     );
 
     return c.body(null, 204);
@@ -824,9 +811,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
       for (const lid of i.label_ids) labelIdSet.add(lid);
     }
 
-    let labels = [...labelIdSet]
-      .map((id) => gh.labels.get(id))
-      .filter(Boolean) as GitHubLabel[];
+    const labels = [...labelIdSet].map((id) => gh.labels.get(id)).filter(Boolean) as GitHubLabel[];
     labels.sort((a, b) => a.name.localeCompare(b.name));
 
     const total = labels.length;
