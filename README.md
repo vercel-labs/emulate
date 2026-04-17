@@ -612,18 +612,22 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 ## AWS
 
-S3, SQS, IAM, and STS emulation with REST-style S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
 
 ### S3
-- `GET /s3/` - list all buckets
-- `PUT /s3/:bucket` - create bucket
-- `DELETE /s3/:bucket` - delete bucket
-- `HEAD /s3/:bucket` - check existence
-- `GET /s3/:bucket` - list objects (prefix, delimiter, max-keys)
-- `PUT /s3/:bucket/:key` - put object (supports copy via `x-amz-copy-source`)
-- `GET /s3/:bucket/:key` - get object
-- `HEAD /s3/:bucket/:key` - head object
-- `DELETE /s3/:bucket/:key` - delete object
+
+S3 routes use root paths matching the real AWS S3 wire format, so the official AWS SDK works out of the box with `forcePathStyle: true`. Legacy `/s3/` prefixed paths are also supported for backward compatibility.
+
+- `GET /` - list all buckets
+- `PUT /:bucket` - create bucket
+- `DELETE /:bucket` - delete bucket
+- `HEAD /:bucket` - check existence
+- `GET /:bucket` - list objects (prefix, delimiter, max-keys, continuation-token, start-after)
+- `POST /:bucket` - presigned POST upload (browser-style multipart form with policy validation)
+- `PUT /:bucket/:key` - put object (supports copy via `x-amz-copy-source`)
+- `GET /:bucket/:key` - get object
+- `HEAD /:bucket/:key` - head object
+- `DELETE /:bucket/:key` - delete object
 
 ### SQS
 All operations via `POST /sqs/` with `Action` parameter:

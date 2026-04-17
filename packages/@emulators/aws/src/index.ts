@@ -178,10 +178,12 @@ export const awsPlugin: ServicePlugin = {
   name: "aws",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
-    s3Routes(ctx);
+    // Register inspector and service-specific routes first (static paths),
+    // then S3 last since its routes use wildcard path params (/:bucket, /:bucket/:key)
+    inspectorRoutes(ctx);
     sqsRoutes(ctx);
     iamRoutes(ctx);
-    inspectorRoutes(ctx);
+    s3Routes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

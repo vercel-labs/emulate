@@ -1,19 +1,22 @@
 # AWS
 
-S3, SQS, IAM, and STS emulation with REST-style S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
 
 ## S3
 
-- `GET /s3/` - list all buckets
-- `PUT /s3/:bucket` - create bucket
-- `DELETE /s3/:bucket` - delete bucket (must be empty)
-- `HEAD /s3/:bucket` - check existence, get region
-- `GET /s3/:bucket` - list objects (supports `prefix`, `delimiter`, `max-keys`)
-- `PUT /s3/:bucket/:key` - put object (supports `Content-Type`, `x-amz-meta-*` headers)
-- `GET /s3/:bucket/:key` - get object
-- `HEAD /s3/:bucket/:key` - head object (metadata only)
-- `DELETE /s3/:bucket/:key` - delete object
-- `PUT /s3/:bucket/:key` with `x-amz-copy-source` - copy object
+S3 routes use root paths matching the real AWS S3 wire format, so the official AWS SDK works out of the box with `forcePathStyle: true`. Legacy `/s3/` prefixed paths are also supported for backward compatibility.
+
+- `GET /` - list all buckets
+- `PUT /:bucket` - create bucket
+- `DELETE /:bucket` - delete bucket (must be empty)
+- `HEAD /:bucket` - check existence, get region
+- `GET /:bucket` - list objects (supports `prefix`, `delimiter`, `max-keys`, `continuation-token`, `start-after`)
+- `POST /:bucket` - presigned POST upload (browser-style multipart form with policy validation)
+- `PUT /:bucket/:key` - put object (supports `Content-Type`, `x-amz-meta-*` headers)
+- `GET /:bucket/:key` - get object
+- `HEAD /:bucket/:key` - head object (metadata only)
+- `DELETE /:bucket/:key` - delete object
+- `PUT /:bucket/:key` with `x-amz-copy-source` - copy object
 
 ## SQS
 
@@ -46,4 +49,4 @@ All STS operations use `POST /sts/` with an `Action` form parameter.
 
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /` with `tab` query parameter (`s3`, `sqs`, `iam`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`) for browsing current state.
