@@ -1,6 +1,14 @@
-import type { RouteContext } from "@emulators/core";
+import type { Context } from "hono";
+import type { AppEnv, RouteContext } from "@emulators/core";
 import { getAwsStore } from "../store.js";
 import { awsXmlResponse, awsErrorXml, md5, escapeXml } from "../helpers.js";
+
+// Handlers are reused across multiple routes (root paths + legacy `/s3/` aliases,
+// with and without trailing slashes). Parameterizing on the bucket/key path pattern
+// lets c.req.param("bucket") / c.req.param("key") resolve to `string` instead of
+// `string | undefined`, since those segments are always present for these routes.
+type S3BucketContext = Context<AppEnv, "/:bucket">;
+type S3ObjectContext = Context<AppEnv, "/:bucket/:key">;
 
 export function s3Routes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
@@ -8,11 +16,11 @@ export function s3Routes(ctx: RouteContext): void {
 
   // --- Handler functions (shared between root and /s3/ paths) ---
 
-  const handleListBuckets = (c: any) => {
+  const handleListBuckets = (c: Context<AppEnv>) => {
     const buckets = aws().s3Buckets.all();
     const bucketXml = buckets
       .map(
-        (b: any) => `    <Bucket>
+        (b) => `    <Bucket>
       <Name>${escapeXml(b.bucket_name)}</Name>
       <CreationDate>${b.creation_date}</CreationDate>
     </Bucket>`,
@@ -32,7 +40,7 @@ ${bucketXml}
     return awsXmlResponse(c, xml);
   };
 
-  const handleCreateBucket = (c: any) => {
+  const handleCreateBucket = (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const existing = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (existing) {
@@ -55,7 +63,7 @@ ${bucketXml}
     return c.text("", 200, { Location: `/${bucketName}` });
   };
 
-  const handleDeleteBucket = (c: any) => {
+  const handleDeleteBucket = (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -71,7 +79,7 @@ ${bucketXml}
     return c.body(null, 204);
   };
 
-  const handleHeadBucket = (c: any) => {
+  const handleHeadBucket = (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -80,7 +88,7 @@ ${bucketXml}
     return c.text("", 200, { "x-amz-bucket-region": bucket.region });
   };
 
-  const handleListObjects = (c: any) => {
+  const handleListObjects = (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -95,16 +103,16 @@ ${bucketXml}
 
     let objects = aws().s3Objects.findBy("bucket_name", bucketName);
     if (prefix) {
-      objects = objects.filter((o: any) => o.key.startsWith(prefix));
+      objects = objects.filter((o) => o.key.startsWith(prefix));
     }
 
     // Sort by key for stable pagination
-    objects.sort((a: any, b: any) => a.key.localeCompare(b.key));
+    objects.sort((a, b) => a.key.localeCompare(b.key));
 
     // Apply continuation-token or start-after
     const marker = continuationToken ?? startAfter;
     if (marker) {
-      const startIndex = objects.findIndex((o: any) => o.key > marker);
+      const startIndex = objects.findIndex((o) => o.key > marker);
       objects = startIndex >= 0 ? objects.slice(startIndex) : [];
     }
 
@@ -114,7 +122,7 @@ ${bucketXml}
       const prefixSet = new Set<string>();
       contents = [];
       for (const obj of objects) {
-        const remaining = (obj as any).key.slice(prefix.length);
+        const remaining = obj.key.slice(prefix.length);
         const delimIndex = remaining.indexOf(delimiter);
         if (delimIndex >= 0) {
           prefixSet.add(prefix + remaining.slice(0, delimIndex + delimiter.length));
@@ -127,11 +135,11 @@ ${bucketXml}
 
     const truncated = contents.length > maxKeys;
     const page = contents.slice(0, maxKeys);
-    const nextToken = truncated ? (page[page.length - 1] as any).key : undefined;
+    const nextToken = truncated ? page[page.length - 1].key : undefined;
 
     const contentsXml = page
       .map(
-        (o: any) => `  <Contents>
+        (o) => `  <Contents>
     <Key>${escapeXml(o.key)}</Key>
     <LastModified>${o.last_modified}</LastModified>
     <ETag>"${o.etag}"</ETag>
@@ -158,7 +166,7 @@ ${prefixesXml}
     return awsXmlResponse(c, xml);
   };
 
-  const handlePresignedPost = async (c: any) => {
+  const handlePresignedPost = async (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -231,7 +239,7 @@ ${prefixesXml}
 
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o: any) => o.key === key);
+      .find((o) => o.key === key);
 
     if (existing) {
       aws().s3Objects.update(existing.id, {
@@ -271,7 +279,7 @@ ${prefixesXml}
     return c.body(null, 204);
   };
 
-  const handlePutObject = async (c: any) => {
+  const handlePutObject = async (c: S3ObjectContext) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
@@ -294,7 +302,7 @@ ${prefixesXml}
 
       const srcObj = aws()
         .s3Objects.findBy("bucket_name", srcBucket)
-        .find((o: any) => o.key === srcKey);
+        .find((o) => o.key === srcKey);
       if (!srcObj) {
         return awsErrorXml(c, "NoSuchKey", "The specified source key does not exist.", 404);
       }
@@ -304,7 +312,7 @@ ${prefixesXml}
 
       const existing = aws()
         .s3Objects.findBy("bucket_name", bucketName)
-        .find((o: any) => o.key === key);
+        .find((o) => o.key === key);
 
       if (existing) {
         aws().s3Objects.update(existing.id, {
@@ -350,7 +358,7 @@ ${prefixesXml}
 
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o: any) => o.key === key);
+      .find((o) => o.key === key);
 
     if (existing) {
       aws().s3Objects.update(existing.id, {
@@ -377,7 +385,7 @@ ${prefixesXml}
     return c.text("", 200, { ETag: `"${etag}"` });
   };
 
-  const handleGetObject = (c: any) => {
+  const handleGetObject = (c: S3ObjectContext) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
@@ -388,7 +396,7 @@ ${prefixesXml}
 
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o: any) => o.key === key);
+      .find((o) => o.key === key);
 
     if (!obj) {
       return awsErrorXml(c, "NoSuchKey", "The specified key does not exist.", 404);
@@ -398,7 +406,7 @@ ${prefixesXml}
       "Content-Type": obj.content_type,
       "Content-Length": String(obj.content_length),
       ETag: `"${obj.etag}"`,
-      "Last-Modified": obj.last_modified,
+      "Last-Modified": new Date(obj.last_modified).toUTCString(),
     };
     for (const [k, v] of Object.entries(obj.metadata)) {
       headers[`x-amz-meta-${k}`] = v;
@@ -407,13 +415,13 @@ ${prefixesXml}
     return c.text(obj.body, 200, headers);
   };
 
-  const handleHeadObject = (c: any) => {
+  const handleHeadObject = (c: S3ObjectContext) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o: any) => o.key === key);
+      .find((o) => o.key === key);
 
     if (!obj) {
       return c.text("", 404);
@@ -423,17 +431,17 @@ ${prefixesXml}
       "Content-Type": obj.content_type,
       "Content-Length": String(obj.content_length),
       ETag: `"${obj.etag}"`,
-      "Last-Modified": obj.last_modified,
+      "Last-Modified": new Date(obj.last_modified).toUTCString(),
     });
   };
 
-  const handleDeleteObject = (c: any) => {
+  const handleDeleteObject = (c: S3ObjectContext) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
 
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
-      .find((o: any) => o.key === key);
+      .find((o) => o.key === key);
 
     if (obj) {
       aws().s3Objects.delete(obj.id);
@@ -457,12 +465,20 @@ ${prefixesXml}
   app.delete("/s3/:bucket/:key{.+}", handleDeleteObject);
 
   // --- Primary routes (AWS SDK-compatible, root paths) ---
+  // Bucket-level routes register both no-slash and trailing-slash variants because
+  // the AWS SDK sends e.g. `HEAD /bucket/`, `PUT /bucket/`, `GET /bucket/?list-type=2`
+  // when the key is empty, and Hono treats `/:bucket` and `/:bucket/` as distinct.
   app.get("/", handleListBuckets);
   app.put("/:bucket", handleCreateBucket);
+  app.put("/:bucket/", handleCreateBucket);
   app.delete("/:bucket", handleDeleteBucket);
+  app.delete("/:bucket/", handleDeleteBucket);
   app.on("HEAD", "/:bucket", handleHeadBucket);
+  app.on("HEAD", "/:bucket/", handleHeadBucket);
   app.get("/:bucket", handleListObjects);
+  app.get("/:bucket/", handleListObjects);
   app.post("/:bucket", handlePresignedPost);
+  app.post("/:bucket/", handlePresignedPost);
   app.put("/:bucket/:key{.+}", handlePutObject);
   app.get("/:bucket/:key{.+}", handleGetObject);
   app.on("HEAD", "/:bucket/:key{.+}", handleHeadObject);

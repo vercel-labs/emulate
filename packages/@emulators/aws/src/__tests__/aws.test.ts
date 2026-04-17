@@ -1,40 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import {
-  Store,
-  WebhookDispatcher,
-  authMiddleware,
-  createApiErrorHandler,
-  createErrorHandler,
-  type TokenMap,
-} from "@emulators/core";
+import { Store, WebhookDispatcher } from "@emulators/core";
 import { awsPlugin, seedFromConfig, getAwsStore } from "../index.js";
-
-const base = "http://localhost:4000";
-
-function createTestApp() {
-  const store = new Store();
-  const webhooks = new WebhookDispatcher();
-  const tokenMap: TokenMap = new Map();
-  tokenMap.set("test-aws-token", {
-    login: "admin",
-    id: 1,
-    scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"],
-  });
-
-  const app = new Hono();
-  app.onError(createApiErrorHandler());
-  app.use("*", createErrorHandler());
-  app.use("*", authMiddleware(tokenMap));
-  awsPlugin.register(app as any, store, webhooks, base, tokenMap);
-  awsPlugin.seed!(store, base);
-
-  return { app, store, webhooks, tokenMap };
-}
-
-function authHeaders(): Record<string, string> {
-  return { Authorization: "Bearer test-aws-token" };
-}
+import { createTestApp, testAuthHeaders as authHeaders, testBaseUrl as base } from "./helpers.js";
 
 describe("AWS plugin - S3 Buckets", () => {
   let app: Hono;
