@@ -127,6 +127,7 @@ github:
 ```
 
 **Endpoints:**
+
 - `GET /app` - get authenticated app (JWT required)
 - `GET /app/installations` - list app installations
 - `GET /app/installations/:id` - get installation
@@ -149,6 +150,16 @@ google:
       client_secret: GOCSPX-secret
       redirect_uris:
         - http://localhost:3000/api/auth/callback/google
+  # Optional. Defaults to HS256 with an internal secret. Set algorithm to RS256
+  # to sign id_tokens with an RSA key pair and publish JWKS at /oauth2/v3/certs.
+  id_token:
+    algorithm: RS256
+    ## Accepts an inline PKCS8 PEM or a path to a PEM file (resolved from the
+    ## current working directory). Omit it to auto-generate a key at startup.
+    # private_key: |
+    #   -----BEGIN PRIVATE KEY-----
+    #   ...your PKCS8 PEM...
+    #   -----END PRIVATE KEY-----
   labels:
     - id: Label_ops
       user_email: testuser@example.com

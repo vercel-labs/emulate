@@ -190,7 +190,7 @@ curl http://localhost:4002/.well-known/openid-configuration
 curl http://localhost:4002/oauth2/v3/certs
 ```
 
-Returns `{ "keys": [] }`. ID tokens are signed with HS256 using an internal secret.
+By default, returns `{ "keys": [] }` and ID tokens are signed with HS256 using an internal secret. To produce RS256-signed ID tokens, set `google.id_token.algorithm: RS256` in the config; JWKS will then publish the active RSA public key. `google.id_token.private_key` accepts either an inline PKCS8 PEM or a path to a PEM file (resolved from the current working directory); if omitted, a key pair is generated at startup.
 
 ### Authorization
 
