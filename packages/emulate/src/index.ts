@@ -21,6 +21,8 @@ program
   .option("-p, --port <port>", "Base port", defaultPort)
   .option("-s, --service <services>", "Comma-separated services to enable")
   .option("--seed <file>", "Path to seed config file")
+  .option("--tls-cert <path>", "Path to TLS certificate (PEM) — enables HTTPS when set with --tls-key")
+  .option("--tls-key <path>", "Path to TLS private key (PEM) — enables HTTPS when set with --tls-cert")
   .action(async (opts) => {
     const port = parseInt(opts.port, 10);
     if (Number.isNaN(port) || port < 1 || port > 65535) {
@@ -31,6 +33,8 @@ program
       port,
       service: opts.service,
       seed: opts.seed,
+      tlsCert: opts.tlsCert,
+      tlsKey: opts.tlsKey,
     });
   });
 

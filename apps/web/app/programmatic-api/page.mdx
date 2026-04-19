@@ -71,8 +71,33 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
       <td>none</td>
       <td>Inline seed data (same shape as YAML config)</td>
     </tr>
+    <tr>
+      <td><code>tls</code></td>
+      <td>none</td>
+      <td>Serve over HTTPS. Object of the form <code>{`{ cert, key }`}</code> where each value is a PEM <code>string</code> or <code>Buffer</code>. When set, <code>url</code> uses the <code>https://</code> scheme.</td>
+    </tr>
   </tbody>
 </table>
+
+### HTTPS
+
+Pass a `tls` option with PEM-encoded cert and key material to serve the emulator over HTTPS. Material is accepted in-memory — load it from disk, generate it on the fly, or source it from a secret store.
+
+```typescript
+import { readFileSync } from 'node:fs'
+import { createEmulator } from 'emulate'
+
+const github = await createEmulator({
+  service: 'github',
+  port: 4001,
+  tls: {
+    cert: readFileSync('./certs/localhost.crt'),
+    key: readFileSync('./certs/localhost.key'),
+  },
+})
+
+github.url // 'https://localhost:4001'
+```
 
 ### Instance methods
 
