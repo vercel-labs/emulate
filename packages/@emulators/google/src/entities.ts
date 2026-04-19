@@ -9,6 +9,7 @@ export interface GoogleUser extends Entity {
   picture: string | null;
   email_verified: boolean;
   locale: string;
+  hd: string | null;
 }
 
 export interface GoogleOAuthClient extends Entity {
