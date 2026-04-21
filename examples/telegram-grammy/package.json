@@ -1,0 +1,26 @@
+{
+  "name": "telegram-grammy-demo",
+  "version": "0.4.1",
+  "private": true,
+  "type": "module",
+  "description": "Small grammY bot that runs unchanged against the Telegram emulator and against real Telegram. Proves emulator parity.",
+  "scripts": {
+    "start": "tsx src/bot.ts",
+    "start:emu": "TELEGRAM_API_ROOT=http://localhost:4011 BOT_TOKEN=100001:EMULATE_DEFAULT_TOKEN tsx src/bot.ts",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "grammy": "^1.29.0"
+  },
+  "devDependencies": {
+    "@emulators/core": "workspace:*",
+    "@emulators/telegram": "workspace:*",
+    "@hono/node-server": "^1",
+    "hono": "^4",
+    "tsx": "^4",
+    "typescript": "^5.7",
+    "vitest": "^4.1.0"
+  }
+}
