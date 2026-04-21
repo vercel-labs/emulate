@@ -27,6 +27,7 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "telegram",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -408,6 +409,33 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       },
     },
   },
+  telegram: {
+    label: "Telegram Bot API emulator",
+    endpoints:
+      "bots, users, chats (DM + group), text messages, commands, mentions, photos with file_id round-trip, callback queries, inline keyboards, webhook delivery, long polling",
+    async load() {
+      const mod = await import("@emulators/telegram");
+      return { plugin: mod.telegramPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      telegram: {
+        bots: [
+          {
+            username: "emulate_bot",
+            name: "Emulate Bot",
+            token: "100001:EMULATE_DEFAULT_TOKEN",
+            commands: [{ command: "start", description: "Start the bot" }],
+          },
+        ],
+        users: [{ first_name: "Tester", username: "tester" }],
+        chats: [{ type: "private", between: ["emulate_bot", "tester"] }],
+      },
+    },
+  },
+
   clerk: {
     label: "Clerk authentication and user management emulator",
     endpoints:

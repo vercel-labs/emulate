@@ -71,6 +71,7 @@
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
+    "@emulators/telegram": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

@@ -344,3 +344,29 @@ stripe:
       recurring:
         interval: month
 ```
+
+## Telegram Seed Config
+
+```yaml
+telegram:
+  bots:
+    - username: trip_bot
+      first_name: Trip Bot
+      token: "100001:SEEDED_TOKEN_TRIP_BOT"
+      can_join_groups: true
+      commands:
+        - command: connect
+          description: Connect this chat to a trip
+  users:
+    - first_name: Alice
+      username: alice_tester
+  chats:
+    - type: private
+      between: [trip_bot, alice_tester]
+    - type: group
+      title: Morocco Planning
+      members: [alice_tester]
+      bots: [trip_bot]
+```
+
+`chats[].type` supports `private` and `group`. Supergroups, channels, and forum topics are created at runtime via the control plane (`createSupergroup`, `createChannel`, `createForumTopic`).

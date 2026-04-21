@@ -1,0 +1,135 @@
+# Telegram
+
+Telegram Bot API emulation. Wire-compatible with `api.telegram.org` — grammY, telegraf, and `@chat-adapter/telegram` clients connect unmodified by pointing `apiRoot` at `http://localhost:4011`. Fully stateful: messages, chats, callbacks, reactions, media, webhooks, and long-poll Updates all live in a typed in-memory store.
+
+All Bot API methods are exposed under `/bot<token>/<method>` and return the canonical Bot API envelope `{ ok, result }` or `{ ok: false, error_code, description }`.
+
+## Identity
+
+- `POST /bot<token>/getMe` — bot identity
+
+## Update delivery
+
+- `POST /bot<token>/getUpdates` — long-poll with `offset` / `limit` / `timeout` / `allowed_updates`. Returns `409 Conflict` if a webhook is active or another long-poll is in flight (takeover semantics)
+- `POST /bot<token>/setWebhook` — HTTPS URL + `secret_token` + `allowed_updates`. 5xx retry: initial + 3 attempts, 1s / 2s / 4s backoff, terminal on 4xx. Emits `X-Telegram-Bot-Api-Secret-Token` header when configured
+- `POST /bot<token>/deleteWebhook`
+- `POST /bot<token>/getWebhookInfo`
+
+Update types dispatched: `message`, `edited_message`, `callback_query`, `my_chat_member`, `message_reaction`, `message_reaction_count`, `channel_post`, `edited_channel_post`.
+
+## Messaging
+
+- `POST /bot<token>/sendMessage`
+- `POST /bot<token>/sendPhoto` — `file_id` or multipart upload; returns three `PhotoSize` tiers; `file_id` preserved on re-send
+- `POST /bot<token>/sendDocument`
+- `POST /bot<token>/sendVideo`
+- `POST /bot<token>/sendAudio`
+- `POST /bot<token>/sendVoice`
+- `POST /bot<token>/sendAnimation`
+- `POST /bot<token>/sendSticker`
+- `POST /bot<token>/editMessageText`
+- `POST /bot<token>/editMessageReplyMarkup`
+- `POST /bot<token>/deleteMessage`
+- `POST /bot<token>/sendChatAction`
+
+## Formatting
+
+`parse_mode = MarkdownV2` / `HTML` / legacy `Markdown` on text + caption surfaces, including `blockquote` and `expandable_blockquote`. UTF-16 entity offsets match the real Bot API. Unescaped reserved chars produce the exact 400 wording: `can't parse entities: character 'X' is reserved and must be escaped with the preceding '\'`.
+
+Auto-detected entities in free text: `bot_command`, `mention`, `url`, `email`, `hashtag`, `cashtag`.
+
+## Files
+
+- `POST /bot<token>/getFile` — returns `file_path`
+- `GET /file/bot<token>/<file_path>` — HTTP download of the stored bytes
+
+## Reactions
+
+- `POST /bot<token>/setMessageReaction` — dispatches both `message_reaction` (per-user) and `message_reaction_count` (anonymous aggregate) Updates
+
+## Callbacks
+
+- `POST /bot<token>/answerCallbackQuery` — persists `text` / `show_alert` / `url` / `cache_time`
+
+## Chats
+
+- `POST /bot<token>/getChat` — returns `ChatFullInfo` with `accent_color_id`, `max_reaction_count`, `permissions`, `pinned_message`, `bio`, `description`, `invite_link`, `slow_mode_delay`, etc.
+- `POST /bot<token>/getChatMember` — returns a discriminated `ChatMember` on `status` (creator / administrator / member / left)
+- `POST /bot<token>/getChatAdministrators`
+- `POST /bot<token>/getChatMemberCount`
+
+## Forum topics
+
+Requires a supergroup with `is_forum: true`.
+
+- `POST /bot<token>/createForumTopic`
+- `POST /bot<token>/editForumTopic`
+- `POST /bot<token>/closeForumTopic`
+- `POST /bot<token>/reopenForumTopic`
+- `POST /bot<token>/deleteForumTopic`
+
+## Commands
+
+- `POST /bot<token>/setMyCommands`
+- `POST /bot<token>/getMyCommands`
+
+## Privacy Mode
+
+Matches real Telegram behaviour in groups:
+
+- Bots with privacy mode on (the default) only receive messages that **mention** them (`@bot_username`) or are **addressed bot commands** (`/command@bot_username`).
+- Bare `/command` with no `@` is **dropped**.
+- Plain chatter between humans is **not** delivered.
+- To receive every message, set `can_read_all_group_messages: true` when creating the bot.
+
+## Test control plane
+
+`/_emu/telegram/*` routes that real Telegram never exposes. Useful for test setup and assertions.
+
+- `POST /_emu/telegram/bots` — create bot
+- `POST /_emu/telegram/users` — create user
+- `POST /_emu/telegram/chats/private` — create DM
+- `POST /_emu/telegram/chats/group` — create group
+- `POST /_emu/telegram/chats/supergroup` — create supergroup (`isForum: true` enables forum methods)
+- `POST /_emu/telegram/chats/channel` — create channel
+- `POST /_emu/telegram/chats/:chatId/messages` — simulate user message
+- `POST /_emu/telegram/chats/:chatId/photos` — simulate user photo
+- `POST /_emu/telegram/chats/:chatId/media` — simulate user video/audio/voice/animation/sticker/document
+- `POST /_emu/telegram/chats/:chatId/callbacks` — simulate inline-button click
+- `POST /_emu/telegram/chats/:chatId/edits` — simulate user message edit
+- `POST /_emu/telegram/chats/:chatId/reactions` — simulate reaction (dispatches both reaction + reaction_count)
+- `POST /_emu/telegram/chats/:chatId/add-bot` / `remove-bot` — dispatch `my_chat_member` Update
+- `POST /_emu/telegram/chats/:chatId/promote` — toggle administrator status
+- `POST /_emu/telegram/chats/:chatId/topics` — create forum topic
+- `POST /_emu/telegram/chats/:chatId/channel-posts` / `channel-post-edits` — post or edit as the channel itself
+- `GET /_emu/telegram/chats/:chatId/messages?scope=bot|all` — inspect messages
+- `GET /_emu/telegram/chats/:chatId/drafts/:draftId` — inspect streamed-draft snapshots
+- `POST /_emu/telegram/faults` — inject controlled `401` / `403` / `404` / `429` (with `retry_after`) / generic `400` on the next N calls
+- `DELETE /_emu/telegram/faults` — clear pending faults
+- `GET /_emu/telegram/callbacks/:id` — inspect the bot's callback_query answer
+
+Mirrored one-to-one in a typed TS client at `@emulators/telegram/test`:
+
+```ts
+import { createTelegramTestClient } from "@emulators/telegram/test";
+
+const tg = createTelegramTestClient("http://localhost:4011");
+const bot = await tg.createBot({ username: "trip_test_bot" });
+const user = await tg.createUser({ first_name: "Alice" });
+const dm = await tg.createPrivateChat({ botId: bot.bot_id, userId: user.id });
+await tg.sendUserMessage({ chatId: dm.id, userId: user.id, text: "/connect ABC" });
+
+const botReplies = await tg.getSentMessages({ chatId: dm.id });
+```
+
+## Streaming drafts (emulator-only extension)
+
+- `POST /bot<token>/sendMessageDraft` — private chats only. Each call appends a snapshot under `(chat_id, draft_id, bot_id)`. Not a real Bot API method; lets tests exercise animated streamed replies.
+
+## Inspector
+
+Open `http://localhost:4011/` in a browser for a read-only view of bots, chats, message timelines (with entity highlighting, media/reaction badges, edit/delete markers), streaming drafts, and the per-bot Update queue.
+
+## Non-goals
+
+Payments, Games, Business API, Passport, TON wallets, BotFather. Permanent — they'd bloat the plugin without serving any realistic test-time use case.

@@ -33,6 +33,7 @@ const sections: NavSection[] = [
       { href: "/mongoatlas", label: "MongoDB Atlas" },
       { href: "/resend", label: "Resend" },
       { href: "/stripe", label: "Stripe" },
+      { href: "/telegram", label: "Telegram" },
     ],
   },
   {
