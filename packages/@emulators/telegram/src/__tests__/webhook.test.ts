@@ -106,4 +106,25 @@ describe("Telegram webhook delivery", () => {
     const body = await json<{ ok: boolean }>(res);
     expect(body.ok).toBe(true);
   });
+
+  it("accepts plain-HTTP webhook URLs on loopback hosts", async () => {
+    const bot = createBot(tx.store, { username: "dev_bot" });
+
+    for (const url of [
+      "http://localhost:9999/webhook",
+      "http://127.0.0.1:9999/webhook",
+      "http://[::1]:9999/webhook",
+    ]) {
+      const res = await postJson(tx.app, `/bot${bot.token}/setWebhook`, { url });
+      expect(res.status, `expected ${url} accepted`).toBe(200);
+    }
+
+    // Non-loopback HTTP is still rejected.
+    const rejected = await postJson(tx.app, `/bot${bot.token}/setWebhook`, {
+      url: "http://example.com/webhook",
+    });
+    expect(rejected.status).toBe(400);
+    const rejBody = await json<{ description: string }>(rejected);
+    expect(rejBody.description).toContain("HTTPS url must be provided");
+  });
 });

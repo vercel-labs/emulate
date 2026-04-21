@@ -73,9 +73,12 @@ export function setWebhook(
     // Empty URL removes the webhook, matching real behaviour.
     return deleteWebhook(c, bot, store);
   }
-  // Real Telegram only allows HTTPS webhooks (and rejects localhost, though
-  // the emulator is lenient there for hermetic testing).
-  if (!/^https:\/\//i.test(url)) {
+  // Real Telegram requires HTTPS webhooks. The emulator keeps that check for
+  // non-loopback URLs so tests catch the real production validation, but
+  // allows plain HTTP on localhost/127.0.0.1/::1 so in-process test suites
+  // (e.g. grammy-emulate's webhook-mode mount) can run a receiver on a random
+  // free port without terminating TLS.
+  if (!/^https:\/\//i.test(url) && !isLoopbackUrl(url)) {
     return tgError(c, "Bad Request: bad webhook: HTTPS url must be provided for webhook", 400, 400);
   }
 
@@ -92,6 +95,15 @@ export function deleteWebhook(c: Context, bot: TelegramBot, store: Store) {
   const ts = getTelegramStore(store);
   ts.bots.update(bot.id, { webhook_url: null, webhook_secret: null, webhook_allowed_updates: null });
   return okRaw(c, true);
+}
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  } catch {
+    return false;
+  }
 }
 
 export function getWebhookInfo(c: Context, bot: TelegramBot) {
