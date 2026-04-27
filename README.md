@@ -41,6 +41,9 @@ emulate init --service vercel
 
 # List available services
 emulate list
+
+# Record traffic from a real API and generate a seed config
+emulate record --service github --upstream https://api.github.com
 ```
 
 ### Options
@@ -52,6 +55,30 @@ emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+### Record mode
+
+Record real API traffic and generate seed configs automatically:
+
+```bash
+# Start a proxy that records GitHub API traffic
+emulate record --service github --upstream https://api.github.com --port 4000
+
+# Point your app at localhost:4000 instead of api.github.com
+# Make requests as usual -- emulate forwards them and records responses
+
+# Press Ctrl+C to stop -- emulate generates emulate.config.yaml
+# from the recorded traffic with extracted users, repos, etc.
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-s, --service` | *(required)* | Service to record (github, stripe, etc.) |
+| `-u, --upstream` | *(required)* | Real API URL to proxy to |
+| `-p, --port` | `4000` | Local proxy port |
+| `-o, --output` | `emulate.config.yaml` | Output config file |
+
+Currently supports entity extraction for **GitHub** (users, repos) and **Stripe** (customers, products).
 
 ## Programmatic API
 

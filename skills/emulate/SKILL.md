@@ -49,6 +49,9 @@ emulate init --service vercel
 
 # List available services
 emulate list
+
+# Record traffic from a real API and generate seed config
+emulate record --service github --upstream https://api.github.com
 ```
 
 ### Options
