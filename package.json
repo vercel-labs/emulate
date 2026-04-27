@@ -10,7 +10,8 @@
     "clean": "turbo clean",
     "type-check": "turbo type-check",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx}\""
+    "format:check": "prettier --check \"**/*.{ts,tsx}\"",
+    "sync-versions": "node scripts/sync-versions.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -10,7 +10,6 @@
 
 ## 0.4.0
 
-<!-- release:start -->
 ### New Features
 
 - **Next.js adapter** — embed emulators directly in your Next.js app via `@emulators/adapter-next`, solving the Vercel preview deployment problem where OAuth callback URLs change with every deployment (#43)
@@ -33,4 +32,3 @@
 - @ctate
 - @jk4235
 - @mvanhorn
-<!-- release:end -->

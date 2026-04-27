@@ -44,6 +44,21 @@ When a change affects how humans or agents use emulate (new/changed/removed comm
 3. `apps/web/` (docs site pages)
 4. CLI `--help` output in `packages/emulate/src/index.ts`
 
+## Releasing
+
+Releases are manual, single-PR affairs. The maintainer controls the changelog voice and format. All packages share a single version number (`emulate` + every `@emulators/*`).
+
+To prepare a release:
+
+1. Create a branch (e.g. `prepare-v0.5.0`)
+2. Bump the version in `packages/emulate/package.json`
+3. Run `pnpm sync-versions` to update all `@emulators/*` packages
+4. Write the changelog entry in `CHANGELOG.md`, wrapped in `<!-- release:start -->` and `<!-- release:end -->` markers
+5. Remove the `<!-- release:start -->` and `<!-- release:end -->` markers from the previous release entry (only the latest release should have markers)
+6. Open a PR and merge to `main`
+
+CI compares the version in `packages/emulate/package.json` to what's on npm. If it differs, it builds, publishes all packages with provenance, and creates the GitHub release automatically. The release body is extracted from the content between the markers.
+
 <!-- opensrc:start -->
 
 ## Source Code Reference
