@@ -86,12 +86,16 @@ jobs:
           LOCAL_VERSION="${{ needs.check-release.outputs.version }}"
           FAILED=""
 
+          # Use `pnpm publish` instead of `npm publish` so the `workspace:*`
+          # protocol gets rewritten to the resolved version in the published
+          # tarball. `npm publish` would leave it as a literal `workspace:*`,
+          # which consumers cannot resolve.
           REGISTRY_VERSION=$(npm view emulate version 2>/dev/null || echo "0.0.0")
           if [ "$LOCAL_VERSION" = "$REGISTRY_VERSION" ]; then
             echo "emulate@$LOCAL_VERSION already published, skipping"
           else
             echo "Publishing emulate@$LOCAL_VERSION..."
-            if ! (cd packages/emulate && npm publish --provenance); then
+            if ! (cd packages/emulate && pnpm publish --provenance --no-git-checks --access public); then
               FAILED="$FAILED emulate"
             fi
           fi
@@ -103,7 +107,7 @@ jobs:
               continue
             fi
             echo "Publishing @emulators/$pkg@$LOCAL_VERSION..."
-            if ! (cd "packages/@emulators/$pkg" && npm publish --provenance); then
+            if ! (cd "packages/@emulators/$pkg" && pnpm publish --provenance --no-git-checks --access public); then
               FAILED="$FAILED @emulators/$pkg"
             fi
           done
