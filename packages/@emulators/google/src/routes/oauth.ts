@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from "crypto";
-import { SignJWT } from "jose";
+import { createHash, createPrivateKey, createPublicKey, randomBytes } from "crypto";
+import { JWTHeaderParameters, SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
@@ -17,6 +17,44 @@ import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 
 const JWT_SECRET = new TextEncoder().encode("emulate-google-jwt-secret");
+
+const KID = "emulate-google-1";
+
+type SigningKey = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
+type RsaKeyPair = { privateKey: SigningKey; publicKey: SigningKey };
+
+export type IdTokenAlgorithm = "HS256" | "RS256";
+
+let signingAlgorithm: IdTokenAlgorithm = "HS256";
+let rsaKeyPairPromise: Promise<RsaKeyPair> | null = null;
+
+function getRsaKeyPair(): Promise<RsaKeyPair> {
+  if (!rsaKeyPairPromise) {
+    rsaKeyPairPromise = generateKeyPair("RS256");
+  }
+  return rsaKeyPairPromise;
+}
+
+export function configureIdTokenSigning(options: { algorithm?: IdTokenAlgorithm; privateKey?: string }): void {
+  if (options.privateKey) {
+    const privateKey = createPrivateKey(options.privateKey);
+    const publicKey = createPublicKey(privateKey);
+    rsaKeyPairPromise = Promise.resolve({
+      privateKey: privateKey as unknown as SigningKey,
+      publicKey: publicKey as unknown as SigningKey,
+    });
+    signingAlgorithm = options.algorithm ?? "RS256";
+    return;
+  }
+  if (options.algorithm) {
+    signingAlgorithm = options.algorithm;
+  }
+}
+
+export function resetIdTokenSigning(): void {
+  signingAlgorithm = "HS256";
+  rsaKeyPairPromise = null;
+}
 
 type PendingCode = {
   email: string;
@@ -67,7 +105,7 @@ async function createIdToken(
   nonce: string | null,
   baseUrl: string,
 ): Promise<string> {
-  const builder = new SignJWT({
+  const claims = {
     sub: user.uid,
     email: user.email,
     email_verified: user.email_verified,
@@ -77,14 +115,24 @@ async function createIdToken(
     picture: user.picture,
     locale: user.locale,
     ...(nonce ? { nonce } : {}),
-  })
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+  };
+
+  let header: JWTHeaderParameters = { alg: "HS256", typ: "JWT" };
+  let signingKey: Uint8Array | SigningKey = JWT_SECRET;
+
+  if (signingAlgorithm === "RS256") {
+    const { privateKey } = await getRsaKeyPair();
+    header = { alg: "RS256", kid: KID, typ: "JWT" };
+    signingKey = privateKey;
+  }
+
+  return new SignJWT(claims)
+    .setProtectedHeader(header)
     .setIssuer(baseUrl)
     .setAudience(clientId)
     .setIssuedAt()
-    .setExpirationTime("1h");
-
-  return builder.sign(JWT_SECRET);
+    .setExpirationTime("1h")
+    .sign(signingKey);
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
@@ -102,7 +150,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       jwks_uri: `${baseUrl}/oauth2/v3/certs`,
       response_types_supported: ["code"],
       subject_types_supported: ["public"],
-      id_token_signing_alg_values_supported: ["HS256"],
+      id_token_signing_alg_values_supported: [signingAlgorithm],
       scopes_supported: ["openid", "email", "profile"],
       token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
       claims_supported: ["sub", "email", "email_verified", "name", "given_name", "family_name", "picture", "locale"],
@@ -110,10 +158,17 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
-  // ---------- JWKS (stub) ----------
+  // ---------- JWKS ----------
 
-  app.get("/oauth2/v3/certs", (c) => {
-    return c.json({ keys: [] });
+  app.get("/oauth2/v3/certs", async (c) => {
+    if (signingAlgorithm !== "RS256") {
+      return c.json({ keys: [] });
+    }
+    const { publicKey } = await getRsaKeyPair();
+    const jwk = await exportJWK(publicKey);
+    return c.json({
+      keys: [{ ...jwk, kid: KID, use: "sig", alg: "RS256" }],
+    });
   });
 
   // ---------- Authorization page ----------

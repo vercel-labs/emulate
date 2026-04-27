@@ -1,5 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from "jose";
 import {
   Store,
   WebhookDispatcher,
@@ -10,6 +15,7 @@ import {
 } from "@emulators/core";
 import { googlePlugin, seedFromConfig } from "../index.js";
 import { buildRawMessage } from "../helpers.js";
+import { resetIdTokenSigning } from "../routes/oauth.js";
 
 const base = "http://localhost:4000";
 
@@ -1059,5 +1065,184 @@ describe("Google plugin integration", () => {
     });
     expect(uploadedMediaRes.status).toBe(200);
     expect(Buffer.from(await uploadedMediaRes.arrayBuffer()).toString("utf8")).toBe(uploadedContent);
+  });
+});
+
+describe("Google id_token signing", () => {
+  afterEach(() => {
+    resetIdTokenSigning();
+  });
+
+  async function runOauthFlow(app: Hono) {
+    const authorizeRes = await app.request(`${base}/o/oauth2/v2/auth/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "testuser@example.com",
+        redirect_uri: "http://localhost:3000/api/auth/callback/google",
+        scope: "openid email profile",
+        client_id: "emu_google_client_id",
+        nonce: "test-nonce",
+      }).toString(),
+    });
+    const code = new URL(authorizeRes.headers.get("Location")!).searchParams.get("code")!;
+    const tokenRes = await app.request(`${base}/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: "http://localhost:3000/api/auth/callback/google",
+        client_id: "emu_google_client_id",
+        client_secret: "emu_google_client_secret",
+      }).toString(),
+    });
+    return (await tokenRes.json()) as { id_token: string };
+  }
+
+  it("defaults to HS256 and exposes an empty JWKS", async () => {
+    const { app } = createTestApp();
+
+    const discoveryRes = await app.request(`${base}/.well-known/openid-configuration`);
+    const discovery = (await discoveryRes.json()) as { id_token_signing_alg_values_supported: string[] };
+    expect(discovery.id_token_signing_alg_values_supported).toEqual(["HS256"]);
+
+    const certsRes = await app.request(`${base}/oauth2/v3/certs`);
+    expect(await certsRes.json()).toEqual({ keys: [] });
+
+    const { id_token } = await runOauthFlow(app);
+    expect(decodeProtectedHeader(id_token).alg).toBe("HS256");
+    expect(decodeJwt(id_token).nonce).toBe("test-nonce");
+  });
+
+  it("signs id_token with RS256 using a provided private key and publishes JWKS", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+
+    const app = new Hono();
+    const store = new Store();
+    const webhooks = new WebhookDispatcher();
+    const tokenMap: TokenMap = new Map();
+    app.onError(createApiErrorHandler());
+    app.use("*", createErrorHandler());
+    app.use("*", authMiddleware(tokenMap));
+    googlePlugin.register(app as any, store, webhooks, base, tokenMap);
+    seedFromConfig(store, base, {
+      users: [{ email: "testuser@example.com", name: "Test User" }],
+      oauth_clients: [
+        {
+          client_id: "emu_google_client_id",
+          client_secret: "emu_google_client_secret",
+          name: "RS256 App",
+          redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
+        },
+      ],
+      id_token: { algorithm: "RS256", private_key: privateKeyPem },
+    });
+
+    const discoveryRes = await app.request(`${base}/.well-known/openid-configuration`);
+    const discovery = (await discoveryRes.json()) as { id_token_signing_alg_values_supported: string[] };
+    expect(discovery.id_token_signing_alg_values_supported).toEqual(["RS256"]);
+
+    const certsRes = await app.request(`${base}/oauth2/v3/certs`);
+    const certs = (await certsRes.json()) as { keys: Array<Record<string, unknown>> };
+    expect(certs.keys).toHaveLength(1);
+    const jwk = certs.keys[0];
+    expect(jwk.kty).toBe("RSA");
+    expect(jwk.alg).toBe("RS256");
+    expect(jwk.use).toBe("sig");
+    expect(jwk.kid).toBe("emulate-google-1");
+    expect(jwk.n).toBeDefined();
+    expect(jwk.e).toBe("AQAB");
+
+    const { id_token } = await runOauthFlow(app);
+    const header = decodeProtectedHeader(id_token);
+    expect(header.alg).toBe("RS256");
+    expect(header.kid).toBe("emulate-google-1");
+
+    const verificationKey = await importJWK(jwk, "RS256");
+    const { payload } = await jwtVerify(id_token, verificationKey, { issuer: base, audience: "emu_google_client_id" });
+    expect(payload.email).toBe("testuser@example.com");
+    expect(payload.nonce).toBe("test-nonce");
+  });
+
+  it("loads the RS256 private key from a file path", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const dir = mkdtempSync(join(tmpdir(), "emulate-google-key-"));
+    const keyPath = join(dir, "rs256.pem");
+    writeFileSync(keyPath, pem, "utf-8");
+
+    try {
+      const app = new Hono();
+      const store = new Store();
+      const webhooks = new WebhookDispatcher();
+      const tokenMap: TokenMap = new Map();
+      app.onError(createApiErrorHandler());
+      app.use("*", createErrorHandler());
+      app.use("*", authMiddleware(tokenMap));
+      googlePlugin.register(app as any, store, webhooks, base, tokenMap);
+      seedFromConfig(store, base, {
+        users: [{ email: "testuser@example.com", name: "Test User" }],
+        oauth_clients: [
+          {
+            client_id: "emu_google_client_id",
+            client_secret: "emu_google_client_secret",
+            name: "RS256 File",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
+          },
+        ],
+        id_token: { algorithm: "RS256", private_key: keyPath },
+      });
+
+      const certsRes = await app.request(`${base}/oauth2/v3/certs`);
+      const certs = (await certsRes.json()) as { keys: Array<Record<string, unknown>> };
+      expect(certs.keys).toHaveLength(1);
+
+      const { id_token } = await runOauthFlow(app);
+      expect(decodeProtectedHeader(id_token).alg).toBe("RS256");
+
+      const verificationKey = await importJWK(certs.keys[0], "RS256");
+      await expect(
+        jwtVerify(id_token, verificationKey, { issuer: base, audience: "emu_google_client_id" }),
+      ).resolves.toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("auto-generates an RSA key pair when algorithm is RS256 without a private key", async () => {
+    const app = new Hono();
+    const store = new Store();
+    const webhooks = new WebhookDispatcher();
+    const tokenMap: TokenMap = new Map();
+    app.onError(createApiErrorHandler());
+    app.use("*", createErrorHandler());
+    app.use("*", authMiddleware(tokenMap));
+    googlePlugin.register(app as any, store, webhooks, base, tokenMap);
+    seedFromConfig(store, base, {
+      users: [{ email: "testuser@example.com", name: "Test User" }],
+      oauth_clients: [
+        {
+          client_id: "emu_google_client_id",
+          client_secret: "emu_google_client_secret",
+          name: "RS256 Auto",
+          redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
+        },
+      ],
+      id_token: { algorithm: "RS256" },
+    });
+
+    const certsRes = await app.request(`${base}/oauth2/v3/certs`);
+    const certs = (await certsRes.json()) as { keys: Array<Record<string, unknown>> };
+    expect(certs.keys).toHaveLength(1);
+    expect(certs.keys[0].kty).toBe("RSA");
+
+    const { id_token } = await runOauthFlow(app);
+    expect(decodeProtectedHeader(id_token).alg).toBe("RS256");
+
+    const verificationKey = await importJWK(certs.keys[0], "RS256");
+    const { payload } = await jwtVerify(id_token, verificationKey, { issuer: base, audience: "emu_google_client_id" });
+    expect(payload.email).toBe("testuser@example.com");
   });
 });

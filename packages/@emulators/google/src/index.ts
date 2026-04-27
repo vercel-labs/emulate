@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import type { Hono } from "hono";
 import {
@@ -16,7 +18,7 @@ import { driveRoutes } from "./routes/drive.js";
 import { historyRoutes } from "./routes/history.js";
 import { labelRoutes } from "./routes/labels.js";
 import { messageRoutes } from "./routes/messages.js";
-import { oauthRoutes } from "./routes/oauth.js";
+import { configureIdTokenSigning, oauthRoutes, type IdTokenAlgorithm } from "./routes/oauth.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { threadRoutes } from "./routes/threads.js";
 import { getGoogleStore } from "./store.js";
@@ -120,6 +122,10 @@ export interface GoogleSeedConfig {
     name?: string;
     redirect_uris: string[];
   }>;
+  id_token?: {
+    algorithm?: IdTokenAlgorithm;
+    private_key?: string;
+  };
   labels?: GoogleSeedLabel[];
   messages?: GoogleSeedMessage[];
   calendars?: GoogleSeedCalendar[];
@@ -275,8 +281,22 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   );
 }
 
+function resolveIdTokenPrivateKey(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (trimmed.includes("-----BEGIN")) return trimmed;
+  return readFileSync(resolvePath(trimmed), "utf-8");
+}
+
 export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSeedConfig): void {
   const gs = getGoogleStore(store);
+
+  if (config.id_token) {
+    configureIdTokenSigning({
+      algorithm: config.id_token.algorithm,
+      privateKey: resolveIdTokenPrivateKey(config.id_token.private_key),
+    });
+  }
 
   if (config.users) {
     for (const user of config.users) {

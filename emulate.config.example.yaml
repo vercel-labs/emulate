@@ -89,6 +89,8 @@ google:
       name: Code App (Google)
       redirect_uris:
         - http://localhost:3000/api/auth/callback/google
+  id_token:
+    algorithm: RS256
   labels:
     - id: Label_ops
       user_email: testuser@gmail.com
