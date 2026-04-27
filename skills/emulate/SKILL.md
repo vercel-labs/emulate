@@ -58,6 +58,8 @@ emulate list
 | `-p, --port` | `4000` | Base port (auto-increments per service) |
 | `-s, --service` | all | Comma-separated services to enable |
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
+| `--tls-cert` | none | Path to TLS certificate (PEM) — enables HTTPS when paired with `--tls-key` |
+| `--tls-key` | none | Path to TLS private key (PEM) — enables HTTPS when paired with `--tls-cert` |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -89,6 +91,7 @@ await vercel.close()
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
+| `tls` | none | `{ cert, key }` with PEM-encoded `string` or `Buffer` material. When set, the emulator serves HTTPS and `url` uses the `https://` scheme. |
 
 ### Instance Methods
 

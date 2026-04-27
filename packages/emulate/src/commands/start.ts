@@ -2,6 +2,7 @@ import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
 import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
+import { createServer as createHttpsServer } from "node:https";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
 import pc from "picocolors";
@@ -13,6 +14,8 @@ export interface StartOptions {
   port: number;
   service?: string;
   seed?: string;
+  tlsCert?: string;
+  tlsKey?: string;
 }
 
 interface SeedConfig {
@@ -68,6 +71,30 @@ function loadSeedConfig(seedPath?: string): LoadResult | null {
   return null;
 }
 
+function loadTlsMaterial(certPath?: string, keyPath?: string): { cert: Buffer; key: Buffer } | null {
+  if (!certPath && !keyPath) return null;
+  if (!certPath || !keyPath) {
+    console.error("Both --tls-cert and --tls-key must be provided to enable HTTPS.");
+    process.exit(1);
+  }
+
+  const read = (label: string, path: string): Buffer => {
+    const fullPath = resolve(path);
+    if (!existsSync(fullPath)) {
+      console.error(`TLS ${label} file not found: ${fullPath}`);
+      process.exit(1);
+    }
+    try {
+      return readFileSync(fullPath);
+    } catch (err) {
+      console.error(`Failed to read TLS ${label} file ${fullPath}: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  };
+
+  return { cert: read("certificate", certPath), key: read("key", keyPath) };
+}
+
 function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
   const found = SERVICE_NAMES.filter((k) => k in config);
   return found.length > 0 ? [...found] : null;
@@ -75,6 +102,9 @@ function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
 
 export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
+
+  const tlsMaterial = loadTlsMaterial(options.tlsCert, options.tlsKey);
+  const scheme = tlsMaterial ? "https" : "http";
 
   const loaded = loadSeedConfig(options.seed);
   const seedConfig = loaded?.config ?? null;
@@ -117,7 +147,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const svcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
     const port = (svcSeedConfig?.port as number | undefined) ?? basePort + i;
-    const baseUrl = `http://localhost:${port}`;
+    const baseUrl = `${scheme}://localhost:${port}`;
     serviceUrls.push({ name: svc, url: baseUrl });
 
     // eslint-disable-next-line prefer-const -- reassigned after closure captures it
@@ -138,7 +168,9 @@ export async function startCommand(options: StartOptions): Promise<void> {
       loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig);
     }
 
-    const httpServer = serve({ fetch: app.fetch, port });
+    const httpServer = tlsMaterial
+      ? serve({ fetch: app.fetch, port, serverOptions: tlsMaterial, createServer: createHttpsServer })
+      : serve({ fetch: app.fetch, port });
     httpServers.push(httpServer);
   }
 

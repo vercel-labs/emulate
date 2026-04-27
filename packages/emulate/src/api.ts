@@ -3,16 +3,23 @@ import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { serve } from "@hono/node-server";
+import { createServer as createHttpsServer } from "node:https";
 
 export interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
   [service: string]: unknown;
 }
 
+export interface EmulatorTlsOptions {
+  cert: string | Buffer;
+  key: string | Buffer;
+}
+
 export interface EmulatorOptions {
   service: ServiceName;
   port?: number;
   seed?: SeedConfig;
+  tls?: EmulatorTlsOptions;
 }
 
 export interface Emulator {
@@ -22,7 +29,7 @@ export interface Emulator {
 }
 
 export async function createEmulator(options: EmulatorOptions): Promise<Emulator> {
-  const { service, port = 4000, seed: seedConfig } = options;
+  const { service, port = 4000, seed: seedConfig, tls } = options;
 
   const entry = SERVICE_REGISTRY[service];
   if (!entry) {
@@ -41,7 +48,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
-  const baseUrl = `http://localhost:${port}`;
+  const baseUrl = `${tls ? "https" : "http"}://localhost:${port}`;
 
   // eslint-disable-next-line prefer-const -- reassigned after closure captures it
   let cachedResolver: AppKeyResolver | undefined;
@@ -63,7 +70,9 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   };
   seed();
 
-  const httpServer = serve({ fetch: app.fetch, port });
+  const httpServer = tls
+    ? serve({ fetch: app.fetch, port, serverOptions: { cert: tls.cert, key: tls.key }, createServer: createHttpsServer })
+    : serve({ fetch: app.fetch, port });
 
   return {
     url: baseUrl,
