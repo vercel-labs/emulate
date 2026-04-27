@@ -1,4 +1,4 @@
-import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
+import { createServer, type AppKeyResolver, type Store, type RequestLogEntry } from "@emulators/core";
 import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
@@ -18,6 +18,8 @@ export interface EmulatorOptions {
 export interface Emulator {
   url: string;
   reset(): void;
+  requests(): RequestLogEntry[];
+  clearRequests(): void;
   close(): Promise<void>;
 }
 
@@ -52,7 +54,13 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   const svcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
   const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-  const { app, store } = createServer(loaded.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
+  const { app, store, requestLog } = createServer(loaded.plugin, {
+    port,
+    baseUrl,
+    tokens,
+    appKeyResolver,
+    fallbackUser,
+  });
   cachedResolver = loaded.createAppKeyResolver?.(store);
 
   const seed = () => {
@@ -70,6 +78,12 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     reset() {
       store.reset();
       seed();
+    },
+    requests(): RequestLogEntry[] {
+      return [...requestLog];
+    },
+    clearRequests(): void {
+      requestLog.length = 0;
     },
     close(): Promise<void> {
       return new Promise((resolve, reject) => {

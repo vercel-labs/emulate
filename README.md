@@ -110,7 +110,34 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 |--------|-------------|
 | `url` | Base URL of the running server |
 | `reset()` | Wipe the store and replay seed data |
+| `requests()` | Return an array of logged requests (method, path, status, duration, timestamp) |
+| `clearRequests()` | Clear the request log |
 | `close()` | Shut down the HTTP server, returns a Promise |
+
+### Request log
+
+Every request to an emulated service is logged for debugging:
+
+```typescript
+const github = await createEmulator({ service: 'github', port: 4001 })
+
+// ... run tests ...
+
+const log = github.requests()
+// [{ method: 'POST', path: '/user/repos', status: 201, duration_ms: 2, timestamp: '...' }]
+
+github.clearRequests()
+```
+
+The log is also available via HTTP:
+
+```bash
+# Fetch recent requests
+curl http://localhost:4001/_emulate/requests
+
+# Clear the log
+curl -X DELETE http://localhost:4001/_emulate/requests
+```
 
 ## Configuration
 
