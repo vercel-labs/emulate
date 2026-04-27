@@ -6,10 +6,15 @@ on:
       - main
   workflow_dispatch:
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
+
+env:
+  EMULATOR_PACKAGES: adapter-next apple aws clerk core github google microsoft mongoatlas okta resend slack stripe vercel
 
 jobs:
   check-release:
@@ -34,7 +39,7 @@ jobs:
             SHOULD_RELEASE=true
           fi
 
-          for pkg in adapter-next apple aws clerk core github google microsoft mongoatlas okta resend slack stripe vercel; do
+          for pkg in $EMULATOR_PACKAGES; do
             REGISTRY_VERSION=$(npm view "@emulators/$pkg" version 2>/dev/null || echo "0.0.0")
             echo "@emulators/$pkg — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
             if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
@@ -91,7 +96,7 @@ jobs:
             fi
           fi
 
-          for pkg in adapter-next apple aws clerk core github google microsoft mongoatlas okta resend slack stripe vercel; do
+          for pkg in $EMULATOR_PACKAGES; do
             REGISTRY_VERSION=$(npm view "@emulators/$pkg" version 2>/dev/null || echo "0.0.0")
             if [ "$LOCAL_VERSION" = "$REGISTRY_VERSION" ]; then
               echo "@emulators/$pkg@$LOCAL_VERSION already published, skipping"

@@ -28,6 +28,8 @@ jobs:
 
       - run: pnpm build
 
+      - run: node scripts/sync-versions.mjs --check
+
       - run: pnpm format:check
 
       - run: pnpm type-check
