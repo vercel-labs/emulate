@@ -272,7 +272,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
 
   microsoft: {
     label: "Microsoft Entra ID OAuth 2.0 / OpenID Connect emulator",
-    endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, Graph /me, logout, token revocation",
+    endpoints:
+      "OAuth authorize, token exchange, userinfo, OIDC discovery, Graph /me, mail, calendar, drive, logout, token revocation",
     async load() {
       const mod = await import("@emulators/microsoft");
       return { plugin: mod.microsoftPlugin, seedFromConfig: mod.seedFromConfig };
@@ -289,7 +290,60 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             client_id: "example-client-id",
             client_secret: "example-client-secret",
             name: "My Microsoft App",
-            redirect_uris: ["http://localhost:3000/api/auth/callback/microsoft-entra-id"],
+            redirect_uris: [
+              "http://localhost:3000/api/auth/callback/microsoft-entra-id",
+              "http://localhost:3000/api/microsoft/linking/callback",
+              "http://localhost:3000/api/microsoft/calendar/callback",
+              "http://localhost:3000/api/microsoft/drive/callback",
+            ],
+          },
+        ],
+        categories: [
+          {
+            id: "cat_follow_up",
+            user_email: "testuser@outlook.com",
+            display_name: "Follow Up",
+            color: "preset4",
+          },
+        ],
+        folders: [{ id: "custom_projects", user_email: "testuser@outlook.com", display_name: "Projects" }],
+        messages: [
+          {
+            id: "msg_outlook_welcome",
+            user_email: "testuser@outlook.com",
+            from: { address: "welcome@example.com", name: "Welcome Team" },
+            to_recipients: [{ address: "testuser@outlook.com" }],
+            subject: "Welcome to the Outlook emulator",
+            body_content: "<p>You can now test Outlook mail, calendar, and OneDrive flows locally.</p>",
+            categories: ["Follow Up"],
+            parent_folder_id: "inbox",
+          },
+        ],
+        calendars: [
+          {
+            id: "primary",
+            user_email: "testuser@outlook.com",
+            name: "Calendar",
+            is_default_calendar: true,
+          },
+        ],
+        calendar_events: [
+          {
+            id: "evt_planning",
+            user_email: "testuser@outlook.com",
+            calendar_id: "primary",
+            subject: "Inbox Zero planning",
+            start_date_time: "2025-01-10T09:00:00.000Z",
+            end_date_time: "2025-01-10T09:30:00.000Z",
+            location_display_name: "Teams",
+          },
+        ],
+        drive_items: [
+          {
+            id: "drv_invoices",
+            user_email: "testuser@outlook.com",
+            name: "Invoices",
+            is_folder: true,
           },
         ],
       },

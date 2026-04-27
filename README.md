@@ -236,6 +236,48 @@ microsoft:
       name: My Microsoft App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/microsoft-entra-id
+        - http://localhost:3000/api/microsoft/linking/callback
+        - http://localhost:3000/api/microsoft/calendar/callback
+        - http://localhost:3000/api/microsoft/drive/callback
+  categories:
+    - id: cat_follow_up
+      user_email: testuser@outlook.com
+      display_name: Follow Up
+      color: preset4
+  folders:
+    - id: custom_projects
+      user_email: testuser@outlook.com
+      display_name: Projects
+  messages:
+    - id: msg_outlook_welcome
+      user_email: testuser@outlook.com
+      from:
+        address: welcome@example.com
+        name: Welcome Team
+      to_recipients:
+        - address: testuser@outlook.com
+      subject: Welcome to the Outlook emulator
+      body_content: "<p>You can now test Outlook mail, calendar, and OneDrive flows locally.</p>"
+      categories: [Follow Up]
+      parent_folder_id: inbox
+  calendars:
+    - id: primary
+      user_email: testuser@outlook.com
+      name: Calendar
+      is_default_calendar: true
+  calendar_events:
+    - id: evt_planning
+      user_email: testuser@outlook.com
+      calendar_id: primary
+      subject: Inbox Zero planning
+      start_date_time: 2025-01-10T09:00:00.000Z
+      end_date_time: 2025-01-10T09:30:00.000Z
+      location_display_name: Teams
+  drive_items:
+    - id: drv_invoices
+      user_email: testuser@outlook.com
+      name: Invoices
+      is_folder: true
 
 aws:
   region: us-east-1
@@ -596,19 +638,22 @@ Sign in with Apple emulation with authorization code flow, PKCE support, RS256 I
 - `POST /auth/token` - token exchange (authorization code and refresh token grants)
 - `POST /auth/revoke` - token revocation
 
-## Microsoft Entra ID
+## Microsoft OAuth + Outlook, Calendar, and OneDrive APIs
 
-Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, and OIDC discovery.
+OAuth 2.0, OpenID Connect, and Microsoft Graph-style mail, calendar, subscription, and drive flows for local Outlook automation.
 
-- `GET /.well-known/openid-configuration` - OIDC discovery document
-- `GET /:tenant/v2.0/.well-known/openid-configuration` - tenant-scoped OIDC discovery
-- `GET /discovery/v2.0/keys` - JSON Web Key Set (JWKS)
-- `GET /oauth2/v2.0/authorize` - authorization endpoint (shows user picker)
-- `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, client credentials)
-- `GET /oidc/userinfo` - OpenID Connect user info
-- `GET /v1.0/me` - Microsoft Graph user profile
-- `GET /oauth2/v2.0/logout` - end session / logout
-- `POST /oauth2/v2.0/revoke` - token revocation
+- `GET /:tenant/v2.0/.well-known/openid-configuration`, `GET /.well-known/openid-configuration`, `GET /discovery/v2.0/keys`
+- `GET /oauth2/v2.0/authorize`, `POST /oauth2/v2.0/token`, `GET /oauth2/v2.0/logout`, `POST /oauth2/v2.0/revoke`
+- `GET /oidc/userinfo`, `GET /v1.0/me`, `GET /v1.0/me/photo/$value`
+- `GET /v1.0/me/messages`, `POST /v1.0/me/messages`, `GET|PATCH|DELETE /v1.0/me/messages/:messageId`
+- `POST /v1.0/me/messages/:messageId/send`, `POST /v1.0/me/messages/:messageId/createReply`, `POST /v1.0/me/messages/:messageId/createReplyAll`, `POST /v1.0/me/messages/:messageId/forward`, `POST /v1.0/me/messages/:messageId/move`
+- `GET /v1.0/me/messages/:messageId/attachments/:attachmentId`, `POST /v1.0/me/messages/:messageId/attachments`, `POST /v1.0/me/messages/:messageId/attachments/createUploadSession`
+- `GET|POST /v1.0/me/mailFolders`, `GET /v1.0/me/mailFolders/:folderId`, `GET /v1.0/me/mailFolders/:folderId/childFolders`
+- `GET|POST /v1.0/me/outlook/masterCategories`, `GET|DELETE /v1.0/me/outlook/masterCategories/:categoryId`
+- `GET|POST /v1.0/me/mailFolders/inbox/messageRules`, `PATCH|DELETE /v1.0/me/mailFolders/inbox/messageRules/:ruleId`
+- `POST /v1.0/subscriptions`, `DELETE /v1.0/subscriptions/:subscriptionId`, `POST /v1.0/$batch`
+- `GET /v1.0/me/calendars`, `GET /v1.0/me/calendar/calendarView`, `GET /v1.0/me/calendars/:calendarId/calendarView`
+- `GET|POST /v1.0/me/drive/root/children`, `GET|PATCH /v1.0/me/drive/items/:itemId`, `GET|POST /v1.0/me/drive/items/:itemId/children`, `PUT /v1.0/me/drive/items/:parentId:/:filename:/content`, `GET /v1.0/me/drive/items/:itemId/content`
 
 ## AWS
 
