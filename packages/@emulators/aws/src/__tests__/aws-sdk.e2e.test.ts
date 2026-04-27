@@ -147,15 +147,17 @@ describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
 
   it("ListObjectsV2 paginates with MaxKeys and ContinuationToken", async () => {
     await s3.send(new CreateBucketCommand({ Bucket: "sdk-e2e-pages" }));
-    for (let i = 0; i < 5; i++) {
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: "sdk-e2e-pages",
-          Key: `page-${String(i).padStart(2, "0")}.txt`,
-          Body: String(i),
-        }),
-      );
-    }
+    await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        s3.send(
+          new PutObjectCommand({
+            Bucket: "sdk-e2e-pages",
+            Key: `page-${String(i).padStart(2, "0")}.txt`,
+            Body: String(i),
+          }),
+        ),
+      ),
+    );
 
     const page1 = await s3.send(new ListObjectsV2Command({ Bucket: "sdk-e2e-pages", MaxKeys: 2 }));
     expect(page1.IsTruncated).toBe(true);

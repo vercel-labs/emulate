@@ -5,6 +5,7 @@ import {
   authMiddleware,
   createApiErrorHandler,
   createErrorHandler,
+  type AppEnv,
   type TokenMap,
 } from "@emulators/core";
 import { awsPlugin } from "../index.js";
@@ -21,11 +22,11 @@ export function createTestApp(baseUrl: string = testBaseUrl) {
     scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"],
   });
 
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
   app.use("*", authMiddleware(tokenMap));
-  awsPlugin.register(app as never, store, webhooks, baseUrl, tokenMap);
+  awsPlugin.register(app, store, webhooks, baseUrl, tokenMap);
   awsPlugin.seed!(store, baseUrl);
 
   return { app, store, webhooks, tokenMap };

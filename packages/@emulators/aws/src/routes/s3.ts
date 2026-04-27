@@ -341,7 +341,10 @@ ${prefixesXml}
   <ETag>"${etag}"</ETag>
   <LastModified>${now}</LastModified>
 </CopyObjectResult>`;
-      return awsXmlResponse(c, xml);
+      return c.text(xml, 200, {
+        "Content-Type": "application/xml",
+        "Last-Modified": new Date(now).toUTCString(),
+      });
     }
 
     const body = await c.req.text();

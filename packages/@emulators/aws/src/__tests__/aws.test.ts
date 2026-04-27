@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "hono";
-import { Store, WebhookDispatcher } from "@emulators/core";
+import { Store, WebhookDispatcher, type AppEnv } from "@emulators/core";
 import { awsPlugin, seedFromConfig, getAwsStore } from "../index.js";
 import { createTestApp, testAuthHeaders as authHeaders, testBaseUrl as base } from "./helpers.js";
 
 describe("AWS plugin - S3 Buckets", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -69,7 +69,7 @@ describe("AWS plugin - S3 Buckets", () => {
 });
 
 describe("AWS plugin - S3 Objects", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -207,7 +207,7 @@ describe("AWS plugin - S3 Objects", () => {
 });
 
 describe("AWS plugin - S3 ListObjectsV2 pagination", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -293,7 +293,7 @@ describe("AWS plugin - S3 ListObjectsV2 pagination", () => {
 });
 
 describe("AWS plugin - S3 Presigned POST", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -427,7 +427,7 @@ describe("AWS plugin - S3 Presigned POST", () => {
 });
 
 describe("AWS plugin - SQS", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -607,7 +607,7 @@ describe("AWS plugin - SQS", () => {
 });
 
 describe("AWS plugin - IAM", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -747,7 +747,7 @@ describe("AWS plugin - IAM", () => {
 });
 
 describe("AWS plugin - STS", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -847,7 +847,7 @@ describe("AWS plugin - seedFromConfig", () => {
 });
 
 describe("AWS plugin - Inspector", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -889,7 +889,7 @@ describe("AWS plugin - Inspector", () => {
 });
 
 describe("AWS plugin - S3 backward-compat /s3/ aliases", () => {
-  let app: Hono;
+  let app: Hono<AppEnv>;
 
   beforeEach(() => {
     app = createTestApp().app;
