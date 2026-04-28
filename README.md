@@ -153,6 +153,9 @@ google:
   users:
     - email: testuser@example.com
       name: Test User
+    - email: admin@acme.com
+      name: Admin
+      hd: acme.com
   oauth_clients:
     - client_id: my-client-id.apps.googleusercontent.com
       client_secret: GOCSPX-secret
