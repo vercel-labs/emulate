@@ -58,8 +58,12 @@ emulate list
 | `-p, --port` | `4000` | Base port (auto-increments per service) |
 | `-s, --service` | all | Comma-separated services to enable |
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
+| `--base-url` | none | Override advertised base URL (supports `{service}` template) |
+| `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+The advertised base URL (used in OAuth redirects, webhook URLs, etc.) can be overridden via `--base-url`, the `EMULATE_BASE_URL` env var (supports `{service}` template), or per-service `baseUrl` in the seed config. When running under portless, the `PORTLESS_URL` env var is also detected automatically.
 
 ## Programmatic API
 
@@ -89,6 +93,7 @@ await vercel.close()
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
+| `baseUrl` | none | Override advertised base URL. Falls back to `PORTLESS_URL` env var, then `http://localhost:<port>`. |
 
 ### Instance Methods
 
@@ -250,6 +255,42 @@ aws:
 Tokens map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`. When no tokens are configured, a default `test_token_admin` is created for the `admin` user.
 
 Each service also has a fallback user. If no token is provided, requests authenticate as the first seeded user.
+
+## HTTPS with portless
+
+[portless](https://github.com/vercel-labs/portless) gives emulators trusted HTTPS URLs with auto-generated certs. Use the `--portless` flag to auto-register each service as a portless alias:
+
+```bash
+emulate start --portless
+# github  https://github.emulate.localhost
+# google  https://google.emulate.localhost
+# ...
+```
+
+This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, emulate will prompt to install it.
+
+For a single service behind portless:
+
+```bash
+portless github.emulate emulate start --service github
+```
+
+For a custom base URL without portless (any reverse proxy):
+
+```bash
+emulate start --base-url "https://{service}.myproxy.test"
+# or
+EMULATE_BASE_URL="https://{service}.myproxy.test" emulate start
+```
+
+Per-service overrides in the seed config:
+
+```yaml
+github:
+  baseUrl: https://github.emulate.localhost
+google:
+  baseUrl: https://google.emulate.localhost
+```
 
 ## Pointing Your App at the Emulator
 

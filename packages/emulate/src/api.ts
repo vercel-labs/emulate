@@ -13,6 +13,7 @@ export interface EmulatorOptions {
   service: ServiceName;
   port?: number;
   seed?: SeedConfig;
+  baseUrl?: string;
 }
 
 export interface Emulator {
@@ -41,7 +42,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
-  const baseUrl = `http://localhost:${port}`;
+  const baseUrl = options.baseUrl ?? process.env.PORTLESS_URL ?? `http://localhost:${port}`;
 
   // eslint-disable-next-line prefer-const -- reassigned after closure captures it
   let cachedResolver: AppKeyResolver | undefined;

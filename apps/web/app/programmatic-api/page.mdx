@@ -71,6 +71,11 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
       <td>none</td>
       <td>Inline seed data (same shape as YAML config)</td>
     </tr>
+    <tr>
+      <td><code>baseUrl</code></td>
+      <td>none</td>
+      <td>Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Falls back to the <code>PORTLESS_URL</code> env var, then <code>{`http://localhost:<port>`}</code>.</td>
+    </tr>
   </tbody>
 </table>
 

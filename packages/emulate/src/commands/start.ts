@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
 import pc from "picocolors";
+import { ensurePortless, registerAliases, removeAliases, portlessBaseUrl, type PortlessAlias } from "../portless.js";
 
 declare const PKG_VERSION: string;
 const pkg = { version: PKG_VERSION };
@@ -13,6 +14,8 @@ export interface StartOptions {
   port: number;
   service?: string;
   seed?: string;
+  baseUrl?: string;
+  portless?: boolean;
 }
 
 interface SeedConfig {
@@ -73,8 +76,35 @@ function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
   return found.length > 0 ? [...found] : null;
 }
 
+function resolveBaseUrl(
+  service: string,
+  port: number,
+  svcSeedConfig: Record<string, unknown> | undefined,
+  cliBaseUrl: string | undefined,
+): string {
+  if (svcSeedConfig?.baseUrl && typeof svcSeedConfig.baseUrl === "string") {
+    return svcSeedConfig.baseUrl;
+  }
+  if (cliBaseUrl) {
+    return cliBaseUrl.replace(/\{service\}/g, service);
+  }
+  const envBaseUrl = process.env.EMULATE_BASE_URL;
+  if (envBaseUrl) {
+    return envBaseUrl.replace(/\{service\}/g, service);
+  }
+  if (process.env.PORTLESS_URL) {
+    return process.env.PORTLESS_URL;
+  }
+  return `http://localhost:${port}`;
+}
+
 export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
+
+  if (options.portless && options.baseUrl) {
+    console.error("--portless and --base-url are mutually exclusive.");
+    process.exit(1);
+  }
 
   const loaded = loadSeedConfig(options.seed);
   const seedConfig = loaded?.config ?? null;
@@ -106,9 +136,14 @@ export async function startCommand(options: StartOptions): Promise<void> {
     tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
+  if (options.portless) {
+    await ensurePortless();
+  }
+
   const serviceUrls: Array<{ name: string; url: string }> = [];
   const stores: Store[] = [];
   const httpServers: ReturnType<typeof serve>[] = [];
+  const portlessAliases: PortlessAlias[] = [];
 
   for (let i = 0; i < services.length; i++) {
     const svc = services[i];
@@ -117,7 +152,15 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const svcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
     const port = (svcSeedConfig?.port as number | undefined) ?? basePort + i;
-    const baseUrl = `http://localhost:${port}`;
+
+    let baseUrl: string;
+    if (options.portless) {
+      const aliasName = `${svc}.emulate`;
+      portlessAliases.push({ name: aliasName, port });
+      baseUrl = portlessBaseUrl(svc);
+    } else {
+      baseUrl = resolveBaseUrl(svc, port, svcSeedConfig, options.baseUrl);
+    }
     serviceUrls.push({ name: svc, url: baseUrl });
 
     // eslint-disable-next-line prefer-const -- reassigned after closure captures it
@@ -142,10 +185,17 @@ export async function startCommand(options: StartOptions): Promise<void> {
     httpServers.push(httpServer);
   }
 
+  if (portlessAliases.length > 0) {
+    registerAliases(portlessAliases);
+  }
+
   printBanner(serviceUrls, tokens, configSource);
 
   const shutdown = () => {
     console.log(`\n${pc.dim("Shutting down...")}`);
+    if (portlessAliases.length > 0) {
+      removeAliases(portlessAliases);
+    }
     for (const store of stores) {
       store.reset();
     }
