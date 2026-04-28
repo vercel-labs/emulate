@@ -1,0 +1,146 @@
+# Stripe Checkout your AI agent can actually run
+
+A Next.js app that completes a full Stripe Checkout purchase loop with no Stripe account, no API keys, and no webhook tunnel. The Stripe emulator is embedded in the same Next.js process via `@emulators/adapter-next`, so the pricing page, hosted Checkout, webhook delivery, and license fulfillment all happen inside `localhost:3000`.
+
+The point: an agent that writes Stripe code can also run it. End-to-end. In a sandbox. With zero credentials.
+
+Source: [examples/stripe-checkout](https://github.com/vercel-labs/emulate/tree/main/examples/stripe-checkout).
+
+## Why agents are blocked on real Stripe
+
+Today, an agent that generates a Checkout integration can't actually exercise it:
+
+- **API keys require a human at the dashboard.** Restricted keys, webhook secrets, and test-mode toggles are all gated behind clicks.
+- **Webhooks require a tunnel.** `stripe listen`, ngrok, or a Vercel preview that Stripe doesn't know about.
+- **Sharing a key with the agent leaks it.** Once it's in a transcript, an MCP server, or a sandbox image, it's everywhere.
+- **Real charges in CI cost money** and trip fraud rules.
+
+So the agent stops at "I wrote the code" and asks the human to run it. The loop never closes.
+
+## With emulate, the loop closes
+
+```ts
+const stripe = new Stripe("sk_test_emulated", {
+  host: "localhost", port: 3000, protocol: "http",
+});
+
+const session = await stripe.checkout.sessions.create({
+  mode: "payment",
+  line_items: [{ price: "price_lifetime", quantity: 1 }],
+  success_url: "http://localhost:3000/success",
+});
+
+await fetch(`${session.url}/complete`, { method: "POST" });
+
+const completed = await stripe.checkout.sessions.retrieve(session.id);
+// completed.status === "complete"
+// completed.payment_status === "paid"
+// /webhooks/stripe already fired and minted a license
+```
+
+`pnpm test` runs this in under 100 ms. No browser, no Stripe account, no internet, no secrets.
+
+## Pair with agent-browser for an end-to-end agent demo
+
+The headless test proves the API loop. To prove the user-facing loop, point [agent-browser](https://github.com/vercel-labs/agent-browser) at this app and let an agent click through the actual UI:
+
+```bash
+pnpm --filter stripe-checkout dev    # boots the app + embedded Stripe
+agent-browser navigate http://localhost:3000
+agent-browser click "Buy lifetime access"
+agent-browser click "Pay and Complete"
+agent-browser snapshot               # asserts /success rendered with a license key
+```
+
+No real Stripe account, no payment card, no webhook tunnel. The agent owns every box: the code it wrote, the Stripe it talks to, the browser it drives, and the assertions it makes.
+
+## stripe-mock vs emulate
+
+Stripe ships [`stripe-mock`](https://github.com/stripe/stripe-mock), a stateless server generated from the OpenAPI spec. It validates request shapes but cannot complete a flow.
+
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th>stripe-mock</th>
+      <th>emulate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>State</td>
+      <td>stateless</td>
+      <td>stateful</td>
+    </tr>
+    <tr>
+      <td>Hosted Checkout</td>
+      <td>not provided</td>
+      <td><code>/checkout/:id</code> renders and completes</td>
+    </tr>
+    <tr>
+      <td>Webhook delivery</td>
+      <td>not provided</td>
+      <td>dispatched on every state change</td>
+    </tr>
+    <tr>
+      <td>End-to-end flows</td>
+      <td>not possible</td>
+      <td>purchase to fulfillment</td>
+    </tr>
+  </tbody>
+</table>
+
+`stripe-mock` returns shapes. `emulate` runs flows. Agents need the second one.
+
+## Wiring the Stripe SDK to the embedded emulator
+
+The Stripe Node SDK accepts `host`, `port`, and `protocol` but no path prefix. The embedded emulator lives at `/emulate/stripe/*`, so a single rewrite in `next.config.ts` bridges the two:
+
+```ts
+async rewrites() {
+  return [{ source: "/v1/:path*", destination: "/emulate/stripe/v1/:path*" }];
+}
+```
+
+Then the SDK uses standard config:
+
+```ts
+import Stripe from "stripe";
+
+export const stripe = new Stripe("sk_test_emulated", {
+  host: "localhost",
+  port: Number(process.env.PORT ?? 3000),
+  protocol: "http",
+});
+```
+
+## Webhook delivery
+
+The catch-all route configures the embedded emulator to deliver every Stripe event to `/webhooks/stripe` on the same origin. Relative URLs are resolved against the running origin, so the same config works on localhost and Vercel preview deployments — no per-branch webhook reconfiguration.
+
+```ts
+// app/emulate/[...path]/route.ts
+import { createEmulateHandler } from "@emulators/adapter-next";
+import * as stripe from "@emulators/stripe";
+
+export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+  routePrefix: "/emulate",
+  services: {
+    stripe: {
+      emulator: stripe,
+      seed: {
+        products: [{ name: "Lifetime License" }],
+        prices: [{ product_name: "Lifetime License", currency: "usd", unit_amount: 2900 }],
+      },
+      webhooks: [{ url: "/webhooks/stripe", events: ["*"] }],
+    },
+  },
+});
+```
+
+The webhook dispatcher awaits delivery before issuing the post-payment redirect, so by the time the user lands on `/success`, the license has already been minted.
+
+## Caveats
+
+- **Webhook signatures.** The emulator currently signs deliveries with `X-Hub-Signature-256` (GitHub style), not Stripe's `Stripe-Signature` header. The example webhook handler `JSON.parse`s the body and includes a `// In production: stripe.webhooks.constructEvent(...)` comment for the swap.
+- **Subscriptions.** The Stripe emulator supports one-time payments today (`mode: "payment"`). The lifetime-license model fits naturally.

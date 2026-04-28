@@ -85,6 +85,29 @@ If you mount the catch-all at a custom path, pass the matching prefix:
 export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
 ```
 
+## Webhook Subscriptions
+
+Some services (Stripe, GitHub) emit webhook events. To deliver them to a route on the same origin, register the URL via the `webhooks` field. Relative URLs are resolved against the running origin, so the same config works on localhost and Vercel preview deployments.
+
+```typescript
+// app/emulate/[...path]/route.ts
+import { createEmulateHandler } from '@emulators/adapter-next'
+import * as stripe from '@emulators/stripe'
+
+export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+  services: {
+    stripe: {
+      emulator: stripe,
+      webhooks: [{ url: '/webhooks/stripe', events: ['*'] }],
+    },
+  },
+})
+```
+
+Webhook deliveries are awaited before the dispatching request returns, so by the time a redirect (e.g. from `/checkout/:id/complete` to your `success_url`) reaches the browser, the webhook handler has already run. No `stripe listen` or ngrok needed.
+
+See [Stripe Checkout](/examples/stripe-checkout) for an end-to-end example.
+
 ## Persistence
 
 By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter.

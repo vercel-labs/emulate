@@ -10,6 +10,7 @@ import {
   type StoreSnapshot,
   type PersistenceAdapter,
   type AppKeyResolver,
+  type WebhookDispatcher,
 } from "@emulators/core";
 
 export type { PersistenceAdapter } from "@emulators/core";
@@ -21,14 +22,28 @@ export interface EmulatorModule {
   createAppKeyResolver?(store: Store): AppKeyResolver;
 }
 
+export interface WebhookSubscriptionConfig {
+  url: string;
+  events?: string[];
+  secret?: string;
+}
+
 interface EmulatorEntry {
   emulator: EmulatorModule;
   seed?: Record<string, unknown>;
+  webhooks?: WebhookSubscriptionConfig[];
 }
 
 export interface EmulateHandlerConfig {
   services: Record<string, EmulatorEntry>;
   persistence?: PersistenceAdapter;
+  /**
+   * Mount path of the catch-all route, e.g. `/emulate` for `app/emulate/[...path]/route.ts`.
+   * When omitted, it is auto-detected from the request URL. Set this explicitly when
+   * rewrites are involved (e.g. mapping `/v1/*` to `/emulate/stripe/v1/*`), since
+   * rewritten requests do not expose the destination URL.
+   */
+  routePrefix?: string;
 }
 
 interface Fetchable {
@@ -40,6 +55,7 @@ interface ServiceApp {
   store: Store;
   tokenMap: TokenMap;
   plugin: ServicePlugin;
+  webhooks: WebhookDispatcher;
 }
 
 interface FullSnapshot {
@@ -109,7 +125,7 @@ function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapsh
   }
 }
 
-function detectPrefix(url: string, pathSegments: string[]): string {
+function detectPrefix(url: string, pathSegments: string[]): string | null {
   const parsed = new URL(url);
   const fullPath = parsed.pathname;
   const restPath = "/" + pathSegments.join("/");
@@ -117,7 +133,7 @@ function detectPrefix(url: string, pathSegments: string[]): string {
   if (idx > 0) {
     return fullPath.slice(0, idx);
   }
-  throw new Error(`Could not detect mount path from URL: ${url}`);
+  return null;
 }
 
 async function rewriteResponse(response: Response, servicePrefix: string): Promise<Response> {
@@ -165,7 +181,7 @@ async function rewriteResponse(response: Response, servicePrefix: string): Promi
 }
 
 export function createEmulateHandler(config: EmulateHandlerConfig) {
-  const { services: serviceEntries, persistence } = config;
+  const { services: serviceEntries, persistence, routePrefix } = config;
 
   let apps: Map<string, ServiceApp> | null = null;
   let mountPath: string | null = null;
@@ -195,7 +211,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       const baseUrl = `${origin}${servicePrefix}`;
 
       let appKeyResolver: AppKeyResolver | undefined;
-      const { app, store, tokenMap } = createServer(plugin, {
+      const { app, store, tokenMap, webhooks } = createServer(plugin, {
         baseUrl,
         appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
       });
@@ -204,7 +220,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
         appKeyResolver = entry.emulator.createAppKeyResolver(store);
       }
 
-      serviceApps.set(name, { hono: app, store, tokenMap, plugin });
+      serviceApps.set(name, { hono: app, store, tokenMap, plugin, webhooks });
     }
 
     let restored = false;
@@ -236,6 +252,24 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       }
     }
 
+    // Register webhook subscriptions on every cold start. These point at the
+    // running server's URLs and are not persisted, since the deployment URL
+    // can change across cold starts.
+    for (const [name, entry] of Object.entries(serviceEntries)) {
+      if (!entry.webhooks?.length) continue;
+      const sa = serviceApps.get(name)!;
+      for (const w of entry.webhooks) {
+        const url = w.url.startsWith("/") ? `${origin}${w.url}` : w.url;
+        sa.webhooks.register({
+          url,
+          events: w.events ?? ["*"],
+          active: true,
+          secret: w.secret,
+          owner: name,
+        });
+      }
+    }
+
     return serviceApps;
   }
 
@@ -244,7 +278,14 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
     if (!initPromise) {
       const url = new URL(req.url);
       const origin = url.origin;
-      mountPath = detectPrefix(req.url, pathSegments);
+      const detected = routePrefix ?? detectPrefix(req.url, pathSegments);
+      if (!detected) {
+        throw new Error(
+          `Could not detect mount path from URL: ${req.url}. ` +
+            `Set \`routePrefix\` on createEmulateHandler when using rewrites.`,
+        );
+      }
+      mountPath = detected;
       initPromise = initApps(origin, mountPath).then((result) => {
         apps = result;
       });

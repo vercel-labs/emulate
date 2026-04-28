@@ -36,6 +36,10 @@ const sections: NavSection[] = [
     ],
   },
   {
+    title: "Examples",
+    items: [{ href: "/examples/stripe-checkout", label: "Stripe Checkout" }],
+  },
+  {
     title: "Reference",
     items: [
       { href: "/authentication", label: "Authentication" },

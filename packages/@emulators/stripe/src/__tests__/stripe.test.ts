@@ -359,6 +359,26 @@ describe("Stripe plugin", () => {
       const body = (await res.json()) as { data: Array<{ status: string }> };
       expect(body.data.every((s) => s.status === "open")).toBe(true);
     });
+
+    it("substitutes {CHECKOUT_SESSION_ID} in success_url on completion", async () => {
+      const createRes = await app.request(`${base}/v1/checkout/sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({
+          mode: "payment",
+          success_url: "https://example.com/success?session_id={CHECKOUT_SESSION_ID}&foo=bar",
+        }),
+      });
+      const session = (await createRes.json()) as { id: string };
+
+      const completeRes = await app.request(`/checkout/${session.id}/complete`, {
+        method: "POST",
+      });
+      expect(completeRes.status).toBe(302);
+      expect(completeRes.headers.get("location")).toBe(
+        `https://example.com/success?session_id=${session.id}&foo=bar`,
+      );
+    });
   });
 
   describe("customer sessions", () => {

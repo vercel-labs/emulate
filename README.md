@@ -757,6 +757,15 @@ persistence: filePersistence('.emulate/state.json'),
 
 The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
 
+## Examples
+
+End-to-end example apps that show real integrations against the emulators:
+
+- [`examples/stripe-checkout`](examples/stripe-checkout) — Stripe Checkout your AI agent can actually run. Next.js app with an embedded Stripe emulator that completes a full purchase loop with no Stripe account, no API keys, and no webhook tunnel. Includes a sub-100 ms headless E2E test, and pairs with [agent-browser](https://github.com/vercel-labs/agent-browser) for end-to-end UI assertions.
+- [`examples/resend-magic-link`](examples/resend-magic-link) — Magic-link sign-in using the Resend SDK pointed at the local emulator inbox.
+- [`examples/nextjs-embedded`](examples/nextjs-embedded) — Auth.js / NextAuth with embedded GitHub and Google emulators.
+- [`examples/oauth`](examples/oauth) — OAuth flows against standalone emulator processes.
+
 ## Architecture
 
 ```

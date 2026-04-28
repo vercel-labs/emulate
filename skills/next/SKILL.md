@@ -157,6 +157,28 @@ Each `EmulatorEntry`:
 |-------|------|-------------|
 | `emulator` | `EmulatorModule` | The emulator package (e.g. `import * as github from '@emulators/github'`) |
 | `seed?` | `Record<string, unknown>` | Seed data matching the service's config schema |
+| `webhooks?` | `Array<{ url: string; events?: string[]; secret?: string }>` | Webhook subscriptions to register on every cold start. Relative URLs (e.g. `/webhooks/stripe`) are resolved against the running origin so the same config works on localhost and Vercel preview deployments. |
+
+## Webhook Subscriptions
+
+Some services (Stripe, GitHub, etc.) emit webhook events. To deliver them to your own routes on the same origin, register the URL via the `webhooks` field. This is the recommended way to receive events in embedded mode, no `stripe listen` or ngrok needed.
+
+```typescript
+// app/emulate/[...path]/route.ts
+import { createEmulateHandler } from '@emulators/adapter-next'
+import * as stripe from '@emulators/stripe'
+
+export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+  services: {
+    stripe: {
+      emulator: stripe,
+      webhooks: [{ url: '/webhooks/stripe', events: ['*'] }],
+    },
+  },
+})
+```
+
+Webhook deliveries are awaited before the dispatching request returns, so by the time a redirect (e.g. from `/checkout/:id/complete` to your `success_url`) reaches the browser, the webhook handler has already run.
 
 ### `withEmulate(nextConfig, options?)`
 

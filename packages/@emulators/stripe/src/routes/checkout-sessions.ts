@@ -216,7 +216,11 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
           </span>
         </button>
       </form>
-      ${session.cancel_url ? `<p class="info-text"><a href="${escapeAttr(session.cancel_url)}" class="btn-revoke">Cancel</a></p>` : ""}
+      ${
+        session.cancel_url
+          ? `<p class="info-text"><a href="${escapeAttr(session.cancel_url.replace(/\{CHECKOUT_SESSION_ID\}/g, session.stripe_id))}" class="btn-revoke">Cancel</a></p>`
+          : ""
+      }
     `;
 
     return c.html(
@@ -240,7 +244,11 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
     );
 
     if (session.success_url) {
-      return c.redirect(session.success_url);
+      // Stripe substitutes the `{CHECKOUT_SESSION_ID}` template variable in
+      // success_url and cancel_url with the real session id at redirect time.
+      // See https://docs.stripe.com/api/checkout/sessions/create#create_checkout_session-success_url
+      const target = session.success_url.replace(/\{CHECKOUT_SESSION_ID\}/g, session.stripe_id);
+      return c.redirect(target);
     }
 
     return c.html(
