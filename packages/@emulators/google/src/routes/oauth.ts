@@ -76,6 +76,7 @@ async function createIdToken(
     family_name: user.family_name,
     picture: user.picture,
     locale: user.locale,
+    ...(user.hd ? { hd: user.hd } : {}),
     ...(nonce ? { nonce } : {}),
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -105,7 +106,17 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       id_token_signing_alg_values_supported: ["HS256"],
       scopes_supported: ["openid", "email", "profile"],
       token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
-      claims_supported: ["sub", "email", "email_verified", "name", "given_name", "family_name", "picture", "locale"],
+      claims_supported: [
+        "sub",
+        "email",
+        "email_verified",
+        "name",
+        "given_name",
+        "family_name",
+        "picture",
+        "locale",
+        "hd",
+      ],
       code_challenge_methods_supported: ["plain", "S256"],
     });
   });
@@ -377,6 +388,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       family_name: user.family_name,
       picture: user.picture,
       locale: user.locale,
+      ...(user.hd ? { hd: user.hd } : {}),
     });
   });
 
