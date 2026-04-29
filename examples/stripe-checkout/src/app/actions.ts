@@ -1,7 +1,6 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { stripe } from "@/lib/stripe";
 import { getCart, setCart, type CartItem } from "@/lib/cart";
 
@@ -19,27 +18,33 @@ export async function addToCartAction(formData: FormData) {
     items.push({ priceId, productName, unitAmount, currency, quantity: 1 });
   }
   await setCart(items);
-  revalidatePath("/");
 }
 
 export async function updateQuantityAction(formData: FormData) {
   const priceId = formData.get("priceId") as string;
   const delta = parseInt(formData.get("delta") as string, 10);
 
-  const items = await getCart();
+  let items = await getCart();
   const item = items.find((i) => i.priceId === priceId);
   if (item) {
-    item.quantity = Math.max(1, item.quantity + delta);
+    const next = item.quantity + delta;
+    if (next <= 0) {
+      items = items.filter((i) => i.priceId !== priceId);
+    } else {
+      item.quantity = next;
+    }
   }
   await setCart(items);
-  revalidatePath("/cart");
 }
 
 export async function removeFromCartAction(formData: FormData) {
   const priceId = formData.get("priceId") as string;
   const items = await getCart();
   await setCart(items.filter((i) => i.priceId !== priceId));
-  revalidatePath("/cart");
+}
+
+export async function clearCartAction() {
+  await setCart([]);
 }
 
 export async function createCheckoutSession(): Promise<void> {
@@ -79,6 +84,5 @@ export async function createCheckoutSession(): Promise<void> {
     redirect("/cart");
   }
 
-  await setCart([]);
   redirect(session.url);
 }

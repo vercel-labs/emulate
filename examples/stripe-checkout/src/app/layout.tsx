@@ -1,17 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { GeistPixelSquare } from "geist/font/pixel";
 import { CartButton } from "@/components/cart-button";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Stripe Checkout with emulate",
@@ -24,17 +15,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        <header className="border-b">
-          <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-            <a href="/" className="text-base font-semibold tracking-tight">
-              Emulate Store
+    <html lang="en" className={`${GeistMono.variable} ${GeistPixelSquare.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col bg-background text-foreground font-mono">
+        <header className="sticky top-0 z-50 border-b border-border/50 bg-background/90 backdrop-blur-xl">
+          <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6">
+            <a href="/" className="font-pixel text-xl tracking-wide">
+              emu store
             </a>
             <CartButton />
           </div>
         </header>
         <main className="flex-1">{children}</main>
+        <footer className="border-t border-border/50 py-10">
+          <div className="mx-auto max-w-[1200px] px-6 text-center text-xs tracking-widest uppercase text-muted-foreground">
+            Powered by the emulated Stripe API
+          </div>
+        </footer>
       </body>
     </html>
   );

@@ -7,16 +7,16 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
       emulator: stripe,
       seed: {
         products: [
-          { id: "prod_tshirt", name: "Emulate T-Shirt", description: "A comfortable tee for local development" },
-          { id: "prod_mug", name: "Emulate Mug", description: "Fuel your coding sessions" },
-          { id: "prod_stickers", name: "Emulate Sticker Pack", description: "Decorate your laptop" },
           { id: "prod_hoodie", name: "Emulate Hoodie", description: "Stay warm while shipping" },
+          { id: "prod_stickers", name: "Emulate Sticker Pack", description: "Decorate your laptop" },
+          { id: "prod_mug", name: "Emulate Mug", description: "Fuel your coding sessions" },
+          { id: "prod_tshirt", name: "Emulate T-Shirt", description: "A comfortable tee for local development" },
         ],
         prices: [
-          { id: "price_tshirt", product_name: "Emulate T-Shirt", currency: "usd", unit_amount: 2500 },
-          { id: "price_mug", product_name: "Emulate Mug", currency: "usd", unit_amount: 1500 },
-          { id: "price_stickers", product_name: "Emulate Sticker Pack", currency: "usd", unit_amount: 800 },
           { id: "price_hoodie", product_name: "Emulate Hoodie", currency: "usd", unit_amount: 5000 },
+          { id: "price_stickers", product_name: "Emulate Sticker Pack", currency: "usd", unit_amount: 800 },
+          { id: "price_mug", product_name: "Emulate Mug", currency: "usd", unit_amount: 1500 },
+          { id: "price_tshirt", product_name: "Emulate T-Shirt", currency: "usd", unit_amount: 2500 },
         ],
         webhooks: [
           {

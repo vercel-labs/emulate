@@ -1,12 +1,10 @@
 export const dynamic = "force-dynamic";
 
+import Image from "next/image";
+import Link from "next/link";
 import { stripe } from "@/lib/stripe";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { productImages, formatCurrency } from "@/lib/products";
 import { AddToCart } from "@/components/add-to-cart";
-
-function formatCurrency(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
-}
 
 export default async function CatalogPage() {
   const [products, prices] = await Promise.all([
@@ -22,43 +20,51 @@ export default async function CatalogPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Products</h1>
-        <p className="mt-2 text-muted-foreground">Browse items from the emulated Stripe catalog</p>
+    <div className="mx-auto max-w-[1200px] px-6 py-20">
+      <div className="mb-16 text-center">
+        <p className="text-[10px] tracking-[0.3em] uppercase text-muted-foreground mb-4">New Arrivals</p>
+        <h1 className="font-pixel text-3xl md:text-4xl">The Collection</h1>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-12 max-w-[800px] mx-auto">
         {products.data.map((product) => {
           const price = pricesByProduct.get(product.id);
+          const imageSrc = productImages[product.name];
+
           return (
-            <Card key={product.id} className="flex flex-col justify-between">
-              <div>
-                <CardHeader>
-                  <CardTitle>{product.name}</CardTitle>
-                  {product.description && <CardDescription>{product.description}</CardDescription>}
-                </CardHeader>
-                <CardContent>
-                  {price ? (
-                    <span className="text-2xl font-bold">
-                      {formatCurrency(price.unit_amount ?? 0, price.currency)}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">No price</span>
+            <div key={product.id} className="group flex flex-col">
+              <Link href={`/products/${product.id}`} className="block">
+                <div className="relative aspect-square overflow-hidden bg-secondary border border-border">
+                  {imageSrc && (
+                    <Image
+                      src={imageSrc}
+                      alt={product.name}
+                      fill
+                      className="object-cover transition-all duration-700 ease-out group-hover:scale-[1.03]"
+                      sizes="(min-width: 768px) 400px, 50vw"
+                    />
                   )}
-                </CardContent>
+                </div>
+              </Link>
+              <div className="pt-4">
+                <Link href={`/products/${product.id}`}>
+                  <p className="text-xs tracking-wide uppercase">{product.name}</p>
+                </Link>
+                <p className="mt-1.5 font-mono text-xs tabular-nums text-muted-foreground">
+                  {price ? formatCurrency(price.unit_amount ?? 0, price.currency) : "N/A"}
+                </p>
+                <div className="mt-3">
+                  {price && (
+                    <AddToCart
+                      priceId={price.id}
+                      productName={product.name}
+                      unitAmount={price.unit_amount ?? 0}
+                      currency={price.currency}
+                    />
+                  )}
+                </div>
               </div>
-              {price && (
-                <CardFooter>
-                  <AddToCart
-                    priceId={price.id}
-                    productName={product.name}
-                    unitAmount={price.unit_amount ?? 0}
-                    currency={price.currency}
-                  />
-                </CardFooter>
-              )}
-            </Card>
+            </div>
           );
         })}
       </div>

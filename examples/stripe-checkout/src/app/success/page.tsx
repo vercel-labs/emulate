@@ -1,15 +1,18 @@
 export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
-import { CheckCircle } from "lucide-react";
 import { stripe } from "@/lib/stripe";
 import { getOrder } from "@/lib/orders";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button-variants";
-import { cn } from "@/lib/utils";
+import { formatCurrency } from "@/lib/products";
+import { ClearCart } from "./clear-cart";
 
-function formatCurrency(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount / 100);
+function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex justify-between py-3 text-xs">
+      <span className="tracking-[0.15em] uppercase text-muted-foreground">{label}</span>
+      <span className={mono ? "font-mono text-[11px]" : ""}>{value}</span>
+    </div>
+  );
 }
 
 export default async function SuccessPage({ searchParams }: { searchParams: Promise<{ session_id?: string }> }) {
@@ -28,71 +31,43 @@ export default async function SuccessPage({ searchParams }: { searchParams: Prom
   }
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-16">
-      <Card>
-        <CardHeader className="items-center text-center">
-          <CheckCircle className="mb-2 size-12 text-green-600" />
-          <CardTitle className="text-2xl">Payment successful</CardTitle>
-          <CardDescription>Your order has been confirmed</CardDescription>
-        </CardHeader>
+    <div className="mx-auto max-w-[480px] px-6 py-32">
+      <ClearCart />
+      <div className="text-center">
+        <p className="text-[10px] tracking-[0.3em] uppercase text-muted-foreground mb-4">Order Confirmed</p>
+        <h1 className="font-pixel text-2xl">Thank You</h1>
+        <p className="mt-4 text-sm text-muted-foreground">Your order has been placed successfully</p>
+      </div>
 
-        <CardContent className="space-y-3">
-          {customer && (
-            <>
-              {customer.name && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Customer</span>
-                  <span className="font-medium">{customer.name}</span>
-                </div>
-              )}
-              {customer.email && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Email</span>
-                  <span>{customer.email}</span>
-                </div>
-              )}
-            </>
-          )}
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Session</span>
-            <span className="font-mono text-xs">{session.id}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Status</span>
-            <span className="font-medium capitalize">{session.payment_status}</span>
-          </div>
-          {order?.completedAt && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Confirmed at</span>
-              <span>{new Date(order.completedAt).toLocaleTimeString()}</span>
-            </div>
-          )}
-          {order?.paymentIntentId && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Payment Intent</span>
-              <span className="font-mono text-xs">{order.paymentIntentId}</span>
-            </div>
-          )}
-          {order?.chargeId && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Charge</span>
-              <span className="font-mono text-xs">{order.chargeId}</span>
-            </div>
-          )}
-          {session.amount_total != null && (
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Total</span>
-              <span className="font-bold">{formatCurrency(session.amount_total, session.currency ?? "usd")}</span>
-            </div>
-          )}
-        </CardContent>
+      <div className="mt-12 divide-y divide-border border-y border-border">
+        {customer?.name && <Row label="Customer" value={customer.name} />}
+        {customer?.email && <Row label="Email" value={customer.email} />}
+        <Row label="Session" value={session.id} mono />
+        <Row label="Status" value={session.payment_status ?? "unknown"} />
+        {order?.completedAt && (
+          <Row label="Confirmed" value={new Date(order.completedAt).toLocaleTimeString()} />
+        )}
+        {order?.paymentIntentId && <Row label="Payment Intent" value={order.paymentIntentId} mono />}
+        {order?.chargeId && <Row label="Charge" value={order.chargeId} mono />}
+      </div>
 
-        <CardFooter className="justify-center">
-          <a href="/" className={cn(buttonVariants({ variant: "outline", size: "lg" }))}>
-            Continue shopping
-          </a>
-        </CardFooter>
-      </Card>
+      {session.amount_total != null && (
+        <div className="flex items-center justify-between border-b border-border py-4">
+          <span className="text-[10px] tracking-[0.3em] uppercase font-medium">Total</span>
+          <span className="font-mono text-sm tabular-nums">
+            {formatCurrency(session.amount_total, session.currency ?? "usd")}
+          </span>
+        </div>
+      )}
+
+      <div className="mt-10 text-center">
+        <a
+          href="/"
+          className="inline-flex h-10 items-center border border-foreground px-8 text-[10px] tracking-[0.2em] uppercase font-medium transition-colors hover:bg-foreground hover:text-background"
+        >
+          Continue Shopping
+        </a>
+      </div>
     </div>
   );
 }
