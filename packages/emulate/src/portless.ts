@@ -54,14 +54,20 @@ export interface PortlessAlias {
 }
 
 export function registerAliases(aliases: PortlessAlias[]): void {
+  const registered: PortlessAlias[] = [];
   for (const { name, port } of aliases) {
     const result = spawnSync("portless", ["alias", name, String(port), "--force"], {
       stdio: "inherit",
     });
     if (result.status !== 0) {
       console.error(`Failed to register portless alias: ${name} -> ${port}`);
+      if (registered.length > 0) {
+        console.error("Cleaning up previously registered aliases...");
+        removeAliases(registered);
+      }
       process.exit(1);
     }
+    registered.push({ name, port });
   }
 }
 
