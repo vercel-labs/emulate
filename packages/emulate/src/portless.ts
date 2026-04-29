@@ -22,7 +22,7 @@ function promptYesNo(question: string): Promise<boolean> {
 }
 
 function isProxyRunning(): boolean {
-  const result = spawnSync("portless", ["proxy", "status"], { stdio: "ignore" });
+  const result = spawnSync("portless", ["list"], { stdio: "ignore" });
   return result.status === 0;
 }
 
