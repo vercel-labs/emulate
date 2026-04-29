@@ -4,10 +4,6 @@ import { GeistPixelSquare } from "geist/font/pixel";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Search } from "@/components/search";
-import { DocsChat } from "@/components/docs-chat";
-import { DocsMobileNav } from "@/components/docs-mobile-nav";
-import { DocsNav } from "@/components/docs-nav";
-import { cookies } from "next/headers";
 import { getStarCount } from "@/lib/github";
 import "./globals.css";
 
@@ -78,6 +74,12 @@ function Header({ stars }: { stars?: string }) {
         </div>
         <nav className="flex items-center gap-4">
           <Search />
+          <Link
+            href="/docs"
+            className="text-sm text-neutral-500 hover:text-neutral-900 transition-colors dark:text-neutral-400 dark:hover:text-neutral-100"
+          >
+            Docs
+          </Link>
           <a
             href="https://github.com/vercel-labs/emulate"
             target="_blank"
@@ -105,27 +107,14 @@ function Header({ stars }: { stars?: string }) {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const [cookieStore, stars] = await Promise.all([cookies(), getStarCount()]);
-  const chatOpen = cookieStore.get("docs-chat-open")?.value === "true";
-  const chatWidth = Number(cookieStore.get("docs-chat-width")?.value) || 400;
+  const stars = await getStarCount();
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {chatOpen && (
-          <style
-            dangerouslySetInnerHTML={{
-              __html: `@media(min-width:640px){body{padding-right:${chatWidth}px}}`,
-            }}
-          />
-        )}
-      </head>
       <body className="bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100">
         <ThemeProvider>
           <Header stars={stars} />
-          <DocsMobileNav />
-          <DocsNav>{children}</DocsNav>
-          <DocsChat defaultOpen={chatOpen} defaultWidth={chatWidth} />
+          {children}
         </ThemeProvider>
       </body>
     </html>
