@@ -3,7 +3,6 @@ import { GeistPixelSquare } from "geist/font/pixel";
 import { HeroTerminal } from "@/components/hero-terminal";
 
 export default function LandingPage() {
-
   return (
     <div className="relative">
       {/* Hero */}
@@ -12,8 +11,8 @@ export default function LandingPage() {
           Local API emulation for dev and CI
         </h1>
         <p className="mb-8 max-w-xl text-base text-neutral-600 dark:text-neutral-400">
-          Stateful, production-fidelity replacements for Stripe, GitHub, Google,
-          AWS, and 7 more services. No API keys. No network. Not mocks.
+          Stateful, production-fidelity replacements for Stripe, GitHub, Google, AWS, and 7 more services. No API keys.
+          No network. Not mocks.
         </p>
 
         <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -43,38 +42,34 @@ export default function LandingPage() {
       {/* What you get */}
       <section className="border-t border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto max-w-3xl px-6 py-16 sm:py-20">
-          <h2 className="mb-6 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            What this gives you
-          </h2>
+          <h2 className="mb-6 text-lg font-semibold text-neutral-900 dark:text-neutral-100">What this gives you</h2>
           <div className="grid gap-x-12 gap-y-6 sm:grid-cols-2">
             <div>
               <h3 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Stateful</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                Create a GitHub repo, push commits, open a PR. Send an email
-                through Resend. Charge a card on Stripe. State persists across
-                requests.
+                Create a GitHub repo, push commits, open a PR. Send an email through Resend. Charge a card on Stripe.
+                State persists across requests.
               </p>
             </div>
             <div>
               <h3 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Real protocols</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                OAuth flows with RS256 ID tokens. AWS XML responses. Slack
-                cursor pagination. Your SDK works without changes.
+                OAuth flows with RS256 ID tokens. AWS XML responses. Slack cursor pagination. Your SDK works without
+                changes.
               </p>
             </div>
             <div>
               <h3 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Zero config</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                Run <code className="rounded bg-neutral-100 px-1 py-0.5 text-xs dark:bg-neutral-800">npx emulate</code> and
-                all 11 services start with sensible defaults. Seed data via YAML
-                when you need it.
+                Run <code className="rounded bg-neutral-100 px-1 py-0.5 text-xs dark:bg-neutral-800">npx emulate</code>{" "}
+                and all 11 services start with sensible defaults. Seed data via YAML when you need it.
               </p>
             </div>
             <div>
               <h3 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Offline and CI-ready</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                No network, no Docker, no flaky sandbox accounts. Same
-                deterministic behavior in GitHub Actions as on your laptop.
+                No network, no Docker, no flaky sandbox accounts. Same deterministic behavior in GitHub Actions as on
+                your laptop.
               </p>
             </div>
           </div>
@@ -129,9 +124,7 @@ stripe.config.host = `}</span>
       {/* Usage modes */}
       <section className="border-t border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto max-w-3xl px-6 py-16 sm:py-20">
-          <h2 className="mb-6 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Use it your way
-          </h2>
+          <h2 className="mb-6 text-lg font-semibold text-neutral-900 dark:text-neutral-100">Use it your way</h2>
           <div className="space-y-4">
             <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
               <div className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">CLI</div>
@@ -160,8 +153,7 @@ afterAll(() => github.close())`}</code>
             <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
               <div className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Next.js adapter</div>
               <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">
-                Embed in your app. Same origin, no CORS issues, works on Vercel
-                preview deployments.
+                Embed in your app. Same origin, no CORS issues, works on Vercel preview deployments.
               </p>
               <div className="overflow-x-auto rounded-md bg-neutral-100 px-3 py-2 font-mono text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
                 npm install @emulators/adapter-next @emulators/github
@@ -175,7 +167,10 @@ afterAll(() => github.close())`}</code>
       <footer className="border-t border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-6">
           <div className="flex items-center gap-2 text-sm text-neutral-500">
-            <Link href="https://vercel.com" className="hover:text-neutral-900 dark:hover:text-neutral-300 transition-colors">
+            <Link
+              href="https://vercel.com"
+              className="hover:text-neutral-900 dark:hover:text-neutral-300 transition-colors"
+            >
               <svg height="14" strokeLinejoin="round" viewBox="0 0 16 16" width="14" style={{ color: "currentcolor" }}>
                 <path fillRule="evenodd" clipRule="evenodd" d="M8 1L16 15H0L8 1Z" fill="currentColor" />
               </svg>

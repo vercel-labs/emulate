@@ -28,9 +28,7 @@ export function HeroTerminal({ pixelFont }: { pixelFont: string }) {
           <span className="h-2.5 w-2.5 rounded-full bg-neutral-700" />
         </div>
         <div className="flex items-center gap-2 px-2 py-1 text-[11px] text-neutral-500">
-          <span className={portless ? "text-emerald-400" : ""}>
-            {portless ? "HTTPS" : "HTTP"}
-          </span>
+          <span className={portless ? "text-emerald-400" : ""}>{portless ? "HTTPS" : "HTTP"}</span>
           <button
             onClick={() => setPortless((p) => !p)}
             className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
@@ -57,9 +55,7 @@ export function HeroTerminal({ pixelFont }: { pixelFont: string }) {
       <pre className="overflow-x-auto p-5 text-[13px] leading-relaxed text-neutral-400 font-mono">
         <code>
           <span className="text-neutral-500">$</span>{" "}
-          <span className="text-neutral-200">
-            npx emulate{portless ? " --portless" : ""}
-          </span>
+          <span className="text-neutral-200">npx emulate{portless ? " --portless" : ""}</span>
           {"\n\n"}
           <span className={`${pixelFont} text-neutral-200`}>emulate</span>
           {" v0.4.1\n\n"}
@@ -68,9 +64,7 @@ export function HeroTerminal({ pixelFont }: { pixelFont: string }) {
               {"  "}
               <span className="text-neutral-500">{s.name.padEnd(14)}</span>
               <span className="text-emerald-400">
-                {portless
-                  ? `https://${s.slug}.emulate.localhost`
-                  : `http://localhost:${s.port}`}
+                {portless ? `https://${s.slug}.emulate.localhost` : `http://localhost:${s.port}`}
               </span>
               {"\n"}
             </span>
