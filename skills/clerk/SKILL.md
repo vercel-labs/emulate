@@ -303,7 +303,7 @@ curl -X POST $BASE/v1/organizations/<orgId>/invitations \
 curl -X POST $BASE/v1/organizations/<orgId>/invitations/bulk \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '[{"email_address": "a@example.com", "role": "org:member"}, {"email_address": "b@example.com", "role": "org:admin"}]'
+  -d '{"email_addresses": ["a@example.com", "b@example.com"], "role": "org:member"}'
 
 # Revoke invitation
 curl -X POST $BASE/v1/organizations/<orgId>/invitations/<invitationId>/revoke \
