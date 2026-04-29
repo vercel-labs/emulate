@@ -26,25 +26,25 @@ All services start with sensible defaults. No config file needed:
 
 ```bash
 # Start all services (zero-config)
-emulate
+npx emulate
 
 # Start specific services
-emulate --service vercel,github
+npx emulate --service vercel,github
 
 # Custom port
-emulate --port 3000
+npx emulate --port 3000
 
 # Use a seed config file
-emulate --seed config.yaml
+npx emulate --seed config.yaml
 
 # Generate a starter config
-emulate init
+npx emulate init
 
 # Generate config for a specific service
-emulate init --service github
+npx emulate init --service github
 
 # List available services
-emulate list
+npx emulate list
 ```
 
 ## Options

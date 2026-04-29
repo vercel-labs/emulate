@@ -30,25 +30,25 @@ All services start with sensible defaults:
 
 ```bash
 # Start all services (zero-config)
-emulate
+npx emulate
 
 # Start specific services
-emulate --service vercel,github
+npx emulate --service vercel,github
 
 # Custom base port (auto-increments per service)
-emulate --port 3000
+npx emulate --port 3000
 
 # Use a seed config file
-emulate --seed config.yaml
+npx emulate --seed config.yaml
 
 # Generate a starter config
-emulate init
+npx emulate init
 
 # Generate config for a specific service
-emulate init --service vercel
+npx emulate init --service vercel
 
 # List available services
-emulate list
+npx emulate list
 ```
 
 ### Options
@@ -133,7 +133,7 @@ Configuration is optional. The CLI auto-detects config files in this order:
 3. `service-emulator.config.yaml` / `.yml`
 4. `service-emulator.config.json`
 
-Or pass `--seed <file>` explicitly. Run `emulate init` to generate a starter file.
+Or pass `--seed <file>` explicitly. Run `npx emulate init` to generate a starter file.
 
 ### Config Structure
 
@@ -261,7 +261,7 @@ Each service also has a fallback user. If no token is provided, requests authent
 [portless](https://github.com/vercel-labs/portless) gives emulators trusted HTTPS URLs with auto-generated certs. Use the `--portless` flag to auto-register each service as a portless alias:
 
 ```bash
-emulate start --portless
+npx emulate start --portless
 # github  https://github.emulate.localhost
 # google  https://google.emulate.localhost
 # ...
@@ -280,9 +280,9 @@ portless github.emulate emulate start --service github
 For a custom base URL without portless (any reverse proxy):
 
 ```bash
-emulate start --base-url "https://{service}.myproxy.test"
+npx emulate start --base-url "https://{service}.myproxy.test"
 # or
-EMULATE_BASE_URL="https://{service}.myproxy.test" emulate start
+EMULATE_BASE_URL="https://{service}.myproxy.test" npx emulate start
 ```
 
 The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`), typically to a value like `https://{service}.emulate.localhost`. It supports `{service}` interpolation, just like `--base-url` and `EMULATE_BASE_URL`. When no explicit `baseUrl` is provided, it is used as a fallback.

@@ -22,25 +22,25 @@ All services start with sensible defaults. No config file needed:
 
 ```bash
 # Start all services (zero-config)
-emulate
+npx emulate
 
 # Start specific services
-emulate --service vercel,github
+npx emulate --service vercel,github
 
 # Custom port
-emulate --port 3000
+npx emulate --port 3000
 
 # Use a seed config file
-emulate --seed config.yaml
+npx emulate --seed config.yaml
 
 # Generate a starter config
-emulate init
+npx emulate init
 
 # Generate config for a specific service
-emulate init --service vercel
+npx emulate init --service vercel
 
 # List available services
-emulate list
+npx emulate list
 ```
 
 ### Options
@@ -64,7 +64,7 @@ The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 portless proxy start
 
 # Start emulate with portless integration
-emulate start --portless
+npx emulate start --portless
 ```
 
 Each service registers as a portless alias and gets a named HTTPS URL:
@@ -82,7 +82,7 @@ The `--portless` flag overwrites any existing portless aliases matching `*.emula
 For a custom base URL without portless (any reverse proxy), use `--base-url` or the `EMULATE_BASE_URL` env var:
 
 ```bash
-emulate start --base-url "https://{service}.myproxy.test"
+npx emulate start --base-url "https://{service}.myproxy.test"
 ```
 
 The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`), typically to a value like `https://{service}.emulate.localhost`. It supports `{service}` interpolation, just like `--base-url` and `EMULATE_BASE_URL`. When no explicit `baseUrl` is provided, it is used as a fallback.
@@ -156,7 +156,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 ## Configuration
 
-Configuration is optional. The CLI auto-detects config files in this order: `emulate.config.yaml` / `.yml`, `emulate.config.json`, `service-emulator.config.yaml` / `.yml`, `service-emulator.config.json`. Or pass `--seed <file>` explicitly. Run `emulate init` to generate a starter file.
+Configuration is optional. The CLI auto-detects config files in this order: `emulate.config.yaml` / `.yml`, `emulate.config.json`, `service-emulator.config.yaml` / `.yml`, `service-emulator.config.json`. Or pass `--seed <file>` explicitly. Run `npx emulate init` to generate a starter file.
 
 ```yaml
 tokens:

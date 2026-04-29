@@ -35,5 +35,5 @@ export function initCommand(options: InitOptions): void {
   writeFileSync(fullPath, content, "utf-8");
 
   console.log(`Created ${filename}`);
-  console.log(`\nRun 'emulate' to start the emulator.`);
+  console.log(`\nRun 'npx emulate' to start the emulator.`);
 }
