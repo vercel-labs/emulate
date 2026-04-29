@@ -56,13 +56,13 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
 
   const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-  const { app, store } = createServer(loaded.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
+  const { app, store, webhooks } = createServer(loaded.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
   cachedResolver = loaded.createAppKeyResolver?.(store);
 
   const seed = () => {
     loaded.plugin.seed?.(store, baseUrl);
     if (svcSeedConfig && loaded.seedFromConfig) {
-      loaded.seedFromConfig(store, baseUrl, svcSeedConfig);
+      loaded.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
     }
   };
   seed();

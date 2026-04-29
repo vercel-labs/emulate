@@ -1,8 +1,8 @@
-import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@emulators/core";
+import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
 
 export interface LoadedService {
   plugin: ServicePlugin;
-  seedFromConfig?(store: Store, baseUrl: string, config: unknown): void;
+  seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
 }
 

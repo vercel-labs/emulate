@@ -240,7 +240,8 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
     );
 
     if (session.success_url) {
-      return c.redirect(session.success_url);
+      const url = session.success_url.replace("{CHECKOUT_SESSION_ID}", updated.stripe_id);
+      return c.redirect(url);
     }
 
     return c.html(
