@@ -65,8 +65,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10.11.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -86,30 +84,26 @@ jobs:
           LOCAL_VERSION="${{ needs.check-release.outputs.version }}"
           FAILED=""
 
-          # Use `pnpm publish` instead of `npm publish` so the `workspace:*`
-          # protocol gets rewritten to the resolved version in the published
-          # tarball. `npm publish` would leave it as a literal `workspace:*`,
-          # which consumers cannot resolve.
-          REGISTRY_VERSION=$(npm view emulate version 2>/dev/null || echo "0.0.0")
-          if [ "$LOCAL_VERSION" = "$REGISTRY_VERSION" ]; then
-            echo "emulate@$LOCAL_VERSION already published, skipping"
-          else
-            echo "Publishing emulate@$LOCAL_VERSION..."
-            if ! (cd packages/emulate && pnpm publish --provenance --no-git-checks --access public); then
-              FAILED="$FAILED emulate"
+          # pnpm pack resolves workspace:* protocols in the tarball;
+          # npm publish handles OIDC trusted-publisher auth.
+          publish_pkg() {
+            local dir="$1" name="$2"
+            REGISTRY_VERSION=$(npm view "$name" version 2>/dev/null || echo "0.0.0")
+            if [ "$LOCAL_VERSION" = "$REGISTRY_VERSION" ]; then
+              echo "$name@$LOCAL_VERSION already published, skipping"
+              return 0
             fi
-          fi
+            echo "Publishing $name@$LOCAL_VERSION..."
+            TARBALL=$(cd "$dir" && pnpm pack --pack-destination /tmp | tail -1)
+            if ! npm publish "$TARBALL" --provenance --access public; then
+              FAILED="$FAILED $name"
+            fi
+          }
+
+          publish_pkg packages/emulate emulate
 
           for pkg in $EMULATOR_PACKAGES; do
-            REGISTRY_VERSION=$(npm view "@emulators/$pkg" version 2>/dev/null || echo "0.0.0")
-            if [ "$LOCAL_VERSION" = "$REGISTRY_VERSION" ]; then
-              echo "@emulators/$pkg@$LOCAL_VERSION already published, skipping"
-              continue
-            fi
-            echo "Publishing @emulators/$pkg@$LOCAL_VERSION..."
-            if ! (cd "packages/@emulators/$pkg" && pnpm publish --provenance --no-git-checks --access public); then
-              FAILED="$FAILED @emulators/$pkg"
-            fi
+            publish_pkg "packages/@emulators/$pkg" "@emulators/$pkg"
           done
 
           if [ -n "$FAILED" ]; then
