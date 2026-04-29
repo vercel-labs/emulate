@@ -44,9 +44,8 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   }
 
   const svcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
-  const seedBaseUrl = typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
-    ? svcSeedConfig.baseUrl
-    : undefined;
+  const seedBaseUrl =
+    typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0 ? svcSeedConfig.baseUrl : undefined;
   const baseUrl = resolveBaseUrl({ service, port, baseUrl: options.baseUrl, seedBaseUrl });
 
   // eslint-disable-next-line prefer-const -- reassigned after closure captures it

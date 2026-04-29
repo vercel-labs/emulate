@@ -143,9 +143,10 @@ export async function startCommand(options: StartOptions): Promise<void> {
       portlessAliases.push({ name: `${svc}.emulate`, port });
     }
 
-    const seedBaseUrl = typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
-      ? svcSeedConfig.baseUrl
-      : undefined;
+    const seedBaseUrl =
+      typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
+        ? svcSeedConfig.baseUrl
+        : undefined;
     const effectiveBaseUrl = options.portless ? portlessBaseUrl(svc) : options.baseUrl;
     const baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: effectiveBaseUrl, seedBaseUrl });
 
