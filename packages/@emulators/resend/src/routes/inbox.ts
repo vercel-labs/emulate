@@ -81,10 +81,12 @@ export function inboxRoutes(ctx: RouteContext): void {
       recipientLines.push(`<strong>Bcc:</strong> ${escapeHtml(email.bcc.join(", "))}`);
     }
 
-    const previewContent = email.html
+    const srcdocHtml = email.html ? escapeAttr(`<base target="_blank">${email.html}`) : null;
+
+    const previewContent = srcdocHtml
       ? `<iframe
-  sandbox=""
-  srcdoc="${escapeAttr(email.html)}"
+  sandbox="allow-popups allow-popups-to-escape-sandbox"
+  srcdoc="${srcdocHtml}"
   class="s-card"
   style="width:100%;min-height:300px;border:1px solid #0a3300;border-radius:8px;background:#fff;"
 ></iframe>`
