@@ -59,7 +59,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>service</code></td>
       <td><em>(required)</em></td>
-      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>, <code>'mongoatlas'</code>, <code>'resend'</code>, or <code>'stripe'</code></td>
+      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>, <code>'mongoatlas'</code>, <code>'resend'</code>, <code>'stripe'</code>, or <code>'discord'</code></td>
     </tr>
     <tr>
       <td><code>port</code></td>
@@ -133,6 +133,7 @@ npm install @emulators/github @emulators/google @emulators/stripe
     <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
     <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
     <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
+    <tr><td><code>@emulators/discord</code></td><td>Discord REST API, OAuth 2.0, inspector UI</td></tr>
     <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
     <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
   </tbody>
