@@ -137,6 +137,35 @@ afterEach(() => { github.reset(); vercel.reset() })
 afterAll(() => Promise.all([github.close(), vercel.close()]))
 ```
 
+### Snapshots
+
+Save and restore emulator state for reproducible test scenarios:
+
+```typescript
+const github = await createEmulator({ service: 'github', port: 4001 })
+
+// ... set up test state (create repos, issues, etc.) ...
+
+const snap = github.snapshot()
+
+// ... run tests that mutate state ...
+
+github.restore(snap) // back to the saved state
+```
+
+Each running service also exposes HTTP control endpoints:
+
+```bash
+# Save current state
+curl -X POST http://localhost:4001/_emulate/snapshot -o snapshot.json
+
+# Restore saved state
+curl -X PUT http://localhost:4001/_emulate/snapshot -H 'Content-Type: application/json' -d @snapshot.json
+
+# Health check
+curl http://localhost:4001/_emulate/health
+```
+
 ### Options
 
 | Option | Default | Description |
@@ -152,6 +181,8 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 |--------|-------------|
 | `url` | Base URL of the running server |
 | `reset()` | Wipe the store and replay seed data |
+| `snapshot()` | Return a serializable snapshot of the current store state |
+| `restore(snapshot)` | Restore the store to a previously saved snapshot |
 | `close()` | Shut down the HTTP server, returns a Promise |
 
 ## Configuration

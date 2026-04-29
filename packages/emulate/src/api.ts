@@ -1,4 +1,4 @@
-import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
+import { createServer, type AppKeyResolver, type Store, type StoreSnapshot } from "@emulators/core";
 import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
@@ -20,6 +20,8 @@ export interface EmulatorOptions {
 export interface Emulator {
   url: string;
   reset(): void;
+  snapshot(): StoreSnapshot;
+  restore(snapshot: StoreSnapshot): void;
   close(): Promise<void>;
 }
 
@@ -74,6 +76,12 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     reset() {
       store.reset();
       seed();
+    },
+    snapshot(): StoreSnapshot {
+      return store.snapshot();
+    },
+    restore(snap: StoreSnapshot): void {
+      store.restore(snap);
     },
     close(): Promise<void> {
       return new Promise((resolve, reject) => {
