@@ -9,9 +9,8 @@ async function handler(req: Request, ctx: { params: Promise<{ path: string[] }> 
     method: req.method,
     headers: req.headers,
     body: req.body,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     duplex: "half",
-  } as any);
+  } as RequestInit & { duplex: string });
 
   return new Response(res.body, {
     status: res.status,

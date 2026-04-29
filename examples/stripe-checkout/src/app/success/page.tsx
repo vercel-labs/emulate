@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
 import { getOrder } from "@/lib/orders";
@@ -59,12 +60,12 @@ export default async function SuccessPage({ searchParams }: { searchParams: Prom
       )}
 
       <div className="mt-10 text-center">
-        <a
+        <Link
           href="/"
           className="inline-flex h-10 items-center border border-foreground px-8 text-[10px] tracking-[0.2em] uppercase font-medium transition-colors hover:bg-foreground hover:text-background"
         >
           Continue Shopping
-        </a>
+        </Link>
       </div>
     </div>
   );

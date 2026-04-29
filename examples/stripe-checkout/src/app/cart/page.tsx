@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { Minus, Plus } from "lucide-react";
 import { useCart } from "@/lib/use-cart";
 import { productImages, formatCurrency } from "@/lib/products";
@@ -14,12 +15,12 @@ export default function CartPage() {
       <div className="mx-auto max-w-[1200px] px-6 py-32 text-center">
         <h1 className="font-pixel text-2xl">Your Bag</h1>
         <p className="mt-4 text-sm text-muted-foreground">Your bag is empty</p>
-        <a
+        <Link
           href="/"
           className="mt-8 inline-flex h-10 items-center border border-foreground px-8 text-[10px] tracking-[0.2em] uppercase font-medium transition-colors hover:bg-foreground hover:text-background"
         >
           Continue Shopping
-        </a>
+        </Link>
       </div>
     );
   }
@@ -109,12 +110,12 @@ export default function CartPage() {
       </form>
 
       <div className="mt-4 text-center">
-        <a
+        <Link
           href="/"
           className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
         >
           Continue Shopping
-        </a>
+        </Link>
       </div>
     </div>
   );

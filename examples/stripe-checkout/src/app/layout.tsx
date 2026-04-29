@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { GeistMono } from "geist/font/mono";
 import { GeistPixelSquare } from "geist/font/pixel";
 import { getCart } from "@/lib/cart";
@@ -24,9 +25,9 @@ export default async function RootLayout({
         <CartProvider initialItems={initialItems}>
           <header className="sticky top-0 z-50 border-b border-border/50 bg-background/90 backdrop-blur-xl">
             <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6">
-              <a href="/" className="font-pixel text-xl tracking-wide">
+              <Link href="/" className="font-pixel text-xl tracking-wide">
                 emu store
-              </a>
+              </Link>
               <CartButton />
             </div>
           </header>
