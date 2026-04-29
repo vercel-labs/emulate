@@ -13,7 +13,7 @@
 }
 
 :root {
-  --background: oklch(0.975 0.004 85);
+  --background: #fff;
   --foreground: oklch(0.22 0.01 50);
   --secondary: oklch(0.955 0.006 85);
   --muted-foreground: oklch(0.52 0.01 55);

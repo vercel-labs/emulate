@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { clearCartAction } from "@/app/actions";
+import { useCart } from "@/lib/use-cart";
 
 export function ClearCart() {
+  const { clearCart } = useCart();
   useEffect(() => {
-    clearCartAction();
-  }, []);
+    clearCart();
+  }, [clearCart]);
   return null;
 }

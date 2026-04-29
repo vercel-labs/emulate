@@ -1,8 +1,9 @@
-import { getCart, cartTotals } from "@/lib/cart";
+"use client";
 
-export async function CartButton() {
-  const items = await getCart();
-  const { totalItems } = cartTotals(items);
+import { useCart } from "@/lib/use-cart";
+
+export function CartButton() {
+  const { totalItems } = useCart();
 
   return (
     <a

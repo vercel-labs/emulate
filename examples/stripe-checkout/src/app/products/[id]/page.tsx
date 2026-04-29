@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { stripe } from "@/lib/stripe";
 import { productImages, formatCurrency } from "@/lib/products";
-import { AddToCart } from "@/components/add-to-cart";
+import { AddToCartClient } from "@/components/add-to-cart-client";
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -60,7 +60,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
 
           <div className="mt-10 max-w-xs">
             {price && (
-              <AddToCart
+              <AddToCartClient
                 priceId={price.id}
                 productName={product.name}
                 unitAmount={price.unit_amount ?? 0}

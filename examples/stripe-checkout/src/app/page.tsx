@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { stripe } from "@/lib/stripe";
 import { productImages, formatCurrency } from "@/lib/products";
-import { AddToCart } from "@/components/add-to-cart";
+import { AddToCartClient } from "@/components/add-to-cart-client";
 
 export default async function CatalogPage() {
   const [products, prices] = await Promise.all([
@@ -55,7 +55,7 @@ export default async function CatalogPage() {
                 </p>
                 <div className="mt-3">
                   {price && (
-                    <AddToCart
+                    <AddToCartClient
                       priceId={price.id}
                       productName={product.name}
                       unitAmount={price.unit_amount ?? 0}

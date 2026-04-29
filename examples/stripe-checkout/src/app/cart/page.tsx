@@ -1,12 +1,13 @@
-import Image from "next/image";
-import { Minus, Plus, X } from "lucide-react";
-import { getCart, cartTotals } from "@/lib/cart";
-import { productImages, formatCurrency } from "@/lib/products";
-import { updateQuantityAction, removeFromCartAction, createCheckoutSession } from "../actions";
+"use client";
 
-export default async function CartPage() {
-  const items = await getCart();
-  const { totalAmount } = cartTotals(items);
+import Image from "next/image";
+import { Minus, Plus } from "lucide-react";
+import { useCart } from "@/lib/use-cart";
+import { productImages, formatCurrency } from "@/lib/products";
+import { createCheckoutSession } from "../actions";
+
+export default function CartPage() {
+  const { items, totalAmount, updateQuantity, removeItem } = useCart();
 
   if (items.length === 0) {
     return (
@@ -57,40 +58,32 @@ export default async function CartPage() {
 
                 <div className="mt-4 flex items-center gap-4">
                   <div className="flex items-center border border-border">
-                    <form action={updateQuantityAction}>
-                      <input type="hidden" name="priceId" value={item.priceId} />
-                      <input type="hidden" name="delta" value="-1" />
-                      <button
-                        type="submit"
-                        className="flex size-7 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <Minus className="size-3" />
-                      </button>
-                    </form>
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.priceId, -1)}
+                      className="flex size-7 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Minus className="size-3" />
+                    </button>
                     <span className="flex size-7 items-center justify-center font-mono text-xs tabular-nums">
                       {item.quantity}
                     </span>
-                    <form action={updateQuantityAction}>
-                      <input type="hidden" name="priceId" value={item.priceId} />
-                      <input type="hidden" name="delta" value="1" />
-                      <button
-                        type="submit"
-                        className="flex size-7 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <Plus className="size-3" />
-                      </button>
-                    </form>
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.priceId, 1)}
+                      className="flex size-7 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Plus className="size-3" />
+                    </button>
                   </div>
 
-                  <form action={removeFromCartAction}>
-                    <input type="hidden" name="priceId" value={item.priceId} />
-                    <button
-                      type="submit"
-                      className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
-                    >
-                      Remove
-                    </button>
-                  </form>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item.priceId)}
+                    className="text-[10px] tracking-[0.15em] uppercase text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
 
@@ -105,7 +98,9 @@ export default async function CartPage() {
       <div className="mt-8 border-t border-border pt-6">
         <div className="flex items-center justify-between">
           <span className="text-[10px] tracking-[0.3em] uppercase">Subtotal</span>
-          <span className="font-mono text-sm tabular-nums">{formatCurrency(totalAmount, "usd")}</span>
+          <span className="font-mono text-sm tabular-nums">
+            {formatCurrency(totalAmount, items[0]?.currency ?? "usd")}
+          </span>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">Shipping and taxes calculated at checkout</p>
       </div>
