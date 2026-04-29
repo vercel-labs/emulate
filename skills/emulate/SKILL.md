@@ -93,7 +93,7 @@ await vercel.close()
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Falls back to `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
 
 ### Instance Methods
 
@@ -285,9 +285,9 @@ emulate start --base-url "https://{service}.myproxy.test"
 EMULATE_BASE_URL="https://{service}.myproxy.test" emulate start
 ```
 
-The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`). When no explicit `baseUrl` is provided, it is used as a fallback.
+The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`), typically to a value like `https://{service}.emulate.localhost`. It supports `{service}` interpolation, just like `--base-url` and `EMULATE_BASE_URL`. When no explicit `baseUrl` is provided, it is used as a fallback.
 
-Per-service overrides in the seed config:
+Per-service overrides in the seed config (these take highest priority over all other base URL sources):
 
 ```yaml
 github:

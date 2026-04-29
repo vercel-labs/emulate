@@ -81,7 +81,10 @@ export function registerAliases(aliases: PortlessAlias[]): void {
 
 export function removeAliases(aliases: PortlessAlias[]): void {
   for (const { name } of aliases) {
-    spawnSync("portless", ["alias", "--remove", name], { stdio: "ignore" });
+    const result = spawnSync("portless", ["alias", "--remove", name], { stdio: "ignore" });
+    if (result.status !== 0) {
+      console.error(`Warning: failed to remove portless alias: ${name}`);
+    }
   }
 }
 

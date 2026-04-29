@@ -15,7 +15,7 @@ export interface ResolveBaseUrlOptions {
  */
 export function resolveBaseUrl(opts: ResolveBaseUrlOptions): string {
   if (opts.seedBaseUrl) {
-    return opts.seedBaseUrl;
+    return opts.seedBaseUrl.replace(/\{service\}/g, opts.service);
   }
   if (opts.baseUrl) {
     return opts.baseUrl.replace(/\{service\}/g, opts.service);

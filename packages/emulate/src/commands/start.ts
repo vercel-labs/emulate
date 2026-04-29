@@ -119,10 +119,17 @@ export async function startCommand(options: StartOptions): Promise<void> {
     await ensurePortless();
   }
 
-  const serviceUrls: Array<{ name: string; url: string }> = [];
-  const stores: Store[] = [];
-  const httpServers: ReturnType<typeof serve>[] = [];
+  interface PreparedService {
+    svc: ServiceName;
+    entry: (typeof SERVICE_REGISTRY)[ServiceName];
+    loadedSvc: Awaited<ReturnType<(typeof SERVICE_REGISTRY)[ServiceName]["load"]>>;
+    svcSeedConfig: Record<string, unknown> | undefined;
+    port: number;
+    baseUrl: string;
+  }
+
   const portlessAliases: PortlessAlias[] = [];
+  const prepared: PreparedService[] = [];
 
   for (let i = 0; i < services.length; i++) {
     const svc = services[i];
@@ -132,17 +139,28 @@ export async function startCommand(options: StartOptions): Promise<void> {
     const svcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
     const port = (svcSeedConfig?.port as number | undefined) ?? basePort + i;
 
-    let baseUrl: string;
     if (options.portless) {
-      const aliasName = `${svc}.emulate`;
-      portlessAliases.push({ name: aliasName, port });
-      baseUrl = portlessBaseUrl(svc);
-    } else {
-      const seedBaseUrl = typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
-        ? svcSeedConfig.baseUrl
-        : undefined;
-      baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: options.baseUrl, seedBaseUrl });
+      portlessAliases.push({ name: `${svc}.emulate`, port });
     }
+
+    const seedBaseUrl = typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
+      ? svcSeedConfig.baseUrl
+      : undefined;
+    const effectiveBaseUrl = options.portless ? portlessBaseUrl(svc) : options.baseUrl;
+    const baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: effectiveBaseUrl, seedBaseUrl });
+
+    prepared.push({ svc, entry, loadedSvc, svcSeedConfig, port, baseUrl });
+  }
+
+  if (portlessAliases.length > 0) {
+    registerAliases(portlessAliases);
+  }
+
+  const serviceUrls: Array<{ name: string; url: string }> = [];
+  const stores: Store[] = [];
+  const httpServers: ReturnType<typeof serve>[] = [];
+
+  for (const { svc, entry, loadedSvc, svcSeedConfig, port, baseUrl } of prepared) {
     serviceUrls.push({ name: svc, url: baseUrl });
 
     // eslint-disable-next-line prefer-const -- reassigned after closure captures it
@@ -165,18 +183,6 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const httpServer = serve({ fetch: app.fetch, port });
     httpServers.push(httpServer);
-  }
-
-  if (portlessAliases.length > 0) {
-    try {
-      registerAliases(portlessAliases);
-    } catch (err) {
-      console.error(err instanceof Error ? err.message : err);
-      for (const srv of httpServers) {
-        srv.close();
-      }
-      process.exit(1);
-    }
   }
 
   printBanner(serviceUrls, tokens, configSource);
