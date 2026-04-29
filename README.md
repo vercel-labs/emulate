@@ -16,7 +16,13 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
+- **Okta** on `http://localhost:4006`
+- **Auth0** on `http://localhost:4007`
+- **AWS** on `http://localhost:4008`
+- **Resend** on `http://localhost:4009`
+- **Stripe** on `http://localhost:4010`
+- **MongoDB Atlas** on `http://localhost:4011`
+- **Clerk** on `http://localhost:4012`
 
 ## CLI
 
@@ -141,7 +147,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'auth0'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, or `'clerk'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -655,6 +661,35 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 
+## Auth0
+
+Auth0 Authentication API, Management API v2, and OIDC emulation with log event streaming.
+
+### Authentication API
+- `POST /oauth/token` — token endpoint (client_credentials, password-realm, refresh_token)
+- `GET /userinfo` — user profile from access token
+- `POST /oauth/revoke` — revoke refresh token
+
+### Management API v2
+- `POST /api/v2/users` — create user with email, password, connection, app_metadata
+- `GET /api/v2/users/:id` — get user by ID
+- `GET /api/v2/users-by-email` — search users by email
+- `PATCH /api/v2/users/:id` — update user (app_metadata merge, password change, email_verified)
+- `POST /api/v2/tickets/email-verification` — create email verification ticket
+
+### OIDC
+- `GET /.well-known/openid-configuration` — OpenID Connect discovery
+- `GET /.well-known/jwks.json` — JSON Web Key Set (RS256)
+- `GET /_emulate/public-key.pem` — RSA public key in PEM format
+
+Supports deterministic signing keys via `signing_key` in seed config for static JWT validation. When omitted, a random key pair is generated on first request.
+
+### Log Events
+Dispatches Auth0 log events (`ss`, `fs`, `sv`, `scp`) via webhook on user creation, signup failure, email verification, and password change. Configure subscribers via `log_streams` in the seed config.
+
+### Error Fidelity
+Authentication API errors use OAuth2 format (`{ error, error_description }`). Management API errors use Auth0 format (`{ statusCode, error, message, errorCode }`). Error strings match Auth0's actual API responses so SDK error handling works unchanged.
+
 ## AWS
 
 S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
@@ -816,6 +851,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
+    auth0/          # Auth0 Authentication API, Management API v2, OIDC
     aws/            # AWS S3, SQS, IAM, STS
 apps/
   web/              # Documentation site (Next.js)
@@ -838,5 +874,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
+
+**Auth0**: Management API endpoints require a Bearer token obtained via `client_credentials` grant. Authentication API (`/oauth/token`) accepts `client_id`/`client_secret` in the request body or via Basic auth header.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
