@@ -26,25 +26,25 @@ All services start with sensible defaults. No config file needed:
 
 ```bash
 # Start all services (zero-config)
-emulate
+npx emulate
 
 # Start specific services
-emulate --service vercel,github
+npx emulate --service vercel,github
 
 # Custom port
-emulate --port 3000
+npx emulate --port 3000
 
 # Use a seed config file
-emulate --seed config.yaml
+npx emulate --seed config.yaml
 
 # Generate a starter config
-emulate init
+npx emulate init
 
 # Generate config for a specific service
-emulate init --service github
+npx emulate init --service github
 
 # List available services
-emulate list
+npx emulate list
 ```
 
 ## Options
@@ -80,8 +80,8 @@ The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
 ## Programmatic API
 
-You can also use emulate as a library in your tests. See the [Programmatic API](/programmatic-api) page for `createEmulator`, Vitest/Jest setup, and instance methods.
+You can also use emulate as a library in your tests. See the [Programmatic API](/docs/programmatic-api) page for `createEmulator`, Vitest/Jest setup, and instance methods.
 
 ## Next.js Integration
 
-Embed emulators directly in your Next.js app so they run on the same origin. See the [Next.js Integration](/nextjs) page for setup instructions.
+Embed emulators directly in your Next.js app so they run on the same origin. See the [Next.js Integration](/docs/nextjs) page for setup instructions.

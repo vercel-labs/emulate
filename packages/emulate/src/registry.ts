@@ -1,8 +1,8 @@
-import type { ServicePlugin, Store, AppKeyResolver, AuthFallback } from "@emulators/core";
+import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
 
 export interface LoadedService {
   plugin: ServicePlugin;
-  seedFromConfig?(store: Store, baseUrl: string, config: unknown): void;
+  seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
 }
 
@@ -371,7 +371,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   stripe: {
     label: "Stripe payments emulator",
-    endpoints: "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
+    endpoints:
+      "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
     async load() {
       const mod = await import("@emulators/stripe");
       return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig };
@@ -409,34 +410,43 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   clerk: {
     label: "Clerk authentication and user management emulator",
-    endpoints: "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
+    endpoints:
+      "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
     async load() {
       const mod = await import("@emulators/clerk");
       return { plugin: mod.clerkPlugin, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
-      const firstEmail = (cfg?.users as Array<{ email_addresses?: string[] }> | undefined)?.[0]?.email_addresses?.[0] ?? "test@example.com";
+      const firstEmail =
+        (cfg?.users as Array<{ email_addresses?: string[] }> | undefined)?.[0]?.email_addresses?.[0] ??
+        "test@example.com";
       return { login: firstEmail, id: 1, scopes: [] };
     },
     initConfig: {
       clerk: {
-        users: [{
-          first_name: "Test",
-          last_name: "User",
-          email_addresses: ["test@example.com"],
-          password: "clerk_test_password",
-        }],
-        organizations: [{
-          name: "My Company",
-          slug: "my-company",
-          members: [{ email: "test@example.com", role: "admin" }],
-        }],
-        oauth_applications: [{
-          client_id: "clerk_emulate_client",
-          client_secret: "clerk_emulate_secret",
-          name: "Emulate App",
-          redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
-        }],
+        users: [
+          {
+            first_name: "Test",
+            last_name: "User",
+            email_addresses: ["test@example.com"],
+            password: "clerk_test_password",
+          },
+        ],
+        organizations: [
+          {
+            name: "My Company",
+            slug: "my-company",
+            members: [{ email: "test@example.com", role: "admin" }],
+          },
+        ],
+        oauth_applications: [
+          {
+            client_id: "clerk_emulate_client",
+            client_secret: "clerk_emulate_secret",
+            name: "Emulate App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
+          },
+        ],
       },
     },
   },

@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  EMULATOR_PACKAGES: adapter-next apple aws clerk core github google microsoft mongoatlas okta resend slack stripe vercel
+
+jobs:
+  check-release:
+    name: Check for new version
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compare versions to registry
+        id: check
+        run: |
+          LOCAL_VERSION=$(node -p "require('./packages/emulate/package.json').version")
+          SHOULD_RELEASE=false
+
+          REGISTRY_VERSION=$(npm view emulate version 2>/dev/null || echo "0.0.0")
+          echo "emulate — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
+          if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
+            SHOULD_RELEASE=true
+          fi
+
+          for pkg in $EMULATOR_PACKAGES; do
+            REGISTRY_VERSION=$(npm view "@emulators/$pkg" version 2>/dev/null || echo "0.0.0")
+            echo "@emulators/$pkg — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
+            if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
+              SHOULD_RELEASE=true
+            fi
+          done
+
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish
+    needs: check-release
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    environment: Release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish packages
+        run: |
+          LOCAL_VERSION="${{ needs.check-release.outputs.version }}"
+          FAILED=""
+
+          # pnpm pack resolves workspace:* protocols in the tarball;
+          # npm publish handles OIDC trusted-publisher auth.
+          publish_pkg() {
+            local dir="$1" name="$2"
+            REGISTRY_VERSION=$(npm view "$name" version 2>/dev/null || echo "0.0.0")
+            if [ "$LOCAL_VERSION" = "$REGISTRY_VERSION" ]; then
+              echo "$name@$LOCAL_VERSION already published, skipping"
+              return 0
+            fi
+            echo "Publishing $name@$LOCAL_VERSION..."
+            TARBALL=$(cd "$dir" && pnpm pack --pack-destination /tmp | tail -1)
+            if ! npm publish "$TARBALL" --provenance --access public; then
+              FAILED="$FAILED $name"
+            fi
+          }
+
+          publish_pkg packages/emulate emulate
+
+          for pkg in $EMULATOR_PACKAGES; do
+            publish_pkg "packages/@emulators/$pkg" "@emulators/$pkg"
+          done
+
+          if [ -n "$FAILED" ]; then
+            echo "Failed to publish:$FAILED"
+            exit 1
+          fi
+
+  github-release:
+    name: Create GitHub Release
+    needs: [check-release, publish]
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract changelog entry
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+
+          awk '/<!-- release:start -->/{found=1; next} /<!-- release:end -->/{found=0} found{print}' CHANGELOG.md > /tmp/release-notes.md
+
+          LINES=$(wc -l < /tmp/release-notes.md | tr -d ' ')
+          if [ "$LINES" -lt 2 ]; then
+            echo "Error: No release notes found between <!-- release:start --> and <!-- release:end --> markers in CHANGELOG.md"
+            exit 1
+          fi
+          echo "Extracted release notes for $VERSION ($LINES lines)"
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+          TAG="v$VERSION"
+
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, skipping"
+          else
+            echo "Creating release $TAG..."
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --target ${{ github.sha }} \
+              --notes-file /tmp/release-notes.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

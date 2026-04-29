@@ -21,6 +21,8 @@ program
   .option("-p, --port <port>", "Base port", defaultPort)
   .option("-s, --service <services>", "Comma-separated services to enable")
   .option("--seed <file>", "Path to seed config file")
+  .option("--base-url <url>", "Override advertised base URL (supports {service} template)")
+  .option("--portless", "Serve over HTTPS via portless (auto-registers aliases)")
   .action(async (opts) => {
     const port = parseInt(opts.port, 10);
     if (Number.isNaN(port) || port < 1 || port > 65535) {
@@ -31,6 +33,8 @@ program
       port,
       service: opts.service,
       seed: opts.seed,
+      baseUrl: opts.baseUrl,
+      portless: opts.portless,
     });
   });
 

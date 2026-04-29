@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-mono);
+  --font-mono: var(--font-geist-mono);
+  --font-pixel: var(--font-geist-pixel-square);
+  --color-ring: var(--ring);
+  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-secondary: var(--secondary);
+}
+
+:root {
+  --background: #fff;
+  --foreground: oklch(0.22 0.01 50);
+  --secondary: oklch(0.955 0.006 85);
+  --muted-foreground: oklch(0.52 0.01 55);
+  --border: oklch(0.92 0.005 80);
+  --ring: oklch(0.65 0.01 55);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-mono;
+  }
+  button, [role="button"] {
+    cursor: pointer;
+  }
+}

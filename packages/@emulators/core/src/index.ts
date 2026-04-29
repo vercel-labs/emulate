@@ -50,7 +50,10 @@ export {
   renderSettingsPage,
   renderInspectorPage,
   renderFormPostPage,
+  renderCheckoutPage,
   renderUserButton,
+  type CheckoutLineItem,
+  type CheckoutPageOptions,
   type UserButtonOptions,
   type InspectorTab,
 } from "./ui.js";

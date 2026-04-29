@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import { decodeJwt } from "jose";
 import {
   Store,
   WebhookDispatcher,
@@ -30,7 +31,11 @@ function createTestApp() {
   googlePlugin.register(app as any, store, webhooks, base, tokenMap);
   googlePlugin.seed?.(store, base);
   seedFromConfig(store, base, {
-    users: [{ email: "testuser@example.com", name: "Test User" }],
+    users: [
+      { email: "testuser@example.com", name: "Test User" },
+      { email: "consumer@gmail.com", name: "Consumer User" },
+      { email: "workspaceuser@example.com", name: "Workspace User", hd: "override.io" },
+    ],
     oauth_clients: [
       {
         client_id: "emu_google_client_id",
@@ -890,6 +895,42 @@ describe("Google plugin integration", () => {
     expect(refreshBody.access_token).toMatch(/^google_/);
     expect(refreshBody.access_token).not.toBe(tokenBody.access_token);
     expect(refreshBody.scope).toBe(tokenBody.scope);
+  });
+
+  it("derives, overrides, and omits the hd claim based on user config", async () => {
+    async function getIdTokenClaims(email: string) {
+      const authorize = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+        email,
+        redirect_uri: "http://localhost:3000/api/auth/callback/google",
+        scope: "openid email profile",
+        client_id: "emu_google_client_id",
+      });
+      const code = new URL(authorize.headers.get("Location")!).searchParams.get("code")!;
+      const tokenRes = await formRequest(app, "/oauth2/token", {
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: "http://localhost:3000/api/auth/callback/google",
+        client_id: "emu_google_client_id",
+        client_secret: "emu_google_client_secret",
+      });
+      const body = (await tokenRes.json()) as { id_token: string; access_token: string };
+      return { claims: decodeJwt(body.id_token) as { hd?: string }, accessToken: body.access_token };
+    }
+
+    const derived = await getIdTokenClaims("testuser@example.com");
+    expect(derived.claims.hd).toBe("example.com");
+
+    const overridden = await getIdTokenClaims("workspaceuser@example.com");
+    expect(overridden.claims.hd).toBe("override.io");
+
+    const consumer = await getIdTokenClaims("consumer@gmail.com");
+    expect(consumer.claims.hd).toBeUndefined();
+
+    const userinfoRes = await app.request(`${base}/oauth2/v2/userinfo`, {
+      headers: { Authorization: `Bearer ${overridden.accessToken}` },
+    });
+    expect(userinfoRes.status).toBe(200);
+    expect(((await userinfoRes.json()) as { hd?: string }).hd).toBe("override.io");
   });
 
   it("lists calendar resources, creates events, queries freebusy, and deletes events", async () => {

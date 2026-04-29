@@ -10,6 +10,7 @@ import {
   type StoreSnapshot,
   type PersistenceAdapter,
   type AppKeyResolver,
+  type WebhookDispatcher,
 } from "@emulators/core";
 
 export type { PersistenceAdapter } from "@emulators/core";
@@ -17,7 +18,7 @@ export type { PersistenceAdapter } from "@emulators/core";
 export interface EmulatorModule {
   plugin?: ServicePlugin;
   default?: ServicePlugin;
-  seedFromConfig?(store: Store, baseUrl: string, config: unknown): void;
+  seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
 }
 
@@ -40,6 +41,7 @@ interface ServiceApp {
   store: Store;
   tokenMap: TokenMap;
   plugin: ServicePlugin;
+  webhooks: WebhookDispatcher;
 }
 
 interface FullSnapshot {
@@ -195,7 +197,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       const baseUrl = `${origin}${servicePrefix}`;
 
       let appKeyResolver: AppKeyResolver | undefined;
-      const { app, store, tokenMap } = createServer(plugin, {
+      const { app, store, tokenMap, webhooks } = createServer(plugin, {
         baseUrl,
         appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
       });
@@ -204,7 +206,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
         appKeyResolver = entry.emulator.createAppKeyResolver(store);
       }
 
-      serviceApps.set(name, { hono: app, store, tokenMap, plugin });
+      serviceApps.set(name, { hono: app, store, tokenMap, plugin, webhooks });
     }
 
     let restored = false;
@@ -228,7 +230,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
         const baseUrl = `${origin}${servicePrefix}`;
         sa.plugin.seed?.(sa.store, baseUrl);
         if (entry.seed && entry.emulator.seedFromConfig) {
-          entry.emulator.seedFromConfig(sa.store, baseUrl, entry.seed);
+          entry.emulator.seedFromConfig(sa.store, baseUrl, entry.seed, sa.webhooks);
         }
       }
       if (persistence) {

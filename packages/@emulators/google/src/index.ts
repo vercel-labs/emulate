@@ -32,6 +32,7 @@ export interface GoogleSeedUser {
   picture?: string;
   locale?: string;
   email_verified?: boolean;
+  hd?: string;
 }
 
 export interface GoogleSeedLabel {
@@ -141,6 +142,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
       picture: null,
       email_verified: true,
       locale: "en",
+      hd: null,
     });
   }
 
@@ -275,6 +277,20 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   );
 }
 
+const CONSUMER_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
+
+function deriveHd(email: string): string | null {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) return null;
+  if (CONSUMER_EMAIL_DOMAINS.has(domain)) return null;
+  return domain;
+}
+
+function resolveHd(user: GoogleSeedUser): string | null {
+  if (user.hd !== undefined) return user.hd || null;
+  return deriveHd(user.email);
+}
+
 export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSeedConfig): void {
   const gs = getGoogleStore(store);
 
@@ -292,6 +308,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
           picture: user.picture ?? null,
           email_verified: user.email_verified ?? true,
           locale: user.locale ?? "en",
+          hd: resolveHd(user),
         });
       }
 

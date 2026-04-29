@@ -163,8 +163,10 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     if (body.last_name !== undefined) patch.last_name = body.last_name as string | null;
     if (body.username !== undefined) patch.username = body.username as string | null;
     if (body.external_id !== undefined) patch.external_id = body.external_id as string | null;
-    if (body.primary_email_address_id !== undefined) patch.primary_email_address_id = body.primary_email_address_id as string;
-    if (body.primary_phone_number_id !== undefined) patch.primary_phone_number_id = body.primary_phone_number_id as string;
+    if (body.primary_email_address_id !== undefined)
+      patch.primary_email_address_id = body.primary_email_address_id as string;
+    if (body.primary_phone_number_id !== undefined)
+      patch.primary_phone_number_id = body.primary_phone_number_id as string;
     if (body.public_metadata !== undefined) patch.public_metadata = body.public_metadata as Record<string, unknown>;
     if (body.private_metadata !== undefined) patch.private_metadata = body.private_metadata as Record<string, unknown>;
     if (body.unsafe_metadata !== undefined) patch.unsafe_metadata = body.unsafe_metadata as Record<string, unknown>;

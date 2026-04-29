@@ -1,5 +1,6 @@
 import type { RouteContext } from "@emulators/core";
-import { renderCardPage, escapeHtml, escapeAttr } from "@emulators/core";
+import { renderCardPage, renderCheckoutPage, escapeHtml, escapeAttr } from "@emulators/core";
+import type { CheckoutLineItem } from "@emulators/core";
 import { getStripeStore } from "../store.js";
 import { stripeId, toUnixTimestamp, parseStripeBody, stripeError, stripeList } from "../helpers.js";
 import type { StripeCheckoutSession } from "../entities.js";
@@ -187,40 +188,34 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
       );
     }
 
-    const lineItemsHtml =
-      session.line_items.length > 0
-        ? session.line_items
-            .map((li) => {
-              const priceObj = ss.prices.findOneBy("stripe_id", li.price);
-              const product = priceObj ? ss.products.findOneBy("stripe_id", priceObj.product_id) : null;
-              const name = product?.name ?? li.price;
-              const amount = priceObj
-                ? `$${(priceObj.unit_amount! / 100).toFixed(2)} ${priceObj.currency.toUpperCase()}`
-                : "";
-              return `<div class="org-row">
-            <span class="org-icon">$</span>
-            <span class="org-name">${escapeHtml(name)}</span>
-            <span class="emu-bar-service">${escapeHtml(amount)} x ${li.quantity}</span>
-          </div>`;
-            })
-            .join("")
-        : '<p class="empty">No line items</p>';
+    const lineItems: CheckoutLineItem[] = session.line_items.map((li) => {
+      const priceObj = ss.prices.findOneBy("stripe_id", li.price);
+      const product = priceObj ? ss.products.findOneBy("stripe_id", priceObj.product_id) : null;
+      const unitPrice = priceObj?.unit_amount ?? 0;
+      return {
+        name: product?.name ?? li.price,
+        quantity: li.quantity,
+        unitPrice,
+        totalPrice: unitPrice * li.quantity,
+        currency: priceObj?.currency ?? "usd",
+      };
+    });
 
-    const body = `
-      ${lineItemsHtml}
-      <form class="user-form" method="post" action="/checkout/${escapeAttr(session.stripe_id)}/complete">
-        <button type="submit" class="user-btn">
-          <span class="avatar">$</span>
-          <span class="user-text">
-            <span class="user-login">Pay and Complete</span>
-          </span>
-        </button>
-      </form>
-      ${session.cancel_url ? `<p class="info-text"><a href="${escapeAttr(session.cancel_url)}" class="btn-revoke">Cancel</a></p>` : ""}
-    `;
+    const subtotal = lineItems.reduce((sum, li) => sum + li.totalPrice, 0);
+    const currency = lineItems.length > 0 ? lineItems[0].currency : "usd";
 
     return c.html(
-      renderCardPage("Checkout", `Complete your ${escapeHtml(session.mode)} payment.`, body, SERVICE_LABEL),
+      renderCheckoutPage(
+        {
+          lineItems,
+          subtotal,
+          total: subtotal,
+          currency,
+          sessionId: session.stripe_id,
+          cancelUrl: session.cancel_url,
+        },
+        SERVICE_LABEL,
+      ),
     );
   });
 
@@ -240,7 +235,8 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
     );
 
     if (session.success_url) {
-      return c.redirect(session.success_url);
+      const url = session.success_url.replace("{CHECKOUT_SESSION_ID}", updated.stripe_id);
+      return c.redirect(url);
     }
 
     return c.html(

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getPendingSignIn } from "@/lib/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,9 +23,7 @@ export default async function VerifyPage() {
         <CardContent className="flex flex-col gap-4">
           <VerifyForm />
           <div className="rounded-lg border border-dashed border-border bg-muted/50 p-3 text-center">
-            <p className="text-xs text-muted-foreground mb-2">
-              Using the emulator? View the email in the inbox:
-            </p>
+            <p className="text-xs text-muted-foreground mb-2">Using the emulator? View the email in the inbox:</p>
             <a
               href="/emulate/resend/inbox"
               target="_blank"
@@ -33,9 +32,9 @@ export default async function VerifyPage() {
               Open Resend Inbox
             </a>
           </div>
-          <a href="/" className="text-sm text-center text-muted-foreground hover:text-foreground transition-colors">
+          <Link href="/" className="text-sm text-center text-muted-foreground hover:text-foreground transition-colors">
             Use a different email
-          </a>
+          </Link>
         </CardContent>
       </Card>
     </div>

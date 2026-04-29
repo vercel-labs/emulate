@@ -116,6 +116,9 @@ google:
       locale: en
     - email: dev@example.com
       name: Developer
+    - email: admin@acme.com
+      name: Admin
+      hd: acme.com
   oauth_clients:
     - client_id: my-client-id.apps.googleusercontent.com
       client_secret: GOCSPX-secret
@@ -175,6 +178,12 @@ google:
 ```
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
+
+### Hosted domain (hd) claim
+
+Google Workspace accounts include an `hd` claim in ID tokens and userinfo responses identifying the user's hosted domain. The emulator derives this automatically from the user's email domain. Consumer domains (`gmail.com`, `googlemail.com`) omit the claim, matching real Google behavior.
+
+To override the derived value, set `hd` on a seeded user. To suppress the claim entirely, set `hd` to an empty string.
 
 ## OAuth / OIDC Endpoints
 
