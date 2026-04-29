@@ -42,7 +42,10 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
-  const baseUrl = options.baseUrl ?? process.env.PORTLESS_URL ?? `http://localhost:${port}`;
+  const baseUrl = options.baseUrl
+    ?? process.env.EMULATE_BASE_URL?.replace(/\{service\}/g, service)
+    ?? process.env.PORTLESS_URL?.replace(/\{service\}/g, service)
+    ?? `http://localhost:${port}`;
 
   // eslint-disable-next-line prefer-const -- reassigned after closure captures it
   let cachedResolver: AppKeyResolver | undefined;

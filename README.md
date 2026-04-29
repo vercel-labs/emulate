@@ -77,6 +77,8 @@ slack   https://slack.emulate.localhost
 
 If portless is not installed, emulate will prompt to install it (`npm i -g portless`).
 
+The `--portless` flag overwrites any existing portless aliases matching `*.emulate`. Aliases are removed automatically when emulate shuts down.
+
 For a custom base URL without portless (any reverse proxy), use `--base-url` or the `EMULATE_BASE_URL` env var:
 
 ```bash
@@ -140,7 +142,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Falls back to `PORTLESS_URL` env var, then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Falls back to `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL`, then `http://localhost:<port>`. |
 
 ### Instance methods
 

@@ -82,7 +82,7 @@ function resolveBaseUrl(
   svcSeedConfig: Record<string, unknown> | undefined,
   cliBaseUrl: string | undefined,
 ): string {
-  if (svcSeedConfig?.baseUrl && typeof svcSeedConfig.baseUrl === "string") {
+  if (typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0) {
     return svcSeedConfig.baseUrl;
   }
   if (cliBaseUrl) {
@@ -93,7 +93,7 @@ function resolveBaseUrl(
     return envBaseUrl.replace(/\{service\}/g, service);
   }
   if (process.env.PORTLESS_URL) {
-    return process.env.PORTLESS_URL;
+    return process.env.PORTLESS_URL.replace(/\{service\}/g, service);
   }
   return `http://localhost:${port}`;
 }
@@ -186,16 +186,27 @@ export async function startCommand(options: StartOptions): Promise<void> {
   }
 
   if (portlessAliases.length > 0) {
-    registerAliases(portlessAliases);
+    try {
+      registerAliases(portlessAliases);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      for (const srv of httpServers) {
+        srv.close();
+      }
+      process.exit(1);
+    }
   }
 
   printBanner(serviceUrls, tokens, configSource);
 
+  if (portlessAliases.length > 0) {
+    process.on("exit", () => {
+      removeAliases(portlessAliases);
+    });
+  }
+
   const shutdown = () => {
     console.log(`\n${pc.dim("Shutting down...")}`);
-    if (portlessAliases.length > 0) {
-      removeAliases(portlessAliases);
-    }
     for (const store of stores) {
       store.reset();
     }

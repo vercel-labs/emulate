@@ -74,7 +74,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>baseUrl</code></td>
       <td>none</td>
-      <td>Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Falls back to the <code>PORTLESS_URL</code> env var, then <code>{`http://localhost:<port>`}</code>.</td>
+      <td>Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Falls back to the <code>EMULATE_BASE_URL</code> env var (supports <code>{'{service}'}</code> template), then <code>PORTLESS_URL</code>, then <code>{`http://localhost:<port>`}</code>.</td>
     </tr>
   </tbody>
 </table>

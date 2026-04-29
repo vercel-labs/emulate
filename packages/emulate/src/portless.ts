@@ -60,12 +60,10 @@ export function registerAliases(aliases: PortlessAlias[]): void {
       stdio: "inherit",
     });
     if (result.status !== 0) {
-      console.error(`Failed to register portless alias: ${name} -> ${port}`);
       if (registered.length > 0) {
-        console.error("Cleaning up previously registered aliases...");
         removeAliases(registered);
       }
-      process.exit(1);
+      throw new Error(`Failed to register portless alias: ${name} -> ${port}`);
     }
     registered.push({ name, port });
   }

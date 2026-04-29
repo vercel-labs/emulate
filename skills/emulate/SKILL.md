@@ -93,7 +93,7 @@ await vercel.close()
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Falls back to `PORTLESS_URL` env var, then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Falls back to `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL`, then `http://localhost:<port>`. |
 
 ### Instance Methods
 
@@ -268,6 +268,8 @@ emulate start --portless
 ```
 
 This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, emulate will prompt to install it.
+
+The `--portless` flag overwrites any existing portless aliases matching `*.emulate`. Aliases are removed automatically when emulate shuts down.
 
 For a single service behind portless:
 
