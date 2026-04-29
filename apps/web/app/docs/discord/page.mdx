@@ -1,0 +1,111 @@
+# Discord API
+
+Phase 1 Discord emulation covers the REST API surfaces most local tests need first: guilds, channels, messages, members, roles, OAuth 2.0, snowflake IDs, and an inspector UI.
+
+Slash commands, interactions, webhooks, and Gateway WebSocket support are planned follow-up PRs and are not implemented in this phase.
+
+## Start
+
+```bash
+npx emulate start --service discord
+```
+
+When all services run together, Discord uses `http://localhost:4012`.
+
+## Auth
+
+Discord REST endpoints accept either bot tokens or OAuth bearer tokens:
+
+```bash
+curl http://localhost:4012/api/v10/users/@me \
+  -H "Authorization: Bot discord-bot-token"
+```
+
+OAuth tokens returned from the authorization code flow can be sent with `Authorization: Bearer <token>`.
+
+## OAuth
+
+- `GET /oauth2/authorize` shows the local user picker.
+- `POST /api/oauth2/token` exchanges an authorization code for an access token.
+- `POST /oauth2/token` and `POST /api/v10/oauth2/token` are also supported for local SDK compatibility.
+
+## REST
+
+### Users
+
+- `GET /api/v10/users/@me`
+
+### Guilds
+
+- `GET /api/v10/guilds`
+- `POST /api/v10/guilds`
+- `GET /api/v10/guilds/:guildId`
+- `PATCH /api/v10/guilds/:guildId`
+- `DELETE /api/v10/guilds/:guildId`
+
+### Channels
+
+- `GET /api/v10/guilds/:guildId/channels`
+- `POST /api/v10/guilds/:guildId/channels`
+- `GET /api/v10/channels/:channelId`
+- `PATCH /api/v10/channels/:channelId`
+- `DELETE /api/v10/channels/:channelId`
+
+### Messages
+
+- `GET /api/v10/channels/:channelId/messages`
+- `POST /api/v10/channels/:channelId/messages`
+- `GET /api/v10/channels/:channelId/messages/:messageId`
+- `PATCH /api/v10/channels/:channelId/messages/:messageId`
+- `DELETE /api/v10/channels/:channelId/messages/:messageId`
+
+### Members
+
+- `GET /api/v10/guilds/:guildId/members`
+- `GET /api/v10/guilds/:guildId/members/:userId`
+- `PUT /api/v10/guilds/:guildId/members/:userId`
+- `PATCH /api/v10/guilds/:guildId/members/:userId`
+- `DELETE /api/v10/guilds/:guildId/members/:userId`
+
+### Roles
+
+- `GET /api/v10/guilds/:guildId/roles`
+- `POST /api/v10/guilds/:guildId/roles`
+- `PATCH /api/v10/guilds/:guildId/roles/:roleId`
+- `DELETE /api/v10/guilds/:guildId/roles/:roleId`
+
+## Seed Config
+
+```yaml
+discord:
+  applications:
+    - id: "123456789012345678"
+      client_id: discord-client-id
+      client_secret: discord-client-secret
+      name: My Discord App
+      bot_token: discord-bot-token
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/discord
+  users:
+    - id: "222222222222222222"
+      username: developer
+      email: dev@example.com
+  guilds:
+    - id: "333333333333333333"
+      name: My Server
+      roles:
+        - id: "444444444444444444"
+          name: admin
+          permissions: "8"
+      members:
+        - user_id: "222222222222222222"
+          roles: ["444444444444444444"]
+      channels:
+        - id: "555555555555555555"
+          name: general
+          type: GUILD_TEXT
+```
+
+## Inspector
+
+Open `http://localhost:4012/` to inspect guilds, channels, messages, members, and roles.

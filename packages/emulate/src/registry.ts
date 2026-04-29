@@ -27,6 +27,7 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "discord",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -445,6 +446,41 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             client_secret: "clerk_emulate_secret",
             name: "Emulate App",
             redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
+          },
+        ],
+      },
+    },
+  },
+  discord: {
+    label: "Discord API emulator",
+    endpoints: "guilds, channels, messages, members, roles, OAuth, inspector UI",
+    async load() {
+      const mod = await import("@emulators/discord");
+      return { plugin: mod.discordPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "100000000000000002", id: 2, scopes: ["identify", "guilds", "bot"] };
+    },
+    initConfig: {
+      discord: {
+        applications: [
+          {
+            id: "123456789012345678",
+            client_id: "discord-client-id",
+            client_secret: "discord-client-secret",
+            name: "My Discord App",
+            bot_token: "discord-bot-token",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/discord"],
+          },
+        ],
+        users: [{ id: "222222222222222222", username: "developer", email: "dev@example.com" }],
+        guilds: [
+          {
+            id: "333333333333333333",
+            name: "My Server",
+            members: [{ user_id: "222222222222222222", roles: ["444444444444444444"] }],
+            roles: [{ id: "444444444444444444", name: "admin", permissions: "8" }],
+            channels: [{ id: "555555555555555555", name: "general", type: "GUILD_TEXT" }],
           },
         ],
       },

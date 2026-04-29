@@ -59,6 +59,7 @@
   },
   "devDependencies": {
     "@emulators/core": "workspace:*",
+    "@emulators/discord": "workspace:*",
     "@emulators/github": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",
