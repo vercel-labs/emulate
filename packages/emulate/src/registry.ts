@@ -27,6 +27,7 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "auth0",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -447,6 +448,37 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
           },
         ],
+      },
+    },
+  },
+  auth0: {
+    label: "Auth0 OAuth 2.0 / OpenID Connect + management API emulator",
+    endpoints:
+      "OIDC discovery, JWKS, OAuth authorize/token/userinfo/logout, users, roles, applications, organizations, connections",
+    async load() {
+      const mod = await import("@emulators/auth0");
+      return { plugin: mod.auth0Plugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "dev@example.com";
+      return { login: firstEmail, id: 1, scopes: ["openid", "profile", "email", "read:users", "update:users"] };
+    },
+    initConfig: {
+      auth0: {
+        tenant: "my-tenant",
+        applications: [
+          {
+            client_id: "auth0-test-client",
+            client_secret: "auth0-test-secret",
+            name: "Sample Auth0 Application",
+            callbacks: ["http://localhost:3000/callback"],
+            grant_types: ["authorization_code", "refresh_token", "client_credentials"],
+          },
+        ],
+        users: [{ email: "dev@example.com", name: "Developer", password: "pass" }],
+        roles: [{ name: "admin" }],
+        connections: [{ name: "Username-Password-Authentication", strategy: "auth0" }],
+        apis: [{ audience: "https://api.example.test/", name: "Example API" }],
       },
     },
   },

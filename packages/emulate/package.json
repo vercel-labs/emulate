@@ -60,6 +60,7 @@
   "devDependencies": {
     "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
+    "@emulators/auth0": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",
     "@emulators/okta": "workspace:*",

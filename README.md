@@ -141,7 +141,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'aws'`, or `'auth0'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -299,6 +299,24 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+
+auth0:
+  tenant: my-tenant
+  applications:
+    - client_id: my-app
+      client_secret: secret
+      callbacks:
+        - http://localhost:3000/api/auth/callback
+      grant_types: [authorization_code, refresh_token, client_credentials]
+  users:
+    - email: dev@example.com
+      name: Developer
+      password: pass
+  roles:
+    - name: admin
+  connections:
+    - name: Username-Password-Authentication
+      strategy: auth0
 ```
 
 ## OAuth & Integrations
@@ -397,6 +415,25 @@ microsoft:
       name: "My Microsoft App"
       redirect_uris:
         - "http://localhost:3000/api/auth/callback/microsoft-entra-id"
+```
+
+### Auth0 Applications
+
+```yaml
+auth0:
+  tenant: "my-tenant"
+  applications:
+    - client_id: "my-app"
+      client_secret: "secret"
+      callbacks:
+        - "http://localhost:3000/api/auth/callback"
+      grant_types:
+        - authorization_code
+        - refresh_token
+        - client_credentials
+  apis:
+    - audience: "https://api.example.test/"
+      name: "Example API"
 ```
 
 ## Vercel API
@@ -689,6 +726,22 @@ All operations via `POST /iam/` with `Action` parameter:
 ### STS
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
+
+## Auth0 API
+
+Auth0 identity provider emulation with tenant-aware OIDC discovery, Universal Login pages, PKCE, refresh token rotation, Userinfo, and Management API resources.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /.well-known/jwks.json` - JSON Web Key Set (JWKS)
+- `GET /authorize` - authorization endpoint (shows Universal Login)
+- `POST /oauth/token` - token exchange (authorization code, refresh token, client credentials)
+- `GET /userinfo` - OpenID Connect user info
+- `GET /v2/logout` - logout
+- `GET /api/v2/users` / `POST /api/v2/users` - list and create users
+- `GET /api/v2/roles` / `POST /api/v2/roles` - list and create roles
+- `GET /api/v2/applications` / `POST /api/v2/applications` - list and create applications
+- `GET /api/v2/organizations` / `POST /api/v2/organizations` - list and create organizations
+- `GET /api/v2/connections` / `POST /api/v2/connections` - list and create connections
 
 ## Next.js Integration
 

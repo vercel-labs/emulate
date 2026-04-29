@@ -1,0 +1,85 @@
+# Auth0
+
+Auth0 identity provider emulation with OAuth 2.0 / OIDC, Universal Login pages, refresh token rotation, Userinfo, and Management API resources for users, roles, applications, organizations, and connections.
+
+## OAuth / OIDC
+
+- `GET /.well-known/openid-configuration` — OIDC discovery
+- `GET /.well-known/jwks.json` — JSON Web Key Set
+- `GET /authorize` — authorization endpoint
+- `GET /u/login` — Universal Login page
+- `POST /oauth/token` — token endpoint
+- `GET /userinfo` — user info
+- `GET /v2/logout` — logout
+
+Authorization Code with PKCE is supported with both `plain` and `S256` code challenge methods. The token endpoint supports `authorization_code`, `refresh_token`, and `client_credentials`.
+
+## Tenant URLs
+
+Auth0 advertises tenant-aware URLs. With this config:
+
+```yaml
+auth0:
+  tenant: my-tenant
+```
+
+Discovery returns endpoints under:
+
+```text
+http://my-tenant.auth0.localhost:4012
+```
+
+For test environments that cannot route subdomains, call discovery with a tenant query parameter:
+
+```bash
+curl "http://localhost:4012/.well-known/openid-configuration?tenant=my-tenant"
+```
+
+The returned endpoints include the same `tenant` parameter.
+
+## Management API
+
+- `GET /api/v2/users` — list users
+- `POST /api/v2/users` — create user
+- `GET /api/v2/users/:id` — get user
+- `PATCH /api/v2/users/:id` — update user
+- `DELETE /api/v2/users/:id` — delete user
+- `GET /api/v2/users/:id/roles` — list user roles
+- `POST /api/v2/users/:id/roles` — assign roles
+- `GET /api/v2/roles` — list roles
+- `POST /api/v2/roles` — create role
+- `GET /api/v2/applications` — list applications
+- `POST /api/v2/applications` — create application
+- `GET /api/v2/organizations` — list organizations
+- `POST /api/v2/organizations` — create organization
+- `GET /api/v2/connections` — list connections
+- `POST /api/v2/connections` — create connection
+
+## Seed Config
+
+```yaml
+auth0:
+  tenant: my-tenant
+  applications:
+    - client_id: my-app
+      client_secret: secret
+      name: My App
+      callbacks:
+        - http://localhost:3000/api/auth/callback
+      grant_types:
+        - authorization_code
+        - refresh_token
+        - client_credentials
+  users:
+    - email: dev@example.com
+      name: Developer
+      password: pass
+  roles:
+    - name: admin
+  connections:
+    - name: Username-Password-Authentication
+      strategy: auth0
+  apis:
+    - audience: https://api.example.test/
+      name: Example API
+```

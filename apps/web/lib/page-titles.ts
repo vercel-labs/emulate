@@ -12,6 +12,7 @@ export const PAGE_TITLES: Record<string, string> = {
   aws: "AWS",
   okta: "Okta",
   mongoatlas: "MongoDB Atlas",
+  auth0: "Auth0",
   resend: "Resend",
   stripe: "Stripe",
   authentication: "Authentication",
