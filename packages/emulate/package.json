@@ -68,6 +68,7 @@
     "@emulators/mongoatlas": "workspace:*",
     "@emulators/slack": "workspace:*",
     "@emulators/vercel": "workspace:*",
+    "@emulators/posthog": "workspace:*",
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
