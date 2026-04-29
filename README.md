@@ -16,7 +16,13 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
+- **Okta** on `http://localhost:4006`
+- **AWS** on `http://localhost:4007`
+- **Resend** on `http://localhost:4008`
+- **Stripe** on `http://localhost:4009`
+- **MongoDB Atlas** on `http://localhost:4010`
+- **Clerk** on `http://localhost:4011`
+- **PostHog** on `http://localhost:4012`
 
 ## CLI
 
@@ -141,7 +147,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'posthog'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -299,6 +305,22 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+
+posthog:
+  projects:
+    - id: 1
+      api_token: phc_test
+  feature_flags:
+    - key: new-checkout
+      project_id: 1
+      default: false
+      conditions:
+        - property: email
+          operator: icontains
+          value: "@acme.com"
+          variant: true
+      overrides:
+        user-123: true
 ```
 
 ## OAuth & Integrations
@@ -690,6 +712,18 @@ All operations via `POST /iam/` with `Action` parameter:
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
 
+## PostHog
+
+Product analytics capture and feature flag decision emulation for local event assertions and SDK tests.
+
+- `POST /capture/` - capture a single event with `api_key`
+- `POST /batch/` - capture multiple events with `api_key`
+- `POST /e/` and `POST /track/` - capture aliases
+- `POST /decide/` - evaluate seeded feature flags with `token`, `distinct_id`, and `person_properties`
+- `GET /_inspector` - inspect captured events and feature flags
+
+Capture accepts JSON, form encoded `data=<json>`, and `text/plain` sendBeacon payloads. Feature flags support distinct ID overrides and simple person property conditions. Session replay, insights, cohorts, surveys, and the admin REST API are not implemented.
+
 ## Next.js Integration
 
 Embed emulators directly in your Next.js app so they run on the same origin. This solves the Vercel preview deployment problem where OAuth callback URLs change with every deployment.
@@ -816,7 +850,13 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
+    okta/           # Okta OAuth 2.0 / OIDC + management API
     aws/            # AWS S3, SQS, IAM, STS
+    resend/         # Resend email API
+    stripe/         # Stripe payments API
+    mongoatlas/     # MongoDB Atlas Admin API and Data API
+    clerk/          # Clerk auth and user management
+    posthog/        # PostHog capture and feature flags
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -840,3 +880,5 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+**PostHog**: Capture and decide routes use body-token auth. Send `api_key` to capture routes and `token` to `/decide/`.

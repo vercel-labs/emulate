@@ -27,6 +27,7 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "posthog",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -445,6 +446,31 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             client_secret: "clerk_emulate_secret",
             name: "Emulate App",
             redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
+          },
+        ],
+      },
+    },
+  },
+  posthog: {
+    label: "PostHog analytics emulator",
+    endpoints: "event capture, batch capture, feature flag decide, inspector UI",
+    async load() {
+      const mod = await import("@emulators/posthog");
+      return { plugin: mod.posthogPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "phc_test_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      posthog: {
+        projects: [{ id: 1, api_token: "phc_test" }],
+        feature_flags: [
+          {
+            key: "new-checkout",
+            project_id: 1,
+            default: false,
+            conditions: [{ property: "email", operator: "icontains", value: "@acme.com", variant: true }],
+            overrides: { "user-123": true },
           },
         ],
       },
