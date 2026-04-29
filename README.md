@@ -141,7 +141,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'aws'`, or `'linear'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -689,6 +689,19 @@ All operations via `POST /iam/` with `Action` parameter:
 ### STS
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
+
+## Linear API
+
+Linear is GraphQL-only. The emulator implements the `POST /graphql` endpoint with introspection, read-only Query resolvers, Relay-style pagination, and PAT authentication via `Authorization: <api_key>`. Mutations, webhooks, OAuth 2.0, and an inspector UI are follow-up PRs.
+
+```bash
+curl http://localhost:4012/graphql \
+  -H "Authorization: lin_api_test" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ issues(first: 10) { nodes { id identifier title state { name } team { key } } pageInfo { hasNextPage endCursor } } }"}'
+```
+
+Schema covers `Issue`, `Project`, `Team`, `User`, `Organization`, `Label`, and `WorkflowState`. Each list field accepts the standard Relay arguments (`first`, `after`, `last`, `before`) and returns connections with `edges`, `nodes`, and `pageInfo`. Errors follow Linear's envelope shape with `extensions.code`.
 
 ## Next.js Integration
 

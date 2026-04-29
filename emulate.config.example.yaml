@@ -128,3 +128,44 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+
+linear:
+  api_keys: [lin_api_test]
+  organizations:
+    - id: org-1
+      name: My Org
+  teams:
+    - id: team-1
+      name: Engineering
+      key: ENG
+      organization: org-1
+  workflow_states:
+    - id: ws-1
+      name: Todo
+      type: unstarted
+      team: team-1
+    - id: ws-2
+      name: In Progress
+      type: started
+      team: team-1
+  users:
+    - id: user-1
+      name: Developer
+      email: dev@example.com
+      organization: org-1
+  labels:
+    - id: label-1
+      name: Bug
+      team: team-1
+  projects:
+    - id: project-1
+      name: Launch
+      team: team-1
+      lead: user-1
+  issues:
+    - id: issue-1
+      title: First issue
+      team: team-1
+      state: ws-1
+      assignee: user-1
+      labels: [label-1]

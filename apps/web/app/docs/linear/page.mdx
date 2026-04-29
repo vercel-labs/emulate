@@ -1,0 +1,140 @@
+# Linear API
+
+The Linear emulator provides a Phase 1 GraphQL API for local development and CI. It exposes `POST /graphql` with schema introspection, PAT authentication, read only query resolvers, and Relay style connections.
+
+Phase 1 includes `Issue`, `Project`, `Team`, `User`, `Organization`, `Label`, and `WorkflowState`. Mutations, webhooks, OAuth 2.0, and an inspector UI are planned follow up PRs.
+
+## Start
+
+```bash
+npx emulate --service linear
+```
+
+Default URL:
+
+```text
+http://localhost:4012
+```
+
+## Auth
+
+Linear personal access tokens are passed as the raw `Authorization` header value:
+
+```bash
+curl http://localhost:4012/graphql \
+  -H "Authorization: lin_api_test" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ viewer { id name email } }"}'
+```
+
+`Authorization: Bearer lin_api_test` is also accepted for client compatibility.
+
+## GraphQL
+
+The endpoint accepts the standard GraphQL HTTP request shape:
+
+```json
+{
+  "query": "query Issues($first: Int) { issues(first: $first) { nodes { id title } } }",
+  "variables": { "first": 10 },
+  "operationName": "Issues"
+}
+```
+
+Introspection works with the same endpoint, so GraphQL clients can fetch the schema.
+
+## Queries
+
+```graphql
+query {
+  issues(first: 10) {
+    nodes {
+      id
+      identifier
+      title
+      team {
+        key
+        name
+      }
+      state {
+        name
+        type
+      }
+      assignee {
+        name
+        email
+      }
+      labels(first: 5) {
+        nodes {
+          name
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+```
+
+Available root queries:
+
+- `viewer`
+- `organization(id)`
+- `organizations(first, after, last, before)`
+- `user(id)`
+- `users(first, after, last, before)`
+- `team(id)`
+- `teams(first, after, last, before)`
+- `workflowState(id)`
+- `workflowStates(first, after, last, before)`
+- `label(id)`
+- `labels(first, after, last, before)`
+- `project(id)`
+- `projects(first, after, last, before)`
+- `issue(id, identifier)`
+- `issues(first, after, last, before)`
+
+All list queries return Relay style `edges`, `nodes`, and `pageInfo`.
+
+## Seed Config
+
+```yaml
+linear:
+  api_keys: [lin_api_test]
+  organizations:
+    - id: org-1
+      name: My Org
+  teams:
+    - id: team-1
+      name: Engineering
+      key: ENG
+      organization: org-1
+  workflow_states:
+    - id: ws-1
+      name: Todo
+      type: unstarted
+      team: team-1
+  users:
+    - id: user-1
+      name: Developer
+      email: dev@example.com
+      organization: org-1
+  labels:
+    - id: label-1
+      name: Bug
+      team: team-1
+  projects:
+    - id: project-1
+      name: Launch
+      team: team-1
+      lead: user-1
+  issues:
+    - id: issue-1
+      title: First issue
+      team: team-1
+      state: ws-1
+      assignee: user-1
+      labels: [label-1]
+```

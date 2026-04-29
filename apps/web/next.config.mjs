@@ -17,6 +17,7 @@ const oldDocsSlugs = [
   "mongoatlas",
   "resend",
   "stripe",
+  "linear",
   "authentication",
   "architecture",
 ];
