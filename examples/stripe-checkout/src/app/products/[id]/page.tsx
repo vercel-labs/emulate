@@ -18,9 +18,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   }
 
   const prices = await stripe.prices.list({ active: true });
-  const price = prices.data.find(
-    (p) => (typeof p.product === "string" ? p.product : p.product?.id) === product.id,
-  );
+  const price = prices.data.find((p) => (typeof p.product === "string" ? p.product : p.product?.id) === product.id);
 
   const imageSrc = productImages[product.name];
 

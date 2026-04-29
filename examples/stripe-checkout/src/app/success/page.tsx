@@ -44,9 +44,7 @@ export default async function SuccessPage({ searchParams }: { searchParams: Prom
         {customer?.email && <Row label="Email" value={customer.email} />}
         <Row label="Session" value={session.id} mono />
         <Row label="Status" value={session.payment_status ?? "unknown"} />
-        {order?.completedAt && (
-          <Row label="Confirmed" value={new Date(order.completedAt).toLocaleTimeString()} />
-        )}
+        {order?.completedAt && <Row label="Confirmed" value={new Date(order.completedAt).toLocaleTimeString()} />}
         {order?.paymentIntentId && <Row label="Payment Intent" value={order.paymentIntentId} mono />}
         {order?.chargeId && <Row label="Charge" value={order.chargeId} mono />}
       </div>

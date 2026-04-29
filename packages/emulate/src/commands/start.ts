@@ -172,7 +172,13 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-    const { app, store, webhooks } = createServer(loadedSvc.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
+    const { app, store, webhooks } = createServer(loadedSvc.plugin, {
+      port,
+      baseUrl,
+      tokens,
+      appKeyResolver,
+      fallbackUser,
+    });
     cachedResolver = loadedSvc.createAppKeyResolver?.(store);
     stores.push(store);
 

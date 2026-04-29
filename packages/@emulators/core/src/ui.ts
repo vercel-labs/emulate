@@ -419,17 +419,17 @@ export interface CheckoutPageOptions {
 }
 
 export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string): string {
-  const fmt = (cents: number, cur: string) =>
-    `$${(cents / 100).toFixed(2)} ${cur.toUpperCase()}`;
+  const fmt = (cents: number, cur: string) => `$${(cents / 100).toFixed(2)} ${cur.toUpperCase()}`;
   const fmtShort = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-  const itemsHtml = opts.lineItems.length > 0
-    ? opts.lineItems.map((li) => {
-        const initial = li.name.charAt(0).toUpperCase();
-        const unitNote = li.quantity > 1
-          ? `<div class="checkout-item-unit">${fmtShort(li.unitPrice)} each</div>`
-          : "";
-        return `<div class="checkout-line-item">
+  const itemsHtml =
+    opts.lineItems.length > 0
+      ? opts.lineItems
+          .map((li) => {
+            const initial = li.name.charAt(0).toUpperCase();
+            const unitNote =
+              li.quantity > 1 ? `<div class="checkout-item-unit">${fmtShort(li.unitPrice)} each</div>` : "";
+            return `<div class="checkout-line-item">
   <div class="checkout-item-icon">${escapeHtml(initial)}</div>
   <div class="checkout-item-details">
     <div class="checkout-item-name">${escapeHtml(li.name)}</div>
@@ -440,8 +440,9 @@ export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string):
     ${unitNote}
   </div>
 </div>`;
-      }).join("")
-    : '<p class="empty">No line items</p>';
+          })
+          .join("")
+      : '<p class="empty">No line items</p>';
 
   const totalsHtml = `<div class="checkout-totals">
   <div class="checkout-totals-row">
@@ -456,9 +457,7 @@ export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string):
     ? `<div class="checkout-cancel"><a href="${escapeAttr(opts.cancelUrl)}">Cancel</a></div>`
     : "";
 
-  const merchant = opts.merchantName
-    ? escapeHtml(opts.merchantName)
-    : "Checkout";
+  const merchant = opts.merchantName ? escapeHtml(opts.merchantName) : "Checkout";
 
   return `${head("Checkout")}
 <body>

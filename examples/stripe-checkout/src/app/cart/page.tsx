@@ -40,13 +40,7 @@ export default function CartPage() {
             <div key={item.priceId} className="flex items-start gap-5 py-6">
               {imageSrc && (
                 <div className="relative aspect-square w-20 shrink-0 overflow-hidden bg-secondary border border-border">
-                  <Image
-                    src={imageSrc}
-                    alt={item.productName}
-                    fill
-                    className="object-cover"
-                    sizes="80px"
-                  />
+                  <Image src={imageSrc} alt={item.productName} fill className="object-cover" sizes="80px" />
                 </div>
               )}
 
