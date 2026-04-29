@@ -6,6 +6,7 @@ import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
 import pc from "picocolors";
 import { ensurePortless, registerAliases, removeAliases, portlessBaseUrl, type PortlessAlias } from "../portless.js";
+import { resolveBaseUrl } from "../base-url.js";
 
 declare const PKG_VERSION: string;
 const pkg = { version: PKG_VERSION };
@@ -76,28 +77,6 @@ function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
   return found.length > 0 ? [...found] : null;
 }
 
-function resolveBaseUrl(
-  service: string,
-  port: number,
-  svcSeedConfig: Record<string, unknown> | undefined,
-  cliBaseUrl: string | undefined,
-): string {
-  if (typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0) {
-    return svcSeedConfig.baseUrl;
-  }
-  if (cliBaseUrl) {
-    return cliBaseUrl.replace(/\{service\}/g, service);
-  }
-  const envBaseUrl = process.env.EMULATE_BASE_URL;
-  if (envBaseUrl) {
-    return envBaseUrl.replace(/\{service\}/g, service);
-  }
-  if (process.env.PORTLESS_URL) {
-    return process.env.PORTLESS_URL.replace(/\{service\}/g, service);
-  }
-  return `http://localhost:${port}`;
-}
-
 export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
 
@@ -159,7 +138,10 @@ export async function startCommand(options: StartOptions): Promise<void> {
       portlessAliases.push({ name: aliasName, port });
       baseUrl = portlessBaseUrl(svc);
     } else {
-      baseUrl = resolveBaseUrl(svc, port, svcSeedConfig, options.baseUrl);
+      const seedBaseUrl = typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
+        ? svcSeedConfig.baseUrl
+        : undefined;
+      baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: options.baseUrl, seedBaseUrl });
     }
     serviceUrls.push({ name: svc, url: baseUrl });
 
@@ -199,14 +181,11 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
   printBanner(serviceUrls, tokens, configSource);
 
-  if (portlessAliases.length > 0) {
-    process.on("exit", () => {
-      removeAliases(portlessAliases);
-    });
-  }
-
   const shutdown = () => {
     console.log(`\n${pc.dim("Shutting down...")}`);
+    if (portlessAliases.length > 0) {
+      removeAliases(portlessAliases);
+    }
     for (const store of stores) {
       store.reset();
     }

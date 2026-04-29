@@ -85,6 +85,8 @@ For a custom base URL without portless (any reverse proxy), use `--base-url` or 
 emulate start --base-url "https://{service}.myproxy.test"
 ```
 
+The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`). When no explicit `baseUrl` is provided, it is used as a fallback.
+
 Per-service overrides are also supported in the seed config:
 
 ```yaml
@@ -142,7 +144,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Falls back to `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL`, then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Falls back to `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
 
 ### Instance methods
 

@@ -21,29 +21,39 @@ function promptYesNo(question: string): Promise<boolean> {
   });
 }
 
+function isProxyRunning(): boolean {
+  const result = spawnSync("portless", ["proxy", "status"], { stdio: "ignore" });
+  return result.status === 0;
+}
+
 export async function ensurePortless(): Promise<void> {
-  if (hasPortless()) return;
-
-  if (!isInteractive()) {
-    console.error("portless is required but not installed. Run: npm i -g portless");
-    process.exit(1);
-  }
-
-  const yes = await promptYesNo("portless is not installed. Install it now? (npm i -g portless) [Y/n] ");
-  if (!yes) {
-    console.error("Cannot continue without portless.");
-    process.exit(1);
-  }
-
-  try {
-    execSync("npm i -g portless", { stdio: "inherit" });
-  } catch {
-    console.error("Failed to install portless.");
-    process.exit(1);
-  }
-
   if (!hasPortless()) {
-    console.error("portless was installed but could not be found on PATH.");
+    if (!isInteractive()) {
+      console.error("portless is required but not installed. Run: npm i -g portless");
+      process.exit(1);
+    }
+
+    const yes = await promptYesNo("portless is not installed. Install it now? (npm i -g portless) [Y/n] ");
+    if (!yes) {
+      console.error("Cannot continue without portless.");
+      process.exit(1);
+    }
+
+    try {
+      execSync("npm i -g portless", { stdio: "inherit" });
+    } catch {
+      console.error("Failed to install portless.");
+      process.exit(1);
+    }
+
+    if (!hasPortless()) {
+      console.error("portless was installed but could not be found on PATH.");
+      process.exit(1);
+    }
+  }
+
+  if (!isProxyRunning()) {
+    console.error("portless proxy is not running. Start it with: portless proxy start");
     process.exit(1);
   }
 }

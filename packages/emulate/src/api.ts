@@ -3,6 +3,7 @@ import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { serve } from "@hono/node-server";
+import { resolveBaseUrl } from "./base-url.js";
 
 export interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
@@ -42,10 +43,11 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
-  const baseUrl = options.baseUrl
-    ?? process.env.EMULATE_BASE_URL?.replace(/\{service\}/g, service)
-    ?? process.env.PORTLESS_URL?.replace(/\{service\}/g, service)
-    ?? `http://localhost:${port}`;
+  const svcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
+  const seedBaseUrl = typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
+    ? svcSeedConfig.baseUrl
+    : undefined;
+  const baseUrl = resolveBaseUrl({ service, port, baseUrl: options.baseUrl, seedBaseUrl });
 
   // eslint-disable-next-line prefer-const -- reassigned after closure captures it
   let cachedResolver: AppKeyResolver | undefined;
@@ -53,7 +55,6 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     ? (appId) => cachedResolver!(appId)
     : undefined;
 
-  const svcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
   const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
   const { app, store } = createServer(loaded.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
