@@ -235,6 +235,38 @@ describe("Auth0 plugin integration", () => {
       expect(code).toBeTruthy();
       expect(state).toBe("state-1");
     });
+
+    it("completes consent callback with selected user", async () => {
+      const auth0 = getAuth0Store(store);
+      const userRef = auth0.users.findOneBy("email", "alice@example.com")?.auth0_id ?? "";
+      const redirectUri = "http://localhost:3000/callback";
+      const query = new URLSearchParams({
+        client_id: "auth0-test-client",
+        redirect_uri: redirectUri,
+        response_type: "code",
+        response_mode: "query",
+        scope: "openid profile email",
+        state: "state-2",
+        user_ref: userRef,
+        tenant: "acme",
+      });
+
+      const consent = await app.request(`${base}/u/consent?${query.toString()}`);
+      expect(consent.status).toBe(200);
+      expect(await consent.text()).toContain(`name="user_ref" value="${userRef}"`);
+
+      const formData = new URLSearchParams(query);
+      formData.set("issuer", `${base}/?tenant=acme`);
+      const response = await app.request(`${base}/u/consent/callback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formData.toString(),
+      });
+      const location = new URL(response.headers.get("location") ?? "");
+      expect(response.status).toBe(302);
+      expect(location.searchParams.get("code")).toBeTruthy();
+      expect(location.searchParams.get("state")).toBe("state-2");
+    });
   });
 
   describe("OAuth flows", () => {

@@ -191,11 +191,11 @@ export function authorizeRoutes({ app, store, baseUrl }: RouteContext): void {
   app.post("/u/login/callback", handleCallback);
   app.get("/u/consent", (c) => {
     const client = auth0.applications.findOneBy("client_id", c.req.query("client_id") ?? "");
-    return renderConsent(
-      c,
-      client?.name ?? "Application",
-      hiddenFromQuery(c, tenantBaseUrl(c, baseUrl, getTenant(store))),
-    );
+    const userRef = c.req.query("user_ref") ?? "";
+    return renderConsent(c, client?.name ?? "Application", {
+      ...hiddenFromQuery(c, tenantBaseUrl(c, baseUrl, getTenant(store))),
+      user_ref: userRef,
+    });
   });
   app.post("/u/consent/callback", handleCallback);
 
