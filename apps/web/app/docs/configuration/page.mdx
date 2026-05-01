@@ -327,6 +327,34 @@ mongoatlas:
       username: app-user
 ```
 
+## Auth0 Seed Config
+
+```yaml
+auth0:
+  tenant: my-tenant
+  applications:
+    - client_id: my-app
+      client_secret: secret
+      callbacks:
+        - http://localhost:3000/api/auth/callback
+      grant_types:
+        - authorization_code
+        - refresh_token
+        - client_credentials
+  users:
+    - email: dev@example.com
+      name: Developer
+      password: pass
+  roles:
+    - name: admin
+  connections:
+    - name: Username-Password-Authentication
+      strategy: auth0
+  apis:
+    - audience: https://api.example.test/
+      name: Example API
+```
+
 ## Resend Seed Config
 
 ```yaml
