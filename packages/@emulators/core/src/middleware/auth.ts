@@ -1,5 +1,6 @@
 import type { Context, Next } from "../http.js";
-import { jwtVerify, importPKCS8 } from "jose";
+import { createPublicKey } from "crypto";
+import { jwtVerify } from "jose";
 import { debug } from "../debug.js";
 
 export interface AuthUser {
@@ -92,8 +93,8 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
           if (typeof appId === "number" && !isNaN(appId)) {
             const appInfo = appKeyResolver(appId);
             if (appInfo) {
-              const key = await importPKCS8(appInfo.privateKey, "RS256");
-              await jwtVerify(token, key, { algorithms: ["RS256"] });
+              const publicKey = createPublicKey(appInfo.privateKey);
+              await jwtVerify(token, publicKey, { algorithms: ["RS256"] });
               c.set("authApp", {
                 appId,
                 slug: appInfo.slug,

@@ -1,9 +1,9 @@
-import { createHmac } from "crypto";
+import { createHmac, generateKeyPairSync, sign } from "crypto";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "@emulators/core";
 import { Store, WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
-import { githubPlugin, seedFromConfig } from "../index.js";
+import { githubPlugin, seedFromConfig, getGitHubStore } from "../index.js";
 
 const base = "http://localhost:4000";
 
@@ -16,7 +16,15 @@ function createTestApp(seedConfig?: Parameters<typeof seedFromConfig>[2]) {
   const app = new Hono();
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
-  app.use("*", authMiddleware(tokenMap));
+  app.use(
+    "*",
+    authMiddleware(tokenMap, (appId) => {
+      const gh = getGitHubStore(store);
+      const ghApp = gh.apps.all().find((a) => a.app_id === appId);
+      if (!ghApp) return null;
+      return { privateKey: ghApp.private_key, slug: ghApp.slug, name: ghApp.name };
+    }),
+  );
   githubPlugin.register(app as any, store, webhooks, base, tokenMap);
   githubPlugin.seed?.(store, base);
   seedFromConfig(
@@ -29,6 +37,18 @@ function createTestApp(seedConfig?: Parameters<typeof seedFromConfig>[2]) {
   );
 
   return { app, store, webhooks, tokenMap };
+}
+
+function createAppJwt(appId: string, privateKey: string): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = { iat: nowSeconds - 60, exp: nowSeconds + 9 * 60, iss: appId };
+  const unsigned = `${base64UrlJson(header)}.${base64UrlJson(payload)}`;
+  return `${unsigned}.${sign("RSA-SHA256", Buffer.from(unsigned), privateKey).toString("base64url")}`;
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
 function authHeaders(): Record<string, string> {
@@ -291,6 +311,53 @@ describe("webhook installation enrichment", () => {
     expect(excludedCall).toBeDefined();
     const excludedBody = JSON.parse((excludedCall![1] as RequestInit).body as string);
     expect(excludedBody.installation).toBeUndefined();
+  });
+});
+
+describe("GitHub App installation token flow", () => {
+  it("accepts a valid App JWT and mints an installation token", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+    const { app } = createTestApp({
+      users: [{ login: "octocat" }],
+      repos: [{ owner: "octocat", name: "hello-world" }],
+      apps: [
+        {
+          app_id: 800,
+          slug: "token-app",
+          name: "Token App",
+          private_key: privateKeyPem,
+          permissions: { contents: "read", issues: "write" },
+          installations: [
+            {
+              installation_id: 99,
+              account: "octocat",
+              repository_selection: "selected",
+              repositories: ["octocat/hello-world"],
+            },
+          ],
+        },
+      ],
+    });
+
+    const response = await app.request(`${base}/app/installations/99/access_tokens`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${createAppJwt("800", privateKeyPem)}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ permissions: { contents: "read" } }),
+    });
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      token: string;
+      permissions: Record<string, string>;
+      repositories?: Array<{ full_name: string }>;
+    };
+    expect(body.token).toMatch(/^ghs_/);
+    expect(body.permissions).toEqual({ contents: "read" });
+    expect(body.repositories).toEqual([expect.objectContaining({ full_name: "octocat/hello-world" })]);
   });
 });
 
