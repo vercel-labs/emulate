@@ -134,6 +134,56 @@ function parseClientCredentials(
   return { clientId, clientSecret };
 }
 
+async function createAccessToken(
+  store: Store,
+  user: Auth0User,
+  clientId: string,
+  audience: string,
+  scope: string,
+  issuer: string,
+): Promise<string> {
+  const { privateKey, kid } = await getSigningKeyPair(store);
+  const now = Math.floor(Date.now() / 1000);
+
+  const claims: Record<string, unknown> = {
+    scope,
+    azp: clientId,
+  };
+
+  // Inject app_metadata fields as custom claims on the access token.
+  // In real Auth0, Rules/Actions map metadata fields to namespaced JWT claims.
+  // The emulator supports this via token_claim_mappings in seed config, which maps
+  // app_metadata keys to JWT claim names (e.g., role -> https://example.com/role).
+  // Any app_metadata key that is already a URL is also injected directly.
+  if (user.app_metadata && typeof user.app_metadata === "object") {
+    const mappings = store.getData<Record<string, string>>("auth0.token_claim_mappings") ?? {};
+    for (const [metaKey, value] of Object.entries(user.app_metadata)) {
+      if (value === null || value === undefined) continue;
+      // Apply configured mappings (e.g., role -> https://example.com/role)
+      if (mappings[metaKey]) {
+        claims[mappings[metaKey]] = value;
+      }
+      // URL-namespaced keys pass through directly
+      if (metaKey.startsWith("https://")) {
+        claims[metaKey] = value;
+      }
+    }
+  }
+
+  const builder = new SignJWT(claims)
+    .setProtectedHeader({ alg: "RS256", kid, typ: "JWT" })
+    .setSubject(user.user_id)
+    .setIssuer(issuer)
+    .setIssuedAt(now)
+    .setExpirationTime("1h");
+
+  if (audience) {
+    builder.setAudience(audience);
+  }
+
+  return builder.sign(privateKey);
+}
+
 async function createIdToken(store: Store, user: Auth0User, clientId: string, issuer: string): Promise<string> {
   const { privateKey, kid } = await getSigningKeyPair(store);
   const now = Math.floor(Date.now() / 1000);
@@ -275,10 +325,15 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
 
       const now = Math.floor(Date.now() / 1000);
-      const accessToken = generateToken("auth0_at");
       const includeRefresh = scope.includes("offline_access");
       const refreshToken = includeRefresh ? generateToken("auth0_rt") : null;
       const issuer = `${baseUrl}/`;
+
+      // When audience is specified, return a JWT access token (matches real Auth0 behavior).
+      // Otherwise return an opaque token.
+      const accessToken = audience
+        ? await createAccessToken(store, user, creds.clientId, audience, scope, issuer)
+        : generateToken("auth0_at");
 
       getAccessTokens(store).set(accessToken, {
         clientId: creds.clientId,
@@ -336,10 +391,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       getRefreshTokens(store).delete(refreshToken);
 
       const now = Math.floor(Date.now() / 1000);
-      const nextAccessToken = generateToken("auth0_at");
       const nextRefreshToken = generateToken("auth0_rt");
       const scope = existing.scope;
       const issuer = `${baseUrl}/`;
+
+      const nextAccessToken = existing.audience
+        ? await createAccessToken(store, user, existing.clientId, existing.audience, scope, issuer)
+        : generateToken("auth0_at");
 
       getAccessTokens(store).set(nextAccessToken, {
         clientId: existing.clientId,

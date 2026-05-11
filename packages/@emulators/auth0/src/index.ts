@@ -48,6 +48,7 @@ export interface Auth0SeedConfig {
     public_key_pem: string;
     kid?: string;
   };
+  token_claim_mappings?: Record<string, string>;
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -160,6 +161,10 @@ export function seedFromConfig(
       public_key_pem,
       kid: config.signing_key.kid ?? "emulate-auth0-1",
     });
+  }
+
+  if (config.token_claim_mappings) {
+    store.setData("auth0.token_claim_mappings", config.token_claim_mappings);
   }
 
   if (config.log_streams && webhooks) {
