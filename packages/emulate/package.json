@@ -63,6 +63,7 @@
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",
     "@emulators/okta": "workspace:*",
+    "@emulators/auth0": "workspace:*",
     "@emulators/aws": "workspace:*",
     "@emulators/google": "workspace:*",
     "@emulators/mongoatlas": "workspace:*",
