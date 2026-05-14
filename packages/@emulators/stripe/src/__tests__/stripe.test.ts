@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { createHmac } from "crypto";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "hono";
 import {
   Store,
@@ -41,12 +42,15 @@ function auth(): Record<string, string> {
 
 describe("Stripe plugin", () => {
   let app: Hono;
-  let webhooks: WebhookDispatcher;
 
   beforeEach(() => {
     const ctx = createTestApp();
     app = ctx.app;
-    webhooks = ctx.webhooks;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   describe("customers", () => {
@@ -479,6 +483,37 @@ describe("Stripe plugin", () => {
       const prices = ss.prices.findBy("product_id", widget!.stripe_id);
       expect(prices).toHaveLength(1);
       expect(prices[0].unit_amount).toBe(999);
+    });
+
+    it("registers seeded webhooks with Stripe signature headers", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const store = new Store();
+      const webhooks = new WebhookDispatcher();
+      const secret = "whsec_test";
+      seedFromConfig(
+        store,
+        base,
+        {
+          webhooks: [{ url: "https://hooks.example/stripe", events: ["customer.created"], secret }],
+        },
+        webhooks,
+      );
+
+      await webhooks.dispatch("customer.created", undefined, { id: "evt_123" }, "stripe");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [, init] = mockFetch.mock.calls[0]!;
+      const body = (init as RequestInit).body as string;
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      const timestamp = 1704067200;
+      const expectedHmac = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+      expect(headers["Stripe-Signature"]).toBe(`t=${timestamp},v1=${expectedHmac}`);
+      expect(headers["X-Hub-Signature-256"]).toBeUndefined();
     });
   });
 });

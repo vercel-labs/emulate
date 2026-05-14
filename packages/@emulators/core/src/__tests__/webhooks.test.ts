@@ -152,6 +152,7 @@ describe("WebhookDispatcher", () => {
     });
 
     afterEach(() => {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     });
 
@@ -265,6 +266,36 @@ describe("WebhookDispatcher", () => {
       const headers = (init as RequestInit).headers as Record<string, string>;
       const expectedHmac = createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
       expect(headers["X-Hub-Signature-256"]).toBe(`sha256=${expectedHmac}`);
+      expect(body).toBe(JSON.stringify(payload));
+    });
+
+    it("sets Stripe-Signature for stripe webhook subscriptions", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+
+      const d = new WebhookDispatcher();
+      const secret = "whsec_test";
+      d.register({
+        url: "https://hooks.example/stripe",
+        events: ["customer.created"],
+        active: true,
+        owner: "stripe",
+        secret,
+        signatureScheme: "stripe",
+      });
+
+      const payload = { id: "evt_123", type: "customer.created" };
+      await d.dispatch("customer.created", undefined, payload, "stripe");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [, init] = mockFetch.mock.calls[0]!;
+      const body = (init as RequestInit).body as string;
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      const timestamp = 1704067200;
+      const expectedHmac = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+      expect(headers["Stripe-Signature"]).toBe(`t=${timestamp},v1=${expectedHmac}`);
+      expect(headers["X-Hub-Signature-256"]).toBeUndefined();
+      expect(headers["X-GitHub-Event"]).toBeUndefined();
       expect(body).toBe(JSON.stringify(payload));
     });
 

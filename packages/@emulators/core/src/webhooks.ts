@@ -1,11 +1,14 @@
 import { createHmac } from "crypto";
 
+export type WebhookSignatureScheme = "github" | "stripe";
+
 export interface WebhookSubscription {
   id: number;
   url: string;
   events: string[];
   active: boolean;
   secret?: string;
+  signatureScheme?: WebhookSignatureScheme;
   owner: string;
   repo?: string;
 }
@@ -103,22 +106,13 @@ export class WebhookDispatcher {
 
       const body = JSON.stringify(payload);
 
-      const signatureHeaders: Record<string, string> = {};
-      if (sub.secret) {
-        const hmac = createHmac("sha256", sub.secret).update(body).digest("hex");
-        signatureHeaders["X-Hub-Signature-256"] = `sha256=${hmac}`;
-      }
+      const headers = buildWebhookHeaders(sub, event, delivery.id, body);
 
       try {
         const start = Date.now();
         const response = await fetch(sub.url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-GitHub-Event": event,
-            "X-GitHub-Delivery": String(delivery.id),
-            ...signatureHeaders,
-          },
+          headers,
           body,
           signal: AbortSignal.timeout(10000),
         });
@@ -150,4 +144,35 @@ export class WebhookDispatcher {
     this.subscriptionIdCounter = 1;
     this.deliveryIdCounter = 1;
   }
+}
+
+function buildWebhookHeaders(
+  sub: WebhookSubscription,
+  event: string,
+  deliveryId: number,
+  body: string,
+): Record<string, string> {
+  if (sub.signatureScheme === "stripe") {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (sub.secret) {
+      const timestamp = Math.floor(Date.now() / 1000);
+      const payload = `${timestamp}.${body}`;
+      const signature = createHmac("sha256", sub.secret).update(payload).digest("hex");
+      headers["Stripe-Signature"] = `t=${timestamp},v1=${signature}`;
+    }
+    return headers;
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-GitHub-Event": event,
+    "X-GitHub-Delivery": String(deliveryId),
+  };
+  if (sub.secret) {
+    const hmac = createHmac("sha256", sub.secret).update(body).digest("hex");
+    headers["X-Hub-Signature-256"] = `sha256=${hmac}`;
+  }
+  return headers;
 }
