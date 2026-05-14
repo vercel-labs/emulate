@@ -1,7 +1,7 @@
 ---
 name: mongoatlas
 description: Emulated MongoDB Atlas Admin API v2 and Data API v1 for local development and testing. Use when the user needs to manage Atlas projects, clusters, database users, databases, collections, or test MongoDB Data API document operations without hitting real Atlas. Triggers include "MongoDB Atlas", "Atlas Data API", "emulate Atlas", "local MongoDB Atlas", "mongoatlas", "MONGOATLAS_EMULATOR_URL", or any task requiring a local Atlas API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*)
 ---
 
 # MongoDB Atlas Emulator
@@ -23,14 +23,14 @@ Or programmatically:
 ```typescript
 import { createEmulator } from 'emulate'
 
-const atlas = await createEmulator({ service: 'mongoatlas', port: 4010 })
-// atlas.url === 'http://localhost:4010'
+const atlas = await createEmulator({ service: 'mongoatlas', port: 4000 })
+// atlas.url === 'http://localhost:4000'
 ```
 
 ## Pointing Your App at the Emulator
 
 ```bash
-MONGOATLAS_EMULATOR_URL=http://localhost:4010
+MONGOATLAS_EMULATOR_URL=http://localhost:4000
 ```
 
 Use the emulator URL as the base URL for Atlas Admin API or Data API calls.

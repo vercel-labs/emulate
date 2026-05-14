@@ -1,7 +1,7 @@
 ---
 name: clerk
 description: Emulated Clerk authentication and user management API for local development and testing. Use when the user needs to test Clerk sign-in locally, emulate Clerk OIDC discovery/JWKS, manage users/email addresses/organizations/memberships/invitations/sessions, or point Clerk-style auth flows at a local API. Triggers include "Clerk API", "emulate Clerk", "test Clerk login", "Clerk OIDC", "Clerk users", "CLERK_EMULATOR_URL", or any task requiring a local Clerk API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*)
 ---
 
 # Clerk Emulator
@@ -23,20 +23,20 @@ Or programmatically:
 ```typescript
 import { createEmulator } from 'emulate'
 
-const clerk = await createEmulator({ service: 'clerk', port: 4011 })
-// clerk.url === 'http://localhost:4011'
+const clerk = await createEmulator({ service: 'clerk', port: 4000 })
+// clerk.url === 'http://localhost:4000'
 ```
 
 ## Pointing Your App at the Emulator
 
 ```bash
-CLERK_EMULATOR_URL=http://localhost:4011
+CLERK_EMULATOR_URL=http://localhost:4000
 ```
 
 Use the emulator URL as the issuer/base URL for OIDC flows and backend API calls.
 
 ```bash
-curl http://localhost:4011/v1/users \
+curl http://localhost:4000/v1/users \
   -H "Authorization: Bearer sk_test_emulate"
 ```
 

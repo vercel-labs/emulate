@@ -1,7 +1,7 @@
 ---
 name: okta
 description: Emulated Okta OAuth 2.0 / OpenID Connect and management API for local development and testing. Use when the user needs to test Okta sign-in locally, emulate Okta OIDC discovery, configure authorization servers, manage Okta users/groups/apps, or point an Okta SDK/Auth.js/Passport flow at a local API. Triggers include "Okta API", "emulate Okta", "test Okta login", "Okta OIDC", "Okta authorization server", "OKTA_EMULATOR_URL", or any task requiring a local Okta identity provider.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*)
 ---
 
 # Okta Emulator
@@ -23,14 +23,14 @@ Or programmatically:
 ```typescript
 import { createEmulator } from 'emulate'
 
-const okta = await createEmulator({ service: 'okta', port: 4006 })
-// okta.url === 'http://localhost:4006'
+const okta = await createEmulator({ service: 'okta', port: 4000 })
+// okta.url === 'http://localhost:4000'
 ```
 
 ## Pointing Your App at the Emulator
 
 ```bash
-OKTA_EMULATOR_URL=http://localhost:4006
+OKTA_EMULATOR_URL=http://localhost:4000
 ```
 
 Map real Okta URLs to the emulator base URL:
