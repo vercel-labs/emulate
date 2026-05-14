@@ -56,5 +56,8 @@ Clerk authentication and user management emulation with OIDC, users, email addre
 ## Sessions
 
 - `GET /v1/sessions` — list sessions
+- `POST /v1/sessions` — create session
 - `GET /v1/sessions/:sessionId` — get session
 - `POST /v1/sessions/:sessionId/revoke` — revoke session
+- `POST /v1/sessions/:sessionId/tokens` — issue session token
+- `POST /v1/sessions/:sessionId/tokens/:template` — issue session token for template
