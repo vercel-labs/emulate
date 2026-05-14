@@ -108,6 +108,7 @@ export function seedFromConfig(
         events: wh.events,
         active: true,
         secret: wh.secret,
+        signatureScheme: "stripe",
         owner: "stripe",
       });
     }
