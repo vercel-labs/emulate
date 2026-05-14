@@ -1,0 +1,63 @@
+# Clerk
+
+Clerk authentication and user management emulation with OIDC, users, email addresses, organizations, memberships, invitations, and sessions.
+
+## OAuth / OIDC
+
+- `GET /.well-known/openid-configuration` — OIDC discovery
+- `GET /v1/jwks` — JSON Web Key Set (JWKS)
+- `GET /oauth/authorize` — authorization endpoint with seeded user picker
+- `POST /oauth/token` — authorization code token exchange
+- `GET /oauth/userinfo` — user info
+
+## Users
+
+- `GET /v1/users` — list users
+- `GET /v1/users/count` — count users
+- `POST /v1/users` — create user
+- `GET /v1/users/:userId` — get user
+- `PATCH /v1/users/:userId` — update user
+- `DELETE /v1/users/:userId` — delete user
+- `POST /v1/users/:userId/ban` — ban user
+- `POST /v1/users/:userId/unban` — unban user
+- `POST /v1/users/:userId/lock` — lock user
+- `POST /v1/users/:userId/unlock` — unlock user
+
+## Email Addresses
+
+- `POST /v1/email_addresses` — create email address
+- `GET /v1/email_addresses/:emailAddressId` — get email address
+- `PATCH /v1/email_addresses/:emailAddressId` — update email address
+- `DELETE /v1/email_addresses/:emailAddressId` — delete email address
+- `POST /v1/email_addresses/:emailAddressId/verify` — verify email address
+
+## Organizations
+
+- `GET /v1/organizations` — list organizations
+- `POST /v1/organizations` — create organization
+- `GET /v1/organizations/:orgId` — get organization
+- `PATCH /v1/organizations/:orgId` — update organization
+- `DELETE /v1/organizations/:orgId` — delete organization
+
+## Memberships
+
+- `GET /v1/organizations/:orgId/memberships` — list memberships
+- `POST /v1/organizations/:orgId/memberships` — create membership
+- `GET /v1/organizations/:orgId/memberships/:userId` — get membership
+- `PATCH /v1/organizations/:orgId/memberships/:userId` — update membership
+- `DELETE /v1/organizations/:orgId/memberships/:userId` — delete membership
+
+## Invitations
+
+- `GET /v1/organizations/:orgId/invitations` — list invitations
+- `POST /v1/organizations/:orgId/invitations` — create invitation
+- `POST /v1/organizations/:orgId/invitations/bulk` — create invitations in bulk
+- `GET /v1/organizations/:orgId/invitations/:invitationId` — get invitation
+- `POST /v1/organizations/:orgId/invitations/:invitationId/revoke` — revoke invitation
+
+## Sessions
+
+- `GET /v1/sessions` — list sessions
+- `GET /v1/sessions/:sessionId` — get session
+- `POST /v1/sessions/:sessionId/revoke` — revoke session
+- `POST /v1/sessions/:sessionId/verify` — verify session token

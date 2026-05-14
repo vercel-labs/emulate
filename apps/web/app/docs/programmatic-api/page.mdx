@@ -59,7 +59,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>service</code></td>
       <td><em>(required)</em></td>
-      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>, <code>'mongoatlas'</code>, <code>'resend'</code>, or <code>'stripe'</code></td>
+      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'okta'</code>, <code>'aws'</code>, <code>'resend'</code>, <code>'stripe'</code>, <code>'mongoatlas'</code>, or <code>'clerk'</code></td>
     </tr>
     <tr>
       <td><code>port</code></td>
@@ -128,11 +128,12 @@ npm install @emulators/github @emulators/google @emulators/stripe
     <tr><td><code>@emulators/slack</code></td><td>Slack Web API, OAuth v2, webhooks</td></tr>
     <tr><td><code>@emulators/apple</code></td><td>Apple Sign In / OIDC</td></tr>
     <tr><td><code>@emulators/microsoft</code></td><td>Microsoft Entra ID, Graph API</td></tr>
-    <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, IAM, STS</td></tr>
     <tr><td><code>@emulators/okta</code></td><td>Okta identity provider / OIDC</td></tr>
-    <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
+    <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, IAM, STS</td></tr>
     <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
     <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
+    <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
+    <tr><td><code>@emulators/clerk</code></td><td>Clerk authentication and user management API</td></tr>
     <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
     <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
   </tbody>

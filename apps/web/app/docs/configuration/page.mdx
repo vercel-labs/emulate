@@ -265,6 +265,33 @@ microsoft:
       tenant_id: 9188040d-6c67-4c5b-b112-36a304b66dad
 ```
 
+## Okta Seed Config
+
+```yaml
+okta:
+  users:
+    - login: testuser@okta.local
+      email: testuser@okta.local
+      first_name: Test
+      last_name: User
+  groups:
+    - name: Everyone
+      description: All users
+      type: BUILT_IN
+      okta_id: 00g_everyone
+  authorization_servers:
+    - id: default
+      name: default
+      audiences: ["api://default"]
+  oauth_clients:
+    - client_id: okta-test-client
+      client_secret: okta-test-secret
+      name: Sample OIDC Client
+      redirect_uris:
+        - http://localhost:3000/callback
+      auth_server_id: default
+```
+
 ## AWS Seed Config
 
 ```yaml
@@ -293,48 +320,17 @@ aws:
 
 Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair.
 
-## Okta Seed Config
-
-```yaml
-okta:
-  users:
-    - login: testuser@example.com
-      email: testuser@example.com
-      firstName: Test
-      lastName: User
-  groups:
-    - name: Everyone
-      description: All users
-  apps:
-    - name: My App
-      label: My App
-  authorization_servers:
-    - name: default
-      audiences: ["api://default"]
-```
-
-## MongoDB Atlas Seed Config
-
-```yaml
-mongoatlas:
-  projects:
-    - name: my-project
-  clusters:
-    - project: my-project
-      name: my-cluster
-  database_users:
-    - project: my-project
-      username: app-user
-```
-
 ## Resend Seed Config
 
 ```yaml
 resend:
   domains:
     - name: example.com
-  api_keys:
-    - name: default
+      region: us-east-1
+  contacts:
+    - email: test@example.com
+      first_name: Test
+      last_name: User
 ```
 
 ## Stripe Seed Config
@@ -346,10 +342,50 @@ stripe:
       email: test@example.com
   products:
     - name: Pro Plan
+      description: Monthly pro subscription
   prices:
-    - product: Pro Plan
+    - product_name: Pro Plan
       unit_amount: 2000
       currency: usd
-      recurring:
-        interval: month
+```
+
+## MongoDB Atlas Seed Config
+
+```yaml
+mongoatlas:
+  projects:
+    - name: Project0
+  clusters:
+    - name: Cluster0
+      project: Project0
+  database_users:
+    - username: admin
+      project: Project0
+  databases:
+    - cluster: Cluster0
+      name: test
+      collections: [items]
+```
+
+## Clerk Seed Config
+
+```yaml
+clerk:
+  users:
+    - first_name: Test
+      last_name: User
+      email_addresses: [test@example.com]
+      password: clerk_test_password
+  organizations:
+    - name: My Company
+      slug: my-company
+      members:
+        - email: test@example.com
+          role: admin
+  oauth_applications:
+    - client_id: clerk_emulate_client
+      client_secret: clerk_emulate_secret
+      name: Emulate App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/clerk
 ```

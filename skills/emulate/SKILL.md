@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, and AWS. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, and Clerk. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
 ---
 
@@ -16,15 +16,20 @@ npx emulate
 
 All services start with sensible defaults:
 
-| Service   | Default Port |
-|-----------|-------------|
-| Vercel    | 4000        |
-| GitHub    | 4001        |
-| Google    | 4002        |
-| Slack     | 4003        |
-| Apple     | 4004        |
-| Microsoft | 4005        |
-| AWS       | 4006        |
+| Service       | Default Port |
+|---------------|-------------|
+| Vercel        | 4000        |
+| GitHub        | 4001        |
+| Google        | 4002        |
+| Slack         | 4003        |
+| Apple         | 4004        |
+| Microsoft     | 4005        |
+| Okta          | 4006        |
+| AWS           | 4007        |
+| Resend        | 4008        |
+| Stripe        | 4009        |
+| MongoDB Atlas | 4010        |
+| Clerk         | 4011        |
 
 ## CLI
 
@@ -90,7 +95,7 @@ await vercel.close()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, or `'clerk'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -234,6 +239,29 @@ microsoft:
       redirect_uris:
         - http://localhost:3000/api/auth/callback/microsoft-entra-id
 
+okta:
+  users:
+    - login: testuser@okta.local
+      email: testuser@okta.local
+      first_name: Test
+      last_name: User
+  groups:
+    - name: Everyone
+      description: All users
+      type: BUILT_IN
+      okta_id: 00g_everyone
+  authorization_servers:
+    - id: default
+      name: default
+      audiences: ["api://default"]
+  oauth_clients:
+    - client_id: okta-test-client
+      client_secret: okta-test-secret
+      name: Sample OIDC Client
+      redirect_uris:
+        - http://localhost:3000/callback
+      auth_server_id: default
+
 aws:
   region: us-east-1
   s3:
@@ -248,6 +276,60 @@ aws:
         create_access_key: true
     roles:
       - role_name: lambda-execution-role
+
+resend:
+  domains:
+    - name: example.com
+      region: us-east-1
+  contacts:
+    - email: test@example.com
+      first_name: Test
+      last_name: User
+
+stripe:
+  customers:
+    - email: test@example.com
+      name: Test Customer
+  products:
+    - name: Pro Plan
+      description: Monthly pro subscription
+  prices:
+    - product_name: Pro Plan
+      currency: usd
+      unit_amount: 2000
+
+mongoatlas:
+  projects:
+    - name: Project0
+  clusters:
+    - name: Cluster0
+      project: Project0
+  database_users:
+    - username: admin
+      project: Project0
+  databases:
+    - cluster: Cluster0
+      name: test
+      collections: [items]
+
+clerk:
+  users:
+    - first_name: Test
+      last_name: User
+      email_addresses: [test@example.com]
+      password: clerk_test_password
+  organizations:
+    - name: My Company
+      slug: my-company
+      members:
+        - email: test@example.com
+          role: admin
+  oauth_applications:
+    - client_id: clerk_emulate_client
+      client_secret: clerk_emulate_secret
+      name: Emulate App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/clerk
 ```
 
 ### Auth
@@ -307,7 +389,12 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 SLACK_EMULATOR_URL=http://localhost:4003
 APPLE_EMULATOR_URL=http://localhost:4004
 MICROSOFT_EMULATOR_URL=http://localhost:4005
-AWS_EMULATOR_URL=http://localhost:4006
+OKTA_EMULATOR_URL=http://localhost:4006
+AWS_EMULATOR_URL=http://localhost:4007
+RESEND_BASE_URL=http://localhost:4008
+STRIPE_EMULATOR_URL=http://localhost:4009
+MONGOATLAS_EMULATOR_URL=http://localhost:4010
+CLERK_EMULATOR_URL=http://localhost:4011
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
@@ -356,7 +443,12 @@ packages/
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
+    okta/            # Okta OAuth 2.0 / OIDC + management API plugin
     aws/             # AWS S3, SQS, IAM, STS plugin
+    resend/          # Resend email API + inbox UI plugin
+    stripe/          # Stripe payments, checkout, and webhooks plugin
+    mongoatlas/      # MongoDB Atlas Admin API + Data API plugin
+    clerk/           # Clerk auth, users, organizations, and sessions plugin
 ```
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes on the shared Hono app and uses the store for state.

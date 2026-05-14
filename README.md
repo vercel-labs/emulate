@@ -16,7 +16,12 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
+- **Okta** on `http://localhost:4006`
+- **AWS** on `http://localhost:4007`
+- **Resend** on `http://localhost:4008`
+- **Stripe** on `http://localhost:4009`
+- **MongoDB Atlas** on `http://localhost:4010`
+- **Clerk** on `http://localhost:4011`
 
 ## CLI
 
@@ -141,7 +146,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, or `'clerk'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -282,6 +287,29 @@ microsoft:
       redirect_uris:
         - http://localhost:3000/api/auth/callback/microsoft-entra-id
 
+okta:
+  users:
+    - login: testuser@okta.local
+      email: testuser@okta.local
+      first_name: Test
+      last_name: User
+  groups:
+    - name: Everyone
+      description: All users
+      type: BUILT_IN
+      okta_id: 00g_everyone
+  authorization_servers:
+    - id: default
+      name: default
+      audiences: ["api://default"]
+  oauth_clients:
+    - client_id: okta-test-client
+      client_secret: okta-test-secret
+      name: Sample OIDC Client
+      redirect_uris:
+        - http://localhost:3000/callback
+      auth_server_id: default
+
 aws:
   region: us-east-1
   s3:
@@ -299,6 +327,60 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+
+resend:
+  domains:
+    - name: example.com
+      region: us-east-1
+  contacts:
+    - email: test@example.com
+      first_name: Test
+      last_name: User
+
+stripe:
+  customers:
+    - email: test@example.com
+      name: Test Customer
+  products:
+    - name: Pro Plan
+      description: Monthly pro subscription
+  prices:
+    - product_name: Pro Plan
+      currency: usd
+      unit_amount: 2000
+
+mongoatlas:
+  projects:
+    - name: Project0
+  clusters:
+    - name: Cluster0
+      project: Project0
+  database_users:
+    - username: admin
+      project: Project0
+  databases:
+    - cluster: Cluster0
+      name: test
+      collections: [items]
+
+clerk:
+  users:
+    - first_name: Test
+      last_name: User
+      email_addresses: [test@example.com]
+      password: clerk_test_password
+  organizations:
+    - name: My Company
+      slug: my-company
+      members:
+        - email: test@example.com
+          role: admin
+  oauth_applications:
+    - client_id: clerk_emulate_client
+      client_secret: clerk_emulate_secret
+      name: Emulate App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/clerk
 ```
 
 ## OAuth & Integrations
@@ -397,6 +479,31 @@ microsoft:
       name: "My Microsoft App"
       redirect_uris:
         - "http://localhost:3000/api/auth/callback/microsoft-entra-id"
+```
+
+### Okta OAuth Clients
+
+```yaml
+okta:
+  oauth_clients:
+    - client_id: "okta-test-client"
+      client_secret: "okta-test-secret"
+      name: "Sample OIDC Client"
+      redirect_uris:
+        - "http://localhost:3000/callback"
+      auth_server_id: "default"
+```
+
+### Clerk OAuth Applications
+
+```yaml
+clerk:
+  oauth_applications:
+    - client_id: "clerk_emulate_client"
+      client_secret: "clerk_emulate_secret"
+      name: "Emulate App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/clerk"
 ```
 
 ## Vercel API
@@ -690,6 +797,82 @@ All operations via `POST /iam/` with `Action` parameter:
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
 
+## Okta
+
+Okta identity provider emulation with OAuth 2.0 / OIDC, users, groups, apps, and authorization servers.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery for the default org server
+- `GET /oauth2/:authServerId/.well-known/openid-configuration` - custom authorization server discovery
+- `GET /oauth2/v1/keys` - JSON Web Key Set (JWKS)
+- `GET /oauth2/v1/authorize` - authorization endpoint
+- `POST /oauth2/v1/token` - token exchange
+- `GET /oauth2/v1/userinfo` - user info
+- `POST /oauth2/v1/revoke` - token revocation
+- `POST /oauth2/v1/introspect` - token introspection
+- `GET /oauth2/v1/logout` - end session
+- `/api/v1/users` - list, create, update, and delete users
+- `/api/v1/groups` - list, create, update, delete, and manage group membership
+- `/api/v1/apps` - list, create, update, delete, assign, and activate apps
+- `/api/v1/authorizationServers` - list, create, update, delete, and activate authorization servers
+
+## Resend
+
+Resend email API emulation with sent-message capture and a local inbox UI.
+
+- `POST /emails` - send and store an email locally
+- `GET /emails` - list sent emails
+- `GET /emails/:id` - inspect a sent email
+- `GET /inbox` - browser inbox for captured messages
+- `/domains` - create, list, retrieve, update, and delete domains
+- `/audiences` and `/audiences/:id/contacts` - manage audiences and contacts
+- `/api-keys` - create, list, and delete API keys
+
+## Stripe
+
+Stripe payments emulation with customers, products, prices, payment intents, checkout sessions, and webhook delivery.
+
+- `/v1/customers` - create, retrieve, update, delete, and list customers
+- `/v1/payment_methods` - list payment methods
+- `/v1/customer_sessions` - create customer sessions
+- `/v1/payment_intents` - create, retrieve, update, confirm, cancel, and list payment intents
+- `/v1/charges` - retrieve and list charges
+- `/v1/products` - create, retrieve, and list products
+- `/v1/prices` - create, retrieve, and list prices
+- `/v1/checkout/sessions` - create, retrieve, expire, and list checkout sessions
+- `GET /checkout/:id` - hosted checkout page
+- `POST /checkout/:id/complete` - complete the hosted checkout flow
+
+## MongoDB Atlas
+
+MongoDB Atlas Admin API v2 and Data API v1 emulation with in-memory document storage.
+
+- `/api/atlas/v2/groups` - list, create, retrieve, and delete projects
+- `/api/atlas/v2/groups/:groupId/clusters` - list, create, retrieve, update, and delete clusters
+- `/api/atlas/v2/groups/:groupId/databaseUsers` - list, create, retrieve, and delete database users
+- `/api/atlas/v2/groups/:groupId/clusters/:clusterName/databases` - list databases
+- `/api/atlas/v2/groups/:groupId/clusters/:clusterName/databases/:databaseName/collections` - list collections
+- `/app/data-api/v1/action/findOne` and `/find` - query documents
+- `/app/data-api/v1/action/insertOne` and `/insertMany` - insert documents
+- `/app/data-api/v1/action/updateOne` and `/updateMany` - update documents
+- `/app/data-api/v1/action/deleteOne` and `/deleteMany` - delete documents
+- `/app/data-api/v1/action/aggregate` - run aggregation pipelines
+
+## Clerk
+
+Clerk authentication and user management emulation with OIDC, users, email addresses, organizations, memberships, invitations, and sessions.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery
+- `GET /v1/jwks` - JSON Web Key Set (JWKS)
+- `GET /oauth/authorize` - authorization endpoint with seeded user picker
+- `POST /oauth/token` - authorization code token exchange
+- `GET /oauth/userinfo` - user info
+- `/v1/users` - list, count, create, retrieve, update, delete, ban, lock, and unlock users
+- `/v1/email_addresses` - create, retrieve, update, delete, and verify email addresses
+- `/v1/organizations` - create, list, retrieve, update, and delete organizations
+- `/v1/organizations/:orgId/memberships` - list, create, update, and delete organization memberships
+- `/v1/organizations/:orgId/invitations` - create, list, revoke, and bulk-create invitations
+- `/v1/sessions` - list, retrieve, revoke, and verify sessions
+
 ## Next.js Integration
 
 Embed emulators directly in your Next.js app so they run on the same origin. This solves the Vercel preview deployment problem where OAuth callback URLs change with every deployment.
@@ -802,27 +985,6 @@ persistence: filePersistence('.emulate/state.json'),
 
 The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
 
-## Architecture
-
-```
-packages/
-  emulate/          # CLI entry point (commander)
-  @emulators/
-    core/           # HTTP server, in-memory store, plugin interface, middleware
-    adapter-next/   # Next.js App Router integration
-    vercel/         # Vercel API service
-    github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
-    slack/          # Slack Web API, OAuth v2, incoming webhooks
-    apple/          # Apple Sign In / OIDC
-    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
-    aws/            # AWS S3, SQS, IAM, STS
-apps/
-  web/              # Documentation site (Next.js)
-```
-
-The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes on the shared Hono app and uses the store for state.
-
 ## Auth
 
 Tokens are configured in the seed config and map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`.
@@ -839,4 +1001,14 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
+**Okta**: OIDC authorization code flow for the default org server and custom authorization servers. Management API routes use bearer token auth.
+
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+**Resend**: Bearer tokens are accepted, including `re_`-prefixed test keys. Sent emails are stored locally and available in the inbox UI.
+
+**Stripe**: Bearer tokens are accepted, including `sk_`-prefixed test keys. Checkout sessions can be completed through the hosted checkout UI.
+
+**MongoDB Atlas**: Admin and Data API routes accept the emulator token auth used by the shared server.
+
+**Clerk**: OIDC routes support authorization code flow and PKCE. Backend API routes accept Clerk-style secret keys and shared bearer tokens.
