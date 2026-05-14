@@ -29,7 +29,6 @@ Clerk authentication and user management emulation with OIDC, users, email addre
 - `GET /v1/email_addresses/:emailAddressId` — get email address
 - `PATCH /v1/email_addresses/:emailAddressId` — update email address
 - `DELETE /v1/email_addresses/:emailAddressId` — delete email address
-- `POST /v1/email_addresses/:emailAddressId/verify` — verify email address
 
 ## Organizations
 
@@ -43,7 +42,6 @@ Clerk authentication and user management emulation with OIDC, users, email addre
 
 - `GET /v1/organizations/:orgId/memberships` — list memberships
 - `POST /v1/organizations/:orgId/memberships` — create membership
-- `GET /v1/organizations/:orgId/memberships/:userId` — get membership
 - `PATCH /v1/organizations/:orgId/memberships/:userId` — update membership
 - `DELETE /v1/organizations/:orgId/memberships/:userId` — delete membership
 
@@ -60,4 +58,3 @@ Clerk authentication and user management emulation with OIDC, users, email addre
 - `GET /v1/sessions` — list sessions
 - `GET /v1/sessions/:sessionId` — get session
 - `POST /v1/sessions/:sessionId/revoke` — revoke session
-- `POST /v1/sessions/:sessionId/verify` — verify session token

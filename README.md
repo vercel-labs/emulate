@@ -823,7 +823,7 @@ Resend email API emulation with sent-message capture and a local inbox UI.
 - `GET /emails` - list sent emails
 - `GET /emails/:id` - inspect a sent email
 - `GET /inbox` - browser inbox for captured messages
-- `/domains` - create, list, retrieve, update, and delete domains
+- `/domains` - create, list, retrieve, verify, and delete domains
 - `/audiences` and `/audiences/:id/contacts` - manage audiences and contacts
 - `/api-keys` - create, list, and delete API keys
 
@@ -867,11 +867,11 @@ Clerk authentication and user management emulation with OIDC, users, email addre
 - `POST /oauth/token` - authorization code token exchange
 - `GET /oauth/userinfo` - user info
 - `/v1/users` - list, count, create, retrieve, update, delete, ban, lock, and unlock users
-- `/v1/email_addresses` - create, retrieve, update, delete, and verify email addresses
+- `/v1/email_addresses` - create, retrieve, update, and delete email addresses
 - `/v1/organizations` - create, list, retrieve, update, and delete organizations
 - `/v1/organizations/:orgId/memberships` - list, create, update, and delete organization memberships
 - `/v1/organizations/:orgId/invitations` - create, list, revoke, and bulk-create invitations
-- `/v1/sessions` - list, retrieve, revoke, and verify sessions
+- `/v1/sessions` - list, create, retrieve, revoke, and issue session tokens
 
 ## Next.js Integration
 
