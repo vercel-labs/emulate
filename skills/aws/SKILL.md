@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, SQS AwsJson1.0 and query protocol support, and query-style IAM/STS endpoints. All state is in-memory.
 
 ## Start
 
@@ -170,7 +170,7 @@ curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
 
 ### SQS
 
-All SQS operations use `POST /sqs/` with `Action` as a form-urlencoded parameter.
+All SQS operations use `POST /sqs/`. Current AWS SDK SQS clients use AwsJson1.0 with `Content-Type: application/x-amz-json-1.0` and `X-Amz-Target: AmazonSQS.<Action>`. Legacy form-urlencoded query requests with `Action` remain supported.
 
 ```bash
 # Create queue
