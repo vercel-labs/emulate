@@ -657,7 +657,7 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 ## AWS
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, SQS AwsJson1.0 and query protocol support, and query-style IAM/STS endpoints.
 
 ### S3
 
@@ -675,7 +675,8 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `DELETE /:bucket/:key` - delete object
 
 ### SQS
-All operations via `POST /sqs/` with `Action` parameter:
+All operations via `POST /sqs/`. SQS accepts modern AwsJson1.0 requests from current AWS SDK clients using `Content-Type: application/x-amz-json-1.0` and `X-Amz-Target: AmazonSQS.<Action>`. Legacy form-urlencoded query requests with an `Action` parameter remain supported.
+
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`

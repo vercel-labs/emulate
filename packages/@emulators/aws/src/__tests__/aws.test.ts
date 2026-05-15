@@ -456,6 +456,112 @@ describe("AWS plugin - SQS", () => {
     expect(text).toContain("emulate-default-queue");
   });
 
+  it("handles AwsJson1.0 ListQueues requests", async () => {
+    const res = await app.request(`${base}/sqs/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": "AmazonSQS.ListQueues",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("application/x-amz-json-1.0");
+    const json = (await res.json()) as { QueueUrls: string[] };
+    expect(json.QueueUrls).toContain(`${base}/sqs/123456789012/emulate-default-queue`);
+  });
+
+  it("handles AwsJson1.0 queue and message operations", async () => {
+    const createRes = await app.request(`${base}/sqs/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": "AmazonSQS.CreateQueue",
+      },
+      body: JSON.stringify({
+        QueueName: "json-queue",
+        Attributes: { VisibilityTimeout: "45" },
+      }),
+    });
+    expect(createRes.status).toBe(200);
+    const createJson = (await createRes.json()) as { QueueUrl: string };
+    expect(createJson.QueueUrl).toBe(`${base}/sqs/123456789012/json-queue`);
+
+    const sendRes = await app.request(`${base}/sqs/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": "AmazonSQS.SendMessage",
+      },
+      body: JSON.stringify({
+        QueueUrl: createJson.QueueUrl,
+        MessageBody: "json message",
+        MessageAttributes: {
+          type: { DataType: "String", StringValue: "greeting" },
+        },
+      }),
+    });
+    expect(sendRes.status).toBe(200);
+    const sendJson = (await sendRes.json()) as { MD5OfMessageBody: string; MessageId: string };
+    expect(sendJson.MessageId).toBeTruthy();
+    expect(sendJson.MD5OfMessageBody).toBe("4e27a546974106f6e06b305041f8ab6d");
+
+    const receiveRes = await app.request(`${base}/sqs/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": "AmazonSQS.ReceiveMessage",
+      },
+      body: JSON.stringify({ QueueUrl: createJson.QueueUrl, MaxNumberOfMessages: 1 }),
+    });
+    expect(receiveRes.status).toBe(200);
+    const receiveJson = (await receiveRes.json()) as {
+      Messages: Array<{
+        Body: string;
+        MessageAttributes: Record<string, { DataType: string; StringValue?: string }>;
+        ReceiptHandle: string;
+      }>;
+    };
+    expect(receiveJson.Messages).toHaveLength(1);
+    expect(receiveJson.Messages[0]?.Body).toBe("json message");
+    expect(receiveJson.Messages[0]?.MessageAttributes.type?.StringValue).toBe("greeting");
+
+    const attrRes = await app.request(`${base}/sqs/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": "AmazonSQS.GetQueueAttributes",
+      },
+      body: JSON.stringify({ QueueUrl: createJson.QueueUrl, AttributeNames: ["All"] }),
+    });
+    expect(attrRes.status).toBe(200);
+    const attrJson = (await attrRes.json()) as { Attributes: Record<string, string> };
+    expect(attrJson.Attributes.VisibilityTimeout).toBe("45");
+    expect(attrJson.Attributes.ApproximateNumberOfMessagesNotVisible).toBe("1");
+  });
+
+  it("returns AwsJson1.0 errors for JSON protocol requests", async () => {
+    const res = await app.request(`${base}/sqs/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.0",
+        "X-Amz-Target": "AmazonSQS.GetQueueUrl",
+      },
+      body: JSON.stringify({ QueueName: "missing-queue" }),
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("Content-Type")).toContain("application/x-amz-json-1.0");
+    const json = (await res.json()) as { __type: string; message: string };
+    expect(json.__type).toBe("AWS.SimpleQueueService.NonExistentQueue");
+    expect(json.message).toContain("does not exist");
+  });
+
   it("sends and receives a message", async () => {
     // Get queue URL
     const urlRes = await app.request(`${base}/sqs/`, {
