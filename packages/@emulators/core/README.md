@@ -15,7 +15,7 @@ npm install @emulators/core
 The core provides the shared infrastructure that every `@emulators/*` service plugin builds on:
 
 - **Store** — a generic in-memory store with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination
-- **Server** — Hono-based HTTP server with automatic port management
+- **Server** — HTTP server with automatic port management
 - **Middleware** — bearer token auth, error handling, CORS
 - **UI** — shared authorization/consent page rendering with bundled fonts
 - **Persistence** — pluggable save/load adapters for state durability

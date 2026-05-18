@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { serve } from "@hono/node-server";
+import { serve } from "@emulators/core";
 import type { AddressInfo } from "node:net";
 import {
   S3Client,

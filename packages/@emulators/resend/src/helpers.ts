@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Context } from "@emulators/core";
+import type { ContentfulStatusCode } from "@emulators/core";
 
 export function generateUuid(): string {
   return randomUUID();

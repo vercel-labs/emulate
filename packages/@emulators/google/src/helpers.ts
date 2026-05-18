@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 import type {
   GoogleAttachment,
   GoogleDraft,
@@ -196,6 +196,8 @@ const LABEL_ALIASES: Record<string, string> = {
   forums: "CATEGORY_FORUMS",
 };
 
+let lastGeneratedHistoryId = 0n;
+
 export function generateUid(prefix = ""): string {
   const id = randomBytes(12).toString("base64url").slice(0, 20);
   return prefix ? `${prefix}_${id}` : id;
@@ -208,7 +210,12 @@ export function generateDraftId(): string {
 
 export function generateHistoryId(): string {
   const entropy = randomBytes(3).readUIntBE(0, 3).toString().padStart(8, "0");
-  return `${Date.now()}${entropy}`;
+  let next = BigInt(`${Date.now()}${entropy}`);
+  if (next <= lastGeneratedHistoryId) {
+    next = lastGeneratedHistoryId + 1n;
+  }
+  lastGeneratedHistoryId = next;
+  return next.toString();
 }
 
 export function getAuthenticatedEmail(c: Context): string | null {

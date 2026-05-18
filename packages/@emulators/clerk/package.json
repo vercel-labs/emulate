@@ -34,7 +34,6 @@
   },
   "dependencies": {
     "@emulators/core": "workspace:*",
-    "hono": "^4",
     "jose": "^6"
   },
   "devDependencies": {

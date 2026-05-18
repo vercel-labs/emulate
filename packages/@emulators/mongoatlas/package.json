@@ -35,8 +35,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*",
-    "hono": "^4"
+    "@emulators/core": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",

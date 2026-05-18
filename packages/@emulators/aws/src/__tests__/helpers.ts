@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono } from "@emulators/core";
 import {
   Store,
   WebhookDispatcher,

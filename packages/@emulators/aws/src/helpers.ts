@@ -1,6 +1,6 @@
 import { randomBytes, createHash } from "crypto";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Context } from "@emulators/core";
+import type { ContentfulStatusCode } from "@emulators/core";
 
 const ACCOUNT_ID = "123456789012";
 const DEFAULT_REGION = "us-east-1";

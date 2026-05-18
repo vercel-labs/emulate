@@ -1,5 +1,5 @@
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Context } from "@emulators/core";
+import type { ContentfulStatusCode } from "@emulators/core";
 import type { AuthUser, TokenMap, AppEnv } from "@emulators/core";
 import type { OktaApp, OktaAuthorizationServer, OktaGroup, OktaUser } from "./entities.js";
 import type { OktaStore } from "./store.js";

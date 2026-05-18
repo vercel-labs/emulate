@@ -1,5 +1,5 @@
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
-import type { Hono } from "hono";
+import type { Hono } from "@emulators/core";
 import {
   createLabelRecord,
   createStoredMessage,

@@ -35,7 +35,6 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "hono": "^4",
     "jose": "^6.2.2"
   },
   "devDependencies": {

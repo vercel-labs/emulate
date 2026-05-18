@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Hono } from "hono";
+import { Hono } from "@emulators/core";
 import { Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@emulators/core";
 import { vercelPlugin, seedFromConfig } from "../index.js";
 

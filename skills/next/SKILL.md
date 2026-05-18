@@ -133,7 +133,7 @@ persistence: filePersistence('.emulate/state.json'),
 
 1. **Incoming request**: `/emulate/github/login/oauth/authorize?client_id=...`
 2. **Parse**: service = `github`, rest = `/login/oauth/authorize`
-3. **Strip prefix**: A new `Request` is created with the stripped path and forwarded to the GitHub Hono app
+3. **Strip prefix**: A new `Request` is created with the stripped path and forwarded to the GitHub service app
 4. **Rewrite response**: HTML `action` and `href` attributes, CSS `url()` font references, and `Location` headers get the service prefix prepended
 5. **Persist**: After mutating requests, state is saved via the persistence adapter
 

@@ -37,7 +37,7 @@ interface Fetchable {
 }
 
 interface ServiceApp {
-  hono: Fetchable;
+  app: Fetchable;
   store: Store;
   tokenMap: TokenMap;
   plugin: ServicePlugin;
@@ -206,7 +206,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
         appKeyResolver = entry.emulator.createAppKeyResolver(store);
       }
 
-      serviceApps.set(name, { hono: app, store, tokenMap, plugin, webhooks });
+      serviceApps.set(name, { app, store, tokenMap, plugin, webhooks });
     }
 
     let restored = false;
@@ -280,7 +280,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       duplex: "half",
     } as RequestInit & { duplex: string });
 
-    let response = await sa.hono.fetch(strippedReq);
+    let response = await sa.app.fetch(strippedReq);
 
     const servicePrefix = `${mountPath!}/${serviceName}`;
     response = await rewriteResponse(response, servicePrefix);

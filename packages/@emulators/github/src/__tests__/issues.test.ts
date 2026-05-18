@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Hono } from "hono";
+import { Hono } from "@emulators/core";
 import { Store } from "@emulators/core";
 import { WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";

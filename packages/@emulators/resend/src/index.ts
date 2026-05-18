@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getResendStore } from "./store.js";
 import { generateUuid } from "./helpers.js";

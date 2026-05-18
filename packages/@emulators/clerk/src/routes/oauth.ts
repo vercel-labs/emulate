@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext, Store } from "@emulators/core";
 import {
   bodyStr,

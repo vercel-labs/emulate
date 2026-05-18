@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getMongoAtlasStore } from "./store.js";
 import { generateClusterId, generateGroupId, generateUserId } from "./helpers.js";

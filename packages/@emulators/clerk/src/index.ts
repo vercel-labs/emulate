@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import { generateClerkId, nowUnix, createDefaultUser, createDefaultEmailAddress } from "./helpers.js";
 import { oauthRoutes } from "./routes/oauth.js";

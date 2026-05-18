@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 import type { GoogleCalendarEventInput } from "./calendar-helpers.js";
 import type { GoogleDriveItemInput } from "./drive-helpers.js";
 import type { GoogleMessageInput } from "./helpers.js";

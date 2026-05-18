@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import type { Context } from "../http.js";
 
 export interface PaginationParams {
   page: number;

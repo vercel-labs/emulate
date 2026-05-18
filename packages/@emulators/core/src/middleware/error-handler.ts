@@ -1,5 +1,4 @@
-import type { Context, ErrorHandler, MiddlewareHandler } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Context, ContentfulStatusCode, ErrorHandler, MiddlewareHandler } from "../http.js";
 
 const DEFAULT_DOCS_URL = "https://emulate.dev";
 
@@ -16,7 +15,7 @@ function errorStatus(err: unknown): number {
 }
 
 /**
- * Use with `app.onError(...)`. Hono routes handler throws to the app error handler, not to outer middleware try/catch.
+ * Use with `app.onError(...)`. Route handlers throw to the app error handler.
  */
 export function createApiErrorHandler(documentationUrl?: string): ErrorHandler {
   return (err, c) => {

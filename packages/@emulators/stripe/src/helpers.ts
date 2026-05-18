@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Context } from "@emulators/core";
+import type { ContentfulStatusCode } from "@emulators/core";
 import type { Entity, Collection } from "@emulators/core";
 
 const NUMERIC_KEYS = new Set([

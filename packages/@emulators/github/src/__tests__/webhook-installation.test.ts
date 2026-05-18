@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { Hono } from "hono";
+import { Hono } from "@emulators/core";
 import { Store, WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
 import { githubPlugin, seedFromConfig } from "../index.js";

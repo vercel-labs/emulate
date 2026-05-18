@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { Hono } from "hono";
+import type { Hono } from "./http.js";
 import type { AppEnv } from "./middleware/auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

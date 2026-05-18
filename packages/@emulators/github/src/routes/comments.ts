@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";

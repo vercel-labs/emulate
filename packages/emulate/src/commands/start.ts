@@ -1,6 +1,5 @@
-import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
+import { createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
-import { serve } from "@hono/node-server";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";

@@ -13,6 +13,21 @@ export {
   deserializeValue,
 } from "./store.js";
 export { createServer, type ServerOptions } from "./server.js";
+export {
+  Hono,
+  Context,
+  HonoRequest,
+  cors,
+  serve,
+  type ContentfulStatusCode,
+  type CorsOptions,
+  type ErrorHandler,
+  type FetchHandler,
+  type Handler,
+  type MiddlewareHandler,
+  type Next,
+  type ServeOptions,
+} from "./http.js";
 export { type ServicePlugin, type RouteContext } from "./plugin.js";
 export { WebhookDispatcher, type WebhookSubscription, type WebhookDelivery } from "./webhooks.js";
 export {

@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 
 export function generateObjectId(): string {
   const timestamp = Math.floor(Date.now() / 1000)

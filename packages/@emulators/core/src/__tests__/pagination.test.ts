@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Hono } from "hono";
+import { Hono } from "../http.js";
 import { parsePagination, setLinkHeader } from "../middleware/pagination.js";
 
 function parseLinkHeader(link: string | null): Map<string, string> {

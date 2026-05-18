@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { decodeJwt } from "jose";
-import { Hono } from "hono";
+import { Hono } from "@emulators/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@emulators/core";
 import { getOktaStore, oktaPlugin, seedFromConfig } from "../index.js";

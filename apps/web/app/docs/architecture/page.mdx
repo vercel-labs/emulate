@@ -23,14 +23,14 @@ apps/
 
 ## Core
 
-The core package provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes on the shared Hono app and uses the store for state.
+The core package provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state.
 
 ## Plugin System
 
 Each service is a plugin that:
 
 1. Defines its entity types and store collections
-2. Registers HTTP routes on the shared Hono app
+2. Registers HTTP routes with the shared internal app
 3. Provides a seed function to populate initial state from config
 4. Uses shared middleware for auth, error handling, and pagination
 

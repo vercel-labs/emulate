@@ -1,4 +1,4 @@
-import type { Context, Next } from "hono";
+import type { Context, Next } from "../http.js";
 import { jwtVerify, importPKCS8 } from "jose";
 import { debug } from "../debug.js";
 

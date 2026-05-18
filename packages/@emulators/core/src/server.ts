@@ -1,5 +1,4 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
+import { Hono, cors } from "./http.js";
 import { Store } from "./store.js";
 import { WebhookDispatcher } from "./webhooks.js";
 import { createApiErrorHandler, createErrorHandler } from "./middleware/error-handler.js";

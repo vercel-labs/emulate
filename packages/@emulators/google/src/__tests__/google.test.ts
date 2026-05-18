@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Hono } from "hono";
+import { Hono } from "@emulators/core";
 import { decodeJwt } from "jose";
 import {
   Store,

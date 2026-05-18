@@ -1,4 +1,4 @@
-import type { Hono } from "hono";
+import type { Hono } from "./http.js";
 import type { Store } from "./store.js";
 import type { WebhookDispatcher } from "./webhooks.js";
 import type { TokenMap, AppEnv } from "./middleware/auth.js";

@@ -348,7 +348,7 @@ State is loaded on cold start and saved after every mutating request (POST, PUT,
 packages/
   emulate/           # CLI entry point + programmatic API
   @emulators/
-    core/            # HTTP server (Hono), Store, plugin interface, middleware
+    core/            # HTTP server, Store, plugin interface, middleware
     adapter-next/    # Next.js App Router integration
     vercel/          # Vercel API service plugin
     github/          # GitHub API service plugin
@@ -359,4 +359,4 @@ packages/
     aws/             # AWS S3, SQS, IAM, STS plugin
 ```
 
-The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes on the shared Hono app and uses the store for state.
+The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.

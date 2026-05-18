@@ -1,5 +1,5 @@
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Context } from "@emulators/core";
+import type { ContentfulStatusCode } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody } from "@emulators/core";
 export { ApiError };

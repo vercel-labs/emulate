@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 import type { RouteContext, Store, AuthUser, AppEnv } from "@emulators/core";
 import {
   unauthorized,

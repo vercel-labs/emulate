@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext } from "@emulators/core";
 import { getAwsStore } from "../store.js";
 import { awsXmlResponse, awsErrorXml, md5, escapeXml } from "../helpers.js";
@@ -470,7 +470,7 @@ ${prefixesXml}
   // --- Primary routes (AWS SDK-compatible, root paths) ---
   // Bucket-level routes register both no-slash and trailing-slash variants because
   // the AWS SDK sends e.g. `HEAD /bucket/`, `PUT /bucket/`, `GET /bucket/?list-type=2`
-  // when the key is empty, and Hono treats `/:bucket` and `/:bucket/` as distinct.
+  // when the key is empty, and the route matcher treats `/:bucket` and `/:bucket/` as distinct.
   app.get("/", handleListBuckets);
   app.put("/:bucket", handleCreateBucket);
   app.put("/:bucket/", handleCreateBucket);
