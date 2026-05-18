@@ -2,10 +2,19 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
 )
 
 func TestRunListIncludesRegisteredServices(t *testing.T) {
@@ -105,6 +114,50 @@ func TestRunStartHelpExitsSuccessfully(t *testing.T) {
 	}
 }
 
+func TestRunStartServesHealthEndpoint(t *testing.T) {
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--service", "github"}, &stdout, &stderr)
+	}()
+
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath)
+	var body struct {
+		OK       bool     `json:"ok"`
+		Runtime  string   `json:"runtime"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, url, &body)
+
+	if !body.OK || body.Runtime != "go" {
+		t.Fatalf("unexpected health body: %#v", body)
+	}
+	if len(body.Services) != 1 || body.Services[0] != "github" {
+		t.Fatalf("unexpected services: %#v", body.Services)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+
+	if !strings.Contains(stdout.String(), "Health check:") {
+		t.Fatalf("stdout did not include health check:\n%s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
 func TestRunTopLevelHelpIncludesFullStartOptions(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)
@@ -125,6 +178,46 @@ func TestRunTopLevelHelpIncludesFullStartOptions(t *testing.T) {
 	if stderr.Len() != 0 {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("unexpected listener address: %v", listener.Addr())
+	}
+	return addr.Port
+}
+
+func waitForJSON(t *testing.T, url string, target any) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(url)
+		if err == nil {
+			func() {
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					lastErr = fmt.Errorf("status %d", resp.StatusCode)
+					return
+				}
+				lastErr = json.NewDecoder(resp.Body).Decode(target)
+			}()
+			if lastErr == nil {
+				return
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("GET %s did not return JSON: %v", url, lastErr)
 }
 
 func TestRunInitHelpExitsSuccessfully(t *testing.T) {

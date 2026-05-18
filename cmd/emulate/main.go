@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	nethttp "net/http"
 	"os"
+	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
 )
@@ -25,12 +31,18 @@ var configFilenames = []string{
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	os.Exit(runWithContext(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
+	return runWithContext(context.Background(), args, stdout, stderr)
+}
+
+func runWithContext(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) == 0 {
-		return runStart(nil, stdout, stderr)
+		return runStart(ctx, nil, stdout, stderr)
 	}
 
 	switch args[0] {
@@ -41,14 +53,14 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "emulate %s\n", version)
 		return 0
 	case "start":
-		return runStart(args[1:], stdout, stderr)
+		return runStart(ctx, args[1:], stdout, stderr)
 	case "init":
 		return runInit(args[1:], stdout, stderr)
 	case "list", "list-services":
 		return runList(args[1:], stdout, stderr)
 	default:
 		if strings.HasPrefix(args[0], "-") {
-			return runStart(args, stdout, stderr)
+			return runStart(ctx, args, stdout, stderr)
 		}
 		fmt.Fprintf(stderr, "Unknown command: %s\n", args[0])
 		printHelp(stderr)
@@ -56,7 +68,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 }
 
-func runStart(args []string, stdout io.Writer, stderr io.Writer) int {
+func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	defaultPort := getenv("EMULATE_PORT", getenv("PORT", "4000"))
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -91,21 +103,68 @@ func runStart(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--portless and --base-url are mutually exclusive.")
 		return 1
 	}
-	if err := validateServices(*serviceValue); err != nil {
+	if *portlessValue {
+		fmt.Fprintln(stderr, "The native Go runtime does not support --portless yet.")
+		return 1
+	}
+	if *seedValue != "" {
+		fmt.Fprintln(stderr, "The native Go runtime does not support --seed yet.")
+		return 1
+	}
+	services, err := parseServices(*serviceValue)
+	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 
+	baseURL := *baseURLValue
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://localhost:%d", port)
+	}
+	server := emuruntime.NewServer(emuruntime.ServerOptions{
+		Version:  version,
+		BaseURL:  baseURL,
+		Services: services,
+	})
+	httpServer := &nethttp.Server{
+		Handler:           server.Handler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		fmt.Fprintf(stderr, "Failed to listen on port %d: %v\n", port, err)
+		return 1
+	}
+
 	fmt.Fprintf(stdout, "emulate %s native Go runtime is experimental.\n", version)
-	fmt.Fprintf(stdout, "start is not implemented yet in the native Go runtime.\n")
-	fmt.Fprintf(stdout, "Requested base port: %d\n", port)
-	if *serviceValue != "" {
-		fmt.Fprintf(stdout, "Requested services: %s\n", *serviceValue)
+	fmt.Fprintf(stdout, "Listening on %s\n", baseURL)
+	fmt.Fprintf(stdout, "Health check: %s%s\n", strings.TrimRight(baseURL, "/"), emuruntime.HealthPath)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- httpServer.Serve(listener)
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(stderr, "Failed to shut down server: %v\n", err)
+			return 1
+		}
+		if err := <-errCh; err != nil && !errors.Is(err, nethttp.ErrServerClosed) {
+			fmt.Fprintf(stderr, "Server stopped unexpectedly: %v\n", err)
+			return 1
+		}
+		return 0
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, nethttp.ErrServerClosed) {
+			fmt.Fprintf(stderr, "Server stopped unexpectedly: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-	if *seedValue != "" {
-		fmt.Fprintf(stdout, "Requested seed: %s\n", *seedValue)
-	}
-	return 1
 }
 
 func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -230,17 +289,27 @@ func printListHelp(w io.Writer) {
 	fmt.Fprintln(w, "  npx emulate list")
 }
 
-func validateServices(value string) error {
+func parseServices(value string) ([]string, error) {
 	if value == "" {
-		return nil
+		return emuruntime.ServiceNames(), nil
 	}
+	services := make([]string, 0)
+	seen := map[string]bool{}
 	for _, service := range strings.Split(value, ",") {
 		name := strings.TrimSpace(service)
-		if _, ok := emuruntime.FindService(name); !ok {
-			return fmt.Errorf("Unknown service: %s", name)
+		if name == "" || seen[name] {
+			continue
 		}
+		if _, ok := emuruntime.FindService(name); !ok {
+			return nil, fmt.Errorf("Unknown service: %s", name)
+		}
+		services = append(services, name)
+		seen[name] = true
 	}
-	return nil
+	if len(services) == 0 {
+		return nil, fmt.Errorf("No services selected")
+	}
+	return services, nil
 }
 
 func getenv(name string, fallback string) string {
