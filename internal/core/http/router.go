@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	pathpkg "path"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,6 +90,7 @@ type route struct {
 type segment struct {
 	literal string
 	param   string
+	regex   *regexp.Regexp
 }
 
 func NewRouter() *Router {
@@ -194,6 +196,21 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if req.Method == http.MethodHead {
+		for _, route := range routes {
+			if route.method != http.MethodGet {
+				continue
+			}
+			params, ok := route.match(http.MethodGet, req.URL.Path)
+			if !ok {
+				continue
+			}
+			ctx := &Context{Writer: w, Request: req, Params: params, requestID: requestID}
+			chain(route.handler, middleware)(ctx)
+			return
+		}
+	}
+
 	ctx := &Context{Writer: w, Request: req, Params: map[string]string{}, requestID: requestID}
 	chain(notFound, middleware)(ctx)
 }
@@ -206,7 +223,7 @@ func (r *Router) requestID(req *http.Request) string {
 }
 
 func (r route) match(method string, requestPath string) (map[string]string, bool) {
-	if r.method != "*" && r.method != method && !(method == http.MethodHead && r.method == http.MethodGet) {
+	if r.method != "*" && r.method != method {
 		return nil, false
 	}
 	requestPath = normalizePath(requestPath)
@@ -214,29 +231,75 @@ func (r route) match(method string, requestPath string) (map[string]string, bool
 		return map[string]string{}, hasPathPrefix(r.mountPrefix, requestPath)
 	}
 	parts := splitPath(requestPath)
-	hasWildcard := len(r.segments) > 0 && r.segments[len(r.segments)-1].literal == "*"
-	if (!hasWildcard && len(parts) != len(r.segments)) || (hasWildcard && len(parts) < len(r.segments)-1) {
+	params := map[string]string{}
+	if !matchSegments(r.segments, parts, 0, 0, params) {
 		return nil, false
 	}
-	params := map[string]string{}
-	for i, part := range parts {
-		segment := r.segments[i]
-		if segment.literal == "*" {
-			return params, true
-		}
-		if segment.param != "" {
-			decoded, err := url.PathUnescape(part)
-			if err != nil {
-				decoded = part
-			}
-			params[segment.param] = decoded
-			continue
-		}
-		if segment.literal != part {
-			return nil, false
-		}
-	}
 	return params, true
+}
+
+func matchSegments(segments []segment, parts []string, segmentIndex int, partIndex int, params map[string]string) bool {
+	if segmentIndex == len(segments) {
+		return partIndex == len(parts)
+	}
+
+	segment := segments[segmentIndex]
+	if segment.literal == "*" {
+		return true
+	}
+
+	if segment.param != "" && segment.regex != nil {
+		for end := len(parts); end >= partIndex; end-- {
+			value := strings.Join(parts[partIndex:end], "/")
+			if !setMatchedParam(segment, value, params) {
+				continue
+			}
+			if matchSegments(segments, parts, segmentIndex+1, end, params) {
+				return true
+			}
+			delete(params, segment.param)
+		}
+		return false
+	}
+
+	if partIndex >= len(parts) {
+		return false
+	}
+	part := parts[partIndex]
+	if segment.param != "" {
+		if !setMatchedParam(segment, part, params) {
+			return false
+		}
+		if matchSegments(segments, parts, segmentIndex+1, partIndex+1, params) {
+			return true
+		}
+		delete(params, segment.param)
+		return false
+	}
+	if segment.literal != part {
+		return false
+	}
+	return matchSegments(segments, parts, segmentIndex+1, partIndex+1, params)
+}
+
+func setMatchedParam(segment segment, value string, params map[string]string) bool {
+	decoded, ok := segment.matchParam(value)
+	if !ok {
+		return false
+	}
+	params[segment.param] = decoded
+	return true
+}
+
+func (s segment) matchParam(value string) (string, bool) {
+	if s.regex != nil && !s.regex.MatchString(value) {
+		return "", false
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		decoded = value
+	}
+	return decoded, true
 }
 
 func chain(handler HandlerFunc, middleware []Middleware) HandlerFunc {
@@ -254,7 +317,7 @@ func parseSegments(pattern string) []segment {
 		case part == "*":
 			segments = append(segments, segment{literal: "*"})
 		case strings.HasPrefix(part, ":") && len(part) > 1:
-			segments = append(segments, segment{param: part[1:]})
+			segments = append(segments, parseParamSegment(part))
 		case strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") && len(part) > 2:
 			segments = append(segments, segment{param: part[1 : len(part)-1]})
 		default:
@@ -262,6 +325,19 @@ func parseSegments(pattern string) []segment {
 		}
 	}
 	return segments
+}
+
+func parseParamSegment(part string) segment {
+	name := part[1:]
+	brace := strings.Index(name, "{")
+	if brace <= 0 || !strings.HasSuffix(name, "}") {
+		return segment{param: name}
+	}
+	expr := name[brace+1 : len(name)-1]
+	return segment{
+		param: name[:brace],
+		regex: regexp.MustCompile("^" + expr + "$"),
+	}
 }
 
 func splitPath(value string) []string {

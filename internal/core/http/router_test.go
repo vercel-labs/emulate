@@ -50,6 +50,94 @@ func TestRouterMatchesParamsAndRunsMiddleware(t *testing.T) {
 	}
 }
 
+func TestRouterMatchesRegexTailParam(t *testing.T) {
+	router := NewRouter()
+	router.Get("/repos/:owner/:repo/git/ref/:ref{.+}", func(c *Context) {
+		c.JSON(http.StatusOK, map[string]string{
+			"owner": c.Param("owner"),
+			"repo":  c.Param("repo"),
+			"ref":   c.Param("ref"),
+		})
+	})
+
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/repos/acme/widgets/git/ref/heads/main", nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["owner"] != "acme" || body["repo"] != "widgets" || body["ref"] != "heads/main" {
+		t.Fatalf("unexpected body: %#v", body)
+	}
+}
+
+func TestRouterMatchesRegexParamBeforeLiteralSuffix(t *testing.T) {
+	router := NewRouter()
+	router.Get("/repos/:owner/:repo/branches/:branch{.+}/protection", func(c *Context) {
+		c.JSON(http.StatusOK, map[string]string{
+			"branch": c.Param("branch"),
+		})
+	})
+
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/repos/acme/widgets/branches/feature/auth/protection", nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["branch"] != "feature/auth" {
+		t.Fatalf("unexpected body: %#v", body)
+	}
+}
+
+func TestRouterPrefersExplicitHeadOverGetFallback(t *testing.T) {
+	router := NewRouter()
+	router.Get("/object", func(c *Context) {
+		c.Writer.Header().Set("X-Handler", "get")
+		c.Text(http.StatusOK, "get")
+	})
+	router.Handle(http.MethodHead, "/object", func(c *Context) {
+		c.Writer.Header().Set("X-Handler", "head")
+		c.Binary(http.StatusOK, "", nil)
+	})
+
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodHead, "/object", nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res.Header().Get("X-Handler") != "head" {
+		t.Fatalf("handler = %q", res.Header().Get("X-Handler"))
+	}
+}
+
+func TestRouterFallsBackHeadToGet(t *testing.T) {
+	router := NewRouter()
+	router.Get("/object", func(c *Context) {
+		c.Writer.Header().Set("X-Handler", "get")
+		c.Text(http.StatusOK, "get")
+	})
+
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodHead, "/object", nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res.Header().Get("X-Handler") != "get" {
+		t.Fatalf("handler = %q", res.Header().Get("X-Handler"))
+	}
+}
+
 func TestRouterResponseHelpers(t *testing.T) {
 	router := NewRouter()
 	router.Get("/text", func(c *Context) { c.Text(http.StatusAccepted, "hello") })
