@@ -45,13 +45,16 @@ func ParseCredentialScope(value string) (string, Scope, error) {
 		value = unescaped
 	}
 	parts := strings.Split(value, "/")
+	if len(parts) != 5 {
+		return "", Scope{}, fmt.Errorf("invalid SigV4 credential scope")
+	}
 	if parts[0] == "" {
 		return "", Scope{}, fmt.Errorf("missing SigV4 access key id")
 	}
-	if len(parts) == 1 {
-		return parts[0], Scope{}, nil
+	if parts[1] == "" || parts[2] == "" || parts[3] == "" || parts[4] == "" {
+		return "", Scope{}, fmt.Errorf("invalid SigV4 credential scope")
 	}
-	if len(parts) < 5 {
+	if parts[4] != "aws4_request" {
 		return "", Scope{}, fmt.Errorf("invalid SigV4 credential scope")
 	}
 	return parts[0], Scope{

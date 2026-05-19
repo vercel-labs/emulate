@@ -50,6 +50,15 @@ func Resolve(req *http.Request, options Options) Context {
 		PrincipalARN:              firstNonEmpty(options.DefaultPrincipalARN, defaultPrincipalARN(accountID)),
 		StrictSignatureValidation: false,
 	}
+	if !mode.Valid() {
+		ctx.Status = StatusInvalid
+		ctx.Error = &Error{
+			Code:       "InvalidAuthMode",
+			Message:    fmt.Sprintf("Configured AWS auth mode %q is invalid.", options.Mode),
+			StatusCode: http.StatusInternalServerError,
+		}
+		return ctx
+	}
 
 	signature, err := ParseSigV4(req)
 	if err != nil {
@@ -75,6 +84,15 @@ func Resolve(req *http.Request, options Options) Context {
 	}
 
 	if credential, ok := options.Store.Resolve(signature.AccessKeyID); ok {
+		if credential.SessionToken != "" && signature.SessionToken != credential.SessionToken {
+			ctx.Status = StatusInvalid
+			ctx.Error = &Error{
+				Code:       "InvalidToken",
+				Message:    "The provided token is malformed or otherwise invalid.",
+				StatusCode: http.StatusForbidden,
+			}
+			return ctx
+		}
 		ctx.Status = StatusKnown
 		ctx.Credential = &credential
 		ctx.AccountID = firstNonEmpty(credential.AccountID, ctx.AccountID)

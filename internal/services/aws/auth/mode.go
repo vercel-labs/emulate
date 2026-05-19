@@ -31,7 +31,7 @@ func NormalizeMode(mode Mode) Mode {
 	if mode.Valid() {
 		return mode
 	}
-	return ModeRelaxed
+	return mode
 }
 
 func (mode Mode) Valid() bool {
