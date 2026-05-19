@@ -36,6 +36,11 @@ test("waitForHttp applies the request timeout while reading the response body", 
   const sockets = new Set();
   const server = net.createServer((socket) => {
     sockets.add(socket);
+    socket.on("error", (error) => {
+      if (error.code !== "ECONNRESET") {
+        throw error;
+      }
+    });
     socket.once("close", () => {
       sockets.delete(socket);
     });

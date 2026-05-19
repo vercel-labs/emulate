@@ -23,8 +23,8 @@
     "typescript-eslint": "^8.58.0",
     "vitest": "^4.1.0"
   },
-  "packageManager": "pnpm@10.11.0",
+  "packageManager": "pnpm@11.1.3",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   }
 }

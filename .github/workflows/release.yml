@@ -27,6 +27,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
       - name: Compare versions to registry
         id: check
         run: |
@@ -63,13 +68,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version-file: .node-version
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Prepare pnpm
+        run: corepack prepare pnpm@11.1.3 --activate
+
+      - name: Setup Node.js cache
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install dependencies
