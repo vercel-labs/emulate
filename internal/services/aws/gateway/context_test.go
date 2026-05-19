@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 )
 
@@ -478,6 +479,64 @@ func TestBuildContextSTSQueryRequest(t *testing.T) {
 	}
 	if ctx.Region != "eu-central-1" {
 		t.Fatalf("region = %q, want eu-central-1", ctx.Region)
+	}
+}
+
+func TestBuildContextKnownKeyAuthContext(t *testing.T) {
+	body := "Action=GetCallerIdentity&Version=2011-06-15"
+	req := httptest.NewRequest(http.MethodPost, "https://sts.amazonaws.com/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAKNOWN/20260519/ap-southeast-2/sts/aws4_request, SignedHeaders=host, Signature=abc")
+	options := fixedOptions()
+	options.AuthMode = auth.ModeKnownKeys
+	options.CredentialStore = auth.NewStore(auth.Credential{
+		AccessKeyID:  "AKIAKNOWN",
+		AccountID:    "210987654321",
+		PrincipalARN: "arn:aws:iam::210987654321:user/tester",
+	})
+
+	ctx, err := BuildContext(req, []byte(body), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ctx.Auth.Status != auth.StatusKnown {
+		t.Fatalf("auth status = %q, want %q", ctx.Auth.Status, auth.StatusKnown)
+	}
+	if ctx.AccountID != "210987654321" || ctx.Principal.AccountID != "210987654321" {
+		t.Fatalf("account context = %#v/%#v", ctx.AccountID, ctx.Principal)
+	}
+	if ctx.Principal.ARN != "arn:aws:iam::210987654321:user/tester" {
+		t.Fatalf("principal ARN = %q", ctx.Principal.ARN)
+	}
+	if ctx.Region != "ap-southeast-2" {
+		t.Fatalf("region = %q, want ap-southeast-2", ctx.Region)
+	}
+	if ctx.Credentials.AccessKeyID != "AKIAKNOWN" || ctx.Credentials.Scope.Service != "sts" {
+		t.Fatalf("unexpected credentials: %#v", ctx.Credentials)
+	}
+}
+
+func TestBuildContextKnownKeyMissingAuthIsExplicit(t *testing.T) {
+	body := "Action=ListUsers&Version=2010-05-08"
+	req := httptest.NewRequest(http.MethodPost, "https://iam.amazonaws.com/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	options := fixedOptions()
+	options.AuthMode = auth.ModeKnownKeys
+
+	ctx, err := BuildContext(req, []byte(body), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ctx.Auth.Status != auth.StatusMissing {
+		t.Fatalf("auth status = %q, want %q", ctx.Auth.Status, auth.StatusMissing)
+	}
+	if ctx.Auth.Error == nil || ctx.Auth.Error.Code != "MissingAuthenticationToken" {
+		t.Fatalf("auth error = %#v, want MissingAuthenticationToken", ctx.Auth.Error)
+	}
+	if ctx.AccountID != DefaultAccountID || ctx.Principal.AccountID != DefaultAccountID {
+		t.Fatalf("account context = %#v/%#v", ctx.AccountID, ctx.Principal)
 	}
 }
 

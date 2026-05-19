@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync/atomic"
 
+	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 )
 
@@ -22,6 +22,8 @@ type Options struct {
 	DefaultAccountID   string
 	DefaultRegion      string
 	RequestIDGenerator func() string
+	AuthMode           auth.Mode
+	CredentialStore    *auth.Store
 }
 
 type AwsRequestContext struct {
@@ -39,6 +41,7 @@ type AwsRequestContext struct {
 
 	Credentials Credentials
 	Principal   Principal
+	Auth        auth.Context
 	S3          *protocols.S3Route
 }
 
@@ -68,11 +71,16 @@ var requestIDCounter atomic.Uint64
 
 func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsRequestContext, error) {
 	options = normalizeOptions(options)
-	credentials := ParseCredentials(req)
+	authContext := auth.Resolve(req, auth.Options{
+		Mode:             options.AuthMode,
+		Store:            options.CredentialStore,
+		DefaultAccountID: options.DefaultAccountID,
+	})
+	credentials := credentialsFromSignature(authContext.Signature)
 	host := detectHost(req.Host)
 	pathService := serviceFromPath(req.URL.Path)
 	region := firstNonEmpty(credentials.Scope.Region, host.Region, options.DefaultRegion)
-	accountID := options.DefaultAccountID
+	accountID := firstNonEmpty(authContext.AccountID, options.DefaultAccountID)
 
 	ctx := AwsRequestContext{
 		RequestID:   options.RequestIDGenerator(),
@@ -83,8 +91,10 @@ func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsReques
 		Query:       map[string]string{},
 		Input:       map[string]any{},
 		Credentials: credentials,
+		Auth:        authContext,
 		Principal: Principal{
 			AccountID: accountID,
+			ARN:       authContext.PrincipalARN,
 		},
 	}
 
@@ -147,25 +157,26 @@ func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsReques
 }
 
 func ParseCredentials(req *http.Request) Credentials {
-	credential := credentialValue(req)
-	if credential == "" {
+	signature, err := auth.ParseSigV4(req)
+	if err != nil || !signature.Present {
 		return Credentials{}
 	}
-	value, err := url.QueryUnescape(credential)
-	if err != nil {
-		value = credential
+	return credentialsFromSignature(signature)
+}
+
+func credentialsFromSignature(signature auth.Signature) Credentials {
+	if !signature.Present {
+		return Credentials{}
 	}
-	parts := strings.Split(value, "/")
-	result := Credentials{AccessKeyID: parts[0]}
-	if len(parts) >= 5 {
-		result.Scope = CredentialScope{
-			Date:     parts[1],
-			Region:   parts[2],
-			Service:  parts[3],
-			Terminal: parts[4],
-		}
+	return Credentials{
+		AccessKeyID: signature.AccessKeyID,
+		Scope: CredentialScope{
+			Date:     signature.Scope.Date,
+			Region:   signature.Scope.Region,
+			Service:  signature.Scope.Service,
+			Terminal: signature.Scope.Terminal,
+		},
 	}
-	return result
 }
 
 func NewRequestID() string {
@@ -187,23 +198,6 @@ func normalizeOptions(options Options) Options {
 		options.RequestIDGenerator = NewRequestID
 	}
 	return options
-}
-
-func credentialValue(req *http.Request) string {
-	if value := req.URL.Query().Get("X-Amz-Credential"); value != "" {
-		return value
-	}
-	auth := req.Header.Get("Authorization")
-	const marker = "Credential="
-	index := strings.Index(auth, marker)
-	if index < 0 {
-		return ""
-	}
-	value := auth[index+len(marker):]
-	if cut := strings.IndexAny(value, ", "); cut >= 0 {
-		value = value[:cut]
-	}
-	return value
 }
 
 func queryInput(params map[string]string) map[string]any {
