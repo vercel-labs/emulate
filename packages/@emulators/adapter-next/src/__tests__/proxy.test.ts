@@ -102,6 +102,36 @@ describe("createEmulateProxy", () => {
     expect(response.headers.get("Location")).toBe("/emulate/resend/inbox");
   });
 
+  it("keeps target redirects manual so locations can be rewritten", async () => {
+    let forwardedRequest: Request | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        forwardedRequest = input as Request;
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/inbox" },
+        });
+      }),
+    );
+
+    const proxy = createEmulateProxy({
+      targets: {
+        resend: "http://127.0.0.1:4018",
+      },
+    });
+
+    const response = await proxy.GET(
+      new Request("https://preview.example.com/emulate/resend/login"),
+      ctx(["resend", "login"]),
+    );
+
+    expect(forwardedRequest).not.toBeNull();
+    expect(forwardedRequest!.redirect).toBe("manual");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/emulate/resend/inbox");
+  });
+
   it("forwards every path segment in single target mode", async () => {
     let forwardedRequest: Request | null = null;
     vi.stubGlobal(

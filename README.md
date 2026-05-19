@@ -772,7 +772,18 @@ export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulatePro
 
 With `targets`, the first path segment selects the service and is stripped before forwarding. `/emulate/resend/emails` forwards to `http://127.0.0.1:4018/emails`, while response `Location` headers and HTML links are rewritten back to `/emulate/resend/*`.
 
-If a single target handles multiple services, use `target` instead:
+If multiple services share one native runtime URL, keep using `targets` and point each service at that runtime when the runtime expects service-local paths:
+
+```typescript
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  targets: {
+    resend: 'http://127.0.0.1:4000',
+    aws: 'http://127.0.0.1:4000',
+  },
+})
+```
+
+Use single `target` only when the upstream expects every path segment after the public route prefix:
 
 ```typescript
 export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({

@@ -277,6 +277,7 @@ function buildProxyRequest(request: Request, target: URL, headers: Headers): Req
   const init: RequestInit & { duplex?: string } = {
     method: request.method,
     headers,
+    redirect: "manual",
   };
   if (!BODYLESS_METHODS.has(request.method)) {
     init.body = request.body;
