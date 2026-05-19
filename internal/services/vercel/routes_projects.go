@@ -338,6 +338,10 @@ func (s *Service) insertProjectEnvFromBody(project corestore.Record, raw any) {
 		if len(target) == 0 {
 			target = []string{"production", "preview", "development"}
 		}
+		customEnvironmentIDs := []string{}
+		if ids, ok := parseStringSliceStrict(env["customEnvironmentIds"]); ok {
+			customEnvironmentIDs = ids
+		}
 		s.store.EnvVars.Insert(corestore.Record{
 			"uid":                  generateUID("env"),
 			"projectId":            stringField(project, "uid"),
@@ -346,7 +350,7 @@ func (s *Service) insertProjectEnvFromBody(project corestore.Record, raw any) {
 			"type":                 envType,
 			"target":               target,
 			"gitBranch":            nullableString(stringValue(env["gitBranch"])),
-			"customEnvironmentIds": stringSliceValue(env["customEnvironmentIds"]),
+			"customEnvironmentIds": customEnvironmentIDs,
 			"comment":              nullableString(stringValue(env["comment"])),
 			"decrypted":            false,
 		})

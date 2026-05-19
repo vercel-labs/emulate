@@ -598,7 +598,9 @@ func mapField(record corestore.Record, key string) map[string]any {
 func stringSliceValue(value any) []string {
 	switch v := value.(type) {
 	case []string:
-		return append([]string(nil), v...)
+		out := make([]string, len(v))
+		copy(out, v)
+		return out
 	case []any:
 		out := make([]string, 0, len(v))
 		for _, item := range v {
@@ -609,6 +611,27 @@ func stringSliceValue(value any) []string {
 		return out
 	default:
 		return nil
+	}
+}
+
+func parseStringSliceStrict(value any) ([]string, bool) {
+	switch v := value.(type) {
+	case []string:
+		out := make([]string, len(v))
+		copy(out, v)
+		return out, true
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	default:
+		return nil, false
 	}
 }
 

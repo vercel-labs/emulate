@@ -518,19 +518,10 @@ func (s *Service) deleteDeploymentCascade(dep corestore.Record) {
 }
 
 func buildFileTree(rows []corestore.Record) []map[string]any {
-	root := map[string]any{
-		"uid":         generateUID("file"),
-		"name":        "/",
-		"type":        "directory",
-		"mode":        0o40755,
-		"size":        0,
-		"contentType": nil,
-		"children":    []any{},
-	}
+	root := fileTreeDirectory("/")
 	if len(rows) == 0 {
 		return []map[string]any{root}
 	}
-	children := root["children"].([]any)
 	for _, row := range rows {
 		if stringField(row, "type") != "file" {
 			continue
@@ -539,6 +530,11 @@ func buildFileTree(rows []corestore.Record) []map[string]any {
 		if len(parts) == 0 || parts[0] == "" {
 			continue
 		}
+		current := root
+		for _, part := range parts[:len(parts)-1] {
+			current = fileTreeChildDirectory(current, part)
+		}
+		children := current["children"].([]any)
 		children = append(children, map[string]any{
 			"uid":         stringField(row, "uid"),
 			"name":        parts[len(parts)-1],
@@ -548,9 +544,34 @@ func buildFileTree(rows []corestore.Record) []map[string]any {
 			"contentType": row["contentType"],
 			"children":    []any{},
 		})
+		current["children"] = children
 	}
-	root["children"] = children
 	return []map[string]any{root}
+}
+
+func fileTreeDirectory(name string) map[string]any {
+	return map[string]any{
+		"uid":         generateUID("file"),
+		"name":        name,
+		"type":        "directory",
+		"mode":        0o40755,
+		"size":        0,
+		"contentType": nil,
+		"children":    []any{},
+	}
+}
+
+func fileTreeChildDirectory(parent map[string]any, name string) map[string]any {
+	children := parent["children"].([]any)
+	for _, child := range children {
+		node, ok := child.(map[string]any)
+		if ok && stringValue(node["name"]) == name && stringValue(node["type"]) == "directory" {
+			return node
+		}
+	}
+	node := fileTreeDirectory(name)
+	parent["children"] = append(children, node)
+	return node
 }
 
 func anySlice(raw any) []any {

@@ -184,8 +184,8 @@ func (s *Service) registerEnvRoutes(router *corehttp.Router) {
 			patch["type"] = envType
 		}
 		if value, exists := body["target"]; exists {
-			target := normalizeTargets(stringSliceValue(value))
-			if len(target) == 0 {
+			target, ok := parseEnvTargets(value)
+			if !ok {
 				writeVercelError(c, http.StatusBadRequest, "bad_request", "Invalid value: target must be a non-empty array of production, preview, development")
 				return
 			}
@@ -202,8 +202,8 @@ func (s *Service) registerEnvRoutes(router *corehttp.Router) {
 			}
 		}
 		if value, exists := body["customEnvironmentIds"]; exists {
-			ids := stringSliceValue(value)
-			if value != nil && ids == nil {
+			ids, ok := parseCustomEnvironmentIDs(value)
+			if !ok {
 				writeVercelError(c, http.StatusBadRequest, "bad_request", "Invalid value: customEnvironmentIds must be an array of strings")
 				return
 			}
@@ -301,16 +301,17 @@ func parseEnvRow(body map[string]any) (corestore.Record, string) {
 	if !validEnvType(envType) {
 		return nil, "Invalid value: type must be one of system, encrypted, plain, secret, sensitive"
 	}
-	target := normalizeTargets(stringSliceValue(body["target"]))
-	if len(target) == 0 {
+	target, ok := parseEnvTargets(body["target"])
+	if !ok {
 		return nil, "Invalid value: target must be a non-empty array of production, preview, development"
 	}
 	customEnvironmentIDs := []string{}
 	if raw, exists := body["customEnvironmentIds"]; exists && raw != nil {
-		customEnvironmentIDs = stringSliceValue(raw)
-		if customEnvironmentIDs == nil {
+		ids, ok := parseCustomEnvironmentIDs(raw)
+		if !ok {
 			return nil, "Invalid value: customEnvironmentIds must be an array of strings"
 		}
+		customEnvironmentIDs = ids
 	}
 	var gitBranch any
 	if raw, exists := body["gitBranch"]; exists {
@@ -342,6 +343,26 @@ func parseEnvRow(body map[string]any) (corestore.Record, string) {
 		"comment":              comment,
 		"decrypted":            false,
 	}, ""
+}
+
+func parseEnvTargets(raw any) ([]string, bool) {
+	targets, ok := parseStringSliceStrict(raw)
+	if !ok || len(targets) == 0 {
+		return nil, false
+	}
+	for _, target := range targets {
+		if !validTarget(target) {
+			return nil, false
+		}
+	}
+	return targets, true
+}
+
+func parseCustomEnvironmentIDs(raw any) ([]string, bool) {
+	if raw == nil {
+		return []string{}, true
+	}
+	return parseStringSliceStrict(raw)
 }
 
 func (s *Service) findEnvByUIDInProject(projectID string, uid string) corestore.Record {

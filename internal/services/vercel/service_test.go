@@ -68,6 +68,20 @@ func TestVercelProjectsEnvAndDomains(t *testing.T) {
 		t.Fatalf("unexpected project list: %#v", listed)
 	}
 
+	detail := doVercelJSON(handler, http.MethodGet, "/v9/projects/"+project.ID, "", true)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, body = %s", detail.Code, detail.Body.String())
+	}
+	var detailBody struct {
+		Env []struct {
+			CustomEnvironmentIDs json.RawMessage `json:"customEnvironmentIds"`
+		} `json:"env"`
+	}
+	decodeVercelBody(t, detail, &detailBody)
+	if len(detailBody.Env) != 1 || string(detailBody.Env[0].CustomEnvironmentIDs) != "[]" {
+		t.Fatalf("unexpected project env customEnvironmentIds: %s", detail.Body.String())
+	}
+
 	envCreate := doVercelJSON(handler, http.MethodPost, "/v10/projects/"+project.ID+"/env?upsert=1", `{
 		"key":"API_URL",
 		"value":"https://override.test",
@@ -130,8 +144,20 @@ func TestVercelDeploymentsFilesAndAliases(t *testing.T) {
 	if files.Code != http.StatusOK {
 		t.Fatalf("files status = %d, body = %s", files.Code, files.Body.String())
 	}
-	if !strings.Contains(files.Body.String(), "index.ts") {
-		t.Fatalf("missing file tree entry: %s", files.Body.String())
+	var fileBody struct {
+		Files []testFileTreeNode `json:"files"`
+	}
+	decodeVercelBody(t, files, &fileBody)
+	if len(fileBody.Files) != 1 {
+		t.Fatalf("unexpected file tree: %#v", fileBody)
+	}
+	apiDir := findTestFileTreeChild(fileBody.Files[0].Children, "api", "directory")
+	if apiDir == nil {
+		t.Fatalf("missing api directory: %s", files.Body.String())
+	}
+	indexFile := findTestFileTreeChild(apiDir.Children, "index.ts", "file")
+	if indexFile == nil {
+		t.Fatalf("missing nested index.ts file: %s", files.Body.String())
 	}
 
 	events := doVercelJSON(handler, http.MethodGet, "/v3/deployments/"+dep.UID+"/events", "", true)
@@ -193,6 +219,65 @@ func TestVercelOAuthIssuesUsableBearerToken(t *testing.T) {
 	}
 }
 
+func TestVercelEnvRejectsMalformedArrays(t *testing.T) {
+	handler := newVercelTestHandler()
+	projectID := createVercelProject(t, handler, "env-validation-app")
+
+	invalidTarget := doVercelJSON(handler, http.MethodPost, "/v10/projects/"+projectID+"/env", `{
+		"key":"BAD_TARGET",
+		"value":"1",
+		"type":"encrypted",
+		"target":["production","bogus"]
+	}`, true)
+	if invalidTarget.Code != http.StatusBadRequest {
+		t.Fatalf("invalid target status = %d, body = %s", invalidTarget.Code, invalidTarget.Body.String())
+	}
+
+	invalidCustomIDs := doVercelJSON(handler, http.MethodPost, "/v10/projects/"+projectID+"/env", `{
+		"key":"BAD_CUSTOM_IDS",
+		"value":"1",
+		"type":"encrypted",
+		"target":["production"],
+		"customEnvironmentIds":["env_a",123]
+	}`, true)
+	if invalidCustomIDs.Code != http.StatusBadRequest {
+		t.Fatalf("invalid custom ids status = %d, body = %s", invalidCustomIDs.Code, invalidCustomIDs.Body.String())
+	}
+
+	valid := doVercelJSON(handler, http.MethodPost, "/v10/projects/"+projectID+"/env", `{
+		"key":"VALID_ENV",
+		"value":"1",
+		"type":"encrypted",
+		"target":["production"]
+	}`, true)
+	if valid.Code != http.StatusOK {
+		t.Fatalf("valid env status = %d, body = %s", valid.Code, valid.Body.String())
+	}
+	var created struct {
+		Envs []struct {
+			ID string `json:"id"`
+		} `json:"envs"`
+	}
+	decodeVercelBody(t, valid, &created)
+	if len(created.Envs) != 1 || created.Envs[0].ID == "" {
+		t.Fatalf("unexpected env create body: %#v", created)
+	}
+
+	patchTarget := doVercelJSON(handler, http.MethodPatch, "/v9/projects/"+projectID+"/env/"+created.Envs[0].ID, `{
+		"target":["preview",false]
+	}`, true)
+	if patchTarget.Code != http.StatusBadRequest {
+		t.Fatalf("patch target status = %d, body = %s", patchTarget.Code, patchTarget.Body.String())
+	}
+
+	patchCustomIDs := doVercelJSON(handler, http.MethodPatch, "/v9/projects/"+projectID+"/env/"+created.Envs[0].ID, `{
+		"customEnvironmentIds":[{}]
+	}`, true)
+	if patchCustomIDs.Code != http.StatusBadRequest {
+		t.Fatalf("patch custom ids status = %d, body = %s", patchCustomIDs.Code, patchCustomIDs.Body.String())
+	}
+}
+
 func TestVercelAPIKeyCanAuthenticateRequests(t *testing.T) {
 	handler := newVercelTestHandler()
 	keyRes := doVercelJSON(handler, http.MethodPost, "/v1/api-keys", `{"name":"SDK Tests"}`, true)
@@ -213,6 +298,21 @@ func TestVercelAPIKeyCanAuthenticateRequests(t *testing.T) {
 	if userRes.Code != http.StatusOK {
 		t.Fatalf("user status = %d, body = %s", userRes.Code, userRes.Body.String())
 	}
+}
+
+type testFileTreeNode struct {
+	Name     string             `json:"name"`
+	Type     string             `json:"type"`
+	Children []testFileTreeNode `json:"children"`
+}
+
+func findTestFileTreeChild(children []testFileTreeNode, name string, nodeType string) *testFileTreeNode {
+	for index := range children {
+		if children[index].Name == name && children[index].Type == nodeType {
+			return &children[index]
+		}
+	}
+	return nil
 }
 
 func newVercelTestHandler() http.Handler {
