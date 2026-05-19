@@ -16,6 +16,7 @@ type Options struct {
 	DefaultRegion    string
 	AuthMode         auth.Mode
 	CredentialStore  *auth.Store
+	S3PathFallback   bool
 }
 
 type Service struct {
@@ -24,6 +25,7 @@ type Service struct {
 	defaultRegion    string
 	authMode         auth.Mode
 	credentialStore  *auth.Store
+	s3PathFallback   bool
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -51,11 +53,12 @@ func New(options Options) *Service {
 		defaultRegion:    defaultRegion,
 		authMode:         options.AuthMode,
 		credentialStore:  options.CredentialStore,
+		s3PathFallback:   options.S3PathFallback,
 	}
 }
 
 func (s *Service) handleAWS(c *corehttp.Context) {
-	if !looksLikeAWSRequest(c.Request) {
+	if !s.looksLikeAWSRequest(c.Request) {
 		c.JSON(http.StatusNotFound, map[string]any{"message": "Not Found"})
 		return
 	}
@@ -84,11 +87,11 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	s.writeAWSError(c, ctx, notImplementedError(ctx))
 }
 
-func looksLikeAWSRequest(req *http.Request) bool {
+func (s *Service) looksLikeAWSRequest(req *http.Request) bool {
 	if req.URL.Query().Get("Action") != "" || req.URL.Query().Get("X-Amz-Algorithm") != "" {
 		return true
 	}
-	if req.Header.Get("X-Amz-Target") != "" || req.Header.Get("X-Amz-Date") != "" || req.Header.Get("X-Amz-Content-Sha256") != "" {
+	if hasAWSHeader(req) {
 		return true
 	}
 	if strings.HasPrefix(req.Header.Get("Authorization"), "AWS4-HMAC-SHA256") {
@@ -101,7 +104,16 @@ func looksLikeAWSRequest(req *http.Request) bool {
 	if hasKnownServicePath(req.URL.Path) {
 		return true
 	}
-	return looksLikeS3RESTRequest(req)
+	return looksLikeS3RESTRequest(req, s.s3PathFallback)
+}
+
+func hasAWSHeader(req *http.Request) bool {
+	for key := range req.Header {
+		if strings.HasPrefix(strings.ToLower(key), "x-amz-") {
+			return true
+		}
+	}
+	return false
 }
 
 func hasKnownServicePath(pathValue string) bool {
@@ -114,9 +126,12 @@ func hasKnownServicePath(pathValue string) bool {
 	}
 }
 
-func looksLikeS3RESTRequest(req *http.Request) bool {
+func looksLikeS3RESTRequest(req *http.Request, pathFallback bool) bool {
 	first := firstPathSegment(req.URL.Path)
 	if strings.HasPrefix(first, "_") {
+		return false
+	}
+	if !pathFallback && !hasS3RequestHint(req) {
 		return false
 	}
 	switch req.Method {
@@ -125,6 +140,33 @@ func looksLikeS3RESTRequest(req *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+func hasS3RequestHint(req *http.Request) bool {
+	query := req.URL.Query()
+	for _, key := range []string{
+		"acl",
+		"continuation-token",
+		"delete",
+		"delimiter",
+		"list-type",
+		"location",
+		"max-keys",
+		"partNumber",
+		"policy",
+		"prefix",
+		"start-after",
+		"tagging",
+		"uploadId",
+		"uploads",
+		"versioning",
+		"website",
+	} {
+		if _, ok := query[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func hasKnownServiceLabel(host string) bool {

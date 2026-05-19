@@ -64,7 +64,8 @@ func NewServer(options ServerOptions) *Server {
 	})
 	if serviceEnabled(services, "aws") {
 		aws.Register(router, aws.Options{
-			Store: runtimeStore,
+			Store:          runtimeStore,
+			S3PathFallback: len(services) == 1,
 		})
 	}
 	router.NotFound(func(c *corehttp.Context) {
