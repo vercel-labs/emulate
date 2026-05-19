@@ -158,22 +158,10 @@ func (h *Handler) listObjects(bucketName string, query map[string]string) protoc
 	if marker == "" {
 		marker = startAfter
 	}
-	if marker != "" {
-		start := len(filtered)
-		for index, object := range filtered {
-			if stringField(object, "key") > marker {
-				start = index
-				break
-			}
-		}
-		filtered = filtered[start:]
-	}
 
-	commonPrefixes := []string{}
-	contents := filtered
+	entries := make([]listEntry, 0, len(filtered))
 	if delimiter != "" {
 		prefixSet := map[string]struct{}{}
-		contents = []corestore.Record{}
 		for _, object := range filtered {
 			key := stringField(object, "key")
 			remaining := strings.TrimPrefix(key, prefix)
@@ -181,26 +169,52 @@ func (h *Handler) listObjects(bucketName string, query map[string]string) protoc
 				prefixSet[prefix+remaining[:index+len(delimiter)]] = struct{}{}
 				continue
 			}
-			contents = append(contents, object)
+			entries = append(entries, listEntry{kind: listEntryObject, key: key, object: object})
 		}
 		for prefixValue := range prefixSet {
-			commonPrefixes = append(commonPrefixes, prefixValue)
+			entries = append(entries, listEntry{kind: listEntryPrefix, key: prefixValue})
 		}
-		sort.Strings(commonPrefixes)
+	} else {
+		for _, object := range filtered {
+			entries = append(entries, listEntry{kind: listEntryObject, key: stringField(object, "key"), object: object})
+		}
+	}
+	sort.Slice(entries, func(i int, j int) bool {
+		return entries[i].key < entries[j].key
+	})
+
+	if marker != "" {
+		start := len(entries)
+		for index, entry := range entries {
+			if entry.key > marker {
+				start = index
+				break
+			}
+		}
+		entries = entries[start:]
 	}
 
-	truncated := len(contents) > maxKeys
-	page := contents
+	truncated := len(entries) > maxKeys
+	page := entries
 	if len(page) > maxKeys {
 		page = page[:maxKeys]
 	}
 	nextToken := ""
 	if truncated && len(page) > 0 {
-		nextToken = stringField(page[len(page)-1], "key")
+		nextToken = page[len(page)-1].key
 	}
 
 	var contentsXML strings.Builder
-	for _, object := range page {
+	var prefixesXML strings.Builder
+	for _, entry := range page {
+		if entry.kind == listEntryPrefix {
+			prefixesXML.WriteString(`  <CommonPrefixes><Prefix>`)
+			prefixesXML.WriteString(xmlEscape(entry.key))
+			prefixesXML.WriteString(`</Prefix></CommonPrefixes>
+`)
+			continue
+		}
+		object := entry.object
 		contentsXML.WriteString(`  <Contents>
     <Key>`)
 		contentsXML.WriteString(xmlEscape(stringField(object, "key")))
@@ -219,14 +233,6 @@ func (h *Handler) listObjects(bucketName string, query map[string]string) protoc
 `)
 	}
 
-	var prefixesXML strings.Builder
-	for _, prefixValue := range commonPrefixes {
-		prefixesXML.WriteString(`  <CommonPrefixes><Prefix>`)
-		prefixesXML.WriteString(xmlEscape(prefixValue))
-		prefixesXML.WriteString(`</Prefix></CommonPrefixes>
-`)
-	}
-
 	body := `<?xml version="1.0" encoding="UTF-8"?>
 <ListBucketResult>
   <Name>` + xmlEscape(bucketName) + `</Name>
@@ -238,6 +244,17 @@ func (h *Handler) listObjects(bucketName string, query map[string]string) protoc
 ` + strings.TrimRight(prefixesXML.String(), "\n") + `
 </ListBucketResult>`
 	return xmlResponse(http.StatusOK, body, nil)
+}
+
+const (
+	listEntryObject = "object"
+	listEntryPrefix = "prefix"
+)
+
+type listEntry struct {
+	kind   string
+	key    string
+	object corestore.Record
 }
 
 func (h *Handler) putObject(req *http.Request, ctx gateway.AwsRequestContext) protocols.ErrorResponse {
@@ -325,6 +342,9 @@ func (h *Handler) getObject(bucketName string, key string, head bool) protocols.
 }
 
 func (h *Handler) deleteObject(bucketName string, key string) protocols.ErrorResponse {
+	if _, ok := h.findBucket(bucketName); !ok {
+		return h.xmlError("NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound, requestResource(bucketName, key))
+	}
 	if object, ok := h.findObject(bucketName, key); ok {
 		h.Objects.Delete(intField(object, "id"))
 		if assetID := stringField(object, "asset_id"); assetID != "" {
@@ -355,7 +375,7 @@ func (h *Handler) postObject(req *http.Request, ctx gateway.AwsRequestContext) p
 	if err != nil {
 		return h.xmlError("InvalidArgument", err.Error(), http.StatusBadRequest, requestResource(ctx.S3.Bucket, key))
 	}
-	if err := validatePolicy(firstFormValueAnyCase(form, "Policy"), form, int64(len(body))); err != nil {
+	if err := validatePolicy(firstFormValueAnyCase(form, "Policy"), form, ctx.S3.Bucket, int64(len(body))); err != nil {
 		return h.xmlError(err.code, err.message, err.status, requestResource(ctx.S3.Bucket, key))
 	}
 	contentType := firstFormValue(form, "Content-Type")
@@ -617,7 +637,7 @@ type policyError struct {
 	status  int
 }
 
-func validatePolicy(raw string, form *multipart.Form, size int64) *policyError {
+func validatePolicy(raw string, form *multipart.Form, bucketName string, size int64) *policyError {
 	if raw == "" {
 		return nil
 	}
@@ -642,39 +662,94 @@ func validatePolicy(raw string, form *multipart.Form, size int64) *policyError {
 		}
 	}
 	for _, condition := range policy.Conditions {
-		values, ok := condition.([]any)
-		if !ok || len(values) == 0 {
-			continue
-		}
-		operator, _ := values[0].(string)
-		switch operator {
-		case "content-length-range":
-			if len(values) < 3 {
-				continue
-			}
-			min, minOK := numberValue(values[1])
-			max, maxOK := numberValue(values[2])
-			if minOK && maxOK && (size < min || size > max) {
-				return &policyError{code: "EntityTooLarge", message: "Your proposed upload exceeds the maximum allowed size.", status: http.StatusBadRequest}
-			}
-		case "starts-with":
-			if len(values) < 3 {
-				continue
-			}
-			field, _ := values[1].(string)
-			prefix, _ := values[2].(string)
-			field = strings.TrimPrefix(field, "$")
-			value := firstFormValue(form, field)
-			if !strings.HasPrefix(value, prefix) {
-				return &policyError{
-					code:    "AccessDenied",
-					message: `Invalid according to Policy: Policy Condition failed: ["starts-with", "$` + field + `", "` + prefix + `"]`,
-					status:  http.StatusForbidden,
+		switch values := condition.(type) {
+		case map[string]any:
+			for field, expected := range values {
+				expectedValue, ok := stringValue(expected)
+				if !ok {
+					continue
 				}
+				if policyFieldValue(form, bucketName, field) != expectedValue {
+					return policyConditionFailed(condition)
+				}
+			}
+		case []any:
+			if err := validatePolicyArrayCondition(values, form, bucketName, size); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+func validatePolicyArrayCondition(values []any, form *multipart.Form, bucketName string, size int64) *policyError {
+	if len(values) == 0 {
+		return nil
+	}
+	operator, _ := values[0].(string)
+	switch operator {
+	case "content-length-range":
+		if len(values) < 3 {
+			return nil
+		}
+		min, minOK := numberValue(values[1])
+		max, maxOK := numberValue(values[2])
+		if minOK && maxOK && (size < min || size > max) {
+			return &policyError{code: "EntityTooLarge", message: "Your proposed upload exceeds the maximum allowed size.", status: http.StatusBadRequest}
+		}
+	case "starts-with":
+		if len(values) < 3 {
+			return nil
+		}
+		field, _ := values[1].(string)
+		prefix, _ := values[2].(string)
+		value := policyFieldValue(form, bucketName, field)
+		if !strings.HasPrefix(value, prefix) {
+			return policyConditionFailed(values)
+		}
+	case "eq":
+		if len(values) < 3 {
+			return nil
+		}
+		field, _ := values[1].(string)
+		expected, ok := stringValue(values[2])
+		if !ok {
+			return nil
+		}
+		if policyFieldValue(form, bucketName, field) != expected {
+			return policyConditionFailed(values)
+		}
+	}
+	return nil
+}
+
+func policyFieldValue(form *multipart.Form, bucketName string, field string) string {
+	field = strings.TrimPrefix(field, "$")
+	if field == "bucket" {
+		return bucketName
+	}
+	return firstFormValueAnyCase(form, field)
+}
+
+func stringValue(value any) (string, bool) {
+	switch v := value.(type) {
+	case string:
+		return v, true
+	default:
+		return "", false
+	}
+}
+
+func policyConditionFailed(condition any) *policyError {
+	conditionText := fmt.Sprint(condition)
+	if raw, err := json.Marshal(condition); err == nil {
+		conditionText = string(raw)
+	}
+	return &policyError{
+		code:    "AccessDenied",
+		message: "Invalid according to Policy: Policy Condition failed: " + conditionText,
+		status:  http.StatusForbidden,
+	}
 }
 
 func numberValue(value any) (int64, bool) {
