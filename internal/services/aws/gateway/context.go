@@ -138,7 +138,7 @@ func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsReques
 		return ctx, nil
 	}
 
-	if shouldTreatAsS3(req, host.Service, pathService) {
+	if shouldTreatAsS3(req, host.Service, pathService, credentials.Scope.Service) {
 		s3Route, err := protocols.ParseS3RESTRequest(req)
 		if err != nil {
 			return AwsRequestContext{}, err
@@ -218,11 +218,14 @@ func s3Input(route protocols.S3Route) map[string]any {
 	}
 }
 
-func shouldTreatAsS3(req *http.Request, hostService string, pathService string) bool {
-	if hostService == "s3" || pathService == "s3" {
+func shouldTreatAsS3(req *http.Request, hostService string, pathService string, credentialService string) bool {
+	if hostService == "s3" || pathService == "s3" || credentialService == "s3" {
 		return true
 	}
 	if req.URL.Query().Get("Action") != "" || req.Header.Get("X-Amz-Target") != "" {
+		return false
+	}
+	if credentialService != "" {
 		return false
 	}
 	return hostService == ""

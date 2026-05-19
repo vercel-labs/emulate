@@ -171,6 +171,32 @@ func TestServiceReturnsJSONRPCNotImplemented(t *testing.T) {
 	}
 }
 
+func TestServiceDoesNotTreatSignedNonS3ServicePathAsS3(t *testing.T) {
+	handler := newTestHandler()
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/lambda/2015-03-31/functions", nil)
+	signAWSRequest(req, "lambda")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); got != "application/x-amz-json-1.0" {
+		t.Fatalf("content type = %q", got)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["__type"] != "com.amazonaws.lambda#NotImplemented" {
+		t.Fatalf("unexpected body: %#v", body)
+	}
+	if strings.Contains(res.Body.String(), "s3.GetObject") {
+		t.Fatalf("unexpected S3 fallback response: %s", res.Body.String())
+	}
+}
+
 func TestServicePassesThroughNonAWSNotFound(t *testing.T) {
 	handler := newTestHandler()
 	res := httptest.NewRecorder()

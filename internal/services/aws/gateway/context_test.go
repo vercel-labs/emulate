@@ -129,6 +129,46 @@ func TestBuildContextS3PathStyleBucketNameCanMatchKnownService(t *testing.T) {
 	}
 }
 
+func TestBuildContextSignedS3PathStyleBucketNameCanMatchKnownService(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/logs/app.txt", nil)
+	signRequestForService(req, "s3")
+
+	ctx, err := BuildContext(req, nil, fixedOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ctx.Service != "s3" || ctx.Action != "PutObject" {
+		t.Fatalf("service/action = %q/%q, want s3/PutObject", ctx.Service, ctx.Action)
+	}
+	if ctx.S3 == nil || ctx.S3.Bucket != "logs" || ctx.S3.Key != "app.txt" {
+		t.Fatalf("unexpected S3 route: %#v", ctx.S3)
+	}
+}
+
+func TestBuildContextSignedNonS3ServicePathDoesNotFallBackToS3(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/lambda/2015-03-31/functions", nil)
+	signRequestForService(req, "lambda")
+
+	ctx, err := BuildContext(req, nil, fixedOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ctx.Service != "lambda" {
+		t.Fatalf("service = %q, want lambda", ctx.Service)
+	}
+	if ctx.Protocol != protocols.ProtocolUnknown {
+		t.Fatalf("protocol = %q, want %q", ctx.Protocol, protocols.ProtocolUnknown)
+	}
+	if ctx.Action != "" {
+		t.Fatalf("action = %q, want empty", ctx.Action)
+	}
+	if ctx.S3 != nil {
+		t.Fatalf("S3 route = %#v, want nil", ctx.S3)
+	}
+}
+
 func TestBuildContextS3CopyObject(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/photos/docs/copy.txt", nil)
 	req.Header.Set("x-amz-copy-source", "/photos/docs/source.txt")
@@ -676,4 +716,9 @@ func fixedOptions() Options {
 			return "req-test"
 		},
 	}
+}
+
+func signRequestForService(req *http.Request, service string) {
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20260519/us-east-1/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
+	req.Header.Set("X-Amz-Date", "20260519T000000Z")
 }
