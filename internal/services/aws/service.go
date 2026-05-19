@@ -4,10 +4,13 @@ import (
 	"net/http"
 	"strings"
 
+	coreassets "github.com/vercel-labs/emulate/internal/core/assets"
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
+	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
+	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
 )
 
 type Options struct {
@@ -17,15 +20,19 @@ type Options struct {
 	AuthMode         auth.Mode
 	CredentialStore  *auth.Store
 	S3PathFallback   bool
+	AssetStore       *coreassets.Store
+	BaseURL          string
 }
 
 type Service struct {
 	store            Store
+	assets           *coreassets.Store
 	defaultAccountID string
 	defaultRegion    string
 	authMode         auth.Mode
 	credentialStore  *auth.Store
 	s3PathFallback   bool
+	s3               awss3.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -47,13 +54,27 @@ func New(options Options) *Service {
 	if defaultRegion == "" {
 		defaultRegion = gateway.DefaultRegion
 	}
+	assetStore := options.AssetStore
+	if assetStore == nil {
+		assetStore = coreassets.New()
+	}
+	awsStore := NewStore(runtimeStore)
+	seedS3Defaults(awsStore, defaultRegion)
 	return &Service{
-		store:            NewStore(runtimeStore),
+		store:            awsStore,
+		assets:           assetStore,
 		defaultAccountID: defaultAccountID,
 		defaultRegion:    defaultRegion,
 		authMode:         options.AuthMode,
 		credentialStore:  options.CredentialStore,
 		s3PathFallback:   options.S3PathFallback,
+		s3: awss3.Handler{
+			Buckets: awsStore.S3Buckets,
+			Objects: awsStore.S3Objects,
+			Assets:  assetStore,
+			BaseURL: options.BaseURL,
+			Region:  defaultRegion,
+		},
 	}
 }
 
@@ -81,6 +102,11 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Auth.Error != nil {
 		s.writeAWSError(c, ctx, awsAuthError(ctx))
+		return
+	}
+
+	if ctx.Service == "s3" && ctx.Protocol == protocols.ProtocolRESTXML {
+		writeErrorResponse(c, s.s3.Handle(c.Request, ctx))
 		return
 	}
 

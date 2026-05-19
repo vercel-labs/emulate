@@ -66,6 +66,7 @@ func NewServer(options ServerOptions) *Server {
 		aws.Register(router, aws.Options{
 			Store:          runtimeStore,
 			S3PathFallback: len(services) == 1,
+			BaseURL:        options.BaseURL,
 		})
 	}
 	router.NotFound(func(c *corehttp.Context) {

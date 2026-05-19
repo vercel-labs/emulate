@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,15 +13,11 @@ import (
 	"github.com/vercel-labs/emulate/internal/core/ui"
 )
 
-func TestServiceReturnsS3RESTXMLNotImplemented(t *testing.T) {
+func TestServiceHandlesS3ListBuckets(t *testing.T) {
 	handler := newTestHandler()
-	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
-	signAWSRequest(req, "s3")
+	res := executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/", nil, "s3", nil)
 
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if got := res.Header().Get("Content-Type"); got != "application/xml" {
@@ -30,46 +27,159 @@ func TestServiceReturnsS3RESTXMLNotImplemented(t *testing.T) {
 		t.Fatal("missing x-amz-request-id")
 	}
 	body := res.Body.String()
-	if !strings.Contains(body, "<Code>NotImplemented</Code>") || !strings.Contains(body, "s3.ListBuckets") {
+	if !strings.Contains(body, "<ListAllMyBucketsResult>") || !strings.Contains(body, "<Name>emulate-default</Name>") {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }
 
-func TestServiceReturnsUnsignedPathStyleS3NotImplemented(t *testing.T) {
+func TestServiceHandlesUnsignedPathStyleS3ListObjects(t *testing.T) {
 	handler := newTestHandler()
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/photos?list-type=2", nil)
 
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if got := res.Header().Get("Content-Type"); got != "application/xml" {
 		t.Fatalf("content type = %q", got)
 	}
 	body := res.Body.String()
-	if !strings.Contains(body, "<Code>NotImplemented</Code>") || !strings.Contains(body, "s3.ListObjectsV2") {
+	if !strings.Contains(body, "<Code>NoSuchBucket</Code>") {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }
 
-func TestServiceReturnsLegacyS3PathStyleNotImplementedInConservativeMode(t *testing.T) {
+func TestServiceHandlesLegacyS3PathStyleInConservativeMode(t *testing.T) {
 	handler := newTestHandler()
-	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/s3/photos", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/s3/emulate-default", nil)
 
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if got := res.Header().Get("Content-Type"); got != "application/xml" {
 		t.Fatalf("content type = %q", got)
 	}
 	body := res.Body.String()
-	if !strings.Contains(body, "<Code>NotImplemented</Code>") || !strings.Contains(body, "s3.ListObjects") {
+	if !strings.Contains(body, "<ListBucketResult>") || !strings.Contains(body, "<Name>emulate-default</Name>") {
 		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+func TestServiceHandlesS3BucketLifecycle(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSRequest(handler, http.MethodPut, "http://127.0.0.1/photos", nil, "s3", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Location"); got != "/photos" {
+		t.Fatalf("location = %q", got)
+	}
+
+	res = executeAWSRequest(handler, http.MethodHead, "http://127.0.0.1/photos", nil, "s3", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("head status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("x-amz-bucket-region"); got != "us-east-1" {
+		t.Fatalf("bucket region = %q", got)
+	}
+
+	res = executeAWSRequest(handler, http.MethodDelete, "http://127.0.0.1/photos", nil, "s3", nil)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSRequest(handler, http.MethodHead, "http://127.0.0.1/photos", nil, "s3", nil)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("missing head status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceHandlesS3ObjectLifecycleWithBinaryBodyAndMetadata(t *testing.T) {
+	handler := newTestHandler()
+	body := []byte{0, 1, 2, 3, 255, 'o', 'k'}
+
+	res := executeAWSRequest(handler, http.MethodPut, "http://127.0.0.1/emulate-default/docs/data.bin", body, "s3", map[string]string{
+		"Content-Type":      "application/octet-stream",
+		"x-amz-meta-origin": "native-test",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("ETag"); got == "" || !strings.HasPrefix(got, `"`) {
+		t.Fatalf("etag = %q", got)
+	}
+
+	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/data.bin", nil, "s3", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !bytes.Equal(res.Body.Bytes(), body) {
+		t.Fatalf("body = %v, want %v", res.Body.Bytes(), body)
+	}
+	if got := res.Header().Get("Content-Type"); got != "application/octet-stream" {
+		t.Fatalf("content type = %q", got)
+	}
+	if got := res.Header().Get("x-amz-meta-origin"); got != "native-test" {
+		t.Fatalf("metadata = %q", got)
+	}
+
+	res = executeAWSRequest(handler, http.MethodHead, "http://127.0.0.1/emulate-default/docs/data.bin", nil, "s3", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("head status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res.Body.Len() != 0 {
+		t.Fatalf("head body length = %d", res.Body.Len())
+	}
+	if got := res.Header().Get("Content-Length"); got != "7" {
+		t.Fatalf("content length = %q", got)
+	}
+
+	res = executeAWSRequest(handler, http.MethodDelete, "http://127.0.0.1/emulate-default/docs/data.bin", nil, "s3", nil)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/data.bin", nil, "s3", nil)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("missing get status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "<Code>NoSuchKey</Code>") {
+		t.Fatalf("unexpected missing body: %s", res.Body.String())
+	}
+}
+
+func TestServiceHandlesS3CopyObject(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSRequest(handler, http.MethodPut, "http://127.0.0.1/emulate-default/docs/source.txt", []byte("copy me"), "s3", map[string]string{
+		"Content-Type": "text/plain",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSRequest(handler, http.MethodPut, "http://127.0.0.1/emulate-default/docs/copy.txt", nil, "s3", map[string]string{
+		"x-amz-copy-source": "/emulate-default/docs/source.txt",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("copy status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "<CopyObjectResult>") {
+		t.Fatalf("unexpected copy body: %s", res.Body.String())
+	}
+
+	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/copy.txt", nil, "s3", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Body.String(); got != "copy me" {
+		t.Fatalf("body = %q", got)
 	}
 }
 
@@ -347,6 +457,25 @@ func newTestHandler() http.Handler {
 		c.JSON(http.StatusNotFound, map[string]any{"message": "Not Found"})
 	})
 	return router
+}
+
+func executeAWSRequest(handler http.Handler, method string, target string, body []byte, service string, headers map[string]string) *httptest.ResponseRecorder {
+	var reader *bytes.Reader
+	if body == nil {
+		reader = bytes.NewReader(nil)
+	} else {
+		reader = bytes.NewReader(body)
+	}
+	req := httptest.NewRequest(method, target, reader)
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	if service != "" {
+		signAWSRequest(req, service)
+	}
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
 }
 
 func signAWSRequest(req *http.Request, service string) {

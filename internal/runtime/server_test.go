@@ -97,12 +97,12 @@ func TestNewHandlerAWSOnlyUsesS3PathFallback(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"aws"}})
 
 	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/photos", nil))
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/emulate-default", nil))
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "s3.ListObjects") {
+	if !strings.Contains(res.Body.String(), "<ListBucketResult>") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }
@@ -111,12 +111,12 @@ func TestNewHandlerMultiServiceKeepsLegacyS3Path(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"aws", "github"}})
 
 	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/s3/photos", nil))
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/s3/emulate-default", nil))
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "s3.ListObjects") {
+	if !strings.Contains(res.Body.String(), "<ListBucketResult>") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }
