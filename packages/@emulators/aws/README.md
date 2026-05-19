@@ -1,6 +1,6 @@
 # @emulators/aws
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS Query endpoints for SQS/IAM/STS, and current AWS SDK JSON support for SQS. Query and REST XML operations return AWS-compatible XML; SQS JSON requests return AWS-compatible JSON.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -28,7 +28,8 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `DELETE /:bucket/:key` — delete object
 
 ### SQS
-All operations via `POST /sqs/` with `Action` parameter:
+Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. `@aws-sdk/client-sqs` v3 can use the `/sqs/` endpoint directly; the SDK sends `X-Amz-Target: AmazonSQS.<Action>` JSON requests and receives JSON responses.
+
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
