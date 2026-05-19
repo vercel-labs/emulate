@@ -1,12 +1,22 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+description: Emulated AWS cloud services (S3, SQS, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
 S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, IAM, and STS; SQS uses JSON target requests, while IAM and STS use AWS Query XML.
+
+## Vercel Preview
+
+To expose the native AWS emulator in a Vercel preview without separate infrastructure, scaffold the Go Function route:
+
+```bash
+npx emulate vercel init --service aws
+```
+
+The generated route serves AWS at `/emulate/aws/*`. State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge.
 
 ## Start
 

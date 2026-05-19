@@ -1,7 +1,7 @@
 ---
 name: vercel
 description: Emulated Vercel REST API for local development and testing. Use when the user needs to interact with Vercel API endpoints locally, test Vercel integrations, emulate projects/deployments/domains, set up Vercel OAuth flows, manage environment variables, create API keys, configure protection bypass, or test without hitting the real Vercel API. Triggers include "Vercel API", "emulate Vercel", "mock Vercel", "test Vercel OAuth", "Vercel integration", "local Vercel", or any task requiring a local Vercel API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Vercel API Emulator

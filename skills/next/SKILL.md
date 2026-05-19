@@ -1,12 +1,30 @@
 ---
 name: next
-description: Next.js adapter for embedded emulators and native runtime proxying via @emulators/adapter-next. Use when the user needs to embed emulators in Next.js, proxy a native runtime through a Next.js catch-all route, set up same-origin OAuth for Vercel preview deployments, configure Auth.js/NextAuth with emulator routes, add persistence to embedded emulators, or wrap next.config with withEmulate. Triggers include "Next.js emulator", "adapter-next", "embedded emulator", "native runtime proxy", "same-origin OAuth", "Vercel preview", "createEmulateHandler", "createEmulateProxy", "withEmulate", or any task requiring emulators inside a Next.js app.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
+description: Next.js adapter for embedded emulators, native runtime proxying via @emulators/adapter-next, and Vercel Go Function preview scaffolding. Use when the user needs to embed emulators in Next.js, proxy a native runtime through a Next.js catch-all route, set up same-origin OAuth for Vercel preview deployments, configure Auth.js/NextAuth with emulator routes, add persistence to embedded emulators, scaffold npx emulate vercel init, or wrap next.config with withEmulate. Triggers include "Next.js emulator", "adapter-next", "embedded emulator", "native runtime proxy", "same-origin OAuth", "Vercel preview", "Vercel Go Function", "npx emulate vercel init", "createEmulateHandler", "createEmulateProxy", "withEmulate", or any task requiring emulators inside a Next.js app.
+allowed-tools: Bash(npx emulate:*)
 ---
 
 # Next.js Integration
 
 The `@emulators/adapter-next` package supports two App Router modes. Embedded mode runs JavaScript emulators directly inside the Next.js app. Proxy mode exposes a separately running native runtime on the same origin.
+
+## Vercel Go Function Preview
+
+For zero infra Vercel preview deployments with the native Go runtime, scaffold a Go Function and rewrite:
+
+```bash
+npx emulate vercel init
+```
+
+This creates:
+
+- `api/emulate.go`, a Vercel Go Function using `github.com/vercel-labs/emulate/vercel`
+- `vercel.json`, with `/emulate/:path*` rewritten to `/api/emulate?path=:path*`
+- `go.mod`, pinned to the installed `emulate` package version
+
+The scaffold currently enables the native `aws` and `resend` handlers. Use `npx emulate vercel init --service resend` to limit the function to one service.
+
+State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
 ## Install
 
@@ -50,7 +68,7 @@ This creates the following routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
-Embedded mode is the current zero-infra path for Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin.
+Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `aws` and `resend` previews, use `npx emulate vercel init`.
 
 ## Native Runtime Proxy
 

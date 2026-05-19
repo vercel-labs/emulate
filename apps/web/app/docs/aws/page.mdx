@@ -2,6 +2,16 @@
 
 S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, IAM, and STS; SQS uses JSON target requests, while IAM and STS use AWS Query XML.
 
+## Vercel Preview
+
+To expose the native AWS emulator in a Vercel preview without separate infrastructure, scaffold the Go Function route:
+
+```bash
+npx emulate vercel init --service aws
+```
+
+The generated route serves AWS at `/emulate/aws/*`. State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge.
+
 ## S3
 
 S3 routes use root paths matching the real AWS S3 wire format, so the official AWS SDK works out of the box with `forcePathStyle: true`. Legacy `/s3/` prefixed paths are also supported for backward compatibility.

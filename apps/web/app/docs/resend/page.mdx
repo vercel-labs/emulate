@@ -6,6 +6,16 @@ Set `RESEND_BASE_URL` before importing the official `resend` Node.js SDK and the
 
 The experimental native Go runtime implements the current Resend routes below, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
 
+## Vercel Preview
+
+To expose the native Resend emulator in a Vercel preview without separate infrastructure, scaffold the Go Function route:
+
+```bash
+npx emulate vercel init --service resend
+```
+
+The generated route serves Resend at `/emulate/resend/*`. Set `RESEND_BASE_URL` to the preview origin plus `/emulate/resend`. State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge.
+
 ## Emails
 
 - `POST /emails` — send single email

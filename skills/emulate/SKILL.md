@@ -1,7 +1,7 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, and AWS. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, and AWS. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, scaffold Vercel Go Function previews, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", "npx emulate vercel init", or any task requiring local service emulation.
+allowed-tools: Bash(npx emulate:*)
 ---
 
 # Service Emulation with emulate
@@ -46,6 +46,9 @@ npx emulate init
 
 # Generate config for a specific service
 npx emulate init --service vercel
+
+# Scaffold a Vercel Go Function preview route
+npx emulate vercel init
 
 # List available services
 npx emulate list
@@ -314,7 +317,7 @@ Then use these in your app to construct API and OAuth URLs. See each service's s
 
 ## Next.js Integration
 
-The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, font tracing, and `createEmulateProxy` details.
+The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. For native Go `aws` and `resend` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, Vercel Go Function state behavior, persistence, font tracing, and `createEmulateProxy` details.
 
 ## Persistence
 

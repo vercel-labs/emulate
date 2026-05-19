@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 import { initCommand } from "./commands/init.js";
 import { listCommand } from "./commands/list.js";
+import { vercelInitCommand } from "./commands/vercel.js";
 
 declare const PKG_VERSION: string;
 const pkg = { version: PKG_VERSION };
@@ -52,6 +53,21 @@ program
   .description("List available services")
   .action(() => {
     listCommand();
+  });
+
+const vercel = program.command("vercel").description("Vercel preview helpers");
+
+vercel
+  .command("init")
+  .description("Scaffold an experimental Vercel Go Function")
+  .option("-s, --service <services>", "Comma-separated native services to enable", "aws,resend")
+  .option("--force", "Overwrite generated files")
+  .action((opts) => {
+    vercelInitCommand({
+      service: opts.service,
+      force: opts.force,
+      version: pkg.version,
+    });
   });
 
 program.parse();

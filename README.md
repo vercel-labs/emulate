@@ -44,6 +44,9 @@ npx emulate init
 # Generate config for a specific service
 npx emulate init --service vercel
 
+# Scaffold a Vercel Go Function preview route
+npx emulate vercel init
+
 # List available services
 npx emulate list
 ```
@@ -664,6 +667,8 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, IAM, and STS; SQS uses JSON target requests, while IAM and STS use AWS Query XML.
 
+To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
+
 ### S3
 
 S3 routes use root paths matching the real AWS S3 wire format, so the official AWS SDK works out of the box with `forcePathStyle: true`. Legacy `/s3/` prefixed paths are also supported for backward compatibility.
@@ -704,6 +709,8 @@ Resend email API emulation with local capture for sent emails, domains, API keys
 
 The experimental native Go runtime serves the same current Resend routes, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
 
+To expose the native Resend emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service resend`. The generated route serves Resend at `/emulate/resend/*`.
+
 - `POST /emails`, `POST /emails/batch`, `GET /emails`, `GET /emails/:id`, `POST /emails/:id/cancel`
 - `POST /domains`, `GET /domains`, `GET /domains/:id`, `DELETE /domains/:id`, `POST /domains/:id/verify`
 - `POST /api-keys`, `GET /api-keys`, `DELETE /api-keys/:id`
@@ -714,6 +721,24 @@ The experimental native Go runtime serves the same current Resend routes, suppor
 ## Next.js Integration
 
 Use `@emulators/adapter-next` to run emulator routes on the same origin as your Next.js app. Embedded mode runs JavaScript emulators directly in the app. Proxy mode forwards to a separately running native runtime.
+
+### Vercel Go Function preview
+
+For zero infra Vercel preview deployments with the native Go runtime, scaffold a Go Function and rewrite:
+
+```bash
+npx emulate vercel init
+```
+
+This creates:
+
+- `api/emulate.go`, a Vercel Go Function using `github.com/vercel-labs/emulate/vercel`
+- `vercel.json`, with `/emulate/:path*` rewritten to `/api/emulate?path=:path*`
+- `go.mod`, pinned to the installed `emulate` package version
+
+The scaffold currently enables the native `aws` and `resend` handlers. Use `npx emulate vercel init --service resend` to limit the function to one service.
+
+State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
 ### Install
 
@@ -752,7 +777,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 })
 ```
 
-Embedded mode is the current zero-infra path for Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin.
+Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `aws` and `resend` previews, use `npx emulate vercel init`.
 
 ### Native runtime proxy
 
