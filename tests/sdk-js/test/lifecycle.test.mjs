@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import net from "node:net";
 import test from "node:test";
-import { connectRuntime, selectRuntime, startRuntime } from "../src/harness.mjs";
+import { connectRuntime, selectRuntime, startRuntime, waitForHttp } from "../src/harness.mjs";
 
 test("selectRuntime defaults to the TypeScript runtime", () => {
   assert.equal(selectRuntime({}), "typescript");
@@ -29,4 +30,40 @@ test("TypeScript runtime starts and serves the GitHub rate limit route", async (
   const body = await response.json();
   assert.equal(body.rate.resource, "core");
   assert.equal(body.resources.core.limit, 5000);
+});
+
+test("waitForHttp applies the request timeout while reading the response body", async (t) => {
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => {
+      sockets.delete(socket);
+    });
+    socket.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 100\r\n\r\npartial");
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  t.after(() => {
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    server.close();
+  });
+
+  const address = server.address();
+  assert(address && typeof address !== "string");
+
+  await assert.rejects(
+    () =>
+      waitForHttp(`http://127.0.0.1:${address.port}/ready`, {
+        intervalMs: 5,
+        requestTimeoutMs: 20,
+        timeoutMs: 75,
+      }),
+    /Timed out waiting/,
+  );
 });

@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "pretest": "pnpm --dir ../.. --filter emulate... build",
     "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "emulate": "workspace:*"
   }
 }

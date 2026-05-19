@@ -147,12 +147,11 @@ export async function waitForHttp(url, options = {}) {
 
   while (Date.now() <= deadline) {
     try {
-      const response = await fetchWithTimeout(url, requestTimeoutMs);
-      const body = await response.text();
-      if (acceptStatus(response.status, body)) {
-        return { status: response.status, body };
+      const result = await fetchWithTimeout(url, requestTimeoutMs);
+      if (acceptStatus(result.status, result.body)) {
+        return result;
       }
-      lastError = new Error(`GET ${url} returned ${response.status}`);
+      lastError = new Error(`GET ${url} returned ${result.status}`);
     } catch (err) {
       lastError = err;
     }
@@ -309,7 +308,11 @@ async function fetchWithTimeout(url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal });
+    return {
+      status: response.status,
+      body: await response.text(),
+    };
   } finally {
     clearTimeout(timer);
   }

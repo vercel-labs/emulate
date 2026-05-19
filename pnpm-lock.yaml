@@ -671,7 +671,11 @@ importers:
         specifier: ^5.7
         version: 5.9.3
 
-  tests/sdk-js: {}
+  tests/sdk-js:
+    devDependencies:
+      emulate:
+        specifier: workspace:*
+        version: link:../../packages/emulate
 
 packages:
 
