@@ -110,7 +110,11 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			fmt.Fprintf(stderr, "Failed to load seed config: %v\n", err)
 			return 1
 		}
-		seedServices = coreconfig.InferServices(loaded.Data, emuruntime.ServiceNames())
+		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
+			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for resend. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
+			return 1
+		}
+		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
 		if raw, ok := loaded.Data["resend"]; ok {
 			var cfg resend.SeedConfig
 			if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -323,6 +327,28 @@ func parseServices(value string) ([]string, error) {
 		return nil, fmt.Errorf("No services selected")
 	}
 	return services, nil
+}
+
+func nativeSeedServiceNames() []string {
+	return []string{"resend"}
+}
+
+func unsupportedNativeSeedServices(data map[string]json.RawMessage) []string {
+	supported := map[string]bool{}
+	for _, service := range nativeSeedServiceNames() {
+		supported[service] = true
+	}
+
+	unsupported := make([]string, 0)
+	for _, service := range emuruntime.ServiceNames() {
+		if supported[service] {
+			continue
+		}
+		if _, ok := data[service]; ok {
+			unsupported = append(unsupported, service)
+		}
+	}
+	return unsupported
 }
 
 func getenv(name string, fallback string) string {

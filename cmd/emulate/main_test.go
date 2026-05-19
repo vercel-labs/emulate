@@ -224,6 +224,31 @@ func TestRunStartRejectsYAMLSeedConfig(t *testing.T) {
 	}
 }
 
+func TestRunStartRejectsUnsupportedNativeSeedServices(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"aws":{"s3":{"buckets":[{"name":"example"}]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{
+		{"start", "--seed", seedPath},
+		{"start", "--service", "aws", "--seed", seedPath},
+	} {
+		t.Run(strings.Join(args[:2], " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := run(args, &stdout, &stderr)
+			if code == 0 {
+				t.Fatal("start with unsupported seed service exited successfully")
+			}
+			errText := stderr.String()
+			if !strings.Contains(errText, "only supports --seed for resend") || !strings.Contains(errText, "aws") {
+				t.Fatalf("unexpected stderr: %s", errText)
+			}
+		})
+	}
+}
+
 func TestRunTopLevelHelpIncludesFullStartOptions(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)
