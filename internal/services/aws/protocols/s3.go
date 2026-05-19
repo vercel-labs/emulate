@@ -128,8 +128,6 @@ func DetectS3Action(route S3Route) string {
 			switch {
 			case hasQueryKey(route.Query, "delete"):
 				return "DeleteObjects"
-			case hasQueryKey(route.Query, "uploads"):
-				return "CreateMultipartUpload"
 			default:
 				return "PostObject"
 			}

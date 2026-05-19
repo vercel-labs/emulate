@@ -355,6 +355,14 @@ func TestBuildContextS3MultipartActions(t *testing.T) {
 			wantAction: "ListMultipartUploads",
 		},
 		{
+			name:       "bucket post uploads is not create multipart upload",
+			method:     http.MethodPost,
+			url:        "http://photos.s3.us-west-2.amazonaws.com/?uploads",
+			wantBucket: "photos",
+			wantKey:    "",
+			wantAction: "PostObject",
+		},
+		{
 			name:       "abort multipart upload",
 			method:     http.MethodDelete,
 			url:        "http://photos.s3.us-west-2.amazonaws.com/docs/readme.txt?uploadId=upload-123",
