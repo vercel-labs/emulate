@@ -107,6 +107,27 @@ func TestNewHandlerAWSOnlyUsesS3PathFallback(t *testing.T) {
 	}
 }
 
+func TestNewHandlerMultiServiceDoesNotTreatNestedKnownServicePathAsS3(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"aws", "github"}})
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/sqs/foo", nil))
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["message"] != "Not Found" {
+		t.Fatalf("unexpected body: %#v", body)
+	}
+	if strings.Contains(res.Body.String(), "s3.GetObject") {
+		t.Fatalf("unexpected S3 fallback response: %s", res.Body.String())
+	}
+}
+
 func TestNewHandlerAWSDoesNotShadowHeadHealth(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"aws"}})
 

@@ -101,7 +101,7 @@ func (s *Service) looksLikeAWSRequest(req *http.Request) bool {
 	if strings.Contains(host, "amazonaws.com") || hasKnownServiceLabel(host) {
 		return true
 	}
-	if hasKnownServicePath(req.URL.Path) {
+	if hasKnownServiceEndpointPath(req.URL.Path) {
 		return true
 	}
 	return looksLikeS3RESTRequest(req, s.s3PathFallback)
@@ -126,8 +126,11 @@ func hasAWSHeader(req *http.Request) bool {
 	return false
 }
 
-func hasKnownServicePath(pathValue string) bool {
-	first := firstPathSegment(pathValue)
+func hasKnownServiceEndpointPath(pathValue string) bool {
+	first, rest := splitFirstPathSegment(pathValue)
+	if rest != "" {
+		return false
+	}
 	switch first {
 	case "cloudformation", "dynamodb", "events", "iam", "kms", "lambda", "logs", "s3", "secretsmanager", "sns", "sqs", "ssm", "states", "sts":
 		return true
@@ -188,9 +191,15 @@ func hasKnownServiceLabel(host string) bool {
 }
 
 func firstPathSegment(pathValue string) string {
+	first, _ := splitFirstPathSegment(pathValue)
+	return first
+}
+
+func splitFirstPathSegment(pathValue string) (string, string) {
 	trimmed := strings.Trim(pathValue, "/")
 	if trimmed == "" {
-		return ""
+		return "", ""
 	}
-	return strings.ToLower(strings.Split(trimmed, "/")[0])
+	first, rest, _ := strings.Cut(trimmed, "/")
+	return strings.ToLower(first), rest
 }
