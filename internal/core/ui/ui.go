@@ -292,9 +292,13 @@ body{font-family:'Geist',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .inspector-table th,.inspector-table td{text-align:left;padding:8px 12px;border-bottom:1px solid #0a3300;font-size:.8125rem;}
 .inspector-table th{color:#1a8c00;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;}
 .inspector-table td{color:#33ff00;}
+.inspector-table a{color:#33ff00;text-decoration:none;}
+.inspector-table a:hover{text-decoration:underline;}
 .inspector-table tbody tr{transition:background .1s;}
 .inspector-table tbody tr:hover{background:#0a3300;}
 .inspector-empty{color:#1a8c00;text-align:center;padding:20px 0;font-size:.8125rem;}
+.email-preview-frame{width:100%;min-height:300px;border:1px solid #0a3300;border-radius:8px;background:#fff;}
+.email-preview-text{white-space:pre-wrap;word-break:break-word;color:#33ff00;font:inherit;}
 `
 }
 

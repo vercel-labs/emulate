@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 	coreconfig "github.com/vercel-labs/emulate/internal/core/config"
 	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
+	"github.com/vercel-labs/emulate/internal/services/resend"
 )
 
 var version = "dev"
@@ -100,14 +102,31 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		fmt.Fprintln(stderr, "The native Go runtime does not support --portless yet.")
 		return 1
 	}
+	var seedServices []string
+	var resendSeed *resend.SeedConfig
 	if *seedValue != "" {
-		fmt.Fprintln(stderr, "The native Go runtime does not support --seed yet.")
-		return 1
+		loaded, err := coreconfig.Load(coreconfig.LoadOptions{Path: *seedValue})
+		if err != nil {
+			fmt.Fprintf(stderr, "Failed to load seed config: %v\n", err)
+			return 1
+		}
+		seedServices = coreconfig.InferServices(loaded.Data, emuruntime.ServiceNames())
+		if raw, ok := loaded.Data["resend"]; ok {
+			var cfg resend.SeedConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse resend seed config: %v\n", err)
+				return 1
+			}
+			resendSeed = &cfg
+		}
 	}
 	services, err := parseServices(*serviceValue)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if *serviceValue == "" && len(seedServices) > 0 {
+		services = seedServices
 	}
 
 	baseURL := *baseURLValue
@@ -115,9 +134,10 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		baseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
 	server := emuruntime.NewServer(emuruntime.ServerOptions{
-		Version:  version,
-		BaseURL:  baseURL,
-		Services: services,
+		Version:    version,
+		BaseURL:    baseURL,
+		Services:   services,
+		ResendSeed: resendSeed,
 	})
 	httpServer := &nethttp.Server{
 		Handler:           server.Handler,
@@ -252,7 +272,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "\nStart options:")
 	fmt.Fprintln(w, "  -p, --port <port>          Base port")
 	fmt.Fprintln(w, "  -s, --service <services>   Comma-separated services to enable")
-	fmt.Fprintln(w, "      --seed <file>          Path to seed config file (not supported in native Go yet)")
+	fmt.Fprintln(w, "      --seed <file>          Path to JSON seed config file (YAML not supported in native Go yet)")
 	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
 	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless (not supported in native Go yet)")
 	fmt.Fprintln(w, "\nThe published TypeScript CLI remains the default user-facing runtime.")
@@ -265,7 +285,7 @@ func printStartHelp(w io.Writer) {
 	fmt.Fprintln(w, "\nOptions:")
 	fmt.Fprintln(w, "  -p, --port <port>          Base port")
 	fmt.Fprintln(w, "  -s, --service <services>   Comma-separated services to enable")
-	fmt.Fprintln(w, "      --seed <file>          Path to seed config file (not supported in native Go yet)")
+	fmt.Fprintln(w, "      --seed <file>          Path to JSON seed config file (YAML not supported in native Go yet)")
 	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
 	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless (not supported in native Go yet)")
 }

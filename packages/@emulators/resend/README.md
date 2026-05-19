@@ -4,6 +4,12 @@ Resend email API emulation with email sending, domain management, API keys, audi
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
+## SDK Support
+
+Set `RESEND_BASE_URL` before importing the official `resend` Node.js SDK and the SDK will call the emulator without code changes.
+
+The experimental native Go runtime implements the current Resend routes listed below, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
+
 ## Install
 
 ```bash
@@ -49,8 +55,10 @@ npm install @emulators/resend
 resend:
   domains:
     - name: example.com
-  api_keys:
-    - name: default
+  contacts:
+    - email: test@example.com
+      first_name: Test
+      last_name: User
 ```
 
 ## Links

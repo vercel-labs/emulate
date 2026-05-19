@@ -158,6 +158,72 @@ func TestRunStartServesHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestRunStartSeedsResendFromJSONConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"resend":{"domains":[{"name":"example.com"}],"contacts":[{"email":"test@example.com","first_name":"Test"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath)
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, healthURL, &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "resend" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	var domains struct {
+		Data []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d/domains", port), &domains)
+	if len(domains.Data) != 1 || domains.Data[0].Name != "example.com" || domains.Data[0].Status != "verified" {
+		t.Fatalf("unexpected seeded domains: %#v", domains)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
+func TestRunStartRejectsYAMLSeedConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.yaml")
+	if err := os.WriteFile(seedPath, []byte("resend:\n  domains:\n    - name: example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"start", "--seed", seedPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("start with YAML seed exited successfully")
+	}
+	if !strings.Contains(stderr.String(), "YAML config loading is not implemented") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
 func TestRunTopLevelHelpIncludesFullStartOptions(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--help"}, &stdout, &stderr)

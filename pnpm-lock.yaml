@@ -564,6 +564,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      resend:
+        specifier: ^6.10.0
+        version: 6.10.0
       tsup:
         specifier: ^8
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)(yaml@2.8.3)

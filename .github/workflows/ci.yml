@@ -53,6 +53,22 @@ jobs:
           test "${ready:-}" = "1"
           AWS_EMULATOR_E2E_URL=http://127.0.0.1:4017 pnpm --dir packages/@emulators/aws exec vitest run src/__tests__/aws-sdk.e2e.test.ts -t "sqs|iam|sts"
 
+      - name: Native Resend SDK E2E
+        run: |
+          go build -o /tmp/emulate-native ./cmd/emulate
+          /tmp/emulate-native start --service resend --port 4018 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..50}; do
+            if curl -fsS http://127.0.0.1:4018/_emulate/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 0.2
+          done
+          test "${ready:-}" = "1"
+          RESEND_EMULATOR_E2E_URL=http://127.0.0.1:4018 pnpm --dir packages/@emulators/resend exec vitest run src/__tests__/resend.test.ts -t "real resend SDK E2E"
+
       - run: node scripts/sync-versions.mjs --check
 
       - run: pnpm format:check

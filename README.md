@@ -16,7 +16,12 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
+- **Okta** on `http://localhost:4006`
+- **AWS** on `http://localhost:4007`
+- **Resend** on `http://localhost:4008`
+- **Stripe** on `http://localhost:4009`
+- **MongoDB Atlas** on `http://localhost:4010`
+- **Clerk** on `http://localhost:4011`
 
 ## CLI
 
@@ -141,7 +146,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, or `'clerk'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -692,6 +697,19 @@ Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the
 Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sts` v3 can use the `/sts/` endpoint directly.
 
 - `GetCallerIdentity`, `AssumeRole`
+
+## Resend
+
+Resend email API emulation with local capture for sent emails, domains, API keys, audiences, contacts, and an inbox UI. Set `RESEND_BASE_URL` before importing the official Resend Node.js SDK and the SDK will send to the emulator.
+
+The experimental native Go runtime serves the same current Resend routes, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
+
+- `POST /emails`, `POST /emails/batch`, `GET /emails`, `GET /emails/:id`, `POST /emails/:id/cancel`
+- `POST /domains`, `GET /domains`, `GET /domains/:id`, `DELETE /domains/:id`, `POST /domains/:id/verify`
+- `POST /api-keys`, `GET /api-keys`, `DELETE /api-keys/:id`
+- `POST /audiences`, `GET /audiences`, `DELETE /audiences/:id`
+- `POST /audiences/:audience_id/contacts`, `GET /audiences/:audience_id/contacts`, `DELETE /audiences/:audience_id/contacts/:id`
+- `GET /inbox`, `GET /inbox/:id`
 
 ## Next.js Integration
 

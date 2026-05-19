@@ -167,3 +167,33 @@ func TestNewHandlerDoesNotMountAWSWhenDisabled(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
+
+func TestNewHandlerMountsResendWhenEnabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"resend"}})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/emails", strings.NewReader(`{"from":"a@example.com","to":"b@example.com","subject":"Hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer re_test_token")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"id"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestNewHandlerDoesNotMountResendWhenDisabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"github"}})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/emails", strings.NewReader(`{"from":"a@example.com","to":"b@example.com","subject":"Hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}

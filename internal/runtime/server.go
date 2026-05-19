@@ -7,15 +7,17 @@ import (
 	"github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/core/ui"
 	"github.com/vercel-labs/emulate/internal/services/aws"
+	"github.com/vercel-labs/emulate/internal/services/resend"
 )
 
 const HealthPath = "/_emulate/health"
 
 type ServerOptions struct {
-	Version  string
-	BaseURL  string
-	Services []string
-	Store    *store.Store
+	Version    string
+	BaseURL    string
+	Services   []string
+	Store      *store.Store
+	ResendSeed *resend.SeedConfig
 }
 
 type Server struct {
@@ -67,6 +69,12 @@ func NewServer(options ServerOptions) *Server {
 			Store:          runtimeStore,
 			S3PathFallback: len(services) == 1,
 			BaseURL:        options.BaseURL,
+		})
+	}
+	if serviceEnabled(services, "resend") {
+		resend.Register(router, resend.Options{
+			Store: runtimeStore,
+			Seed:  options.ResendSeed,
 		})
 	}
 	router.NotFound(func(c *corehttp.Context) {
