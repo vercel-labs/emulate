@@ -538,7 +538,7 @@ describeExternalSnsE2E("AWS plugin - real @aws-sdk/client-sns E2E", () => {
     expect(body.TopicArn).toBe(created.TopicArn);
     expect(body.Message).toBe("order created");
     expect(body.MessageAttributes?.trace).toEqual({ Type: "String", Value: "abc123" });
-    expect(received.Messages?.[0]?.MessageAttributes?.trace?.StringValue).toBe("abc123");
+    expect(received.Messages?.[0]?.MessageAttributes).toBeUndefined();
 
     await sns.send(new UnsubscribeCommand({ SubscriptionArn: subscription.SubscriptionArn }));
     await sns.send(new DeleteSNSTopicCommand({ TopicArn: created.TopicArn }));

@@ -388,11 +388,15 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 		if !ok {
 			return false
 		}
-		deliveredAttrs := attrs
+		envelopeAttrs := attrs
 		if strings.EqualFold(messageStructure, "json") {
-			deliveredAttrs = corestore.Record{}
+			envelopeAttrs = corestore.Record{}
 		}
-		body := h.sqsBody(topic, subscription, messageID, subject, message, messageStructure, deliveredAttrs)
+		sqsAttrs := corestore.Record{}
+		if strings.EqualFold(stringMapField(subscription, "attributes")["RawMessageDelivery"], "true") {
+			sqsAttrs = envelopeAttrs
+		}
+		body := h.sqsBody(topic, subscription, messageID, subject, message, messageStructure, envelopeAttrs)
 		now := h.nowMillis()
 		sqsMessageID := h.generateID("")
 		h.SQSMessages.Insert(corestore.Record{
@@ -401,7 +405,7 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 			"receipt_handle":            h.generateReceiptHandle(),
 			"body":                      body,
 			"md5_of_body":               md5Hex(body),
-			"md5_of_message_attributes": md5OfMessageAttributes(deliveredAttrs),
+			"md5_of_message_attributes": md5OfMessageAttributes(sqsAttrs),
 			"first_receive_timestamp":   int64(0),
 			"attributes": corestore.Record{
 				"SentTimestamp":                    strconv.FormatInt(now, 10),
@@ -409,7 +413,7 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 				"ApproximateFirstReceiveTimestamp": "",
 				"SenderId":                         h.accountID(ctx),
 			},
-			"message_attributes": deliveredAttrs,
+			"message_attributes": sqsAttrs,
 			"visible_after":      now,
 			"sent_timestamp":     now,
 			"receive_count":      0,

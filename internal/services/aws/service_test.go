@@ -762,14 +762,12 @@ func TestServiceHandlesSNSLifecycleAndSQSPublish(t *testing.T) {
 		"&quot;Type&quot;:&quot;Notification&quot;",
 		"&quot;MessageAttributes&quot;",
 		"&quot;trace&quot;:{&quot;Type&quot;:&quot;String&quot;,&quot;Value&quot;:&quot;abc123&quot;}",
-		"<Name>trace</Name>",
-		"<StringValue>abc123</StringValue>",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("receive missing %q in %s", expected, body)
 		}
 	}
-	for _, unexpected := range []string{"&quot;DataType&quot;", "&quot;StringValue&quot;"} {
+	for _, unexpected := range []string{"&quot;DataType&quot;", "&quot;StringValue&quot;", "<MessageAttribute>", "<Name>trace</Name>", "<StringValue>abc123</StringValue>", "<MD5OfMessageAttributes>"} {
 		if strings.Contains(body, unexpected) {
 			t.Fatalf("receive included SNS envelope attribute shape %q in %s", unexpected, body)
 		}
@@ -979,6 +977,79 @@ func TestServiceHandlesSNSRawSQSPublishWithJSONMessageStructure(t *testing.T) {
 		if strings.Contains(body, unexpected) {
 			t.Fatalf("receive included unexpected value %q in %s", unexpected, body)
 		}
+	}
+}
+
+func TestServiceHandlesSNSRawSQSPublishWithStringAttributes(t *testing.T) {
+	handler := newTestHandler()
+
+	values := url.Values{}
+	values.Set("Action", "CreateTopic")
+	values.Set("Name", "raw-string")
+	res := executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+	topicARN := xmlElement(res.Body.String(), "TopicArn")
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=raw-string-queue")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	values = url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+	if queueARN == "" {
+		t.Fatalf("missing queue arn in %s", res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Subscribe")
+	values.Set("TopicArn", topicARN)
+	values.Set("Protocol", "sqs")
+	values.Set("Endpoint", queueARN)
+	values.Set("Attributes.entry.1.key", "RawMessageDelivery")
+	values.Set("Attributes.entry.1.value", "true")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("subscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Publish")
+	values.Set("TopicArn", topicARN)
+	values.Set("Message", "raw payload")
+	values.Set("MessageAttributes.entry.1.Name", "trace")
+	values.Set("MessageAttributes.entry.1.Value.DataType", "String")
+	values.Set("MessageAttributes.entry.1.Value.StringValue", "abc123")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "1")
+	values.Set("MessageAttributeName.1", "All")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	for _, expected := range []string{"<Body>raw payload</Body>", "<MessageAttribute><Name>trace</Name>", "<StringValue>abc123</StringValue>", "<MD5OfMessageAttributes>"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("receive missing %q in %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "&quot;Type&quot;:&quot;Notification&quot;") {
+		t.Fatalf("receive included SNS envelope in %s", body)
 	}
 }
 
