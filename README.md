@@ -661,13 +661,17 @@ Private email users receive the generated relay email in both the `id_token` and
 
 Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, and OIDC discovery.
 
+The native Go runtime implements the Microsoft OIDC, token, and Graph profile routes below for local CLI runs and Vercel Go Function previews. To expose Microsoft on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service microsoft`. The generated route serves Microsoft at `/emulate/microsoft/*`.
+
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /:tenant/v2.0/.well-known/openid-configuration` - tenant-scoped OIDC discovery
 - `GET /discovery/v2.0/keys` - JSON Web Key Set (JWKS)
 - `GET /oauth2/v2.0/authorize` - authorization endpoint (shows user picker)
 - `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, client credentials)
+- `POST /:tenant/oauth2/token` - v1 token endpoint with `resource` to `.default` scope translation
 - `GET /oidc/userinfo` - OpenID Connect user info
 - `GET /v1.0/me` - Microsoft Graph user profile
+- `GET /v1.0/users/:id` - Microsoft Graph user by ID
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 
@@ -761,7 +765,7 @@ This creates:
 - `vercel.json`, with `/emulate/:path*` rewritten to `/api/emulate?path=:path*`
 - `go.mod`, pinned to the installed `emulate` package version
 
-The scaffold currently enables the native `apple`, `aws`, `github`, `resend`, and `vercel` handlers. Use `npx emulate vercel init --service github` to limit the function to one service.
+The scaffold currently enables the native `apple`, `aws`, `github`, `microsoft`, `resend`, and `vercel` handlers. Use `npx emulate vercel init --service github` to limit the function to one service.
 
 State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
@@ -802,7 +806,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 })
 ```
 
-Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `github`, `resend`, and `vercel` previews, use `npx emulate vercel init`.
+Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `github`, `microsoft`, `resend`, and `vercel` previews, use `npx emulate vercel init`.
 
 ### Native runtime proxy
 

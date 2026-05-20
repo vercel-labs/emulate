@@ -10,6 +10,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/apple"
 	"github.com/vercel-labs/emulate/internal/services/aws"
 	"github.com/vercel-labs/emulate/internal/services/github"
+	"github.com/vercel-labs/emulate/internal/services/microsoft"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
@@ -17,15 +18,16 @@ import (
 const HealthPath = "/_emulate/health"
 
 type ServerOptions struct {
-	Version    string
-	BaseURL    string
-	Services   []string
-	Store      *store.Store
-	AssetStore *coreassets.Store
-	AppleSeed  *apple.SeedConfig
-	GitHubSeed *github.SeedConfig
-	ResendSeed *resend.SeedConfig
-	VercelSeed *vercel.SeedConfig
+	Version       string
+	BaseURL       string
+	Services      []string
+	Store         *store.Store
+	AssetStore    *coreassets.Store
+	AppleSeed     *apple.SeedConfig
+	GitHubSeed    *github.SeedConfig
+	MicrosoftSeed *microsoft.SeedConfig
+	ResendSeed    *resend.SeedConfig
+	VercelSeed    *vercel.SeedConfig
 }
 
 type Server struct {
@@ -110,6 +112,13 @@ func NewServer(options ServerOptions) *Server {
 			Store:   runtimeStore,
 			BaseURL: options.BaseURL,
 			Seed:    options.AppleSeed,
+		})
+	}
+	if serviceEnabled(services, "microsoft") {
+		microsoft.Register(router, microsoft.Options{
+			Store:   runtimeStore,
+			BaseURL: options.BaseURL,
+			Seed:    options.MicrosoftSeed,
 		})
 	}
 	router.NotFound(func(c *corehttp.Context) {

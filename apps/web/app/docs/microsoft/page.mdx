@@ -2,6 +2,8 @@
 
 Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
 
+The native Go runtime implements the Microsoft OIDC, token, and Graph profile routes below for local CLI runs and Vercel Go Function previews. To expose Microsoft on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service microsoft`. The generated route serves Microsoft at `/emulate/microsoft/*`.
+
 ## Endpoints
 
 - `GET /.well-known/openid-configuration` - OIDC discovery document
@@ -9,8 +11,10 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `GET /discovery/v2.0/keys` - JSON Web Key Set (JWKS)
 - `GET /oauth2/v2.0/authorize` - authorization endpoint (shows user picker)
 - `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, and client credentials grants)
+- `POST /:tenant/oauth2/token` - v1 token endpoint with `resource` to `.default` scope translation
 - `GET /oidc/userinfo` - OpenID Connect user info
 - `GET /v1.0/me` - Microsoft Graph user profile
+- `GET /v1.0/users/:id` - Microsoft Graph user by ID
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 

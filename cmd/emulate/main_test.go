@@ -305,6 +305,53 @@ func TestRunStartSeedsAppleFromJSONConfig(t *testing.T) {
 	}
 }
 
+func TestRunStartSeedsMicrosoftFromJSONConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"microsoft":{"users":[{"email":"ms@example.com","name":"Microsoft User","tenant_id":"tenant-1"}],"oauth_clients":[{"client_id":"ms-client","client_secret":"ms-secret","name":"Microsoft App","redirect_uris":["http://localhost:3000/callback"],"tenant_id":"tenant-1"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "microsoft" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	var discovery struct {
+		Issuer                string `json:"issuer"`
+		AuthorizationEndpoint string `json:"authorization_endpoint"`
+		JWKSURI               string `json:"jwks_uri"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d/tenant-1/v2.0/.well-known/openid-configuration", port), &discovery)
+	if discovery.Issuer != fmt.Sprintf("http://localhost:%d/tenant-1/v2.0", port) || discovery.AuthorizationEndpoint == "" || discovery.JWKSURI == "" {
+		t.Fatalf("unexpected discovery: %#v", discovery)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
 func TestRunStartRejectsYAMLSeedConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	seedPath := filepath.Join(tempDir, "emulate.config.yaml")
@@ -340,7 +387,7 @@ func TestRunStartRejectsUnsupportedNativeSeedServices(t *testing.T) {
 				t.Fatal("start with unsupported seed service exited successfully")
 			}
 			errText := stderr.String()
-			if !strings.Contains(errText, "only supports --seed for apple, github, resend, and vercel") || !strings.Contains(errText, "aws") {
+			if !strings.Contains(errText, "only supports --seed for apple, github, microsoft, resend, and vercel") || !strings.Contains(errText, "aws") {
 				t.Fatalf("unexpected stderr: %s", errText)
 			}
 		})

@@ -22,6 +22,7 @@ import (
 	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
 	"github.com/vercel-labs/emulate/internal/services/apple"
 	"github.com/vercel-labs/emulate/internal/services/github"
+	"github.com/vercel-labs/emulate/internal/services/microsoft"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
@@ -108,6 +109,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	var seedServices []string
 	var appleSeed *apple.SeedConfig
 	var githubSeed *github.SeedConfig
+	var microsoftSeed *microsoft.SeedConfig
 	var resendSeed *resend.SeedConfig
 	var vercelSeed *vercel.SeedConfig
 	if *seedValue != "" {
@@ -117,7 +119,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			return 1
 		}
 		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
-			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, github, resend, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
+			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, github, microsoft, resend, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
 			return 1
 		}
 		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
@@ -153,6 +155,14 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			}
 			appleSeed = &cfg
 		}
+		if raw, ok := loaded.Data["microsoft"]; ok {
+			var cfg microsoft.SeedConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse microsoft seed config: %v\n", err)
+				return 1
+			}
+			microsoftSeed = &cfg
+		}
 		if raw, ok := loaded.Data["resend"]; ok {
 			var cfg resend.SeedConfig
 			if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -184,13 +194,14 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		baseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
 	server := emuruntime.NewServer(emuruntime.ServerOptions{
-		Version:    version,
-		BaseURL:    baseURL,
-		Services:   services,
-		AppleSeed:  appleSeed,
-		GitHubSeed: githubSeed,
-		ResendSeed: resendSeed,
-		VercelSeed: vercelSeed,
+		Version:       version,
+		BaseURL:       baseURL,
+		Services:      services,
+		AppleSeed:     appleSeed,
+		GitHubSeed:    githubSeed,
+		MicrosoftSeed: microsoftSeed,
+		ResendSeed:    resendSeed,
+		VercelSeed:    vercelSeed,
 	})
 	httpServer := &nethttp.Server{
 		Handler:           server.Handler,
@@ -377,7 +388,7 @@ func parseServices(value string) ([]string, error) {
 }
 
 func nativeSeedServiceNames() []string {
-	return []string{"apple", "github", "resend", "vercel"}
+	return []string{"apple", "github", "microsoft", "resend", "vercel"}
 }
 
 func unsupportedNativeSeedServices(data map[string]json.RawMessage) []string {

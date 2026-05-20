@@ -4,6 +4,8 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
+The native Go runtime implements the Microsoft OIDC, token, and Graph profile routes below for local CLI runs and Vercel Go Function previews. To expose Microsoft on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service microsoft`.
+
 ## Install
 
 ```bash
@@ -17,6 +19,7 @@ npm install @emulators/microsoft
 - `GET /discovery/v2.0/keys` — JSON Web Key Set (JWKS)
 - `GET /oauth2/v2.0/authorize` — authorization endpoint (shows user picker)
 - `POST /oauth2/v2.0/token` — token exchange (authorization code, refresh token, client credentials)
+- `POST /:tenant/oauth2/token` — v1 token endpoint with `resource` to `.default` scope translation
 - `GET /oidc/userinfo` — OpenID Connect user info
 - `GET /v1.0/me` — Microsoft Graph user profile
 - `GET /v1.0/users/:id` — Microsoft Graph user by ID

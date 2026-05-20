@@ -8,6 +8,8 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
 
+The native Go runtime implements this Microsoft OIDC, token, and Graph profile surface for local CLI runs and Vercel Go Function previews. To expose Microsoft on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service microsoft`; the generated route serves Microsoft at `/emulate/microsoft/*`.
+
 ## Start
 
 ```bash
@@ -43,6 +45,7 @@ MICROSOFT_EMULATOR_URL=http://localhost:4005
 | `https://login.microsoftonline.com/.well-known/openid-configuration` | `$MICROSOFT_EMULATOR_URL/.well-known/openid-configuration` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | `$MICROSOFT_EMULATOR_URL/oauth2/v2.0/authorize` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/token` | `$MICROSOFT_EMULATOR_URL/oauth2/v2.0/token` |
+| `https://login.microsoftonline.com/{tenant}/oauth2/token` | `$MICROSOFT_EMULATOR_URL/{tenant}/oauth2/token` |
 | `https://login.microsoftonline.com/common/discovery/v2.0/keys` | `$MICROSOFT_EMULATOR_URL/discovery/v2.0/keys` |
 | `https://graph.microsoft.com/oidc/userinfo` | `$MICROSOFT_EMULATOR_URL/oidc/userinfo` |
 | `https://graph.microsoft.com/v1.0/me` | `$MICROSOFT_EMULATOR_URL/v1.0/me` |
@@ -185,7 +188,7 @@ Query parameters:
 | `scope` | Space-separated scopes (`openid email profile User.Read`) |
 | `state` | Opaque state for CSRF protection |
 | `nonce` | Nonce for ID token (optional) |
-| `response_mode` | `query` (default) or `form_post` |
+| `response_mode` | `query` (default), `fragment`, or `form_post` |
 | `code_challenge` | PKCE challenge (optional) |
 | `code_challenge_method` | `plain` or `S256` (optional) |
 
@@ -219,6 +222,8 @@ The `id_token` is an RS256 JWT containing `sub`, `oid`, `tid` (tenant ID), `emai
 For PKCE, include `code_verifier` in the token request.
 
 Supports `Authorization: Basic` header with base64-encoded `client_id:client_secret` as an alternative to body parameters.
+
+The v1 token endpoint at `/{tenant}/oauth2/token` accepts a `resource` parameter and translates it to a `.default` scope for local service-to-service flows.
 
 ### Client Credentials
 
