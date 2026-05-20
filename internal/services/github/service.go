@@ -93,6 +93,9 @@ func New(options Options) *Service {
 		baseURL: baseURL,
 	}
 	service.SeedDefaults()
+	if options.Seed == nil || options.Seed.Tokens == nil {
+		service.SeedDefaultTokens()
+	}
 	if options.Seed != nil {
 		service.SeedFromConfig(*options.Seed)
 	}
@@ -126,6 +129,9 @@ func (s *Service) SeedDefaults() {
 			"bio":     "Default admin user",
 		})
 	}
+}
+
+func (s *Service) SeedDefaultTokens() {
 	if firstRecord(s.store.Tokens.FindBy("tokenString", "test_token_admin")) == nil {
 		s.store.Tokens.Insert(corestore.Record{
 			"tokenString": "test_token_admin",

@@ -461,6 +461,12 @@ func (s *Service) formatCommit(repo corestore.Record, commit corestore.Record) m
 			"html_url": s.baseURL + "/" + stringField(repo, "full_name") + "/commit/" + sha,
 		})
 	}
+	var author any
+	if userID := intField(commit, "user_id"); userID > 0 {
+		if user, ok := s.store.Users.Get(userID); ok {
+			author = s.formatUser(user)
+		}
+	}
 	return map[string]any{
 		"sha":      stringField(commit, "sha"),
 		"node_id":  stringField(commit, "node_id"),
@@ -483,8 +489,8 @@ func (s *Service) formatCommit(repo corestore.Record, commit corestore.Record) m
 			"comment_count": 0,
 			"verification":  map[string]any{"verified": false, "reason": "unsigned", "signature": nil, "payload": nil, "verified_at": nil},
 		},
-		"author":    nil,
-		"committer": nil,
+		"author":    author,
+		"committer": author,
 		"parents":   parents,
 	}
 }

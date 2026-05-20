@@ -43,7 +43,7 @@ func (s *Service) handleListPulls(c *corehttp.Context) {
 		if base := strings.TrimSpace(c.Query("base")); base != "" && stringField(pr, "base_ref") != base {
 			continue
 		}
-		if head := strings.TrimSpace(c.Query("head")); head != "" && stringField(pr, "head_ref") != strings.TrimPrefix(head, s.ownerLogin(repo)+":") {
+		if head := strings.TrimSpace(c.Query("head")); head != "" && !s.matchesPullHeadFilter(pr, head) {
 			continue
 		}
 		pulls = append(pulls, pr)
@@ -374,6 +374,21 @@ func (s *Service) resolvePullHead(baseRepo corestore.Record, head string) (cores
 		return nil, "", false
 	}
 	return headRepo, ref, true
+}
+
+func (s *Service) matchesPullHeadFilter(pr corestore.Record, head string) bool {
+	head = strings.TrimSpace(head)
+	if head == "" {
+		return true
+	}
+	if !strings.Contains(head, ":") {
+		return stringField(pr, "head_ref") == head
+	}
+	headRepo, ok := s.store.Repos.Get(intField(pr, "head_repo_id"))
+	if !ok {
+		return false
+	}
+	return s.ownerLogin(headRepo)+":"+stringField(pr, "head_ref") == head
 }
 
 func (s *Service) insertCommit(repo corestore.Record, treeSha string, parentShas []string, message string, actor corestore.Record) corestore.Record {

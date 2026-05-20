@@ -33,6 +33,32 @@ func TestGitHubCurrentUserUsesDefaultToken(t *testing.T) {
 	}
 }
 
+func TestGitHubConfiguredTokensReplaceDefaultTokens(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Tokens: map[string]TokenSeed{
+			"test_token_admin": {Login: "octocat", Scopes: []string{"user"}},
+		},
+	})
+
+	res := doGitHubJSON(handler, http.MethodGet, "/user", "", "Bearer test_token_admin")
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Login string `json:"login"`
+	}
+	decodeGitHubBody(t, res, &body)
+	if body.Login != "octocat" {
+		t.Fatalf("configured token did not replace default admin token: %#v", body)
+	}
+
+	defaultUserToken := doGitHubJSON(handler, http.MethodGet, "/user", "", "Bearer test_token_user1")
+	if defaultUserToken.Code != http.StatusUnauthorized {
+		t.Fatalf("default token remained active: status = %d, body = %s", defaultUserToken.Code, defaultUserToken.Body.String())
+	}
+}
+
 func TestGitHubReposIssuesCommentsAndPulls(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Name: "The Octocat", Email: "octocat@github.com"}},
@@ -87,6 +113,49 @@ func TestGitHubReposIssuesCommentsAndPulls(t *testing.T) {
 	}
 	if !strings.Contains(pr.Body.String(), `"number":2`) {
 		t.Fatalf("unexpected pull body: %s", pr.Body.String())
+	}
+}
+
+func TestGitHubListPullsFiltersForkHeadByOwnerAndBranch(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{
+			{Login: "octocat", Email: "octocat@github.com"},
+			{Login: "forker", Email: "forker@example.com"},
+		},
+		Repos: []RepoSeed{
+			{Owner: "octocat", Name: "hello-world"},
+			{Owner: "forker", Name: "hello-world"},
+		},
+	})
+
+	forkBranches := doGitHubJSON(handler, http.MethodGet, "/repos/forker/hello-world/branches", "", "Bearer test_token_admin")
+	if forkBranches.Code != http.StatusOK {
+		t.Fatalf("fork branches status = %d, body = %s", forkBranches.Code, forkBranches.Body.String())
+	}
+	forkMainSha := defaultBranchSha(t, forkBranches, "main")
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/forker/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+forkMainSha+`"}`, "Bearer test_token_admin")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Fork feature","head":"forker:feature","base":"main"}`, "Bearer test_token_admin")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+
+	list := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/pulls?head=forker:feature", "", "Bearer test_token_admin")
+	if list.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", list.Code, list.Body.String())
+	}
+	var body []struct {
+		Number int `json:"number"`
+		Head   struct {
+			Label string `json:"label"`
+		} `json:"head"`
+	}
+	decodeGitHubBody(t, list, &body)
+	if len(body) != 1 || body[0].Head.Label != "forker:feature" {
+		t.Fatalf("unexpected filtered pulls: %#v, body = %s", body, list.Body.String())
 	}
 }
 
@@ -197,6 +266,18 @@ func TestGitHubMergeCreatesResolvableCommit(t *testing.T) {
 	commit := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/git/commits/"+mergeBody.Sha, "", "Bearer test_token_user1")
 	if commit.Code != http.StatusOK {
 		t.Fatalf("commit status = %d, body = %s", commit.Code, commit.Body.String())
+	}
+	var commitBody struct {
+		Author *struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		Committer *struct {
+			Login string `json:"login"`
+		} `json:"committer"`
+	}
+	decodeGitHubBody(t, commit, &commitBody)
+	if commitBody.Author == nil || commitBody.Author.Login != "octocat" || commitBody.Committer == nil || commitBody.Committer.Login != "octocat" {
+		t.Fatalf("unexpected commit identity: %#v, body = %s", commitBody, commit.Body.String())
 	}
 
 	pull := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/pulls/1", "", "Bearer test_token_user1")
