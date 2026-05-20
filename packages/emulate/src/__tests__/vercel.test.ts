@@ -22,7 +22,7 @@ describe("createVercelScaffold", () => {
       'emulate "github.com/vercel-labs/emulate/vercel"',
     );
     expect(readFileSync(join(cwd, "api/emulate.go"), "utf-8")).toContain(
-      'Services: []string{"apple", "aws", "github", "google", "microsoft", "resend", "vercel"}',
+      'Services: []string{"apple", "aws", "github", "google", "microsoft", "resend", "slack", "vercel"}',
     );
     expect(readFileSync(join(cwd, "go.mod"), "utf-8")).toContain("require github.com/vercel-labs/emulate v0.5.0");
     const vercelConfig = JSON.parse(readFileSync(join(cwd, "vercel.json"), "utf-8")) as {
@@ -35,7 +35,7 @@ describe("createVercelScaffold", () => {
   });
 
   it("includes google in the shared Vercel CLI service default", () => {
-    expect(DEFAULT_VERCEL_SERVICE_OPTION).toBe("apple,aws,github,google,microsoft,resend,vercel");
+    expect(DEFAULT_VERCEL_SERVICE_OPTION).toBe("apple,aws,github,google,microsoft,resend,slack,vercel");
   });
 
   it("merges the rewrite into an existing vercel.json", () => {
@@ -229,7 +229,7 @@ require (
     const cwd = tempDir();
 
     expect(() => createVercelScaffold({ cwd, version: "0.5.0", service: "okta" })).toThrow(
-      "currently supports native services: apple, aws, github, google, microsoft, resend, vercel",
+      "currently supports native services: apple, aws, github, google, microsoft, resend, slack, vercel",
     );
   });
 

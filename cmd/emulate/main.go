@@ -25,6 +25,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/google"
 	"github.com/vercel-labs/emulate/internal/services/microsoft"
 	"github.com/vercel-labs/emulate/internal/services/resend"
+	"github.com/vercel-labs/emulate/internal/services/slack"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
 
@@ -113,6 +114,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	var googleSeed *google.SeedConfig
 	var microsoftSeed *microsoft.SeedConfig
 	var resendSeed *resend.SeedConfig
+	var slackSeed *slack.SeedConfig
 	var vercelSeed *vercel.SeedConfig
 	if *seedValue != "" {
 		loaded, err := coreconfig.Load(coreconfig.LoadOptions{Path: *seedValue})
@@ -121,7 +123,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			return 1
 		}
 		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
-			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, github, google, microsoft, resend, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
+			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, github, google, microsoft, resend, slack, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
 			return 1
 		}
 		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
@@ -181,6 +183,14 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			}
 			resendSeed = &cfg
 		}
+		if raw, ok := loaded.Data["slack"]; ok {
+			var cfg slack.SeedConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse slack seed config: %v\n", err)
+				return 1
+			}
+			slackSeed = &cfg
+		}
 		if raw, ok := loaded.Data["vercel"]; ok {
 			var cfg vercel.SeedConfig
 			if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -212,6 +222,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		GoogleSeed:    googleSeed,
 		MicrosoftSeed: microsoftSeed,
 		ResendSeed:    resendSeed,
+		SlackSeed:     slackSeed,
 		VercelSeed:    vercelSeed,
 	})
 	httpServer := &nethttp.Server{
@@ -399,7 +410,7 @@ func parseServices(value string) ([]string, error) {
 }
 
 func nativeSeedServiceNames() []string {
-	return []string{"apple", "github", "google", "microsoft", "resend", "vercel"}
+	return []string{"apple", "github", "google", "microsoft", "resend", "slack", "vercel"}
 }
 
 func unsupportedNativeSeedServices(data map[string]json.RawMessage) []string {

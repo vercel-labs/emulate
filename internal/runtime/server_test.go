@@ -198,6 +198,33 @@ func TestNewHandlerDoesNotMountResendWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestNewHandlerMountsSlackWhenEnabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"slack"}})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth.test", nil)
+	req.Header.Set("Authorization", "Bearer xoxb-test-token")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"team":"Emulate"`) || !strings.Contains(res.Body.String(), `"user_id":"U000000001"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestNewHandlerDoesNotMountSlackWhenDisabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"resend"}})
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodPost, "/api/auth.test", nil))
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestNewHandlerMountsAppleWhenEnabled(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"apple"}, BaseURL: "http://localhost:4014"})
 

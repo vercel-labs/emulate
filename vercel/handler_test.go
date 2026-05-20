@@ -35,7 +35,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "apple,aws,github,google,microsoft,resend,vercel" {
+	if strings.Join(body.Services, ",") != "apple,aws,github,google,microsoft,resend,slack,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -170,6 +170,23 @@ func TestHandlerForwardsGoogleService(t *testing.T) {
 	}
 	if !strings.Contains(res.Body.String(), `"issuer":"https://preview.example.com/emulate/google"`) ||
 		!strings.Contains(res.Body.String(), `"authorization_endpoint":"https://preview.example.com/emulate/google/o/oauth2/v2/auth"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestHandlerForwardsSlackService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"slack"}})
+	req := httptest.NewRequest(http.MethodPost, "https://preview.example.com/emulate/slack/api/auth.test", nil)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer xoxb-test-token")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"team":"Emulate"`) || !strings.Contains(res.Body.String(), `"user_id":"U000000001"`) {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

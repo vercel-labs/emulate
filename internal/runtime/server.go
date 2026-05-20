@@ -14,6 +14,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/google"
 	"github.com/vercel-labs/emulate/internal/services/microsoft"
 	"github.com/vercel-labs/emulate/internal/services/resend"
+	"github.com/vercel-labs/emulate/internal/services/slack"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
 
@@ -30,6 +31,7 @@ type ServerOptions struct {
 	GoogleSeed    *google.SeedConfig
 	MicrosoftSeed *microsoft.SeedConfig
 	ResendSeed    *resend.SeedConfig
+	SlackSeed     *slack.SeedConfig
 	VercelSeed    *vercel.SeedConfig
 }
 
@@ -104,6 +106,13 @@ func NewServer(options ServerOptions) *Server {
 		resend.Register(router, resend.Options{
 			Store: runtimeStore,
 			Seed:  options.ResendSeed,
+		})
+	}
+	if serviceEnabled(services, "slack") {
+		slack.Register(router, slack.Options{
+			Store:   runtimeStore,
+			BaseURL: options.BaseURL,
+			Seed:    options.SlackSeed,
 		})
 	}
 	if serviceEnabled(services, "vercel") {
