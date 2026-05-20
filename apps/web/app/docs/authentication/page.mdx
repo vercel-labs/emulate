@@ -96,7 +96,7 @@ Supports `Authorization: Basic` header with base64-encoded `client_id:client_sec
 
 ## AWS
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4006/s3/ \

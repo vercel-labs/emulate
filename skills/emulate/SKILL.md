@@ -359,7 +359,7 @@ packages/
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
-    aws/             # AWS S3, SQS, DynamoDB, IAM, STS plugin
+    aws/             # AWS S3, SQS, IAM, STS plugin
 ```
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.

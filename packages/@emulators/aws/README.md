@@ -1,6 +1,6 @@
 # @emulators/aws
 
-S3, SQS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML.
+The in-process JavaScript plugin provides S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. DynamoDB is available in the native Go AWS runtime; see the DynamoDB note below.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -34,8 +34,8 @@ SQS requests use `POST /sqs/` with an `Action` form parameter.
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
 
-### DynamoDB
-DynamoDB requests use the `/dynamodb/` endpoint with `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests.
+### DynamoDB (native Go runtime)
+DynamoDB is currently available through the native Go AWS runtime, not through the in-process JavaScript plugin exported by this package. In that runtime, requests use the `/dynamodb/` endpoint with `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests.
 
 - `CreateTable`, `DescribeTable`, `ListTables`, `UpdateTable`, `DeleteTable`
 - `PutItem`, `GetItem`, `DeleteItem`, `Scan`, `Query`
