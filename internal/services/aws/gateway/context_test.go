@@ -507,6 +507,56 @@ func TestBuildContextIAMQueryActionFallbacks(t *testing.T) {
 	}
 }
 
+func TestBuildContextDisambiguatesPermissionQueryActions(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		service string
+		action  string
+	}{
+		{
+			name:    "sns add permission",
+			body:    "Action=AddPermission&TopicArn=arn:aws:sns:us-east-1:123456789012:events",
+			service: "sns",
+			action:  "AddPermission",
+		},
+		{
+			name:    "sns remove permission",
+			body:    "Action=RemovePermission&TopicArn=arn:aws:sns:us-east-1:123456789012:events",
+			service: "sns",
+			action:  "RemovePermission",
+		},
+		{
+			name:    "sqs add permission",
+			body:    "Action=AddPermission&QueueUrl=http://127.0.0.1/sqs/123456789012/events",
+			service: "sqs",
+			action:  "AddPermission",
+		},
+		{
+			name:    "sqs remove permission",
+			body:    "Action=RemovePermission&QueueUrl=http://127.0.0.1/sqs/123456789012/events",
+			service: "sqs",
+			action:  "RemovePermission",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/", strings.NewReader(test.body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			ctx, err := BuildContext(req, []byte(test.body), fixedOptions())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if ctx.Service != test.service || ctx.Action != test.action {
+				t.Fatalf("service/action = %q/%q, want %s/%s", ctx.Service, ctx.Action, test.service, test.action)
+			}
+		})
+	}
+}
+
 func TestBuildContextIAMQueryRequest(t *testing.T) {
 	body := "Action=ListUsers&Version=2010-05-08"
 	req := httptest.NewRequest(http.MethodPost, "https://iam.amazonaws.com/", strings.NewReader(body))

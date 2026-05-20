@@ -397,6 +397,9 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 			sqsAttrs = envelopeAttrs
 		}
 		body := h.sqsBody(topic, subscription, messageID, subject, message, messageStructure, envelopeAttrs)
+		if len([]byte(body)) > intField(queue, "max_message_size") {
+			return false
+		}
 		now := h.nowMillis()
 		sqsMessageID := h.generateID("")
 		h.SQSMessages.Insert(corestore.Record{
@@ -414,7 +417,7 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 				"SenderId":                         h.accountID(ctx),
 			},
 			"message_attributes": sqsAttrs,
-			"visible_after":      now,
+			"visible_after":      now + int64(intField(queue, "delay_seconds"))*1000,
 			"sent_timestamp":     now,
 			"receive_count":      0,
 		})

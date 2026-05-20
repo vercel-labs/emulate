@@ -1053,6 +1053,136 @@ func TestServiceHandlesSNSRawSQSPublishWithStringAttributes(t *testing.T) {
 	}
 }
 
+func TestServiceHonorsSNSDeliverySQSDelaySeconds(t *testing.T) {
+	handler := newTestHandler()
+
+	values := url.Values{}
+	values.Set("Action", "CreateTopic")
+	values.Set("Name", "delayed-sns")
+	res := executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+	topicARN := xmlElement(res.Body.String(), "TopicArn")
+
+	values = url.Values{}
+	values.Set("Action", "CreateQueue")
+	values.Set("QueueName", "delayed-sns-queue")
+	values.Set("Attribute.1.Name", "DelaySeconds")
+	values.Set("Attribute.1.Value", "5")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	values = url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+
+	values = url.Values{}
+	values.Set("Action", "Subscribe")
+	values.Set("TopicArn", topicARN)
+	values.Set("Protocol", "sqs")
+	values.Set("Endpoint", queueARN)
+	values.Set("Attributes.entry.1.key", "RawMessageDelivery")
+	values.Set("Attributes.entry.1.value", "true")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("subscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Publish")
+	values.Set("TopicArn", topicARN)
+	values.Set("Message", "delayed payload")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "1")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "<Message>") {
+		t.Fatalf("delayed SNS message was visible immediately: %s", res.Body.String())
+	}
+}
+
+func TestServiceDropsOversizedSNSDeliveryToSQS(t *testing.T) {
+	handler := newTestHandler()
+
+	values := url.Values{}
+	values.Set("Action", "CreateTopic")
+	values.Set("Name", "oversized-sns")
+	res := executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+	topicARN := xmlElement(res.Body.String(), "TopicArn")
+
+	values = url.Values{}
+	values.Set("Action", "CreateQueue")
+	values.Set("QueueName", "oversized-sns-queue")
+	values.Set("Attribute.1.Name", "MaximumMessageSize")
+	values.Set("Attribute.1.Value", "8")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	values = url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+
+	values = url.Values{}
+	values.Set("Action", "Subscribe")
+	values.Set("TopicArn", topicARN)
+	values.Set("Protocol", "sqs")
+	values.Set("Endpoint", queueARN)
+	values.Set("Attributes.entry.1.key", "RawMessageDelivery")
+	values.Set("Attributes.entry.1.value", "true")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("subscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Publish")
+	values.Set("TopicArn", topicARN)
+	values.Set("Message", "too-large-body")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "1")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "<Message>") {
+		t.Fatalf("oversized SNS delivery reached SQS: %s", res.Body.String())
+	}
+}
+
 func TestServiceHandlesSNSTagsPermissionsAndErrors(t *testing.T) {
 	handler := newTestHandler()
 

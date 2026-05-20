@@ -132,7 +132,7 @@ func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsReques
 	ctx.Query = queryReq.Parameters
 	if queryReq.Action != "" {
 		ctx.Protocol = protocols.ProtocolQuery
-		ctx.Service = firstNonEmpty(pathService, host.Service, credentials.Scope.Service, serviceFromQueryAction(queryReq.Action))
+		ctx.Service = firstNonEmpty(pathService, host.Service, credentials.Scope.Service, serviceFromQueryAction(queryReq.Action, queryReq.Parameters))
 		ctx.Action = queryReq.Action
 		ctx.Input = queryInput(queryReq.Parameters)
 		return ctx, nil
@@ -363,7 +363,16 @@ func serviceFromPath(pathValue string) string {
 	return knownPathService(strings.ToLower(first))
 }
 
-func serviceFromQueryAction(action string) string {
+func serviceFromQueryAction(action string, params map[string]string) string {
+	switch action {
+	case "AddPermission", "RemovePermission":
+		if params["TopicArn"] != "" {
+			return "sns"
+		}
+		if params["QueueUrl"] != "" {
+			return "sqs"
+		}
+	}
 	return queryActionServices[action]
 }
 
