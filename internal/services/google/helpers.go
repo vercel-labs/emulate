@@ -593,25 +593,24 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 			s.ensureCustomLabel(input.UserEmail, labelID)
 		}
 	}
-	messageID := input.GmailID
-	if messageID == "" {
-		messageID = "msg_" + generateUID("")
+	gmailID := input.GmailID
+	if gmailID == "" {
+		gmailID = "msg_" + generateUID("")
 	}
 	threadID := input.ThreadID
 	if threadID == "" {
-		threadID = "thread_" + messageID
+		threadID = "thread_" + gmailID
 	}
 	dateHeader := input.Date
-	if dateHeader == "" {
-		dateHeader = nowISO()
-	}
-	internalDate := input.InternalDate
-	if internalDate == "" {
-		internalDate = dateHeader
-	}
 	subject := input.Subject
 	from := input.From
 	to := input.To
+	cc := input.CC
+	bcc := input.BCC
+	replyTo := input.ReplyTo
+	headerMessageID := input.MessageID
+	references := input.References
+	inReplyTo := input.InReplyTo
 	bodyText := stringValue(input.BodyText)
 	bodyHTML := stringValue(input.BodyHTML)
 	raw := stringValue(input.Raw)
@@ -626,6 +625,27 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 		if to == "" {
 			to = parsed.To
 		}
+		if stringValue(cc) == "" {
+			cc = nullableString(parsed.CC)
+		}
+		if stringValue(bcc) == "" {
+			bcc = nullableString(parsed.BCC)
+		}
+		if stringValue(replyTo) == "" {
+			replyTo = nullableString(parsed.ReplyTo)
+		}
+		if headerMessageID == "" {
+			headerMessageID = parsed.MessageID
+		}
+		if stringValue(references) == "" {
+			references = nullableString(parsed.References)
+		}
+		if stringValue(inReplyTo) == "" {
+			inReplyTo = nullableString(parsed.InReplyTo)
+		}
+		if dateHeader == "" {
+			dateHeader = parsed.DateHeader
+		}
 		if bodyText == "" {
 			bodyText = parsed.BodyText
 		}
@@ -637,7 +657,7 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 			s.store.Attachments.Insert(corestore.Record{
 				"gmail_id":          attachmentID,
 				"user_email":        input.UserEmail,
-				"message_gmail_id":  messageID,
+				"message_gmail_id":  gmailID,
 				"filename":          attachment.Filename,
 				"mime_type":         attachment.MIMEType,
 				"disposition":       nullableString(attachment.Disposition),
@@ -654,13 +674,20 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 	if input.Snippet == "" {
 		input.Snippet = firstNonEmpty(bodyText, stripHTML(bodyHTML), subject)
 	}
+	if dateHeader == "" {
+		dateHeader = nowISO()
+	}
+	internalDate := input.InternalDate
+	if internalDate == "" {
+		internalDate = dateHeader
+	}
 	labels := dedupeStrings(input.LabelIDs)
 	if len(labels) == 0 {
 		labels = []string{}
 	}
 	historyID := generateHistoryID()
 	message := s.store.Messages.Insert(corestore.Record{
-		"gmail_id":      messageID,
+		"gmail_id":      gmailID,
 		"thread_id":     threadID,
 		"user_email":    input.UserEmail,
 		"history_id":    historyID,
@@ -671,12 +698,12 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 		"subject":       subject,
 		"from":          from,
 		"to":            to,
-		"cc":            input.CC,
-		"bcc":           input.BCC,
-		"reply_to":      input.ReplyTo,
-		"message_id":    firstNonEmpty(input.MessageID, "<"+messageID+"@emulate.google.local>"),
-		"references":    input.References,
-		"in_reply_to":   input.InReplyTo,
+		"cc":            cc,
+		"bcc":           bcc,
+		"reply_to":      replyTo,
+		"message_id":    firstNonEmpty(headerMessageID, "<"+gmailID+"@emulate.google.local>"),
+		"references":    references,
+		"in_reply_to":   inReplyTo,
 		"date_header":   dateHeader,
 		"body_text":     nullableString(bodyText),
 		"body_html":     nullableString(bodyHTML),
@@ -945,10 +972,17 @@ func (s *Service) messagePayload(message corestore.Record, format string, metada
 	headers := []map[string]string{
 		{"name": "From", "value": stringField(message, "from")},
 		{"name": "To", "value": stringField(message, "to")},
-		{"name": "Subject", "value": stringField(message, "subject")},
-		{"name": "Date", "value": stringField(message, "date_header")},
-		{"name": "Message-ID", "value": stringField(message, "message_id")},
 	}
+	headers = appendHeaderIfPresent(headers, "Cc", stringField(message, "cc"))
+	headers = appendHeaderIfPresent(headers, "Bcc", stringField(message, "bcc"))
+	headers = appendHeaderIfPresent(headers, "Reply-To", stringField(message, "reply_to"))
+	headers = append(headers,
+		map[string]string{"name": "Subject", "value": stringField(message, "subject")},
+		map[string]string{"name": "Date", "value": stringField(message, "date_header")},
+		map[string]string{"name": "Message-ID", "value": stringField(message, "message_id")},
+	)
+	headers = appendHeaderIfPresent(headers, "References", stringField(message, "references"))
+	headers = appendHeaderIfPresent(headers, "In-Reply-To", stringField(message, "in_reply_to"))
 	if len(metadataHeaders) > 0 {
 		allowed := map[string]struct{}{}
 		for _, header := range metadataHeaders {
@@ -1022,6 +1056,13 @@ func (s *Service) messagePayload(message corestore.Record, format string, metada
 	return payload
 }
 
+func appendHeaderIfPresent(headers []map[string]string, name string, value string) []map[string]string {
+	if value == "" {
+		return headers
+	}
+	return append(headers, map[string]string{"name": name, "value": value})
+}
+
 func (s *Service) listAttachmentsForMessage(message corestore.Record) []corestore.Record {
 	attachments := []corestore.Record{}
 	for _, attachment := range s.store.Attachments.FindBy("message_gmail_id", stringField(message, "gmail_id")) {
@@ -1057,11 +1098,25 @@ func buildMessageText(message corestore.Record) string {
 	headers := []string{
 		"From: " + stringField(message, "from"),
 		"To: " + stringField(message, "to"),
-		"Subject: " + stringField(message, "subject"),
-		"Date: " + stringField(message, "date_header"),
-		"Message-ID: " + stringField(message, "message_id"),
 	}
+	headers = appendTextHeaderIfPresent(headers, "Cc", stringField(message, "cc"))
+	headers = appendTextHeaderIfPresent(headers, "Bcc", stringField(message, "bcc"))
+	headers = appendTextHeaderIfPresent(headers, "Reply-To", stringField(message, "reply_to"))
+	headers = append(headers,
+		"Subject: "+stringField(message, "subject"),
+		"Date: "+stringField(message, "date_header"),
+		"Message-ID: "+stringField(message, "message_id"),
+	)
+	headers = appendTextHeaderIfPresent(headers, "References", stringField(message, "references"))
+	headers = appendTextHeaderIfPresent(headers, "In-Reply-To", stringField(message, "in_reply_to"))
 	return strings.Join(headers, "\r\n") + "\r\n\r\n" + firstNonEmpty(stringField(message, "body_text"), stripHTML(stringField(message, "body_html")))
+}
+
+func appendTextHeaderIfPresent(headers []string, name string, value string) []string {
+	if value == "" {
+		return headers
+	}
+	return append(headers, name+": "+value)
 }
 
 func internalDateMillis(value string) string {
@@ -1072,6 +1127,9 @@ func internalDateMillis(value string) string {
 		return strconv.FormatInt(parsed, 10)
 	}
 	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return strconv.FormatInt(parsed.UnixMilli(), 10)
+	}
+	if parsed, err := http.ParseTime(value); err == nil {
 		return strconv.FormatInt(parsed.UnixMilli(), 10)
 	}
 	return value
@@ -1135,7 +1193,14 @@ func stripHTML(value string) string {
 type parsedRawMessage struct {
 	From        string
 	To          string
+	CC          string
+	BCC         string
+	ReplyTo     string
 	Subject     string
+	MessageID   string
+	References  string
+	InReplyTo   string
+	DateHeader  string
 	BodyText    string
 	BodyHTML    string
 	Attachments []parsedAttachment
@@ -1165,10 +1230,17 @@ func parseRawMessage(raw string) parsedRawMessage {
 	}
 	headers := parseMIMEHeaders(headerText)
 	out := parsedRawMessage{
-		Valid:   true,
-		From:    headers["from"],
-		To:      headers["to"],
-		Subject: headers["subject"],
+		Valid:      true,
+		From:       headers["from"],
+		To:         headers["to"],
+		CC:         headers["cc"],
+		BCC:        headers["bcc"],
+		ReplyTo:    headers["reply-to"],
+		Subject:    headers["subject"],
+		MessageID:  headers["message-id"],
+		References: headers["references"],
+		InReplyTo:  headers["in-reply-to"],
+		DateHeader: headers["date"],
 	}
 	contentType := headers["content-type"]
 	mediaType, params, _ := mime.ParseMediaType(contentType)
@@ -1207,8 +1279,8 @@ func parseMIMEHeaders(headerText string) map[string]string {
 func parseMultipartBody(boundary string, body string, out *parsedRawMessage) {
 	parts := strings.Split(body, "--"+boundary)
 	for _, part := range parts {
-		part = strings.Trim(part, "\r\n")
-		if part == "" || part == "--" {
+		part = trimMultipartStringPrefix(part)
+		if part == "" || strings.HasPrefix(part, "--") {
 			continue
 		}
 		headerText, partBody, _ := strings.Cut(part, "\r\n\r\n")
@@ -1219,7 +1291,7 @@ func parseMultipartBody(boundary string, body string, out *parsedRawMessage) {
 		contentType := headers["content-type"]
 		mediaType, params, _ := mime.ParseMediaType(contentType)
 		disposition, dispositionParams, _ := mime.ParseMediaType(headers["content-disposition"])
-		bodyBytes := []byte(strings.TrimRight(partBody, "\r\n"))
+		bodyBytes := []byte(trimMultipartStringSuffix(partBody))
 		if strings.EqualFold(headers["content-transfer-encoding"], "base64") {
 			if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(bodyBytes))); err == nil {
 				bodyBytes = decoded
@@ -1242,6 +1314,26 @@ func parseMultipartBody(boundary string, body string, out *parsedRawMessage) {
 			out.BodyText = string(bodyBytes)
 		}
 	}
+}
+
+func trimMultipartStringPrefix(part string) string {
+	if strings.HasPrefix(part, "\r\n") {
+		return part[2:]
+	}
+	if strings.HasPrefix(part, "\n") {
+		return part[1:]
+	}
+	return part
+}
+
+func trimMultipartStringSuffix(body string) string {
+	if strings.HasSuffix(body, "\r\n") {
+		return body[:len(body)-2]
+	}
+	if strings.HasSuffix(body, "\n") {
+		return body[:len(body)-1]
+	}
+	return body
 }
 
 func ensureDefaultCalendars(store Store, userEmail string) {
@@ -1724,8 +1816,8 @@ func parseDriveMultipartUpload(contentType string, raw []byte) (map[string]any, 
 	mediaType := "application/octet-stream"
 	var mediaBody []byte
 	for _, part := range parts {
-		part = bytes.Trim(part, "\r\n")
-		if len(part) == 0 || bytes.Equal(part, []byte("--")) {
+		part = trimMultipartPartPrefix(part)
+		if len(part) == 0 || bytes.HasPrefix(part, []byte("--")) {
 			continue
 		}
 		headerRaw, partBody, ok := bytes.Cut(part, []byte("\r\n\r\n"))
@@ -1744,9 +1836,29 @@ func parseDriveMultipartUpload(contentType string, raw []byte) (map[string]any, 
 		if mediaType == "" {
 			mediaType = "application/octet-stream"
 		}
-		mediaBody = bytes.TrimRight(partBody, "\r\n")
+		mediaBody = trimMultipartPartSuffix(partBody)
 	}
 	return body, mediaType, mediaBody
+}
+
+func trimMultipartPartPrefix(part []byte) []byte {
+	if bytes.HasPrefix(part, []byte("\r\n")) {
+		return part[2:]
+	}
+	if bytes.HasPrefix(part, []byte("\n")) {
+		return part[1:]
+	}
+	return part
+}
+
+func trimMultipartPartSuffix(body []byte) []byte {
+	if bytes.HasSuffix(body, []byte("\r\n")) {
+		return body[:len(body)-2]
+	}
+	if bytes.HasSuffix(body, []byte("\n")) {
+		return body[:len(body)-1]
+	}
+	return body
 }
 
 func parseParentQuery(query string) string {

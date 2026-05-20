@@ -477,9 +477,20 @@ func messagePatchFromInput(input messageInput) corestore.Record {
 		parsed := parseRawMessage(raw)
 		patch["from"] = firstNonEmpty(input.From, parsed.From)
 		patch["to"] = firstNonEmpty(input.To, parsed.To)
+		patch["cc"] = firstNonNil(input.CC, nullableString(parsed.CC))
+		patch["bcc"] = firstNonNil(input.BCC, nullableString(parsed.BCC))
+		patch["reply_to"] = firstNonNil(input.ReplyTo, nullableString(parsed.ReplyTo))
 		patch["subject"] = firstNonEmpty(input.Subject, parsed.Subject)
 		patch["body_text"] = nullableString(firstNonEmpty(stringValue(input.BodyText), parsed.BodyText))
 		patch["body_html"] = nullableString(firstNonEmpty(stringValue(input.BodyHTML), parsed.BodyHTML))
+		if value := firstNonEmpty(input.MessageID, parsed.MessageID); value != "" {
+			patch["message_id"] = value
+		}
+		patch["references"] = firstNonNil(input.References, nullableString(parsed.References))
+		patch["in_reply_to"] = firstNonNil(input.InReplyTo, nullableString(parsed.InReplyTo))
+		if value := firstNonEmpty(input.Date, parsed.DateHeader); value != "" {
+			patch["date_header"] = value
+		}
 	} else {
 		if input.From != "" {
 			patch["from"] = input.From

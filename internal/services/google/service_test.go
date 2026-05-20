@@ -351,6 +351,79 @@ func TestGoogleRejectsInvalidRawMIMEPayloads(t *testing.T) {
 	}
 }
 
+func TestGoogleRawMIMEPreservesStandardHeaders(t *testing.T) {
+	handler := newGoogleTestHandler()
+	dateHeader := "Tue, 07 Jan 2025 09:30:00 GMT"
+	raw := strings.Join([]string{
+		"From: Sender <sender@example.com>",
+		"To: testuser@example.com",
+		"Cc: Reviewer <reviewer@example.com>",
+		"Bcc: Hidden <hidden@example.com>",
+		"Reply-To: replies@example.com",
+		"Subject: Header preservation",
+		"Date: " + dateHeader,
+		"Message-ID: <raw-123@example.com>",
+		"References: <root@example.com>",
+		"In-Reply-To: <parent@example.com>",
+		"Content-Type: text/plain",
+		"",
+		"Header body.",
+	}, "\r\n")
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(raw))
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/import", `{"raw":"`+encoded+`","labelIds":["INBOX"]}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var imported struct {
+		ID string `json:"id"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &imported)
+
+	query := url.Values{"format": {"metadata"}}
+	for _, header := range []string{"From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To"} {
+		query.Add("metadataHeaders", header)
+	}
+	res = googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/messages/"+imported.ID+"?"+query.Encode(), "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("metadata status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Payload struct {
+			Headers []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"headers"`
+		} `json:"payload"`
+		InternalDate string `json:"internalDate"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	headers := map[string]string{}
+	for _, header := range body.Payload.Headers {
+		headers[header.Name] = header.Value
+	}
+	want := map[string]string{
+		"From":        "Sender <sender@example.com>",
+		"To":          "testuser@example.com",
+		"Cc":          "Reviewer <reviewer@example.com>",
+		"Bcc":         "Hidden <hidden@example.com>",
+		"Reply-To":    "replies@example.com",
+		"Subject":     "Header preservation",
+		"Date":        dateHeader,
+		"Message-ID":  "<raw-123@example.com>",
+		"References":  "<root@example.com>",
+		"In-Reply-To": "<parent@example.com>",
+	}
+	for name, value := range want {
+		if headers[name] != value {
+			t.Fatalf("header %s = %q, want %q; all headers = %#v", name, headers[name], value, headers)
+		}
+	}
+	if body.InternalDate != "1736242200000" {
+		t.Fatalf("internalDate = %q", body.InternalDate)
+	}
+}
+
 func TestGoogleUploadDraftRoutes(t *testing.T) {
 	handler := newGoogleTestHandler()
 
@@ -714,6 +787,52 @@ func TestGoogleDriveSimpleMediaUploadPersistsBytes(t *testing.T) {
 	}
 	mustDecodeGoogleJSON(t, res.Body.Bytes(), &uploaded)
 	if uploaded.ID == "" || uploaded.MIMEType != "text/plain" || uploaded.Size != strconv.Itoa(len(content)) {
+		t.Fatalf("unexpected uploaded file: %#v", uploaded)
+	}
+
+	res = googleRequest(handler, http.MethodGet, "/drive/v3/files/"+uploaded.ID+"?alt=media", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("download status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body, _ := io.ReadAll(res.Result().Body)
+	if string(body) != content {
+		t.Fatalf("download body = %q, want %q", string(body), content)
+	}
+}
+
+func TestGoogleDriveMultipartUploadPreservesTrailingNewline(t *testing.T) {
+	handler := newGoogleTestHandler()
+	boundary := "drive-multipart-newline"
+	content := "line one\nline two\n"
+	multipartBody := strings.Join([]string{
+		"--" + boundary,
+		"Content-Type: application/json; charset=UTF-8",
+		"",
+		`{"name":"notes.txt","parents":["root"]}`,
+		"--" + boundary,
+		"Content-Type: text/plain",
+		"",
+		content,
+		"--" + boundary + "--",
+		"",
+	}, "\r\n")
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:4016/upload/drive/v3/files?uploadType=multipart", strings.NewReader(multipartBody))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "multipart/related; boundary="+boundary)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var uploaded struct {
+		ID   string   `json:"id"`
+		Name string   `json:"name"`
+		Size string   `json:"size"`
+		MIME string   `json:"mimeType"`
+		Path []string `json:"parents"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &uploaded)
+	if uploaded.ID == "" || uploaded.Name != "notes.txt" || uploaded.MIME != "text/plain" || uploaded.Size != strconv.Itoa(len(content)) {
 		t.Fatalf("unexpected uploaded file: %#v", uploaded)
 	}
 
