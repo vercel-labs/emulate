@@ -2,6 +2,7 @@ package apple
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -100,6 +101,14 @@ func nullableString(value string) any {
 	return value
 }
 
+func appleEmailForUser(user corestore.Record) string {
+	email := stringField(user, "email")
+	if boolField(user, "is_private_email") && stringField(user, "private_relay_email") != "" {
+		return stringField(user, "private_relay_email")
+	}
+	return email
+}
+
 func stringSliceValue(value any) []string {
 	switch v := value.(type) {
 	case []string:
@@ -139,4 +148,22 @@ func matchesRedirectURI(candidate string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+func verifyPKCEChallenge(challenge string, method string, verifier string) bool {
+	if challenge == "" {
+		return true
+	}
+	if verifier == "" {
+		return false
+	}
+	switch strings.ToLower(method) {
+	case "", "plain":
+		return verifier == challenge
+	case "s256":
+		digest := sha256.Sum256([]byte(verifier))
+		return base64.RawURLEncoding.EncodeToString(digest[:]) == challenge
+	default:
+		return false
+	}
 }

@@ -35,6 +35,7 @@ func (s *Service) handleOpenIDConfiguration(c *corehttp.Context) {
 		"subject_types_supported":               []string{"pairwise"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      []string{"openid", "email", "name"},
+		"code_challenge_methods_supported":      []string{"plain", "S256"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post"},
 		"claims_supported": []string{
 			"aud",
@@ -64,6 +65,8 @@ func (s *Service) handleAuthorize(c *corehttp.Context) {
 	state := c.Query("state")
 	nonce := c.Query("nonce")
 	responseMode := c.Query("response_mode")
+	codeChallenge := c.Query("code_challenge")
+	codeChallengeMethod := c.Query("code_challenge_method")
 	if responseMode == "" {
 		responseMode = "query"
 	}
@@ -105,13 +108,15 @@ func (s *Service) handleAuthorize(c *corehttp.Context) {
 				Email:      email,
 				FormAction: "/auth/authorize/callback",
 				HiddenFields: map[string]string{
-					"email":         email,
-					"redirect_uri":  redirectURI,
-					"scope":         scope,
-					"state":         state,
-					"nonce":         nonce,
-					"client_id":     clientID,
-					"response_mode": responseMode,
+					"email":                 email,
+					"redirect_uri":          redirectURI,
+					"scope":                 scope,
+					"state":                 state,
+					"nonce":                 nonce,
+					"client_id":             clientID,
+					"response_mode":         responseMode,
+					"code_challenge":        codeChallenge,
+					"code_challenge_method": codeChallengeMethod,
 				},
 			}))
 		}
@@ -131,6 +136,8 @@ func (s *Service) handleAuthorizeCallback(c *corehttp.Context) {
 	clientID := c.Request.Form.Get("client_id")
 	nonce := c.Request.Form.Get("nonce")
 	responseMode := c.Request.Form.Get("response_mode")
+	codeChallenge := c.Request.Form.Get("code_challenge")
+	codeChallengeMethod := c.Request.Form.Get("code_challenge_method")
 	if responseMode == "" {
 		responseMode = "query"
 	}
@@ -153,14 +160,16 @@ func (s *Service) handleAuthorizeCallback(c *corehttp.Context) {
 
 	code := generateHex(20)
 	s.store.OAuthCodes.Insert(corestore.Record{
-		"code":          code,
-		"email":         email,
-		"scope":         scope,
-		"redirect_uri":  redirectURI,
-		"client_id":     clientID,
-		"nonce":         nonce,
-		"response_mode": responseMode,
-		"created_at_ms": time.Now().UnixMilli(),
+		"code":                  code,
+		"email":                 email,
+		"scope":                 scope,
+		"redirect_uri":          redirectURI,
+		"client_id":             clientID,
+		"nonce":                 nonce,
+		"response_mode":         responseMode,
+		"code_challenge":        codeChallenge,
+		"code_challenge_method": codeChallengeMethod,
+		"created_at_ms":         time.Now().UnixMilli(),
 	})
 
 	userJSON := ""
@@ -173,7 +182,7 @@ func (s *Service) handleAuthorizeCallback(c *corehttp.Context) {
 					"firstName": stringField(user, "given_name"),
 					"lastName":  stringField(user, "family_name"),
 				},
-				"email": stringField(user, "email"),
+				"email": appleEmailForUser(user),
 			})
 			userJSON = string(raw)
 		}
@@ -242,6 +251,10 @@ func (s *Service) handleAuthorizationCodeToken(c *corehttp.Context) {
 		return
 	}
 	if pendingRedirectURI := stringField(pending, "redirect_uri"); pendingRedirectURI != "" && redirectURI != "" && redirectURI != pendingRedirectURI {
+		writeOAuthError(c, http.StatusBadRequest, "invalid_grant", "The code is incorrect or expired.")
+		return
+	}
+	if !verifyPKCEChallenge(stringField(pending, "code_challenge"), stringField(pending, "code_challenge_method"), c.Request.Form.Get("code_verifier")) {
 		writeOAuthError(c, http.StatusBadRequest, "invalid_grant", "The code is incorrect or expired.")
 		return
 	}

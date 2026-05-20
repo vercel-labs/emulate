@@ -46,16 +46,12 @@ func (s *jwtSigner) jwks() map[string]any {
 }
 
 func createIDToken(user corestore.Record, clientID string, nonce string, baseURL string) (string, error) {
-	email := stringField(user, "email")
-	if boolField(user, "is_private_email") && stringField(user, "private_relay_email") != "" {
-		email = stringField(user, "private_relay_email")
-	}
 	now := time.Now().Unix()
 	claims := map[string]any{
 		"iss":              baseURL,
 		"aud":              clientID,
 		"sub":              stringField(user, "uid"),
-		"email":            email,
+		"email":            appleEmailForUser(user),
 		"email_verified":   stringValue(user["email_verified"]),
 		"is_private_email": stringValue(user["is_private_email"]),
 		"real_user_status": intField(user, "real_user_status"),

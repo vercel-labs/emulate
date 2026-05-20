@@ -1,6 +1,7 @@
 package apple
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -16,12 +17,16 @@ import (
 const testBaseURL = "http://localhost:4004"
 
 func newTestHandler() http.Handler {
+	return newTestHandlerWithSeed(&SeedConfig{
+		Users: []UserSeed{{Email: "testuser@example.com", Name: "Test User"}},
+	})
+}
+
+func newTestHandlerWithSeed(seed *SeedConfig) http.Handler {
 	router := corehttp.NewRouter()
 	Register(router, Options{
 		BaseURL: testBaseURL,
-		Seed: &SeedConfig{
-			Users: []UserSeed{{Email: "testuser@example.com", Name: "Test User"}},
-		},
+		Seed:    seed,
 	})
 	router.NotFound(func(c *corehttp.Context) {
 		c.JSON(http.StatusNotFound, map[string]any{"message": "Not Found"})
@@ -38,7 +43,9 @@ func TestOpenIDConfiguration(t *testing.T) {
 	if body["issuer"] != testBaseURL || body["authorization_endpoint"] != testBaseURL+"/auth/authorize" {
 		t.Fatalf("unexpected discovery: %#v", body)
 	}
-	if !containsString(body["claims_supported"], "is_private_email") || !containsString(body["response_modes_supported"], "form_post") {
+	if !containsString(body["claims_supported"], "is_private_email") ||
+		!containsString(body["response_modes_supported"], "form_post") ||
+		!containsString(body["code_challenge_methods_supported"], "S256") {
 		t.Fatalf("missing discovery metadata: %#v", body)
 	}
 }
@@ -138,6 +145,25 @@ func TestAuthorizationCodeIsSingleUse(t *testing.T) {
 	}
 }
 
+func TestPKCES256Flow(t *testing.T) {
+	handler := newTestHandler()
+	verifier := "pkce-verifier-12345"
+	code, _, _ := getAuthCode(t, handler, authCodeOptions{
+		CodeChallenge:       s256Challenge(verifier),
+		CodeChallengeMethod: "S256",
+	})
+
+	res, body := exchangeCode(t, handler, code, tokenExchangeOptions{CodeVerifier: "wrong-verifier"})
+	if res.Code != http.StatusBadRequest || body["error"] != "invalid_grant" {
+		t.Fatalf("unexpected wrong verifier response: status=%d body=%#v", res.Code, body)
+	}
+
+	res, body = exchangeCode(t, handler, code, tokenExchangeOptions{CodeVerifier: verifier})
+	if res.Code != http.StatusOK || body["id_token"] == "" {
+		t.Fatalf("unexpected verifier success response: status=%d body=%#v", res.Code, body)
+	}
+}
+
 func TestUserJSONOnlyOnFirstAuthorization(t *testing.T) {
 	handler := newTestHandler()
 	_, _, userJSON := getAuthCode(t, handler, authCodeOptions{})
@@ -155,6 +181,34 @@ func TestUserJSONOnlyOnFirstAuthorization(t *testing.T) {
 	_, _, secondUserJSON := getAuthCode(t, handler, authCodeOptions{})
 	if secondUserJSON != "" {
 		t.Fatalf("second auth included user JSON: %s", secondUserJSON)
+	}
+}
+
+func TestPrivateEmailUsesRelayInUserJSONAndIDToken(t *testing.T) {
+	handler := newTestHandlerWithSeed(&SeedConfig{
+		Users: []UserSeed{{Email: "private@example.com", Name: "Private User", IsPrivateEmail: true}},
+	})
+	code, _, userJSON := getAuthCode(t, handler, authCodeOptions{Email: "private@example.com"})
+	if userJSON == "" {
+		t.Fatalf("missing first auth user JSON")
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(userJSON), &parsed); err != nil {
+		t.Fatalf("invalid user JSON: %v", err)
+	}
+	userEmail := stringValue(parsed["email"])
+	if userEmail == "private@example.com" || !strings.HasSuffix(userEmail, "@privaterelay.appleid.com") {
+		t.Fatalf("user JSON leaked real email: %#v", parsed)
+	}
+
+	res, tokenBody := exchangeCode(t, handler, code)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	claims := decodeJWTClaims(t, stringValue(tokenBody["id_token"]))
+	if claims["email"] != userEmail {
+		t.Fatalf("email mismatch between user JSON and id_token: user=%q claims=%#v", userEmail, claims)
 	}
 }
 
@@ -232,13 +286,15 @@ func TestSeedFromConfig(t *testing.T) {
 }
 
 type authCodeOptions struct {
-	Email        string
-	ClientID     string
-	RedirectURI  string
-	Scope        string
-	State        string
-	Nonce        string
-	ResponseMode string
+	Email               string
+	ClientID            string
+	RedirectURI         string
+	Scope               string
+	State               string
+	Nonce               string
+	ResponseMode        string
+	CodeChallenge       string
+	CodeChallengeMethod string
 }
 
 func getAuthCode(t *testing.T, handler http.Handler, opts authCodeOptions) (string, string, string) {
@@ -252,13 +308,15 @@ func getAuthCode(t *testing.T, handler http.Handler, opts authCodeOptions) (stri
 	responseMode := firstNonEmpty(opts.ResponseMode, "query")
 
 	form := url.Values{
-		"email":         []string{email},
-		"redirect_uri":  []string{redirectURI},
-		"scope":         []string{scope},
-		"state":         []string{state},
-		"nonce":         []string{nonce},
-		"client_id":     []string{clientID},
-		"response_mode": []string{responseMode},
+		"email":                 []string{email},
+		"redirect_uri":          []string{redirectURI},
+		"scope":                 []string{scope},
+		"state":                 []string{state},
+		"nonce":                 []string{nonce},
+		"client_id":             []string{clientID},
+		"response_mode":         []string{responseMode},
+		"code_challenge":        []string{opts.CodeChallenge},
+		"code_challenge_method": []string{opts.CodeChallengeMethod},
 	}
 	res := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/auth/authorize/callback", strings.NewReader(form.Encode()))
@@ -290,8 +348,9 @@ func getAuthCode(t *testing.T, handler http.Handler, opts authCodeOptions) (stri
 }
 
 type tokenExchangeOptions struct {
-	ClientID    string
-	RedirectURI string
+	ClientID     string
+	RedirectURI  string
+	CodeVerifier string
 }
 
 func exchangeCode(t *testing.T, handler http.Handler, code string, opts ...tokenExchangeOptions) (*httptest.ResponseRecorder, map[string]any) {
@@ -306,6 +365,9 @@ func exchangeCode(t *testing.T, handler http.Handler, code string, opts ...token
 		"client_id":     []string{firstNonEmpty(options.ClientID, "test-client")},
 		"client_secret": []string{"fake"},
 		"redirect_uri":  []string{firstNonEmpty(options.RedirectURI, "http://localhost:3000/callback")},
+	}
+	if options.CodeVerifier != "" {
+		form.Set("code_verifier", options.CodeVerifier)
 	}
 	return requestJSON(t, handler, http.MethodPost, "/auth/token", form.Encode())
 }
@@ -374,4 +436,9 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func s256Challenge(verifier string) string {
+	digest := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(digest[:])
 }

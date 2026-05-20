@@ -24,6 +24,10 @@ npm install @emulators/apple
 
 OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
+PKCE is supported with `code_challenge` and `code_challenge_method` on authorization, then `code_verifier` on token exchange.
+
+Private email users receive the generated relay email in both the `id_token` and first authorization `user` JSON.
+
 ## Seed Configuration
 
 ```yaml

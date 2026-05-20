@@ -105,7 +105,9 @@ apple:
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id` and `redirect_uri`.
 
-Users with `is_private_email: true` get a generated `@privaterelay.appleid.com` email in the `id_token` instead of their real email.
+Users with `is_private_email: true` get a generated `@privaterelay.appleid.com` email in the `id_token` and first authorization `user` JSON instead of their real email.
+
+PKCE is supported. Pass `code_challenge` and `code_challenge_method` on authorize, then `code_verifier` on token exchange.
 
 ## API Endpoints
 

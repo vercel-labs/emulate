@@ -647,6 +647,10 @@ Sign in with Apple emulation with authorization code flow, PKCE support, RS256 I
 
 The native Go runtime implements the Apple OIDC flow below for local CLI runs and Vercel Go Function previews. To expose Apple on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service apple`. The generated route serves Apple at `/emulate/apple/*`.
 
+PKCE is supported with `code_challenge` and `code_challenge_method` on authorization, then `code_verifier` on token exchange.
+
+Private email users receive the generated relay email in both the `id_token` and first authorization `user` JSON.
+
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /auth/keys` - JSON Web Key Set (JWKS)
 - `GET /auth/authorize` - authorization endpoint (shows user picker)
