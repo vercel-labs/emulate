@@ -37,7 +37,7 @@ func (s *Service) handleOpenIDConfiguration(c *corehttp.Context) {
 		"jwks_uri":                              s.baseURL + "/oauth2/v3/certs",
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
-		"id_token_signing_alg_values_supported": []string{"HS256"},
+		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      []string{"openid", "email", "profile"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_post", "client_secret_basic"},
 		"claims_supported": []string{
@@ -56,7 +56,7 @@ func (s *Service) handleOpenIDConfiguration(c *corehttp.Context) {
 }
 
 func (s *Service) handleCerts(c *corehttp.Context) {
-	c.JSON(http.StatusOK, map[string]any{"keys": []any{}})
+	c.JSON(http.StatusOK, googleSigner.jwks())
 }
 
 func (s *Service) handleAuthorize(c *corehttp.Context) {
@@ -247,7 +247,12 @@ func (s *Service) handleAuthorizationCodeToken(c *corehttp.Context, body map[str
 		"token_type":    "Bearer",
 	}
 	if strings.Contains(" "+scope+" ", " openid ") {
-		response["id_token"] = signIDToken(user, clientID, stringField(code, "nonce"), s.baseURL)
+		idToken, err := signIDToken(user, clientID, stringField(code, "nonce"), s.baseURL)
+		if err != nil {
+			writeOAuthError(c, http.StatusInternalServerError, "server_error", "Failed to sign ID token.")
+			return
+		}
+		response["id_token"] = idToken
 	}
 	c.JSON(http.StatusOK, response)
 }

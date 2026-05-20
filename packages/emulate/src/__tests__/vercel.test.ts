@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createVercelScaffold } from "../commands/vercel.js";
+import { createVercelScaffold, DEFAULT_VERCEL_SERVICE_OPTION } from "../commands/vercel.js";
 
 const tempDirs: string[] = [];
 
@@ -32,6 +32,10 @@ describe("createVercelScaffold", () => {
       source: "/emulate/:path*",
       destination: "/api/emulate?path=:path*",
     });
+  });
+
+  it("includes google in the shared Vercel CLI service default", () => {
+    expect(DEFAULT_VERCEL_SERVICE_OPTION).toBe("apple,aws,github,google,microsoft,resend,vercel");
   });
 
   it("merges the rewrite into an existing vercel.json", () => {

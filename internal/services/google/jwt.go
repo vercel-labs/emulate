@@ -1,17 +1,50 @@
 package google
 
 import (
-	"crypto/hmac"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"math/big"
 	"time"
 )
 
-var googleJWTSecret = []byte("emulate-google-jwt-secret")
+const googleKeyID = "emulate-google-1"
 
-func signIDToken(user map[string]any, clientID string, nonce string, issuer string) string {
-	now := time.Now()
+var googleSigner = mustGoogleJWTSigner()
+
+type googleJWTSigner struct {
+	privateKey *rsa.PrivateKey
+}
+
+func mustGoogleJWTSigner() *googleJWTSigner {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	return &googleJWTSigner{privateKey: privateKey}
+}
+
+func (s *googleJWTSigner) jwks() map[string]any {
+	publicKey := s.privateKey.Public().(*rsa.PublicKey)
+	return map[string]any{
+		"keys": []map[string]any{
+			{
+				"kty": "RSA",
+				"use": "sig",
+				"kid": googleKeyID,
+				"alg": "RS256",
+				"n":   base64.RawURLEncoding.EncodeToString(publicKey.N.Bytes()),
+				"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(publicKey.E)).Bytes()),
+			},
+		},
+	}
+}
+
+func signIDToken(user map[string]any, clientID string, nonce string, issuer string) (string, error) {
+	now := time.Now().Unix()
 	claims := map[string]any{
 		"iss":            issuer,
 		"aud":            clientID,
@@ -23,8 +56,8 @@ func signIDToken(user map[string]any, clientID string, nonce string, issuer stri
 		"family_name":    stringValue(user["family_name"]),
 		"picture":        user["picture"],
 		"locale":         stringValue(user["locale"]),
-		"iat":            now.Unix(),
-		"exp":            now.Add(time.Hour).Unix(),
+		"iat":            now,
+		"exp":            now + 3600,
 	}
 	if hd := stringValue(user["hd"]); hd != "" {
 		claims["hd"] = hd
@@ -32,11 +65,24 @@ func signIDToken(user map[string]any, clientID string, nonce string, issuer stri
 	if nonce != "" {
 		claims["nonce"] = nonce
 	}
-	header := map[string]any{"alg": "HS256", "typ": "JWT"}
-	headerRaw, _ := json.Marshal(header)
-	claimRaw, _ := json.Marshal(claims)
-	unsigned := base64.RawURLEncoding.EncodeToString(headerRaw) + "." + base64.RawURLEncoding.EncodeToString(claimRaw)
-	mac := hmac.New(sha256.New, googleJWTSecret)
-	_, _ = mac.Write([]byte(unsigned))
-	return unsigned + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return googleSigner.sign(claims)
+}
+
+func (s *googleJWTSigner) sign(claims map[string]any) (string, error) {
+	header := map[string]any{"alg": "RS256", "kid": googleKeyID, "typ": "JWT"}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(claimsJSON)
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, digest[:])
+	if err != nil {
+		return "", err
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature), nil
 }

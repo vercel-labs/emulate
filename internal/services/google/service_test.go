@@ -1,6 +1,7 @@
 package google
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -142,6 +143,7 @@ func TestGoogleOAuthAuthorizationCodeAndRefresh(t *testing.T) {
 	if !strings.HasPrefix(tokenBody.AccessToken, "google_") || !strings.HasPrefix(tokenBody.RefreshToken, "google_refresh_") || tokenBody.IDToken == "" {
 		t.Fatalf("unexpected token body: %#v", tokenBody)
 	}
+	assertGoogleIDTokenUsesPublishedJWKS(t, handler, tokenBody.IDToken)
 
 	refreshForm := url.Values{
 		"grant_type":    {"refresh_token"},
@@ -242,6 +244,51 @@ func TestGoogleGmailCalendarAndDriveSeededRoutes(t *testing.T) {
 	body, _ := io.ReadAll(res.Result().Body)
 	if string(body) != "pdf-handbook-data" {
 		t.Fatalf("unexpected drive media body: %q", string(body))
+	}
+}
+
+func TestGoogleRejectsUnknownMutationLabels(t *testing.T) {
+	handler := newGoogleTestHandler()
+	cases := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "message modify",
+			path: "/gmail/v1/users/me/messages/msg_invoice/modify",
+			body: `{"addLabelIds":["Label_missing"]}`,
+		},
+		{
+			name: "batch modify",
+			path: "/gmail/v1/users/me/messages/batchModify",
+			body: `{"ids":["msg_invoice"],"addLabelIds":["Label_missing"]}`,
+		},
+		{
+			name: "thread modify",
+			path: "/gmail/v1/users/me/threads/thread_billing/modify",
+			body: `{"removeLabelIds":["Label_missing"]}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := googleRequest(handler, http.MethodPost, tc.path, tc.body, true)
+			if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "Invalid label IDs: Label_missing") {
+				t.Fatalf("mutation status = %d, body = %s", res.Code, res.Body.String())
+			}
+		})
+	}
+
+	res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/messages/msg_invoice", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("get message status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var message struct {
+		LabelIDs []string `json:"labelIds"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &message)
+	if containsString(message.LabelIDs, "Label_missing") {
+		t.Fatalf("missing label was applied: %#v", message.LabelIDs)
 	}
 }
 
@@ -395,5 +442,43 @@ func mustDecodeGoogleJSON(t *testing.T, raw []byte, target any) {
 	t.Helper()
 	if err := json.Unmarshal(raw, target); err != nil {
 		t.Fatalf("decode JSON: %v\n%s", err, string(raw))
+	}
+}
+
+func assertGoogleIDTokenUsesPublishedJWKS(t *testing.T, handler http.Handler, idToken string) {
+	t.Helper()
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		t.Fatalf("id_token is not a JWT: %q", idToken)
+	}
+	headerRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("decode JWT header: %v", err)
+	}
+	var header struct {
+		Alg string `json:"alg"`
+		Kid string `json:"kid"`
+	}
+	mustDecodeGoogleJSON(t, headerRaw, &header)
+	if header.Alg != "RS256" || header.Kid != googleKeyID {
+		t.Fatalf("unexpected JWT header: %#v", header)
+	}
+
+	res := googleRequest(handler, http.MethodGet, "/oauth2/v3/certs", "", false)
+	if res.Code != http.StatusOK {
+		t.Fatalf("certs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var jwks struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Kid string `json:"kid"`
+			Alg string `json:"alg"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		} `json:"keys"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &jwks)
+	if len(jwks.Keys) != 1 || jwks.Keys[0].Kty != "RSA" || jwks.Keys[0].Kid != header.Kid || jwks.Keys[0].Alg != "RS256" || jwks.Keys[0].N == "" || jwks.Keys[0].E == "" {
+		t.Fatalf("unexpected JWKS: %#v", jwks)
 	}
 }

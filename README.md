@@ -582,7 +582,7 @@ The native Go runtime implements the core SDK-facing GitHub surface for local CL
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
-The native Go runtime implements the OAuth/OIDC flow plus Gmail messages, drafts, threads, labels, history, settings filters, Calendar list/events/freebusy, and Drive file list/upload/download routes for local CLI runs and Vercel Go Function previews. To expose Google on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service google`. The generated route serves Google at `/emulate/google/*`.
+The native Go runtime implements the OAuth/OIDC flow with RS256 ID tokens and JWKS, plus Gmail messages, drafts, threads, labels, history, settings filters, Calendar list/events/freebusy, and Drive file list/upload/download routes for local CLI runs and Vercel Go Function previews. To expose Google on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service google`. The generated route serves Google at `/emulate/google/*`.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const SUPPORTED_VERCEL_SERVICES = ["apple", "aws", "github", "google", "microsoft", "resend", "vercel"] as const;
+export const SUPPORTED_VERCEL_SERVICES = ["apple", "aws", "github", "google", "microsoft", "resend", "vercel"] as const;
+export const DEFAULT_VERCEL_SERVICE_OPTION = SUPPORTED_VERCEL_SERVICES.join(",");
 const REQUIRED_GO_VERSION = "1.24";
 const DEFAULT_REWRITE = {
   source: "/emulate/:path*",

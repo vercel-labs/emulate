@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 import { initCommand } from "./commands/init.js";
 import { listCommand } from "./commands/list.js";
-import { vercelInitCommand } from "./commands/vercel.js";
+import { DEFAULT_VERCEL_SERVICE_OPTION, vercelInitCommand } from "./commands/vercel.js";
 
 declare const PKG_VERSION: string;
 const pkg = { version: PKG_VERSION };
@@ -60,11 +60,7 @@ const vercel = program.command("vercel").description("Vercel preview helpers");
 vercel
   .command("init")
   .description("Scaffold a Vercel Go Function preview route")
-  .option(
-    "-s, --service <services>",
-    "Comma-separated native services to enable",
-    "apple,aws,github,microsoft,resend,vercel",
-  )
+  .option("-s, --service <services>", "Comma-separated native services to enable", DEFAULT_VERCEL_SERVICE_OPTION)
   .option("--force", "Overwrite generated files")
   .action((opts) => {
     vercelInitCommand({

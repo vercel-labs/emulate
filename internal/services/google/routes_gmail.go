@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
@@ -187,7 +188,12 @@ func (s *Service) handleModifyMessage(c *corehttp.Context) {
 		return
 	}
 	body := parseJSONBody(c.Request)
-	updated := s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), getStringArray(body, "addLabelIds"), getStringArray(body, "removeLabelIds")))
+	addLabelIDs := getStringArray(body, "addLabelIds")
+	removeLabelIDs := getStringArray(body, "removeLabelIds")
+	if !s.validateMutationLabelIDs(c, email, append(addLabelIDs, removeLabelIDs...)) {
+		return
+	}
+	updated := s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), addLabelIDs, removeLabelIDs))
 	c.JSON(http.StatusOK, formatMessageResource(s, updated, "full", nil))
 }
 
@@ -197,12 +203,17 @@ func (s *Service) handleBatchModifyMessages(c *corehttp.Context) {
 		return
 	}
 	body := parseJSONBody(c.Request)
+	addLabelIDs := getStringArray(body, "addLabelIds")
+	removeLabelIDs := getStringArray(body, "removeLabelIds")
+	if !s.validateMutationLabelIDs(c, email, append(addLabelIDs, removeLabelIDs...)) {
+		return
+	}
 	for _, id := range getStringArray(body, "ids") {
 		message := s.getMessageByID(email, id)
 		if message == nil {
 			continue
 		}
-		s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), getStringArray(body, "addLabelIds"), getStringArray(body, "removeLabelIds")))
+		s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), addLabelIDs, removeLabelIDs))
 	}
 	c.Writer.WriteHeader(http.StatusNoContent)
 }
@@ -534,9 +545,14 @@ func (s *Service) handleModifyThread(c *corehttp.Context) {
 		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
 		return
 	}
+	addLabelIDs := getStringArray(body, "addLabelIds")
+	removeLabelIDs := getStringArray(body, "removeLabelIds")
+	if !s.validateMutationLabelIDs(c, email, append(addLabelIDs, removeLabelIDs...)) {
+		return
+	}
 	formatted := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
-		updated := s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), getStringArray(body, "addLabelIds"), getStringArray(body, "removeLabelIds")))
+		updated := s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), addLabelIDs, removeLabelIDs))
 		formatted = append(formatted, formatMessageResource(s, updated, "full", nil))
 	}
 	c.JSON(http.StatusOK, map[string]any{"id": c.Param("id"), "messages": formatted})
@@ -923,6 +939,35 @@ func getStringArray(body map[string]any, field string) []string {
 	default:
 		return nil
 	}
+}
+
+func (s *Service) validateMutationLabelIDs(c *corehttp.Context, userEmail string, labelIDs []string) bool {
+	missing := s.missingLabelIDs(userEmail, labelIDs)
+	if len(missing) == 0 {
+		return true
+	}
+	googleAPIError(c, http.StatusBadRequest, "Invalid label IDs: "+strings.Join(missing, ", "), "invalidArgument", "INVALID_ARGUMENT")
+	return false
+}
+
+func (s *Service) missingLabelIDs(userEmail string, labelIDs []string) []string {
+	ensureSystemLabels(s.store, userEmail)
+	seen := map[string]struct{}{}
+	missing := []string{}
+	for _, labelID := range labelIDs {
+		if labelID == "" {
+			continue
+		}
+		if _, ok := seen[labelID]; ok {
+			continue
+		}
+		seen[labelID] = struct{}{}
+		if s.findLabelByID(userEmail, labelID) == nil {
+			missing = append(missing, labelID)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func mapValue(value any) map[string]any {

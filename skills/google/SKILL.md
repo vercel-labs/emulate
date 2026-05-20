@@ -8,7 +8,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE support, ID tokens, OIDC discovery, refresh tokens, plus Gmail, Google Calendar, and Google Drive REST API surfaces.
 
-The native Go runtime implements the Google OAuth/OIDC foundation plus Gmail messages, drafts, threads, labels, history, settings filters, Calendar list/events/freebusy, and Drive file list/upload/download routes. Use `npx emulate vercel init --service google` for zero infra Vercel preview deployments at `/emulate/google/*`.
+The native Go runtime implements the Google OAuth/OIDC foundation with RS256 ID tokens and JWKS, plus Gmail messages, drafts, threads, labels, history, settings filters, Calendar list/events/freebusy, and Drive file list/upload/download routes. Use `npx emulate vercel init --service google` for zero infra Vercel preview deployments at `/emulate/google/*`.
 
 ## Start
 
@@ -201,7 +201,7 @@ curl http://localhost:4002/.well-known/openid-configuration
 curl http://localhost:4002/oauth2/v3/certs
 ```
 
-Returns `{ "keys": [] }`. ID tokens are signed with HS256 using an internal secret.
+In the native Go runtime, this returns the RSA signing key. Native ID tokens are signed with RS256 and include a `kid` that matches the JWKS entry.
 
 ### Authorization
 
