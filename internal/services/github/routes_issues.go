@@ -36,9 +36,6 @@ func (s *Service) handleListIssues(c *corehttp.Context) {
 	}
 	list := make([]corestore.Record, 0)
 	for _, issue := range s.store.Issues.FindBy("repo_id", intField(repo, "id")) {
-		if boolField(issue, "is_pull_request") {
-			continue
-		}
 		if state == "open" || state == "closed" {
 			if stringField(issue, "state") != state {
 				continue
@@ -135,7 +132,7 @@ func (s *Service) handleCreateIssue(c *corehttp.Context) {
 }
 
 func (s *Service) handleGetIssue(c *corehttp.Context) {
-	repo, issue, ok := s.issueFromRequest(c, false)
+	repo, issue, ok := s.issueFromRequest(c, true)
 	if !ok {
 		return
 	}
@@ -146,7 +143,7 @@ func (s *Service) handleGetIssue(c *corehttp.Context) {
 }
 
 func (s *Service) handlePatchIssue(c *corehttp.Context) {
-	repo, issue, ok := s.issueFromRequest(c, false)
+	repo, issue, ok := s.issueFromRequest(c, true)
 	if !ok {
 		return
 	}
@@ -209,6 +206,9 @@ func (s *Service) handlePatchIssue(c *corehttp.Context) {
 		patch["label_ids"] = labelIDs
 	}
 	updated, _ := s.store.Issues.Update(intField(issue, "id"), patch)
+	if boolField(issue, "is_pull_request") {
+		s.syncPullFromIssuePatch(intField(repo, "id"), intField(issue, "number"), patch)
+	}
 	if openIssuesDelta != 0 {
 		s.adjustOpenIssues(intField(repo, "id"), openIssuesDelta)
 	}
@@ -237,6 +237,27 @@ func (s *Service) issueFromRequest(c *corehttp.Context, allowPull bool) (coresto
 	}
 	writeNotFound(c)
 	return nil, nil, false
+}
+
+func (s *Service) syncPullFromIssuePatch(repoID int, number int, issuePatch corestore.Record) {
+	if len(issuePatch) == 0 {
+		return
+	}
+	patch := corestore.Record{}
+	for _, key := range []string{"title", "body", "state", "closed_at", "assignee_ids", "label_ids", "milestone_id"} {
+		if value, exists := issuePatch[key]; exists {
+			patch[key] = value
+		}
+	}
+	if len(patch) == 0 {
+		return
+	}
+	for _, pr := range s.store.PullRequests.FindBy("repo_id", repoID) {
+		if intField(pr, "number") == number {
+			s.store.PullRequests.Update(intField(pr, "id"), patch)
+			return
+		}
+	}
 }
 
 func (s *Service) nextIssueNumber(repoID int) int {

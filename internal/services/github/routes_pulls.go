@@ -365,6 +365,15 @@ func (s *Service) findPullIssue(repoID int, number int) corestore.Record {
 	return nil
 }
 
+func (s *Service) findPullByNumber(repoID int, number int) corestore.Record {
+	for _, pr := range s.store.PullRequests.FindBy("repo_id", repoID) {
+		if intField(pr, "number") == number {
+			return pr
+		}
+	}
+	return nil
+}
+
 func (s *Service) resolvePullHead(baseRepo corestore.Record, head string) (corestore.Record, string, bool) {
 	if !strings.Contains(head, ":") {
 		return baseRepo, head, true

@@ -116,6 +116,72 @@ func TestGitHubReposIssuesCommentsAndPulls(t *testing.T) {
 	}
 }
 
+func TestGitHubPullRequestIsVisibleThroughIssuesAPI(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer test_token_user1")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+mainSha+`"}`, "Bearer test_token_user1")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Feature","head":"feature","base":"main"}`, "Bearer test_token_user1")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+
+	issue := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/issues/1", "", "Bearer test_token_user1")
+	if issue.Code != http.StatusOK {
+		t.Fatalf("issue status = %d, body = %s", issue.Code, issue.Body.String())
+	}
+	var issueBody struct {
+		Number      int `json:"number"`
+		PullRequest *struct {
+			URL string `json:"url"`
+		} `json:"pull_request"`
+	}
+	decodeGitHubBody(t, issue, &issueBody)
+	if issueBody.Number != 1 || issueBody.PullRequest == nil || issueBody.PullRequest.URL == "" {
+		t.Fatalf("unexpected pull issue: %#v, body = %s", issueBody, issue.Body.String())
+	}
+
+	list := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/issues", "", "Bearer test_token_user1")
+	if list.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", list.Code, list.Body.String())
+	}
+	var listBody []struct {
+		Number      int            `json:"number"`
+		PullRequest map[string]any `json:"pull_request"`
+	}
+	decodeGitHubBody(t, list, &listBody)
+	if len(listBody) != 1 || listBody[0].Number != 1 || listBody[0].PullRequest == nil {
+		t.Fatalf("unexpected issue list: %#v, body = %s", listBody, list.Body.String())
+	}
+
+	patch := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world/issues/1", `{"title":"Retitled","state":"closed"}`, "Bearer test_token_user1")
+	if patch.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, body = %s", patch.Code, patch.Body.String())
+	}
+	pull := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/pulls/1", "", "Bearer test_token_user1")
+	if pull.Code != http.StatusOK {
+		t.Fatalf("pull status = %d, body = %s", pull.Code, pull.Body.String())
+	}
+	var pullBody struct {
+		Title string `json:"title"`
+		State string `json:"state"`
+	}
+	decodeGitHubBody(t, pull, &pullBody)
+	if pullBody.Title != "Retitled" || pullBody.State != "closed" {
+		t.Fatalf("issue patch did not sync pull: %#v, body = %s", pullBody, pull.Body.String())
+	}
+}
+
 func TestGitHubRepoWithoutTopicsReturnsEmptyArrays(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
@@ -144,6 +210,40 @@ func TestGitHubRepoWithoutTopicsReturnsEmptyArrays(t *testing.T) {
 	decodeGitHubBody(t, topics, &topicsBody)
 	if topicsBody.Names == nil || len(topicsBody.Names) != 0 {
 		t.Fatalf("topic names should be an empty array: %#v, body = %s", topicsBody.Names, topics.Body.String())
+	}
+}
+
+func TestGitHubOrgRepoSeedCommitDoesNotResolveToCollidingUser(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Orgs:  []OrgSeed{{Login: "my-org", Name: "My Org"}},
+		Repos: []RepoSeed{{Owner: "my-org", Name: "org-repo"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/my-org/org-repo/branches", "", "Bearer test_token_admin")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+	commit := doGitHubJSON(handler, http.MethodGet, "/repos/my-org/org-repo/git/commits/"+mainSha, "", "Bearer test_token_admin")
+	if commit.Code != http.StatusOK {
+		t.Fatalf("commit status = %d, body = %s", commit.Code, commit.Body.String())
+	}
+	var body struct {
+		Author *struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		Commit struct {
+			Author struct {
+				Name string `json:"name"`
+			} `json:"author"`
+		} `json:"commit"`
+	}
+	decodeGitHubBody(t, commit, &body)
+	if body.Author != nil {
+		t.Fatalf("org seed commit resolved to user author: %#v, body = %s", body.Author, commit.Body.String())
+	}
+	if body.Commit.Author.Name != "My Org" {
+		t.Fatalf("unexpected commit author name: %#v, body = %s", body.Commit.Author, commit.Body.String())
 	}
 }
 

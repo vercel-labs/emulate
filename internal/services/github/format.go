@@ -269,7 +269,7 @@ func (s *Service) formatIssue(issue corestore.Record) map[string]any {
 			closedBy = s.formatUser(u)
 		}
 	}
-	return map[string]any{
+	out := map[string]any{
 		"url":                      repoURL + "/issues/" + strconv.Itoa(number),
 		"repository_url":           repoURL,
 		"labels_url":               repoURL + "/issues/" + strconv.Itoa(number) + "/labels{/name}",
@@ -300,6 +300,21 @@ func (s *Service) formatIssue(issue corestore.Record) map[string]any {
 		"performed_via_github_app": nil,
 		"author_association":       s.authorAssociation(intField(issue, "user_id"), intField(issue, "repo_id")),
 	}
+	if boolField(issue, "is_pull_request") {
+		pullURL := repoURL + "/pulls/" + strconv.Itoa(number)
+		htmlURL := s.baseURL + "/" + stringField(repo, "full_name") + "/pull/" + strconv.Itoa(number)
+		pullRequest := map[string]any{
+			"url":       pullURL,
+			"html_url":  htmlURL,
+			"diff_url":  htmlURL + ".diff",
+			"patch_url": htmlURL + ".patch",
+		}
+		if pr := s.findPullByNumber(intField(repo, "id"), number); pr != nil {
+			pullRequest["merged_at"] = pr["merged_at"]
+		}
+		out["pull_request"] = pullRequest
+	}
+	return out
 }
 
 func (s *Service) formatPull(pr corestore.Record) map[string]any {

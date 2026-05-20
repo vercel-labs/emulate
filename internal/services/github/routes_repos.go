@@ -65,7 +65,7 @@ func (s *Service) handleCreateUserRepo(c *corehttp.Context) {
 		writeForbidden(c)
 		return
 	}
-	repo, ok := s.createRepoFromBody(c, body, user, "User")
+	repo, ok := s.createRepoFromBody(c, body, user, "User", user)
 	if !ok {
 		return
 	}
@@ -95,14 +95,14 @@ func (s *Service) handleCreateOrgRepo(c *corehttp.Context) {
 		writeForbidden(c)
 		return
 	}
-	repo, ok := s.createRepoFromBody(c, body, org, "Organization")
+	repo, ok := s.createRepoFromBody(c, body, org, "Organization", user)
 	if !ok {
 		return
 	}
 	c.JSON(http.StatusCreated, s.formatRepo(repo, intField(user, "id")))
 }
 
-func (s *Service) createRepoFromBody(c *corehttp.Context, body map[string]any, owner corestore.Record, ownerKind string) (corestore.Record, bool) {
+func (s *Service) createRepoFromBody(c *corehttp.Context, body map[string]any, owner corestore.Record, ownerKind string, actor corestore.Record) (corestore.Record, bool) {
 	name := strings.TrimSpace(stringValue(body["name"]))
 	if !validateRepoName(name) {
 		writeValidation(c, "Invalid repository name")
@@ -145,7 +145,7 @@ func (s *Service) createRepoFromBody(c *corehttp.Context, body map[string]any, o
 		return nil, false
 	}
 	if autoInit, ok := body["auto_init"].(bool); ok && autoInit {
-		s.seedInitialGit(repo, owner)
+		s.seedInitialGit(repo, actor)
 		repo, _ = s.store.Repos.Get(intField(repo, "id"))
 	}
 	return repo, true
@@ -240,12 +240,20 @@ func (s *Service) seedInitialGit(repo corestore.Record, actor corestore.Record) 
 	})
 	s.store.Trees.Update(intField(tree, "id"), corestore.Record{"node_id": generateNodeID("Tree", intField(tree, "id"))})
 	authorName := stringField(actor, "name")
+	authorLogin := stringField(actor, "login")
+	if authorLogin == "" {
+		authorLogin = s.ownerLogin(repo)
+	}
 	if authorName == "" {
-		authorName = stringField(actor, "login")
+		authorName = authorLogin
 	}
 	authorEmail := stringField(actor, "email")
 	if authorEmail == "" {
-		authorEmail = stringField(actor, "login") + "@localhost"
+		authorEmail = authorLogin + "@localhost"
+	}
+	var userID any
+	if intField(actor, "id") > 0 && stringField(actor, "type") == "User" {
+		userID = intField(actor, "id")
 	}
 	now := nowISO()
 	commit := s.store.Commits.Insert(corestore.Record{
@@ -261,7 +269,7 @@ func (s *Service) seedInitialGit(repo corestore.Record, actor corestore.Record) 
 		"committer_date":  now,
 		"tree_sha":        stringField(tree, "sha"),
 		"parent_shas":     []string{},
-		"user_id":         intField(actor, "id"),
+		"user_id":         userID,
 	})
 	s.store.Commits.Update(intField(commit, "id"), corestore.Record{"node_id": generateNodeID("Commit", intField(commit, "id"))})
 	s.store.Branches.Insert(corestore.Record{
