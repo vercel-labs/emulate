@@ -22,7 +22,7 @@ describe("createVercelScaffold", () => {
       'emulate "github.com/vercel-labs/emulate/vercel"',
     );
     expect(readFileSync(join(cwd, "api/emulate.go"), "utf-8")).toContain(
-      'Services: []string{"aws", "resend", "vercel"}',
+      'Services: []string{"aws", "github", "resend", "vercel"}',
     );
     expect(readFileSync(join(cwd, "go.mod"), "utf-8")).toContain("require github.com/vercel-labs/emulate v0.5.0");
     const vercelConfig = JSON.parse(readFileSync(join(cwd, "vercel.json"), "utf-8")) as {
@@ -224,8 +224,8 @@ require (
   it("rejects services not available in the native Vercel scaffold", () => {
     const cwd = tempDir();
 
-    expect(() => createVercelScaffold({ cwd, version: "0.5.0", service: "github" })).toThrow(
-      "currently supports native services: aws, resend, vercel",
+    expect(() => createVercelScaffold({ cwd, version: "0.5.0", service: "google" })).toThrow(
+      "currently supports native services: aws, github, resend, vercel",
     );
   });
 

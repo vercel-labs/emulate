@@ -226,3 +226,32 @@ func TestNewHandlerDoesNotMountVercelWhenDisabled(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
+
+func TestNewHandlerMountsGitHubWhenEnabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"github"}, BaseURL: "http://localhost:4010"})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/user", nil)
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"login":"admin"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestNewHandlerDoesNotMountGitHubWhenDisabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"resend"}})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/user", nil)
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}

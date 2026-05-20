@@ -18,7 +18,7 @@ import (
 
 const DefaultRoutePrefix = "/emulate"
 
-var defaultServices = []string{"aws", "resend", "vercel"}
+var defaultServices = []string{"aws", "github", "resend", "vercel"}
 
 var mutatingMethods = map[string]struct{}{
 	http.MethodPost:   {},
@@ -30,6 +30,7 @@ var mutatingMethods = map[string]struct{}{
 var (
 	htmlRootAttrRE = regexp.MustCompile(`(action|href)="(/[^"]*?)"`)
 	htmlRootURLRE  = regexp.MustCompile(`url\('(/[^']*?)'\)`)
+	linkURLRE      = regexp.MustCompile(`<([^>]*)>`)
 	defaultHandler = NewHandler(Options{})
 )
 
@@ -308,6 +309,13 @@ func writeRewrittenResponse(w http.ResponseWriter, r *http.Request, recorder *re
 	if location := headers.Get("Location"); strings.HasPrefix(location, "/") {
 		headers.Set("Location", rewriteRootPath(publicPrefix, location))
 	}
+	if links, ok := headers["Link"]; ok {
+		rewritten := make([]string, len(links))
+		for i, link := range links {
+			rewritten[i] = rewriteLinkHeader(link, publicPrefix)
+		}
+		headers["Link"] = rewritten
+	}
 
 	body := recorder.body.Bytes()
 	contentType := headers.Get("Content-Type")
@@ -344,6 +352,29 @@ func rewriteHTML(html string, publicPrefix string) string {
 		return `url('` + rewriteRootPath(publicPrefix, parts[1]) + `')`
 	})
 	return html
+}
+
+func rewriteLinkHeader(link string, publicPrefix string) string {
+	return linkURLRE.ReplaceAllStringFunc(link, func(match string) string {
+		parts := linkURLRE.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		return "<" + rewriteServiceLinkTarget(parts[1], publicPrefix) + ">"
+	})
+}
+
+func rewriteServiceLinkTarget(target string, publicPrefix string) string {
+	if strings.HasPrefix(target, "/") {
+		return rewriteRootPath(publicPrefix, target)
+	}
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return target
+	}
+	parsed.Path = rewriteRootPath(publicPrefix, parsed.Path)
+	parsed.RawPath = ""
+	return parsed.String()
 }
 
 func rewriteRootPath(publicPrefix string, target string) string {

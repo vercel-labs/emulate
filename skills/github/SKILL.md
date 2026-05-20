@@ -8,6 +8,8 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 Fully stateful GitHub REST API emulation. Creates, updates, and deletes persist in memory and affect related entities.
 
+The experimental native Go runtime implements the core SDK-facing GitHub surface for local CLI runs and Vercel Go Function previews: users, orgs, seeded repositories, repository CRUD, topics, languages, branches, refs, issues, issue comments, pull requests, OAuth authorize/token flows, rate limit, and metadata. The JavaScript `@emulators/github` package remains the broader GitHub emulator while native parity continues to expand.
+
 ## Start
 
 ```bash

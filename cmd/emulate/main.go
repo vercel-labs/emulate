@@ -20,6 +20,7 @@ import (
 
 	coreconfig "github.com/vercel-labs/emulate/internal/core/config"
 	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
+	"github.com/vercel-labs/emulate/internal/services/github"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
@@ -104,6 +105,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		return 1
 	}
 	var seedServices []string
+	var githubSeed *github.SeedConfig
 	var resendSeed *resend.SeedConfig
 	var vercelSeed *vercel.SeedConfig
 	if *seedValue != "" {
@@ -113,10 +115,34 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			return 1
 		}
 		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
-			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for resend and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
+			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for github, resend, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
 			return 1
 		}
 		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
+		if raw, ok := loaded.Data["github"]; ok {
+			var cfg github.SeedConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse github seed config: %v\n", err)
+				return 1
+			}
+			githubSeed = &cfg
+		}
+		if raw, ok := loaded.Data["tokens"]; ok {
+			var tokens map[string]github.TokenSeed
+			if err := json.Unmarshal(raw, &tokens); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse token seed config: %v\n", err)
+				return 1
+			}
+			if githubSeed == nil {
+				githubSeed = &github.SeedConfig{}
+			}
+			if githubSeed.Tokens == nil {
+				githubSeed.Tokens = map[string]github.TokenSeed{}
+			}
+			for token, user := range tokens {
+				githubSeed.Tokens[token] = user
+			}
+		}
 		if raw, ok := loaded.Data["resend"]; ok {
 			var cfg resend.SeedConfig
 			if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -151,6 +177,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		Version:    version,
 		BaseURL:    baseURL,
 		Services:   services,
+		GitHubSeed: githubSeed,
 		ResendSeed: resendSeed,
 		VercelSeed: vercelSeed,
 	})
@@ -341,7 +368,7 @@ func parseServices(value string) ([]string, error) {
 }
 
 func nativeSeedServiceNames() []string {
-	return []string{"resend", "vercel"}
+	return []string{"github", "resend", "vercel"}
 }
 
 func unsupportedNativeSeedServices(data map[string]json.RawMessage) []string {

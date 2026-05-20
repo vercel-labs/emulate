@@ -60,7 +60,7 @@ const vercel = program.command("vercel").description("Vercel preview helpers");
 vercel
   .command("init")
   .description("Scaffold an experimental Vercel Go Function")
-  .option("-s, --service <services>", "Comma-separated native services to enable", "aws,resend,vercel")
+  .option("-s, --service <services>", "Comma-separated native services to enable", "aws,github,resend,vercel")
   .option("--force", "Overwrite generated files")
   .action((opts) => {
     vercelInitCommand({

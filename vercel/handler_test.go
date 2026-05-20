@@ -35,7 +35,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "aws,resend,vercel" {
+	if strings.Join(body.Services, ",") != "aws,github,resend,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -106,6 +106,55 @@ func TestHandlerForwardsVercelService(t *testing.T) {
 	}
 }
 
+func TestHandlerForwardsGitHubService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"github"}})
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/github/user", nil)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"login":"admin"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestHandlerRewritesGitHubPaginationLinksThroughPublicServicePrefix(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"github"}})
+	for _, name := range []string{"one", "two"} {
+		req := newJSONRequest(http.MethodPost, "https://preview.example.com/emulate/github/user/repos", `{"name":"`+name+`"}`)
+		req.Host = "preview.example.com"
+		req.Header.Set("Authorization", "Bearer test_token_admin")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("create %s status = %d, body = %s", name, res.Code, res.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/github/user/repos?per_page=1", nil)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	link := res.Header().Get("Link")
+	if !strings.Contains(link, "https://preview.example.com/emulate/github/user/repos?page=2&per_page=1") {
+		t.Fatalf("missing rewritten GitHub pagination link: %s", link)
+	}
+	if strings.Contains(link, "https://preview.example.com/user/repos") || strings.Contains(link, "</user/repos") {
+		t.Fatalf("contains unrewritten GitHub pagination link: %s", link)
+	}
+}
+
 func TestHandlerRewritesHTMLRootPathsThroughPublicServicePrefix(t *testing.T) {
 	handler := NewHandler(Options{Services: []string{"resend"}})
 	createEmail(t, handler, "Rewritten")
@@ -135,7 +184,7 @@ func TestHandlerRewritesHTMLRootPathsThroughPublicServicePrefix(t *testing.T) {
 
 func TestHandlerReturnsUnknownService(t *testing.T) {
 	handler := NewHandler(Options{})
-	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/github/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/google/user", nil)
 
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -143,7 +192,7 @@ func TestHandlerReturnsUnknownService(t *testing.T) {
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "Unknown service: github") {
+	if !strings.Contains(res.Body.String(), "Unknown service: google") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

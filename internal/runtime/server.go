@@ -8,6 +8,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/core/ui"
 	"github.com/vercel-labs/emulate/internal/services/aws"
+	"github.com/vercel-labs/emulate/internal/services/github"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
@@ -20,6 +21,7 @@ type ServerOptions struct {
 	Services   []string
 	Store      *store.Store
 	AssetStore *coreassets.Store
+	GitHubSeed *github.SeedConfig
 	ResendSeed *resend.SeedConfig
 	VercelSeed *vercel.SeedConfig
 }
@@ -92,6 +94,13 @@ func NewServer(options ServerOptions) *Server {
 			Store:   runtimeStore,
 			BaseURL: options.BaseURL,
 			Seed:    options.VercelSeed,
+		})
+	}
+	if serviceEnabled(services, "github") {
+		github.Register(router, github.Options{
+			Store:   runtimeStore,
+			BaseURL: options.BaseURL,
+			Seed:    options.GitHubSeed,
 		})
 	}
 	router.NotFound(func(c *corehttp.Context) {
