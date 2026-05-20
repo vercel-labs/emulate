@@ -780,6 +780,36 @@ func TestGoogleRejectsDuplicateLabelNames(t *testing.T) {
 	}
 }
 
+func TestGoogleMessageQueryFieldOperators(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	for _, tc := range []struct {
+		name string
+		q    string
+		want string
+	}{
+		{name: "from", q: "from:support", want: "msg_support_1"},
+		{name: "to", q: "to:testuser@example.com subject:invoice", want: "msg_invoice"},
+		{name: "subject", q: "subject:ticket", want: "msg_support_1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/messages?q="+url.QueryEscape(tc.q), "", true)
+			if res.Code != http.StatusOK {
+				t.Fatalf("messages status = %d, body = %s", res.Code, res.Body.String())
+			}
+			var body struct {
+				Messages []struct {
+					ID string `json:"id"`
+				} `json:"messages"`
+			}
+			mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+			if len(body.Messages) != 1 || body.Messages[0].ID != tc.want {
+				t.Fatalf("query %q returned %#v, want %s", tc.q, body.Messages, tc.want)
+			}
+		})
+	}
+}
+
 func TestGoogleDriveParentQueryIgnoresEarlierQuotedTerms(t *testing.T) {
 	handler := newGoogleTestHandler()
 	query := url.QueryEscape("name = 'Handbook.pdf' and 'drv_docs' in parents and trashed = false")
@@ -875,6 +905,54 @@ func TestGoogleDriveMultipartUploadPreservesTrailingNewline(t *testing.T) {
 	body, _ := io.ReadAll(res.Result().Body)
 	if string(body) != content {
 		t.Fatalf("download body = %q, want %q", string(body), content)
+	}
+}
+
+func TestGoogleMessageQueryHasAttachmentIsScopedByUser(t *testing.T) {
+	service := New(Options{
+		Store:   corestore.New(),
+		BaseURL: "http://localhost:4016",
+		Seed: &SeedConfig{
+			Users: []UserSeed{
+				{Email: "testuser@example.com", Name: "Test User"},
+				{Email: "other@example.com", Name: "Other User"},
+			},
+		},
+	})
+	service.createStoredMessage(messageInput{
+		GmailID:   "msg_shared",
+		ThreadID:  "thread_one",
+		UserEmail: "testuser@example.com",
+		From:      "sender@example.com",
+		To:        "testuser@example.com",
+		Subject:   "No attachment",
+		BodyText:  "This message has no attachment.",
+		LabelIDs:  []string{"INBOX"},
+	})
+	service.createStoredMessage(messageInput{
+		GmailID:   "msg_shared",
+		ThreadID:  "thread_two",
+		UserEmail: "other@example.com",
+		Raw:       rawGoogleMessageWithAttachment("other@example.com", "recipient@example.com", "other.txt", "other attachment"),
+		LabelIDs:  []string{"INBOX"},
+	})
+	router := corehttp.NewRouter()
+	service.RegisterRoutes(router)
+
+	res := googleRequest(router, http.MethodGet, "/gmail/v1/users/me/messages?q=has:attachment", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("messages status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Messages []struct {
+			ID string `json:"id"`
+		} `json:"messages"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	for _, message := range body.Messages {
+		if message.ID == "msg_shared" {
+			t.Fatalf("has:attachment matched attachment from another user: %#v", body.Messages)
+		}
 	}
 }
 

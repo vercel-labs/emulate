@@ -913,8 +913,23 @@ func matchesMessageQuery(s *Service, message corestore.Record, query string) boo
 			if !containsString(labels, label) {
 				return false
 			}
+		case strings.HasPrefix(lower, "from:"):
+			value := strings.TrimPrefix(lower, "from:")
+			if value != "" && !strings.Contains(strings.ToLower(stringField(message, "from")), value) {
+				return false
+			}
+		case strings.HasPrefix(lower, "to:"):
+			value := strings.TrimPrefix(lower, "to:")
+			if value != "" && !strings.Contains(strings.ToLower(stringField(message, "to")), value) {
+				return false
+			}
+		case strings.HasPrefix(lower, "subject:"):
+			value := strings.TrimPrefix(lower, "subject:")
+			if value != "" && !strings.Contains(strings.ToLower(stringField(message, "subject")), value) {
+				return false
+			}
 		case lower == "has:attachment":
-			if len(s.store.Attachments.FindBy("message_gmail_id", stringField(message, "gmail_id"))) == 0 {
+			if len(s.listAttachmentsForMessage(message)) == 0 {
 				return false
 			}
 		default:
