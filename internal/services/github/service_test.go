@@ -142,6 +142,20 @@ func TestGitHubMergeCreatesResolvableCommit(t *testing.T) {
 	if commit.Code != http.StatusOK {
 		t.Fatalf("commit status = %d, body = %s", commit.Code, commit.Body.String())
 	}
+
+	pull := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/pulls/1", "", "Bearer test_token_user1")
+	if pull.Code != http.StatusOK {
+		t.Fatalf("pull status = %d, body = %s", pull.Code, pull.Body.String())
+	}
+	var pullBody struct {
+		MergedBy *struct {
+			Login string `json:"login"`
+		} `json:"merged_by"`
+	}
+	decodeGitHubBody(t, pull, &pullBody)
+	if pullBody.MergedBy == nil || pullBody.MergedBy.Login != "octocat" {
+		t.Fatalf("unexpected merged_by: %#v, body = %s", pullBody.MergedBy, pull.Body.String())
+	}
 }
 
 func TestGitHubPullFilesRequirePrivateRepoReadAccess(t *testing.T) {
@@ -188,6 +202,30 @@ func TestGitHubPatchRepoPrivateSyncsVisibility(t *testing.T) {
 	decodeGitHubBody(t, res, &body)
 	if !body.Private || body.Visibility != "private" {
 		t.Fatalf("unexpected repo visibility: %#v", body)
+	}
+}
+
+func TestGitHubRejectsPublicRepoMutationByNonCollaborator(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{
+			{Login: "octocat", Email: "octocat@github.com"},
+			{Login: "intruder", Email: "intruder@example.com"},
+		},
+		Tokens: map[string]TokenSeed{
+			"intruder_token": {Login: "intruder", Scopes: []string{"repo", "user"}},
+		},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer intruder_token")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+
+	res := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/intruder","sha":"`+mainSha+`"}`, "Bearer intruder_token")
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
@@ -244,6 +282,48 @@ func TestGitHubOAuthIssuesUsableToken(t *testing.T) {
 	}
 }
 
+func TestGitHubOAuthRejectsCodeForDifferentClient(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		OAuthApps: []OAuthAppSeed{
+			{
+				ClientID:     "client-a",
+				ClientSecret: "secret-a",
+				Name:         "App A",
+				RedirectURIs: []string{"http://localhost:3000/callback-a"},
+			},
+			{
+				ClientID:     "client-b",
+				ClientSecret: "secret-b",
+				Name:         "App B",
+				RedirectURIs: []string{"http://localhost:3000/callback-b"},
+			},
+		},
+	})
+
+	code := authorizeGitHubCode(t, handler, "client-a", "http://localhost:3000/callback-a")
+	token := doGitHubJSON(handler, http.MethodPost, "/login/oauth/access_token", `{"code":"`+code+`","client_id":"client-b","client_secret":"secret-b"}`, "")
+
+	assertBadVerificationCode(t, token)
+}
+
+func TestGitHubOAuthRejectsMismatchedRedirectURI(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		OAuthApps: []OAuthAppSeed{{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			Name:         "Test App",
+			RedirectURIs: []string{"http://localhost:3000/callback", "http://localhost:3000/other-callback"},
+		}},
+	})
+
+	code := authorizeGitHubCode(t, handler, "client-id", "http://localhost:3000/callback")
+	token := doGitHubJSON(handler, http.MethodPost, "/login/oauth/access_token", `{"code":"`+code+`","client_id":"client-id","client_secret":"client-secret","redirect_uri":"http://localhost:3000/other-callback"}`, "")
+
+	assertBadVerificationCode(t, token)
+}
+
 func newGitHubTestHandler(seed *SeedConfig) http.Handler {
 	router := corehttp.NewRouter()
 	Register(router, Options{Store: corestore.New(), BaseURL: testBaseURL, Seed: seed})
@@ -270,6 +350,48 @@ func doGitHubJSON(handler http.Handler, method string, target string, body strin
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res
+}
+
+func authorizeGitHubCode(t *testing.T, handler http.Handler, clientID string, redirectURI string) string {
+	t.Helper()
+	form := url.Values{
+		"login":        {"octocat"},
+		"redirect_uri": {redirectURI},
+		"scope":        {"repo user"},
+		"state":        {"state-1"},
+		"client_id":    {clientID},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login/oauth/callback", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, body = %s", res.Code, res.Body.String())
+	}
+	location, err := url.Parse(res.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := location.Query().Get("code")
+	if code == "" {
+		t.Fatalf("missing code in callback location: %s", location.String())
+	}
+	return code
+}
+
+func assertBadVerificationCode(t *testing.T, res *httptest.ResponseRecorder) {
+	t.Helper()
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Error       string `json:"error"`
+		AccessToken string `json:"access_token"`
+	}
+	decodeGitHubBody(t, res, &body)
+	if body.Error != "bad_verification_code" || body.AccessToken != "" {
+		t.Fatalf("unexpected token response: %#v, body = %s", body, res.Body.String())
+	}
 }
 
 func decodeGitHubBody(t *testing.T, res *httptest.ResponseRecorder, target any) {

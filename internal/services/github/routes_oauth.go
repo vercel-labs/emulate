@@ -127,15 +127,13 @@ func (s *Service) handleOAuthCallback(c *corehttp.Context) {
 func (s *Service) handleOAuthToken(c *corehttp.Context) {
 	body, err := parseOAuthBody(c.Request)
 	if err != nil {
-		c.JSON(http.StatusOK, map[string]any{
-			"error":             "bad_verification_code",
-			"error_description": "The code passed is incorrect or expired.",
-		})
+		writeBadVerificationCode(c)
 		return
 	}
 	code := stringValue(body["code"])
 	clientID := stringValue(body["client_id"])
 	clientSecret := stringValue(body["client_secret"])
+	redirectURI := stringValue(body["redirect_uri"])
 	if len(s.store.OAuthApps.All()) > 0 {
 		app := firstRecord(s.store.OAuthApps.FindBy("client_id", clientID))
 		if app == nil || subtle.ConstantTimeCompare([]byte(clientSecret), []byte(stringField(app, "client_secret"))) != 1 {
@@ -148,19 +146,23 @@ func (s *Service) handleOAuthToken(c *corehttp.Context) {
 	}
 	pending := firstRecord(s.store.OAuthCodes.FindBy("code", code))
 	if pending == nil || time.Since(pendingCodeCreatedAt(pending)) > pendingCodeTTL {
-		c.JSON(http.StatusOK, map[string]any{
-			"error":             "bad_verification_code",
-			"error_description": "The code passed is incorrect or expired.",
-		})
+		writeBadVerificationCode(c)
+		return
+	}
+	pendingClientID := stringField(pending, "client_id")
+	if pendingClientID != "" && clientID != "" && clientID != pendingClientID {
+		writeBadVerificationCode(c)
+		return
+	}
+	pendingRedirectURI := stringField(pending, "redirectURI")
+	if redirectURI != "" && pendingRedirectURI != "" && redirectURI != pendingRedirectURI {
+		writeBadVerificationCode(c)
 		return
 	}
 	s.deleteOAuthCode(code)
 	user := firstRecord(s.store.Users.FindBy("login", stringField(pending, "login")))
 	if user == nil {
-		c.JSON(http.StatusOK, map[string]any{
-			"error":             "bad_verification_code",
-			"error_description": "The code passed is incorrect or expired.",
-		})
+		writeBadVerificationCode(c)
 		return
 	}
 	scope := stringField(pending, "scope")
@@ -184,6 +186,13 @@ func (s *Service) handleOAuthToken(c *corehttp.Context) {
 		"access_token": token,
 		"token_type":   "bearer",
 		"scope":        scope,
+	})
+}
+
+func writeBadVerificationCode(c *corehttp.Context) {
+	c.JSON(http.StatusOK, map[string]any{
+		"error":             "bad_verification_code",
+		"error_description": "The code passed is incorrect or expired.",
 	})
 }
 

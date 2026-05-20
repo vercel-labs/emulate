@@ -303,6 +303,12 @@ func (s *Service) formatPull(pr corestore.Record) map[string]any {
 	number := intField(pr, "number")
 	headRepo, _ := s.store.Repos.Get(intField(pr, "head_repo_id"))
 	baseRepo, _ := s.store.Repos.Get(intField(pr, "base_repo_id"))
+	var mergedBy any
+	if mergedByID := nullableIntField(pr, "merged_by_id"); mergedByID != nil && *mergedByID > 0 {
+		if user, ok := s.store.Users.Get(*mergedByID); ok {
+			mergedBy = s.formatUser(user)
+		}
+	}
 	return map[string]any{
 		"url":                   repoURL + "/pulls/" + strconv.Itoa(number),
 		"id":                    intField(pr, "id"),
@@ -343,7 +349,7 @@ func (s *Service) formatPull(pr corestore.Record) map[string]any {
 		"mergeable":             pr["mergeable"],
 		"rebaseable":            true,
 		"mergeable_state":       stringField(pr, "mergeable_state"),
-		"merged_by":             nil,
+		"merged_by":             mergedBy,
 		"comments":              intField(pr, "comments"),
 		"review_comments":       intField(pr, "review_comments"),
 		"maintainer_can_modify": true,

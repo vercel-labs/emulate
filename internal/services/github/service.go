@@ -380,7 +380,7 @@ func (s *Service) assertRepoWrite(c *corehttp.Context, repo corestore.Record) (c
 	if !ok {
 		return nil, false
 	}
-	if !boolField(repo, "private") || s.hasRepoAdmin(user, repo) || s.canAccessRepo(&authUser{Login: stringField(user, "login"), ID: intField(user, "id")}, repo) {
+	if s.hasRepoAdmin(user, repo) || s.canAccessRepo(&authUser{Login: stringField(user, "login"), ID: intField(user, "id")}, repo) {
 		return user, true
 	}
 	writeForbidden(c)
