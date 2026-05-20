@@ -81,7 +81,6 @@ func (s *Service) registerOAuthRoutes(router *corehttp.Router) {
 			writeVercelError(c, http.StatusBadRequest, "bad_request", "Invalid form body")
 			return
 		}
-		code := generateHex(20)
 		pending := pendingCode{
 			Username:            c.Request.Form.Get("username"),
 			Scope:               c.Request.Form.Get("scope"),
@@ -91,12 +90,24 @@ func (s *Service) registerOAuthRoutes(router *corehttp.Router) {
 			CodeChallengeMethod: c.Request.Form.Get("code_challenge_method"),
 			CreatedAt:           time.Now(),
 		}
-		s.storePendingCode(code, pending)
+		if len(s.store.Integrations.All()) > 0 {
+			integration := firstRecord(s.store.Integrations.FindBy("client_id", pending.ClientID))
+			if integration == nil {
+				writeVercelError(c, http.StatusBadRequest, "bad_request", "Application not found")
+				return
+			}
+			if pending.RedirectURI != "" && !matchesRedirectURI(pending.RedirectURI, stringSliceValue(integration["redirect_uris"])) {
+				writeVercelError(c, http.StatusBadRequest, "bad_request", "Redirect URI mismatch")
+				return
+			}
+		}
 		redirectTarget, err := url.Parse(pending.RedirectURI)
 		if err != nil || redirectTarget == nil {
 			writeVercelError(c, http.StatusBadRequest, "bad_request", "Invalid redirect_uri")
 			return
 		}
+		code := generateHex(20)
+		s.storePendingCode(code, pending)
 		query := redirectTarget.Query()
 		query.Set("code", code)
 		if state := c.Request.Form.Get("state"); state != "" {
@@ -134,6 +145,11 @@ func (s *Service) registerOAuthRoutes(router *corehttp.Router) {
 		if time.Since(pending.CreatedAt) > pendingCodeTTL {
 			s.deletePendingCode(code)
 			c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "The code passed is incorrect or expired."})
+			return
+		}
+		if pending.ClientID != "" && clientID != "" && pending.ClientID != clientID {
+			s.deletePendingCode(code)
+			c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "The client_id does not match the one used during authorization."})
 			return
 		}
 		if redirectURI != "" && pending.RedirectURI != "" && redirectURI != pending.RedirectURI {

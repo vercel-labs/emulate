@@ -241,6 +241,89 @@ func TestVercelOAuthAuthorizeNormalizesRegisteredRedirectURI(t *testing.T) {
 	}
 }
 
+func TestVercelOAuthCallbackRejectsUnregisteredRedirectURI(t *testing.T) {
+	handler := newVercelTestHandlerWithSeed(&SeedConfig{
+		Users: []UserSeed{{Username: "testuser", Email: "testuser@example.com", Name: "Test User"}},
+		Integrations: []IntegrationSeed{{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+			Name:         "Test Integration",
+			RedirectURIs: []string{"http://localhost:3000/callback"},
+		}},
+	})
+	form := url.Values{
+		"username":     {"testuser"},
+		"redirect_uri": {"https://evil.example/callback"},
+		"scope":        {"user"},
+		"client_id":    {"client-id"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize/callback", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("callback status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res.Header().Get("Location") != "" {
+		t.Fatalf("unexpected redirect location: %s", res.Header().Get("Location"))
+	}
+}
+
+func TestVercelOAuthTokenRejectsMismatchedClientID(t *testing.T) {
+	handler := newVercelTestHandlerWithSeed(&SeedConfig{
+		Users: []UserSeed{{Username: "testuser", Email: "testuser@example.com", Name: "Test User"}},
+		Integrations: []IntegrationSeed{
+			{
+				ClientID:     "client-one",
+				ClientSecret: "secret-one",
+				Name:         "Client One",
+				RedirectURIs: []string{"http://localhost:3000/callback"},
+			},
+			{
+				ClientID:     "client-two",
+				ClientSecret: "secret-two",
+				Name:         "Client Two",
+				RedirectURIs: []string{"http://localhost:3000/callback"},
+			},
+		},
+	})
+	form := url.Values{
+		"username":     {"testuser"},
+		"redirect_uri": {"http://localhost:3000/callback"},
+		"scope":        {"user"},
+		"client_id":    {"client-one"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize/callback", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, body = %s", res.Code, res.Body.String())
+	}
+	location, err := url.Parse(res.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := location.Query().Get("code")
+	if code == "" {
+		t.Fatalf("missing callback code in %s", location.String())
+	}
+
+	tokenRes := doVercelJSON(handler, http.MethodPost, "/login/oauth/token", `{
+		"code":"`+code+`",
+		"redirect_uri":"http://localhost:3000/callback",
+		"client_id":"client-two",
+		"client_secret":"secret-two"
+	}`, false)
+	if tokenRes.Code != http.StatusBadRequest {
+		t.Fatalf("token status = %d, body = %s", tokenRes.Code, tokenRes.Body.String())
+	}
+	if !strings.Contains(tokenRes.Body.String(), "client_id") {
+		t.Fatalf("unexpected token error: %s", tokenRes.Body.String())
+	}
+}
+
 func TestVercelEnvRejectsMalformedArrays(t *testing.T) {
 	handler := newVercelTestHandler()
 	projectID := createVercelProject(t, handler, "env-validation-app")
@@ -319,6 +402,36 @@ func TestVercelAPIKeyCanAuthenticateRequests(t *testing.T) {
 	handler.ServeHTTP(userRes, req)
 	if userRes.Code != http.StatusOK {
 		t.Fatalf("user status = %d, body = %s", userRes.Code, userRes.Body.String())
+	}
+}
+
+func TestVercelFileUploadRecordsContentLength(t *testing.T) {
+	runtimeStore := corestore.New()
+	router := corehttp.NewRouter()
+	Register(router, Options{
+		Store:   runtimeStore,
+		BaseURL: testBaseURL,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v2/files", strings.NewReader("hello"))
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("x-vercel-digest", "sha256-upload")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, body = %s", res.Code, res.Body.String())
+	}
+	vercelStore := NewStore(runtimeStore)
+	file := firstRecord(vercelStore.Files.FindBy("digest", "sha256-upload"))
+	if file == nil {
+		t.Fatal("missing uploaded file")
+	}
+	if intField(file, "size") != 5 {
+		t.Fatalf("size = %d, record = %#v", intField(file, "size"), file)
+	}
+	if stringField(file, "contentType") != "text/plain" {
+		t.Fatalf("contentType = %q", stringField(file, "contentType"))
 	}
 }
 

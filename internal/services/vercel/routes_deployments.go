@@ -313,7 +313,14 @@ func (s *Service) registerDeploymentRoutes(router *corehttp.Router) {
 			return
 		}
 		size := 0
-		if raw := c.Header("Content-Length"); raw != "" {
+		maxInt := int(^uint(0) >> 1)
+		if c.Request.ContentLength > 0 {
+			if c.Request.ContentLength > int64(maxInt) {
+				writeVercelError(c, http.StatusBadRequest, "bad_request", "Invalid Content-Length")
+				return
+			}
+			size = int(c.Request.ContentLength)
+		} else if raw := c.Header("Content-Length"); raw != "" {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil || parsed < 0 {
 				writeVercelError(c, http.StatusBadRequest, "bad_request", "Invalid Content-Length")
