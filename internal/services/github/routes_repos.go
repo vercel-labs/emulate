@@ -10,16 +10,23 @@ import (
 )
 
 type createRepoOptions struct {
-	Name          string
-	Description   any
-	Private       bool
-	Homepage      any
-	OwnerID       int
-	OwnerType     string
-	OwnerLogin    string
-	DefaultBranch string
-	Language      any
-	Topics        []string
+	Name                string
+	Description         any
+	Private             bool
+	Homepage            any
+	OwnerID             int
+	OwnerType           string
+	OwnerLogin          string
+	DefaultBranch       string
+	Language            any
+	Topics              []string
+	HasIssues           *bool
+	HasProjects         *bool
+	HasWiki             *bool
+	AllowRebaseMerge    *bool
+	AllowSquashMerge    *bool
+	AllowMergeCommit    *bool
+	DeleteBranchOnMerge *bool
 }
 
 func (s *Service) registerRepoRoutes(router *corehttp.Router) {
@@ -139,6 +146,27 @@ func (s *Service) createRepoFromBody(c *corehttp.Context, body map[string]any, o
 			}
 		}
 	}
+	if value, ok := body["has_issues"].(bool); ok {
+		options.HasIssues = boolPtr(value)
+	}
+	if value, ok := body["has_projects"].(bool); ok {
+		options.HasProjects = boolPtr(value)
+	}
+	if value, ok := body["has_wiki"].(bool); ok {
+		options.HasWiki = boolPtr(value)
+	}
+	if value, ok := body["allow_rebase_merge"].(bool); ok {
+		options.AllowRebaseMerge = boolPtr(value)
+	}
+	if value, ok := body["allow_squash_merge"].(bool); ok {
+		options.AllowSquashMerge = boolPtr(value)
+	}
+	if value, ok := body["allow_merge_commit"].(bool); ok {
+		options.AllowMergeCommit = boolPtr(value)
+	}
+	if value, ok := body["delete_branch_on_merge"].(bool); ok {
+		options.DeleteBranchOnMerge = boolPtr(value)
+	}
 	repo := s.createRepoRecord(options)
 	if repo == nil {
 		writeValidation(c, "Repository already exists")
@@ -172,6 +200,13 @@ func (s *Service) createRepoRecord(options createRepoOptions) corestore.Record {
 	if topics == nil {
 		topics = []string{}
 	}
+	hasIssues := boolOption(options.HasIssues, true)
+	hasProjects := boolOption(options.HasProjects, true)
+	hasWiki := boolOption(options.HasWiki, true)
+	allowRebaseMerge := boolOption(options.AllowRebaseMerge, true)
+	allowSquashMerge := boolOption(options.AllowSquashMerge, true)
+	allowMergeCommit := boolOption(options.AllowMergeCommit, true)
+	deleteBranchOnMerge := boolOption(options.DeleteBranchOnMerge, false)
 	repo := s.store.Repos.Insert(corestore.Record{
 		"node_id":                "",
 		"name":                   name,
@@ -192,9 +227,9 @@ func (s *Service) createRepoRecord(options createRepoOptions) corestore.Record {
 		"default_branch":         options.DefaultBranch,
 		"open_issues_count":      0,
 		"topics":                 topics,
-		"has_issues":             true,
-		"has_projects":           true,
-		"has_wiki":               true,
+		"has_issues":             hasIssues,
+		"has_projects":           hasProjects,
+		"has_wiki":               hasWiki,
 		"has_pages":              false,
 		"has_downloads":          true,
 		"has_discussions":        false,
@@ -202,11 +237,11 @@ func (s *Service) createRepoRecord(options createRepoOptions) corestore.Record {
 		"disabled":               false,
 		"visibility":             visibility,
 		"pushed_at":              nil,
-		"allow_rebase_merge":     true,
-		"allow_squash_merge":     true,
-		"allow_merge_commit":     true,
+		"allow_rebase_merge":     allowRebaseMerge,
+		"allow_squash_merge":     allowSquashMerge,
+		"allow_merge_commit":     allowMergeCommit,
 		"allow_auto_merge":       false,
-		"delete_branch_on_merge": false,
+		"delete_branch_on_merge": deleteBranchOnMerge,
 		"allow_forking":          true,
 		"is_template":            false,
 		"license":                nil,

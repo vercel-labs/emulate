@@ -181,6 +181,23 @@ func (s *Service) handlePatchRef(c *corehttp.Context) {
 		writeValidation(c, "Invalid sha")
 		return
 	}
+	force := false
+	if value, ok := body["force"].(bool); ok {
+		force = value
+	}
+	if !force {
+		oldSha := stringField(ref, "sha")
+		oldCommit := s.findCommitExact(repo, oldSha)
+		newCommit := s.findCommitExact(repo, sha)
+		if oldCommit == nil || newCommit == nil {
+			writeValidation(c, "Fast-forward update requires commit objects")
+			return
+		}
+		if !s.isDescendantOf(repo, oldSha, sha) {
+			writeValidation(c, "Update is not a fast-forward")
+			return
+		}
+	}
 	updated, _ := s.store.Refs.Update(intField(ref, "id"), corestore.Record{"sha": sha})
 	s.syncBranchFromRef(repo, stringField(updated, "ref"), sha)
 	c.JSON(http.StatusOK, s.formatRef(repo, updated))
@@ -278,6 +295,15 @@ func (s *Service) updateBranchSha(repo corestore.Record, branchName string, sha 
 	}
 }
 
+func (s *Service) deleteBranchByName(repo corestore.Record, branchName string) {
+	if branch := s.findBranch(repo, branchName); branch != nil {
+		s.store.Branches.Delete(intField(branch, "id"))
+	}
+	if ref := s.findRef(repo, "refs/heads/"+branchName); ref != nil {
+		s.store.Refs.Delete(intField(ref, "id"))
+	}
+}
+
 func (s *Service) syncBranchFromRef(repo corestore.Record, fullRef string, sha string) {
 	if !strings.HasPrefix(fullRef, "refs/heads/") {
 		return
@@ -325,6 +351,28 @@ func (s *Service) findCommitExact(repo corestore.Record, sha string) corestore.R
 		}
 	}
 	return nil
+}
+
+func (s *Service) isDescendantOf(repo corestore.Record, ancestorSha string, descendantSha string) bool {
+	seen := map[string]bool{}
+	stack := []string{descendantSha}
+	for len(stack) > 0 {
+		sha := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if sha == ancestorSha {
+			return true
+		}
+		if seen[sha] {
+			continue
+		}
+		seen[sha] = true
+		commit := s.findCommitExact(repo, sha)
+		if commit == nil {
+			continue
+		}
+		stack = append(stack, stringSliceValue(commit["parent_shas"])...)
+	}
+	return false
 }
 
 func fullRefFromParam(ref string) string {

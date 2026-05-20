@@ -113,6 +113,17 @@ func boolField(record corestore.Record, key string) bool {
 	return value
 }
 
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func boolOption(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil

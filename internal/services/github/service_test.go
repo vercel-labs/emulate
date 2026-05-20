@@ -365,6 +365,45 @@ func TestGitHubRejectsRefsToMissingCommits(t *testing.T) {
 	}
 }
 
+func TestGitHubPatchRefRequiresFastForwardUnlessForced(t *testing.T) {
+	service, handler := newGitHubTestServiceHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer test_token_user1")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+	repo := service.lookupRepo("octocat", "hello-world")
+	actor := firstRecord(service.store.Users.FindBy("login", "octocat"))
+	baseCommit := service.findCommitExact(repo, mainSha)
+	if baseCommit == nil {
+		t.Fatalf("missing base commit %s", mainSha)
+	}
+	commitA := service.insertCommit(repo, stringField(baseCommit, "tree_sha"), []string{mainSha}, "Commit A", actor)
+	commitB := service.insertCommit(repo, stringField(baseCommit, "tree_sha"), []string{mainSha}, "Commit B", actor)
+
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+stringField(commitA, "sha")+`"}`, "Bearer test_token_user1")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+
+	nonFastForward := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world/git/refs/heads/feature", `{"sha":"`+stringField(commitB, "sha")+`"}`, "Bearer test_token_user1")
+	if nonFastForward.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("non-fast-forward status = %d, body = %s", nonFastForward.Code, nonFastForward.Body.String())
+	}
+	if !strings.Contains(nonFastForward.Body.String(), "Update is not a fast-forward") {
+		t.Fatalf("unexpected non-fast-forward body: %s", nonFastForward.Body.String())
+	}
+
+	forced := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world/git/refs/heads/feature", `{"sha":"`+stringField(commitB, "sha")+`","force":true}`, "Bearer test_token_user1")
+	if forced.Code != http.StatusOK {
+		t.Fatalf("forced status = %d, body = %s", forced.Code, forced.Body.String())
+	}
+}
+
 func TestGitHubCreatePullRejectsMissingBranches(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
@@ -538,6 +577,81 @@ func TestGitHubMergeRejectsDraftPull(t *testing.T) {
 	}
 }
 
+func TestGitHubMergeHonorsRepoPoliciesMethodAndBranchDeletion(t *testing.T) {
+	service, handler := newGitHubTestServiceHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer test_token_user1")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+	repo := service.lookupRepo("octocat", "hello-world")
+	actor := firstRecord(service.store.Users.FindBy("login", "octocat"))
+	baseCommit := service.findCommitExact(repo, mainSha)
+	if baseCommit == nil {
+		t.Fatalf("missing base commit %s", mainSha)
+	}
+	headCommit := service.insertCommit(repo, stringField(baseCommit, "tree_sha"), []string{mainSha}, "Feature commit", actor)
+
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+stringField(headCommit, "sha")+`"}`, "Bearer test_token_user1")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Feature","head":"feature","base":"main"}`, "Bearer test_token_user1")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+
+	patchRepo := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world", `{"allow_merge_commit":false,"delete_branch_on_merge":true}`, "Bearer test_token_user1")
+	if patchRepo.Code != http.StatusOK {
+		t.Fatalf("patch repo status = %d, body = %s", patchRepo.Code, patchRepo.Body.String())
+	}
+	defaultMerge := doGitHubJSON(handler, http.MethodPut, "/repos/octocat/hello-world/pulls/1/merge", `{}`, "Bearer test_token_user1")
+	if defaultMerge.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("default merge status = %d, body = %s", defaultMerge.Code, defaultMerge.Body.String())
+	}
+	if !strings.Contains(defaultMerge.Body.String(), "Merge commits are not allowed on this repository.") {
+		t.Fatalf("unexpected default merge body: %s", defaultMerge.Body.String())
+	}
+
+	merge := doGitHubJSON(handler, http.MethodPut, "/repos/octocat/hello-world/pulls/1/merge", `{"merge_method":"squash","commit_title":"Squash feature","commit_message":"Body"}`, "Bearer test_token_user1")
+	if merge.Code != http.StatusOK {
+		t.Fatalf("merge status = %d, body = %s", merge.Code, merge.Body.String())
+	}
+	var mergeBody struct {
+		Sha string `json:"sha"`
+	}
+	decodeGitHubBody(t, merge, &mergeBody)
+	if mergeBody.Sha == "" {
+		t.Fatalf("missing merge sha: %s", merge.Body.String())
+	}
+
+	commit := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/git/commits/"+mergeBody.Sha, "", "Bearer test_token_user1")
+	if commit.Code != http.StatusOK {
+		t.Fatalf("commit status = %d, body = %s", commit.Code, commit.Body.String())
+	}
+	var commitBody struct {
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+		Parents []struct {
+			Sha string `json:"sha"`
+		} `json:"parents"`
+	}
+	decodeGitHubBody(t, commit, &commitBody)
+	if commitBody.Commit.Message != "Squash feature\n\nBody" || len(commitBody.Parents) != 1 || commitBody.Parents[0].Sha != mainSha {
+		t.Fatalf("unexpected merge commit: %#v, body = %s", commitBody, commit.Body.String())
+	}
+
+	feature := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches/feature", "", "Bearer test_token_user1")
+	if feature.Code != http.StatusNotFound {
+		t.Fatalf("feature branch status = %d, body = %s", feature.Code, feature.Body.String())
+	}
+}
+
 func TestGitHubPullFilesRequirePrivateRepoReadAccess(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
@@ -647,6 +761,33 @@ func TestGitHubPatchRepoPrivateSyncsVisibility(t *testing.T) {
 	decodeGitHubBody(t, res, &body)
 	if !body.Private || body.Visibility != "private" {
 		t.Fatalf("unexpected repo visibility: %#v", body)
+	}
+}
+
+func TestGitHubCreateRepoHonorsFeatureFlags(t *testing.T) {
+	handler := newGitHubTestHandler(nil)
+
+	res := doGitHubJSON(handler, http.MethodPost, "/user/repos", `{"name":"configured","has_issues":false,"has_projects":false,"has_wiki":false,"allow_merge_commit":false,"allow_squash_merge":false,"allow_rebase_merge":false,"delete_branch_on_merge":true}`, "Bearer test_token_user1")
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		HasIssues           bool `json:"has_issues"`
+		HasProjects         bool `json:"has_projects"`
+		HasWiki             bool `json:"has_wiki"`
+		AllowMergeCommit    bool `json:"allow_merge_commit"`
+		AllowSquashMerge    bool `json:"allow_squash_merge"`
+		AllowRebaseMerge    bool `json:"allow_rebase_merge"`
+		DeleteBranchOnMerge bool `json:"delete_branch_on_merge"`
+	}
+	decodeGitHubBody(t, res, &body)
+	if body.HasIssues || body.HasProjects || body.HasWiki || body.AllowMergeCommit || body.AllowSquashMerge || body.AllowRebaseMerge || !body.DeleteBranchOnMerge {
+		t.Fatalf("unexpected repo flags: %#v, body = %s", body, res.Body.String())
+	}
+
+	issue := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/configured/issues", `{"title":"Bug"}`, "Bearer test_token_user1")
+	if issue.Code != http.StatusNotFound {
+		t.Fatalf("issue status = %d, body = %s", issue.Code, issue.Body.String())
 	}
 }
 

@@ -266,6 +266,22 @@ func (s *Service) handleMergePull(c *corehttp.Context) {
 		writeValidation(c, "Head sha is out of date")
 		return
 	}
+	mergeMethod := "merge"
+	if value, ok := body["merge_method"].(string); ok && (value == "squash" || value == "rebase") {
+		mergeMethod = value
+	}
+	if mergeMethod == "merge" && !boolField(repo, "allow_merge_commit") {
+		writeValidation(c, "Merge commits are not allowed on this repository.")
+		return
+	}
+	if mergeMethod == "squash" && !boolField(repo, "allow_squash_merge") {
+		writeValidation(c, "Squash merges are not allowed on this repository.")
+		return
+	}
+	if mergeMethod == "rebase" && !boolField(repo, "allow_rebase_merge") {
+		writeValidation(c, "Rebase merges are not allowed on this repository.")
+		return
+	}
 	baseRepo, ok := s.store.Repos.Get(intField(pr, "base_repo_id"))
 	if !ok {
 		writeValidation(c, "Base repository not found")
@@ -282,7 +298,11 @@ func (s *Service) handleMergePull(c *corehttp.Context) {
 		writeValidation(c, "Could not resolve commits to merge.")
 		return
 	}
-	mergeCommit := s.insertCommit(baseRepo, stringField(headCommit, "tree_sha"), []string{stringField(baseCommit, "sha"), stringField(headCommit, "sha")}, mergeCommitMessage(pr), actor)
+	parentShas := []string{stringField(baseCommit, "sha"), stringField(headCommit, "sha")}
+	if mergeMethod != "merge" {
+		parentShas = []string{stringField(baseCommit, "sha")}
+	}
+	mergeCommit := s.insertCommit(baseRepo, stringField(headCommit, "tree_sha"), parentShas, s.mergeCommitMessage(pr, body), actor)
 	mergeSha := stringField(mergeCommit, "sha")
 	now := nowISO()
 	s.store.PullRequests.Update(intField(pr, "id"), corestore.Record{
@@ -302,7 +322,10 @@ func (s *Service) handleMergePull(c *corehttp.Context) {
 			"closed_by_id": intField(actor, "id"),
 		})
 	}
-	s.updateBranchSha(repo, stringField(pr, "base_ref"), mergeSha)
+	s.updateBranchSha(baseRepo, stringField(pr, "base_ref"), mergeSha)
+	if boolField(repo, "delete_branch_on_merge") && stringField(pr, "head_ref") != stringField(pr, "base_ref") {
+		s.deleteBranchByName(headRepo, stringField(pr, "head_ref"))
+	}
 	s.adjustOpenIssues(intField(repo, "id"), -1)
 	c.JSON(http.StatusOK, map[string]any{
 		"sha":     mergeSha,
@@ -448,6 +471,29 @@ func (s *Service) insertCommit(repo corestore.Record, treeSha string, parentShas
 	return commit
 }
 
-func mergeCommitMessage(pr corestore.Record) string {
-	return "Merge pull request #" + strconv.Itoa(intField(pr, "number")) + " from " + stringField(pr, "head_ref")
+func (s *Service) mergeCommitMessage(pr corestore.Record, body map[string]any) string {
+	title := ""
+	if value, ok := body["commit_title"].(string); ok {
+		title = strings.TrimSpace(value)
+	}
+	if title == "" {
+		title = "Merge pull request #" + strconv.Itoa(intField(pr, "number")) + " from " + s.pullHeadLabel(pr)
+	}
+	message := ""
+	if value, ok := body["commit_message"].(string); ok {
+		message = strings.TrimSpace(value)
+	}
+	if message == "" {
+		return title
+	}
+	return title + "\n\n" + message
+}
+
+func (s *Service) pullHeadLabel(pr corestore.Record) string {
+	headRepo, ok := s.store.Repos.Get(intField(pr, "head_repo_id"))
+	owner := "unknown"
+	if ok {
+		owner = s.ownerLogin(headRepo)
+	}
+	return owner + ":" + stringField(pr, "head_ref")
 }
