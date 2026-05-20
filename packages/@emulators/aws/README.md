@@ -1,6 +1,6 @@
 # @emulators/aws
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML.
+S3, SQS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -33,6 +33,14 @@ SQS requests use `POST /sqs/` with an `Action` form parameter.
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
+
+### DynamoDB
+DynamoDB requests use the `/dynamodb/` endpoint with `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests.
+
+- `CreateTable`, `DescribeTable`, `ListTables`, `UpdateTable`, `DeleteTable`
+- `PutItem`, `GetItem`, `DeleteItem`, `Scan`, `Query`
+- `BatchGetItem`, `BatchWriteItem`
+- `TagResource`, `UntagResource`, `ListTagsOfResource`
 
 ### IAM
 IAM requests use `POST /iam/` with an `Action` form parameter.
