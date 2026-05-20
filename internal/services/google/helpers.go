@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
@@ -64,6 +65,7 @@ type calendarInput struct {
 	Primary     bool
 	Selected    bool
 	AccessRole  string
+	Update      bool
 }
 
 type calendarEventInput struct {
@@ -129,6 +131,9 @@ var systemLabelAliases = map[string]string{
 	"forums":     "CATEGORY_FORUMS",
 }
 
+var historyIDMu sync.Mutex
+var lastHistoryID int64
+
 func generateUID(prefix string) string {
 	raw := make([]byte, 12)
 	if _, err := rand.Read(raw); err != nil {
@@ -153,7 +158,14 @@ func generateHex(size int) string {
 }
 
 func generateHistoryID() string {
-	return fmt.Sprintf("%d%s", time.Now().UnixMilli(), generateHex(3))
+	next := time.Now().UnixNano()
+	historyIDMu.Lock()
+	defer historyIDMu.Unlock()
+	if next <= lastHistoryID {
+		next = lastHistoryID + 1
+	}
+	lastHistoryID = next
+	return strconv.FormatInt(next, 10)
 }
 
 func generateDraftID() string {
@@ -281,6 +293,15 @@ func defaultStringSlice(value []string, fallback []string) []string {
 
 func intPtr(value int) *int {
 	return &value
+}
+
+func historyIDAfter(value string, start string) bool {
+	current, currentErr := strconv.ParseInt(value, 10, 64)
+	baseline, baselineErr := strconv.ParseInt(start, 10, 64)
+	if currentErr == nil && baselineErr == nil {
+		return current > baseline
+	}
+	return value > start
 }
 
 func nowISO() string {
@@ -1211,7 +1232,31 @@ func (s *Service) createCalendarRecord(input calendarInput) corestore.Record {
 		calendarID = generateUID("cal")
 	}
 	if existing := s.getCalendarByID(input.UserEmail, calendarID); existing != nil {
-		return existing
+		if !input.Update {
+			return existing
+		}
+		patch := corestore.Record{
+			"summary":     firstNonEmpty(input.Summary, stringField(existing, "summary"), input.UserEmail),
+			"description": input.Description,
+			"time_zone":   firstNonEmpty(input.TimeZone, stringField(existing, "time_zone"), "UTC"),
+			"selected":    input.Selected,
+			"access_role": firstNonEmpty(input.AccessRole, stringField(existing, "access_role"), "owner"),
+		}
+		if input.Primary {
+			patch["primary"] = true
+		}
+		updated, ok := s.store.Calendars.Update(intField(existing, "id"), patch)
+		if !ok {
+			return existing
+		}
+		if input.Primary {
+			for _, calendar := range s.store.Calendars.FindBy("user_email", input.UserEmail) {
+				if intField(calendar, "id") != intField(updated, "id") && boolField(calendar, "primary") {
+					s.store.Calendars.Update(intField(calendar, "id"), corestore.Record{"primary": false})
+				}
+			}
+		}
+		return updated
 	}
 	summary := firstNonEmpty(input.Summary, input.UserEmail)
 	record := s.store.Calendars.Insert(corestore.Record{
@@ -1632,20 +1677,24 @@ func parseDriveMultipartUpload(contentType string, raw []byte) (map[string]any, 
 }
 
 func parseParentQuery(query string) string {
-	start := strings.Index(query, "'")
-	if start < 0 {
-		return ""
+	remaining := query
+	for {
+		start := strings.Index(remaining, "'")
+		if start < 0 {
+			return ""
+		}
+		rest := remaining[start+1:]
+		end := strings.Index(rest, "'")
+		if end < 0 {
+			return ""
+		}
+		parent := rest[:end]
+		after := strings.TrimSpace(strings.ToLower(rest[end+1:]))
+		if strings.HasPrefix(after, "in parents") {
+			return parent
+		}
+		remaining = rest[end+1:]
 	}
-	rest := query[start+1:]
-	end := strings.Index(rest, "'")
-	if end < 0 {
-		return ""
-	}
-	parent := rest[:end]
-	if strings.Contains(strings.ToLower(rest[end+1:]), "in parents") {
-		return parent
-	}
-	return ""
 }
 
 func parseDriveMimeMatches(query string, prefix string) []string {

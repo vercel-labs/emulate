@@ -356,6 +356,7 @@ func (s *Service) SeedFromConfig(config SeedConfig) {
 			Primary:     seed.Primary,
 			Selected:    selected,
 			AccessRole:  firstNonEmpty(seed.AccessRole, "owner"),
+			Update:      true,
 		})
 	}
 

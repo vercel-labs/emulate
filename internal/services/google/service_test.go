@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -242,6 +243,139 @@ func TestGoogleGmailCalendarAndDriveSeededRoutes(t *testing.T) {
 	if string(body) != "pdf-handbook-data" {
 		t.Fatalf("unexpected drive media body: %q", string(body))
 	}
+}
+
+func TestGoogleHistoryIDsAreDecimalAndMonotonic(t *testing.T) {
+	var previous int64
+	for i := 0; i < 1000; i++ {
+		id := generateHistoryID()
+		parsed, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			t.Fatalf("history ID %q is not decimal: %v", id, err)
+		}
+		if parsed <= previous {
+			t.Fatalf("history ID did not increase: previous=%d current=%d", previous, parsed)
+		}
+		previous = parsed
+	}
+}
+
+func TestGoogleHistoryListUsesNumericStartHistoryID(t *testing.T) {
+	runtimeStore := corestore.New()
+	service := New(Options{
+		Store:   runtimeStore,
+		BaseURL: "http://localhost:4016",
+		Seed: &SeedConfig{
+			Users: []UserSeed{{Email: "testuser@example.com", Name: "Test User"}},
+		},
+	})
+	service.store.History.Insert(corestore.Record{
+		"gmail_id":         "2",
+		"user_email":       "testuser@example.com",
+		"change_type":      "messageAdded",
+		"message_gmail_id": "msg_two",
+		"thread_id":        "thread_two",
+	})
+	service.store.History.Insert(corestore.Record{
+		"gmail_id":         "10",
+		"user_email":       "testuser@example.com",
+		"change_type":      "messageAdded",
+		"message_gmail_id": "msg_ten",
+		"thread_id":        "thread_ten",
+	})
+	router := corehttp.NewRouter()
+	service.RegisterRoutes(router)
+
+	res := googleRequest(router, http.MethodGet, "/gmail/v1/users/me/history?startHistoryId=2&historyTypes=messageAdded", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		History []struct {
+			ID string `json:"id"`
+		} `json:"history"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	if len(body.History) != 1 || body.History[0].ID != "10" {
+		t.Fatalf("unexpected history response: %#v", body)
+	}
+}
+
+func TestGoogleSeedUpdatesPrimaryCalendar(t *testing.T) {
+	router := corehttp.NewRouter()
+	Register(router, Options{
+		Store:   corestore.New(),
+		BaseURL: "http://localhost:4016",
+		Seed: &SeedConfig{
+			Calendars: []CalendarSeed{
+				{
+					ID:        "primary",
+					UserEmail: defaultGoogleEmail,
+					Summary:   "Seeded Primary Calendar",
+					TimeZone:  "America/Chicago",
+					Primary:   true,
+				},
+			},
+		},
+	})
+
+	res := googleRequest(router, http.MethodGet, "/calendar/v3/users/me/calendarList", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("calendar list status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Items []struct {
+			ID       string `json:"id"`
+			Summary  string `json:"summary"`
+			TimeZone string `json:"timeZone"`
+			Primary  bool   `json:"primary"`
+		} `json:"items"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	for _, calendar := range body.Items {
+		if calendar.Primary {
+			if calendar.ID != "primary" || calendar.Summary != "Seeded Primary Calendar" || calendar.TimeZone != "America/Chicago" {
+				t.Fatalf("primary calendar did not use seed values: %#v", calendar)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing primary calendar: %#v", body.Items)
+}
+
+func TestGoogleSystemLabelsRejectMutation(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodPatch, "/gmail/v1/users/me/labels/INBOX", `{"name":"Changed"}`, true)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "System labels cannot be modified") {
+		t.Fatalf("patch system label status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = googleRequest(handler, http.MethodDelete, "/gmail/v1/users/me/labels/INBOX", "", true)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "System labels cannot be deleted") {
+		t.Fatalf("delete system label status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestGoogleDriveParentQueryIgnoresEarlierQuotedTerms(t *testing.T) {
+	handler := newGoogleTestHandler()
+	query := url.QueryEscape("name = 'Handbook.pdf' and 'drv_docs' in parents and trashed = false")
+	res := googleRequest(handler, http.MethodGet, "/drive/v3/files?q="+query, "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("drive list status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Files []struct {
+			ID string `json:"id"`
+		} `json:"files"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	for _, file := range body.Files {
+		if file.ID == "drv_handbook" {
+			return
+		}
+	}
+	t.Fatalf("missing handbook from drive query: %#v", body.Files)
 }
 
 func googleRequest(handler http.Handler, method string, path string, body string, auth bool) *httptest.ResponseRecorder {

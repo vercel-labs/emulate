@@ -655,6 +655,10 @@ func (s *Service) handlePatchLabel(c *corehttp.Context) {
 		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
 		return
 	}
+	if stringField(label, "type") == "system" {
+		googleAPIError(c, http.StatusBadRequest, "System labels cannot be modified.", "invalidArgument", "INVALID_ARGUMENT")
+		return
+	}
 	body := parseJSONBody(c.Request)
 	color := mapValue(body["color"])
 	patch := corestore.Record{}
@@ -683,11 +687,17 @@ func (s *Service) handleDeleteLabel(c *corehttp.Context) {
 		return
 	}
 	label := s.findLabelByID(email, c.Param("id"))
-	if label != nil && stringField(label, "type") != "system" {
-		s.store.Labels.Delete(intField(label, "id"))
-		for _, message := range s.store.Messages.FindBy("user_email", email) {
-			s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), nil, []string{c.Param("id")}))
-		}
+	if label == nil {
+		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
+		return
+	}
+	if stringField(label, "type") == "system" {
+		googleAPIError(c, http.StatusBadRequest, "System labels cannot be deleted.", "invalidArgument", "INVALID_ARGUMENT")
+		return
+	}
+	s.store.Labels.Delete(intField(label, "id"))
+	for _, message := range s.store.Messages.FindBy("user_email", email) {
+		s.updateMessageLabels(message, applyLabelMutation(stringSliceValue(message["label_ids"]), nil, []string{c.Param("id")}))
 	}
 	c.Writer.WriteHeader(http.StatusNoContent)
 }
@@ -845,7 +855,7 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 	items := []map[string]any{}
 	var latest string
 	for _, row := range rows {
-		if start != "" && stringField(row, "gmail_id") <= start {
+		if start != "" && !historyIDAfter(stringField(row, "gmail_id"), start) {
 			continue
 		}
 		changeType := stringField(row, "change_type")
