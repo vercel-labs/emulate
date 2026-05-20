@@ -310,7 +310,15 @@ func (s *Service) handlePatchRepo(c *corehttp.Context) {
 			}
 		}
 	}
-	for _, key := range []string{"private", "has_issues", "has_projects", "has_wiki", "has_pages", "has_downloads", "has_discussions", "archived", "disabled", "allow_rebase_merge", "allow_squash_merge", "allow_merge_commit", "allow_auto_merge", "delete_branch_on_merge", "allow_forking", "is_template"} {
+	if value, ok := body["private"].(bool); ok {
+		patch["private"] = value
+		if value {
+			patch["visibility"] = "private"
+		} else {
+			patch["visibility"] = "public"
+		}
+	}
+	for _, key := range []string{"has_issues", "has_projects", "has_wiki", "has_pages", "has_downloads", "has_discussions", "archived", "disabled", "allow_rebase_merge", "allow_squash_merge", "allow_merge_commit", "allow_auto_merge", "delete_branch_on_merge", "allow_forking", "is_template"} {
 		if value, ok := body[key].(bool); ok {
 			patch[key] = value
 		}

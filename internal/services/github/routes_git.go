@@ -126,8 +126,16 @@ func (s *Service) handleCreateRef(c *corehttp.Context) {
 	}
 	fullRef := stringValue(body["ref"])
 	sha := stringValue(body["sha"])
-	if !strings.HasPrefix(fullRef, "refs/") || sha == "" {
+	if !strings.HasPrefix(fullRef, "refs/") {
 		writeValidation(c, "Invalid ref")
+		return
+	}
+	if sha == "" {
+		writeValidation(c, "sha is required")
+		return
+	}
+	if s.findCommitExact(repo, sha) == nil {
+		writeValidation(c, "Invalid sha")
 		return
 	}
 	if s.findRef(repo, fullRef) != nil {
@@ -167,6 +175,10 @@ func (s *Service) handlePatchRef(c *corehttp.Context) {
 	sha := stringValue(body["sha"])
 	if sha == "" {
 		writeValidation(c, "sha is required")
+		return
+	}
+	if s.findCommitExact(repo, sha) == nil {
+		writeValidation(c, "Invalid sha")
 		return
 	}
 	updated, _ := s.store.Refs.Update(intField(ref, "id"), corestore.Record{"sha": sha})
@@ -247,7 +259,7 @@ func (s *Service) getOrCreateBranch(repo corestore.Record, branchName string) co
 		sha = stringField(defaultBranch, "sha")
 	}
 	if sha == "" {
-		sha = generateSha()
+		return nil
 	}
 	return s.createBranch(repo, branchName, sha)
 }
@@ -314,6 +326,15 @@ func (s *Service) findCommit(repo corestore.Record, sha string) corestore.Record
 	for _, commit := range s.store.Commits.FindBy("repo_id", intField(repo, "id")) {
 		full := stringField(commit, "sha")
 		if full == sha || strings.HasPrefix(full, sha) {
+			return commit
+		}
+	}
+	return nil
+}
+
+func (s *Service) findCommitExact(repo corestore.Record, sha string) corestore.Record {
+	for _, commit := range s.store.Commits.FindBy("repo_id", intField(repo, "id")) {
+		if stringField(commit, "sha") == sha {
 			return commit
 		}
 	}

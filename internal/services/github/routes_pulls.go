@@ -96,6 +96,10 @@ func (s *Service) handleCreatePull(c *corehttp.Context) {
 	}
 	headBranch := s.getOrCreateBranch(headRepo, headRef)
 	baseBranch := s.getOrCreateBranch(repo, base)
+	if headBranch == nil || baseBranch == nil {
+		writeValidation(c, "The repository is empty.")
+		return
+	}
 	number := s.nextIssueNumber(intField(repo, "id"))
 	prBody := nullableIssueBody(body["body"])
 	issue := s.store.Issues.Insert(corestore.Record{
@@ -216,6 +220,10 @@ func (s *Service) handlePatchPull(c *corehttp.Context) {
 	}
 	if base := strings.TrimSpace(stringValue(body["base"])); base != "" {
 		branch := s.getOrCreateBranch(repo, base)
+		if branch == nil {
+			writeValidation(c, "The repository is empty.")
+			return
+		}
 		patch["base_ref"] = base
 		patch["base_sha"] = stringField(branch, "sha")
 	}
@@ -239,7 +247,24 @@ func (s *Service) handleMergePull(c *corehttp.Context) {
 		writeValidation(c, "Pull Request is not mergeable")
 		return
 	}
-	mergeSha := generateSha()
+	baseRepo, ok := s.store.Repos.Get(intField(pr, "base_repo_id"))
+	if !ok {
+		writeValidation(c, "Base repository not found")
+		return
+	}
+	headRepo, ok := s.store.Repos.Get(intField(pr, "head_repo_id"))
+	if !ok {
+		writeValidation(c, "Head repository not found")
+		return
+	}
+	baseCommit := s.findCommitExact(baseRepo, stringField(pr, "base_sha"))
+	headCommit := s.findCommitExact(headRepo, stringField(pr, "head_sha"))
+	if baseCommit == nil || headCommit == nil {
+		writeValidation(c, "Could not resolve commits to merge.")
+		return
+	}
+	mergeCommit := s.insertCommit(baseRepo, stringField(headCommit, "tree_sha"), []string{stringField(baseCommit, "sha"), stringField(headCommit, "sha")}, mergeCommitMessage(pr), actor)
+	mergeSha := stringField(mergeCommit, "sha")
 	now := nowISO()
 	s.store.PullRequests.Update(intField(pr, "id"), corestore.Record{
 		"merged":           true,
@@ -295,7 +320,11 @@ func (s *Service) handlePullCommits(c *corehttp.Context) {
 }
 
 func (s *Service) handlePullFiles(c *corehttp.Context) {
-	if _, _, ok := s.pullFromRequest(c); !ok {
+	repo, _, ok := s.pullFromRequest(c)
+	if !ok {
+		return
+	}
+	if !s.assertRepoRead(c, repo) {
 		return
 	}
 	c.JSON(http.StatusOK, []any{})
@@ -328,4 +357,37 @@ func (s *Service) findPullIssue(repoID int, number int) corestore.Record {
 		}
 	}
 	return nil
+}
+
+func (s *Service) insertCommit(repo corestore.Record, treeSha string, parentShas []string, message string, actor corestore.Record) corestore.Record {
+	authorName := stringField(actor, "name")
+	if authorName == "" {
+		authorName = stringField(actor, "login")
+	}
+	authorEmail := stringField(actor, "email")
+	if authorEmail == "" {
+		authorEmail = stringField(actor, "login") + "@localhost"
+	}
+	now := nowISO()
+	row := s.store.Commits.Insert(corestore.Record{
+		"repo_id":         intField(repo, "id"),
+		"sha":             generateSha(),
+		"node_id":         "",
+		"message":         message,
+		"author_name":     authorName,
+		"author_email":    authorEmail,
+		"author_date":     now,
+		"committer_name":  authorName,
+		"committer_email": authorEmail,
+		"committer_date":  now,
+		"tree_sha":        treeSha,
+		"parent_shas":     parentShas,
+		"user_id":         intField(actor, "id"),
+	})
+	commit, _ := s.store.Commits.Update(intField(row, "id"), corestore.Record{"node_id": generateNodeID("Commit", intField(row, "id"))})
+	return commit
+}
+
+func mergeCommitMessage(pr corestore.Record) string {
+	return "Merge pull request #" + strconv.Itoa(intField(pr, "number")) + " from " + stringField(pr, "head_ref")
 }
