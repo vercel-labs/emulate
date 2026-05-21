@@ -1,6 +1,14 @@
 # MongoDB Atlas
 
-MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1. In-memory document storage with CRUD, filtering, and aggregation.
+MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1. The native Go runtime stores projects, clusters, database users, databases, collections, and documents in memory for local CLI runs and Vercel Go Function previews.
+
+To expose MongoDB Atlas on a Vercel preview without separate infrastructure, scaffold the Go Function route:
+
+```bash
+npx emulate vercel init --service mongoatlas
+```
+
+The generated route serves MongoDB Atlas at `/emulate/mongoatlas/*`.
 
 ## Admin API
 
@@ -39,7 +47,7 @@ All operations via `POST` with JSON body specifying `dataSource`, `database`, an
 - `POST /app/data-api/v1/action/find` — find many (filter, projection, sort, limit, skip)
 - `POST /app/data-api/v1/action/insertOne` — insert one document
 - `POST /app/data-api/v1/action/insertMany` — insert many documents
-- `POST /app/data-api/v1/action/updateOne` — update one document (`$set`, upsert)
+- `POST /app/data-api/v1/action/updateOne` — update one document (`$set`, `$unset`, `$inc`, `$push`, `$pull`, `$rename`, replacement updates, upsert)
 - `POST /app/data-api/v1/action/updateMany` — update many documents
 - `POST /app/data-api/v1/action/deleteOne` — delete one document
 - `POST /app/data-api/v1/action/deleteMany` — delete many documents

@@ -319,13 +319,14 @@ OKTA_EMULATOR_URL=http://localhost:4006
 AWS_EMULATOR_URL=http://localhost:4007
 RESEND_EMULATOR_URL=http://localhost:4008
 STRIPE_EMULATOR_URL=http://localhost:4009
+MONGOATLAS_EMULATOR_URL=http://localhost:4010
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
 ## Next.js Integration
 
-The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, Vercel Go Function state behavior, persistence, font tracing, and `createEmulateProxy` details.
+The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, Vercel Go Function state behavior, persistence, font tracing, and `createEmulateProxy` details.
 
 ## Persistence
 

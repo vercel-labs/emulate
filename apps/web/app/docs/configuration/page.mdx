@@ -348,6 +348,14 @@ mongoatlas:
   database_users:
     - project: my-project
       username: app-user
+      roles:
+        - database_name: mydb
+          role_name: readWrite
+  databases:
+    - cluster: my-cluster
+      name: mydb
+      collections:
+        - items
 ```
 
 ## Resend Seed Config

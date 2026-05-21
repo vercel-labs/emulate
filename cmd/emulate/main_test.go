@@ -433,6 +433,69 @@ func TestRunStartSeedsClerkFromJSONConfig(t *testing.T) {
 	}
 }
 
+func TestRunStartSeedsMongoAtlasFromJSONConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"mongoatlas":{"projects":[{"name":"CustomProject"}],"clusters":[{"name":"CustomCluster","project":"CustomProject"}],"database_users":[{"username":"appuser","project":"CustomProject","roles":[{"database_name":"mydb","role_name":"readWrite"}]}],"databases":[{"cluster":"CustomCluster","name":"mydb","collections":["items"]}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "mongoatlas" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	var projects struct {
+		Results []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"results"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d/api/atlas/v2/groups", port), &projects)
+	if len(projects.Results) != 2 || projects.Results[1].Name != "CustomProject" {
+		t.Fatalf("unexpected projects: %#v", projects)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/app/data-api/v1/action/insertOne", port), strings.NewReader(`{"dataSource":"CustomCluster","database":"mydb","collection":"items","document":{"name":"Widget"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("insert status = %d, body = %s", resp.StatusCode, string(raw))
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
 func TestRunStartSeedsAppleFromJSONConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	seedPath := filepath.Join(tempDir, "emulate.config.json")
@@ -613,7 +676,7 @@ func TestRunStartRejectsUnsupportedNativeSeedServices(t *testing.T) {
 				t.Fatal("start with unsupported seed service exited successfully")
 			}
 			errText := stderr.String()
-			if !strings.Contains(errText, "only supports --seed for apple, clerk, github, google, microsoft, okta, resend, slack, stripe, and vercel") || !strings.Contains(errText, "aws") {
+			if !strings.Contains(errText, "only supports --seed for apple, clerk, github, google, microsoft, mongoatlas, okta, resend, slack, stripe, and vercel") || !strings.Contains(errText, "aws") {
 				t.Fatalf("unexpected stderr: %s", errText)
 			}
 		})

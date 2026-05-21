@@ -199,6 +199,33 @@ func TestNewHandlerDoesNotMountResendWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestNewHandlerMountsMongoAtlasWhenEnabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"mongoatlas"}})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/data-api/v1/action/insertOne", strings.NewReader(`{"dataSource":"Cluster0","database":"test","collection":"items","document":{"name":"Widget"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"insertedId"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestNewHandlerDoesNotMountMongoAtlasWhenDisabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"resend"}})
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/atlas/v2/groups", nil))
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestNewHandlerMountsSlackWhenEnabled(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"slack"}})
 

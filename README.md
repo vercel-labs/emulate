@@ -798,6 +798,17 @@ The native Go runtime implements the current high-value Stripe API and checkout 
 - `POST /v1/checkout/sessions`, `GET /v1/checkout/sessions`, `GET /v1/checkout/sessions/:id`, `POST /v1/checkout/sessions/:id/expire`
 - `GET /checkout/:id`, `POST /checkout/:id/complete`
 
+## MongoDB Atlas
+
+MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1. The native Go runtime stores projects, clusters, database users, databases, collections, and documents in memory for local CLI runs and Vercel Go Function previews. To expose MongoDB Atlas on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service mongoatlas`. The generated route serves MongoDB Atlas at `/emulate/mongoatlas/*`.
+
+- `GET /api/atlas/v2/groups`, `GET /api/atlas/v2/groups/:groupId`, `POST /api/atlas/v2/groups`, `DELETE /api/atlas/v2/groups/:groupId`
+- `GET /api/atlas/v2/groups/:groupId/clusters`, `GET /api/atlas/v2/groups/:groupId/clusters/:clusterName`, `POST /api/atlas/v2/groups/:groupId/clusters`, `PATCH /api/atlas/v2/groups/:groupId/clusters/:clusterName`, `DELETE /api/atlas/v2/groups/:groupId/clusters/:clusterName`
+- `GET /api/atlas/v2/groups/:groupId/databaseUsers`, `GET /api/atlas/v2/groups/:groupId/databaseUsers/admin/:username`, `POST /api/atlas/v2/groups/:groupId/databaseUsers`, `DELETE /api/atlas/v2/groups/:groupId/databaseUsers/admin/:username`
+- `GET /api/atlas/v2/groups/:groupId/clusters/:clusterName/databases`, `GET /api/atlas/v2/groups/:groupId/clusters/:clusterName/databases/:databaseName/collections`
+- `POST /app/data-api/v1/action/findOne`, `POST /app/data-api/v1/action/find`, `POST /app/data-api/v1/action/insertOne`, `POST /app/data-api/v1/action/insertMany`
+- `POST /app/data-api/v1/action/updateOne`, `POST /app/data-api/v1/action/updateMany`, `POST /app/data-api/v1/action/deleteOne`, `POST /app/data-api/v1/action/deleteMany`, `POST /app/data-api/v1/action/aggregate`
+
 ## Next.js Integration
 
 Use `@emulators/adapter-next` to run emulator routes on the same origin as your Next.js app. Embedded mode runs JavaScript emulators directly in the app. Proxy mode forwards to a separately running native runtime.
@@ -816,7 +827,7 @@ This creates:
 - `vercel.json`, with `/emulate/:path*` rewritten to `/api/emulate?path=:path*`
 - `go.mod`, pinned to the installed `emulate` package version
 
-The scaffold currently enables the native `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `okta`, `resend`, `slack`, `stripe`, and `vercel` handlers. Use `npx emulate vercel init --service github` to limit the function to one service.
+The scaffold currently enables the native `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` handlers. Use `npx emulate vercel init --service github` to limit the function to one service.
 
 State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
@@ -857,7 +868,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 })
 ```
 
-Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews, use `npx emulate vercel init`.
+Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews, use `npx emulate vercel init`.
 
 ### Native runtime proxy
 

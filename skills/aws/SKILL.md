@@ -42,7 +42,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
-curl http://localhost:4006/ \
+curl http://localhost:4007/ \
   -H "Authorization: Bearer test_token_admin"
 ```
 
@@ -51,7 +51,7 @@ curl http://localhost:4006/ \
 ### Environment Variable
 
 ```bash
-AWS_EMULATOR_URL=http://localhost:4006
+AWS_EMULATOR_URL=http://localhost:4007
 ```
 
 ### AWS SDK v3

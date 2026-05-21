@@ -9,11 +9,12 @@ const services = [
   { name: "Slack", port: 4003, slug: "slack" },
   { name: "Apple", port: 4004, slug: "apple" },
   { name: "Microsoft", port: 4005, slug: "microsoft" },
-  { name: "AWS", port: 4006, slug: "aws" },
-  { name: "Okta", port: 4007, slug: "okta" },
-  { name: "MongoDB Atlas", port: 4008, slug: "mongoatlas" },
-  { name: "Resend", port: 4009, slug: "resend" },
-  { name: "Stripe", port: 4010, slug: "stripe" },
+  { name: "Okta", port: 4006, slug: "okta" },
+  { name: "AWS", port: 4007, slug: "aws" },
+  { name: "Resend", port: 4008, slug: "resend" },
+  { name: "Stripe", port: 4009, slug: "stripe" },
+  { name: "MongoDB Atlas", port: 4010, slug: "mongoatlas" },
+  { name: "Clerk", port: 4011, slug: "clerk" },
 ];
 
 export function HeroTerminal({ pixelFont }: { pixelFont: string }) {

@@ -22,7 +22,7 @@ describe("createVercelScaffold", () => {
       'emulate "github.com/vercel-labs/emulate/vercel"',
     );
     expect(readFileSync(join(cwd, "api/emulate.go"), "utf-8")).toContain(
-      'Services: []string{"apple", "aws", "clerk", "github", "google", "microsoft", "okta", "resend", "slack", "stripe", "vercel"}',
+      'Services: []string{"apple", "aws", "clerk", "github", "google", "microsoft", "mongoatlas", "okta", "resend", "slack", "stripe", "vercel"}',
     );
     expect(readFileSync(join(cwd, "go.mod"), "utf-8")).toContain("require github.com/vercel-labs/emulate v0.5.0");
     const vercelConfig = JSON.parse(readFileSync(join(cwd, "vercel.json"), "utf-8")) as {
@@ -36,7 +36,7 @@ describe("createVercelScaffold", () => {
 
   it("includes google in the shared Vercel CLI service default", () => {
     expect(DEFAULT_VERCEL_SERVICE_OPTION).toBe(
-      "apple,aws,clerk,github,google,microsoft,okta,resend,slack,stripe,vercel",
+      "apple,aws,clerk,github,google,microsoft,mongoatlas,okta,resend,slack,stripe,vercel",
     );
   });
 
@@ -230,8 +230,8 @@ require (
   it("rejects services not available in the native Vercel scaffold", () => {
     const cwd = tempDir();
 
-    expect(() => createVercelScaffold({ cwd, version: "0.5.0", service: "mongoatlas" })).toThrow(
-      "currently supports native services: apple, aws, clerk, github, google, microsoft, okta, resend, slack, stripe, vercel",
+    expect(() => createVercelScaffold({ cwd, version: "0.5.0", service: "linear" })).toThrow(
+      "currently supports native services: apple, aws, clerk, github, google, microsoft, mongoatlas, okta, resend, slack, stripe, vercel",
     );
   });
 

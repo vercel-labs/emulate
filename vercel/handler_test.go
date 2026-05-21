@@ -35,7 +35,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "apple,aws,clerk,github,google,microsoft,okta,resend,slack,stripe,vercel" {
+	if strings.Join(body.Services, ",") != "apple,aws,clerk,github,google,microsoft,mongoatlas,okta,resend,slack,stripe,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -208,6 +208,22 @@ func TestHandlerForwardsClerkService(t *testing.T) {
 	}
 }
 
+func TestHandlerForwardsMongoAtlasService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"mongoatlas"}})
+	req := newJSONRequest(http.MethodPost, "https://preview.example.com/emulate/mongoatlas/app/data-api/v1/action/insertOne", `{"dataSource":"Cluster0","database":"test","collection":"items","document":{"name":"Preview"}}`)
+	req.Host = "preview.example.com"
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"insertedId"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
 func TestHandlerForwardsSlackService(t *testing.T) {
 	handler := NewHandler(Options{Services: []string{"slack"}})
 	req := httptest.NewRequest(http.MethodPost, "https://preview.example.com/emulate/slack/api/auth.test", nil)
@@ -303,7 +319,7 @@ func TestHandlerRewritesHTMLRootPathsThroughPublicServicePrefix(t *testing.T) {
 
 func TestHandlerReturnsUnknownService(t *testing.T) {
 	handler := NewHandler(Options{})
-	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/mongoatlas/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/linear/user", nil)
 
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -311,7 +327,7 @@ func TestHandlerReturnsUnknownService(t *testing.T) {
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "Unknown service: mongoatlas") {
+	if !strings.Contains(res.Body.String(), "Unknown service: linear") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

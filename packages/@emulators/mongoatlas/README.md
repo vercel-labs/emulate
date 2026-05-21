@@ -1,6 +1,6 @@
 # @emulators/mongoatlas
 
-MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1 for local development and testing. In-memory document storage with CRUD, filtering, and aggregation.
+MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1 for local development and testing. The JavaScript package can be embedded through `@emulators/adapter-next`, and the native Go runtime serves the same core routes for local CLI runs and Vercel Go Function previews.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -45,7 +45,7 @@ All operations via `POST` with JSON body specifying `dataSource`, `database`, an
 - `POST /app/data-api/v1/action/find` — find many (filter, projection, sort, limit, skip)
 - `POST /app/data-api/v1/action/insertOne` — insert one document
 - `POST /app/data-api/v1/action/insertMany` — insert many documents
-- `POST /app/data-api/v1/action/updateOne` — update one document (`$set`, upsert)
+- `POST /app/data-api/v1/action/updateOne` — update one document (`$set`, `$unset`, `$inc`, `$push`, `$pull`, `$rename`, replacement updates, upsert)
 - `POST /app/data-api/v1/action/updateMany` — update many documents
 - `POST /app/data-api/v1/action/deleteOne` — delete one document
 - `POST /app/data-api/v1/action/deleteMany` — delete many documents
@@ -63,6 +63,14 @@ mongoatlas:
   database_users:
     - project: my-project
       username: app-user
+      roles:
+        - database_name: mydb
+          role_name: readWrite
+  databases:
+    - cluster: my-cluster
+      name: mydb
+      collections:
+        - items
 ```
 
 ## Links

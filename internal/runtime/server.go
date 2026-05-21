@@ -14,6 +14,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/github"
 	"github.com/vercel-labs/emulate/internal/services/google"
 	"github.com/vercel-labs/emulate/internal/services/microsoft"
+	"github.com/vercel-labs/emulate/internal/services/mongoatlas"
 	"github.com/vercel-labs/emulate/internal/services/okta"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/slack"
@@ -24,21 +25,22 @@ import (
 const HealthPath = "/_emulate/health"
 
 type ServerOptions struct {
-	Version       string
-	BaseURL       string
-	Services      []string
-	Store         *store.Store
-	AssetStore    *coreassets.Store
-	AppleSeed     *apple.SeedConfig
-	ClerkSeed     *clerk.SeedConfig
-	GitHubSeed    *github.SeedConfig
-	GoogleSeed    *google.SeedConfig
-	MicrosoftSeed *microsoft.SeedConfig
-	OktaSeed      *okta.SeedConfig
-	ResendSeed    *resend.SeedConfig
-	SlackSeed     *slack.SeedConfig
-	StripeSeed    *stripe.SeedConfig
-	VercelSeed    *vercel.SeedConfig
+	Version        string
+	BaseURL        string
+	Services       []string
+	Store          *store.Store
+	AssetStore     *coreassets.Store
+	AppleSeed      *apple.SeedConfig
+	ClerkSeed      *clerk.SeedConfig
+	GitHubSeed     *github.SeedConfig
+	GoogleSeed     *google.SeedConfig
+	MicrosoftSeed  *microsoft.SeedConfig
+	MongoAtlasSeed *mongoatlas.SeedConfig
+	OktaSeed       *okta.SeedConfig
+	ResendSeed     *resend.SeedConfig
+	SlackSeed      *slack.SeedConfig
+	StripeSeed     *stripe.SeedConfig
+	VercelSeed     *vercel.SeedConfig
 }
 
 type Server struct {
@@ -139,6 +141,12 @@ func NewServer(options ServerOptions) *Server {
 			Store:   runtimeStore,
 			BaseURL: options.BaseURL,
 			Seed:    options.VercelSeed,
+		})
+	}
+	if serviceEnabled(services, "mongoatlas") {
+		mongoatlas.Register(router, mongoatlas.Options{
+			Store: runtimeStore,
+			Seed:  options.MongoAtlasSeed,
 		})
 	}
 	if serviceEnabled(services, "github") {

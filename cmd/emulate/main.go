@@ -25,6 +25,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/github"
 	"github.com/vercel-labs/emulate/internal/services/google"
 	"github.com/vercel-labs/emulate/internal/services/microsoft"
+	"github.com/vercel-labs/emulate/internal/services/mongoatlas"
 	"github.com/vercel-labs/emulate/internal/services/okta"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/slack"
@@ -117,6 +118,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	var githubSeed *github.SeedConfig
 	var googleSeed *google.SeedConfig
 	var microsoftSeed *microsoft.SeedConfig
+	var mongoAtlasSeed *mongoatlas.SeedConfig
 	var oktaSeed *okta.SeedConfig
 	var resendSeed *resend.SeedConfig
 	var slackSeed *slack.SeedConfig
@@ -129,7 +131,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			return 1
 		}
 		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
-			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, clerk, github, google, microsoft, okta, resend, slack, stripe, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
+			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, clerk, github, google, microsoft, mongoatlas, okta, resend, slack, stripe, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
 			return 1
 		}
 		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
@@ -189,6 +191,14 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			}
 			microsoftSeed = &cfg
 		}
+		if raw, ok := loaded.Data["mongoatlas"]; ok {
+			var cfg mongoatlas.SeedConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse mongoatlas seed config: %v\n", err)
+				return 1
+			}
+			mongoAtlasSeed = &cfg
+		}
 		if raw, ok := loaded.Data["okta"]; ok {
 			var cfg okta.SeedConfig
 			if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -244,19 +254,20 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		baseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
 	server := emuruntime.NewServer(emuruntime.ServerOptions{
-		Version:       version,
-		BaseURL:       baseURL,
-		Services:      services,
-		AppleSeed:     appleSeed,
-		ClerkSeed:     clerkSeed,
-		GitHubSeed:    githubSeed,
-		GoogleSeed:    googleSeed,
-		MicrosoftSeed: microsoftSeed,
-		OktaSeed:      oktaSeed,
-		ResendSeed:    resendSeed,
-		SlackSeed:     slackSeed,
-		StripeSeed:    stripeSeed,
-		VercelSeed:    vercelSeed,
+		Version:        version,
+		BaseURL:        baseURL,
+		Services:       services,
+		AppleSeed:      appleSeed,
+		ClerkSeed:      clerkSeed,
+		GitHubSeed:     githubSeed,
+		GoogleSeed:     googleSeed,
+		MicrosoftSeed:  microsoftSeed,
+		MongoAtlasSeed: mongoAtlasSeed,
+		OktaSeed:       oktaSeed,
+		ResendSeed:     resendSeed,
+		SlackSeed:      slackSeed,
+		StripeSeed:     stripeSeed,
+		VercelSeed:     vercelSeed,
 	})
 	httpServer := &nethttp.Server{
 		Handler:           server.Handler,
@@ -443,7 +454,7 @@ func parseServices(value string) ([]string, error) {
 }
 
 func nativeSeedServiceNames() []string {
-	return []string{"apple", "clerk", "github", "google", "microsoft", "okta", "resend", "slack", "stripe", "vercel"}
+	return []string{"apple", "clerk", "github", "google", "microsoft", "mongoatlas", "okta", "resend", "slack", "stripe", "vercel"}
 }
 
 func unsupportedNativeSeedServices(data map[string]json.RawMessage) []string {
