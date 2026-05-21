@@ -56,8 +56,9 @@ export default async function Home() {
             </a>
           ))}
           <p className="text-xs text-center text-muted-foreground mt-2">
-            Emulators are proxied through this Next.js app via <code className="font-mono">@emulators/adapter-next</code>.
-            Start `npx emulate --service github,google` separately.
+            Emulators are proxied through this Next.js app via{" "}
+            <code className="font-mono">@emulators/adapter-next</code>. Start `npx emulate --service github,google`
+            separately.
           </p>
         </CardContent>
       </Card>

@@ -73,7 +73,7 @@ jobs:
             sleep 0.2
           done
           test "${ready:-}" = "1"
-          RESEND_EMULATOR_E2E_URL=http://127.0.0.1:4018 pnpm --dir packages/@emulators/resend exec vitest run src/__tests__/resend.test.ts -t "real resend SDK E2E"
+          RESEND_EMULATOR_E2E_URL=http://127.0.0.1:4018 pnpm --dir packages/@emulators/resend exec vitest run src/__tests__/resend-sdk.e2e.test.ts -t "real resend SDK E2E"
 
       - run: node scripts/sync-versions.mjs --check
 

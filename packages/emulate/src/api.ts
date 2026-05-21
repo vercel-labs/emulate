@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveNativeBinary } from "./native.js";
 
@@ -100,7 +101,7 @@ async function prepareSeed(seed: SeedConfig | undefined): Promise<{ path?: strin
   if (!seed) {
     return { cleanup: async () => {} };
   }
-  const dir = await mkdtemp("/tmp/emulate-api-");
+  const dir = await mkdtemp(join(tmpdir(), "emulate-api-"));
   const path = join(dir, "seed.json");
   await writeFile(path, JSON.stringify(seed, null, 2));
   return {
@@ -146,7 +147,12 @@ async function startRuntime(options: {
   });
 
   const runtime = { child, exit, output };
-  await waitForReady(runtime, `http://127.0.0.1:${options.port}/_emulate/health`, options.startupTimeoutMs);
+  try {
+    await waitForReady(runtime, `http://127.0.0.1:${options.port}/_emulate/health`, options.startupTimeoutMs);
+  } catch (error) {
+    await closeRuntime(runtime);
+    throw error;
+  }
   return runtime;
 }
 

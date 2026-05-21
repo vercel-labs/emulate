@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
-import { rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -87,4 +88,51 @@ describe("createEmulator", () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");
   });
+
+  it("cleans up the native process when startup readiness times out", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "emulate-api-timeout-"));
+    const fakeBinary = join(tempDir, "fake-emulate.js");
+    const pidFile = join(tempDir, "pid");
+    const previousFakePidFile = process.env.EMULATE_FAKE_PID_FILE;
+
+    await writeFile(
+      fakeBinary,
+      [
+        "#!/usr/bin/env node",
+        'import { writeFileSync } from "node:fs";',
+        "writeFileSync(process.env.EMULATE_FAKE_PID_FILE, String(process.pid));",
+        "setInterval(() => {}, 1000);",
+        "",
+      ].join("\n"),
+    );
+    await chmod(fakeBinary, 0o755);
+
+    process.env.EMULATE_NATIVE_BINARY = fakeBinary;
+    process.env.EMULATE_FAKE_PID_FILE = pidFile;
+
+    try {
+      await expect(createEmulator({ service: "github", port: 14030, startupTimeoutMs: 500 })).rejects.toThrow(
+        "Timed out waiting for native emulate process",
+      );
+      const pid = Number(await readFile(pidFile, "utf8"));
+      expect(isProcessRunning(pid)).toBe(false);
+    } finally {
+      process.env.EMULATE_NATIVE_BINARY = binaryPath;
+      if (previousFakePidFile == null) {
+        delete process.env.EMULATE_FAKE_PID_FILE;
+      } else {
+        process.env.EMULATE_FAKE_PID_FILE = previousFakePidFile;
+      }
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
