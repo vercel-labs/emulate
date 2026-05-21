@@ -23,31 +23,51 @@ func (s *Service) handleReactionsAdd(c *corehttp.Context) {
 		slackError(c, "invalid_name")
 		return
 	}
-	message := s.findMessage(stringValue(body["channel"]), stringValue(body["timestamp"]))
+	channelID := stringValue(body["channel"])
+	timestamp := stringValue(body["timestamp"])
+	message := s.findMessage(channelID, timestamp)
 	if message == nil {
 		slackError(c, "message_not_found")
 		return
 	}
 	userID := stringField(user, "user_id")
-	reactions := recordSliceValue(message["reactions"])
-	for index, reaction := range reactions {
-		if stringValue(reaction["name"]) != name {
-			continue
+	foundCurrent := false
+	alreadyReacted := false
+	_, updated := s.store.Messages.UpdateFunc(intField(message, "id"), func(current corestore.Record) (corestore.Record, bool) {
+		if stringField(current, "channel_id") != channelID || stringField(current, "ts") != timestamp {
+			return nil, false
 		}
-		users := stringSliceValue(reaction["users"])
-		if containsString(users, userID) {
-			slackError(c, "already_reacted")
-			return
+		foundCurrent = true
+		reactions := recordSliceValue(current["reactions"])
+		for index, reaction := range reactions {
+			if stringValue(reaction["name"]) != name {
+				continue
+			}
+			users := stringSliceValue(reaction["users"])
+			if containsString(users, userID) {
+				alreadyReacted = true
+				return nil, false
+			}
+			users = append(users, userID)
+			reactions[index]["users"] = users
+			reactions[index]["count"] = len(users)
+			return corestore.Record{"reactions": reactions}, true
 		}
-		users = append(users, userID)
-		reactions[index]["users"] = users
-		reactions[index]["count"] = len(users)
-		s.store.Messages.Update(intField(message, "id"), corestore.Record{"reactions": reactions})
-		slackOK(c, map[string]any{})
+		reactions = append(reactions, map[string]any{"name": name, "users": []string{userID}, "count": 1})
+		return corestore.Record{"reactions": reactions}, true
+	})
+	if !foundCurrent {
+		slackError(c, "message_not_found")
 		return
 	}
-	reactions = append(reactions, map[string]any{"name": name, "users": []string{userID}, "count": 1})
-	s.store.Messages.Update(intField(message, "id"), corestore.Record{"reactions": reactions})
+	if alreadyReacted {
+		slackError(c, "already_reacted")
+		return
+	}
+	if !updated {
+		slackError(c, "message_not_found")
+		return
+	}
 	slackOK(c, map[string]any{})
 }
 
@@ -62,38 +82,58 @@ func (s *Service) handleReactionsRemove(c *corehttp.Context) {
 		slackError(c, "invalid_name")
 		return
 	}
-	message := s.findMessage(stringValue(body["channel"]), stringValue(body["timestamp"]))
+	channelID := stringValue(body["channel"])
+	timestamp := stringValue(body["timestamp"])
+	message := s.findMessage(channelID, timestamp)
 	if message == nil {
 		slackError(c, "message_not_found")
 		return
 	}
 	userID := stringField(user, "user_id")
-	reactions := recordSliceValue(message["reactions"])
-	next := []map[string]any{}
+	foundCurrent := false
 	removed := false
-	for _, reaction := range reactions {
-		if stringValue(reaction["name"]) != name {
-			next = append(next, reaction)
-			continue
+	_, updated := s.store.Messages.UpdateFunc(intField(message, "id"), func(current corestore.Record) (corestore.Record, bool) {
+		if stringField(current, "channel_id") != channelID || stringField(current, "ts") != timestamp {
+			return nil, false
 		}
-		users := stringSliceValue(reaction["users"])
-		if !containsString(users, userID) {
-			next = append(next, reaction)
-			continue
+		foundCurrent = true
+		reactions := recordSliceValue(current["reactions"])
+		next := []map[string]any{}
+		for _, reaction := range reactions {
+			if stringValue(reaction["name"]) != name {
+				next = append(next, reaction)
+				continue
+			}
+			users := stringSliceValue(reaction["users"])
+			if !containsString(users, userID) {
+				next = append(next, reaction)
+				continue
+			}
+			removed = true
+			users = removeString(users, userID)
+			if len(users) > 0 {
+				reaction["users"] = users
+				reaction["count"] = len(users)
+				next = append(next, reaction)
+			}
 		}
-		removed = true
-		users = removeString(users, userID)
-		if len(users) > 0 {
-			reaction["users"] = users
-			reaction["count"] = len(users)
-			next = append(next, reaction)
+		if !removed {
+			return nil, false
 		}
+		return corestore.Record{"reactions": next}, true
+	})
+	if !foundCurrent {
+		slackError(c, "message_not_found")
+		return
 	}
 	if !removed {
 		slackError(c, "no_reaction")
 		return
 	}
-	s.store.Messages.Update(intField(message, "id"), corestore.Record{"reactions": next})
+	if !updated {
+		slackError(c, "message_not_found")
+		return
+	}
 	slackOK(c, map[string]any{})
 }
 

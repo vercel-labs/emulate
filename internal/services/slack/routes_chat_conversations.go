@@ -317,13 +317,18 @@ func (s *Service) incrementThreadReply(channelID string, threadTS string, userID
 	if parent == nil {
 		return
 	}
-	replyUsers := stringSliceValue(parent["reply_users"])
-	if !containsString(replyUsers, userID) {
-		replyUsers = append(replyUsers, userID)
-	}
-	s.store.Messages.Update(intField(parent, "id"), corestore.Record{
-		"reply_count": intField(parent, "reply_count") + 1,
-		"reply_users": replyUsers,
+	s.store.Messages.UpdateFunc(intField(parent, "id"), func(current corestore.Record) (corestore.Record, bool) {
+		if stringField(current, "channel_id") != channelID || stringField(current, "ts") != threadTS {
+			return nil, false
+		}
+		replyUsers := stringSliceValue(current["reply_users"])
+		if !containsString(replyUsers, userID) {
+			replyUsers = append(replyUsers, userID)
+		}
+		return corestore.Record{
+			"reply_count": intField(current, "reply_count") + 1,
+			"reply_users": replyUsers,
+		}, true
 	})
 }
 

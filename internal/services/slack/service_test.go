@@ -2,10 +2,12 @@ package slack
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
@@ -124,6 +126,119 @@ func TestSlackChatConversationsAndReactions(t *testing.T) {
 	getReaction := slackRequest(handler, http.MethodPost, "/api/reactions.get", `{"channel":"C000000001","timestamp":"`+posted.TS+`"}`, true)
 	if !strings.Contains(getReaction.Body.String(), `"name":"thumbsup"`) {
 		t.Fatalf("reaction missing: %s", getReaction.Body.String())
+	}
+}
+
+func TestSlackThreadReplyCountHandlesConcurrentReplies(t *testing.T) {
+	service, handler := newSlackTestService()
+
+	post := slackRequest(handler, http.MethodPost, "/api/chat.postMessage", `{"channel":"general","text":"parent"}`, true)
+	var posted struct {
+		OK bool   `json:"ok"`
+		TS string `json:"ts"`
+	}
+	mustDecodeSlackJSON(t, post.Body.Bytes(), &posted)
+	if !posted.OK || posted.TS == "" {
+		t.Fatalf("unexpected post body: %#v", posted)
+	}
+
+	const replies = 50
+	errCh := make(chan string, replies)
+	var wg sync.WaitGroup
+	for index := 0; index < replies; index++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			res := slackRequest(handler, http.MethodPost, "/api/chat.postMessage", fmt.Sprintf(`{"channel":"C000000001","text":"reply %d","thread_ts":"%s"}`, index, posted.TS), true)
+			if !strings.Contains(res.Body.String(), `"ok":true`) {
+				errCh <- fmt.Sprintf("reply %d failed: %s", index, res.Body.String())
+			}
+		}(index)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	if t.Failed() {
+		return
+	}
+
+	parent := service.findMessage("C000000001", posted.TS)
+	if parent == nil || intField(parent, "reply_count") != replies {
+		t.Fatalf("unexpected parent after replies: %#v", parent)
+	}
+	replyUsers := stringSliceValue(parent["reply_users"])
+	if len(replyUsers) != 1 || replyUsers[0] != "U000000001" {
+		t.Fatalf("unexpected reply users: %#v", replyUsers)
+	}
+}
+
+func TestSlackReactionsHandleConcurrentDistinctUsers(t *testing.T) {
+	service, handler := newSlackTestService()
+
+	const reactors = 40
+	tokens := make([]string, 0, reactors)
+	for index := 0; index < reactors; index++ {
+		userID := fmt.Sprintf("UCONC%06d", index)
+		token := fmt.Sprintf("xoxb-concurrent-%d", index)
+		tokens = append(tokens, token)
+		service.store.Users.Insert(userRecord(userInput{
+			UserID:   userID,
+			TeamID:   "T000000001",
+			Name:     fmt.Sprintf("reactor%d", index),
+			RealName: fmt.Sprintf("Reactor %d", index),
+			Email:    fmt.Sprintf("reactor%d@example.com", index),
+		}))
+		service.store.Tokens.Insert(corestore.Record{
+			"token":  token,
+			"login":  userID,
+			"scopes": []string{"reactions:write"},
+		})
+	}
+
+	post := slackRequest(handler, http.MethodPost, "/api/chat.postMessage", `{"channel":"general","text":"react here"}`, true)
+	var posted struct {
+		OK bool   `json:"ok"`
+		TS string `json:"ts"`
+	}
+	mustDecodeSlackJSON(t, post.Body.Bytes(), &posted)
+	if !posted.OK || posted.TS == "" {
+		t.Fatalf("unexpected post body: %#v", posted)
+	}
+
+	errCh := make(chan string, reactors)
+	var wg sync.WaitGroup
+	for index, token := range tokens {
+		wg.Add(1)
+		go func(index int, token string) {
+			defer wg.Done()
+			res := slackRequestWithToken(handler, http.MethodPost, "/api/reactions.add", fmt.Sprintf(`{"channel":"C000000001","timestamp":"%s","name":"eyes"}`, posted.TS), token)
+			if !strings.Contains(res.Body.String(), `"ok":true`) {
+				errCh <- fmt.Sprintf("reaction %d failed: %s", index, res.Body.String())
+			}
+		}(index, token)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	if t.Failed() {
+		return
+	}
+
+	message := service.findMessage("C000000001", posted.TS)
+	if message == nil {
+		t.Fatal("posted message missing")
+	}
+	reactions := recordSliceValue(message["reactions"])
+	if len(reactions) != 1 || stringValue(reactions[0]["name"]) != "eyes" || intField(reactions[0], "count") != reactors {
+		t.Fatalf("unexpected reactions: %#v", reactions)
+	}
+	users := stringSliceValue(reactions[0]["users"])
+	if len(users) != reactors {
+		t.Fatalf("unexpected reaction users: %#v", users)
 	}
 }
 
@@ -320,6 +435,14 @@ func newSlackTestService() (*Service, http.Handler) {
 }
 
 func slackRequest(handler http.Handler, method string, path string, body string, auth bool) *httptest.ResponseRecorder {
+	token := ""
+	if auth {
+		token = "xoxb-test-token"
+	}
+	return slackRequestWithToken(handler, method, path, body, token)
+}
+
+func slackRequestWithToken(handler http.Handler, method string, path string, body string, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, "http://localhost:4018"+path, strings.NewReader(body))
 	if body != "" {
 		if strings.Contains(body, "=") && !strings.HasPrefix(strings.TrimSpace(body), "{") {
@@ -328,8 +451,8 @@ func slackRequest(handler http.Handler, method string, path string, body string,
 			req.Header.Set("Content-Type", "application/json")
 		}
 	}
-	if auth {
-		req.Header.Set("Authorization", "Bearer xoxb-test-token")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)

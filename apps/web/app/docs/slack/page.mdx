@@ -1,8 +1,8 @@
 # Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. In embedded JavaScript mode, state changes also dispatch `event_callback` payloads to configured webhook URLs.
 
-The native Go runtime implements the Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. To expose Slack on a Vercel preview without separate infrastructure, run:
+The native Go runtime implements the Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. It stores message and reaction state but does not deliver outbound Slack Events API callbacks yet. To expose Slack on a Vercel preview without separate infrastructure, run:
 
 ```bash
 npx emulate vercel init --service slack
@@ -63,7 +63,7 @@ The generated route serves Slack at `/emulate/slack/*`.
 
 ## Event Dispatching
 
-When messages are posted or reactions change, the emulator dispatches `event_callback` payloads to configured webhook URLs matching Slack's Events API format:
+In embedded JavaScript mode, when messages are posted or reactions change, the emulator dispatches `event_callback` payloads to configured webhook URLs matching Slack's Events API format:
 
 - `message` events on `chat.postMessage`, `chat.update`, `chat.delete`
 - `reaction_added` / `reaction_removed` events on `reactions.add` / `reactions.remove`
