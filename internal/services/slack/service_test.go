@@ -47,6 +47,19 @@ func TestSlackAuthTeamAndUsers(t *testing.T) {
 	if !lookup.OK || lookup.User.ID != "U000000001" || lookup.User.Profile.Email != "admin@emulate.dev" {
 		t.Fatalf("unexpected lookup body: %#v", lookup)
 	}
+
+	res = slackRequest(handler, http.MethodPost, "/api/bots.info", `{"bot":"B000000001"}`, true)
+	var botInfo struct {
+		OK  bool `json:"ok"`
+		Bot struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"bot"`
+	}
+	mustDecodeSlackJSON(t, res.Body.Bytes(), &botInfo)
+	if !botInfo.OK || botInfo.Bot.ID != "B000000001" || botInfo.Bot.Name == "" {
+		t.Fatalf("unexpected bot info body: %#v", botInfo)
+	}
 }
 
 func TestSlackChatConversationsAndReactions(t *testing.T) {
@@ -193,8 +206,24 @@ func TestSlackOAuthFlow(t *testing.T) {
 		t.Fatalf("unexpected callback location: %s", callback.Header().Get("Location"))
 	}
 
-	token := slackRequest(handler, http.MethodPost, "/api/oauth.v2.access", "code="+code+"&client_id=12345.67890&client_secret=test-secret", false)
-	token.Header().Set("Content-Type", "application/x-www-form-urlencoded")
+	wrongRedirect := slackRequest(handler, http.MethodPost, "/api/oauth.v2.access", url.Values{
+		"code":          {code},
+		"client_id":     {"12345.67890"},
+		"client_secret": {"test-secret"},
+		"redirect_uri":  {"http://localhost:3000/wrong"},
+	}.Encode(), false)
+	var wrongRedirectBody map[string]any
+	mustDecodeSlackJSON(t, wrongRedirect.Body.Bytes(), &wrongRedirectBody)
+	if wrongRedirectBody["ok"] != false || wrongRedirectBody["error"] != "invalid_code" {
+		t.Fatalf("unexpected wrong redirect body: %#v", wrongRedirectBody)
+	}
+
+	token := slackRequest(handler, http.MethodPost, "/api/oauth.v2.access", url.Values{
+		"code":          {code},
+		"client_id":     {"12345.67890"},
+		"client_secret": {"test-secret"},
+		"redirect_uri":  {"http://localhost:3000/callback"},
+	}.Encode(), false)
 	var tokenBody struct {
 		OK          bool   `json:"ok"`
 		AccessToken string `json:"access_token"`
@@ -229,6 +258,25 @@ func TestSlackIncomingWebhookAndInspector(t *testing.T) {
 	}
 }
 
+func TestSlackIncomingWebhookRejectsInvalidPathSecrets(t *testing.T) {
+	service, handler := newSlackTestService()
+
+	for _, path := range []string{
+		"/services/T000000001/B000000001/not-real",
+		"/services/T000000001/B999999999/X000000001",
+		"/services/T999999999/B000000001/X000000001",
+	} {
+		res := slackRequest(handler, http.MethodPost, path, `{"text":"should not post","channel":"general"}`, false)
+		if res.Code != http.StatusNotFound || res.Body.String() != "no_service" {
+			t.Fatalf("%s status = %d body = %s", path, res.Code, res.Body.String())
+		}
+	}
+
+	if service.store.Messages.Count() != 0 {
+		t.Fatalf("invalid webhook paths stored messages: %#v", service.store.Messages.All())
+	}
+}
+
 func TestSlackSeedFromConfig(t *testing.T) {
 	store := corestore.New()
 	service := New(Options{
@@ -251,7 +299,7 @@ func TestSlackSeedFromConfig(t *testing.T) {
 	if stringField(team, "name") != "Acme Corp" || stringField(team, "domain") != "acme" {
 		t.Fatalf("unexpected team: %#v", team)
 	}
-	if service.store.Users.Count() != 3 || service.store.Channels.Count() != 4 || service.store.Bots.Count() != 1 || service.store.OAuthApps.Count() != 1 {
+	if service.store.Users.Count() != 3 || service.store.Channels.Count() != 4 || service.store.Bots.Count() != 2 || service.store.OAuthApps.Count() != 1 {
 		t.Fatalf("unexpected seeded counts: users=%d channels=%d bots=%d oauth=%d", service.store.Users.Count(), service.store.Channels.Count(), service.store.Bots.Count(), service.store.OAuthApps.Count())
 	}
 	secret := firstRecord(service.store.Channels.FindBy("name", "secret"))

@@ -126,6 +126,7 @@ func (s *Service) handleOAuthAccess(c *corehttp.Context) {
 	codeValue := stringValue(body["code"])
 	clientID := stringValue(body["client_id"])
 	clientSecret := stringValue(body["client_secret"])
+	redirectURI := stringValue(body["redirect_uri"])
 	if s.store.OAuthApps.Count() > 0 {
 		app := firstRecord(s.store.OAuthApps.FindBy("client_id", clientID))
 		if app == nil || !constantTimeEqual(clientSecret, stringField(app, "client_secret")) {
@@ -142,6 +143,10 @@ func (s *Service) handleOAuthAccess(c *corehttp.Context) {
 		return
 	}
 	if stringField(code, "client_id") != "" && clientID != "" && stringField(code, "client_id") != clientID {
+		slackError(c, "invalid_code")
+		return
+	}
+	if pendingRedirectURI := stringField(code, "redirect_uri"); pendingRedirectURI != "" && redirectURI != "" && redirectURI != pendingRedirectURI {
 		slackError(c, "invalid_code")
 		return
 	}

@@ -155,6 +155,12 @@ func (s *Service) SeedDefaults() {
 		"login":  userID,
 		"scopes": []string{"chat:write", "channels:read", "users:read", "reactions:write"},
 	})
+	s.store.Bots.Insert(corestore.Record{
+		"bot_id":  "B000000001",
+		"name":    "emulate-bot",
+		"deleted": false,
+		"icons":   map[string]any{"image_48": ""},
+	})
 	s.store.IncomingWebhooks.Insert(corestore.Record{
 		"token":           "X000000001",
 		"team_id":         teamID,
@@ -236,17 +242,28 @@ func (s *Service) SeedFromConfig(config SeedConfig) {
 		}))
 	}
 
+	preferredBotID := ""
 	for _, bot := range config.Bots {
 		name := strings.TrimSpace(bot.Name)
-		if name == "" || s.findBotByName(name) != nil {
+		if name == "" {
 			continue
 		}
+		if existing := s.findBotByName(name); existing != nil {
+			if preferredBotID == "" {
+				preferredBotID = stringField(existing, "bot_id")
+			}
+			continue
+		}
+		botID := generateSlackID("B")
 		s.store.Bots.Insert(corestore.Record{
-			"bot_id":  generateSlackID("B"),
+			"bot_id":  botID,
 			"name":    name,
 			"deleted": false,
 			"icons":   map[string]any{"image_48": ""},
 		})
+		if preferredBotID == "" {
+			preferredBotID = botID
+		}
 	}
 
 	for _, app := range config.OAuthApps {
@@ -261,9 +278,19 @@ func (s *Service) SeedFromConfig(config SeedConfig) {
 		})
 	}
 
-	botID := "B000000001"
-	if bot := firstRecord(s.store.Bots.All()); bot != nil {
-		botID = stringField(bot, "bot_id")
+	botID := preferredBotID
+	if botID == "" {
+		if bot := firstRecord(s.store.Bots.FindBy("bot_id", "B000000001")); bot != nil {
+			botID = stringField(bot, "bot_id")
+		}
+	}
+	if botID == "" {
+		if bot := firstRecord(s.store.Bots.All()); bot != nil {
+			botID = stringField(bot, "bot_id")
+		}
+	}
+	if botID == "" {
+		botID = "B000000001"
 	}
 	for _, webhook := range config.IncomingWebhooks {
 		channel := strings.TrimSpace(webhook.Channel)

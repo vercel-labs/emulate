@@ -37,11 +37,15 @@ func (s *Service) handleIncomingWebhook(c *corehttp.Context) {
 	channelName := stringValue(body["channel"])
 	threadTS := stringValue(body["thread_ts"])
 	webhook := firstRecord(s.store.IncomingWebhooks.FindBy("token", c.Param("token")))
+	if webhook == nil || stringField(webhook, "team_id") != c.Param("teamId") || stringField(webhook, "bot_id") != c.Param("botId") {
+		c.Text(http.StatusNotFound, "no_service")
+		return
+	}
 	var channel corestore.Record
 	if channelName != "" {
 		channel = s.findChannel(channelName)
 	}
-	if channel == nil && webhook != nil {
+	if channel == nil {
 		channel = s.findChannel(stringField(webhook, "default_channel"))
 	}
 	if channel == nil {
