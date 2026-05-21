@@ -175,8 +175,8 @@ func (h *Handler) putRule(ctx gateway.AwsRequestContext, requestID string) proto
 	if state == "" {
 		state = "ENABLED"
 	}
-	if state != "ENABLED" && state != "DISABLED" {
-		return h.validation("State must be ENABLED or DISABLED.", requestID)
+	if state != "ENABLED" && state != "DISABLED" && state != "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS" {
+		return h.validation("State must be ENABLED, DISABLED, or ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS.", requestID)
 	}
 	arn := ruleARN(h.region(ctx), h.accountID(ctx), busName, name)
 	record := corestore.Record{
@@ -195,6 +195,7 @@ func (h *Handler) putRule(ctx gateway.AwsRequestContext, requestID string) proto
 		"event_pattern_parsed": parsePattern(eventPattern),
 	}
 	if existing, ok := h.findRule(ctx, busName, name); ok {
+		record["tags"] = recordList(existing["tags"])
 		h.EventRules.Update(intField(existing, "id"), record)
 	} else {
 		h.EventRules.Insert(record)
@@ -337,6 +338,9 @@ func (h *Handler) putEvents(ctx gateway.AwsRequestContext, requestID string) pro
 	if len(entries) == 0 {
 		return h.validation("Entries is required.", requestID)
 	}
+	if len(entries) > 10 {
+		return h.validation("Entries can contain at most 10 items.", requestID)
+	}
 	out := make([]map[string]any, 0, len(entries))
 	failed := 0
 	for _, entry := range entries {
@@ -346,7 +350,14 @@ func (h *Handler) putEvents(ctx gateway.AwsRequestContext, requestID string) pro
 			out = append(out, map[string]any{"ErrorCode": "ResourceNotFoundException", "ErrorMessage": "Event bus " + busName + " does not exist."})
 			continue
 		}
+		source := stringValue(entry["Source"])
+		detailType := stringValue(entry["DetailType"])
 		detailText := stringValue(entry["Detail"])
+		if strings.TrimSpace(source) == "" || strings.TrimSpace(detailType) == "" || strings.TrimSpace(detailText) == "" {
+			failed++
+			out = append(out, map[string]any{"ErrorCode": "InvalidArgument", "ErrorMessage": "Detail, DetailType, and Source are required."})
+			continue
+		}
 		detail, ok := parseDetail(detailText)
 		if !ok {
 			failed++
@@ -357,8 +368,8 @@ func (h *Handler) putEvents(ctx gateway.AwsRequestContext, requestID string) pro
 		event := map[string]any{
 			"version":     "0",
 			"id":          eventID,
-			"detail-type": stringValue(entry["DetailType"]),
-			"source":      stringValue(entry["Source"]),
+			"detail-type": detailType,
+			"source":      source,
 			"account":     h.accountID(ctx),
 			"time":        eventTime(entry["Time"], h.now()).UTC().Format(time.RFC3339),
 			"region":      h.region(ctx),
@@ -672,6 +683,9 @@ func (h *Handler) collectionForResource(record corestore.Record) *corestore.Coll
 }
 
 func matchesPattern(rule corestore.Record, event map[string]any) bool {
+	if strings.TrimSpace(stringField(rule, "event_pattern")) == "" {
+		return false
+	}
 	pattern := mapField(rule, "event_pattern_parsed")
 	if len(pattern) == 0 {
 		return true

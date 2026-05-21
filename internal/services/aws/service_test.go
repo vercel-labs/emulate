@@ -1336,6 +1336,139 @@ func TestServiceHandlesEventBridgeCustomBusTagsAndSNSTarget(t *testing.T) {
 	}
 }
 
+func TestServiceDoesNotDeliverEventBridgePutEventsToScheduleOnlyRule(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=eventbridge-scheduled")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	values := url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":               "scheduled",
+		"ScheduleExpression": "rate(5 minutes)",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put scheduled rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutTargets", map[string]any{
+		"Rule":    "scheduled",
+		"Targets": []map[string]any{{"Id": "queue", "Arn": queueARN}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put scheduled target status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{{
+			"Source":     "app.timer",
+			"DetailType": "Tick",
+			"Detail":     `{"id":"tick_1"}`,
+		}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put events status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "1")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "<Message>") {
+		t.Fatalf("schedule-only rule received a PutEvents delivery: %s", res.Body.String())
+	}
+}
+
+func TestServicePreservesEventBridgeRuleTagsOnPutRuleUpdate(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":         "tagged",
+		"EventPattern": `{}`,
+		"Tags":         []map[string]any{{"Key": "env", "Value": "initial"}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var created struct {
+		RuleArn string
+	}
+	decodeJSONBody(t, res, &created)
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":         "tagged",
+		"EventPattern": `{"source":["app.updated"]}`,
+		"Tags":         []map[string]any{{"Key": "env", "Value": "changed"}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("update rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "ListTagsForResource", map[string]any{"ResourceARN": created.RuleArn})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"Value":"initial"`) || strings.Contains(res.Body.String(), `"Value":"changed"`) {
+		t.Fatalf("rule tags were not preserved on update: status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceAcceptsEventBridgeCloudTrailManagementState(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":         "cloudtrail",
+		"EventPattern": `{}`,
+		"State":        "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "DescribeRule", map[string]any{"Name": "cloudtrail"})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"State":"ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"`) {
+		t.Fatalf("describe rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceValidatesEventBridgePutEventsEntries(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{{
+			"Source":     "app.missing",
+			"DetailType": "MissingDetail",
+		}},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"FailedEntryCount":1`) || !strings.Contains(res.Body.String(), "Detail, DetailType, and Source are required") {
+		t.Fatalf("missing detail status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	entries := make([]map[string]any, 11)
+	for i := range entries {
+		entries[i] = map[string]any{
+			"Source":     "app.batch",
+			"DetailType": "Batch",
+			"Detail":     `{}`,
+		}
+	}
+	res = executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{"Entries": entries})
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "ValidationException") {
+		t.Fatalf("oversized batch status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestServiceReturnsEventBridgeModeledErrors(t *testing.T) {
 	handler := newTestHandler()
 
