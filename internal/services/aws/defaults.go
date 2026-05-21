@@ -56,14 +56,16 @@ func seedSQSDefaults(store Store, baseURL string, accountID string, region strin
 }
 
 func seedEventBridgeDefaults(store Store, accountID string, region string) {
-	if len(store.EventBuses.FindBy("name", "default")) > 0 {
-		return
-	}
 	if accountID == "" {
 		accountID = gateway.DefaultAccountID
 	}
 	if region == "" {
 		region = gateway.DefaultRegion
+	}
+	for _, bus := range store.EventBuses.FindBy("name", "default") {
+		if stringRecordField(bus, "account_id") == accountID && stringRecordField(bus, "region") == region {
+			return
+		}
 	}
 	store.EventBuses.Insert(corestore.Record{
 		"account_id": accountID,

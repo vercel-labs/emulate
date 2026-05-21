@@ -129,6 +129,7 @@ func (h *Handler) deleteEventBus(ctx gateway.AwsRequestContext, requestID string
 }
 
 func (h *Handler) listEventBuses(ctx gateway.AwsRequestContext, _ string) protocols.ErrorResponse {
+	h.ensureDefaultBus(ctx)
 	prefix := stringInput(ctx.Input, "NamePrefix")
 	buses := []corestore.Record{}
 	for _, bus := range h.EventBuses.All() {
@@ -345,6 +346,9 @@ func (h *Handler) putEvents(ctx gateway.AwsRequestContext, requestID string) pro
 	failed := 0
 	for _, entry := range entries {
 		busName := busNameFromInput(firstNonEmpty(stringValue(entry["EventBusName"]), "default"))
+		if busName == "default" {
+			h.ensureDefaultBus(ctx)
+		}
 		if _, ok := h.findBus(ctx, busName); !ok {
 			failed++
 			out = append(out, map[string]any{"ErrorCode": "ResourceNotFoundException", "ErrorMessage": "Event bus " + busName + " does not exist."})
@@ -586,6 +590,9 @@ func (h *Handler) requireBus(ctx gateway.AwsRequestContext, name string, request
 	}
 	bus, ok := h.findBus(ctx, name)
 	if !ok {
+		if name == "default" {
+			return h.insertDefaultBus(ctx), protocols.ErrorResponse{}, true
+		}
 		return nil, h.notFound("Event bus "+name+" does not exist.", requestID), false
 	}
 	return bus, protocols.ErrorResponse{}, true
@@ -611,6 +618,23 @@ func (h *Handler) findBus(ctx gateway.AwsRequestContext, name string) (corestore
 		}
 	}
 	return nil, false
+}
+
+func (h *Handler) ensureDefaultBus(ctx gateway.AwsRequestContext) corestore.Record {
+	if bus, ok := h.findBus(ctx, "default"); ok {
+		return bus
+	}
+	return h.insertDefaultBus(ctx)
+}
+
+func (h *Handler) insertDefaultBus(ctx gateway.AwsRequestContext) corestore.Record {
+	return h.EventBuses.Insert(corestore.Record{
+		"account_id": h.accountID(ctx),
+		"region":     h.region(ctx),
+		"name":       "default",
+		"arn":        busARN(h.region(ctx), h.accountID(ctx), "default"),
+		"tags":       []corestore.Record{},
+	})
 }
 
 func (h *Handler) findRule(ctx gateway.AwsRequestContext, busName string, ruleName string) (corestore.Record, bool) {
@@ -661,6 +685,9 @@ func (h *Handler) deleteRuleTargets(ctx gateway.AwsRequestContext, busName strin
 func (h *Handler) requireTaggableResource(ctx gateway.AwsRequestContext, arn string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
 	if arn == "" {
 		return nil, h.validation("ResourceARN is required.", requestID), false
+	}
+	if arn == busARN(h.region(ctx), h.accountID(ctx), "default") {
+		h.ensureDefaultBus(ctx)
 	}
 	for _, bus := range h.EventBuses.FindBy("arn", arn) {
 		if h.sameScope(ctx, bus) {

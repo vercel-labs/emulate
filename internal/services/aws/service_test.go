@@ -1582,6 +1582,40 @@ func TestServiceScopesEventBridgeTargetsByAccount(t *testing.T) {
 	}
 }
 
+func TestServiceProvidesEventBridgeDefaultBusPerAccount(t *testing.T) {
+	handler := newTestHandlerWithCredentialStore(auth.NewStore(
+		auth.Credential{AccessKeyID: "AKIAEVENTSA", AccountID: "111111111111", PrincipalARN: "arn:aws:iam::111111111111:user/a"},
+		auth.Credential{AccessKeyID: "AKIAEVENTSB", AccountID: "222222222222", PrincipalARN: "arn:aws:iam::222222222222:user/b"},
+	))
+
+	for _, test := range []struct {
+		accessKeyID string
+		accountID   string
+	}{
+		{accessKeyID: "AKIAEVENTSA", accountID: "111111111111"},
+		{accessKeyID: "AKIAEVENTSB", accountID: "222222222222"},
+	} {
+		res := executeAWSEventBridgeRequestWithAccessKey(t, handler, "PutRule", map[string]any{
+			"Name":         "default-rule",
+			"EventPattern": `{}`,
+		}, test.accessKeyID)
+		if res.Code != http.StatusOK {
+			t.Fatalf("put default rule for %s status = %d, body = %s", test.accountID, res.Code, res.Body.String())
+		}
+		if !strings.Contains(res.Body.String(), `"RuleArn":"arn:aws:events:us-east-1:`+test.accountID+`:rule/default-rule"`) {
+			t.Fatalf("put default rule for %s returned wrong ARN: %s", test.accountID, res.Body.String())
+		}
+
+		res = executeAWSEventBridgeRequestWithAccessKey(t, handler, "ListEventBuses", map[string]any{}, test.accessKeyID)
+		if res.Code != http.StatusOK {
+			t.Fatalf("list buses for %s status = %d, body = %s", test.accountID, res.Code, res.Body.String())
+		}
+		if !strings.Contains(res.Body.String(), `"Arn":"arn:aws:events:us-east-1:`+test.accountID+`:event-bus/default"`) {
+			t.Fatalf("list buses for %s missing scoped default bus: %s", test.accountID, res.Body.String())
+		}
+	}
+}
+
 func TestServiceHandlesSNSTagsPermissionsAndErrors(t *testing.T) {
 	handler := newTestHandler()
 
