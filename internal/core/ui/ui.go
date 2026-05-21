@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
@@ -33,6 +34,24 @@ type UserButtonOptions struct {
 	Email        string
 	FormAction   string
 	HiddenFields map[string]string
+}
+
+type CheckoutLineItem struct {
+	Name       string
+	Quantity   int
+	UnitPrice  int
+	TotalPrice int
+	Currency   string
+}
+
+type CheckoutPageOptions struct {
+	MerchantName string
+	LineItems    []CheckoutLineItem
+	Subtotal     int
+	Total        int
+	Currency     string
+	SessionID    string
+	CancelURL    string
 }
 
 func EscapeHTML(value string) string {
@@ -142,6 +161,97 @@ func RenderFormPostPage(action string, fields map[string]string, opts PageOption
 </div>
 ` + poweredBy + `
 </body></html>`
+}
+
+func RenderCheckoutPage(opts CheckoutPageOptions, pageOpts PageOptions) string {
+	itemsHTML := `<p class="empty">No line items</p>`
+	if len(opts.LineItems) > 0 {
+		var items strings.Builder
+		for _, item := range opts.LineItems {
+			initial := "?"
+			if item.Name != "" {
+				initial = strings.ToUpper(item.Name[:1])
+			}
+			unitNote := ""
+			if item.Quantity > 1 {
+				unitNote = `<div class="checkout-item-unit">` + formatShortMoney(item.UnitPrice) + ` each</div>`
+			}
+			items.WriteString(`<div class="checkout-line-item">
+  <div class="checkout-item-icon">` + EscapeHTML(initial) + `</div>
+  <div class="checkout-item-details">
+    <div class="checkout-item-name">` + EscapeHTML(item.Name) + `</div>
+    <div class="checkout-item-qty">Qty ` + strconv.Itoa(item.Quantity) + `</div>
+  </div>
+  <div>
+    <div class="checkout-item-price">` + formatShortMoney(item.TotalPrice) + `</div>
+    ` + unitNote + `
+  </div>
+</div>`)
+		}
+		itemsHTML = items.String()
+	}
+	cancelHTML := ""
+	if opts.CancelURL != "" {
+		cancelHTML = `<div class="checkout-cancel"><a href="` + EscapeAttr(opts.CancelURL) + `">Cancel</a></div>`
+	}
+	merchant := opts.MerchantName
+	if merchant == "" {
+		merchant = "Checkout"
+	}
+	return head("Checkout", pageOpts) + `<body>
+` + emuBar(pageOpts) + `
+<div class="checkout-layout">
+  <div class="checkout-summary">
+    <div class="checkout-merchant">
+      <span class="checkout-merchant-name">` + EscapeHTML(merchant) + `</span>
+      <span class="checkout-test-badge">Test Mode</span>
+    </div>
+    <div class="checkout-total">` + formatShortMoney(opts.Total) + `</div>
+    ` + itemsHTML + `
+    <div class="checkout-totals">
+      <div class="checkout-totals-row">
+        <span>Subtotal</span><span>` + formatShortMoney(opts.Subtotal) + `</span>
+      </div>
+      <div class="checkout-totals-row total">
+        <span>Total due</span><span>` + formatMoney(opts.Total, opts.Currency) + `</span>
+      </div>
+    </div>
+  </div>
+  <div class="checkout-form-side">
+    <form method="post" action="/checkout/` + EscapeAttr(opts.SessionID) + `/complete">
+      <div class="checkout-form-section">
+        <label class="checkout-form-label">Email</label>
+        <input type="email" name="email" class="checkout-input" placeholder="you@example.com"/>
+      </div>
+      <div class="checkout-form-section">
+        <label class="checkout-form-label">Card information</label>
+        <div class="checkout-card-box">
+          <input type="text" class="checkout-input" placeholder="1234 1234 1234 1234" disabled/>
+          <div class="checkout-card-row">
+            <input type="text" class="checkout-input" placeholder="MM / YY" disabled/>
+            <input type="text" class="checkout-input" placeholder="CVC" disabled/>
+          </div>
+        </div>
+        <div class="checkout-sim-note">Card fields are simulated. Payment will be auto-approved.</div>
+      </div>
+      <button type="submit" class="checkout-pay-btn">Pay ` + formatShortMoney(opts.Total) + `</button>
+    </form>
+    ` + cancelHTML + `
+  </div>
+</div>
+` + poweredBy + `
+</body></html>`
+}
+
+func formatShortMoney(cents int) string {
+	return "$" + strconv.FormatFloat(float64(cents)/100, 'f', 2, 64)
+}
+
+func formatMoney(cents int, currency string) string {
+	if currency == "" {
+		currency = "usd"
+	}
+	return formatShortMoney(cents) + " " + strings.ToUpper(currency)
 }
 
 func RenderUserButton(opts UserButtonOptions) string {
@@ -299,6 +409,39 @@ body{font-family:'Geist',-apple-system,BlinkMacSystemFont,sans-serif;background:
 .inspector-empty{color:#1a8c00;text-align:center;padding:20px 0;font-size:.8125rem;}
 .email-preview-frame{width:100%;min-height:300px;border:1px solid #0a3300;border-radius:8px;background:#fff;}
 .email-preview-text{white-space:pre-wrap;word-break:break-word;color:#33ff00;font:inherit;}
+.checkout-layout{display:flex;min-height:calc(100vh - 42px);}
+.checkout-summary{flex:1;background:#020;padding:48px 40px 48px 10%;display:flex;flex-direction:column;justify-content:center;border-right:1px solid #0a3300;}
+.checkout-form-side{flex:1;background:#000;padding:48px 10% 48px 40px;display:flex;flex-direction:column;justify-content:center;}
+.checkout-merchant{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.checkout-merchant-name{font-family:'Geist Pixel',monospace;font-size:.9375rem;font-weight:600;color:#33ff00;}
+.checkout-test-badge{font-size:.625rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:#0a3300;color:#1a8c00;padding:2px 8px;border-radius:4px;}
+.checkout-total{font-family:'Geist Pixel',monospace;font-size:2rem;font-weight:700;color:#33ff00;margin:8px 0 28px;}
+.checkout-line-item{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid #0a3300;}
+.checkout-line-item:first-child{border-top:1px solid #0a3300;}
+.checkout-item-icon{width:42px;height:42px;border-radius:6px;background:#0a3300;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'Geist Pixel',monospace;font-size:.875rem;font-weight:700;color:#116600;}
+.checkout-item-details{flex:1;min-width:0;}
+.checkout-item-name{font-size:.875rem;font-weight:600;color:#33ff00;}
+.checkout-item-qty{font-size:.75rem;color:#1a8c00;margin-top:2px;}
+.checkout-item-price{font-size:.875rem;font-weight:600;color:#33ff00;text-align:right;white-space:nowrap;}
+.checkout-item-unit{font-size:.6875rem;color:#1a8c00;text-align:right;margin-top:2px;}
+.checkout-totals{margin-top:20px;}
+.checkout-totals-row{display:flex;justify-content:space-between;padding:6px 0;font-size:.8125rem;color:#1a8c00;}
+.checkout-totals-row.total{border-top:1px solid #0a3300;margin-top:8px;padding-top:14px;font-size:.9375rem;font-weight:600;color:#33ff00;}
+.checkout-form-section{margin-bottom:24px;}
+.checkout-form-label{font-size:.8125rem;font-weight:600;color:#33ff00;margin-bottom:8px;display:block;}
+.checkout-input{width:100%;padding:10px 12px;border:1px solid #0a3300;border-radius:6px;background:#020;color:#33ff00;font:inherit;font-size:.875rem;transition:border-color .15s;outline:none;}
+.checkout-input:focus{border-color:#33ff00;}
+.checkout-input::placeholder{color:#116600;}
+.checkout-card-box{border:1px solid #0a3300;border-radius:6px;padding:14px;background:#020;}
+.checkout-card-row{display:flex;gap:12px;margin-top:10px;}
+.checkout-card-row .checkout-input{flex:1;}
+.checkout-sim-note{font-size:.6875rem;color:#1a8c00;margin-top:10px;text-align:center;font-style:italic;}
+.checkout-pay-btn{width:100%;padding:14px;border:none;border-radius:8px;background:#33ff00;color:#000;font:inherit;font-size:.9375rem;font-weight:700;cursor:pointer;transition:background .15s;font-family:'Geist Pixel',monospace;}
+.checkout-pay-btn:hover{background:#44ff22;}
+.checkout-cancel{text-align:center;margin-top:14px;}
+.checkout-cancel a{color:#1a8c00;text-decoration:none;font-size:.8125rem;transition:color .15s;}
+.checkout-cancel a:hover{color:#33ff00;}
+@media(max-width:768px){.checkout-layout{flex-direction:column;}.checkout-summary{padding:32px 20px;border-right:none;border-bottom:1px solid #0a3300;}.checkout-form-side{padding:32px 20px;}}
 `
 }
 

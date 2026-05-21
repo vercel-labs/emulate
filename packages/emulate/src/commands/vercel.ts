@@ -9,6 +9,7 @@ export const SUPPORTED_VERCEL_SERVICES = [
   "microsoft",
   "resend",
   "slack",
+  "stripe",
   "vercel",
 ] as const;
 export const DEFAULT_VERCEL_SERVICE_OPTION = SUPPORTED_VERCEL_SERVICES.join(",");

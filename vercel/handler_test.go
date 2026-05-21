@@ -35,7 +35,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "apple,aws,github,google,microsoft,resend,slack,vercel" {
+	if strings.Join(body.Services, ",") != "apple,aws,github,google,microsoft,resend,slack,stripe,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -187,6 +187,23 @@ func TestHandlerForwardsSlackService(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if !strings.Contains(res.Body.String(), `"team":"Emulate"`) || !strings.Contains(res.Body.String(), `"user_id":"U000000001"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestHandlerForwardsStripeService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"stripe"}})
+	req := newJSONRequest(http.MethodPost, "https://preview.example.com/emulate/stripe/v1/customers", `{"email":"preview@stripe.test"}`)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer sk_test_emulated")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"object":"customer"`) || !strings.Contains(res.Body.String(), `"email":"preview@stripe.test"`) {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

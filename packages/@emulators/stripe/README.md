@@ -1,8 +1,10 @@
 # @emulators/stripe
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery in embedded JavaScript mode.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
+
+The native Go runtime implements the Stripe API, seed config, payment state, and hosted checkout foundation for local CLI and Vercel Go Function previews. Native Stripe does not deliver outbound webhook callbacks yet. Use embedded JavaScript mode when a test needs webhook delivery.
 
 ## Install
 
@@ -57,7 +59,7 @@ npm install @emulators/stripe
 
 ## Webhooks
 
-Events are delivered to configured webhook URLs:
+In embedded JavaScript mode, events are delivered to configured webhook URLs:
 - `checkout.session.completed` — when a checkout session is completed
 - `checkout.session.expired` — when a checkout session expires
 
@@ -71,11 +73,9 @@ stripe:
   products:
     - name: Pro Plan
   prices:
-    - product: Pro Plan
+    - product_name: Pro Plan
       unit_amount: 2000
       currency: usd
-      recurring:
-        interval: month
 ```
 
 ## Links

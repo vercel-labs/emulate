@@ -753,6 +753,21 @@ To expose the native Resend emulator in a Vercel preview without separate infras
 - `POST /audiences/:audience_id/contacts`, `GET /audiences/:audience_id/contacts`, `DELETE /audiences/:audience_id/contacts/:id`
 - `GET /inbox`, `GET /inbox/:id`
 
+## Stripe
+
+Stripe API emulation with customers, products, prices, checkout sessions, payment intents, charges, payment methods, customer sessions, and a hosted checkout page.
+
+The native Go runtime implements the current high-value Stripe API and checkout routes for local CLI runs and Vercel Go Function previews. Native Stripe stores payment state and serves checkout pages, but outbound Stripe webhook delivery is still embedded JavaScript mode only. To expose Stripe on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service stripe`. The generated route serves Stripe at `/emulate/stripe/*`.
+
+- `POST /v1/customers`, `GET /v1/customers`, `GET /v1/customers/:id`, `POST /v1/customers/:id`, `DELETE /v1/customers/:id`
+- `GET /v1/payment_methods`, `POST /v1/customer_sessions`
+- `POST /v1/payment_intents`, `GET /v1/payment_intents`, `GET /v1/payment_intents/:id`, `POST /v1/payment_intents/:id`, `POST /v1/payment_intents/:id/confirm`, `POST /v1/payment_intents/:id/cancel`
+- `GET /v1/charges`, `GET /v1/charges/:id`
+- `POST /v1/products`, `GET /v1/products`, `GET /v1/products/:id`
+- `POST /v1/prices`, `GET /v1/prices`, `GET /v1/prices/:id`
+- `POST /v1/checkout/sessions`, `GET /v1/checkout/sessions`, `GET /v1/checkout/sessions/:id`, `POST /v1/checkout/sessions/:id/expire`
+- `GET /checkout/:id`, `POST /checkout/:id/complete`
+
 ## Next.js Integration
 
 Use `@emulators/adapter-next` to run emulator routes on the same origin as your Next.js app. Embedded mode runs JavaScript emulators directly in the app. Proxy mode forwards to a separately running native runtime.
@@ -771,7 +786,7 @@ This creates:
 - `vercel.json`, with `/emulate/:path*` rewritten to `/api/emulate?path=:path*`
 - `go.mod`, pinned to the installed `emulate` package version
 
-The scaffold currently enables the native `apple`, `aws`, `github`, `google`, `microsoft`, `resend`, `slack`, and `vercel` handlers. Use `npx emulate vercel init --service github` to limit the function to one service.
+The scaffold currently enables the native `apple`, `aws`, `github`, `google`, `microsoft`, `resend`, `slack`, `stripe`, and `vercel` handlers. Use `npx emulate vercel init --service github` to limit the function to one service.
 
 State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
@@ -812,7 +827,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 })
 ```
 
-Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `github`, `google`, `microsoft`, `resend`, `slack`, and `vercel` previews, use `npx emulate vercel init`.
+Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `github`, `google`, `microsoft`, `resend`, `slack`, `stripe`, and `vercel` previews, use `npx emulate vercel init`.
 
 ### Native runtime proxy
 

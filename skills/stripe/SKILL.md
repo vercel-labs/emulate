@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Stripe API Emulator
 
-Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. Webhooks fire on state changes. The hosted checkout UI lets you complete payments in the browser.
+Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. The hosted checkout UI lets you complete payments in the browser. Embedded JavaScript mode dispatches webhooks on state changes; the native Go runtime implements the API, payment state, seed config, and hosted checkout foundation, but does not deliver outbound webhook callbacks yet.
 
 No real payments are processed. Every Stripe SDK call hits the emulator and produces realistic responses.
 
@@ -28,6 +28,14 @@ import { createEmulator } from 'emulate'
 const stripe = await createEmulator({ service: 'stripe', port: 4000 })
 // stripe.url === 'http://localhost:4000'
 ```
+
+For a Vercel Go Function preview:
+
+```bash
+npx emulate vercel init --service stripe
+```
+
+Deploy the generated app to expose Stripe at `/emulate/stripe/*`.
 
 ## Pointing Your App at the Emulator
 
@@ -235,7 +243,7 @@ curl http://localhost:4000/v1/checkout/sessions
 curl -X POST http://localhost:4000/v1/checkout/sessions/cs_xxx/expire
 ```
 
-The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session, fires the `checkout.session.completed` webhook, and redirects to `success_url`. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
+The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session and redirects to `success_url`. In embedded JavaScript mode, it also fires the `checkout.session.completed` webhook. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
 
 ### Payment Intents
 
@@ -251,7 +259,7 @@ curl http://localhost:4000/v1/payment_intents/pi_xxx
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx \
   -d "amount=3000"
 
-# Confirm (triggers payment_intent.succeeded + charge.succeeded webhooks)
+# Confirm (embedded JavaScript mode also triggers payment_intent.succeeded + charge.succeeded webhooks)
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx/confirm
 
 # Cancel
@@ -290,7 +298,7 @@ curl http://localhost:4000/v1/payment_methods
 
 ## Webhooks
 
-The emulator dispatches webhook events when state changes. Register webhooks via seed config or programmatically.
+Embedded JavaScript mode dispatches webhook events when state changes. Register webhooks via seed config or programmatically. Native Go Stripe does not deliver outbound webhook callbacks yet.
 
 ### Events dispatched
 
@@ -379,7 +387,7 @@ const pi = await stripe.paymentIntents.create({
   customer: 'cus_xxx',
 })
 
-// Confirm triggers payment_intent.succeeded + charge.succeeded webhooks
+// Embedded JavaScript mode also dispatches payment_intent.succeeded + charge.succeeded webhooks.
 const confirmed = await stripe.paymentIntents.confirm(pi.id)
 console.log(confirmed.status) // 'succeeded'
 ```

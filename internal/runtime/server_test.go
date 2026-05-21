@@ -225,6 +225,36 @@ func TestNewHandlerDoesNotMountSlackWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestNewHandlerMountsStripeWhenEnabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"stripe"}, BaseURL: "http://localhost:4020"})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/customers", strings.NewReader(`{"email":"native@stripe.test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer sk_test_emulated")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"object":"customer"`) || !strings.Contains(res.Body.String(), `"email":"native@stripe.test"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
+func TestNewHandlerDoesNotMountStripeWhenDisabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"resend"}})
+
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/customers", strings.NewReader(`{"email":"native@stripe.test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestNewHandlerSlackDoesNotShadowAWSRootListBuckets(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"aws", "slack"}})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

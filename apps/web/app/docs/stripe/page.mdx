@@ -1,6 +1,14 @@
 # Stripe
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery in embedded JavaScript mode.
+
+The native Go runtime implements the Stripe API, seed config, payment state, and hosted checkout foundation for local CLI runs and Vercel Go Function previews. Native Stripe does not deliver outbound webhook callbacks yet. To expose Stripe on a Vercel preview without separate infrastructure, run:
+
+```bash
+npx emulate vercel init --service stripe
+```
+
+The generated route serves Stripe at `/emulate/stripe/*`.
 
 ## Customers
 
@@ -55,7 +63,7 @@ Stripe API emulation with customers, payment methods, customer sessions, payment
 
 ## Webhooks
 
-Events are delivered to configured webhook URLs:
+In embedded JavaScript mode, events are delivered to configured webhook URLs:
 
 - `checkout.session.completed` — when a checkout session is completed
 - `checkout.session.expired` — when a checkout session expires

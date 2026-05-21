@@ -15,6 +15,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/microsoft"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/slack"
+	"github.com/vercel-labs/emulate/internal/services/stripe"
 	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
 
@@ -32,6 +33,7 @@ type ServerOptions struct {
 	MicrosoftSeed *microsoft.SeedConfig
 	ResendSeed    *resend.SeedConfig
 	SlackSeed     *slack.SeedConfig
+	StripeSeed    *stripe.SeedConfig
 	VercelSeed    *vercel.SeedConfig
 }
 
@@ -114,6 +116,13 @@ func NewServer(options ServerOptions) *Server {
 			BaseURL:       options.BaseURL,
 			Seed:          options.SlackSeed,
 			RootInspector: len(services) == 1,
+		})
+	}
+	if serviceEnabled(services, "stripe") {
+		stripe.Register(router, stripe.Options{
+			Store:   runtimeStore,
+			BaseURL: options.BaseURL,
+			Seed:    options.StripeSeed,
 		})
 	}
 	if serviceEnabled(services, "vercel") {
