@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, and AWS. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, scaffold Vercel Go Function previews, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", "npx emulate vercel init", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, and Stripe. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, scaffold Vercel Go Function previews, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", "npx emulate vercel init", or any task requiring local service emulation.
 allowed-tools: Bash(npx emulate:*)
 ---
 
@@ -24,7 +24,10 @@ All services start with sensible defaults:
 | Slack     | 4003        |
 | Apple     | 4004        |
 | Microsoft | 4005        |
-| AWS       | 4006        |
+| Okta      | 4006        |
+| AWS       | 4007        |
+| Resend    | 4008        |
+| Stripe    | 4009        |
 
 ## CLI
 
@@ -93,7 +96,7 @@ await vercel.close()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, or `'stripe'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -310,14 +313,17 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 SLACK_EMULATOR_URL=http://localhost:4003
 APPLE_EMULATOR_URL=http://localhost:4004
 MICROSOFT_EMULATOR_URL=http://localhost:4005
-AWS_EMULATOR_URL=http://localhost:4006
+OKTA_EMULATOR_URL=http://localhost:4006
+AWS_EMULATOR_URL=http://localhost:4007
+RESEND_EMULATOR_URL=http://localhost:4008
+STRIPE_EMULATOR_URL=http://localhost:4009
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
 ## Next.js Integration
 
-The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. For native Go `apple`, `aws`, `github`, `google`, `microsoft`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, Vercel Go Function state behavior, persistence, font tracing, and `createEmulateProxy` details.
+The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. For native Go `apple`, `aws`, `github`, `google`, `microsoft`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, Vercel Go Function state behavior, persistence, font tracing, and `createEmulateProxy` details.
 
 ## Persistence
 

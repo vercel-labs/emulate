@@ -4,7 +4,7 @@ Sign in with Apple emulation with authorization code flow, PKCE support, RS256 I
 
 The native Go runtime implements the Apple OIDC flow below for local CLI runs and Vercel Go Function previews. To expose Apple on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service apple`. The generated route serves Apple at `/emulate/apple/*`.
 
-When more than one of Apple, Google, and Microsoft is enabled on one native Go server, use `/apple/.well-known/openid-configuration` to avoid the shared root discovery path.
+When more than one of Apple, Google, Microsoft, and Okta is enabled on one native Go server, use `/apple/.well-known/openid-configuration` to avoid the shared root discovery path.
 
 ## Endpoints
 

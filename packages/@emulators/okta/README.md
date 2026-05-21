@@ -4,6 +4,8 @@ Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups,
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
+The native Go runtime implements the Okta OIDC and management API surface for local CLI runs and Vercel Go Function previews. Use `npx emulate vercel init --service okta` to expose Okta at `/emulate/okta/*` on Vercel previews.
+
 ## Install
 
 ```bash
@@ -79,8 +81,8 @@ okta:
   users:
     - login: testuser@example.com
       email: testuser@example.com
-      firstName: Test
-      lastName: User
+      first_name: Test
+      last_name: User
   groups:
     - name: Everyone
       description: All users

@@ -117,7 +117,7 @@ PKCE is supported. Pass `code_challenge` and `code_challenge_method` on authoriz
 curl http://localhost:4004/.well-known/openid-configuration
 ```
 
-When more than one of Apple, Google, and Microsoft is enabled on one native Go server, use `/apple/.well-known/openid-configuration` to avoid the shared root discovery path.
+When more than one of Apple, Google, Microsoft, and Okta is enabled on one native Go server, use `/apple/.well-known/openid-configuration` to avoid the shared root discovery path.
 
 Returns the standard OIDC discovery document with all endpoints pointing to the emulator:
 

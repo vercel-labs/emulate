@@ -7,6 +7,7 @@ export const SUPPORTED_VERCEL_SERVICES = [
   "github",
   "google",
   "microsoft",
+  "okta",
   "resend",
   "slack",
   "stripe",

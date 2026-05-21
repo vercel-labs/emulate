@@ -35,7 +35,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "apple,aws,github,google,microsoft,resend,slack,stripe,vercel" {
+	if strings.Join(body.Services, ",") != "apple,aws,github,google,microsoft,okta,resend,slack,stripe,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -174,6 +174,23 @@ func TestHandlerForwardsGoogleService(t *testing.T) {
 	}
 }
 
+func TestHandlerForwardsOktaService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"okta"}})
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/okta/oauth2/default/.well-known/openid-configuration", nil)
+	req.Host = "preview.example.com"
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"issuer":"https://preview.example.com/emulate/okta/oauth2/default"`) ||
+		!strings.Contains(res.Body.String(), `"authorization_endpoint":"https://preview.example.com/emulate/okta/oauth2/default/v1/authorize"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
 func TestHandlerForwardsSlackService(t *testing.T) {
 	handler := NewHandler(Options{Services: []string{"slack"}})
 	req := httptest.NewRequest(http.MethodPost, "https://preview.example.com/emulate/slack/api/auth.test", nil)
@@ -269,7 +286,7 @@ func TestHandlerRewritesHTMLRootPathsThroughPublicServicePrefix(t *testing.T) {
 
 func TestHandlerReturnsUnknownService(t *testing.T) {
 	handler := NewHandler(Options{})
-	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/okta/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/clerk/user", nil)
 
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
@@ -277,7 +294,7 @@ func TestHandlerReturnsUnknownService(t *testing.T) {
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "Unknown service: okta") {
+	if !strings.Contains(res.Body.String(), "Unknown service: clerk") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

@@ -4,7 +4,7 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 The native Go runtime implements the Microsoft OIDC, token, and Graph profile routes below for local CLI runs and Vercel Go Function previews. To expose Microsoft on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service microsoft`. The generated route serves Microsoft at `/emulate/microsoft/*`.
 
-When more than one of Apple, Google, and Microsoft is enabled on one native Go server, use `/microsoft/.well-known/openid-configuration` to avoid the shared root discovery path.
+When more than one of Apple, Google, Microsoft, and Okta is enabled on one native Go server, use `/microsoft/.well-known/openid-configuration` to avoid the shared root discovery path.
 
 ## Endpoints
 

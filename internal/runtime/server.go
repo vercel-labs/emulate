@@ -13,6 +13,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/github"
 	"github.com/vercel-labs/emulate/internal/services/google"
 	"github.com/vercel-labs/emulate/internal/services/microsoft"
+	"github.com/vercel-labs/emulate/internal/services/okta"
 	"github.com/vercel-labs/emulate/internal/services/resend"
 	"github.com/vercel-labs/emulate/internal/services/slack"
 	"github.com/vercel-labs/emulate/internal/services/stripe"
@@ -31,6 +32,7 @@ type ServerOptions struct {
 	GitHubSeed    *github.SeedConfig
 	GoogleSeed    *google.SeedConfig
 	MicrosoftSeed *microsoft.SeedConfig
+	OktaSeed      *okta.SeedConfig
 	ResendSeed    *resend.SeedConfig
 	SlackSeed     *slack.SeedConfig
 	StripeSeed    *stripe.SeedConfig
@@ -184,6 +186,21 @@ func NewServer(options ServerOptions) *Server {
 			router.Mount("/microsoft", prefixed)
 		}
 	}
+	if serviceEnabled(services, "okta") {
+		okta.Register(router, okta.Options{
+			Store:   runtimeStore,
+			BaseURL: options.BaseURL,
+			Seed:    options.OktaSeed,
+		})
+		if len(ambiguousOIDCServices) > 1 {
+			prefixed := corehttp.NewRouter()
+			okta.Register(prefixed, okta.Options{
+				Store:   runtimeStore,
+				BaseURL: servicePrefixedBaseURL(options.BaseURL, "okta"),
+			})
+			router.Mount("/okta", prefixed)
+		}
+	}
 	router.NotFound(func(c *corehttp.Context) {
 		c.JSON(http.StatusNotFound, map[string]any{"message": "Not Found"})
 	})
@@ -209,7 +226,7 @@ func serviceEnabled(services []string, name string) bool {
 
 func enabledRootOIDCServices(services []string) []string {
 	names := []string{}
-	for _, name := range []string{"apple", "google", "microsoft"} {
+	for _, name := range []string{"apple", "google", "microsoft", "okta"} {
 		if serviceEnabled(services, name) {
 			names = append(names, name)
 		}

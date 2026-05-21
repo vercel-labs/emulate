@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -463,6 +464,57 @@ func TestRunStartSeedsMicrosoftFromJSONConfig(t *testing.T) {
 	}
 }
 
+func TestRunStartSeedsOktaFromJSONConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"okta":{"users":[{"login":"okta@example.com","email":"okta@example.com","first_name":"Okta","last_name":"User"}],"oauth_clients":[{"client_id":"okta-client","client_secret":"okta-secret","name":"Okta App","redirect_uris":["http://localhost:3000/callback"],"auth_server_id":"default"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "okta" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	authorizeURL := fmt.Sprintf("http://127.0.0.1:%d/oauth2/default/v1/authorize?client_id=okta-client&redirect_uri=http%%3A%%2F%%2Flocalhost%%3A3000%%2Fcallback&response_type=code", port)
+	resp, err := http.Get(authorizeURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "okta@example.com") {
+		t.Fatalf("unexpected authorize response status = %d, body = %s", resp.StatusCode, string(raw))
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
 func TestRunStartRejectsYAMLSeedConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	seedPath := filepath.Join(tempDir, "emulate.config.yaml")
@@ -498,7 +550,7 @@ func TestRunStartRejectsUnsupportedNativeSeedServices(t *testing.T) {
 				t.Fatal("start with unsupported seed service exited successfully")
 			}
 			errText := stderr.String()
-			if !strings.Contains(errText, "only supports --seed for apple, github, google, microsoft, resend, slack, stripe, and vercel") || !strings.Contains(errText, "aws") {
+			if !strings.Contains(errText, "only supports --seed for apple, github, google, microsoft, okta, resend, slack, stripe, and vercel") || !strings.Contains(errText, "aws") {
 				t.Fatalf("unexpected stderr: %s", errText)
 			}
 		})

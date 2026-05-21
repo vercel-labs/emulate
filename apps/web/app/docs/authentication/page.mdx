@@ -60,7 +60,7 @@ The Google emulator uses the standard OAuth 2.0 authorization code flow. Configu
 curl http://localhost:4002/.well-known/openid-configuration
 ```
 
-When more than one of Apple, Google, and Microsoft is enabled on one native Go server, use `/google/.well-known/openid-configuration`, `/apple/.well-known/openid-configuration`, or `/microsoft/.well-known/openid-configuration` to avoid the shared root discovery path.
+When more than one of Apple, Google, Microsoft, and Okta is enabled on one native Go server, use `/google/.well-known/openid-configuration`, `/apple/.well-known/openid-configuration`, `/microsoft/.well-known/openid-configuration`, or `/okta/.well-known/openid-configuration` to avoid the shared root discovery path.
 
 ## Slack OAuth
 

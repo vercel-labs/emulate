@@ -140,7 +140,7 @@ curl http://localhost:4005/.well-known/openid-configuration
 curl http://localhost:4005/common/v2.0/.well-known/openid-configuration
 ```
 
-When more than one of Apple, Google, and Microsoft is enabled on one native Go server, use `/microsoft/.well-known/openid-configuration` to avoid the shared root discovery path.
+When more than one of Apple, Google, Microsoft, and Okta is enabled on one native Go server, use `/microsoft/.well-known/openid-configuration` to avoid the shared root discovery path.
 
 Returns the standard OIDC discovery document:
 

@@ -345,9 +345,24 @@ func TestNewHandlerMountsMicrosoftWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestNewHandlerMountsOktaWhenEnabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"okta"}, BaseURL: "http://localhost:4016"})
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/oauth2/default/.well-known/openid-configuration", nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"issuer":"http://localhost:4016/oauth2/default"`) ||
+		!strings.Contains(res.Body.String(), `"jwks_uri":"http://localhost:4016/oauth2/default/v1/keys"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
+	}
+}
+
 func TestNewHandlerMultiServiceOIDCDiscoveryUsesServicePrefixes(t *testing.T) {
 	handler := NewHandler(ServerOptions{
-		Services: []string{"apple", "google", "microsoft"},
+		Services: []string{"apple", "google", "microsoft", "okta"},
 		BaseURL:  "http://localhost:4010",
 	})
 
@@ -367,6 +382,7 @@ func TestNewHandlerMultiServiceOIDCDiscoveryUsesServicePrefixes(t *testing.T) {
 		{path: "/google/.well-known/openid-configuration", want: `"issuer":"http://localhost:4010/google"`},
 		{path: "/apple/.well-known/openid-configuration", want: `"issuer":"http://localhost:4010/apple"`},
 		{path: "/microsoft/.well-known/openid-configuration", want: `"issuer":"http://localhost:4010/microsoft/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0"`},
+		{path: "/okta/oauth2/default/.well-known/openid-configuration", want: `"issuer":"http://localhost:4010/okta/oauth2/default"`},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			res := httptest.NewRecorder()
@@ -378,6 +394,17 @@ func TestNewHandlerMultiServiceOIDCDiscoveryUsesServicePrefixes(t *testing.T) {
 				t.Fatalf("missing %s in %s", tc.want, res.Body.String())
 			}
 		})
+	}
+}
+
+func TestNewHandlerDoesNotMountOktaWhenDisabled(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"resend"}})
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/oauth2/default/v1/keys", nil))
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
