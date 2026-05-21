@@ -126,6 +126,59 @@ func TestTokenRejectsGrantTypeNotAllowedForClient(t *testing.T) {
 	}
 }
 
+func TestTokenRejectsUnsupportedPKCEMethod(t *testing.T) {
+	service, router := newTestService(t)
+	user := firstRecord(service.store.Users.FindBy("login", "testuser@okta.local"))
+	if user == nil {
+		t.Fatal("missing default user")
+	}
+
+	form := url.Values{
+		"user_ref":              {stringField(user, "okta_id")},
+		"redirect_uri":          {"http://localhost:3000/callback"},
+		"scope":                 {"openid profile email"},
+		"client_id":             {"okta-test-client"},
+		"response_mode":         {"query"},
+		"code_challenge":        {"same-secret"},
+		"code_challenge_method": {"unsupported"},
+	}
+	callback := httptest.NewRequest(http.MethodPost, "/oauth2/default/v1/authorize/callback", strings.NewReader(form.Encode()))
+	callback.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	callbackRes := serveOkta(router, callback)
+	if callbackRes.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, body = %s", callbackRes.Code, callbackRes.Body.String())
+	}
+	redirect, err := url.Parse(callbackRes.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := redirect.Query().Get("code")
+	if code == "" {
+		t.Fatalf("missing code in redirect: %s", callbackRes.Header().Get("Location"))
+	}
+
+	tokenForm := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {"http://localhost:3000/callback"},
+		"client_id":     {"okta-test-client"},
+		"client_secret": {"okta-test-secret"},
+		"code_verifier": {"same-secret"},
+	}
+	tokenReq := httptest.NewRequest(http.MethodPost, "/oauth2/default/v1/token", strings.NewReader(tokenForm.Encode()))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenRes := serveOkta(router, tokenReq)
+	if tokenRes.Code != http.StatusBadRequest {
+		t.Fatalf("token status = %d, body = %s", tokenRes.Code, tokenRes.Body.String())
+	}
+	if !strings.Contains(tokenRes.Body.String(), `"error":"invalid_grant"`) || !strings.Contains(tokenRes.Body.String(), "PKCE verification failed") {
+		t.Fatalf("unexpected token body: %s", tokenRes.Body.String())
+	}
+	if service.store.AccessTokens.Count() != 0 {
+		t.Fatalf("access tokens were issued for unsupported PKCE method")
+	}
+}
+
 func TestAuthorizeRejectsInactiveUsers(t *testing.T) {
 	service, router := newTestService(t)
 	user := firstRecord(service.store.Users.FindBy("login", "testuser@okta.local"))
@@ -333,6 +386,45 @@ func TestManagementUsersGroupsAppsAndAuthorizationServers(t *testing.T) {
 	}
 	if !strings.Contains(authServerRes.Body.String(), `"id":"partner-api"`) || !strings.Contains(authServerRes.Body.String(), `"api://partner"`) {
 		t.Fatalf("unexpected auth server body: %s", authServerRes.Body.String())
+	}
+}
+
+func TestPartialUserUpdateRejectsDuplicateLogin(t *testing.T) {
+	service, router := newTestService(t)
+
+	createUser := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"profile":{"login":"alice@example.com","email":"alice@example.com","firstName":"Alice","lastName":"Admin"}}`))
+	createUser.Header.Set("Content-Type", "application/json")
+	createUser.Header.Set("Authorization", "SSWS dev-token")
+	createUserRes := serveOkta(router, createUser)
+	if createUserRes.Code != http.StatusCreated {
+		t.Fatalf("create user status = %d, body = %s", createUserRes.Code, createUserRes.Body.String())
+	}
+	var user struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createUserRes.Body.Bytes(), &user); err != nil {
+		t.Fatal(err)
+	}
+	if user.ID == "" {
+		t.Fatalf("missing user id in create response: %s", createUserRes.Body.String())
+	}
+
+	updateUser := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+url.PathEscape(user.ID), strings.NewReader(`{"profile":{"login":"testuser@okta.local"}}`))
+	updateUser.Header.Set("Content-Type", "application/json")
+	updateUser.Header.Set("Authorization", "SSWS dev-token")
+	updateUserRes := serveOkta(router, updateUser)
+	if updateUserRes.Code != http.StatusBadRequest {
+		t.Fatalf("update user status = %d, body = %s", updateUserRes.Code, updateUserRes.Body.String())
+	}
+	if !strings.Contains(updateUserRes.Body.String(), "A user with the same login or email already exists") {
+		t.Fatalf("unexpected update body: %s", updateUserRes.Body.String())
+	}
+	if got := len(service.store.Users.FindBy("login", "testuser@okta.local")); got != 1 {
+		t.Fatalf("duplicate login count = %d", got)
+	}
+	alice := firstRecord(service.store.Users.FindBy("okta_id", user.ID))
+	if alice == nil || stringField(alice, "login") != "alice@example.com" {
+		t.Fatalf("alice login changed after rejected update: %#v", alice)
 	}
 }
 

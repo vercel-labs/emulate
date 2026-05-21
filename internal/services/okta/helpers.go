@@ -292,11 +292,15 @@ func verifyPKCE(challenge string, method string, verifier string) bool {
 	if verifier == "" {
 		return false
 	}
-	if strings.EqualFold(method, "S256") {
+	switch strings.ToLower(method) {
+	case "", "plain":
+		return verifier == challenge
+	case "s256":
 		digest := sha256.Sum256([]byte(verifier))
 		return base64.RawURLEncoding.EncodeToString(digest[:]) == challenge
+	default:
+		return false
 	}
-	return verifier == challenge
 }
 
 func constantTimeEqual(left string, right string) bool {

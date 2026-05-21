@@ -212,7 +212,7 @@ func (s *Service) handlePutUser(c *corehttp.Context) {
 }
 
 func (s *Service) handlePostUser(c *corehttp.Context) {
-	s.handleUpdateUser(c, false)
+	s.handleUpdateUser(c, true)
 }
 
 func (s *Service) handleUpdateUser(c *corehttp.Context, checkDuplicates bool) {
