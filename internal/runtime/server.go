@@ -31,6 +31,7 @@ type ServerOptions struct {
 	Store          *store.Store
 	AssetStore     *coreassets.Store
 	AppleSeed      *apple.SeedConfig
+	AWSSeed        *aws.SeedConfig
 	ClerkSeed      *clerk.SeedConfig
 	GitHubSeed     *github.SeedConfig
 	GoogleSeed     *google.SeedConfig
@@ -113,6 +114,7 @@ func NewServer(options ServerOptions) *Server {
 			S3PathFallback: len(services) == 1,
 			AssetStore:     assetStore,
 			BaseURL:        options.BaseURL,
+			Seed:           options.AWSSeed,
 		})
 	}
 	if serviceEnabled(services, "resend") {

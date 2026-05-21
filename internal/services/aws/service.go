@@ -28,6 +28,7 @@ type Options struct {
 	S3PathFallback   bool
 	AssetStore       *coreassets.Store
 	BaseURL          string
+	Seed             *SeedConfig
 }
 
 type Service struct {
@@ -66,6 +67,14 @@ func New(options Options) *Service {
 	if defaultRegion == "" {
 		defaultRegion = gateway.DefaultRegion
 	}
+	if options.Seed != nil {
+		if defaultAccountID == gateway.DefaultAccountID && options.Seed.AccountID != "" {
+			defaultAccountID = options.Seed.AccountID
+		}
+		if defaultRegion == gateway.DefaultRegion && options.Seed.Region != "" {
+			defaultRegion = options.Seed.Region
+		}
+	}
 	assetStore := options.AssetStore
 	if assetStore == nil {
 		assetStore = coreassets.New()
@@ -79,6 +88,9 @@ func New(options Options) *Service {
 	seedSQSDefaults(awsStore, options.BaseURL, defaultAccountID, defaultRegion)
 	seedEventBridgeDefaults(awsStore, defaultAccountID, defaultRegion)
 	seedIAMDefaults(awsStore, credentialStore, defaultAccountID)
+	if options.Seed != nil {
+		seedFromConfig(awsStore, credentialStore, options.BaseURL, defaultAccountID, defaultRegion, *options.Seed)
+	}
 	return &Service{
 		store:            awsStore,
 		assets:           assetStore,

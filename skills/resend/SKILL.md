@@ -10,7 +10,7 @@ Fully stateful Resend API emulation. Emails, domains, API keys, audiences, and c
 
 No real emails are sent. Every call to `POST /emails` stores the message locally so you can inspect it programmatically or in the browser.
 
-The native Go runtime implements the current Resend routes, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` Node.js SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
+The native Go runtime implements the current Resend routes, supports YAML and JSON seed configs for Resend through `--seed`, and is verified against the official `resend` Node.js SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
 
 ## Vercel Preview
 

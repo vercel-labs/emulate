@@ -17,7 +17,7 @@ The native Go runtime implements the Google OAuth/OIDC foundation with RS256 ID 
 npx emulate --service google
 
 # Default port
-# http://localhost:4002
+# http://localhost:4000
 ```
 
 Or programmatically:
@@ -34,7 +34,7 @@ const google = await createEmulator({ service: 'google', port: 4002 })
 ### Environment Variable
 
 ```bash
-GOOGLE_EMULATOR_URL=http://localhost:4002
+GOOGLE_EMULATOR_URL=http://localhost:4000
 ```
 
 ### OAuth URL Mapping
@@ -192,7 +192,7 @@ To override the derived value, set `hd` on a seeded user. To suppress the claim 
 ### OIDC Discovery
 
 ```bash
-curl http://localhost:4002/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 ```
 
 When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on one native Go server, use `/google/.well-known/openid-configuration` to avoid the shared root discovery path.
@@ -200,7 +200,7 @@ When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on on
 ### JWKS
 
 ```bash
-curl http://localhost:4002/oauth2/v3/certs
+curl http://localhost:4000/oauth2/v3/certs
 ```
 
 In the native Go runtime, this returns the RSA signing key. Native ID tokens are signed with RS256 and include a `kid` that matches the JWKS entry.
@@ -209,7 +209,7 @@ In the native Go runtime, this returns the RSA signing key. Native ID tokens are
 
 ```bash
 # Browser flow: redirects to a user picker page
-curl -v "http://localhost:4002/o/oauth2/v2/auth?\
+curl -v "http://localhost:4000/o/oauth2/v2/auth?\
 client_id=my-client-id.apps.googleusercontent.com&\
 redirect_uri=http://localhost:3000/api/auth/callback/google&\
 scope=openid+email+profile&\
@@ -223,7 +223,7 @@ Supports `code_challenge` and `code_challenge_method` for PKCE.
 ### Token Exchange
 
 ```bash
-curl -X POST http://localhost:4002/oauth2/token \
+curl -X POST http://localhost:4000/oauth2/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "code=<authorization_code>&\
 client_id=my-client-id.apps.googleusercontent.com&\
@@ -248,7 +248,7 @@ Also accepts `application/json` body. Returns:
 ### Refresh Token
 
 ```bash
-curl -X POST http://localhost:4002/oauth2/token \
+curl -X POST http://localhost:4000/oauth2/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "refresh_token=google_refresh_...&\
 client_id=my-client-id.apps.googleusercontent.com&\
@@ -261,14 +261,14 @@ Returns a new `access_token` (no new `refresh_token` or `id_token` on refresh).
 ### User Info
 
 ```bash
-curl http://localhost:4002/oauth2/v2/userinfo \
+curl http://localhost:4000/oauth2/v2/userinfo \
   -H "Authorization: Bearer google_..."
 ```
 
 ### Token Revocation
 
 ```bash
-curl -X POST http://localhost:4002/oauth2/revoke \
+curl -X POST http://localhost:4000/oauth2/revoke \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "token=google_..."
 ```
@@ -281,61 +281,61 @@ All Gmail endpoints are under `/gmail/v1/users/:userId/...` where `:userId` is `
 
 ```bash
 # List messages (filter by labels, search query)
-curl "http://localhost:4002/gmail/v1/users/me/messages?labelIds=INBOX&q=from:welcome&maxResults=10" \
+curl "http://localhost:4000/gmail/v1/users/me/messages?labelIds=INBOX&q=from:welcome&maxResults=10" \
   -H "Authorization: Bearer $TOKEN"
 
 # Get message (format: full, metadata, minimal, raw)
-curl "http://localhost:4002/gmail/v1/users/me/messages/msg_welcome?format=full" \
+curl "http://localhost:4000/gmail/v1/users/me/messages/msg_welcome?format=full" \
   -H "Authorization: Bearer $TOKEN"
 
 # Send message
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/send \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/send \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to": "someone@example.com", "subject": "Hello", "body_text": "Hi there"}'
 
 # Insert message (bypass send)
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to": "test@example.com", "from": "me@example.com", "subject": "Test", "body_text": "Body", "labelIds": ["INBOX"]}'
 
 # Import message
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/import \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/import \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to": "test@example.com", "from": "external@example.com", "subject": "Imported", "body_text": "Content"}'
 
 # Modify labels on a message
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/msg_welcome/modify \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/msg_welcome/modify \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"addLabelIds": ["STARRED"], "removeLabelIds": ["UNREAD"]}'
 
 # Trash / untrash
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/msg_welcome/trash \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/msg_welcome/trash \
   -H "Authorization: Bearer $TOKEN"
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/msg_welcome/untrash \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/msg_welcome/untrash \
   -H "Authorization: Bearer $TOKEN"
 
 # Delete permanently
-curl -X DELETE http://localhost:4002/gmail/v1/users/me/messages/msg_welcome \
+curl -X DELETE http://localhost:4000/gmail/v1/users/me/messages/msg_welcome \
   -H "Authorization: Bearer $TOKEN"
 
 # Batch modify
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/batchModify \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/batchModify \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ids": ["msg_welcome", "msg_build"], "addLabelIds": ["STARRED"]}'
 
 # Batch delete
-curl -X POST http://localhost:4002/gmail/v1/users/me/messages/batchDelete \
+curl -X POST http://localhost:4000/gmail/v1/users/me/messages/batchDelete \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ids": ["msg_welcome"]}'
 
 # Get attachment
-curl http://localhost:4002/gmail/v1/users/me/messages/msg_id/attachments/att_id \
+curl http://localhost:4000/gmail/v1/users/me/messages/msg_id/attachments/att_id \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -345,33 +345,33 @@ Upload variants also available at `/upload/gmail/v1/users/:userId/messages`, `..
 
 ```bash
 # List drafts
-curl http://localhost:4002/gmail/v1/users/me/drafts \
+curl http://localhost:4000/gmail/v1/users/me/drafts \
   -H "Authorization: Bearer $TOKEN"
 
 # Create draft
-curl -X POST http://localhost:4002/gmail/v1/users/me/drafts \
+curl -X POST http://localhost:4000/gmail/v1/users/me/drafts \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": {"to": "someone@example.com", "subject": "Draft subject", "body_text": "Draft body"}}'
 
 # Get draft (format: full, metadata, minimal, raw)
-curl "http://localhost:4002/gmail/v1/users/me/drafts/draft_id?format=full" \
+curl "http://localhost:4000/gmail/v1/users/me/drafts/draft_id?format=full" \
   -H "Authorization: Bearer $TOKEN"
 
 # Update draft
-curl -X PUT http://localhost:4002/gmail/v1/users/me/drafts/draft_id \
+curl -X PUT http://localhost:4000/gmail/v1/users/me/drafts/draft_id \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": {"subject": "Updated subject", "body_text": "Updated body"}}'
 
 # Send draft
-curl -X POST http://localhost:4002/gmail/v1/users/me/drafts/send \
+curl -X POST http://localhost:4000/gmail/v1/users/me/drafts/send \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"id": "draft_id"}'
 
 # Delete draft
-curl -X DELETE http://localhost:4002/gmail/v1/users/me/drafts/draft_id \
+curl -X DELETE http://localhost:4000/gmail/v1/users/me/drafts/draft_id \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -379,23 +379,23 @@ curl -X DELETE http://localhost:4002/gmail/v1/users/me/drafts/draft_id \
 
 ```bash
 # List threads (filter by labels, search query)
-curl "http://localhost:4002/gmail/v1/users/me/threads?labelIds=INBOX&maxResults=20" \
+curl "http://localhost:4000/gmail/v1/users/me/threads?labelIds=INBOX&maxResults=20" \
   -H "Authorization: Bearer $TOKEN"
 
 # Get thread (all messages in thread)
-curl "http://localhost:4002/gmail/v1/users/me/threads/thr_welcome?format=full" \
+curl "http://localhost:4000/gmail/v1/users/me/threads/thr_welcome?format=full" \
   -H "Authorization: Bearer $TOKEN"
 
 # Modify labels on all messages in thread
-curl -X POST http://localhost:4002/gmail/v1/users/me/threads/thr_welcome/modify \
+curl -X POST http://localhost:4000/gmail/v1/users/me/threads/thr_welcome/modify \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"addLabelIds": ["STARRED"], "removeLabelIds": ["UNREAD"]}'
 
 # Trash / untrash / delete thread
-curl -X POST http://localhost:4002/gmail/v1/users/me/threads/thr_welcome/trash \
+curl -X POST http://localhost:4000/gmail/v1/users/me/threads/thr_welcome/trash \
   -H "Authorization: Bearer $TOKEN"
-curl -X DELETE http://localhost:4002/gmail/v1/users/me/threads/thr_welcome \
+curl -X DELETE http://localhost:4000/gmail/v1/users/me/threads/thr_welcome \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -403,27 +403,27 @@ curl -X DELETE http://localhost:4002/gmail/v1/users/me/threads/thr_welcome \
 
 ```bash
 # List labels
-curl http://localhost:4002/gmail/v1/users/me/labels \
+curl http://localhost:4000/gmail/v1/users/me/labels \
   -H "Authorization: Bearer $TOKEN"
 
 # Get label
-curl http://localhost:4002/gmail/v1/users/me/labels/INBOX \
+curl http://localhost:4000/gmail/v1/users/me/labels/INBOX \
   -H "Authorization: Bearer $TOKEN"
 
 # Create label
-curl -X POST http://localhost:4002/gmail/v1/users/me/labels \
+curl -X POST http://localhost:4000/gmail/v1/users/me/labels \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "My Label", "color": {"backgroundColor": "#DDEEFF", "textColor": "#111111"}}'
 
 # Update label (PUT replaces, PATCH merges)
-curl -X PATCH http://localhost:4002/gmail/v1/users/me/labels/Label_ops \
+curl -X PATCH http://localhost:4000/gmail/v1/users/me/labels/Label_ops \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "Ops/Reviewed"}'
 
 # Delete label (user labels only)
-curl -X DELETE http://localhost:4002/gmail/v1/users/me/labels/Label_ops \
+curl -X DELETE http://localhost:4000/gmail/v1/users/me/labels/Label_ops \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -431,17 +431,17 @@ curl -X DELETE http://localhost:4002/gmail/v1/users/me/labels/Label_ops \
 
 ```bash
 # List history changes since a given historyId
-curl "http://localhost:4002/gmail/v1/users/me/history?startHistoryId=1&historyTypes=messageAdded&maxResults=100" \
+curl "http://localhost:4000/gmail/v1/users/me/history?startHistoryId=1&historyTypes=messageAdded&maxResults=100" \
   -H "Authorization: Bearer $TOKEN"
 
 # Set up push notification watch (stub)
-curl -X POST http://localhost:4002/gmail/v1/users/me/watch \
+curl -X POST http://localhost:4000/gmail/v1/users/me/watch \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"topicName": "projects/my-project/topics/gmail", "labelIds": ["INBOX"]}'
 
 # Stop watch
-curl -X POST http://localhost:4002/gmail/v1/users/me/stop \
+curl -X POST http://localhost:4000/gmail/v1/users/me/stop \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -449,25 +449,25 @@ curl -X POST http://localhost:4002/gmail/v1/users/me/stop \
 
 ```bash
 # List filters
-curl http://localhost:4002/gmail/v1/users/me/settings/filters \
+curl http://localhost:4000/gmail/v1/users/me/settings/filters \
   -H "Authorization: Bearer $TOKEN"
 
 # Create filter (auto-label incoming messages matching criteria)
-curl -X POST http://localhost:4002/gmail/v1/users/me/settings/filters \
+curl -X POST http://localhost:4000/gmail/v1/users/me/settings/filters \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"criteria": {"from": "alerts@example.com"}, "action": {"addLabelIds": ["Label_ops"]}}'
 
 # Delete filter
-curl -X DELETE http://localhost:4002/gmail/v1/users/me/settings/filters/filter_id \
+curl -X DELETE http://localhost:4000/gmail/v1/users/me/settings/filters/filter_id \
   -H "Authorization: Bearer $TOKEN"
 
 # List forwarding addresses
-curl http://localhost:4002/gmail/v1/users/me/settings/forwardingAddresses \
+curl http://localhost:4000/gmail/v1/users/me/settings/forwardingAddresses \
   -H "Authorization: Bearer $TOKEN"
 
 # List send-as aliases
-curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
+curl http://localhost:4000/gmail/v1/users/me/settings/sendAs \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -476,7 +476,7 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
 ### Calendar List
 
 ```bash
-curl http://localhost:4002/calendar/v3/users/me/calendarList \
+curl http://localhost:4000/calendar/v3/users/me/calendarList \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -484,25 +484,25 @@ curl http://localhost:4002/calendar/v3/users/me/calendarList \
 
 ```bash
 # List events (filter by time range, search, order)
-curl "http://localhost:4002/calendar/v3/calendars/primary/events?\
+curl "http://localhost:4000/calendar/v3/calendars/primary/events?\
 timeMin=2025-01-01T00:00:00Z&timeMax=2025-12-31T23:59:59Z&maxResults=50&orderBy=startTime" \
   -H "Authorization: Bearer $TOKEN"
 
 # Create event
-curl -X POST http://localhost:4002/calendar/v3/calendars/primary/events \
+curl -X POST http://localhost:4000/calendar/v3/calendars/primary/events \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"summary": "Team Meeting", "start": {"dateTime": "2025-01-10T14:00:00Z"}, "end": {"dateTime": "2025-01-10T15:00:00Z"}, "attendees": [{"email": "dev@example.com"}]}'
 
 # Delete event
-curl -X DELETE http://localhost:4002/calendar/v3/calendars/primary/events/evt_kickoff \
+curl -X DELETE http://localhost:4000/calendar/v3/calendars/primary/events/evt_kickoff \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ### FreeBusy
 
 ```bash
-curl -X POST http://localhost:4002/calendar/v3/freeBusy \
+curl -X POST http://localhost:4000/calendar/v3/freeBusy \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"timeMin": "2025-01-10T00:00:00Z", "timeMax": "2025-01-10T23:59:59Z", "items": [{"id": "primary"}]}'
@@ -514,31 +514,31 @@ curl -X POST http://localhost:4002/calendar/v3/freeBusy \
 
 ```bash
 # List files (with query filter, pagination, ordering)
-curl "http://localhost:4002/drive/v3/files?q='root'+in+parents&pageSize=20" \
+curl "http://localhost:4000/drive/v3/files?q='root'+in+parents&pageSize=20" \
   -H "Authorization: Bearer $TOKEN"
 
 # Create file (JSON metadata)
-curl -X POST http://localhost:4002/drive/v3/files \
+curl -X POST http://localhost:4000/drive/v3/files \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "notes.txt", "mimeType": "text/plain", "parents": ["root"]}'
 
 # Create file with content (multipart/related upload)
-curl -X POST http://localhost:4002/upload/drive/v3/files \
+curl -X POST http://localhost:4000/upload/drive/v3/files \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: multipart/related; boundary=boundary" \
   --data-binary $'--boundary\r\nContent-Type: application/json\r\n\r\n{"name":"data.csv","mimeType":"text/csv"}\r\n--boundary\r\nContent-Type: text/csv\r\n\r\na,b,c\n1,2,3\r\n--boundary--'
 
 # Get file metadata
-curl http://localhost:4002/drive/v3/files/drv_readme \
+curl http://localhost:4000/drive/v3/files/drv_readme \
   -H "Authorization: Bearer $TOKEN"
 
 # Download file content
-curl "http://localhost:4002/drive/v3/files/drv_readme?alt=media" \
+curl "http://localhost:4000/drive/v3/files/drv_readme?alt=media" \
   -H "Authorization: Bearer $TOKEN"
 
 # Update file (PATCH or PUT; move parents with query params)
-curl -X PATCH "http://localhost:4002/drive/v3/files/drv_readme?addParents=folder_id&removeParents=root" \
+curl -X PATCH "http://localhost:4000/drive/v3/files/drv_readme?addParents=folder_id&removeParents=root" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "README-updated.md"}'
@@ -549,7 +549,7 @@ curl -X PATCH "http://localhost:4002/drive/v3/files/drv_readme?addParents=folder
 ### Full Authorization Code Flow
 
 ```bash
-GOOGLE_URL="http://localhost:4002"
+GOOGLE_URL="http://localhost:4000"
 CLIENT_ID="my-client-id.apps.googleusercontent.com"
 CLIENT_SECRET="GOCSPX-secret"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
@@ -590,7 +590,7 @@ const client = new googleIssuer.Client({
 
 ```bash
 TOKEN="test_token_admin"
-BASE="http://localhost:4002"
+BASE="http://localhost:4000"
 
 # Send a message
 curl -X POST $BASE/gmail/v1/users/me/messages/send \

@@ -41,6 +41,8 @@ jobs:
 
       - run: go build ./cmd/emulate
 
+      - run: node scripts/build-native-packages.mjs
+
       - name: Native AWS SDK E2E
         run: |
           go build -o /tmp/emulate-native ./cmd/emulate

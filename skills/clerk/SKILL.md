@@ -14,7 +14,7 @@ The native Go runtime implements Clerk OIDC discovery, JWKS, authorization code 
 npx emulate --service clerk
 ```
 
-Default URL: `http://localhost:4000` when started alone. In the all-services default layout, Clerk is on `http://localhost:4011`.
+Default URL: `http://localhost:4000` when started alone.
 
 ## Vercel Go Function Preview
 
@@ -39,7 +39,7 @@ When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on on
 Management routes accept Clerk-style secret keys:
 
 ```bash
-curl http://localhost:4011/v1/users \
+curl http://localhost:4000/v1/users \
   -H "Authorization: Bearer sk_test_emulate"
 ```
 

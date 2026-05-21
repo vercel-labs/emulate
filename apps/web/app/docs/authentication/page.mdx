@@ -35,7 +35,7 @@ Use the token in requests:
 
 ```bash
 curl -H "Authorization: Bearer gho_test_token_admin" \
-  http://localhost:4001/user
+  http://localhost:4000/user
 ```
 
 ## GitHub Apps (JWT)
@@ -47,7 +47,7 @@ Then create an installation access token:
 ```bash
 curl -X POST \
   -H "Authorization: Bearer <jwt>" \
-  http://localhost:4001/app/installations/100/access_tokens
+  http://localhost:4000/app/installations/100/access_tokens
 ```
 
 The returned token can be used for API calls scoped to that installation's permissions.
@@ -57,7 +57,7 @@ The returned token can be used for API calls scoped to that installation's permi
 The Google emulator uses the standard OAuth 2.0 authorization code flow. Configure clients in the seed config and use them with your OAuth library of choice. The OIDC discovery document is available at `/.well-known/openid-configuration`.
 
 ```bash
-curl http://localhost:4002/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 ```
 
 When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on one native Go server, use `/google/.well-known/openid-configuration`, `/apple/.well-known/openid-configuration`, `/microsoft/.well-known/openid-configuration`, `/okta/.well-known/openid-configuration`, or `/clerk/.well-known/openid-configuration` to avoid the shared root discovery path.
@@ -70,7 +70,7 @@ The Slack emulator supports OAuth v2 with a user picker UI. Configure OAuth apps
 import { WebClient } from '@slack/web-api'
 
 const client = new WebClient(token, {
-  slackApiUrl: 'http://localhost:4003/api/',
+  slackApiUrl: 'http://localhost:4000/api/',
 })
 ```
 
@@ -81,7 +81,7 @@ All Web API endpoints require `Authorization: Bearer <token>`.
 The Apple emulator provides OIDC discovery, JWKS, and a full authorization code flow with RS256 ID tokens. Point your app at the emulator's endpoints:
 
 ```bash
-curl http://localhost:4004/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 ```
 
 On first authorization per user/client pair, a `user` JSON blob is included in the callback (matching real Apple behavior).
@@ -91,7 +91,7 @@ On first authorization per user/client pair, a `user` JSON blob is included in t
 The Microsoft emulator supports OIDC discovery, authorization code flow, PKCE, and client credentials grants. It also provides a Microsoft Graph `/v1.0/me` endpoint.
 
 ```bash
-curl http://localhost:4005/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 ```
 
 Supports `Authorization: Basic` header with base64-encoded `client_id:client_secret` as an alternative to body parameters.
@@ -101,13 +101,13 @@ Supports `Authorization: Basic` header with base64-encoded `client_id:client_sec
 The Clerk emulator supports OIDC discovery, authorization code flow, PKCE, JWKS, ID tokens, userinfo, and session JWT creation.
 
 ```bash
-curl http://localhost:4011/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 ```
 
 Management API routes require a Clerk-style secret key:
 
 ```bash
-curl http://localhost:4011/v1/users \
+curl http://localhost:4000/v1/users \
   -H "Authorization: Bearer sk_test_emulate"
 ```
 
@@ -116,7 +116,7 @@ curl http://localhost:4011/v1/users \
 Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
-curl http://localhost:4006/s3/ \
+curl http://localhost:4000/s3/ \
   -H "Authorization: Bearer test_token_admin"
 ```
 

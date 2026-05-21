@@ -34,9 +34,6 @@ type UnsupportedFormatError struct {
 }
 
 func (e *UnsupportedFormatError) Error() string {
-	if e.Format == FormatYAML {
-		return fmt.Sprintf("unsupported config format for %s: YAML config loading is not implemented in the native Go runtime yet; use JSON config or the current TypeScript runtime", e.Path)
-	}
 	return fmt.Sprintf("unsupported config format for %s", e.Path)
 }
 
@@ -108,10 +105,6 @@ func loadFile(fullPath string, sourceName string) (*LoadResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if format != FormatJSON {
-		return nil, &UnsupportedFormatError{Path: sourceName, Format: format}
-	}
-
 	raw, err := os.ReadFile(fullPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -121,8 +114,19 @@ func loadFile(fullPath string, sourceName string) (*LoadResult, error) {
 	}
 
 	data := map[string]json.RawMessage{}
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", sourceName, err)
+	switch format {
+	case FormatJSON:
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", sourceName, err)
+		}
+	case FormatYAML:
+		parsed, err := parseYAMLDocument(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", sourceName, err)
+		}
+		data = parsed
+	default:
+		return nil, &UnsupportedFormatError{Path: sourceName, Format: format}
 	}
 	return &LoadResult{
 		Path:     fullPath,

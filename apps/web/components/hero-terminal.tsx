@@ -4,17 +4,17 @@ import { useState } from "react";
 
 const services = [
   { name: "Vercel", port: 4000, slug: "vercel" },
-  { name: "GitHub", port: 4001, slug: "github" },
-  { name: "Google", port: 4002, slug: "google" },
-  { name: "Slack", port: 4003, slug: "slack" },
-  { name: "Apple", port: 4004, slug: "apple" },
-  { name: "Microsoft", port: 4005, slug: "microsoft" },
-  { name: "Okta", port: 4006, slug: "okta" },
-  { name: "AWS", port: 4007, slug: "aws" },
-  { name: "Resend", port: 4008, slug: "resend" },
-  { name: "Stripe", port: 4009, slug: "stripe" },
-  { name: "MongoDB Atlas", port: 4010, slug: "mongoatlas" },
-  { name: "Clerk", port: 4011, slug: "clerk" },
+  { name: "GitHub", port: 4000, slug: "github" },
+  { name: "Google", port: 4000, slug: "google" },
+  { name: "Slack", port: 4000, slug: "slack" },
+  { name: "Apple", port: 4000, slug: "apple" },
+  { name: "Microsoft", port: 4000, slug: "microsoft" },
+  { name: "Okta", port: 4000, slug: "okta" },
+  { name: "AWS", port: 4000, slug: "aws" },
+  { name: "Resend", port: 4000, slug: "resend" },
+  { name: "Stripe", port: 4000, slug: "stripe" },
+  { name: "MongoDB Atlas", port: 4000, slug: "mongoatlas" },
+  { name: "Clerk", port: 4000, slug: "clerk" },
 ];
 
 export function HeroTerminal({ pixelFont }: { pixelFont: string }) {

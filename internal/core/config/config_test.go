@@ -51,18 +51,88 @@ func TestLoadDiscoversCurrentConfigNamesInOrder(t *testing.T) {
 	}
 }
 
-func TestLoadReportsYAMLAsUnsupportedForThisPhase(t *testing.T) {
+func TestLoadExplicitYAMLConfig(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "emulate.config.yaml"), []byte("github: {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "emulate.config.yaml"), []byte(`
+tokens:
+  dev_token:
+    login: octocat
+    scopes: [repo, user]
+github:
+  app:
+    private_key: |
+      -----BEGIN PRIVATE KEY-----
+      abc123
+      -----END PRIVATE KEY-----
+  users:
+    - login: octocat
+      email: octocat@example.com
+      site_admin: true
+aws:
+  region: us-west-2
+  s3:
+    buckets:
+      - name: docs
+        region: eu-west-1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(LoadOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Format != FormatYAML {
+		t.Fatalf("format = %s", loaded.Format)
+	}
+	var github struct {
+		App struct {
+			PrivateKey string `json:"private_key"`
+		} `json:"app"`
+		Users []struct {
+			Login     string `json:"login"`
+			Email     string `json:"email"`
+			SiteAdmin bool   `json:"site_admin"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(loaded.Data["github"], &github); err != nil {
+		t.Fatal(err)
+	}
+	if len(github.Users) != 1 || github.Users[0].Login != "octocat" || !github.Users[0].SiteAdmin {
+		t.Fatalf("github = %#v", github)
+	}
+	if github.App.PrivateKey != "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----\n" {
+		t.Fatalf("private key = %q", github.App.PrivateKey)
+	}
+	var aws struct {
+		Region string `json:"region"`
+		S3     struct {
+			Buckets []struct {
+				Name   string `json:"name"`
+				Region string `json:"region"`
+			} `json:"buckets"`
+		} `json:"s3"`
+	}
+	if err := json.Unmarshal(loaded.Data["aws"], &aws); err != nil {
+		t.Fatal(err)
+	}
+	if aws.Region != "us-west-2" || len(aws.S3.Buckets) != 1 || aws.S3.Buckets[0].Region != "eu-west-1" {
+		t.Fatalf("aws = %#v", aws)
+	}
+}
+
+func TestLoadRejectsInvalidYAMLConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "emulate.config.yaml"), []byte("github:\n   users: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := Load(LoadOptions{Dir: dir})
 	if err == nil {
-		t.Fatal("expected unsupported format error")
+		t.Fatal("expected YAML parse error")
 	}
-	if !IsUnsupportedFormat(err) {
-		t.Fatalf("expected unsupported format, got %v", err)
+	if IsUnsupportedFormat(err) {
+		t.Fatalf("expected parse error, got %v", err)
 	}
 }
 

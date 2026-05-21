@@ -88,6 +88,17 @@ func TestRunStartRejectsUnexpectedArgument(t *testing.T) {
 	}
 }
 
+func TestRunStartRejectsBaseURLTemplateForMultipleServices(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"start", "--service", "github,resend", "--base-url", "https://{service}.example.test"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("start with multi-service base URL template exited successfully")
+	}
+	if !strings.Contains(stderr.String(), "require exactly one service") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
 func TestRunStartHelpExitsSuccessfully(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"start", "--help"}, &stdout, &stderr)
@@ -156,6 +167,128 @@ func TestRunStartServesHealthEndpoint(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
+func TestRunStartPortlessRequiresPortless(t *testing.T) {
+	original := runPortlessCommand
+	runPortlessCommand = func(args []string, stdout io.Writer, stderr io.Writer) error {
+		return fmt.Errorf("missing")
+	}
+	t.Cleanup(func() {
+		runPortlessCommand = original
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"start", "--service", "github", "--portless"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("portless start exited successfully")
+	}
+	if !strings.Contains(stderr.String(), "portless is required but not installed") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
+func TestRunStartPortlessRegistersServiceAliases(t *testing.T) {
+	original := runPortlessCommand
+	calls := [][]string{}
+	runPortlessCommand = func(args []string, stdout io.Writer, stderr io.Writer) error {
+		calls = append(calls, append([]string(nil), args...))
+		return nil
+	}
+	t.Cleanup(func() {
+		runPortlessCommand = original
+	})
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--service", "github", "--port", strconv.Itoa(port), "--portless"}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK      bool   `json:"ok"`
+		Runtime string `json:"runtime"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || health.Runtime != "go" {
+		t.Fatalf("unexpected health: %#v", health)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+
+	wantCalls := [][]string{
+		{"--version"},
+		{"list"},
+		{"alias", "github.emulate", strconv.Itoa(port), "--force"},
+		{"alias", "--remove", "github.emulate"},
+	}
+	if fmt.Sprint(calls) != fmt.Sprint(wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", calls, wantCalls)
+	}
+	if !strings.Contains(stdout.String(), "https://github.emulate.localhost") {
+		t.Fatalf("stdout missing portless URL:\n%s", stdout.String())
+	}
+}
+
+func TestRunStartPortlessUsesSeedBaseURL(t *testing.T) {
+	original := runPortlessCommand
+	runPortlessCommand = func(args []string, stdout io.Writer, stderr io.Writer) error {
+		return nil
+	}
+	t.Cleanup(func() {
+		runPortlessCommand = original
+	})
+
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"github":{"baseUrl":"https://custom-github.example.test"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--service", "github", "--port", strconv.Itoa(port), "--seed", seedPath, "--portless"}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK      bool   `json:"ok"`
+		Runtime string `json:"runtime"`
+		BaseURL string `json:"base_url"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || health.Runtime != "go" || health.BaseURL != "https://custom-github.example.test" {
+		t.Fatalf("unexpected health: %#v", health)
+	}
+	if !strings.Contains(stdout.String(), "https://custom-github.example.test") {
+		t.Fatalf("stdout missing seed base URL:\n%s", stdout.String())
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
 	}
 }
 
@@ -641,45 +774,226 @@ func TestRunStartSeedsOktaFromJSONConfig(t *testing.T) {
 	}
 }
 
-func TestRunStartRejectsYAMLSeedConfig(t *testing.T) {
+func TestRunStartSeedsResendFromYAMLConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	seedPath := filepath.Join(tempDir, "emulate.config.yaml")
 	if err := os.WriteFile(seedPath, []byte("resend:\n  domains:\n    - name: example.com\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"start", "--seed", seedPath}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatal("start with YAML seed exited successfully")
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
 	}
-	if !strings.Contains(stderr.String(), "YAML config loading is not implemented") {
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "resend" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	var domains struct {
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d/domains", port), &domains)
+	if len(domains.Data) != 1 || domains.Data[0].Name != "example.com" {
+		t.Fatalf("unexpected seeded domains: %#v", domains)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
+func TestRunStartAutoDetectsYAMLConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := os.WriteFile(filepath.Join(tempDir, "emulate.config.yaml"), []byte("resend:\n  domains:\n    - name: autodetect.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port)}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "resend" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	var domains struct {
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d/domains", port), &domains)
+	if len(domains.Data) != 1 || domains.Data[0].Name != "autodetect.example" {
+		t.Fatalf("unexpected seeded domains: %#v", domains)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
+func TestRunStartUsesSeedBaseURL(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"github":{"baseUrl":"https://github.seed.example.test"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		BaseURL  string   `json:"base_url"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || health.BaseURL != "https://github.seed.example.test" || len(health.Services) != 1 || health.Services[0] != "github" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
+	}
+}
+
+func TestRunStartRejectsConflictingSeedBaseURLsForMultipleServices(t *testing.T) {
+	tempDir := t.TempDir()
+	seedPath := filepath.Join(tempDir, "emulate.config.json")
+	if err := os.WriteFile(seedPath, []byte(`{"github":{"baseUrl":"https://github.seed.example.test"},"google":{"baseUrl":"https://google.seed.example.test"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"start", "--service", "github,google", "--port", strconv.Itoa(freePort(t)), "--seed", seedPath}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("start with conflicting seed base URLs exited successfully")
+	}
+	if !strings.Contains(stderr.String(), "baseUrl seed overrides require exactly one selected service") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }
 
-func TestRunStartRejectsUnsupportedNativeSeedServices(t *testing.T) {
+func TestRunStartSeedsAWSFromJSONConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	seedPath := filepath.Join(tempDir, "emulate.config.json")
-	if err := os.WriteFile(seedPath, []byte(`{"aws":{"s3":{"buckets":[{"name":"example"}]}}}`), 0o644); err != nil {
+	if err := os.WriteFile(seedPath, []byte(`{"aws":{"region":"us-west-2","account_id":"999999999999","s3":{"buckets":[{"name":"example","region":"eu-west-1"}]},"sqs":{"queues":[{"name":"seeded-queue","visibility_timeout":45}]},"iam":{"users":[{"user_name":"developer","create_access_key":true}],"roles":[{"role_name":"lambda-execution-role","description":"Role for Lambda function execution"}]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, args := range [][]string{
-		{"start", "--seed", seedPath},
-		{"start", "--service", "aws", "--seed", seedPath},
-	} {
-		t.Run(strings.Join(args[:2], " "), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := run(args, &stdout, &stderr)
-			if code == 0 {
-				t.Fatal("start with unsupported seed service exited successfully")
-			}
-			errText := stderr.String()
-			if !strings.Contains(errText, "only supports --seed for apple, clerk, github, google, microsoft, mongoatlas, okta, resend, slack, stripe, and vercel") || !strings.Contains(errText, "aws") {
-				t.Fatalf("unexpected stderr: %s", errText)
-			}
-		})
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runWithContext(ctx, []string{"start", "--port", strconv.Itoa(port), "--seed", seedPath}, &stdout, &stderr)
+	}()
+
+	var health struct {
+		OK       bool     `json:"ok"`
+		Services []string `json:"services"`
+	}
+	waitForJSON(t, fmt.Sprintf("http://127.0.0.1:%d%s", port, emuruntime.HealthPath), &health)
+	if !health.OK || len(health.Services) != 1 || health.Services[0] != "aws" {
+		t.Fatalf("unexpected health body: %#v", health)
+	}
+
+	req, err := http.NewRequest(http.MethodHead, fmt.Sprintf("http://127.0.0.1:%d/example", port), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("x-amz-bucket-region") != "eu-west-1" {
+		t.Fatalf("head bucket status = %d, region = %q", resp.StatusCode, resp.Header.Get("x-amz-bucket-region"))
+	}
+
+	resp, err = http.Post(fmt.Sprintf("http://127.0.0.1:%d/sqs/", port), "application/x-www-form-urlencoded", strings.NewReader("Action=GetQueueUrl&QueueName=seeded-queue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "999999999999/seeded-queue") {
+		t.Fatalf("get seeded queue status = %d, body = %s", resp.StatusCode, string(raw))
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("start exited with %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not shut down after context cancellation")
 	}
 }
 
@@ -850,6 +1164,120 @@ func TestRunInitRejectsExistingAutoDetectedConfig(t *testing.T) {
 		t.Fatal("init with existing config exited successfully")
 	}
 	if !strings.Contains(stderr.String(), "Config file already exists: emulate.config.yaml") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
+func TestRunVercelInitWritesScaffold(t *testing.T) {
+	tempDir := t.TempDir()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"vercel", "init", "--service", "resend,aws"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("vercel init exited with %d, stderr: %s", code, stderr.String())
+	}
+	handler, err := os.ReadFile(filepath.Join(tempDir, "api", "emulate.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(handler), `Services: []string{"resend", "aws"}`) {
+		t.Fatalf("unexpected handler:\n%s", string(handler))
+	}
+	goMod, err := os.ReadFile(filepath.Join(tempDir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(goMod), "go 1.24") || !strings.Contains(string(goMod), "github.com/vercel-labs/emulate vdev") {
+		t.Fatalf("unexpected go.mod:\n%s", string(goMod))
+	}
+	config, err := os.ReadFile(filepath.Join(tempDir, "vercel.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(config), `"/emulate/:path*"`) || !strings.Contains(stdout.String(), "Vercel Go Function scaffold ready for: resend, aws") {
+		t.Fatalf("unexpected scaffold stdout = %s config = %s", stdout.String(), string(config))
+	}
+}
+
+func TestRunVercelInitPreservesExistingRewriteFields(t *testing.T) {
+	tempDir := t.TempDir()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	existingConfig := `{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/:path*",
+      "has": [{ "type": "host", "value": "example.com" }]
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index"
+    }
+  ]
+}
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "vercel.json"), []byte(existingConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"vercel", "init", "--service", "resend"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("vercel init exited with %d, stderr: %s", code, stderr.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(tempDir, "vercel.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Rewrites []map[string]any `json:"rewrites"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Rewrites) != 3 {
+		t.Fatalf("rewrites = %#v", config.Rewrites)
+	}
+	if config.Rewrites[1]["source"] != "/emulate/:path*" || config.Rewrites[2]["source"] != "/:path*" {
+		t.Fatalf("unexpected rewrite order: %#v", config.Rewrites)
+	}
+	has, ok := config.Rewrites[0]["has"].([]any)
+	if !ok || len(has) != 1 {
+		t.Fatalf("existing rewrite metadata was not preserved: %#v", config.Rewrites[0])
+	}
+}
+
+func TestRunVercelInitRejectsUnsupportedService(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"vercel", "init", "--service", "linear"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("vercel init exited successfully")
+	}
+	if !strings.Contains(stderr.String(), "currently supports native services") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }

@@ -34,7 +34,7 @@ const microsoft = await createEmulator({ service: 'microsoft', port: 4005 })
 ### Environment Variable
 
 ```bash
-MICROSOFT_EMULATOR_URL=http://localhost:4005
+MICROSOFT_EMULATOR_URL=http://localhost:4000
 ```
 
 ### OAuth URL Mapping
@@ -134,10 +134,10 @@ When no OAuth clients are configured, the emulator accepts any `client_id`. With
 
 ```bash
 # Default tenant
-curl http://localhost:4005/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 
 # Tenant-scoped (common, organizations, consumers, or specific tenant ID)
-curl http://localhost:4005/common/v2.0/.well-known/openid-configuration
+curl http://localhost:4000/common/v2.0/.well-known/openid-configuration
 ```
 
 When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on one native Go server, use `/microsoft/.well-known/openid-configuration` to avoid the shared root discovery path.
@@ -146,12 +146,12 @@ Returns the standard OIDC discovery document:
 
 ```json
 {
-  "issuer": "http://localhost:4005/{tenant}/v2.0",
-  "authorization_endpoint": "http://localhost:4005/oauth2/v2.0/authorize",
-  "token_endpoint": "http://localhost:4005/oauth2/v2.0/token",
-  "userinfo_endpoint": "http://localhost:4005/oidc/userinfo",
-  "end_session_endpoint": "http://localhost:4005/oauth2/v2.0/logout",
-  "jwks_uri": "http://localhost:4005/discovery/v2.0/keys",
+  "issuer": "http://localhost:4000/{tenant}/v2.0",
+  "authorization_endpoint": "http://localhost:4000/oauth2/v2.0/authorize",
+  "token_endpoint": "http://localhost:4000/oauth2/v2.0/token",
+  "userinfo_endpoint": "http://localhost:4000/oidc/userinfo",
+  "end_session_endpoint": "http://localhost:4000/oauth2/v2.0/logout",
+  "jwks_uri": "http://localhost:4000/discovery/v2.0/keys",
   "response_types_supported": ["code"],
   "subject_types_supported": ["pairwise"],
   "id_token_signing_alg_values_supported": ["RS256"],
@@ -163,7 +163,7 @@ Returns the standard OIDC discovery document:
 ### JWKS
 
 ```bash
-curl http://localhost:4005/discovery/v2.0/keys
+curl http://localhost:4000/discovery/v2.0/keys
 ```
 
 Returns an RSA public key (`kid`: `emulate-microsoft-1`) for verifying `id_token` signatures.
@@ -172,7 +172,7 @@ Returns an RSA public key (`kid`: `emulate-microsoft-1`) for verifying `id_token
 
 ```bash
 # Browser flow: redirects to a user picker page
-curl -v "http://localhost:4005/oauth2/v2.0/authorize?\
+curl -v "http://localhost:4000/oauth2/v2.0/authorize?\
 client_id=example-client-id&\
 redirect_uri=http://localhost:3000/api/auth/callback/microsoft-entra-id&\
 scope=openid+email+profile&\
@@ -197,7 +197,7 @@ Query parameters:
 ### Token Exchange
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/token \
+curl -X POST http://localhost:4000/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "code=<authorization_code>&\
 client_id=example-client-id&\
@@ -230,7 +230,7 @@ The v1 token endpoint at `/{tenant}/oauth2/token` accepts a `resource` parameter
 ### Client Credentials
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/token \
+curl -X POST http://localhost:4000/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "client_id=example-client-id&\
 client_secret=example-client-secret&\
@@ -243,7 +243,7 @@ Returns an `access_token` only (no `refresh_token` or `id_token`).
 ### Refresh Token
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/token \
+curl -X POST http://localhost:4000/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "refresh_token=r_microsoft_...&\
 client_id=example-client-id&\
@@ -255,7 +255,7 @@ Returns a new `access_token`, rotated `refresh_token`, and new `id_token`.
 ### User Info
 
 ```bash
-curl http://localhost:4005/oidc/userinfo \
+curl http://localhost:4000/oidc/userinfo \
   -H "Authorization: Bearer microsoft_..."
 ```
 
@@ -275,7 +275,7 @@ Returns:
 ### Microsoft Graph /me
 
 ```bash
-curl http://localhost:4005/v1.0/me \
+curl http://localhost:4000/v1.0/me \
   -H "Authorization: Bearer microsoft_..."
 ```
 
@@ -294,7 +294,7 @@ Returns an OData-style response:
 ### Logout
 
 ```bash
-curl "http://localhost:4005/oauth2/v2.0/logout?post_logout_redirect_uri=http://localhost:3000"
+curl "http://localhost:4000/oauth2/v2.0/logout?post_logout_redirect_uri=http://localhost:3000"
 ```
 
 Redirects to the `post_logout_redirect_uri` if provided and valid.
@@ -302,7 +302,7 @@ Redirects to the `post_logout_redirect_uri` if provided and valid.
 ### Token Revocation
 
 ```bash
-curl -X POST http://localhost:4005/oauth2/v2.0/revoke \
+curl -X POST http://localhost:4000/oauth2/v2.0/revoke \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "token=microsoft_..."
 ```
@@ -314,7 +314,7 @@ Returns `200 OK`. The token is removed from the emulator's token map.
 ### Full Authorization Code Flow
 
 ```bash
-MICROSOFT_URL="http://localhost:4005"
+MICROSOFT_URL="http://localhost:4000"
 CLIENT_ID="example-client-id"
 CLIENT_SECRET="example-client-secret"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/microsoft-entra-id"

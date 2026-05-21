@@ -2838,6 +2838,45 @@ func TestNewStoreCreatesAWSCollections(t *testing.T) {
 	}
 }
 
+func TestServiceSeedsAWSConfig(t *testing.T) {
+	router := corehttp.NewRouter()
+	Register(router, Options{
+		Store:           corestore.New(),
+		CredentialStore: auth.NewStore(),
+		BaseURL:         "http://localhost:4017",
+		Seed: &SeedConfig{
+			Region:    "us-west-2",
+			AccountID: "999999999999",
+			S3:        S3Seed{Buckets: []S3BucketSeed{{Name: "seeded-bucket", Region: "eu-west-1"}}},
+			SQS:       SQSSeed{Queues: []SQSQueueSeed{{Name: "seeded-queue", VisibilityTimeout: 45}}},
+			IAM: IAMSeed{
+				Users: []IAMUserSeed{{UserName: "developer", CreateAccessKey: true}},
+				Roles: []IAMRoleSeed{{RoleName: "worker", Description: "Worker role", AssumeRolePolicy: `{"Version":"2012-10-17","Statement":[]}`}},
+			},
+		},
+	})
+
+	res := executeAWSRequest(router, http.MethodHead, "http://127.0.0.1/seeded-bucket", nil, "s3", nil)
+	if res.Code != http.StatusOK || res.Header().Get("x-amz-bucket-region") != "eu-west-1" {
+		t.Fatalf("head bucket status = %d, headers = %#v, body = %s", res.Code, res.Header(), res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(router, "sqs", "Action=GetQueueUrl&QueueName=seeded-queue")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "http://localhost:4017/sqs/999999999999/seeded-queue") {
+		t.Fatalf("get seeded queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(router, "iam", "Action=GetUser&UserName=developer")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "arn:aws:iam::999999999999:user/developer") {
+		t.Fatalf("get seeded user status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(router, "iam", "Action=GetRole&RoleName=worker")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "Worker role") {
+		t.Fatalf("get seeded role status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func newTestHandler() http.Handler {
 	return newTestHandlerWithCredentialStore(nil)
 }

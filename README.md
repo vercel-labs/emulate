@@ -8,20 +8,11 @@ Local drop-in replacement services for CI and no-network sandboxes. Fully statef
 npx emulate
 ```
 
-All services start with sensible defaults. No config file needed:
+The npm CLI launches the native Go engine. All services start on one local server with sensible defaults. No config file needed:
 
-- **Vercel** on `http://localhost:4000`
-- **GitHub** on `http://localhost:4001`
-- **Google** on `http://localhost:4002`
-- **Slack** on `http://localhost:4003`
-- **Apple** on `http://localhost:4004`
-- **Microsoft** on `http://localhost:4005`
-- **Okta** on `http://localhost:4006`
-- **AWS** on `http://localhost:4007`
-- **Resend** on `http://localhost:4008`
-- **Stripe** on `http://localhost:4009`
-- **MongoDB Atlas** on `http://localhost:4010`
-- **Clerk** on `http://localhost:4011`
+```
+http://localhost:4000
+```
 
 ## CLI
 
@@ -55,13 +46,15 @@ npx emulate list
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --port` | `4000` | Base port (auto-increments per service) |
+| `-p, --port` | `4000` | Port for the native server |
 | `-s, --service` | all | Comma-separated services to enable |
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
-| `--base-url` | none | Override advertised base URL (supports `{service}` template) |
+| `--base-url` | none | Override advertised base URL |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+The `emulate` npm package installs a small JavaScript launcher plus an optional native binary package for your OS and CPU. Supported native packages cover macOS, Linux, and Windows on x64 and arm64.
 
 ## HTTPS with portless
 
@@ -83,17 +76,17 @@ google  https://google.emulate.localhost
 slack   https://slack.emulate.localhost
 ```
 
-If portless is not installed, emulate will prompt to install it (`npm i -g portless`).
+If portless is not installed, install it with `npm i -g portless`.
 
 The `--portless` flag overwrites any existing portless aliases matching `*.emulate`. Aliases are removed automatically when emulate shuts down.
 
 For a custom base URL without portless (any reverse proxy), use `--base-url` or the `EMULATE_BASE_URL` env var:
 
 ```bash
-npx emulate start --base-url "https://{service}.myproxy.test"
+npx emulate start --base-url "https://emulate.myproxy.test"
 ```
 
-The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`), typically to a value like `https://{service}.emulate.localhost`. It supports `{service}` interpolation, just like `--base-url` and `EMULATE_BASE_URL`. When no explicit `baseUrl` is provided, it is used as a fallback.
+The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it. When no explicit `baseUrl` is provided, it is used as a fallback. `{service}` templates are supported when exactly one service is enabled; use `--portless` for per-service aliases.
 
 Per-service overrides are also supported in the seed config (these take highest priority over all other base URL sources):
 
@@ -781,7 +774,7 @@ Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the
 
 Resend email API emulation with local capture for sent emails, domains, API keys, audiences, contacts, and an inbox UI. Set `RESEND_BASE_URL` before importing the official Resend Node.js SDK and the SDK will send to the emulator.
 
-The native Go runtime serves the same current Resend routes, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
+The native Go runtime serves the same current Resend routes, supports YAML and JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
 
 To expose the native Resend emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service resend`. The generated route serves Resend at `/emulate/resend/*`.
 
@@ -994,7 +987,7 @@ The persistence adapter is called on cold start (load) and after every mutating 
 
 ```
 packages/
-  emulate/          # CLI entry point (commander)
+  emulate/          # npm CLI shim and programmatic API
   @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     adapter-next/   # Next.js App Router integration
@@ -1009,7 +1002,7 @@ apps/
   web/              # Documentation site (Next.js)
 ```
 
-The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state.
+The native Go runtime is the default CLI engine and is distributed through npm as platform-specific optional binary packages. The TypeScript packages remain available for the programmatic API, framework adapters, and SDK conformance tests.
 
 ## Auth
 

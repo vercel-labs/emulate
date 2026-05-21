@@ -39,7 +39,7 @@ export async function allocatePort(host = DEFAULT_HOST) {
 export function selectRuntime(env = process.env) {
   if (env.EMULATE_SDK_RUNTIME) return env.EMULATE_SDK_RUNTIME;
   if (env.EMULATE_TARGET_URL) return "external";
-  return "typescript";
+  return "cli";
 }
 
 export async function startRuntime(options = {}) {
@@ -166,15 +166,15 @@ export async function waitForHttp(url, options = {}) {
 }
 
 async function runtimeCommand(options) {
-  if (options.runtime === "typescript") return typeScriptCommand(options);
+  if (options.runtime === "cli" || options.runtime === "typescript") return cliCommand(options);
   if (options.runtime === "go") return goCommand(options);
   throw new Error(`Unsupported runtime: ${options.runtime}`);
 }
 
-async function typeScriptCommand(options) {
+async function cliCommand(options) {
   const cliPath =
-    options.cliPath ?? options.env.EMULATE_TYPESCRIPT_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
-  await assertExecutableFile(cliPath, "TypeScript CLI");
+    options.cliPath ?? options.env.EMULATE_CLI ?? options.env.EMULATE_TYPESCRIPT_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
+  await assertExecutableFile(cliPath, "emulate CLI");
   const workingDirectory = await runtimeWorkingDirectory(options);
   return {
     args: [
@@ -190,7 +190,7 @@ async function typeScriptCommand(options) {
     command: process.execPath,
     cwd: workingDirectory.cwd,
     cleanup: workingDirectory.cleanup,
-    label: "TypeScript runtime",
+    label: "emulate CLI runtime",
     readinessPath: "/rate_limit",
   };
 }

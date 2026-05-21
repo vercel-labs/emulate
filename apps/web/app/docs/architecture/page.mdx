@@ -2,7 +2,7 @@
 
 ```
 packages/
-  emulate/          # CLI entry point (commander)
+  emulate/          # npm CLI shim and programmatic API
   @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     adapter-next/   # Next.js App Router integration
@@ -35,7 +35,7 @@ Each service is a plugin that:
 3. Provides a seed function to populate initial state from config
 4. Uses shared middleware for auth, error handling, and pagination
 
-Multiple services can run simultaneously, each on its own port (auto-incremented from the base port).
+The native Go runtime is the default CLI engine and serves selected services from one local server. `--portless` starts service-specific native listeners so each service can keep a named HTTPS alias.
 
 ## In-Memory State
 

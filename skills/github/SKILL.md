@@ -17,7 +17,7 @@ The native Go runtime implements the core SDK-facing GitHub surface for local CL
 npx emulate --service github
 
 # Default port
-# http://localhost:4001
+# http://localhost:4000
 ```
 
 Or programmatically:
@@ -34,7 +34,7 @@ const github = await createEmulator({ service: 'github', port: 4001 })
 Pass tokens as `Authorization: Bearer <token>` or `Authorization: token <token>`.
 
 ```bash
-curl http://localhost:4001/user \
+curl http://localhost:4000/user \
   -H "Authorization: Bearer test_token_admin"
 ```
 
@@ -76,7 +76,7 @@ github:
 ### Environment Variable
 
 ```bash
-GITHUB_EMULATOR_URL=http://localhost:4001
+GITHUB_EMULATOR_URL=http://localhost:4000
 ```
 
 ### Octokit
@@ -169,7 +169,7 @@ Repos are auto-initialized with a commit, branch, and README unless `auto_init: 
 All list endpoints support `page` and `per_page` query params with `Link` headers:
 
 ```bash
-curl "http://localhost:4001/repos/octocat/hello-world/issues?page=1&per_page=10" \
+curl "http://localhost:4000/repos/octocat/hello-world/issues?page=1&per_page=10" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -179,59 +179,59 @@ curl "http://localhost:4001/repos/octocat/hello-world/issues?page=1&per_page=10"
 
 ```bash
 # Authenticated user
-curl http://localhost:4001/user -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/user -H "Authorization: Bearer $TOKEN"
 
 # Update profile
-curl -X PATCH http://localhost:4001/user \
+curl -X PATCH http://localhost:4000/user \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"bio": "Hello!"}'
 
 # Get user by username
-curl http://localhost:4001/users/octocat
+curl http://localhost:4000/users/octocat
 
 # List users
-curl http://localhost:4001/users
+curl http://localhost:4000/users
 
 # User repos / orgs / followers / following
-curl http://localhost:4001/users/octocat/repos
-curl http://localhost:4001/users/octocat/orgs
-curl http://localhost:4001/users/octocat/followers
-curl http://localhost:4001/users/octocat/following
+curl http://localhost:4000/users/octocat/repos
+curl http://localhost:4000/users/octocat/orgs
+curl http://localhost:4000/users/octocat/followers
+curl http://localhost:4000/users/octocat/following
 
 # User hovercard
-curl http://localhost:4001/users/octocat/hovercard
+curl http://localhost:4000/users/octocat/hovercard
 
 # User emails
-curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/user/emails -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Repositories
 
 ```bash
 # Get repo
-curl http://localhost:4001/repos/octocat/hello-world
+curl http://localhost:4000/repos/octocat/hello-world
 
 # Create user repo
-curl -X POST http://localhost:4001/user/repos \
+curl -X POST http://localhost:4000/user/repos \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "new-repo", "private": false}'
 
 # Create org repo
-curl -X POST http://localhost:4001/orgs/my-org/repos \
+curl -X POST http://localhost:4000/orgs/my-org/repos \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "org-project"}'
 
 # Update repo
-curl -X PATCH http://localhost:4001/repos/octocat/hello-world \
+curl -X PATCH http://localhost:4000/repos/octocat/hello-world \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"description": "Updated description"}'
 
 # Delete repo (cascades issues, PRs, etc.)
-curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
+curl -X DELETE http://localhost:4000/repos/octocat/hello-world \
   -H "Authorization: Bearer $TOKEN"
 
 # Topics, languages, contributors, forks, collaborators, tags, transfer
@@ -241,10 +241,10 @@ curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
 
 ```bash
 # List issues (filter by state, labels, assignee, milestone, creator, since)
-curl "http://localhost:4001/repos/octocat/hello-world/issues?state=open&labels=bug"
+curl "http://localhost:4000/repos/octocat/hello-world/issues?state=open&labels=bug"
 
 # Create issue
-curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
+curl -X POST http://localhost:4000/repos/octocat/hello-world/issues \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": "Bug report", "body": "Details here", "labels": ["bug"]}'
@@ -256,16 +256,16 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
 
 ```bash
 # List PRs
-curl "http://localhost:4001/repos/octocat/hello-world/pulls?state=open"
+curl "http://localhost:4000/repos/octocat/hello-world/pulls?state=open"
 
 # Create PR
-curl -X POST http://localhost:4001/repos/octocat/hello-world/pulls \
+curl -X POST http://localhost:4000/repos/octocat/hello-world/pulls \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": "Feature", "head": "feature-branch", "base": "main"}'
 
 # Merge PR (enforces branch protection)
-curl -X PUT http://localhost:4001/repos/octocat/hello-world/pulls/1/merge \
+curl -X PUT http://localhost:4000/repos/octocat/hello-world/pulls/1/merge \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"merge_method": "squash"}'
@@ -277,33 +277,33 @@ curl -X PUT http://localhost:4001/repos/octocat/hello-world/pulls/1/merge \
 
 ```bash
 # Issue comments: full CRUD
-curl http://localhost:4001/repos/octocat/hello-world/issues/1/comments
-curl -X POST http://localhost:4001/repos/octocat/hello-world/issues/1/comments \
+curl http://localhost:4000/repos/octocat/hello-world/issues/1/comments
+curl -X POST http://localhost:4000/repos/octocat/hello-world/issues/1/comments \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"body": "Looks good!"}'
 
 # Comment by ID (cross-resource)
-curl http://localhost:4001/repos/octocat/hello-world/issues/comments/1
+curl http://localhost:4000/repos/octocat/hello-world/issues/comments/1
 
 # PR review comments
-curl http://localhost:4001/repos/octocat/hello-world/pulls/1/comments
+curl http://localhost:4000/repos/octocat/hello-world/pulls/1/comments
 
 # Commit comments
-curl http://localhost:4001/repos/octocat/hello-world/commits/abc123/comments
+curl http://localhost:4000/repos/octocat/hello-world/commits/abc123/comments
 
 # Repo-wide comment listings
-curl http://localhost:4001/repos/octocat/hello-world/issues/comments
-curl http://localhost:4001/repos/octocat/hello-world/pulls/comments
-curl http://localhost:4001/repos/octocat/hello-world/comments
+curl http://localhost:4000/repos/octocat/hello-world/issues/comments
+curl http://localhost:4000/repos/octocat/hello-world/pulls/comments
+curl http://localhost:4000/repos/octocat/hello-world/comments
 ```
 
 ### Reviews
 
 ```bash
 # List / create / get / update / submit / dismiss reviews
-curl http://localhost:4001/repos/octocat/hello-world/pulls/1/reviews
-curl -X POST http://localhost:4001/repos/octocat/hello-world/pulls/1/reviews \
+curl http://localhost:4000/repos/octocat/hello-world/pulls/1/reviews
+curl -X POST http://localhost:4000/repos/octocat/hello-world/pulls/1/reviews \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"event": "APPROVE", "body": "LGTM"}'
@@ -317,10 +317,10 @@ Full CRUD for labels and milestones. Add/remove labels from issues, replace all 
 
 ```bash
 # List branches
-curl http://localhost:4001/repos/octocat/hello-world/branches
+curl http://localhost:4000/repos/octocat/hello-world/branches
 
 # Branch protection CRUD (status checks, PR reviews, enforce admins)
-curl -X PUT http://localhost:4001/repos/octocat/hello-world/branches/main/protection \
+curl -X PUT http://localhost:4000/repos/octocat/hello-world/branches/main/protection \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"required_status_checks": {"strict": true, "contexts": ["ci"]}}'
@@ -332,76 +332,76 @@ curl -X PUT http://localhost:4001/repos/octocat/hello-world/branches/main/protec
 
 ```bash
 # List all orgs / user's orgs / get org / update org
-curl http://localhost:4001/organizations
-curl http://localhost:4001/user/orgs -H "Authorization: Bearer $TOKEN"
-curl http://localhost:4001/orgs/my-org
-curl -X PATCH http://localhost:4001/orgs/my-org \
+curl http://localhost:4000/organizations
+curl http://localhost:4000/user/orgs -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/orgs/my-org
+curl -X PATCH http://localhost:4000/orgs/my-org \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"description": "Updated org"}'
 
 # Org members: list, get, remove
-curl http://localhost:4001/orgs/my-org/members
-curl http://localhost:4001/orgs/my-org/members/octocat
-curl -X DELETE http://localhost:4001/orgs/my-org/members/octocat \
+curl http://localhost:4000/orgs/my-org/members
+curl http://localhost:4000/orgs/my-org/members/octocat
+curl -X DELETE http://localhost:4000/orgs/my-org/members/octocat \
   -H "Authorization: Bearer $TOKEN"
 
 # Org memberships: get, set (invite/update role)
-curl http://localhost:4001/orgs/my-org/memberships/octocat -H "Authorization: Bearer $TOKEN"
-curl -X PUT http://localhost:4001/orgs/my-org/memberships/octocat \
+curl http://localhost:4000/orgs/my-org/memberships/octocat -H "Authorization: Bearer $TOKEN"
+curl -X PUT http://localhost:4000/orgs/my-org/memberships/octocat \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"role": "admin"}'
 
 # Teams: CRUD
-curl http://localhost:4001/orgs/my-org/teams
-curl -X POST http://localhost:4001/orgs/my-org/teams \
+curl http://localhost:4000/orgs/my-org/teams
+curl -X POST http://localhost:4000/orgs/my-org/teams \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "engineering", "privacy": "closed"}'
 
 # Team members and memberships
-curl http://localhost:4001/orgs/my-org/teams/engineering/members
-curl -X PUT http://localhost:4001/orgs/my-org/teams/engineering/memberships/octocat \
+curl http://localhost:4000/orgs/my-org/teams/engineering/members
+curl -X PUT http://localhost:4000/orgs/my-org/teams/engineering/memberships/octocat \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"role": "maintainer"}'
 
 # Team repos: list, add, remove
-curl http://localhost:4001/orgs/my-org/teams/engineering/repos
-curl -X PUT http://localhost:4001/orgs/my-org/teams/engineering/repos/my-org/org-repo \
+curl http://localhost:4000/orgs/my-org/teams/engineering/repos
+curl -X PUT http://localhost:4000/orgs/my-org/teams/engineering/repos/my-org/org-repo \
   -H "Authorization: Bearer $TOKEN"
 
 # Legacy team endpoints by ID
-curl http://localhost:4001/teams/1
-curl http://localhost:4001/teams/1/members
+curl http://localhost:4000/teams/1
+curl http://localhost:4000/teams/1/members
 ```
 
 ### GitHub Apps
 
 ```bash
 # Get authenticated app (requires JWT auth)
-curl http://localhost:4001/app \
+curl http://localhost:4000/app \
   -H "Authorization: Bearer <jwt>"
 
 # List app installations
-curl http://localhost:4001/app/installations \
+curl http://localhost:4000/app/installations \
   -H "Authorization: Bearer <jwt>"
 
 # Get installation
-curl http://localhost:4001/app/installations/100 \
+curl http://localhost:4000/app/installations/100 \
   -H "Authorization: Bearer <jwt>"
 
 # Create installation access token (mints ghs_... token)
-curl -X POST http://localhost:4001/app/installations/100/access_tokens \
+curl -X POST http://localhost:4000/app/installations/100/access_tokens \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{"permissions": {"contents": "read"}}'
 
 # Find installation for repo / org / user
-curl http://localhost:4001/repos/my-org/org-repo/installation
-curl http://localhost:4001/orgs/my-org/installation
-curl http://localhost:4001/users/octocat/installation
+curl http://localhost:4000/repos/my-org/org-repo/installation
+curl http://localhost:4000/orgs/my-org/installation
+curl http://localhost:4000/users/octocat/installation
 ```
 
 App webhook delivery: when events occur, the emulator POSTs `event_callback` payloads to configured `webhook_url` with `X-GitHub-Event` and `X-Hub-Signature-256` headers.
@@ -410,7 +410,7 @@ App webhook delivery: when events occur, the emulator POSTs `event_callback` pay
 
 ```bash
 # Create release
-curl -X POST http://localhost:4001/repos/octocat/hello-world/releases \
+curl -X POST http://localhost:4000/repos/octocat/hello-world/releases \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"tag_name": "v1.0.0", "name": "v1.0.0"}'
@@ -418,8 +418,8 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/releases \
 # List, get, latest, by tag, generate notes
 
 # Release assets: list, upload
-curl http://localhost:4001/repos/octocat/hello-world/releases/1/assets
-curl -X POST http://localhost:4001/repos/octocat/hello-world/releases/1/assets \
+curl http://localhost:4000/repos/octocat/hello-world/releases/1/assets
+curl -X POST http://localhost:4000/repos/octocat/hello-world/releases/1/assets \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/octet-stream" \
   -H "name: binary.zip" \
@@ -430,7 +430,7 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/releases/1/assets \
 
 ```bash
 # Create webhook (real HTTP delivery on state changes)
-curl -X POST http://localhost:4001/repos/octocat/hello-world/hooks \
+curl -X POST http://localhost:4000/repos/octocat/hello-world/hooks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"config": {"url": "http://localhost:8080/webhook"}, "events": ["push", "pull_request"]}'
@@ -443,10 +443,10 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/hooks \
 
 ```bash
 # Search repositories
-curl "http://localhost:4001/search/repositories?q=language:JavaScript+user:octocat"
+curl "http://localhost:4000/search/repositories?q=language:JavaScript+user:octocat"
 
 # Search issues and PRs
-curl "http://localhost:4001/search/issues?q=repo:octocat/hello-world+is:open"
+curl "http://localhost:4000/search/issues?q=repo:octocat/hello-world+is:open"
 
 # Search users, code, commits, topics, labels
 ```
@@ -465,7 +465,7 @@ curl "http://localhost:4001/search/issues?q=repo:octocat/hello-world+is:open"
 
 ```bash
 # Create check run
-curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
+curl -X POST http://localhost:4000/repos/octocat/hello-world/check-runs \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "CI", "head_sha": "abc123", "status": "completed", "conclusion": "success"}'
@@ -482,32 +482,32 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
 # GET /login/oauth/authorize?client_id=...&redirect_uri=...&scope=...&state=...
 
 # Token exchange
-curl -X POST http://localhost:4001/login/oauth/access_token \
+curl -X POST http://localhost:4000/login/oauth/access_token \
   -H "Content-Type: application/json" \
   -H "Accept: application/json" \
   -d '{"client_id": "Iv1.abc123", "client_secret": "secret_abc123", "code": "<code>"}'
 
 # User emails
-curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/user/emails -H "Authorization: Bearer $TOKEN"
 
 # OAuth app management (settings)
-curl http://localhost:4001/settings/applications -H "Authorization: Bearer $TOKEN"
-curl http://localhost:4001/settings/connections/applications/Iv1.abc123 -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/settings/applications -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4000/settings/connections/applications/Iv1.abc123 -H "Authorization: Bearer $TOKEN"
 
 # Revoke OAuth app
-curl -X POST http://localhost:4001/settings/connections/applications/Iv1.abc123/revoke \
+curl -X POST http://localhost:4000/settings/connections/applications/Iv1.abc123/revoke \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Misc
 
 ```bash
-curl http://localhost:4001/rate_limit
-curl http://localhost:4001/meta
-curl http://localhost:4001/emojis
-curl http://localhost:4001/versions
-curl http://localhost:4001/octocat
-curl http://localhost:4001/zen
+curl http://localhost:4000/rate_limit
+curl http://localhost:4000/meta
+curl http://localhost:4000/emojis
+curl http://localhost:4000/versions
+curl http://localhost:4000/octocat
+curl http://localhost:4000/zen
 ```
 
 ## Common Patterns
@@ -516,7 +516,7 @@ curl http://localhost:4001/zen
 
 ```bash
 TOKEN="test_token_admin"
-BASE="http://localhost:4001"
+BASE="http://localhost:4000"
 
 # Create repo
 curl -X POST $BASE/user/repos \

@@ -34,7 +34,7 @@ const apple = await createEmulator({ service: 'apple', port: 4004 })
 ### Environment Variable
 
 ```bash
-APPLE_EMULATOR_URL=http://localhost:4004
+APPLE_EMULATOR_URL=http://localhost:4000
 ```
 
 ### OAuth URL Mapping
@@ -114,7 +114,7 @@ PKCE is supported. Pass `code_challenge` and `code_challenge_method` on authoriz
 ### OIDC Discovery
 
 ```bash
-curl http://localhost:4004/.well-known/openid-configuration
+curl http://localhost:4000/.well-known/openid-configuration
 ```
 
 When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on one native Go server, use `/apple/.well-known/openid-configuration` to avoid the shared root discovery path.
@@ -123,11 +123,11 @@ Returns the standard OIDC discovery document with all endpoints pointing to the 
 
 ```json
 {
-  "issuer": "http://localhost:4004",
-  "authorization_endpoint": "http://localhost:4004/auth/authorize",
-  "token_endpoint": "http://localhost:4004/auth/token",
-  "jwks_uri": "http://localhost:4004/auth/keys",
-  "revocation_endpoint": "http://localhost:4004/auth/revoke",
+  "issuer": "http://localhost:4000",
+  "authorization_endpoint": "http://localhost:4000/auth/authorize",
+  "token_endpoint": "http://localhost:4000/auth/token",
+  "jwks_uri": "http://localhost:4000/auth/keys",
+  "revocation_endpoint": "http://localhost:4000/auth/revoke",
   "response_types_supported": ["code"],
   "subject_types_supported": ["pairwise"],
   "id_token_signing_alg_values_supported": ["RS256"],
@@ -140,7 +140,7 @@ Returns the standard OIDC discovery document with all endpoints pointing to the 
 ### JWKS
 
 ```bash
-curl http://localhost:4004/auth/keys
+curl http://localhost:4000/auth/keys
 ```
 
 Returns an RSA public key (`kid`: `emulate-apple-1`) for verifying `id_token` signatures.
@@ -149,7 +149,7 @@ Returns an RSA public key (`kid`: `emulate-apple-1`) for verifying `id_token` si
 
 ```bash
 # Browser flow: redirects to a user picker page
-curl -v "http://localhost:4004/auth/authorize?\
+curl -v "http://localhost:4000/auth/authorize?\
 client_id=com.example.app&\
 redirect_uri=http://localhost:3000/api/auth/callback/apple&\
 scope=openid+email+name&\
@@ -175,7 +175,7 @@ The emulator renders an HTML page where you select a seeded user. After selectio
 ### Token Exchange
 
 ```bash
-curl -X POST http://localhost:4004/auth/token \
+curl -X POST http://localhost:4000/auth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "code=<authorization_code>&\
 client_id=com.example.app&\
@@ -200,7 +200,7 @@ The `id_token` is an RS256 JWT containing `sub`, `email`, `email_verified` (stri
 ### Refresh Token
 
 ```bash
-curl -X POST http://localhost:4004/auth/token \
+curl -X POST http://localhost:4000/auth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "refresh_token=r_apple_...&\
 client_id=com.example.app&\
@@ -212,7 +212,7 @@ Returns a new `access_token` and `id_token`. No new `refresh_token` is issued on
 ### Token Revocation
 
 ```bash
-curl -X POST http://localhost:4004/auth/revoke \
+curl -X POST http://localhost:4000/auth/revoke \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "token=apple_..."
 ```
@@ -224,7 +224,7 @@ Returns `200 OK`. The token is removed from the emulator's token map.
 ### Full Authorization Code Flow
 
 ```bash
-APPLE_URL="http://localhost:4004"
+APPLE_URL="http://localhost:4000"
 CLIENT_ID="com.example.app"
 REDIRECT_URI="http://localhost:3000/api/auth/callback/apple"
 

@@ -62,7 +62,7 @@ export default function LandingPage() {
               <h3 className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Zero config</h3>
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 Run <code className="rounded bg-neutral-100 px-1 py-0.5 text-xs dark:bg-neutral-800">npx emulate</code>{" "}
-                and all 11 services start with sensible defaults. Seed data via YAML when you need it.
+                and all 12 services start with sensible defaults. Seed data via YAML when you need it.
               </p>
             </div>
             <div>

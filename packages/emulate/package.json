@@ -42,6 +42,14 @@
   "bin": {
     "emulate": "./dist/index.js"
   },
+  "optionalDependencies": {
+    "@emulators/emulate-darwin-arm64": "workspace:*",
+    "@emulators/emulate-darwin-x64": "workspace:*",
+    "@emulators/emulate-linux-arm64": "workspace:*",
+    "@emulators/emulate-linux-x64": "workspace:*",
+    "@emulators/emulate-win32-arm64": "workspace:*",
+    "@emulators/emulate-win32-x64": "workspace:*"
+  },
   "scripts": {
     "prepack": "cp ../../README.md .",
     "build": "tsup",
@@ -51,11 +59,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
-  "dependencies": {
-    "commander": "^14",
-    "picocolors": "^1.1.1",
-    "yaml": "^2"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
@@ -70,7 +74,10 @@
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
+    "commander": "^14",
+    "picocolors": "^1.1.1",
     "tsup": "^8",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "yaml": "^2"
   }
 }

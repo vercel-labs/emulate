@@ -14,22 +14,11 @@ Local drop-in replacement services for CI and no-network sandboxes. Fully statef
 npx emulate
 ```
 
-All services start with sensible defaults:
+The npm CLI launches the native Go engine. All services start on one local server with sensible defaults:
 
-| Service   | Default Port |
-|-----------|-------------|
-| Vercel    | 4000        |
-| GitHub    | 4001        |
-| Google    | 4002        |
-| Slack     | 4003        |
-| Apple     | 4004        |
-| Microsoft | 4005        |
-| Okta      | 4006        |
-| AWS       | 4007        |
-| Resend    | 4008        |
-| Stripe    | 4009        |
-| MongoDB Atlas | 4010   |
-| Clerk    | 4011        |
+```bash
+http://localhost:4000
+```
 
 ## CLI
 
@@ -40,7 +29,7 @@ npx emulate
 # Start specific services
 npx emulate --service vercel,github
 
-# Custom base port (auto-increments per service)
+# Custom native server port
 npx emulate --port 3000
 
 # Use a seed config file
@@ -63,7 +52,7 @@ npx emulate list
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --port` | `4000` | Base port (auto-increments per service) |
+| `-p, --port` | `4000` | Port for the native server |
 | `-s, --service` | all | Comma-separated services to enable |
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
@@ -71,7 +60,7 @@ npx emulate list
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
-The advertised base URL (used in OAuth redirects, webhook URLs, etc.) can be overridden via `--base-url`, the `EMULATE_BASE_URL` env var (supports `{service}` template), or per-service `baseUrl` in the seed config. When running under portless, the `PORTLESS_URL` env var is also detected automatically.
+The advertised base URL can be overridden via `--base-url`, the `EMULATE_BASE_URL` env var, or per-service `baseUrl` in the seed config. `{service}` templates require exactly one selected service in native single-server mode; use `--portless` for per-service aliases.
 
 ## Programmatic API
 
@@ -275,7 +264,7 @@ npx emulate start --portless
 # ...
 ```
 
-This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, emulate will prompt to install it.
+This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, install it with `npm i -g portless`.
 
 The `--portless` flag overwrites any existing portless aliases matching `*.emulate`. Aliases are removed automatically when emulate shuts down.
 
@@ -288,12 +277,12 @@ portless github.emulate emulate start --service github
 For a custom base URL without portless (any reverse proxy):
 
 ```bash
-npx emulate start --base-url "https://{service}.myproxy.test"
+npx emulate start --service github --base-url "https://github.myproxy.test"
 # or
-EMULATE_BASE_URL="https://{service}.myproxy.test" npx emulate start
+EMULATE_BASE_URL="https://github.myproxy.test" npx emulate start --service github
 ```
 
-The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`), typically to a value like `https://{service}.emulate.localhost`. It supports `{service}` interpolation, just like `--base-url` and `EMULATE_BASE_URL`. When no explicit `baseUrl` is provided, it is used as a fallback.
+The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it. `{service}` interpolation is supported when exactly one service is enabled. When no explicit `baseUrl` is provided, it is used as a fallback.
 
 Per-service overrides in the seed config (these take highest priority over all other base URL sources):
 
@@ -310,16 +299,16 @@ Set environment variables to override real service URLs:
 
 ```bash
 VERCEL_EMULATOR_URL=http://localhost:4000
-GITHUB_EMULATOR_URL=http://localhost:4001
-GOOGLE_EMULATOR_URL=http://localhost:4002
-SLACK_EMULATOR_URL=http://localhost:4003
-APPLE_EMULATOR_URL=http://localhost:4004
-MICROSOFT_EMULATOR_URL=http://localhost:4005
-OKTA_EMULATOR_URL=http://localhost:4006
-AWS_EMULATOR_URL=http://localhost:4007
-RESEND_EMULATOR_URL=http://localhost:4008
-STRIPE_EMULATOR_URL=http://localhost:4009
-MONGOATLAS_EMULATOR_URL=http://localhost:4010
+GITHUB_EMULATOR_URL=http://localhost:4000
+GOOGLE_EMULATOR_URL=http://localhost:4000
+SLACK_EMULATOR_URL=http://localhost:4000
+APPLE_EMULATOR_URL=http://localhost:4000
+MICROSOFT_EMULATOR_URL=http://localhost:4000
+OKTA_EMULATOR_URL=http://localhost:4000
+AWS_EMULATOR_URL=http://localhost:4000
+RESEND_EMULATOR_URL=http://localhost:4000
+STRIPE_EMULATOR_URL=http://localhost:4000
+MONGOATLAS_EMULATOR_URL=http://localhost:4000
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.

@@ -12,6 +12,7 @@ emulate.config.yml
 
 # emulate CLI README is copied from root by prepack
 packages/emulate/README.md
+packages/@emulators/emulate-*/bin/
 
 # opensrc - source code for packages
 opensrc/

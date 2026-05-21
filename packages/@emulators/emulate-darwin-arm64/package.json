@@ -1,0 +1,23 @@
+{
+  "name": "@emulators/emulate-darwin-arm64",
+  "version": "0.5.0",
+  "description": "Native emulate binary for macOS arm64",
+  "license": "Apache-2.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/emulate-darwin-arm64"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

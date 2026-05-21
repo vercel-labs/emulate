@@ -34,7 +34,7 @@ const slack = await createEmulator({ service: 'slack', port: 4003 })
 Pass tokens as `Authorization: Bearer <token>`. All Web API endpoints require authentication.
 
 ```bash
-curl -X POST http://localhost:4003/api/auth.test \
+curl -X POST http://localhost:4000/api/auth.test \
   -H "Authorization: Bearer xoxb-test-token"
 ```
 
@@ -45,7 +45,7 @@ The native Go runtime seeds `xoxb-test-token` for the default admin user. OAuth 
 ### Environment Variable
 
 ```bash
-SLACK_EMULATOR_URL=http://localhost:4003
+SLACK_EMULATOR_URL=http://localhost:4000
 ```
 
 ### Slack SDK / Bolt
@@ -127,7 +127,7 @@ When no OAuth apps are configured, the emulator accepts any `client_id`. With ap
 
 ```bash
 # Test authentication
-curl -X POST http://localhost:4003/api/auth.test \
+curl -X POST http://localhost:4000/api/auth.test \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -135,31 +135,31 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 ```bash
 # Post message
-curl -X POST http://localhost:4003/api/chat.postMessage \
+curl -X POST http://localhost:4000/api/chat.postMessage \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "text": "Hello from the emulator!"}'
 
 # Post threaded reply
-curl -X POST http://localhost:4003/api/chat.postMessage \
+curl -X POST http://localhost:4000/api/chat.postMessage \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "text": "Thread reply", "thread_ts": "1234567890.123456"}'
 
 # Update message
-curl -X POST http://localhost:4003/api/chat.update \
+curl -X POST http://localhost:4000/api/chat.update \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "ts": "1234567890.123456", "text": "Updated message"}'
 
 # Delete message
-curl -X POST http://localhost:4003/api/chat.delete \
+curl -X POST http://localhost:4000/api/chat.delete \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "ts": "1234567890.123456"}'
 
 # /me message
-curl -X POST http://localhost:4003/api/chat.meMessage \
+curl -X POST http://localhost:4000/api/chat.meMessage \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "text": "is thinking..."}'
@@ -169,41 +169,41 @@ curl -X POST http://localhost:4003/api/chat.meMessage \
 
 ```bash
 # List channels (cursor pagination)
-curl -X POST http://localhost:4003/api/conversations.list \
+curl -X POST http://localhost:4000/api/conversations.list \
   -H "Authorization: Bearer $TOKEN"
 
 # Get channel info
-curl -X POST http://localhost:4003/api/conversations.info \
+curl -X POST http://localhost:4000/api/conversations.info \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
 
 # Create channel
-curl -X POST http://localhost:4003/api/conversations.create \
+curl -X POST http://localhost:4000/api/conversations.create \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "new-channel", "is_private": false}'
 
 # Channel history (top-level messages only)
-curl -X POST http://localhost:4003/api/conversations.history \
+curl -X POST http://localhost:4000/api/conversations.history \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
 
 # Thread replies
-curl -X POST http://localhost:4003/api/conversations.replies \
+curl -X POST http://localhost:4000/api/conversations.replies \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "ts": "1234567890.123456"}'
 
 # Join / leave channel
-curl -X POST http://localhost:4003/api/conversations.join \
+curl -X POST http://localhost:4000/api/conversations.join \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
 
 # List members
-curl -X POST http://localhost:4003/api/conversations.members \
+curl -X POST http://localhost:4000/api/conversations.members \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
@@ -213,17 +213,17 @@ curl -X POST http://localhost:4003/api/conversations.members \
 
 ```bash
 # List users (cursor pagination)
-curl -X POST http://localhost:4003/api/users.list \
+curl -X POST http://localhost:4000/api/users.list \
   -H "Authorization: Bearer $TOKEN"
 
 # Get user info
-curl -X POST http://localhost:4003/api/users.info \
+curl -X POST http://localhost:4000/api/users.info \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"user": "U000000001"}'
 
 # Lookup by email
-curl -X POST http://localhost:4003/api/users.lookupByEmail \
+curl -X POST http://localhost:4000/api/users.lookupByEmail \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"email": "dev@example.com"}'
@@ -233,19 +233,19 @@ curl -X POST http://localhost:4003/api/users.lookupByEmail \
 
 ```bash
 # Add reaction
-curl -X POST http://localhost:4003/api/reactions.add \
+curl -X POST http://localhost:4000/api/reactions.add \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "timestamp": "1234567890.123456", "name": "thumbsup"}'
 
 # Remove reaction
-curl -X POST http://localhost:4003/api/reactions.remove \
+curl -X POST http://localhost:4000/api/reactions.remove \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "timestamp": "1234567890.123456", "name": "thumbsup"}'
 
 # Get reactions
-curl -X POST http://localhost:4003/api/reactions.get \
+curl -X POST http://localhost:4000/api/reactions.get \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "timestamp": "1234567890.123456"}'
@@ -255,7 +255,7 @@ curl -X POST http://localhost:4003/api/reactions.get \
 
 ```bash
 # Get workspace info
-curl -X POST http://localhost:4003/api/team.info \
+curl -X POST http://localhost:4000/api/team.info \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -263,7 +263,7 @@ curl -X POST http://localhost:4003/api/team.info \
 
 ```bash
 # Get bot info
-curl -X POST http://localhost:4003/api/bots.info \
+curl -X POST http://localhost:4000/api/bots.info \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"bot": "B000000001"}'
@@ -273,17 +273,17 @@ curl -X POST http://localhost:4003/api/bots.info \
 
 ```bash
 # Post via incoming webhook
-curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
+curl -X POST http://localhost:4000/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
   -d '{"text": "Deployment complete!"}'
 
 # Post to a specific channel
-curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
+curl -X POST http://localhost:4000/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
   -d '{"text": "Alert!", "channel": "C000000002"}'
 
 # Post threaded webhook message
-curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
+curl -X POST http://localhost:4000/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
   -d '{"text": "Thread update", "thread_ts": "1234567890.123456"}'
 ```
@@ -295,7 +295,7 @@ curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
 # GET /oauth/v2/authorize?client_id=...&redirect_uri=...&scope=...&state=...
 
 # Token exchange
-curl -X POST http://localhost:4003/api/oauth.v2.access \
+curl -X POST http://localhost:4000/api/oauth.v2.access \
   -H "Content-Type: application/json" \
   -d '{"client_id": "12345.67890", "client_secret": "example_client_secret", "code": "<code>"}'
 ```
@@ -327,7 +327,7 @@ In embedded JavaScript mode, when messages are posted or reactions are added/rem
 
 ```bash
 TOKEN="xoxb-test-token"
-BASE="http://localhost:4003"
+BASE="http://localhost:4000"
 
 # Post a message
 curl -X POST $BASE/api/chat.postMessage \
@@ -354,7 +354,7 @@ curl -X POST $BASE/api/reactions.add \
 
 ```bash
 # Use the default incoming webhook
-curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
+curl -X POST http://localhost:4000/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
   -d '{"text": "Build passed on main"}'
 ```

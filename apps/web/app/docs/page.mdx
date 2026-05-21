@@ -8,20 +8,11 @@ Local drop-in replacement for Vercel, GitHub, Google, Slack, Apple, Microsoft, A
 npx emulate
 ```
 
-All services start with sensible defaults. No config file needed:
+The npm CLI launches the native Go engine. All services start on one local server with sensible defaults:
 
-- **Vercel** on `http://localhost:4000`
-- **GitHub** on `http://localhost:4001`
-- **Google** on `http://localhost:4002`
-- **Slack** on `http://localhost:4003`
-- **Apple** on `http://localhost:4004`
-- **Microsoft** on `http://localhost:4005`
-- **Okta** on `http://localhost:4006`
-- **AWS** on `http://localhost:4007`
-- **Resend** on `http://localhost:4008`
-- **Stripe** on `http://localhost:4009`
-- **MongoDB Atlas** on `http://localhost:4010`
-- **Clerk** on `http://localhost:4011`
+```bash
+http://localhost:4000
+```
 
 ## CLI
 
@@ -32,7 +23,7 @@ npx emulate
 # Start specific services
 npx emulate --service vercel,github
 
-# Custom port
+# Custom native server port
 npx emulate --port 3000
 
 # Use a seed config file
@@ -43,6 +34,9 @@ npx emulate init
 
 # Generate config for a specific service
 npx emulate init --service github
+
+# Scaffold a Vercel Go Function preview route
+npx emulate vercel init
 
 # List available services
 npx emulate list
@@ -62,7 +56,7 @@ npx emulate list
     <tr>
       <td><code>-p, --port</code></td>
       <td><code>4000</code></td>
-      <td>Base port (auto-increments per service)</td>
+      <td>Port for the native server</td>
     </tr>
     <tr>
       <td><code>-s, --service</code></td>
@@ -78,6 +72,8 @@ npx emulate list
 </table>
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+The `emulate` npm package installs a small JavaScript launcher plus an optional native binary package for your OS and CPU. Supported native packages cover macOS, Linux, and Windows on x64 and arm64.
 
 ## Programmatic API
 

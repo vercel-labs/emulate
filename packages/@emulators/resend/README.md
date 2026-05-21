@@ -8,7 +8,7 @@ Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in repl
 
 Set `RESEND_BASE_URL` before importing the official `resend` Node.js SDK and the SDK will call the emulator without code changes.
 
-The native Go runtime implements the current Resend routes listed below, supports explicit JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
+The native Go runtime implements the current Resend routes listed below, supports YAML and JSON seed configs for Resend through `--seed`, and is verified against the official `resend` SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
 
 ## Install
 

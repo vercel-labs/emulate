@@ -17,7 +17,7 @@ The native Go runtime implements this Okta OIDC and management API surface for l
 npx emulate --service okta
 
 # Default port when all services run
-# http://localhost:4006
+# http://localhost:4000
 ```
 
 Or programmatically:
@@ -34,7 +34,7 @@ const okta = await createEmulator({ service: 'okta', port: 4006 })
 ### Environment Variable
 
 ```bash
-OKTA_EMULATOR_URL=http://localhost:4006
+OKTA_EMULATOR_URL=http://localhost:4000
 ```
 
 ### URL Mapping

@@ -20,7 +20,7 @@ When run alone, the default base URL is:
 http://localhost:4000
 ```
 
-When all services run together from the default base port, MongoDB Atlas is available at `http://localhost:4010`.
+When all services run together, MongoDB Atlas is available on the same native server base URL.
 
 ## Vercel Preview
 
