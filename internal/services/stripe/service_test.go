@@ -78,6 +78,10 @@ func TestStripePaymentIntentConfirmCreatesChargeAndExpandsCustomer(t *testing.T)
 	if expanded.Code != http.StatusOK || !strings.Contains(expanded.Body.String(), `"customer":{"`) || !strings.Contains(expanded.Body.String(), `"email":"expand@test.com"`) {
 		t.Fatalf("unexpected expanded intent: %s", expanded.Body.String())
 	}
+	sdkExpanded := stripeRequest(handler, http.MethodGet, "/v1/payment_intents/"+intent.ID+"?"+url.Values{"expand[0]": {"customer"}}.Encode(), "")
+	if sdkExpanded.Code != http.StatusOK || !strings.Contains(sdkExpanded.Body.String(), `"customer":{"`) || !strings.Contains(sdkExpanded.Body.String(), `"email":"expand@test.com"`) {
+		t.Fatalf("unexpected SDK expanded intent: %s", sdkExpanded.Body.String())
+	}
 
 	confirmed := stripeRequest(handler, http.MethodPost, "/v1/payment_intents/"+intent.ID+"/confirm", `{}`)
 	if confirmed.Code != http.StatusOK || !strings.Contains(confirmed.Body.String(), `"status":"succeeded"`) {
@@ -179,6 +183,10 @@ func TestStripeCatalogCheckoutAndCustomerSession(t *testing.T) {
 	expandedPrice := stripeRequest(handler, http.MethodGet, "/v1/prices/"+price.ID+"?expand[]=product", "")
 	if expandedPrice.Code != http.StatusOK || !strings.Contains(expandedPrice.Body.String(), `"product":{"`) || !strings.Contains(expandedPrice.Body.String(), `"name":"T-Shirt"`) {
 		t.Fatalf("unexpected expanded price: %s", expandedPrice.Body.String())
+	}
+	sdkExpandedPrice := stripeRequest(handler, http.MethodGet, "/v1/prices/"+price.ID+"?"+url.Values{"expand[0]": {"product"}}.Encode(), "")
+	if sdkExpandedPrice.Code != http.StatusOK || !strings.Contains(sdkExpandedPrice.Body.String(), `"product":{"`) || !strings.Contains(sdkExpandedPrice.Body.String(), `"name":"T-Shirt"`) {
+		t.Fatalf("unexpected SDK expanded price: %s", sdkExpandedPrice.Body.String())
 	}
 
 	sessionRes := stripeRequest(handler, http.MethodPost, "/v1/checkout/sessions", url.Values{

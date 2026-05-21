@@ -370,10 +370,30 @@ func createdUnix(value string) int64 {
 }
 
 func expandRequested(c *corehttp.Context, field string) bool {
-	for _, value := range c.Request.URL.Query()["expand[]"] {
-		if value == field {
-			return true
+	for key, values := range c.Request.URL.Query() {
+		if !isExpandQueryKey(key) {
+			continue
+		}
+		for _, value := range values {
+			if value == field {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func isExpandQueryKey(key string) bool {
+	if key == "expand[]" {
+		return true
+	}
+	if !strings.HasPrefix(key, "expand[") || !strings.HasSuffix(key, "]") {
+		return false
+	}
+	index := strings.TrimSuffix(strings.TrimPrefix(key, "expand["), "]")
+	if index == "" {
+		return false
+	}
+	_, err := strconv.Atoi(index)
+	return err == nil
 }
