@@ -49,6 +49,7 @@ type nativeSeedOptions struct {
 	Slack      *slack.SeedConfig
 	Stripe     *stripe.SeedConfig
 	Vercel     *vercel.SeedConfig
+	BaseURLs   map[string]string
 }
 
 func main() {
@@ -139,17 +140,19 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	var slackSeed *slack.SeedConfig
 	var stripeSeed *stripe.SeedConfig
 	var vercelSeed *vercel.SeedConfig
-	if *seedValue != "" {
-		loaded, err := coreconfig.Load(coreconfig.LoadOptions{Path: *seedValue})
-		if err != nil {
-			fmt.Fprintf(stderr, "Failed to load seed config: %v\n", err)
-			return 1
-		}
+	seedBaseURLs := map[string]string{}
+	loaded, err := loadNativeSeedConfig(*seedValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "Failed to load seed config: %v\n", err)
+		return 1
+	}
+	if loaded != nil {
 		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
 			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for apple, aws, clerk, github, google, microsoft, mongoatlas, okta, resend, slack, stripe, and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
 			return 1
 		}
 		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
+		seedBaseURLs = nativeSeedBaseURLs(loaded.Data)
 		if raw, ok := loaded.Data["aws"]; ok {
 			var cfg aws.SeedConfig
 			if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -285,24 +288,21 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		Slack:      slackSeed,
 		Stripe:     stripeSeed,
 		Vercel:     vercelSeed,
+		BaseURLs:   seedBaseURLs,
 	}
 	if *portlessValue {
 		return runPortlessStart(ctx, stdout, stderr, port, services, seeds)
 	}
 
-	baseURL := *baseURLValue
-	if baseURL == "" {
-		baseURL = getenv("EMULATE_BASE_URL", getenv("PORTLESS_URL", ""))
+	fallbackBaseURL, err := nativeCommandBaseURL(*baseURLValue, services, port)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
-	if baseURL != "" && strings.Contains(baseURL, "{service}") {
-		if len(services) != 1 {
-			fmt.Fprintln(stderr, "Base URL templates with {service} require exactly one service in native single-server mode. Use --portless for per-service aliases.")
-			return 1
-		}
-		baseURL = strings.ReplaceAll(baseURL, "{service}", services[0])
-	}
-	if baseURL == "" {
-		baseURL = fmt.Sprintf("http://localhost:%d", port)
+	baseURL, err := nativeSingleServerBaseURL(services, seeds.BaseURLs, fallbackBaseURL)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 	server := emuruntime.NewServer(serverOptions(baseURL, services, seeds))
 	httpServer := &nethttp.Server{
@@ -344,6 +344,107 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		}
 		return 0
 	}
+}
+
+func loadNativeSeedConfig(seedPath string) (*coreconfig.LoadResult, error) {
+	if seedPath != "" {
+		return coreconfig.Load(coreconfig.LoadOptions{Path: seedPath})
+	}
+	loaded, err := coreconfig.Load(coreconfig.LoadOptions{})
+	if errors.Is(err, coreconfig.ErrNotFound) {
+		return nil, nil
+	}
+	return loaded, err
+}
+
+func nativeSeedBaseURLs(data map[string]json.RawMessage) map[string]string {
+	baseURLs := map[string]string{}
+	for _, service := range nativeSeedServiceNames() {
+		raw, ok := data[service]
+		if !ok {
+			continue
+		}
+		var config struct {
+			BaseURL string `json:"baseUrl"`
+		}
+		if err := json.Unmarshal(raw, &config); err != nil {
+			continue
+		}
+		baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
+		if baseURL != "" {
+			baseURLs[service] = baseURL
+		}
+	}
+	return baseURLs
+}
+
+func nativeCommandBaseURL(baseURL string, services []string, port int) (string, error) {
+	if baseURL == "" {
+		baseURL = getenv("EMULATE_BASE_URL", getenv("PORTLESS_URL", ""))
+	}
+	if baseURL != "" && strings.Contains(baseURL, "{service}") {
+		if len(services) != 1 {
+			return "", fmt.Errorf("Base URL templates with {service} require exactly one service in native single-server mode. Use --portless for per-service aliases.")
+		}
+		baseURL = strings.ReplaceAll(baseURL, "{service}", services[0])
+	}
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://localhost:%d", port)
+	}
+	return baseURL, nil
+}
+
+func nativeSingleServerBaseURL(services []string, seedBaseURLs map[string]string, fallback string) (string, error) {
+	if len(seedBaseURLs) == 0 {
+		return fallback, nil
+	}
+	selected := map[string]string{}
+	for _, service := range services {
+		if baseURL := seedBaseURLForService(service, seedBaseURLs); baseURL != "" {
+			selected[service] = baseURL
+		}
+	}
+	if len(selected) == 0 {
+		return fallback, nil
+	}
+	if len(services) == 1 {
+		return selected[services[0]], nil
+	}
+
+	var shared string
+	allSelectedHaveSameBaseURL := len(selected) == len(services)
+	for _, service := range services {
+		baseURL, ok := selected[service]
+		if !ok {
+			allSelectedHaveSameBaseURL = false
+			continue
+		}
+		if shared == "" {
+			shared = baseURL
+			continue
+		}
+		if baseURL != shared {
+			allSelectedHaveSameBaseURL = false
+		}
+	}
+	if allSelectedHaveSameBaseURL {
+		return shared, nil
+	}
+
+	names := make([]string, 0, len(selected))
+	for service := range selected {
+		names = append(names, service)
+	}
+	sort.Strings(names)
+	return "", fmt.Errorf("Per-service baseUrl seed overrides require exactly one selected service or the same baseUrl for every selected service in native single-server mode. Use --portless for per-service URLs. Overrides found for: %s", strings.Join(names, ", "))
+}
+
+func seedBaseURLForService(service string, seedBaseURLs map[string]string) string {
+	baseURL := seedBaseURLs[service]
+	if baseURL == "" {
+		return ""
+	}
+	return strings.ReplaceAll(baseURL, "{service}", service)
 }
 
 func serverOptions(baseURL string, services []string, seeds nativeSeedOptions) emuruntime.ServerOptions {

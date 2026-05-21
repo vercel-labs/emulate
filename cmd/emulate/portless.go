@@ -45,6 +45,9 @@ func runPortlessStart(ctx context.Context, stdout io.Writer, stderr io.Writer, b
 	for index, service := range services {
 		port := basePort + index
 		baseURL := portlessBaseURL(service)
+		if seedBaseURL := seedBaseURLForService(service, seeds.BaseURLs); seedBaseURL != "" {
+			baseURL = seedBaseURL
+		}
 		server := emuruntime.NewServer(serverOptions(baseURL, []string{service}, seeds))
 		httpServer := &nethttp.Server{
 			Handler:           server.Handler,
