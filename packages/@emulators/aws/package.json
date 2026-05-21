@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "^3.1050.0",
+    "@aws-sdk/client-eventbridge": "3.1051.0",
     "@aws-sdk/client-iam": "^3.1049.0",
     "@aws-sdk/client-s3": "^3.1031.0",
     "@aws-sdk/client-sns": "^3.1050.0",

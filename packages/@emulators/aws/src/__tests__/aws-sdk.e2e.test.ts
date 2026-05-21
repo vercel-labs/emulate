@@ -28,6 +28,23 @@ import {
   UpdateTableCommand,
 } from "@aws-sdk/client-dynamodb";
 import {
+  EventBridgeClient,
+  CreateEventBusCommand,
+  DeleteEventBusCommand,
+  DeleteRuleCommand,
+  DescribeRuleCommand,
+  ListEventBusesCommand,
+  ListRulesCommand,
+  ListTagsForResourceCommand as ListEventBridgeTagsForResourceCommand,
+  ListTargetsByRuleCommand,
+  PutEventsCommand,
+  PutRuleCommand,
+  PutTargetsCommand,
+  RemoveTargetsCommand,
+  TagResourceCommand as TagEventBridgeResourceCommand,
+  UntagResourceCommand as UntagEventBridgeResourceCommand,
+} from "@aws-sdk/client-eventbridge";
+import {
   S3Client,
   ListBucketsCommand,
   HeadBucketCommand,
@@ -107,6 +124,7 @@ const describeExternalSqsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : des
 const describeExternalSnsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
 describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
@@ -675,6 +693,152 @@ describeExternalDynamoDBE2E("AWS plugin - real @aws-sdk/client-dynamodb E2E", ()
     expect(batch.Responses?.["sdk-e2e-events"]).toHaveLength(2);
 
     await dynamodb.send(new DeleteDynamoDBTableCommand({ TableName: "sdk-e2e-events" }));
+  });
+});
+
+describeExternalEventBridgeE2E("AWS plugin - real @aws-sdk/client-eventbridge E2E", () => {
+  let emulator: EmulatorHandle;
+  let events: EventBridgeClient;
+  let sqs: SQSClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    events = new EventBridgeClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/events/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+    sqs = new SQSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/sqs/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    events.destroy();
+    sqs.destroy();
+    await emulator.close();
+  });
+
+  it("CreateEventBus, PutRule, PutTargets, and PutEvents route matching events to SQS", async () => {
+    const suffix = Date.now().toString(36);
+    const busName = `sdk-e2e-bus-${suffix}`;
+    const ruleName = `sdk-e2e-rule-${suffix}`;
+    const queueName = `sdk-e2e-events-${suffix}`;
+
+    const bus = await events.send(
+      new CreateEventBusCommand({
+        Name: busName,
+        Tags: [{ Key: "env", Value: "test" }],
+      }),
+    );
+    expect(bus.EventBusArn).toBe(`arn:aws:events:us-east-1:123456789012:event-bus/${busName}`);
+
+    const buses = await events.send(new ListEventBusesCommand({ NamePrefix: "sdk-e2e-bus-" }));
+    expect((buses.EventBuses ?? []).map((item) => item.Name)).toContain(busName);
+
+    await events.send(
+      new TagEventBridgeResourceCommand({
+        ResourceARN: bus.EventBusArn,
+        Tags: [{ Key: "team", Value: "platform" }],
+      }),
+    );
+    const tags = await events.send(new ListEventBridgeTagsForResourceCommand({ ResourceARN: bus.EventBusArn }));
+    expect(tags.Tags).toEqual(expect.arrayContaining([{ Key: "team", Value: "platform" }]));
+    await events.send(new UntagEventBridgeResourceCommand({ ResourceARN: bus.EventBusArn, TagKeys: ["team"] }));
+
+    const queue = await sqs.send(new CreateSQSQueueCommand({ QueueName: queueName }));
+    const attrs = await sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: queue.QueueUrl,
+        AttributeNames: ["QueueArn"],
+      }),
+    );
+    expect(attrs.Attributes?.QueueArn).toBeTruthy();
+
+    const rule = await events.send(
+      new PutRuleCommand({
+        Name: ruleName,
+        EventBusName: busName,
+        EventPattern: JSON.stringify({
+          source: ["app.orders"],
+          "detail-type": ["OrderCreated"],
+          detail: { tenant: ["acme"] },
+        }),
+      }),
+    );
+    expect(rule.RuleArn).toContain(`:rule/${busName}/${ruleName}`);
+
+    const described = await events.send(new DescribeRuleCommand({ Name: ruleName, EventBusName: busName }));
+    expect(described.State).toBe("ENABLED");
+    expect(described.EventBusName).toBe(busName);
+
+    const rules = await events.send(new ListRulesCommand({ EventBusName: busName, NamePrefix: "sdk-e2e-rule-" }));
+    expect((rules.Rules ?? []).map((item) => item.Name)).toContain(ruleName);
+
+    const targets = await events.send(
+      new PutTargetsCommand({
+        Rule: ruleName,
+        EventBusName: busName,
+        Targets: [{ Id: "queue", Arn: attrs.Attributes?.QueueArn }],
+      }),
+    );
+    expect(targets.FailedEntryCount).toBe(0);
+
+    const listedTargets = await events.send(new ListTargetsByRuleCommand({ Rule: ruleName, EventBusName: busName }));
+    expect((listedTargets.Targets ?? []).map((item) => item.Id)).toContain("queue");
+
+    const published = await events.send(
+      new PutEventsCommand({
+        Entries: [
+          {
+            EventBusName: busName,
+            Source: "app.orders",
+            DetailType: "OrderCreated",
+            Detail: JSON.stringify({ tenant: "acme", id: "ord_1" }),
+          },
+          {
+            EventBusName: busName,
+            Source: "app.orders",
+            DetailType: "OrderCreated",
+            Detail: JSON.stringify({ tenant: "other", id: "ord_2" }),
+          },
+        ],
+      }),
+    );
+    expect(published.FailedEntryCount).toBe(0);
+    expect(published.Entries?.[0]?.EventId).toBeTruthy();
+
+    const received = await sqs.send(
+      new ReceiveMessageCommand({
+        QueueUrl: queue.QueueUrl,
+        MaxNumberOfMessages: 10,
+      }),
+    );
+    expect(received.Messages).toHaveLength(1);
+    const event = JSON.parse(received.Messages?.[0]?.Body ?? "{}") as {
+      source?: string;
+      "detail-type"?: string;
+      detail?: { tenant?: string; id?: string };
+    };
+    expect(event.source).toBe("app.orders");
+    expect(event["detail-type"]).toBe("OrderCreated");
+    expect(event.detail).toEqual({ tenant: "acme", id: "ord_1" });
+
+    await events.send(new RemoveTargetsCommand({ Rule: ruleName, EventBusName: busName, Ids: ["queue"] }));
+    const afterRemove = await events.send(new ListTargetsByRuleCommand({ Rule: ruleName, EventBusName: busName }));
+    expect((afterRemove.Targets ?? []).map((item) => item.Id)).not.toContain("queue");
+
+    await events.send(new DeleteRuleCommand({ Name: ruleName, EventBusName: busName }));
+    await events.send(new DeleteEventBusCommand({ Name: busName }));
+    await sqs.send(new DeleteSQSQueueCommand({ QueueUrl: queue.QueueUrl }));
   });
 });
 

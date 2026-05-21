@@ -14,3 +14,4 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@aws-sdk/client-dynamodb@3.1050.0'
   - '@aws-sdk/client-sns@3.1050.0'
+  - '@aws-sdk/client-eventbridge@3.1051.0'

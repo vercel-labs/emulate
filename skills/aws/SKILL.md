@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, SNS, DynamoDB, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test DynamoDB tables and items, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local DynamoDB", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, SNS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, DynamoDB, IAM, and STS; SQS and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, IAM, and STS; SQS, EventBridge, and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -39,7 +39,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 
 ## Auth
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4007/ \
@@ -99,6 +99,21 @@ const sns = new SNSClient({
 ```
 
 The native Go runtime accepts the SNS SDK client's AWS Query requests to `/sns` and can deliver published notifications to SQS subscriptions.
+
+```typescript
+import { EventBridgeClient } from '@aws-sdk/client-eventbridge'
+
+const eventbridge = new EventBridgeClient({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/events`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
+The native Go runtime accepts the EventBridge SDK client's `X-Amz-Target: AWSEvents.<Action>` JSON requests to `/events` and can deliver matching events to SQS queues and SNS topics.
 
 ```typescript
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
@@ -169,7 +184,7 @@ aws:
         assume_role_policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 ```
 
-Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`).
+Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, EventBridge event bus `default`, and IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`).
 
 ## API Endpoints
 
@@ -309,6 +324,16 @@ In the native Go runtime, `@aws-sdk/client-sns` can use endpoint `${AWS_EMULATOR
 - `Publish` with SQS subscription delivery
 - `TagResource`, `UntagResource`, `ListTagsForResource`
 - `AddPermission`, `RemovePermission`
+
+### EventBridge
+
+In the native Go runtime, `@aws-sdk/client-eventbridge` can use endpoint `${AWS_EMULATOR_URL}/events`. SDK responses are JSON.
+
+- `CreateEventBus`, `DeleteEventBus`, `ListEventBuses`
+- `PutRule`, `DescribeRule`, `ListRules`, `DeleteRule`, `EnableRule`, `DisableRule`
+- `PutTargets`, `ListTargetsByRule`, `RemoveTargets`
+- `PutEvents` with SQS and SNS target delivery
+- `TagResource`, `UntagResource`, `ListTagsForResource`
 
 ### IAM
 

@@ -9,6 +9,7 @@ import (
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	awsdynamodb "github.com/vercel-labs/emulate/internal/services/aws/dynamodb"
+	awsevents "github.com/vercel-labs/emulate/internal/services/aws/eventbridge"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
 	awsiam "github.com/vercel-labs/emulate/internal/services/aws/iam"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
@@ -43,6 +44,7 @@ type Service struct {
 	iam              awsiam.Handler
 	sts              awssts.Handler
 	dynamodb         awsdynamodb.Handler
+	events           awsevents.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -75,6 +77,7 @@ func New(options Options) *Service {
 	}
 	seedS3Defaults(awsStore, defaultRegion)
 	seedSQSDefaults(awsStore, options.BaseURL, defaultAccountID, defaultRegion)
+	seedEventBridgeDefaults(awsStore, defaultAccountID, defaultRegion)
 	seedIAMDefaults(awsStore, credentialStore, defaultAccountID)
 	return &Service{
 		store:            awsStore,
@@ -124,6 +127,19 @@ func New(options Options) *Service {
 			Items:     awsStore.DynamoDBItems,
 			AccountID: defaultAccountID,
 			Region:    defaultRegion,
+		},
+		events: awsevents.Handler{
+			EventBuses:       awsStore.EventBuses,
+			EventRules:       awsStore.EventRules,
+			EventTargets:     awsStore.EventTargets,
+			EventDeliveries:  awsStore.EventDeliveries,
+			SQSQueues:        awsStore.SQSQueues,
+			SQSMessages:      awsStore.SQSMessages,
+			SNSTopics:        awsStore.SNSTopics,
+			SNSSubscriptions: awsStore.SNSSubscriptions,
+			SNSDeliveries:    awsStore.SNSDeliveries,
+			AccountID:        defaultAccountID,
+			Region:           defaultRegion,
 		},
 	}
 }
@@ -177,6 +193,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "dynamodb" && ctx.Protocol == protocols.ProtocolJSONRPC {
 		writeErrorResponse(c, s.dynamodb.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "events" && ctx.Protocol == protocols.ProtocolJSONRPC {
+		writeErrorResponse(c, s.events.Handle(c.Request, ctx))
 		return
 	}
 

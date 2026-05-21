@@ -332,13 +332,13 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   aws: {
     label: "AWS cloud service emulator",
     endpoints:
-      "S3 (buckets, objects), SQS (queues, messages), SNS and DynamoDB in native Go runtime (topics, subscriptions, tables, items), IAM (users, roles, access keys), STS (assume role, caller identity)",
+      "S3 (buckets, objects), SQS (queues, messages), SNS, EventBridge, and DynamoDB in native Go runtime (topics, subscriptions, buses, rules, targets, tables, items), IAM (users, roles, access keys), STS (assume role, caller identity)",
     async load() {
       const mod = await import("@emulators/aws");
       return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback() {
-      return { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "sns:*", "dynamodb:*", "iam:*", "sts:*"] };
+      return { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "sns:*", "events:*", "dynamodb:*", "iam:*", "sts:*"] };
     },
     initConfig: {
       aws: {

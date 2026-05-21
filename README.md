@@ -713,7 +713,7 @@ The native Go runtime implements the Clerk OIDC and management API routes below 
 
 ## AWS
 
-S3, SQS, SNS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, DynamoDB, IAM, and STS; SQS and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, IAM, and STS; SQS, EventBridge, and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
 
@@ -747,6 +747,15 @@ In the native Go runtime, `@aws-sdk/client-sns` v3 can use the `/sns/` endpoint 
 - `Publish` with SQS subscription delivery
 - `TagResource`, `UntagResource`, `ListTagsForResource`
 - `AddPermission`, `RemovePermission`
+
+### EventBridge
+In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/` endpoint directly. The SDK sends `X-Amz-Target: AWSEvents.<Action>` JSON requests and receives JSON responses. Matching events can be delivered to SQS queues and SNS topics.
+
+- `CreateEventBus`, `DeleteEventBus`, `ListEventBuses`
+- `PutRule`, `DescribeRule`, `ListRules`, `DeleteRule`, `EnableRule`, `DisableRule`
+- `PutTargets`, `ListTargetsByRule`, `RemoveTargets`
+- `PutEvents` with rule pattern matching
+- `TagResource`, `UntagResource`, `ListTagsForResource`
 
 ### DynamoDB
 In the native Go runtime, `@aws-sdk/client-dynamodb` v3 can use the `/dynamodb/` endpoint directly. The SDK sends `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests and receives JSON responses.
@@ -995,7 +1004,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
-    aws/            # AWS S3, SQS, IAM, STS
+    aws/            # AWS S3, SQS, SNS, EventBridge, DynamoDB, IAM, STS
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -1018,4 +1027,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
-**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

@@ -1183,6 +1183,174 @@ func TestServiceDropsOversizedSNSDeliveryToSQS(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesEventBridgeRuleAndSQSTarget(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=eventbridge-target")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	values := url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":         "orders",
+		"EventPattern": `{"source":["app.orders"],"detail-type":["OrderCreated"],"detail":{"tenant":["acme"]}}`,
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"RuleArn"`) {
+		t.Fatalf("put rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutTargets", map[string]any{
+		"Rule": "orders",
+		"Targets": []map[string]any{{
+			"Id":  "queue",
+			"Arn": queueARN,
+		}},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"FailedEntryCount":0`) {
+		t.Fatalf("put targets status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{
+			{"Source": "app.orders", "DetailType": "OrderCreated", "Detail": `{"tenant":"acme","id":"ord_1"}`},
+			{"Source": "app.orders", "DetailType": "OrderCreated", "Detail": `{"tenant":"other","id":"ord_2"}`},
+		},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"FailedEntryCount":0`) {
+		t.Fatalf("put events status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "10")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "ord_1") || strings.Contains(body, "ord_2") || !strings.Contains(body, "OrderCreated") {
+		t.Fatalf("unexpected EventBridge delivery body: %s", body)
+	}
+}
+
+func TestServiceHandlesEventBridgeCustomBusTagsAndSNSTarget(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSEventBridgeRequest(t, handler, "CreateEventBus", map[string]any{
+		"Name": "custom",
+		"Tags": []map[string]any{{"Key": "env", "Value": "test"}},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"EventBusArn"`) {
+		t.Fatalf("create bus status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var busOut struct {
+		EventBusArn string
+	}
+	decodeJSONBody(t, res, &busOut)
+
+	res = executeAWSEventBridgeRequest(t, handler, "ListTagsForResource", map[string]any{"ResourceARN": busOut.EventBusArn})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"Key":"env"`) {
+		t.Fatalf("list bus tags status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	topicValues := url.Values{}
+	topicValues.Set("Action", "CreateTopic")
+	topicValues.Set("Name", "eventbridge-topic")
+	res = executeAWSQueryRequest(handler, "sns", topicValues.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+	topicARN := xmlElement(res.Body.String(), "TopicArn")
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=eventbridge-sns-target")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	queueValues := url.Values{}
+	queueValues.Set("Action", "GetQueueAttributes")
+	queueValues.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", queueValues.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+
+	subscribeValues := url.Values{}
+	subscribeValues.Set("Action", "Subscribe")
+	subscribeValues.Set("TopicArn", topicARN)
+	subscribeValues.Set("Protocol", "sqs")
+	subscribeValues.Set("Endpoint", queueARN)
+	res = executeAWSQueryRequest(handler, "sns", subscribeValues.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("subscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":         "billing",
+		"EventBusName": "custom",
+		"EventPattern": `{"resources":["invoice"],"detail":{"status":["paid"]}}`,
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = executeAWSEventBridgeRequest(t, handler, "PutTargets", map[string]any{
+		"Rule":         "billing",
+		"EventBusName": "custom",
+		"Targets":      []map[string]any{{"Id": "topic", "Arn": topicARN}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put targets status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{{
+			"EventBusName": "custom",
+			"Source":       "app.billing",
+			"DetailType":   "InvoiceUpdated",
+			"Resources":    []string{"invoice"},
+			"Detail":       `{"status":"paid","id":"inv_1"}`,
+		}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put events status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	receiveValues := url.Values{}
+	receiveValues.Set("Action", "ReceiveMessage")
+	receiveValues.Set("QueueUrl", queueURL)
+	receiveValues.Set("MaxNumberOfMessages", "1")
+	res = executeAWSQueryRequest(handler, "sqs", receiveValues.Encode())
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "inv_1") || !strings.Contains(res.Body.String(), "&quot;Type&quot;:&quot;Notification&quot;") {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceReturnsEventBridgeModeledErrors(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{"Name": "bad"})
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "ValidationException") {
+		t.Fatalf("validation status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{{"EventBusName": "missing", "Source": "app", "DetailType": "Test", "Detail": `{}`}},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"FailedEntryCount":1`) || !strings.Contains(res.Body.String(), "ResourceNotFoundException") {
+		t.Fatalf("missing bus status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestServiceHandlesSNSTagsPermissionsAndErrors(t *testing.T) {
 	handler := newTestHandler()
 
@@ -2125,7 +2293,7 @@ func TestNewStoreCreatesAWSCollections(t *testing.T) {
 	awsStore.IAMUsers.Insert(corestore.Record{"user_name": "developer", "user_id": "AIDAEXAMPLE"})
 
 	snapshot := runtimeStore.Snapshot()
-	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
+	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
 		if _, ok := snapshot.Collections[name]; !ok {
 			t.Fatalf("missing collection %s", name)
 		}
@@ -2205,6 +2373,21 @@ func executeAWSDynamoDBRequest(t *testing.T, handler http.Handler, action string
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+action)
 	signAWSRequest(req, "dynamodb")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
+func executeAWSEventBridgeRequest(t *testing.T, handler http.Handler, action string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/events/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSEvents."+action)
+	signAWSRequest(req, "events")
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res
