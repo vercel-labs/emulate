@@ -80,7 +80,7 @@ func TestOAuthAuthorizationCodeFlow(t *testing.T) {
 		t.Fatalf("unexpected token body: %#v", tokenBody)
 	}
 	claims := decodeJWTClaims(t, tokenBody.IDToken)
-	if claims["iss"] != testBaseURL || claims["sub"] != stringField(alice, "clerk_id") || claims["sid"] == "" {
+	if claims["iss"] != testBaseURL || claims["sub"] != stringField(alice, "clerk_id") || claims["sid"] == "" || claims["nonce"] != "nonce-1" {
 		t.Fatalf("unexpected id token claims: %#v", claims)
 	}
 
@@ -178,6 +178,19 @@ func TestManagementAPIsAndSessionTokens(t *testing.T) {
 	listUsers := clerkJSON(router, http.MethodGet, "/v1/users?query=alice", "")
 	if listUsers.Code != http.StatusOK || !strings.Contains(listUsers.Body.String(), `"total_count":1`) {
 		t.Fatalf("list users status = %d, body = %s", listUsers.Code, listUsers.Body.String())
+	}
+	countUsers := clerkJSON(router, http.MethodGet, "/v1/users/count?query=alice", "")
+	if countUsers.Code != http.StatusOK {
+		t.Fatalf("count users status = %d, body = %s", countUsers.Code, countUsers.Body.String())
+	}
+	var countBody struct {
+		TotalCount int `json:"total_count"`
+	}
+	if err := json.Unmarshal(countUsers.Body.Bytes(), &countBody); err != nil {
+		t.Fatal(err)
+	}
+	if countBody.TotalCount != 1 {
+		t.Fatalf("filtered count = %d, body = %s", countBody.TotalCount, countUsers.Body.String())
 	}
 
 	createUser := clerkJSON(router, http.MethodPost, "/v1/users", `{"email_address":["new@example.com"],"first_name":"New","password":"secret"}`)

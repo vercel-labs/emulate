@@ -45,7 +45,7 @@ func (s *jwtSigner) jwks() map[string]any {
 	}
 }
 
-func createIDToken(user corestore.Record, emails []corestore.Record, sessionID string, clientID string, issuer string) (string, error) {
+func createIDToken(user corestore.Record, emails []corestore.Record, sessionID string, clientID string, issuer string, nonce string) (string, error) {
 	now := time.Now().Unix()
 	primary := primaryEmail(emails)
 	claims := map[string]any{
@@ -62,6 +62,9 @@ func createIDToken(user corestore.Record, emails []corestore.Record, sessionID s
 	}
 	if name := userDisplayName(user); name != "" {
 		claims["name"] = name
+	}
+	if nonce != "" {
+		claims["nonce"] = nonce
 	}
 	return clerkSigner.sign(claims)
 }

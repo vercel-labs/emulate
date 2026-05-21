@@ -255,7 +255,7 @@ func (s *Service) handleToken(c *corehttp.Context) {
 		"expires_at":      now + 3600,
 	})
 	emails := s.store.EmailAddresses.FindBy("user_id", stringField(user, "clerk_id"))
-	idToken, err := createIDToken(user, emails, sessionID, firstNonEmpty(clientID, "default"), s.baseURL)
+	idToken, err := createIDToken(user, emails, sessionID, firstNonEmpty(clientID, "default"), s.baseURL, stringField(pending, "nonce"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]any{"message": "Failed to sign ID token"})
 		return

@@ -29,25 +29,8 @@ func (s *Service) handleListUsers(c *corehttp.Context) {
 		return
 	}
 	limit, offset := parsePagination(c)
-	query := strings.ToLower(c.Query("query"))
 	orderBy := firstNonEmpty(c.Query("order_by"), "-created_at")
-	emailFilters := c.Request.URL.Query()["email_address"]
-	emailSet := map[string]bool{}
-	for _, email := range emailFilters {
-		emailSet[strings.ToLower(email)] = true
-	}
-	users := s.store.Users.All()
-	filtered := make([]corestore.Record, 0, len(users))
-	for _, user := range users {
-		emails := s.store.EmailAddresses.FindBy("user_id", stringField(user, "clerk_id"))
-		if query != "" && !userMatchesQuery(user, emails, query) {
-			continue
-		}
-		if len(emailSet) > 0 && !userHasEmail(emails, emailSet) {
-			continue
-		}
-		filtered = append(filtered, user)
-	}
+	filtered := s.filteredUsers(c)
 	desc := strings.HasPrefix(orderBy, "-")
 	field := strings.TrimPrefix(orderBy, "-")
 	sort.SliceStable(filtered, func(i int, j int) bool {
@@ -75,7 +58,7 @@ func (s *Service) handleCountUsers(c *corehttp.Context) {
 	if !requireSecretKey(c) {
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"object": "total_count", "total_count": s.store.Users.Count()})
+	c.JSON(http.StatusOK, map[string]any{"object": "total_count", "total_count": len(s.filteredUsers(c))})
 }
 
 func (s *Service) handleGetUser(c *corehttp.Context) {
@@ -288,7 +271,9 @@ func (s *Service) handleVerifyPassword(c *corehttp.Context) {
 func userMatchesQuery(user corestore.Record, emails []corestore.Record, query string) bool {
 	if strings.Contains(strings.ToLower(stringField(user, "first_name")), query) ||
 		strings.Contains(strings.ToLower(stringField(user, "last_name")), query) ||
-		strings.Contains(strings.ToLower(stringField(user, "username")), query) {
+		strings.Contains(strings.ToLower(stringField(user, "username")), query) ||
+		strings.Contains(strings.ToLower(stringField(user, "clerk_id")), query) ||
+		strings.Contains(strings.ToLower(stringField(user, "external_id")), query) {
 		return true
 	}
 	for _, email := range emails {
@@ -297,6 +282,28 @@ func userMatchesQuery(user corestore.Record, emails []corestore.Record, query st
 		}
 	}
 	return false
+}
+
+func (s *Service) filteredUsers(c *corehttp.Context) []corestore.Record {
+	query := strings.ToLower(c.Query("query"))
+	emailFilters := c.Request.URL.Query()["email_address"]
+	emailSet := map[string]bool{}
+	for _, email := range emailFilters {
+		emailSet[strings.ToLower(email)] = true
+	}
+	users := s.store.Users.All()
+	filtered := make([]corestore.Record, 0, len(users))
+	for _, user := range users {
+		emails := s.store.EmailAddresses.FindBy("user_id", stringField(user, "clerk_id"))
+		if query != "" && !userMatchesQuery(user, emails, query) {
+			continue
+		}
+		if len(emailSet) > 0 && !userHasEmail(emails, emailSet) {
+			continue
+		}
+		filtered = append(filtered, user)
+	}
+	return filtered
 }
 
 func userHasEmail(emails []corestore.Record, emailSet map[string]bool) bool {
