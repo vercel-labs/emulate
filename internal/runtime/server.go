@@ -110,9 +110,10 @@ func NewServer(options ServerOptions) *Server {
 	}
 	if serviceEnabled(services, "slack") {
 		slack.Register(router, slack.Options{
-			Store:   runtimeStore,
-			BaseURL: options.BaseURL,
-			Seed:    options.SlackSeed,
+			Store:         runtimeStore,
+			BaseURL:       options.BaseURL,
+			Seed:          options.SlackSeed,
+			RootInspector: len(services) == 1,
 		})
 	}
 	if serviceEnabled(services, "vercel") {

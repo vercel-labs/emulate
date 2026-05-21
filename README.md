@@ -614,7 +614,7 @@ When more than one of Apple, Google, and Microsoft is enabled on one native Go s
 
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks.
 
-The native Go runtime implements the Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. To expose Slack on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service slack`. The generated route serves Slack at `/emulate/slack/*`.
+The native Go runtime implements the Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. In native CLI runs with multiple services enabled, open `/slack` for the message inspector. When only Slack is enabled, and in Vercel Go Function previews, the inspector is available at the service root. To expose Slack on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service slack`. The generated route serves Slack at `/emulate/slack/*`.
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication

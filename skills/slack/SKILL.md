@@ -8,7 +8,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. In embedded JavaScript mode, state changes also dispatch `event_callback` payloads to configured webhook URLs.
 
-The native Go runtime implements this Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. It stores message and reaction state but does not deliver outbound Slack Events API callbacks yet. Use `npx emulate vercel init --service slack` for zero infra Vercel preview deployments at `/emulate/slack/*`.
+The native Go runtime implements this Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. It stores message and reaction state but does not deliver outbound Slack Events API callbacks yet. In native CLI runs with multiple services enabled, open `/slack` for the message inspector. When only Slack is enabled, and in Vercel Go Function previews, the inspector is available at the service root. Use `npx emulate vercel init --service slack` for zero infra Vercel preview deployments at `/emulate/slack/*`.
 
 ## Start
 

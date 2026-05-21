@@ -20,7 +20,10 @@ func (s *Service) registerWebhookRoutes(router *corehttp.Router) {
 }
 
 func (s *Service) registerInspectorRoutes(router *corehttp.Router) {
-	router.Get("/", s.handleInspector)
+	router.Get("/slack", s.handleInspector)
+	if s.rootInspector {
+		router.Get("/", s.handleInspector)
+	}
 }
 
 func (s *Service) handleIncomingWebhook(c *corehttp.Context) {
@@ -113,6 +116,10 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		}
 	}
 	var sidebar strings.Builder
+	inspectorPath := c.Request.URL.Path
+	if inspectorPath == "" {
+		inspectorPath = "/"
+	}
 	for _, channel := range channels {
 		className := ""
 		if stringField(channel, "channel_id") == stringField(active, "channel_id") {
@@ -122,7 +129,9 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		if boolField(channel, "is_private") {
 			prefix = "private "
 		}
-		sidebar.WriteString(`<a href="/?channel=`)
+		sidebar.WriteString(`<a href="`)
+		sidebar.WriteString(ui.EscapeAttr(inspectorPath))
+		sidebar.WriteString(`?channel=`)
 		sidebar.WriteString(url.QueryEscape(stringField(channel, "channel_id")))
 		sidebar.WriteString(`"`)
 		sidebar.WriteString(className)

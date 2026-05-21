@@ -4,7 +4,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
-The native Go runtime implements this Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. To expose Slack on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service slack`.
+The native Go runtime implements this Slack Web API, OAuth v2, incoming webhook, seed config, and message inspector foundation for local CLI runs and Vercel Go Function previews. In native CLI runs with multiple services enabled, open `/slack` for the message inspector. When only Slack is enabled, and in Vercel Go Function previews, the inspector is available at the service root. To expose Slack on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service slack`.
 
 ## Install
 

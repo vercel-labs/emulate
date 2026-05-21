@@ -428,7 +428,7 @@ func TestSlackSeedFromConfig(t *testing.T) {
 }
 
 func newSlackTestService() (*Service, http.Handler) {
-	service := New(Options{Store: corestore.New(), BaseURL: "http://localhost:4018"})
+	service := New(Options{Store: corestore.New(), BaseURL: "http://localhost:4018", RootInspector: true})
 	router := corehttp.NewRouter()
 	service.RegisterRoutes(router)
 	return service, router

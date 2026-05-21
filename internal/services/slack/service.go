@@ -11,9 +11,10 @@ import (
 const serviceLabel = "Slack"
 
 type Options struct {
-	Store   *corestore.Store
-	BaseURL string
-	Seed    *SeedConfig
+	Store         *corestore.Store
+	BaseURL       string
+	Seed          *SeedConfig
+	RootInspector bool
 }
 
 type SeedConfig struct {
@@ -63,9 +64,10 @@ type IncomingWebhookSeed struct {
 }
 
 type Service struct {
-	store        Store
-	runtimeStore *corestore.Store
-	baseURL      string
+	store         Store
+	runtimeStore  *corestore.Store
+	baseURL       string
+	rootInspector bool
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -83,9 +85,10 @@ func New(options Options) *Service {
 		baseURL = "http://localhost:4000"
 	}
 	service := &Service{
-		store:        NewStore(runtimeStore),
-		runtimeStore: runtimeStore,
-		baseURL:      baseURL,
+		store:         NewStore(runtimeStore),
+		runtimeStore:  runtimeStore,
+		baseURL:       baseURL,
+		rootInspector: options.RootInspector,
 	}
 	service.SeedDefaults()
 	if options.Seed != nil {
