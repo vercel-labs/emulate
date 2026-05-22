@@ -394,6 +394,57 @@ export interface KMSAlias extends CompatEntity {
   last_updated_date: number;
 }
 
+export interface LambdaFunction extends CompatEntity {
+  account_id: string;
+  region: string;
+  function_name: string;
+  arn: string;
+  runtime: string;
+  role: string;
+  handler: string;
+  description: string;
+  timeout: number;
+  memory_size: number;
+  package_type: string;
+  architectures: string[];
+  code_size: number;
+  code_sha256: string;
+  version: string;
+  revision_id: string;
+  last_modified: string;
+  state: string;
+  state_reason: string;
+  state_reason_code: string;
+  last_update_status: string;
+  environment: Record<string, string>;
+  tags: Record<string, string>;
+  policy_statements: Array<Record<string, unknown>>;
+  invoke_payload: string;
+  log_group_name: string;
+  tracing_mode: string;
+  ephemeral_storage: number;
+  kms_key_arn: string;
+  dead_letter_target: string;
+  snap_start_apply_on: string;
+}
+
+export interface LambdaVersion extends LambdaFunction {
+  source_revision_id: string;
+}
+
+export interface LambdaAlias extends CompatEntity {
+  account_id: string;
+  region: string;
+  function_name: string;
+  name: string;
+  arn: string;
+  function_version: string;
+  description: string;
+  revision_id: string;
+  routing_config: Record<string, unknown>;
+  last_modified_time: string;
+}
+
 export interface IamUser extends CompatEntity {
   user_name: string;
   user_id: string;
@@ -461,6 +512,20 @@ export interface AwsSeedConfig {
       key_spec?: string;
       origin?: string;
       tags?: Record<string, string>;
+    }>;
+  };
+  lambda?: {
+    functions?: Array<{
+      function_name: string;
+      runtime?: string;
+      role?: string;
+      handler?: string;
+      description?: string;
+      timeout?: number;
+      memory_size?: number;
+      environment?: Record<string, string>;
+      tags?: Record<string, string>;
+      invoke_payload?: string;
     }>;
   };
   iam?: {
