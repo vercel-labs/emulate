@@ -158,11 +158,11 @@ func TestBuildContextSignedNonS3ServicePathDoesNotFallBackToS3(t *testing.T) {
 	if ctx.Service != "lambda" {
 		t.Fatalf("service = %q, want lambda", ctx.Service)
 	}
-	if ctx.Protocol != protocols.ProtocolUnknown {
-		t.Fatalf("protocol = %q, want %q", ctx.Protocol, protocols.ProtocolUnknown)
+	if ctx.Protocol != protocols.ProtocolRESTJSON {
+		t.Fatalf("protocol = %q, want %q", ctx.Protocol, protocols.ProtocolRESTJSON)
 	}
-	if ctx.Action != "" {
-		t.Fatalf("action = %q, want empty", ctx.Action)
+	if ctx.Action != "ListFunctions" {
+		t.Fatalf("action = %q, want ListFunctions", ctx.Action)
 	}
 	if ctx.S3 != nil {
 		t.Fatalf("S3 route = %#v, want nil", ctx.S3)

@@ -34,3 +34,4 @@ minimumReleaseAgeExclude:
   - '@aws-sdk/client-secrets-manager@3.1052.0'
   - '@aws-sdk/client-ssm@3.1052.0'
   - '@aws-sdk/client-kms@3.1052.0'
+  - '@aws-sdk/client-lambda@3.1052.0'

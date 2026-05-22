@@ -1,6 +1,8 @@
 package aws
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ type SeedConfig struct {
 	Secrets   SecretsManagerSeed `json:"secretsmanager"`
 	SSM       SSMSeed            `json:"ssm"`
 	KMS       KMSSeed            `json:"kms"`
+	Lambda    LambdaSeed         `json:"lambda"`
 }
 
 type S3Seed struct {
@@ -88,6 +91,23 @@ type SSMParameterSeed struct {
 	Tags        map[string]string `json:"tags"`
 }
 
+type LambdaSeed struct {
+	Functions []LambdaFunctionSeed `json:"functions"`
+}
+
+type LambdaFunctionSeed struct {
+	FunctionName  string            `json:"function_name"`
+	Runtime       string            `json:"runtime"`
+	Role          string            `json:"role"`
+	Handler       string            `json:"handler"`
+	Description   string            `json:"description"`
+	Timeout       int               `json:"timeout"`
+	MemorySize    int               `json:"memory_size"`
+	Environment   map[string]string `json:"environment"`
+	Tags          map[string]string `json:"tags"`
+	InvokePayload string            `json:"invoke_payload"`
+}
+
 type KMSSeed struct {
 	Keys []KMSKeySeed `json:"keys"`
 }
@@ -115,6 +135,7 @@ func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, de
 	seedSecretsManagerFromConfig(store, accountID, region, config.Secrets)
 	seedSSMFromConfig(store, accountID, region, config.SSM)
 	seedKMSFromConfig(store, accountID, region, config.KMS)
+	seedLambdaFromConfig(store, accountID, region, config.Lambda)
 }
 
 func seedS3FromConfig(store Store, defaultRegion string, config S3Seed) {
@@ -362,6 +383,88 @@ func seedKMSDefaults(store Store, accountID string, region string) {
 		Description: "Default local KMS key",
 		Aliases:     []string{"alias/local"},
 	})
+}
+
+func seedLambdaFromConfig(store Store, accountID string, region string, config LambdaSeed) {
+	if accountID == "" {
+		accountID = gateway.DefaultAccountID
+	}
+	if region == "" {
+		region = gateway.DefaultRegion
+	}
+	for _, function := range config.Functions {
+		name := strings.TrimSpace(function.FunctionName)
+		if name == "" || len(store.LambdaFunctions.FindBy("function_name", name)) > 0 {
+			continue
+		}
+		runtime := firstNonEmpty(function.Runtime, "nodejs22.x")
+		handler := firstNonEmpty(function.Handler, "index.handler")
+		role := firstNonEmpty(function.Role, "arn:aws:iam::"+accountID+":role/lambda-execution-role")
+		timeout := function.Timeout
+		if timeout <= 0 {
+			timeout = 3
+		}
+		memorySize := function.MemorySize
+		if memorySize <= 0 {
+			memorySize = 128
+		}
+		now := time.Now().UTC()
+		environment := corestore.Record{}
+		for key, value := range function.Environment {
+			environment[key] = value
+		}
+		tags := corestore.Record{}
+		for key, value := range function.Tags {
+			tags[key] = value
+		}
+		sha := sha256.Sum256([]byte(function.InvokePayload))
+		store.LambdaFunctions.Insert(corestore.Record{
+			"account_id":          accountID,
+			"region":              region,
+			"function_name":       name,
+			"arn":                 "arn:aws:lambda:" + region + ":" + accountID + ":function:" + name,
+			"runtime":             runtime,
+			"role":                role,
+			"handler":             handler,
+			"description":         function.Description,
+			"timeout":             timeout,
+			"memory_size":         memorySize,
+			"package_type":        "Zip",
+			"architectures":       []string{"x86_64"},
+			"code_size":           len(function.InvokePayload),
+			"code_sha256":         base64.StdEncoding.EncodeToString(sha[:]),
+			"version":             "$LATEST",
+			"revision_id":         "rev-" + generateAWSID(""),
+			"last_modified":       now.Format("2006-01-02T15:04:05.000-0700"),
+			"state":               "Active",
+			"state_reason":        "The function is active in the local emulator.",
+			"state_reason_code":   "Idle",
+			"last_update_status":  "Successful",
+			"environment":         environment,
+			"tags":                tags,
+			"policy_statements":   []corestore.Record{},
+			"invoke_payload":      function.InvokePayload,
+			"log_group_name":      "/aws/lambda/" + name,
+			"tracing_mode":        "PassThrough",
+			"ephemeral_storage":   512,
+			"kms_key_arn":         "",
+			"dead_letter_target":  "",
+			"snap_start_apply_on": "",
+		})
+		logGroup := "/aws/lambda/" + name
+		if len(store.LogGroups.FindBy("log_group_name", logGroup)) == 0 {
+			store.LogGroups.Insert(corestore.Record{
+				"account_id":        accountID,
+				"region":            region,
+				"log_group_name":    logGroup,
+				"arn":               "arn:aws:logs:" + region + ":" + accountID + ":log-group:" + logGroup,
+				"creation_time":     now.UnixMilli(),
+				"retention_in_days": 0,
+				"kms_key_id":        "",
+				"tags":              corestore.Record{},
+			})
+		}
+	}
 }
 
 func seedKMSFromConfig(store Store, accountID string, region string, config KMSSeed) {

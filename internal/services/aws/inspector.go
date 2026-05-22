@@ -17,11 +17,12 @@ var inspectorTabs = []ui.InspectorTab{
 	{ID: "secretsmanager", Label: "Secrets", Href: "/_inspector?tab=secretsmanager"},
 	{ID: "ssm", Label: "SSM", Href: "/_inspector?tab=ssm"},
 	{ID: "kms", Label: "KMS", Href: "/_inspector?tab=kms"},
+	{ID: "lambda", Label: "Lambda", Href: "/_inspector?tab=lambda"},
 }
 
 func (s *Service) handleInspector(c *corehttp.Context) {
 	tab := c.Query("tab")
-	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" && tab != "ssm" && tab != "kms" {
+	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" && tab != "ssm" && tab != "kms" && tab != "lambda" {
 		tab = "s3"
 	}
 	tabs := make([]ui.InspectorTab, len(inspectorTabs))
@@ -44,6 +45,8 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		body = s.renderSSMInspector()
 	case "kms":
 		body = s.renderKMSInspector()
+	case "lambda":
+		body = s.renderLambdaInspector()
 	default:
 		body = s.renderS3Inspector()
 	}
@@ -261,6 +264,31 @@ func (s *Service) renderKMSInspector() string {
   <table class="inspector-table">
     <thead><tr><th>Key ID</th><th>Aliases</th><th>State</th><th>Usage</th><th>ARN</th></tr></thead>
     <tbody>` + rowsOrEmpty(rows.String(), 5, "No KMS keys") + `</tbody>
+  </table>
+</div>`
+}
+
+func (s *Service) renderLambdaInspector() string {
+	functions := s.store.LambdaFunctions.All()
+	var rows strings.Builder
+	for _, fn := range functions {
+		rows.WriteString(`<tr><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(fn, "function_name")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(fn, "runtime")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(fn, "handler")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(fn, "state")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(fn, "arn")))
+		rows.WriteString(`</td></tr>`)
+	}
+	return `<div class="inspector-section">
+  <h2>Lambda Functions (` + fmt.Sprint(len(functions)) + `)</h2>
+  <table class="inspector-table">
+    <thead><tr><th>Function</th><th>Runtime</th><th>Handler</th><th>State</th><th>ARN</th></tr></thead>
+    <tbody>` + rowsOrEmpty(rows.String(), 5, "No Lambda functions") + `</tbody>
   </table>
 </div>`
 }

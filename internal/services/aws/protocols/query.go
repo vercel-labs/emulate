@@ -9,10 +9,11 @@ import (
 type Protocol string
 
 const (
-	ProtocolUnknown Protocol = "unknown"
-	ProtocolRESTXML Protocol = "rest_xml"
-	ProtocolQuery   Protocol = "query"
-	ProtocolJSONRPC Protocol = "json_rpc"
+	ProtocolUnknown  Protocol = "unknown"
+	ProtocolRESTXML  Protocol = "rest_xml"
+	ProtocolRESTJSON Protocol = "rest_json"
+	ProtocolQuery    Protocol = "query"
+	ProtocolJSONRPC  Protocol = "json_rpc"
 )
 
 type QueryRequest struct {

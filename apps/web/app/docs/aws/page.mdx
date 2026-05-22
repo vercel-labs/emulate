@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, Lambda uses REST JSON, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -117,6 +117,20 @@ In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint 
 - `GenerateDataKey` accepts `NumberOfBytes` from 1 to 1024.
 - S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
 
+
+## Lambda
+
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. This is an API-only control plane for local tests; it does not execute user code yet.
+
+- `CreateFunction` / `GetFunction` / `GetFunctionConfiguration` / `ListFunctions` / `DeleteFunction` - function lifecycle and discovery
+- `UpdateFunctionConfiguration` / `UpdateFunctionCode` - local metadata and code-hash updates
+- `Invoke` - deterministic API-only invoke responses. Seeded `invoke_payload` is returned when configured, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
+- `PublishVersion` / `ListVersionsByFunction` - local version metadata
+- `CreateAlias` / `GetAlias` / `ListAliases` / `UpdateAlias` / `DeleteAlias` - alias metadata
+- `TagResource` / `UntagResource` / `ListTags` - function tags
+- `AddPermission` / `GetPolicy` / `RemovePermission` - stored resource policy statements
+- Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`.
+
 ## IAM
 
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
@@ -140,4 +154,4 @@ Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the
 
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`, `secretsmanager`, `ssm`, `kms`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`, `secretsmanager`, `ssm`, `kms`, `lambda`) for browsing current state.

@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, test KMS keys/aliases/encrypt/decrypt/data keys, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "local KMS", "test KMS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, test KMS keys/aliases/encrypt/decrypt/data keys, test Lambda function control-plane APIs and invoke stubs, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "local KMS", "test KMS", "local Lambda", "test Lambda", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, Lambda uses REST JSON, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -39,7 +39,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 
 ## Auth
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `lambda:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4000/ \
@@ -254,6 +254,15 @@ aws:
       - description: My app KMS key
         aliases:
           - alias/my-app
+  lambda:
+    functions:
+      - function_name: my-app-handler
+        runtime: nodejs22.x
+        role: arn:aws:iam::123456789012:role/lambda-execution-role
+        handler: index.handler
+        invoke_payload: '{"ok":true}'
+        environment:
+          NODE_ENV: local
   iam:
     users:
       - user_name: developer
@@ -499,6 +508,19 @@ In the native Go runtime, `@aws-sdk/client-kms` can use endpoint `${AWS_EMULATOR
 - Local reversible ciphertext blobs for test flows. This is not real cryptography.
 - S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
 
+
+### Lambda
+
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use endpoint `${AWS_EMULATOR_URL}` directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. This is an API-only control plane for local tests; it does not execute user code yet.
+
+Supported Lambda operations include function create/get/config/list/delete, configuration and code updates, API-only `Invoke`, versions, aliases, tags, and stored resource policy statements. Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`. Seed functions with `lambda.functions[].invoke_payload` when tests need deterministic invoke payloads; otherwise invoke returns `{}`.
+
+```bash
+# List Lambda functions
+curl http://localhost:4000/2015-03-31/functions \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ### IAM
 
 Manual IAM calls can use AWS Query over `POST /iam/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-iam` with endpoint `${AWS_EMULATOR_URL}/iam`. Supported IAM operations include users, access keys, roles, inline user/role policies, managed policy storage, and user/role managed policy attachments for local policies and AWS managed policy ARNs. Delete users and roles after deleting inline policies and detaching managed policies.
@@ -597,7 +619,7 @@ curl -X POST http://localhost:4000/sts/ \
 ### Inspector
 
 ```bash
-# HTML dashboard (shows S3, SQS, IAM, Logs, Secrets, SSM, and KMS state)
+# HTML dashboard (shows S3, SQS, IAM, Logs, Secrets, SSM, KMS, and Lambda state)
 curl http://localhost:4000/_inspector?tab=s3
 curl http://localhost:4000/_inspector?tab=sqs
 curl http://localhost:4000/_inspector?tab=iam

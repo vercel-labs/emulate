@@ -86,6 +86,15 @@ export interface KMSKey extends CompatEntity {
 export interface KMSAlias extends CompatEntity {
   [key: string]: unknown;
 }
+export interface LambdaFunction extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface LambdaVersion extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface LambdaAlias extends CompatEntity {
+  [key: string]: unknown;
+}
 export interface IamUser extends CompatEntity {
   [key: string]: unknown;
 }
@@ -111,6 +120,9 @@ export interface AwsStore {
   ssmParameterVersions: CompatCollection<SSMParameterVersion>;
   kmsKeys: CompatCollection<KMSKey>;
   kmsAliases: CompatCollection<KMSAlias>;
+  lambdaFunctions: CompatCollection<LambdaFunction>;
+  lambdaVersions: CompatCollection<LambdaVersion>;
+  lambdaAliases: CompatCollection<LambdaAlias>;
   iamUsers: CompatCollection<IamUser>;
   iamRoles: CompatCollection<IamRole>;
 }
@@ -172,6 +184,26 @@ export function getAwsStore(store: CompatStoreSource): AwsStore {
       "alias_name",
       "alias_arn",
       "target_key_id",
+    ]),
+    lambdaFunctions: compatCollection<LambdaFunction>(store, "aws.lambda_functions", [
+      "account_id",
+      "region",
+      "function_name",
+      "arn",
+    ]),
+    lambdaVersions: compatCollection<LambdaVersion>(store, "aws.lambda_versions", [
+      "account_id",
+      "region",
+      "function_name",
+      "version",
+      "arn",
+    ]),
+    lambdaAliases: compatCollection<LambdaAlias>(store, "aws.lambda_aliases", [
+      "account_id",
+      "region",
+      "function_name",
+      "name",
+      "arn",
     ]),
     iamUsers: compatCollection<IamUser>(store, "aws.iam_users", ["user_name", "user_id"]),
     iamRoles: compatCollection<IamRole>(store, "aws.iam_roles", ["role_name", "role_id"]),

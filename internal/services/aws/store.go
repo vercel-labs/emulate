@@ -23,6 +23,9 @@ type Store struct {
 	SSMParamVersions *corestore.Collection
 	KMSKeys          *corestore.Collection
 	KMSAliases       *corestore.Collection
+	LambdaFunctions  *corestore.Collection
+	LambdaVersions   *corestore.Collection
+	LambdaAliases    *corestore.Collection
 	IAMUsers         *corestore.Collection
 	IAMRoles         *corestore.Collection
 	IAMPolicies      *corestore.Collection
@@ -52,6 +55,9 @@ func NewStore(runtimeStore *corestore.Store) Store {
 		SSMParamVersions: runtimeStore.MustCollection("aws.ssm_parameter_versions", "account_id", "region", "name", "version"),
 		KMSKeys:          runtimeStore.MustCollection("aws.kms_keys", "account_id", "region", "key_id", "arn"),
 		KMSAliases:       runtimeStore.MustCollection("aws.kms_aliases", "account_id", "region", "alias_name", "alias_arn", "target_key_id"),
+		LambdaFunctions:  runtimeStore.MustCollection("aws.lambda_functions", "account_id", "region", "function_name", "arn"),
+		LambdaVersions:   runtimeStore.MustCollection("aws.lambda_versions", "account_id", "region", "function_name", "version", "arn"),
+		LambdaAliases:    runtimeStore.MustCollection("aws.lambda_aliases", "account_id", "region", "function_name", "name", "arn"),
 		IAMUsers:         runtimeStore.MustCollection("aws.iam_users", "user_name", "user_id"),
 		IAMRoles:         runtimeStore.MustCollection("aws.iam_roles", "role_name", "role_id"),
 		IAMPolicies:      runtimeStore.MustCollection("aws.iam_policies", "policy_name", "arn"),

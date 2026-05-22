@@ -1,11 +1,14 @@
 package gateway
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 
@@ -136,6 +139,20 @@ func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsReques
 		ctx.Action = queryReq.Action
 		ctx.Input = queryInput(queryReq.Parameters)
 		return ctx, nil
+	}
+
+	if firstNonEmpty(pathService, host.Service, credentials.Scope.Service) == "lambda" {
+		action, input, ok, err := parseLambdaRESTRequest(req, rawBody, queryReq.Parameters)
+		if err != nil {
+			return AwsRequestContext{}, err
+		}
+		if ok {
+			ctx.Protocol = protocols.ProtocolRESTJSON
+			ctx.Service = "lambda"
+			ctx.Action = action
+			ctx.Input = input
+			return ctx, nil
+		}
 	}
 
 	if shouldTreatAsS3(req, host.Service, pathService, credentials.Scope.Service) {
@@ -383,6 +400,166 @@ func serviceFromJSONTargetPrefix(prefix string) string {
 		}
 	}
 	return ""
+}
+
+func parseLambdaRESTRequest(req *http.Request, rawBody []byte, query map[string]string) (string, map[string]any, bool, error) {
+	segments := lambdaRESTSegments(req.URL.Path)
+	if len(segments) > 0 && strings.EqualFold(segments[0], "lambda") {
+		segments = segments[1:]
+	}
+	if len(segments) < 2 {
+		return "", nil, false, nil
+	}
+	input, err := lambdaRESTInput(rawBody, query)
+	if err != nil {
+		return "", nil, false, err
+	}
+	if segments[0] == "2017-03-31" && len(segments) >= 3 && segments[1] == "tags" {
+		resource := decodeLambdaSegment(strings.Join(segments[2:], "/"))
+		input["Resource"] = resource
+		switch req.Method {
+		case http.MethodGet:
+			return "ListTags", input, true, nil
+		case http.MethodPost:
+			return "TagResource", input, true, nil
+		case http.MethodDelete:
+			return "UntagResource", input, true, nil
+		}
+		return "", nil, false, nil
+	}
+	if segments[0] != "2015-03-31" || segments[1] != "functions" {
+		return "", nil, false, nil
+	}
+	if len(segments) == 2 {
+		switch req.Method {
+		case http.MethodGet:
+			return "ListFunctions", input, true, nil
+		case http.MethodPost:
+			return "CreateFunction", input, true, nil
+		}
+		return "", nil, false, nil
+	}
+	functionName := decodeLambdaSegment(segments[2])
+	input["FunctionName"] = functionName
+	if qualifier := req.URL.Query().Get("Qualifier"); qualifier != "" {
+		input["Qualifier"] = qualifier
+	}
+	if len(segments) == 3 {
+		switch req.Method {
+		case http.MethodGet:
+			return "GetFunction", input, true, nil
+		case http.MethodDelete:
+			return "DeleteFunction", input, true, nil
+		}
+		return "", nil, false, nil
+	}
+	switch segments[3] {
+	case "configuration":
+		switch req.Method {
+		case http.MethodGet:
+			return "GetFunctionConfiguration", input, true, nil
+		case http.MethodPut:
+			return "UpdateFunctionConfiguration", input, true, nil
+		}
+	case "code":
+		if req.Method == http.MethodPut {
+			return "UpdateFunctionCode", input, true, nil
+		}
+	case "invocations":
+		if req.Method == http.MethodPost {
+			return "Invoke", input, true, nil
+		}
+	case "versions":
+		if len(segments) == 4 {
+			if req.Method == http.MethodGet {
+				return "ListVersionsByFunction", input, true, nil
+			}
+			if req.Method == http.MethodPost {
+				return "PublishVersion", input, true, nil
+			}
+		}
+		if len(segments) == 5 && req.Method == http.MethodGet {
+			input["Qualifier"] = decodeLambdaSegment(segments[4])
+			return "GetFunction", input, true, nil
+		}
+	case "aliases":
+		if len(segments) == 4 {
+			if req.Method == http.MethodGet {
+				return "ListAliases", input, true, nil
+			}
+			if req.Method == http.MethodPost {
+				return "CreateAlias", input, true, nil
+			}
+		}
+		if len(segments) == 5 {
+			input["Name"] = decodeLambdaSegment(segments[4])
+			switch req.Method {
+			case http.MethodGet:
+				return "GetAlias", input, true, nil
+			case http.MethodPut:
+				return "UpdateAlias", input, true, nil
+			case http.MethodDelete:
+				return "DeleteAlias", input, true, nil
+			}
+		}
+	case "policy":
+		if len(segments) == 4 {
+			if req.Method == http.MethodGet {
+				return "GetPolicy", input, true, nil
+			}
+			if req.Method == http.MethodPost {
+				return "AddPermission", input, true, nil
+			}
+		}
+		if len(segments) == 5 && req.Method == http.MethodDelete {
+			input["StatementId"] = decodeLambdaSegment(segments[4])
+			return "RemovePermission", input, true, nil
+		}
+	}
+	return "", nil, false, nil
+}
+
+func lambdaRESTInput(rawBody []byte, query map[string]string) (map[string]any, error) {
+	input := make(map[string]any, len(query))
+	for key, value := range query {
+		input[key] = value
+	}
+	if len(bytes.TrimSpace(rawBody)) == 0 {
+		return input, nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(rawBody))
+	decoder.UseNumber()
+	body := map[string]any{}
+	if err := decoder.Decode(&body); err != nil {
+		return input, nil
+	}
+	for key, value := range body {
+		input[key] = value
+	}
+	return input, nil
+}
+
+func lambdaRESTSegments(pathValue string) []string {
+	trimmed := strings.Trim(pathValue, "/")
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, "/")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func decodeLambdaSegment(value string) string {
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		return value
+	}
+	return decoded
 }
 
 func firstNonEmpty(values ...string) string {

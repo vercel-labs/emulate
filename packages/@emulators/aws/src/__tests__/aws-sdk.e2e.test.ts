@@ -90,6 +90,28 @@ import {
   ListKeysCommand,
 } from "@aws-sdk/client-kms";
 import {
+  LambdaClient,
+  AddPermissionCommand,
+  CreateAliasCommand as CreateLambdaAliasCommand,
+  CreateFunctionCommand,
+  DeleteAliasCommand as DeleteLambdaAliasCommand,
+  DeleteFunctionCommand,
+  GetFunctionCommand,
+  GetFunctionConfigurationCommand,
+  GetPolicyCommand as GetLambdaPolicyCommand,
+  InvokeCommand,
+  ListAliasesCommand as ListLambdaAliasesCommand,
+  ListFunctionsCommand,
+  ListTagsCommand as ListLambdaTagsCommand,
+  ListVersionsByFunctionCommand,
+  PublishVersionCommand,
+  RemovePermissionCommand,
+  TagResourceCommand as TagLambdaResourceCommand,
+  UntagResourceCommand as UntagLambdaResourceCommand,
+  UpdateFunctionCodeCommand,
+  UpdateFunctionConfigurationCommand,
+} from "@aws-sdk/client-lambda";
+import {
   SecretsManagerClient,
   CreateSecretCommand,
   DeleteSecretCommand,
@@ -198,6 +220,7 @@ const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe 
 const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalCloudWatchLogsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalKMSE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalLambdaE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSSME2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
@@ -1405,6 +1428,128 @@ describeExternalSecretsManagerE2E("AWS native runtime - real @aws-sdk/client-sec
     expect(Buffer.from(got.SecretBinary ?? [])).toEqual(Buffer.from([1, 2, 3, 4]));
 
     await secrets.send(new DeleteSecretCommand({ SecretId: secretName, ForceDeleteWithoutRecovery: true }));
+  });
+});
+
+
+describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E", () => {
+  let emulator: EmulatorHandle;
+  let lambda: LambdaClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    lambda = new LambdaClient({
+      endpoint: emulator.url,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    lambda.destroy();
+    await emulator.close();
+  });
+
+  it("function CRUD, invoke stubs, aliases, versions, tags, and policy roundtrip", async () => {
+    const suffix = Date.now().toString(36);
+    const functionName = `sdk-lambda-${suffix}`;
+    const zip = Buffer.from("exports.handler = async () => ({ ok: true })");
+
+    const created = await lambda.send(
+      new CreateFunctionCommand({
+        FunctionName: functionName,
+        Runtime: "nodejs22.x",
+        Role: "arn:aws:iam::123456789012:role/lambda-execution-role",
+        Handler: "index.handler",
+        Code: { ZipFile: zip },
+        Description: "SDK Lambda function",
+        Environment: { Variables: { MODE: "test" } },
+        Tags: { team: "platform" },
+      }),
+    );
+    expect(created.FunctionName).toBe(functionName);
+    expect(created.FunctionArn).toContain(`:function:${functionName}`);
+    expect(created.State).toBe("Active");
+    expect(created.CodeSize).toBe(zip.byteLength);
+
+    const listed = await lambda.send(new ListFunctionsCommand({}));
+    expect((listed.Functions ?? []).map((fn) => fn.FunctionName)).toContain(functionName);
+
+    const got = await lambda.send(new GetFunctionCommand({ FunctionName: functionName }));
+    expect(got.Configuration?.FunctionName).toBe(functionName);
+    expect(got.Tags?.team).toBe("platform");
+
+    const updatedConfig = await lambda.send(
+      new UpdateFunctionConfigurationCommand({
+        FunctionName: functionName,
+        Timeout: 9,
+        MemorySize: 256,
+        Environment: { Variables: { MODE: "updated" } },
+      }),
+    );
+    expect(updatedConfig.Timeout).toBe(9);
+    expect(updatedConfig.MemorySize).toBe(256);
+    expect(updatedConfig.Environment?.Variables?.MODE).toBe("updated");
+
+    const updatedCode = await lambda.send(
+      new UpdateFunctionCodeCommand({
+        FunctionName: functionName,
+        ZipFile: Buffer.from("exports.handler = async () => ({ ok: 'updated' })"),
+      }),
+    );
+    expect(updatedCode.CodeSize).toBeGreaterThan(0);
+
+    const invoked = await lambda.send(
+      new InvokeCommand({ FunctionName: functionName, Payload: Buffer.from(JSON.stringify({ hello: "world" })), LogType: "Tail" }),
+    );
+    expect(invoked.StatusCode).toBe(200);
+    expect(Buffer.from(invoked.Payload ?? []).toString()).toBe("{}");
+    expect(invoked.LogResult).toBeTruthy();
+
+    const version = await lambda.send(new PublishVersionCommand({ FunctionName: functionName, Description: "first" }));
+    expect(version.Version).toBe("1");
+
+    const versions = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: functionName }));
+    expect((versions.Versions ?? []).map((item) => item.Version)).toEqual(expect.arrayContaining(["$LATEST", "1"]));
+
+    const alias = await lambda.send(
+      new CreateLambdaAliasCommand({ FunctionName: functionName, Name: "live", FunctionVersion: "1" }),
+    );
+    expect(alias.Name).toBe("live");
+    expect(alias.FunctionVersion).toBe("1");
+
+    const aliases = await lambda.send(new ListLambdaAliasesCommand({ FunctionName: functionName }));
+    expect((aliases.Aliases ?? []).map((item) => item.Name)).toContain("live");
+
+    await lambda.send(new TagLambdaResourceCommand({ Resource: created.FunctionArn, Tags: { stage: "dev" } }));
+    const tags = await lambda.send(new ListLambdaTagsCommand({ Resource: created.FunctionArn }));
+    expect(tags.Tags?.team).toBe("platform");
+    expect(tags.Tags?.stage).toBe("dev");
+    await lambda.send(new UntagLambdaResourceCommand({ Resource: created.FunctionArn, TagKeys: ["stage"] }));
+
+    const permission = await lambda.send(
+      new AddPermissionCommand({
+        FunctionName: functionName,
+        StatementId: "allow-events",
+        Action: "lambda:InvokeFunction",
+        Principal: "events.amazonaws.com",
+        SourceArn: "arn:aws:events:us-east-1:123456789012:rule/app",
+      }),
+    );
+    expect(permission.Statement).toContain("allow-events");
+
+    const policy = await lambda.send(new GetLambdaPolicyCommand({ FunctionName: functionName }));
+    expect(policy.Policy).toContain("allow-events");
+
+    await lambda.send(new RemovePermissionCommand({ FunctionName: functionName, StatementId: "allow-events" }));
+    await lambda.send(new DeleteLambdaAliasCommand({ FunctionName: functionName, Name: "live" }));
+    await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
+    await expect(lambda.send(new GetFunctionConfigurationCommand({ FunctionName: functionName }))).rejects.toMatchObject({
+      name: "ResourceNotFoundException",
+    });
   });
 });
 

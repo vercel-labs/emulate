@@ -3982,7 +3982,7 @@ func TestServiceReturnsDynamoDBModeledErrors(t *testing.T) {
 	}
 }
 
-func TestServiceDoesNotTreatSignedNonS3ServicePathAsS3(t *testing.T) {
+func TestServiceRoutesSignedLambdaRESTJSON(t *testing.T) {
 	handler := newTestHandler()
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/lambda/2015-03-31/functions", nil)
 	signAWSRequest(req, "lambda")
@@ -3990,21 +3990,213 @@ func TestServiceDoesNotTreatSignedNonS3ServicePathAsS3(t *testing.T) {
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if got := res.Header().Get("Content-Type"); got != "application/x-amz-json-1.0" {
+	if got := res.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("content type = %q", got)
 	}
-	var body map[string]string
-	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
+	var body struct {
+		Functions []map[string]any `json:"Functions"`
 	}
-	if body["__type"] != "com.amazonaws.lambda#NotImplemented" {
-		t.Fatalf("unexpected body: %#v", body)
+	decodeJSONBody(t, res, &body)
+	if body.Functions == nil {
+		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 	if strings.Contains(res.Body.String(), "s3.GetObject") {
 		t.Fatalf("unexpected S3 fallback response: %s", res.Body.String())
+	}
+}
+
+func TestServiceHandlesLambdaControlPlaneAndInvoke(t *testing.T) {
+	handler := newTestHandler()
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "sdk-lambda-control",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": base64.StdEncoding.EncodeToString([]byte("exports.handler = async () => ({ ok: true })"))},
+		"Environment":  map[string]any{"Variables": map[string]any{"MODE": "test"}},
+		"Tags":         map[string]any{"team": "platform"},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		FunctionName string `json:"FunctionName"`
+		FunctionArn  string `json:"FunctionArn"`
+		State        string `json:"State"`
+	}
+	decodeJSONBody(t, create, &created)
+	if created.FunctionName != "sdk-lambda-control" || created.State != "Active" || !strings.Contains(created.FunctionArn, ":function:sdk-lambda-control") {
+		t.Fatalf("unexpected create body: %#v", created)
+	}
+
+	list := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions", nil)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", list.Code, list.Body.String())
+	}
+	var listed struct {
+		Functions []struct {
+			FunctionName string `json:"FunctionName"`
+		} `json:"Functions"`
+	}
+	decodeJSONBody(t, list, &listed)
+	if len(listed.Functions) != 1 || listed.Functions[0].FunctionName != "sdk-lambda-control" {
+		t.Fatalf("unexpected functions: %#v", listed.Functions)
+	}
+
+	update := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/sdk-lambda-control/configuration", map[string]any{
+		"Timeout":    9,
+		"MemorySize": 256,
+		"Environment": map[string]any{"Variables": map[string]any{
+			"MODE": "updated",
+		}},
+	})
+	if update.Code != http.StatusOK {
+		t.Fatalf("update config status = %d, body = %s", update.Code, update.Body.String())
+	}
+	var updated struct {
+		Timeout     int `json:"Timeout"`
+		MemorySize  int `json:"MemorySize"`
+		Environment struct {
+			Variables map[string]string `json:"Variables"`
+		} `json:"Environment"`
+	}
+	decodeJSONBody(t, update, &updated)
+	if updated.Timeout != 9 || updated.MemorySize != 256 || updated.Environment.Variables["MODE"] != "updated" {
+		t.Fatalf("unexpected updated config: %#v", updated)
+	}
+
+	code := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/sdk-lambda-control/code", map[string]any{
+		"ZipFile": base64.StdEncoding.EncodeToString([]byte("exports.handler = async () => ({ ok: 'updated' })")),
+	})
+	if code.Code != http.StatusOK {
+		t.Fatalf("update code status = %d, body = %s", code.Code, code.Body.String())
+	}
+	var codeBody struct {
+		CodeSize int `json:"CodeSize"`
+	}
+	decodeJSONBody(t, code, &codeBody)
+	if codeBody.CodeSize == 0 {
+		t.Fatalf("missing code size: %#v", codeBody)
+	}
+
+	invoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-control/invocations?LogType=Tail", []byte(`{"hello":"world"}`))
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-log-result"); got == "" {
+		t.Fatal("missing tail log result")
+	}
+
+	groups := executeAWSLogsRequest(t, handler, "DescribeLogGroups", map[string]any{"logGroupNamePrefix": "/aws/lambda/sdk-lambda-control"})
+	if groups.Code != http.StatusOK {
+		t.Fatalf("describe log groups status = %d, body = %s", groups.Code, groups.Body.String())
+	}
+	var groupBody struct {
+		LogGroups []struct {
+			LogGroupName string `json:"logGroupName"`
+		} `json:"logGroups"`
+	}
+	decodeJSONBody(t, groups, &groupBody)
+	if len(groupBody.LogGroups) != 1 || groupBody.LogGroups[0].LogGroupName != "/aws/lambda/sdk-lambda-control" {
+		t.Fatalf("unexpected log groups: %#v", groupBody.LogGroups)
+	}
+
+	deleted := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/sdk-lambda-control", nil)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", deleted.Code, deleted.Body.String())
+	}
+}
+
+func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
+	handler := newTestHandler()
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "sdk-lambda-release",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": base64.StdEncoding.EncodeToString([]byte("exports.handler = async () => ({ ok: true })"))},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		FunctionArn string `json:"FunctionArn"`
+	}
+	decodeJSONBody(t, create, &created)
+
+	version := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/versions", map[string]any{"Description": "first"})
+	if version.Code != http.StatusCreated {
+		t.Fatalf("publish version status = %d, body = %s", version.Code, version.Body.String())
+	}
+	var versionBody struct {
+		Version string `json:"Version"`
+	}
+	decodeJSONBody(t, version, &versionBody)
+	if versionBody.Version != "1" {
+		t.Fatalf("version = %q", versionBody.Version)
+	}
+
+	alias := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/aliases", map[string]any{"Name": "live", "FunctionVersion": "1"})
+	if alias.Code != http.StatusCreated {
+		t.Fatalf("create alias status = %d, body = %s", alias.Code, alias.Body.String())
+	}
+	var aliasBody struct {
+		Name            string `json:"Name"`
+		FunctionVersion string `json:"FunctionVersion"`
+	}
+	decodeJSONBody(t, alias, &aliasBody)
+	if aliasBody.Name != "live" || aliasBody.FunctionVersion != "1" {
+		t.Fatalf("unexpected alias: %#v", aliasBody)
+	}
+
+	tagPath := "/2017-03-31/tags/" + url.PathEscape(created.FunctionArn)
+	tagged := executeAWSLambdaRequest(t, handler, http.MethodPost, tagPath, map[string]any{"Tags": map[string]any{"stage": "dev"}})
+	if tagged.Code != http.StatusNoContent {
+		t.Fatalf("tag status = %d, body = %s", tagged.Code, tagged.Body.String())
+	}
+	tags := executeAWSLambdaRequest(t, handler, http.MethodGet, tagPath, nil)
+	if tags.Code != http.StatusOK {
+		t.Fatalf("list tags status = %d, body = %s", tags.Code, tags.Body.String())
+	}
+	var tagsBody struct {
+		Tags map[string]string `json:"Tags"`
+	}
+	decodeJSONBody(t, tags, &tagsBody)
+	if tagsBody.Tags["stage"] != "dev" {
+		t.Fatalf("unexpected tags: %#v", tagsBody.Tags)
+	}
+
+	permission := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/policy", map[string]any{
+		"StatementId": "allow-events",
+		"Action":      "lambda:InvokeFunction",
+		"Principal":   "events.amazonaws.com",
+		"SourceArn":   "arn:aws:events:us-east-1:123456789012:rule/app",
+	})
+	if permission.Code != http.StatusCreated {
+		t.Fatalf("add permission status = %d, body = %s", permission.Code, permission.Body.String())
+	}
+	policy := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/sdk-lambda-release/policy", nil)
+	if policy.Code != http.StatusOK {
+		t.Fatalf("get policy status = %d, body = %s", policy.Code, policy.Body.String())
+	}
+	var policyBody struct {
+		Policy string `json:"Policy"`
+	}
+	decodeJSONBody(t, policy, &policyBody)
+	if !strings.Contains(policyBody.Policy, "allow-events") {
+		t.Fatalf("unexpected policy: %s", policyBody.Policy)
+	}
+
+	removed := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/sdk-lambda-release/policy/allow-events", nil)
+	if removed.Code != http.StatusNoContent {
+		t.Fatalf("remove permission status = %d, body = %s", removed.Code, removed.Body.String())
 	}
 }
 
@@ -4395,6 +4587,32 @@ func executeAWSKMSRequestWithRegion(t *testing.T, handler http.Handler, action s
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "TrentService."+action)
 	signAWSRequestWithRegion(req, "kms", region)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
+func executeAWSLambdaRequest(t *testing.T, handler http.Handler, method string, path string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	var raw []byte
+	if payload != nil {
+		var err error
+		raw, err = json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return executeAWSLambdaRawRequest(t, handler, method, path, raw)
+}
+
+func executeAWSLambdaRawRequest(t *testing.T, handler http.Handler, method string, path string, raw []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	if raw == nil {
+		raw = []byte{}
+	}
+	req := httptest.NewRequest(method, "http://127.0.0.1"+path, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	signAWSRequest(req, "lambda")
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res

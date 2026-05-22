@@ -312,6 +312,15 @@ aws:
       - description: My app KMS key
         aliases:
           - alias/my-app
+  lambda:
+    functions:
+      - function_name: my-app-handler
+        runtime: nodejs22.x
+        role: arn:aws:iam::123456789012:role/lambda-execution-role
+        handler: index.handler
+        invoke_payload: '{"ok":true}'
+        environment:
+          NODE_ENV: local
   iam:
     users:
       - user_name: developer
@@ -726,7 +735,7 @@ The native Go runtime implements the Clerk OIDC and management API routes below 
 
 ## AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, Lambda uses REST JSON, and SNS/IAM/STS use AWS Query XML.
 
 To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
 
@@ -816,7 +825,20 @@ In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint 
 - Key and alias metadata plus reversible local ciphertext blobs for tests. This is not real cryptography.
 - S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
 
-### IAM
+### Lambda
+
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. This is an API-only control plane for local tests; it does not execute user code yet.
+
+- `CreateFunction` / `GetFunction` / `GetFunctionConfiguration` / `ListFunctions` / `DeleteFunction` - function lifecycle and discovery
+- `UpdateFunctionConfiguration` / `UpdateFunctionCode` - local metadata and code-hash updates
+- `Invoke` - deterministic API-only invoke responses. Seeded `invoke_payload` is returned when configured, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
+- `PublishVersion` / `ListVersionsByFunction` - local version metadata
+- `CreateAlias` / `GetAlias` / `ListAliases` / `UpdateAlias` / `DeleteAlias` - alias metadata
+- `TagResource` / `UntagResource` / `ListTags` - function tags
+- `AddPermission` / `GetPolicy` / `RemovePermission` - stored resource policy statements
+- Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`.
+
+## IAM
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
 
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
@@ -1004,4 +1026,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
-**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `lambda:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
