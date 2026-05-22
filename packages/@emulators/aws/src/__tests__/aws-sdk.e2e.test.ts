@@ -244,7 +244,9 @@ describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => 
     expect(head.ServerSideEncryption).toBe("aws:kms");
     expect(head.SSEKMSKeyId).toBe("alias/local");
 
-    const range = await s3.send(new GetObjectCommand({ Bucket: "emulate-default", Key: "e2e/put-get.txt", Range: "bytes=0-4" }));
+    const range = await s3.send(
+      new GetObjectCommand({ Bucket: "emulate-default", Key: "e2e/put-get.txt", Range: "bytes=0-4" }),
+    );
     expect(range.ContentRange).toBe("bytes 0-4/13");
     expect(range.ContentLength).toBe(5);
     expect(await streamToString(range.Body)).toBe("hello");
