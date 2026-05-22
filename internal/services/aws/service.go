@@ -12,6 +12,7 @@ import (
 	awsevents "github.com/vercel-labs/emulate/internal/services/aws/eventbridge"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
 	awsiam "github.com/vercel-labs/emulate/internal/services/aws/iam"
+	awslogs "github.com/vercel-labs/emulate/internal/services/aws/logs"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
 	awssns "github.com/vercel-labs/emulate/internal/services/aws/sns"
@@ -46,6 +47,7 @@ type Service struct {
 	sts              awssts.Handler
 	dynamodb         awsdynamodb.Handler
 	events           awsevents.Handler
+	logs             awslogs.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -153,6 +155,13 @@ func New(options Options) *Service {
 			AccountID:        defaultAccountID,
 			Region:           defaultRegion,
 		},
+		logs: awslogs.Handler{
+			LogGroups:  awsStore.LogGroups,
+			LogStreams: awsStore.LogStreams,
+			LogEvents:  awsStore.LogEvents,
+			AccountID:  defaultAccountID,
+			Region:     defaultRegion,
+		},
 	}
 }
 
@@ -209,6 +218,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "events" && ctx.Protocol == protocols.ProtocolJSONRPC {
 		writeErrorResponse(c, s.events.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "logs" && ctx.Protocol == protocols.ProtocolJSONRPC {
+		writeErrorResponse(c, s.logs.Handle(c.Request, ctx))
 		return
 	}
 

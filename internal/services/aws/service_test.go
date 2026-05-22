@@ -2127,6 +2127,55 @@ func TestServiceReturnsJSONRPCNotImplemented(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesCloudWatchLogsLifecycle(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSLogsRequest(t, handler, "CreateLogGroup", map[string]any{"logGroupName": "app"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create group status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); got != "application/x-amz-json-1.1" {
+		t.Fatalf("content type = %q", got)
+	}
+
+	res = executeAWSLogsRequest(t, handler, "CreateLogStream", map[string]any{"logGroupName": "app", "logStreamName": "web"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create stream status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSLogsRequest(t, handler, "PutLogEvents", map[string]any{
+		"logGroupName":  "app",
+		"logStreamName": "web",
+		"logEvents": []map[string]any{
+			{"timestamp": 1700000000000, "message": "first error"},
+			{"timestamp": 1700000001000, "message": "second info"},
+		},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put events status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSLogsRequest(t, handler, "FilterLogEvents", map[string]any{"logGroupName": "app", "filterPattern": "error"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("filter events status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Events []struct {
+			EventID string `json:"eventId"`
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeJSONBody(t, res, &body)
+	if len(body.Events) != 1 || body.Events[0].Message != "first error" || body.Events[0].EventID == "" {
+		t.Fatalf("unexpected filtered body: %#v", body)
+	}
+
+	res = executeAWSLogsRequest(t, handler, "DeleteLogGroup", map[string]any{"logGroupName": "app"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete group status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestServiceHandlesDynamoDBTableAndItemLifecycle(t *testing.T) {
 	handler := newTestHandler()
 
@@ -2975,6 +3024,21 @@ func executeAWSEventBridgeRequestWithAccessKey(t *testing.T, handler http.Handle
 	req.Header.Set("X-Amz-Target", "AWSEvents."+action)
 	req.Header.Set("X-Access-Key", accessKeyID)
 	signAWSRequest(req, "events")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
+func executeAWSLogsRequest(t *testing.T, handler http.Handler, action string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/logs/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "Logs_20140328."+action)
+	signAWSRequest(req, "logs")
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res

@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, IAM, and STS; SQS, EventBridge, and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, and CloudWatch Logs, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS; SQS, EventBridge, DynamoDB, and CloudWatch Logs use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -72,6 +72,16 @@ In the native Go runtime, `@aws-sdk/client-dynamodb` v3 can use the `/dynamodb/`
 - `BatchGetItem` / `BatchWriteItem` - basic batch reads and writes
 - `TagResource` / `UntagResource` / `ListTagsOfResource` - table tags
 
+## CloudWatch Logs
+
+In the native Go runtime, `@aws-sdk/client-cloudwatch-logs` v3 can use the `/logs/` endpoint directly. The SDK sends `X-Amz-Target: Logs_20140328.<Action>` JSON requests and receives JSON responses.
+
+- `CreateLogGroup` / `DeleteLogGroup` / `DescribeLogGroups` - log group lifecycle and discovery
+- `CreateLogStream` / `DeleteLogStream` / `DescribeLogStreams` - log stream lifecycle and discovery
+- `PutLogEvents` / `GetLogEvents` / `FilterLogEvents` - event writes and reads
+- `PutRetentionPolicy` / `DeleteRetentionPolicy` - retention settings
+- `TagResource` / `UntagResource` / `ListTagsForResource` - log group tags
+
 ## IAM
 
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
@@ -89,4 +99,4 @@ Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the
 
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`) for browsing current state.

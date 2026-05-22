@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, SNS, EventBridge, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, IAM, and STS; SQS, EventBridge, and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, and CloudWatch Logs, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS; SQS, EventBridge, DynamoDB, and CloudWatch Logs use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -39,7 +39,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 
 ## Auth
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4000/ \
@@ -129,6 +129,21 @@ const dynamodb = new DynamoDBClient({
 ```
 
 The native Go runtime accepts the DynamoDB SDK client's `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests to `/dynamodb` and returns JSON responses.
+
+```typescript
+import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs'
+
+const cloudWatchLogs = new CloudWatchLogsClient({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/logs`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
+The native Go runtime accepts the CloudWatch Logs SDK client's `X-Amz-Target: Logs_20140328.<Action>` JSON requests to `/logs` and returns JSON responses.
 
 ```typescript
 import { IAMClient } from '@aws-sdk/client-iam'
@@ -335,6 +350,16 @@ In the native Go runtime, `@aws-sdk/client-eventbridge` can use endpoint `${AWS_
 - `PutEvents` with SQS and SNS target delivery
 - `TagResource`, `UntagResource`, `ListTagsForResource`
 
+### CloudWatch Logs
+
+In the native Go runtime, `@aws-sdk/client-cloudwatch-logs` can use endpoint `${AWS_EMULATOR_URL}/logs`. SDK responses are JSON.
+
+- `CreateLogGroup`, `DeleteLogGroup`, `DescribeLogGroups`
+- `CreateLogStream`, `DeleteLogStream`, `DescribeLogStreams`
+- `PutLogEvents`, `GetLogEvents`, `FilterLogEvents`
+- `PutRetentionPolicy`, `DeleteRetentionPolicy`
+- `TagResource`, `UntagResource`, `ListTagsForResource`
+
 ### IAM
 
 Manual IAM calls can use AWS Query over `POST /iam/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-iam` with endpoint `${AWS_EMULATOR_URL}/iam`.
@@ -415,10 +440,11 @@ curl -X POST http://localhost:4000/sts/ \
 ### Inspector
 
 ```bash
-# HTML dashboard (shows S3, SQS, IAM state)
+# HTML dashboard (shows S3, SQS, IAM, and Logs state)
 curl http://localhost:4000/_inspector?tab=s3
 curl http://localhost:4000/_inspector?tab=sqs
 curl http://localhost:4000/_inspector?tab=iam
+curl http://localhost:4000/_inspector?tab=logs
 ```
 
 ## Common Patterns

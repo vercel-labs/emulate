@@ -43,6 +43,23 @@ import {
   UntagResourceCommand as UntagEventBridgeResourceCommand,
 } from "@aws-sdk/client-eventbridge";
 import {
+  CloudWatchLogsClient,
+  CreateLogGroupCommand,
+  CreateLogStreamCommand,
+  DeleteLogGroupCommand,
+  DeleteLogStreamCommand,
+  DeleteRetentionPolicyCommand,
+  DescribeLogGroupsCommand,
+  DescribeLogStreamsCommand,
+  FilterLogEventsCommand,
+  GetLogEventsCommand,
+  ListTagsForResourceCommand as ListLogsTagsForResourceCommand,
+  PutLogEventsCommand,
+  PutRetentionPolicyCommand,
+  TagResourceCommand as TagLogsResourceCommand,
+  UntagResourceCommand as UntagLogsResourceCommand,
+} from "@aws-sdk/client-cloudwatch-logs";
+import {
   S3Client,
   ListBucketsCommand,
   HeadBucketCommand,
@@ -109,6 +126,7 @@ const describeExternalSnsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : des
 const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalCloudWatchLogsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
 describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
@@ -823,6 +841,152 @@ describeExternalEventBridgeE2E("AWS native runtime - real @aws-sdk/client-eventb
     await events.send(new DeleteRuleCommand({ Name: ruleName, EventBusName: busName }));
     await events.send(new DeleteEventBusCommand({ Name: busName }));
     await sqs.send(new DeleteSQSQueueCommand({ QueueUrl: queue.QueueUrl }));
+  });
+});
+
+describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-cloudwatch-logs E2E", () => {
+  let emulator: EmulatorHandle;
+  let logs: CloudWatchLogsClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    logs = new CloudWatchLogsClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/logs/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    logs.destroy();
+    await emulator.close();
+  });
+
+  it("CreateLogGroup, PutLogEvents, query, tags, retention, and delete roundtrip", async () => {
+    const suffix = Date.now().toString(36);
+    const logGroupName = `sdk-e2e-logs-${suffix}`;
+    const logStreamName = `web-${suffix}`;
+
+    await logs.send(
+      new CreateLogGroupCommand({
+        logGroupName,
+        tags: { env: "test" },
+      }),
+    );
+
+    const groups = await logs.send(new DescribeLogGroupsCommand({ logGroupNamePrefix: "sdk-e2e-logs-" }));
+    const group = (groups.logGroups ?? []).find((item) => item.logGroupName === logGroupName);
+    expect(group?.arn).toBe(`arn:aws:logs:us-east-1:123456789012:log-group:${logGroupName}:*`);
+    expect(group?.logGroupArn).toBe(`arn:aws:logs:us-east-1:123456789012:log-group:${logGroupName}`);
+    if (!group?.logGroupArn) {
+      throw new Error("missing log group arn");
+    }
+
+    await logs.send(new PutRetentionPolicyCommand({ logGroupName, retentionInDays: 7 }));
+    const retained = await logs.send(new DescribeLogGroupsCommand({ logGroupNamePrefix: logGroupName }));
+    expect(retained.logGroups?.[0]?.retentionInDays).toBe(7);
+
+    await logs.send(new CreateLogStreamCommand({ logGroupName, logStreamName }));
+    const streams = await logs.send(new DescribeLogStreamsCommand({ logGroupName, logStreamNamePrefix: "web-" }));
+    expect((streams.logStreams ?? []).map((item) => item.logStreamName)).toContain(logStreamName);
+    const streamsByIdentifier = await logs.send(
+      new DescribeLogStreamsCommand({ logGroupIdentifier: group.logGroupArn }),
+    );
+    expect((streamsByIdentifier.logStreams ?? []).map((item) => item.logStreamName)).toContain(logStreamName);
+    await expect(
+      logs.send(
+        new DescribeLogStreamsCommand({
+          logGroupName,
+          logStreamNamePrefix: "web-",
+          orderBy: "LastEventTime",
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
+
+    const put = await logs.send(
+      new PutLogEventsCommand({
+        logGroupName,
+        logStreamName,
+        logEvents: [
+          { timestamp: 1700000000000, message: "first error" },
+          { timestamp: 1700000001000, message: "second info" },
+        ],
+      }),
+    );
+    expect(put.nextSequenceToken).toBeTruthy();
+
+    const got = await logs.send(new GetLogEventsCommand({ logGroupName, logStreamName }));
+    expect((got.events ?? []).map((event) => event.message)).toEqual(["second info", "first error"]);
+    const fromHead = await logs.send(new GetLogEventsCommand({ logGroupName, logStreamName, startFromHead: true }));
+    expect((fromHead.events ?? []).map((event) => event.message)).toEqual(["first error", "second info"]);
+    const fromIdentifier = await logs.send(
+      new GetLogEventsCommand({
+        logGroupIdentifier: group.logGroupArn,
+        logStreamName,
+        startFromHead: true,
+        endTime: 1700000001000,
+      }),
+    );
+    expect((fromIdentifier.events ?? []).map((event) => event.message)).toEqual(["first error"]);
+    await expect(
+      logs.send(
+        new GetLogEventsCommand({
+          logGroupName,
+          logGroupIdentifier: group.logGroupArn,
+          logStreamName,
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
+
+    await expect(
+      logs.send(
+        new PutLogEventsCommand({
+          logGroupName,
+          logStreamName,
+          logEvents: [
+            { timestamp: 1700000003000, message: "third" },
+            { timestamp: 1700000002000, message: "out of order" },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
+
+    const filtered = await logs.send(new FilterLogEventsCommand({ logGroupName, filterPattern: "error" }));
+    expect((filtered.events ?? []).map((event) => event.message)).toEqual(["first error"]);
+    expect(filtered.events?.[0]?.eventId).toBeTruthy();
+    const filteredByIdentifier = await logs.send(
+      new FilterLogEventsCommand({ logGroupIdentifier: group.logGroupArn, filterPattern: "error" }),
+    );
+    expect((filteredByIdentifier.events ?? []).map((event) => event.message)).toEqual(["first error"]);
+    await expect(
+      logs.send(
+        new FilterLogEventsCommand({
+          logGroupName,
+          logStreamNames: [logStreamName],
+          logStreamNamePrefix: "web-",
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
+
+    await logs.send(new TagLogsResourceCommand({ resourceArn: group.logGroupArn, tags: { team: "platform" } }));
+    const tags = await logs.send(new ListLogsTagsForResourceCommand({ resourceArn: group.logGroupArn }));
+    expect(tags.tags?.team).toBe("platform");
+    await expect(
+      logs.send(
+        new TagLogsResourceCommand({
+          resourceArn: `arn:aws:logs:us-west-2:123456789012:log-group:${logGroupName}`,
+          tags: { region: "wrong" },
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "ResourceNotFoundException" });
+    await logs.send(new UntagLogsResourceCommand({ resourceArn: group.logGroupArn, tagKeys: ["team"] }));
+
+    await logs.send(new DeleteRetentionPolicyCommand({ logGroupName }));
+    await logs.send(new DeleteLogStreamCommand({ logGroupName, logStreamName }));
+    await logs.send(new DeleteLogGroupCommand({ logGroupName }));
   });
 });
 

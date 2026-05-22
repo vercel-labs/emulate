@@ -14,6 +14,9 @@ type Store struct {
 	EventRules       *corestore.Collection
 	EventTargets     *corestore.Collection
 	EventDeliveries  *corestore.Collection
+	LogGroups        *corestore.Collection
+	LogStreams       *corestore.Collection
+	LogEvents        *corestore.Collection
 	IAMUsers         *corestore.Collection
 	IAMRoles         *corestore.Collection
 	DynamoDBTables   *corestore.Collection
@@ -33,6 +36,9 @@ func NewStore(runtimeStore *corestore.Store) Store {
 		EventRules:       runtimeStore.MustCollection("aws.event_rules", "name", "arn", "event_bus_name"),
 		EventTargets:     runtimeStore.MustCollection("aws.event_targets", "rule_name", "event_bus_name", "target_id", "arn"),
 		EventDeliveries:  runtimeStore.MustCollection("aws.event_deliveries", "event_id", "rule_name", "target_id"),
+		LogGroups:        runtimeStore.MustCollection("aws.log_groups", "account_id", "region", "log_group_name", "arn"),
+		LogStreams:       runtimeStore.MustCollection("aws.log_streams", "account_id", "region", "log_group_name", "log_stream_name", "arn"),
+		LogEvents:        runtimeStore.MustCollection("aws.log_events", "account_id", "region", "log_group_name", "log_stream_name", "event_id"),
 		IAMUsers:         runtimeStore.MustCollection("aws.iam_users", "user_name", "user_id"),
 		IAMRoles:         runtimeStore.MustCollection("aws.iam_roles", "role_name", "role_id"),
 		DynamoDBTables:   runtimeStore.MustCollection("aws.dynamodb_tables", "table_name", "arn"),

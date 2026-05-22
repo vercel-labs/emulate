@@ -13,11 +13,12 @@ var inspectorTabs = []ui.InspectorTab{
 	{ID: "s3", Label: "S3", Href: "/_inspector?tab=s3"},
 	{ID: "sqs", Label: "SQS", Href: "/_inspector?tab=sqs"},
 	{ID: "iam", Label: "IAM", Href: "/_inspector?tab=iam"},
+	{ID: "logs", Label: "Logs", Href: "/_inspector?tab=logs"},
 }
 
 func (s *Service) handleInspector(c *corehttp.Context) {
 	tab := c.Query("tab")
-	if tab != "s3" && tab != "sqs" && tab != "iam" {
+	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" {
 		tab = "s3"
 	}
 	tabs := make([]ui.InspectorTab, len(inspectorTabs))
@@ -32,6 +33,8 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		body = s.renderSQSInspector()
 	case "iam":
 		body = s.renderIAMInspector()
+	case "logs":
+		body = s.renderLogsInspector()
 	default:
 		body = s.renderS3Inspector()
 	}
@@ -128,6 +131,44 @@ func (s *Service) renderIAMInspector() string {
   <table class="inspector-table">
     <thead><tr><th>Role</th><th>Role ID</th><th>Description</th><th>ARN</th></tr></thead>
     <tbody>` + rowsOrEmpty(roleRows.String(), 4, "No roles") + `</tbody>
+  </table>
+</div>`
+}
+
+func (s *Service) renderLogsInspector() string {
+	groups := s.store.LogGroups.All()
+	var groupRows strings.Builder
+	for _, group := range groups {
+		name := stringField(group, "log_group_name")
+		streamCount := 0
+		for _, stream := range s.store.LogStreams.FindBy("log_group_name", name) {
+			if stringField(stream, "account_id") == stringField(group, "account_id") && stringField(stream, "region") == stringField(group, "region") {
+				streamCount++
+			}
+		}
+		eventCount := 0
+		for _, event := range s.store.LogEvents.FindBy("log_group_name", name) {
+			if stringField(event, "account_id") == stringField(group, "account_id") && stringField(event, "region") == stringField(group, "region") {
+				eventCount++
+			}
+		}
+		groupRows.WriteString(`<tr><td>`)
+		groupRows.WriteString(ui.EscapeHTML(name))
+		groupRows.WriteString(`</td><td>`)
+		groupRows.WriteString(fmt.Sprint(streamCount))
+		groupRows.WriteString(`</td><td>`)
+		groupRows.WriteString(fmt.Sprint(eventCount))
+		groupRows.WriteString(`</td><td>`)
+		groupRows.WriteString(ui.EscapeHTML(stringField(group, "retention_in_days")))
+		groupRows.WriteString(`</td><td>`)
+		groupRows.WriteString(ui.EscapeHTML(stringField(group, "arn")))
+		groupRows.WriteString(`</td></tr>`)
+	}
+	return `<div class="inspector-section">
+  <h2>CloudWatch Log Groups (` + fmt.Sprint(len(groups)) + `)</h2>
+  <table class="inspector-table">
+    <thead><tr><th>Log Group</th><th>Streams</th><th>Events</th><th>Retention Days</th><th>ARN</th></tr></thead>
+    <tbody>` + rowsOrEmpty(groupRows.String(), 5, "No log groups") + `</tbody>
   </table>
 </div>`
 }

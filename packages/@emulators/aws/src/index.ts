@@ -59,6 +59,15 @@ export interface SqsQueue extends CompatEntity {
 export interface SqsMessage extends CompatEntity {
   [key: string]: unknown;
 }
+export interface LogGroup extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface LogStream extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface LogEvent extends CompatEntity {
+  [key: string]: unknown;
+}
 export interface IamUser extends CompatEntity {
   [key: string]: unknown;
 }
@@ -75,6 +84,9 @@ export interface AwsStore {
   s3Objects: CompatCollection<S3Object>;
   sqsQueues: CompatCollection<SqsQueue>;
   sqsMessages: CompatCollection<SqsMessage>;
+  logGroups: CompatCollection<LogGroup>;
+  logStreams: CompatCollection<LogStream>;
+  logEvents: CompatCollection<LogEvent>;
   iamUsers: CompatCollection<IamUser>;
   iamRoles: CompatCollection<IamRole>;
 }
@@ -93,6 +105,21 @@ export function getAwsStore(store: CompatStoreSource): AwsStore {
     s3Objects: compatCollection<S3Object>(store, "aws.s3_objects", ["key", "bucket_name"]),
     sqsQueues: compatCollection<SqsQueue>(store, "aws.sqs_queues", ["queue_name", "queue_url"]),
     sqsMessages: compatCollection<SqsMessage>(store, "aws.sqs_messages", ["message_id", "queue_name"]),
+    logGroups: compatCollection<LogGroup>(store, "aws.log_groups", ["account_id", "region", "log_group_name", "arn"]),
+    logStreams: compatCollection<LogStream>(store, "aws.log_streams", [
+      "account_id",
+      "region",
+      "log_group_name",
+      "log_stream_name",
+      "arn",
+    ]),
+    logEvents: compatCollection<LogEvent>(store, "aws.log_events", [
+      "account_id",
+      "region",
+      "log_group_name",
+      "log_stream_name",
+      "event_id",
+    ]),
     iamUsers: compatCollection<IamUser>(store, "aws.iam_users", ["user_name", "user_id"]),
     iamRoles: compatCollection<IamRole>(store, "aws.iam_roles", ["role_name", "role_id"]),
   };
@@ -142,6 +169,42 @@ export interface SqsMessage extends CompatEntity {
   visible_after: number;
   sent_timestamp: number;
   receive_count: number;
+}
+
+export interface LogGroup extends CompatEntity {
+  account_id: string;
+  region: string;
+  log_group_name: string;
+  arn: string;
+  creation_time: number;
+  retention_in_days: number;
+  kms_key_id: string;
+  tags: Record<string, string>;
+}
+
+export interface LogStream extends CompatEntity {
+  account_id: string;
+  region: string;
+  log_group_name: string;
+  log_stream_name: string;
+  arn: string;
+  creation_time: number;
+  first_event_timestamp: number;
+  last_event_timestamp: number;
+  last_ingestion_time: number;
+  upload_sequence_token: string;
+  stored_bytes: number;
+}
+
+export interface LogEvent extends CompatEntity {
+  account_id: string;
+  region: string;
+  log_group_name: string;
+  log_stream_name: string;
+  event_id: string;
+  timestamp: number;
+  message: string;
+  ingestion_time: number;
 }
 
 export interface IamUser extends CompatEntity {

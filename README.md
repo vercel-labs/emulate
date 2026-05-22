@@ -706,7 +706,7 @@ The native Go runtime implements the Clerk OIDC and management API routes below 
 
 ## AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, IAM, and STS; SQS, EventBridge, and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, and CloudWatch Logs, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS; SQS, EventBridge, DynamoDB, and CloudWatch Logs use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
 
@@ -757,6 +757,15 @@ In the native Go runtime, `@aws-sdk/client-dynamodb` v3 can use the `/dynamodb/`
 - `PutItem`, `GetItem`, `DeleteItem`, `Scan`, `Query`
 - `BatchGetItem`, `BatchWriteItem`
 - `TagResource`, `UntagResource`, `ListTagsOfResource`
+
+### CloudWatch Logs
+In the native Go runtime, `@aws-sdk/client-cloudwatch-logs` v3 can use the `/logs/` endpoint directly. The SDK sends `X-Amz-Target: Logs_20140328.<Action>` JSON requests and receives JSON responses.
+
+- `CreateLogGroup`, `DeleteLogGroup`, `DescribeLogGroups`
+- `CreateLogStream`, `DeleteLogStream`, `DescribeLogStreams`
+- `PutLogEvents`, `GetLogEvents`, `FilterLogEvents`
+- `PutRetentionPolicy`, `DeleteRetentionPolicy`
+- `TagResource`, `UntagResource`, `ListTagsForResource`
 
 ### IAM
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
@@ -940,4 +949,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
-**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
