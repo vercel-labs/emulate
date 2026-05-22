@@ -414,6 +414,9 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, spec 
 	if !ok {
 		return h.error("BadGatewayException", "Lambda function for API Gateway integration was not found.", http.StatusBadGateway, requestID)
 	}
+	if result.FunctionError != "" {
+		return lambdaProxyGatewayError()
+	}
 	status, headers, body := lambdaProxyHTTPResponse(result.Payload)
 	return protocols.ErrorResponse{StatusCode: status, ContentType: firstNonEmpty(headers["Content-Type"], headers["content-type"], "text/plain"), Headers: headers, Body: body}
 }
@@ -501,6 +504,11 @@ func lambdaProxyHTTPResponse(payload []byte) (int, map[string]string, []byte) {
 		headers["Content-Type"] = "text/plain"
 	}
 	return status, headers, body
+}
+
+func lambdaProxyGatewayError() protocols.ErrorResponse {
+	body, _ := json.Marshal(map[string]string{"message": "Internal server error"})
+	return protocols.ErrorResponse{StatusCode: http.StatusBadGateway, ContentType: jsonContentType, Headers: map[string]string{"Content-Type": jsonContentType}, Body: body}
 }
 
 func parseControlRoute(req *http.Request) (routeSpec, bool) {
@@ -641,7 +649,7 @@ func (h *Handler) resolveInvokeStage(ctx gateway.AwsRequestContext, apiID string
 
 func (h *Handler) matchRoute(ctx gateway.AwsRequestContext, apiID string, method string, pathValue string) (corestore.Record, bool) {
 	routes := h.routesForAPI(ctx, apiID)
-	candidates := []string{method + " " + pathValue, "ANY " + pathValue, "$default"}
+	candidates := []string{method + " " + pathValue, "ANY " + pathValue}
 	for _, candidate := range candidates {
 		for _, route := range routes {
 			if stringField(route, "route_key") == candidate {
@@ -649,11 +657,10 @@ func (h *Handler) matchRoute(ctx gateway.AwsRequestContext, apiID string, method
 			}
 		}
 	}
+	var bestGreedy corestore.Record
+	bestGreedyScore := -1
 	for _, route := range routes {
 		routeKey := stringField(route, "route_key")
-		if routeKey == "$default" {
-			return route, true
-		}
 		parts := strings.SplitN(routeKey, " ", 2)
 		if len(parts) != 2 || (parts[0] != method && parts[0] != "ANY") {
 			continue
@@ -661,8 +668,23 @@ func (h *Handler) matchRoute(ctx gateway.AwsRequestContext, apiID string, method
 		if strings.HasSuffix(parts[1], "/{proxy+}") {
 			prefix := strings.TrimSuffix(parts[1], "/{proxy+}")
 			if prefix == "" || pathValue == prefix || strings.HasPrefix(pathValue, prefix+"/") {
-				return route, true
+				score := len(prefix)
+				if parts[0] == method {
+					score += 1 << 20
+				}
+				if score > bestGreedyScore {
+					bestGreedy = route
+					bestGreedyScore = score
+				}
 			}
+		}
+	}
+	if bestGreedy != nil {
+		return bestGreedy, true
+	}
+	for _, route := range routes {
+		if stringField(route, "route_key") == "$default" {
+			return route, true
 		}
 	}
 	return nil, false
