@@ -669,12 +669,16 @@ func (h *Handler) evaluateObjectConditions(req *http.Request, object corestore.R
 	headers := conditionalHeaders(object, metadata)
 	etag := headers["ETag"]
 	lastModified := metadata.LastModified.UTC().Truncate(time.Second)
-	if raw := strings.TrimSpace(req.Header.Get("If-Match")); raw != "" && !etagListMatches(raw, etag) {
-		response := h.xmlError("PreconditionFailed", "At least one of the pre-conditions you specified did not hold.", http.StatusPreconditionFailed, requestResource(bucketName, key))
-		return &response
+	ifMatchSatisfied := false
+	if raw := strings.TrimSpace(req.Header.Get("If-Match")); raw != "" {
+		if !etagListMatches(raw, etag) {
+			response := h.xmlError("PreconditionFailed", "At least one of the pre-conditions you specified did not hold.", http.StatusPreconditionFailed, requestResource(bucketName, key))
+			return &response
+		}
+		ifMatchSatisfied = true
 	}
 	if raw := strings.TrimSpace(req.Header.Get("If-Unmodified-Since")); raw != "" {
-		if limit, err := http.ParseTime(raw); err == nil && lastModified.After(limit) {
+		if limit, err := http.ParseTime(raw); err == nil && lastModified.After(limit) && !ifMatchSatisfied {
 			response := h.xmlError("PreconditionFailed", "At least one of the pre-conditions you specified did not hold.", http.StatusPreconditionFailed, requestResource(bucketName, key))
 			return &response
 		}

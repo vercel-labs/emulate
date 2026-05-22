@@ -273,6 +273,14 @@ func TestServiceHandlesS3RangeAndConditionalReads(t *testing.T) {
 	}
 
 	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/range.txt", nil, "s3", map[string]string{
+		"If-Match":            etag,
+		"If-Unmodified-Since": "Wed, 21 Oct 2015 07:28:00 GMT",
+	})
+	if res.Code != http.StatusOK || res.Body.String() != "0123456789" {
+		t.Fatalf("if-match precedence status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/range.txt", nil, "s3", map[string]string{
 		"If-Modified-Since": lastModified,
 	})
 	if res.Code != http.StatusNotModified {
