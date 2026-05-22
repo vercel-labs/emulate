@@ -373,10 +373,13 @@ func (h *Handler) getObject(req *http.Request, bucketName string, key string, he
 		if !ok {
 			return h.xmlError("InvalidRange", "The requested range is not satisfiable.", http.StatusRequestedRangeNotSatisfiable, requestResource(bucketName, key))
 		}
-		body = body[rangeSpec.start : rangeSpec.end+1]
-		status = http.StatusPartialContent
-		headers["Content-Length"] = strconv.FormatInt(int64(len(body)), 10)
-		headers["Content-Range"] = fmt.Sprintf("bytes %d-%d/%d", rangeSpec.start, rangeSpec.end, rangeSpec.total)
+		rangeLength := rangeSpec.end - rangeSpec.start + 1
+		headers["Content-Length"] = strconv.FormatInt(rangeLength, 10)
+		if !head {
+			body = body[rangeSpec.start : rangeSpec.end+1]
+			status = http.StatusPartialContent
+			headers["Content-Range"] = fmt.Sprintf("bytes %d-%d/%d", rangeSpec.start, rangeSpec.end, rangeSpec.total)
+		}
 	}
 	if head {
 		return response(status, "", nil, headers)
@@ -683,9 +686,12 @@ func (h *Handler) evaluateObjectConditions(req *http.Request, object corestore.R
 			return &response
 		}
 	}
-	if raw := strings.TrimSpace(req.Header.Get("If-None-Match")); raw != "" && etagListMatches(raw, etag) {
-		response := response(http.StatusNotModified, "", nil, headers)
-		return &response
+	if raw := strings.TrimSpace(req.Header.Get("If-None-Match")); raw != "" {
+		if etagListMatches(raw, etag) {
+			response := response(http.StatusNotModified, "", nil, headers)
+			return &response
+		}
+		return nil
 	}
 	if raw := strings.TrimSpace(req.Header.Get("If-Modified-Since")); raw != "" {
 		if limit, err := http.ParseTime(raw); err == nil && !lastModified.After(limit) {

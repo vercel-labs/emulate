@@ -235,13 +235,16 @@ func TestServiceHandlesS3RangeAndConditionalReads(t *testing.T) {
 	res = executeAWSRequest(handler, http.MethodHead, "http://127.0.0.1/emulate-default/docs/range.txt", nil, "s3", map[string]string{
 		"Range": "bytes=0-2",
 	})
-	if res.Code != http.StatusPartialContent {
+	if res.Code != http.StatusOK {
 		t.Fatalf("head range status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if res.Body.Len() != 0 {
 		t.Fatalf("head range body length = %d", res.Body.Len())
 	}
-	if got := res.Header().Get("Content-Range"); got != "bytes 0-2/10" {
+	if got := res.Header().Get("Content-Length"); got != "3" {
+		t.Fatalf("head content length = %q", got)
+	}
+	if got := res.Header().Get("Content-Range"); got != "" {
 		t.Fatalf("head content range = %q", got)
 	}
 
@@ -263,6 +266,14 @@ func TestServiceHandlesS3RangeAndConditionalReads(t *testing.T) {
 	})
 	if res.Code != http.StatusNotModified {
 		t.Fatalf("if-none-match status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/range.txt", nil, "s3", map[string]string{
+		"If-None-Match":     `"does-not-match"`,
+		"If-Modified-Since": lastModified,
+	})
+	if res.Code != http.StatusOK || res.Body.String() != "0123456789" {
+		t.Fatalf("if-none-match precedence status = %d, body = %s", res.Code, res.Body.String())
 	}
 
 	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/range.txt", nil, "s3", map[string]string{
