@@ -335,7 +335,7 @@ curl -X PUT http://localhost:4000/dest-bucket/copy.txt \
 
 ### SQS
 
-Manual SQS calls can use AWS Query over `POST /sqs/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-sqs` with endpoint `${AWS_EMULATOR_URL}/sqs`; SDK responses are JSON.
+Manual SQS calls can use AWS Query over `POST /sqs/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-sqs` with endpoint `${AWS_EMULATOR_URL}/sqs`; SDK responses are JSON. Supported operations include queue create/list/url/attributes, message send/receive/delete/purge, batch send/delete, visibility changes, and queue tags.
 
 ```bash
 # Create queue
@@ -370,6 +370,11 @@ curl -X POST http://localhost:4000/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=GetQueueAttributes&QueueUrl=<queue_url>"
 
+# Set queue attributes
+curl -X POST http://localhost:4000/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=SetQueueAttributes&QueueUrl=<queue_url>&Attribute.1.Name=VisibilityTimeout&Attribute.1.Value=45"
+
 # Send message
 curl -X POST http://localhost:4000/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
@@ -380,15 +385,39 @@ curl -X POST http://localhost:4000/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=SendMessage&QueueUrl=<queue_url>&MessageBody=Hello&MessageAttribute.1.Name=type&MessageAttribute.1.Value.DataType=String&MessageAttribute.1.Value.StringValue=greeting"
 
+# Send message batch
+curl -X POST http://localhost:4000/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=SendMessageBatch&QueueUrl=<queue_url>&SendMessageBatchRequestEntry.1.Id=one&SendMessageBatchRequestEntry.1.MessageBody=Hello&SendMessageBatchRequestEntry.2.Id=two&SendMessageBatchRequestEntry.2.MessageBody=World"
+
 # Receive messages
 curl -X POST http://localhost:4000/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ReceiveMessage&QueueUrl=<queue_url>&MaxNumberOfMessages=5"
 
+# Change message visibility
+curl -X POST http://localhost:4000/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=ChangeMessageVisibility&QueueUrl=<queue_url>&ReceiptHandle=<receipt_handle>&VisibilityTimeout=0"
+
 # Delete message
 curl -X POST http://localhost:4000/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteMessage&QueueUrl=<queue_url>&ReceiptHandle=<receipt_handle>"
+
+# Delete message batch
+curl -X POST http://localhost:4000/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=DeleteMessageBatch&QueueUrl=<queue_url>&DeleteMessageBatchRequestEntry.1.Id=one&DeleteMessageBatchRequestEntry.1.ReceiptHandle=<receipt_handle>"
+
+# Tag queue and list tags
+curl -X POST http://localhost:4000/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=TagQueue&QueueUrl=<queue_url>&Tag.1.Key=env&Tag.1.Value=test"
+
+curl -X POST http://localhost:4000/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=ListQueueTags&QueueUrl=<queue_url>"
 
 # Purge queue
 curl -X POST http://localhost:4000/sqs/ \

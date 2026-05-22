@@ -800,6 +800,157 @@ func TestServiceHonorsSQSJSONMessageDelaySeconds(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesSQSBatchVisibilityAttributesAndTags(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=query-batch")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+
+	values := url.Values{}
+	values.Set("Action", "SetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	values.Set("Attribute.1.Name", "VisibilityTimeout")
+	values.Set("Attribute.1.Value", "12")
+	values.Set("Attribute.2.Name", "ReceiveMessageWaitTimeSeconds")
+	values.Set("Attribute.2.Value", "2")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("set attributes status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	values.Set("AttributeName.1", "VisibilityTimeout")
+	values.Set("AttributeName.2", "ReceiveMessageWaitTimeSeconds")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("get attributes status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<Name>VisibilityTimeout</Name><Value>12</Value>") || !strings.Contains(body, "<Name>ReceiveMessageWaitTimeSeconds</Name><Value>2</Value>") {
+		t.Fatalf("unexpected attributes body: %s", body)
+	}
+
+	values = url.Values{}
+	values.Set("Action", "TagQueue")
+	values.Set("QueueUrl", queueURL)
+	values.Set("Tag.1.Key", "env")
+	values.Set("Tag.1.Value", "test")
+	values.Set("Tag.2.Key", "team")
+	values.Set("Tag.2.Value", "infra")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("tag status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ListQueueTags")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("list tags status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<Key>env</Key><Value>test</Value>") || !strings.Contains(body, "<Key>team</Key><Value>infra</Value>") {
+		t.Fatalf("unexpected tags body: %s", body)
+	}
+
+	values = url.Values{}
+	values.Set("Action", "UntagQueue")
+	values.Set("QueueUrl", queueURL)
+	values.Set("TagKey.1", "team")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("untag status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "SendMessageBatch")
+	values.Set("QueueUrl", queueURL)
+	values.Set("SendMessageBatchRequestEntry.1.Id", "one")
+	values.Set("SendMessageBatchRequestEntry.1.MessageBody", "batch one")
+	values.Set("SendMessageBatchRequestEntry.1.MessageAttribute.1.Name", "kind")
+	values.Set("SendMessageBatchRequestEntry.1.MessageAttribute.1.Value.DataType", "String")
+	values.Set("SendMessageBatchRequestEntry.1.MessageAttribute.1.Value.StringValue", "query")
+	values.Set("SendMessageBatchRequestEntry.2.Id", "two")
+	values.Set("SendMessageBatchRequestEntry.2.MessageBody", "batch two")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("send batch status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); strings.Count(body, "<SendMessageBatchResultEntry>") != 2 || !strings.Contains(body, "<MD5OfMessageAttributes>") {
+		t.Fatalf("unexpected send batch body: %s", body)
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "2")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	receipts := xmlElements(res.Body.String(), "ReceiptHandle")
+	if len(receipts) != 2 {
+		t.Fatalf("receipts = %#v, body = %s", receipts, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ChangeMessageVisibility")
+	values.Set("QueueUrl", queueURL)
+	values.Set("ReceiptHandle", receipts[0])
+	values.Set("VisibilityTimeout", "0")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("change visibility status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ChangeMessageVisibilityBatch")
+	values.Set("QueueUrl", queueURL)
+	values.Set("ChangeMessageVisibilityBatchRequestEntry.1.Id", "two")
+	values.Set("ChangeMessageVisibilityBatchRequestEntry.1.ReceiptHandle", receipts[1])
+	values.Set("ChangeMessageVisibilityBatchRequestEntry.1.VisibilityTimeout", "0")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("change visibility batch status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "2")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive after visibility status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "<Body>batch one</Body>") || !strings.Contains(body, "<Body>batch two</Body>") {
+		t.Fatalf("messages were not visible after visibility change: %s", body)
+	}
+	receipts = xmlElements(body, "ReceiptHandle")
+	if len(receipts) != 2 {
+		t.Fatalf("new receipts = %#v, body = %s", receipts, body)
+	}
+
+	values = url.Values{}
+	values.Set("Action", "DeleteMessageBatch")
+	values.Set("QueueUrl", queueURL)
+	values.Set("DeleteMessageBatchRequestEntry.1.Id", "one")
+	values.Set("DeleteMessageBatchRequestEntry.1.ReceiptHandle", receipts[0])
+	values.Set("DeleteMessageBatchRequestEntry.2.Id", "two")
+	values.Set("DeleteMessageBatchRequestEntry.2.ReceiptHandle", receipts[1])
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete batch status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); strings.Count(body, "<DeleteMessageBatchResultEntry>") != 2 {
+		t.Fatalf("unexpected delete batch body: %s", body)
+	}
+}
+
 func TestServiceHandlesSNSLifecycleAndSQSPublish(t *testing.T) {
 	handler := newTestHandler()
 
@@ -3466,6 +3617,25 @@ func xmlElement(body string, name string) string {
 		return ""
 	}
 	return body[start : start+end]
+}
+
+func xmlElements(body string, name string) []string {
+	values := []string{}
+	startToken := "<" + name + ">"
+	endToken := "</" + name + ">"
+	for {
+		start := strings.Index(body, startToken)
+		if start < 0 {
+			return values
+		}
+		start += len(startToken)
+		end := strings.Index(body[start:], endToken)
+		if end < 0 {
+			return values
+		}
+		values = append(values, body[start:start+end])
+		body = body[start+end+len(endToken):]
+	}
 }
 
 func xmlValueForName(body string, name string) string {

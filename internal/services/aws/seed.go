@@ -161,6 +161,8 @@ func seedSQSFromConfig(store Store, baseURL string, accountID string, region str
 			"message_retention_period":  345600,
 			"receive_message_wait_time": 0,
 			"fifo":                      queue.FIFO || strings.HasSuffix(name, ".fifo"),
+			"tags":                      corestore.Record{},
+			"extra_attributes":          corestore.Record{},
 		})
 	}
 }

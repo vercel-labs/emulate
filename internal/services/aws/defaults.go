@@ -52,6 +52,8 @@ func seedSQSDefaults(store Store, baseURL string, accountID string, region strin
 		"message_retention_period":  345600,
 		"receive_message_wait_time": 0,
 		"fifo":                      false,
+		"tags":                      corestore.Record{},
+		"extra_attributes":          corestore.Record{},
 	})
 }
 

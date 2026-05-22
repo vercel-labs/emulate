@@ -748,8 +748,10 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 ### SQS
 Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sqs` v3 can use the `/sqs/` endpoint directly; the SDK sends `X-Amz-Target: AmazonSQS.<Action>` JSON requests and receives JSON responses.
 
-- `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
-- `SendMessage`, `ReceiveMessage`, `DeleteMessage`
+- `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`, `SetQueueAttributes`
+- `SendMessage`, `SendMessageBatch`, `ReceiveMessage`, `DeleteMessage`, `DeleteMessageBatch`
+- `ChangeMessageVisibility`, `ChangeMessageVisibilityBatch`
+- `TagQueue`, `UntagQueue`, `ListQueueTags`
 - `PurgeQueue`, `DeleteQueue`
 
 ### SNS

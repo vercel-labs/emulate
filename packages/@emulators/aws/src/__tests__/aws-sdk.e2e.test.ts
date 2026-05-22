@@ -117,11 +117,19 @@ import {
   CreateQueueCommand as CreateSQSQueueCommand,
   GetQueueUrlCommand,
   GetQueueAttributesCommand,
+  SetQueueAttributesCommand,
   SendMessageCommand,
+  SendMessageBatchCommand,
   ReceiveMessageCommand,
   DeleteMessageCommand,
+  DeleteMessageBatchCommand,
+  ChangeMessageVisibilityCommand,
+  ChangeMessageVisibilityBatchCommand,
   PurgeQueueCommand,
   DeleteQueueCommand as DeleteSQSQueueCommand,
+  TagQueueCommand,
+  UntagQueueCommand,
+  ListQueueTagsCommand,
 } from "@aws-sdk/client-sqs";
 import {
   SNSClient,
@@ -481,6 +489,88 @@ describeExternalSqsE2E("AWS native runtime - real @aws-sdk/client-sqs E2E", () =
 
     await sqs.send(new DeleteMessageCommand({ QueueUrl, ReceiptHandle: received.Messages?.[0]?.ReceiptHandle }));
     const afterDelete = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 1 }));
+    expect(afterDelete.Messages ?? []).toHaveLength(0);
+
+    await sqs.send(new DeleteSQSQueueCommand({ QueueUrl }));
+  });
+
+  it("batch APIs, visibility changes, queue attributes, and tags roundtrip", async () => {
+    const { QueueUrl } = await sqs.send(new CreateSQSQueueCommand({ QueueName: "sdk-e2e-sqs-hardening" }));
+    expect(QueueUrl).toBeTruthy();
+
+    await sqs.send(
+      new SetQueueAttributesCommand({
+        QueueUrl,
+        Attributes: { VisibilityTimeout: "20", ReceiveMessageWaitTimeSeconds: "0" },
+      }),
+    );
+    const attrs = await sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl,
+        AttributeNames: ["VisibilityTimeout", "ReceiveMessageWaitTimeSeconds"],
+      }),
+    );
+    expect(attrs.Attributes?.VisibilityTimeout).toBe("20");
+    expect(attrs.Attributes?.ReceiveMessageWaitTimeSeconds).toBe("0");
+
+    await sqs.send(new TagQueueCommand({ QueueUrl, Tags: { env: "test", team: "infra" } }));
+    let tags = await sqs.send(new ListQueueTagsCommand({ QueueUrl }));
+    expect(tags.Tags).toMatchObject({ env: "test", team: "infra" });
+    await sqs.send(new UntagQueueCommand({ QueueUrl, TagKeys: ["team"] }));
+    tags = await sqs.send(new ListQueueTagsCommand({ QueueUrl }));
+    expect(tags.Tags).toMatchObject({ env: "test" });
+    expect(tags.Tags?.team).toBeUndefined();
+
+    const sent = await sqs.send(
+      new SendMessageBatchCommand({
+        QueueUrl,
+        Entries: [
+          {
+            Id: "one",
+            MessageBody: "batch one",
+            MessageAttributes: { kind: { DataType: "String", StringValue: "sdk" } },
+          },
+          { Id: "two", MessageBody: "batch two" },
+        ],
+      }),
+    );
+    expect(sent.Failed ?? []).toHaveLength(0);
+    expect(sent.Successful?.map((entry) => entry.Id)).toEqual(expect.arrayContaining(["one", "two"]));
+    expect(sent.Successful?.find((entry) => entry.Id === "one")?.MD5OfMessageAttributes).toBeTruthy();
+
+    const firstReceive = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 2 }));
+    expect(firstReceive.Messages ?? []).toHaveLength(2);
+    const firstReceipts = firstReceive.Messages?.map((message) => message.ReceiptHandle).filter(Boolean) ?? [];
+    expect(firstReceipts).toHaveLength(2);
+
+    await sqs.send(
+      new ChangeMessageVisibilityCommand({
+        QueueUrl,
+        ReceiptHandle: firstReceipts[0],
+        VisibilityTimeout: 0,
+      }),
+    );
+    await sqs.send(
+      new ChangeMessageVisibilityBatchCommand({
+        QueueUrl,
+        Entries: [{ Id: "two", ReceiptHandle: firstReceipts[1], VisibilityTimeout: 0 }],
+      }),
+    );
+
+    const secondReceive = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 2 }));
+    expect(secondReceive.Messages?.map((message) => message.Body)).toEqual(expect.arrayContaining(["batch one", "batch two"]));
+    const deleteEntries =
+      secondReceive.Messages?.map((message, index) => ({
+        Id: `delete-${index + 1}`,
+        ReceiptHandle: message.ReceiptHandle ?? "",
+      })) ?? [];
+    expect(deleteEntries).toHaveLength(2);
+
+    const deleted = await sqs.send(new DeleteMessageBatchCommand({ QueueUrl, Entries: deleteEntries }));
+    expect(deleted.Failed ?? []).toHaveLength(0);
+    expect(deleted.Successful ?? []).toHaveLength(2);
+
+    const afterDelete = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 10 }));
     expect(afterDelete.Messages ?? []).toHaveLength(0);
 
     await sqs.send(new DeleteSQSQueueCommand({ QueueUrl }));

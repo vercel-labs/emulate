@@ -37,9 +37,14 @@ Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the
 - `ListQueues` - list queues (supports `QueueNamePrefix` filter)
 - `GetQueueUrl` - get queue URL by name
 - `GetQueueAttributes` - get queue attributes
+- `SetQueueAttributes` - update queue attributes
 - `SendMessage` - send message (supports message attributes)
+- `SendMessageBatch` - send up to 10 messages in one request
 - `ReceiveMessage` - receive messages (supports `MaxNumberOfMessages`)
+- `ChangeMessageVisibility` and `ChangeMessageVisibilityBatch` - update message visibility timeouts
 - `DeleteMessage` - delete message by receipt handle
+- `DeleteMessageBatch` - delete up to 10 messages in one request
+- `TagQueue`, `UntagQueue`, and `ListQueueTags` - manage queue tags
 - `PurgeQueue` - purge all messages
 - `DeleteQueue` - delete queue
 
