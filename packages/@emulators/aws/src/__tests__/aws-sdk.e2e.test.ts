@@ -1520,9 +1520,7 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
 
     const allFunctions = await lambda.send(new ListFunctionsCommand({ FunctionVersion: "ALL" }));
     expect(
-      (allFunctions.Functions ?? [])
-        .filter((item) => item.FunctionName === functionName)
-        .map((item) => item.Version),
+      (allFunctions.Functions ?? []).filter((item) => item.FunctionName === functionName).map((item) => item.Version),
     ).toEqual(expect.arrayContaining(["$LATEST", "1"]));
 
     const alias = await lambda.send(
@@ -1579,7 +1577,9 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
     await lambda.send(new RemovePermissionCommand({ FunctionName: liveArn, StatementId: "allow-live" }));
     await lambda.send(new DeleteLambdaAliasCommand({ FunctionName: functionName, Name: "live" }));
     await lambda.send(new DeleteFunctionCommand({ FunctionName: `${created.FunctionArn}:1` }));
-    const latestAfterVersionDelete = await lambda.send(new GetFunctionConfigurationCommand({ FunctionName: functionName }));
+    const latestAfterVersionDelete = await lambda.send(
+      new GetFunctionConfigurationCommand({ FunctionName: functionName }),
+    );
     expect(latestAfterVersionDelete.Version).toBe("$LATEST");
     await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
     await expect(
