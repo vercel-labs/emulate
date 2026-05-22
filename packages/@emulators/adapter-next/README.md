@@ -51,9 +51,9 @@ npx emulate vercel init --service github,google
 
 The scaffold creates `api/emulate.go`, updates `go.mod`, and adds a `/emulate/:path*` rewrite in `vercel.json`.
 
-## Deprecated In-Process Handler
+## Compatibility Handler
 
-`createEmulateHandler` remains exported so existing imports fail gracefully, but in-process service handlers have been removed. New code should use `createEmulateProxy` for a separately running native runtime or `npx emulate vercel init` for Vercel previews.
+`createEmulateHandler` remains exported for existing App Router routes. It accepts the old `services` config shape, starts the native runtime on first local request, and proxies each service path to that runtime. The legacy `persistence` option is rejected because state lives in the native runtime. For deployed Vercel previews, prefer `npx emulate vercel init`; alternatively set `EMULATE_<SERVICE>_URL` to a reachable native target. New code should use `createEmulateProxy` for explicit local proxying.
 
 ## Links
 

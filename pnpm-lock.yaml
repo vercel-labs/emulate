@@ -360,6 +360,10 @@ importers:
         version: 5.9.3
 
   packages/@emulators/adapter-next:
+    dependencies:
+      emulate:
+        specifier: workspace:*
+        version: link:../../emulate
     devDependencies:
       tsup:
         specifier: ^8
@@ -426,6 +430,10 @@ importers:
         version: 5.9.3
 
   packages/@emulators/core:
+    dependencies:
+      emulate:
+        specifier: workspace:*
+        version: link:../../emulate
     devDependencies:
       tsup:
         specifier: ^8

@@ -901,7 +901,7 @@ GitHub({
 
 No `oauth_apps` need to be seeded. When none are configured, the emulator skips `client_id`, `client_secret`, and `redirect_uri` validation.
 
-`createEmulateHandler` is deprecated. In-process service handlers have been removed; use `createEmulateProxy` for local native runtimes or `npx emulate vercel init` for Vercel previews.
+`createEmulateHandler` remains as a compatibility facade for existing App Router routes. It accepts the old `services` config shape, starts the native runtime on first local request, and proxies each service path to that runtime. The legacy `persistence` option is rejected because state lives in the native runtime. For deployed Vercel previews, prefer `npx emulate vercel init`; alternatively set `EMULATE_<SERVICE>_URL` to a reachable native target. New code should use `createEmulateProxy` for explicit local proxying.
 
 ## Architecture
 
@@ -909,15 +909,15 @@ No `oauth_apps` need to be seeded. When none are configured, the emulator skips 
 packages/
   emulate/          # npm CLI shim and native process programmatic API
   @emulators/
-    core/           # compatibility helpers
+    core/           # compatibility helpers and native proxy facade
     adapter-next/   # Next.js App Router proxy integration
-    vercel/         # Vercel API metadata package
-    github/         # GitHub API metadata package
-    google/         # Google metadata package
-    slack/          # Slack metadata package
-    apple/          # Apple metadata package
-    microsoft/      # Microsoft metadata package
-    aws/            # AWS metadata package and SDK conformance tests
+    vercel/         # Vercel API metadata and compatibility package
+    github/         # GitHub API metadata and compatibility package
+    google/         # Google metadata and compatibility package
+    slack/          # Slack metadata and compatibility package
+    apple/          # Apple metadata and compatibility package
+    microsoft/      # Microsoft metadata and compatibility package
+    aws/            # AWS metadata, compatibility package, and SDK conformance tests
 apps/
   web/              # Documentation site (Next.js)
 ```

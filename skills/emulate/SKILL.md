@@ -327,15 +327,15 @@ By default, all local CLI and programmatic API state is in-memory. Vercel Go Fun
 packages/
   emulate/           # npm CLI shim + native process programmatic API
   @emulators/
-    core/            # compatibility helpers
+    core/            # compatibility helpers and native proxy facade
     adapter-next/    # Next.js App Router proxy integration
-    vercel/          # Vercel API metadata package
-    github/          # GitHub API metadata package
-    google/          # Google metadata package
-    slack/           # Slack metadata package
-    apple/           # Apple metadata package
-    microsoft/       # Microsoft metadata package
-    aws/             # AWS metadata package and SDK conformance tests
+    vercel/          # Vercel API metadata and compatibility package
+    github/          # GitHub API metadata and compatibility package
+    google/          # Google metadata and compatibility package
+    slack/           # Slack metadata and compatibility package
+    apple/           # Apple metadata and compatibility package
+    microsoft/       # Microsoft metadata and compatibility package
+    aws/             # AWS metadata, compatibility package, and SDK conformance tests
 ```
 
 Service routing, state, UI, and protocol behavior live in Go under `internal/`.

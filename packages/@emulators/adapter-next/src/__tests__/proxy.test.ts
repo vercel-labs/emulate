@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEmulateProxy } from "../index";
+import { createEmulateHandler, createEmulateProxy } from "../index";
+
+const emulateMocks = vi.hoisted(() => ({
+  createEmulator: vi.fn(),
+}));
 
 const ctx = (path: string[]) => ({ params: Promise.resolve({ path }) });
 
@@ -285,5 +289,117 @@ describe("createEmulateProxy", () => {
         },
       }),
     ).toThrow("createEmulateProxy accepts either `target` or `targets`, not both");
+  });
+});
+
+describe("createEmulateHandler compatibility", () => {
+  afterEach(() => {
+    delete process.env.EMULATE_GITHUB_URL;
+    delete process.env.EMULATE_GITHUB_PORT;
+    delete (globalThis as { __emulateCompatLoadEmulateApi?: unknown }).__emulateCompatLoadEmulateApi;
+    emulateMocks.createEmulator.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it("proxies old handler configs to an explicit native target", async () => {
+    process.env.EMULATE_GITHUB_URL = "http://127.0.0.1:4999";
+    let forwardedRequest: Request | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        forwardedRequest = input as Request;
+        return new Response("ok");
+      }),
+    );
+
+    const handler = createEmulateHandler({
+      services: {
+        github: {
+          emulator: { serviceName: "github" },
+        },
+      },
+    });
+
+    const response = await handler.GET(
+      new Request("https://preview.example.com/emulate/github/rate_limit"),
+      ctx(["github", "rate_limit"]),
+    );
+
+    expect(response.status).toBe(200);
+    expect(emulateMocks.createEmulator).not.toHaveBeenCalled();
+    expect(forwardedRequest).not.toBeNull();
+    expect(forwardedRequest!.url).toBe("http://127.0.0.1:4999/rate_limit");
+    expect(forwardedRequest!.headers.get("x-forwarded-prefix")).toBe("/emulate/github");
+  });
+
+  it("rejects legacy persistence configs instead of ignoring them", () => {
+    expect(() =>
+      createEmulateHandler({
+        services: {},
+        persistence: {
+          load: () => null,
+          save: () => undefined,
+        },
+      }),
+    ).toThrow("createEmulateHandler persistence is not supported");
+  });
+
+  it("starts a native runtime for legacy in-process handler configs", async () => {
+    process.env.EMULATE_GITHUB_PORT = "4998";
+    (globalThis as { __emulateCompatLoadEmulateApi?: unknown }).__emulateCompatLoadEmulateApi = async () => ({
+      createEmulator: emulateMocks.createEmulator,
+    });
+    emulateMocks.createEmulator.mockResolvedValue({
+      url: "https://preview.example.com/api/emulate/github",
+      reset: async () => undefined,
+      close: async () => undefined,
+    });
+    let forwardedRequest: Request | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        forwardedRequest = input as Request;
+        return new Response("ok", {
+          headers: { Location: "/rate_limit" },
+        });
+      }),
+    );
+
+    const handler = createEmulateHandler({
+      services: {
+        github: {
+          emulator: {
+            default: {
+              name: "github",
+              runtime: "native-go",
+            },
+          },
+          seed: {
+            repositories: [],
+          },
+        },
+      },
+    });
+
+    const response = await handler.GET(
+      new Request("https://preview.example.com/api/emulate/github/rate_limit?limit=1"),
+      ctx(["github", "rate_limit"]),
+    );
+
+    expect(emulateMocks.createEmulator).toHaveBeenCalledTimes(1);
+    const options = emulateMocks.createEmulator.mock.calls[0][0];
+    expect(options).toMatchObject({
+      service: "github",
+      baseUrl: "https://preview.example.com/api/emulate/github",
+      seed: {
+        github: {
+          repositories: [],
+        },
+      },
+    });
+    expect(options.port).toBe(4998);
+    expect(forwardedRequest).not.toBeNull();
+    expect(forwardedRequest!.url).toBe("http://127.0.0.1:4998/rate_limit?limit=1");
+    expect(response.headers.get("Location")).toBe("/api/emulate/github/rate_limit");
   });
 });

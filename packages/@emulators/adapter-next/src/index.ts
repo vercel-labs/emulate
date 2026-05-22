@@ -1,3 +1,6 @@
+import { createServer as createTcpServer } from "node:net";
+import type { Emulator, SeedConfig, ServiceName } from "emulate";
+
 export interface PersistenceAdapter {
   load(): string | null | Promise<string | null>;
   save(data: string): void | Promise<void>;
@@ -5,7 +8,16 @@ export interface PersistenceAdapter {
 
 export interface EmulatorModule {
   serviceName?: string;
+  name?: string;
   service?: {
+    name?: string;
+    runtime?: string;
+  };
+  plugin?: {
+    name?: string;
+    runtime?: string;
+  };
+  default?: {
     name?: string;
     runtime?: string;
   };
@@ -75,12 +87,92 @@ interface ResponseRewriteOptions {
   upstreamPrefix?: string;
 }
 
-export function createEmulateHandler(_config: EmulateHandlerConfig) {
-  const handler: RouteHandler = async () =>
-    new Response(
-      "In-process service handlers were removed. Use createEmulateProxy for local native runtimes or npx emulate vercel init for Vercel previews.",
-      { status: 501 },
+interface NativeHandlerRuntime {
+  emulator?: Emulator;
+  target: string;
+}
+
+const NATIVE_SERVICE_NAMES = [
+  "vercel",
+  "github",
+  "google",
+  "slack",
+  "apple",
+  "microsoft",
+  "okta",
+  "aws",
+  "resend",
+  "stripe",
+  "mongoatlas",
+  "clerk",
+] as const satisfies readonly ServiceName[];
+
+const nativeServiceSet = new Set<string>(NATIVE_SERVICE_NAMES);
+
+export function createEmulateHandler(config: EmulateHandlerConfig) {
+  if (config.persistence) {
+    throw new Error(
+      "createEmulateHandler persistence is not supported by the native compatibility facade. Use createEmulateProxy with a persistent native runtime instead.",
     );
+  }
+
+  const runtimes = new Map<string, Promise<NativeHandlerRuntime>>();
+
+  async function ensureRuntime(
+    serviceKey: string,
+    entry: EmulatorEntry,
+    publicBaseUrl: string,
+  ): Promise<NativeHandlerRuntime> {
+    const service = resolveNativeServiceName(serviceKey, entry.emulator);
+    const externalTarget = configuredHandlerTarget(service, serviceKey);
+    if (externalTarget) {
+      return { target: externalTarget };
+    }
+
+    const existing = runtimes.get(serviceKey);
+    if (existing) return existing;
+
+    const created = startNativeHandlerRuntime(service, serviceKey, entry.seed, publicBaseUrl);
+    runtimes.set(serviceKey, created);
+    return created;
+  }
+
+  async function handleRequest(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }): Promise<NextResponse> {
+    const { path: pathSegments } = await ctx.params;
+    if (pathSegments.length === 0) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const serviceKey = pathSegments[0];
+    const entry = config.services[serviceKey];
+    if (!entry) {
+      return new Response(`Unknown service: ${serviceKey}`, { status: 404 });
+    }
+
+    const requestUrl = new URL(req.url);
+    const mountPath = detectPrefix(req.url, pathSegments);
+    const publicPrefix = appendPath(mountPath, serviceKey);
+    const publicBaseUrl = `${requestUrl.origin}${publicPrefix}`;
+    const runtime = await ensureRuntime(serviceKey, entry, publicBaseUrl);
+    const targetConfig: EmulateProxyTargetConfig = { target: runtime.target };
+    const forwardedPathSegments = pathSegments.slice(1);
+    const targetUrl = buildProxyUrl(targetConfig, forwardedPathSegments, requestUrl.search);
+    const upstreamPrefix = buildProxyUpstreamPrefix(targetConfig);
+    const context: EmulateProxyContext = {
+      service: serviceKey,
+      mountPath,
+      publicPrefix,
+      target: targetUrl,
+      pathSegments,
+      forwardedPathSegments,
+    };
+    const headers = await buildProxyHeaders(req, context, undefined, undefined);
+    const proxyRequest = buildProxyRequest(req, targetUrl, headers);
+    const response = await fetch(proxyRequest);
+    return rewriteResponse(response, { publicPrefix, upstreamPrefix });
+  }
+
+  const handler: RouteHandler = handleRequest;
 
   return {
     GET: handler,
@@ -91,6 +183,88 @@ export function createEmulateHandler(_config: EmulateHandlerConfig) {
     DELETE: handler,
     OPTIONS: handler,
   };
+}
+
+function resolveNativeServiceName(serviceKey: string, mod: EmulatorModule): ServiceName {
+  const candidates = [mod.serviceName, mod.service?.name, mod.plugin?.name, mod.default?.name, mod.name, serviceKey];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && nativeServiceSet.has(candidate)) {
+      return candidate as ServiceName;
+    }
+  }
+  throw new Error(`Unsupported native emulator service: ${serviceKey}`);
+}
+
+function configuredHandlerTarget(service: ServiceName, serviceKey: string): string | undefined {
+  const names = new Set([service, serviceKey]);
+  for (const name of names) {
+    const envKey = name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+    const value = process.env[`EMULATE_${envKey}_URL`] ?? process.env[`EMULATE_${envKey}_TARGET_URL`];
+    if (value) return value;
+  }
+  return process.env.EMULATE_TARGET_URL ?? process.env.EMULATE_URL;
+}
+
+function configuredHandlerPort(service: ServiceName, serviceKey: string): number | undefined {
+  const names = new Set([service, serviceKey]);
+  for (const name of names) {
+    const envKey = name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+    const value = process.env[`EMULATE_${envKey}_PORT`];
+    if (value) return Number(value);
+  }
+  return process.env.EMULATE_PORT ? Number(process.env.EMULATE_PORT) : undefined;
+}
+
+async function startNativeHandlerRuntime(
+  service: ServiceName,
+  serviceKey: string,
+  serviceSeed: Record<string, unknown> | undefined,
+  publicBaseUrl: string,
+): Promise<NativeHandlerRuntime> {
+  const port = configuredHandlerPort(service, serviceKey) ?? (await allocatePort());
+  const { createEmulator } = await loadEmulateApi();
+  const seed = serviceSeed ? ({ [service]: serviceSeed } as SeedConfig) : undefined;
+  const emulator = await createEmulator({
+    service,
+    port,
+    seed,
+    baseUrl: publicBaseUrl,
+  });
+  return {
+    emulator,
+    target: `http://127.0.0.1:${port}`,
+  };
+}
+
+async function loadEmulateApi(): Promise<typeof import("emulate")> {
+  const globalLoader = (globalThis as { __emulateCompatLoadEmulateApi?: () => Promise<typeof import("emulate")> })
+    .__emulateCompatLoadEmulateApi;
+  if (globalLoader) return globalLoader();
+  const dynamicImport = new Function("specifier", "return import(specifier)") as (
+    specifier: string,
+  ) => Promise<typeof import("emulate")>;
+  return dynamicImport("emulate");
+}
+
+async function allocatePort(host = "127.0.0.1"): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createTcpServer();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      const address = server.address();
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (!address || typeof address === "string") {
+          reject(new Error("Port allocation did not return a TCP address"));
+          return;
+        }
+        resolve(address.port);
+      });
+    });
+  });
 }
 
 function detectPrefix(url: string, pathSegments: string[]): string {

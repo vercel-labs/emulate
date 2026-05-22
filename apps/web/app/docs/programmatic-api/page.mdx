@@ -141,7 +141,7 @@ npm install @emulators/github @emulators/google @emulators/stripe
 
 ### Direct usage
 
-Each scoped package exports metadata only. Service routing, state, and protocol behavior run in the native Go engine:
+Each scoped package exports metadata plus legacy plugin-shaped markers for compatibility. Service routing, state, and protocol behavior run in the native Go engine. Legacy `seedFromConfig` exports fail loudly; pass seed config to `createEmulator` instead.
 
 ```typescript
 import * as github from '@emulators/github'

@@ -33,6 +33,9 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
+  "dependencies": {
+    "emulate": "workspace:*"
+  },
   "devDependencies": {
     "tsup": "^8",
     "typescript": "^5.7"
