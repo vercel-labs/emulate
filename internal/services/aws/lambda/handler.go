@@ -271,13 +271,23 @@ func (h *Handler) deleteFunction(ctx gateway.AwsRequestContext, route route, req
 	functionName := stringField(fn, "function_name")
 	qualifier := h.resolveQualifier(route, ctx)
 	if qualifier != "" && qualifier != "$LATEST" {
+		var target corestore.Record
 		for _, version := range h.Versions.FindBy("function_name", functionName) {
 			if h.sameScope(ctx, version) && stringField(version, "version") == qualifier {
-				h.Versions.Delete(intField(version, "id"))
-				return jsonResponse(http.StatusNoContent, map[string]any{})
+				target = version
+				break
 			}
 		}
-		return h.notFound("Function version not found.", requestID)
+		if target == nil {
+			return h.notFound("Function version not found.", requestID)
+		}
+		for _, alias := range h.Aliases.FindBy("function_name", functionName) {
+			if h.sameScope(ctx, alias) && aliasReferencesVersion(alias, qualifier) {
+				return h.error("ResourceConflictException", "Function version is referenced by an alias.", http.StatusConflict, requestID)
+			}
+		}
+		h.Versions.Delete(intField(target, "id"))
+		return jsonResponse(http.StatusNoContent, map[string]any{})
 	}
 	for _, alias := range h.Aliases.FindBy("function_name", functionName) {
 		if h.sameScope(ctx, alias) {
@@ -496,9 +506,10 @@ func (h *Handler) listAliases(ctx gateway.AwsRequestContext, route route, reques
 		return response
 	}
 	functionName := stringField(fn, "function_name")
+	versionFilter := strings.TrimSpace(stringInput(ctx.Input, "FunctionVersion", "functionVersion"))
 	aliases := []corestore.Record{}
 	for _, alias := range h.Aliases.FindBy("function_name", functionName) {
-		if h.sameScope(ctx, alias) {
+		if h.sameScope(ctx, alias) && (versionFilter == "" || stringField(alias, "function_version") == versionFilter) {
 			aliases = append(aliases, alias)
 		}
 	}
@@ -755,6 +766,24 @@ func aliasResponse(alias corestore.Record) map[string]any {
 	return body
 }
 
+func aliasReferencesVersion(alias corestore.Record, version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return false
+	}
+	if stringField(alias, "function_version") == version {
+		return true
+	}
+	routing := mapRecord(alias["routing_config"])
+	for _, key := range []string{"AdditionalVersionWeights", "additionalVersionWeights"} {
+		weights := mapRecord(routing[key])
+		if _, ok := weights[version]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handler) input(ctx gateway.AwsRequestContext, requestID string) (map[string]any, protocols.ErrorResponse, bool) {
 	if len(ctx.Input) > 0 {
 		return cloneAnyMap(ctx.Input), protocols.ErrorResponse{}, true
@@ -801,22 +830,14 @@ func (h *Handler) findFunction(ctx gateway.AwsRequestContext, identifier string)
 	if parsed.Name == "" {
 		return nil, false
 	}
-	for _, fn := range h.Functions.All() {
-		if parsed.ARN {
-			if parsed.AccountID != "" && stringField(fn, "account_id") != parsed.AccountID {
-				continue
-			}
-			if parsed.Region != "" && stringField(fn, "region") != parsed.Region {
-				continue
-			}
-		} else {
-			if !h.sameScope(ctx, fn) {
-				continue
-			}
+	if parsed.ARN && (parsed.AccountID != h.accountID(ctx) || parsed.Region != h.region(ctx)) {
+		return nil, false
+	}
+	for _, fn := range h.Functions.FindBy("function_name", parsed.Name) {
+		if !h.sameScope(ctx, fn) {
+			continue
 		}
-		if stringField(fn, "function_name") == parsed.Name {
-			return fn, true
-		}
+		return fn, true
 	}
 	return nil, false
 }

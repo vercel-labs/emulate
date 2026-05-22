@@ -4223,6 +4223,38 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 		t.Fatalf("unexpected alias: %#v", aliasBody)
 	}
 
+	versionTwo := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/versions", map[string]any{"Description": "second"})
+	if versionTwo.Code != http.StatusCreated {
+		t.Fatalf("publish second version status = %d, body = %s", versionTwo.Code, versionTwo.Body.String())
+	}
+	var versionTwoBody struct {
+		Version string `json:"Version"`
+	}
+	decodeJSONBody(t, versionTwo, &versionTwoBody)
+	if versionTwoBody.Version != "2" {
+		t.Fatalf("second version = %q", versionTwoBody.Version)
+	}
+
+	betaAlias := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/aliases", map[string]any{"Name": "beta", "FunctionVersion": "2"})
+	if betaAlias.Code != http.StatusCreated {
+		t.Fatalf("create beta alias status = %d, body = %s", betaAlias.Code, betaAlias.Body.String())
+	}
+
+	filteredAliases := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/sdk-lambda-release/aliases?FunctionVersion=1", nil)
+	if filteredAliases.Code != http.StatusOK {
+		t.Fatalf("filtered aliases status = %d, body = %s", filteredAliases.Code, filteredAliases.Body.String())
+	}
+	var filteredAliasesBody struct {
+		Aliases []struct {
+			Name            string `json:"Name"`
+			FunctionVersion string `json:"FunctionVersion"`
+		} `json:"Aliases"`
+	}
+	decodeJSONBody(t, filteredAliases, &filteredAliasesBody)
+	if len(filteredAliasesBody.Aliases) != 1 || filteredAliasesBody.Aliases[0].Name != "live" || filteredAliasesBody.Aliases[0].FunctionVersion != "1" {
+		t.Fatalf("unexpected filtered aliases: %#v", filteredAliasesBody.Aliases)
+	}
+
 	aliasInvoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/invocations?Qualifier=live", []byte(`"payload"`))
 	if aliasInvoke.Code != http.StatusOK {
 		t.Fatalf("alias invoke status = %d, body = %s", aliasInvoke.Code, aliasInvoke.Body.String())
@@ -4332,6 +4364,15 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 		t.Fatalf("unexpected policy: %s", policyBody.Policy)
 	}
 
+	referencedVersionDelete := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/"+url.PathEscape(created.FunctionArn+":1"), nil)
+	if referencedVersionDelete.Code != http.StatusConflict {
+		t.Fatalf("delete referenced version status = %d, body = %s", referencedVersionDelete.Code, referencedVersionDelete.Body.String())
+	}
+	aliasAfterRejectedDelete := executeAWSLambdaRawRequest(t, handler, http.MethodPost, qualifiedPath+"/invocations", []byte(`"payload"`))
+	if aliasAfterRejectedDelete.Code != http.StatusOK || aliasAfterRejectedDelete.Header().Get("x-amz-executed-version") != "1" {
+		t.Fatalf("alias after rejected version delete status = %d, headers = %#v, body = %s", aliasAfterRejectedDelete.Code, aliasAfterRejectedDelete.Header(), aliasAfterRejectedDelete.Body.String())
+	}
+
 	removedLive := executeAWSLambdaRequest(t, handler, http.MethodDelete, qualifiedPath+"/policy/allow-live", nil)
 	if removedLive.Code != http.StatusNoContent {
 		t.Fatalf("remove qualified permission status = %d, body = %s", removedLive.Code, removedLive.Body.String())
@@ -4340,6 +4381,11 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 	removed := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/sdk-lambda-release/policy/allow-events", nil)
 	if removed.Code != http.StatusNoContent {
 		t.Fatalf("remove permission status = %d, body = %s", removed.Code, removed.Body.String())
+	}
+
+	deletedAlias := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/sdk-lambda-release/aliases/live", nil)
+	if deletedAlias.Code != http.StatusNoContent {
+		t.Fatalf("delete alias status = %d, body = %s", deletedAlias.Code, deletedAlias.Body.String())
 	}
 
 	deletedVersion := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/"+url.PathEscape(created.FunctionArn+":1"), nil)
@@ -4353,6 +4399,45 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 	missingVersion := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/sdk-lambda-release/configuration?Qualifier=1", nil)
 	if missingVersion.Code != http.StatusNotFound {
 		t.Fatalf("deleted version status = %d, body = %s", missingVersion.Code, missingVersion.Body.String())
+	}
+}
+
+func TestServiceRejectsLambdaARNOutsideCallerScope(t *testing.T) {
+	credentialStore := auth.NewStore(auth.Credential{
+		AccessKeyID:     "AKIAFOREIGN",
+		SecretAccessKey: "secret",
+		AccountID:       "999999999999",
+		PrincipalARN:    "arn:aws:iam::999999999999:user/foreign",
+	})
+	handler := newTestHandlerWithCredentialStore(credentialStore)
+
+	create := executeAWSLambdaRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "foreign-lambda",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::999999999999:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": base64.StdEncoding.EncodeToString([]byte("exports.handler = async () => ({ ok: true })"))},
+	}, "AKIAFOREIGN")
+	if create.Code != http.StatusCreated {
+		t.Fatalf("foreign create status = %d, body = %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		FunctionArn string `json:"FunctionArn"`
+	}
+	decodeJSONBody(t, create, &created)
+	if !strings.Contains(created.FunctionArn, ":999999999999:") {
+		t.Fatalf("foreign arn = %q", created.FunctionArn)
+	}
+
+	foreignARNPath := "/2015-03-31/functions/" + url.PathEscape(created.FunctionArn) + "/configuration"
+	callerGet := executeAWSLambdaRequest(t, handler, http.MethodGet, foreignARNPath, nil)
+	if callerGet.Code != http.StatusNotFound {
+		t.Fatalf("default caller foreign arn status = %d, body = %s", callerGet.Code, callerGet.Body.String())
+	}
+
+	ownerGet := executeAWSLambdaRequestWithAccessKey(t, handler, http.MethodGet, foreignARNPath, nil, "AKIAFOREIGN")
+	if ownerGet.Code != http.StatusOK {
+		t.Fatalf("owner foreign arn status = %d, body = %s", ownerGet.Code, ownerGet.Body.String())
 	}
 }
 
@@ -4750,6 +4835,11 @@ func executeAWSKMSRequestWithRegion(t *testing.T, handler http.Handler, action s
 
 func executeAWSLambdaRequest(t *testing.T, handler http.Handler, method string, path string, payload map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
+	return executeAWSLambdaRequestWithAccessKey(t, handler, method, path, payload, "")
+}
+
+func executeAWSLambdaRequestWithAccessKey(t *testing.T, handler http.Handler, method string, path string, payload map[string]any, accessKeyID string) *httptest.ResponseRecorder {
+	t.Helper()
 	var raw []byte
 	if payload != nil {
 		var err error
@@ -4758,16 +4848,24 @@ func executeAWSLambdaRequest(t *testing.T, handler http.Handler, method string, 
 			t.Fatal(err)
 		}
 	}
-	return executeAWSLambdaRawRequest(t, handler, method, path, raw)
+	return executeAWSLambdaRawRequestWithAccessKey(t, handler, method, path, raw, accessKeyID)
 }
 
 func executeAWSLambdaRawRequest(t *testing.T, handler http.Handler, method string, path string, raw []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	return executeAWSLambdaRawRequestWithAccessKey(t, handler, method, path, raw, "")
+}
+
+func executeAWSLambdaRawRequestWithAccessKey(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string) *httptest.ResponseRecorder {
 	t.Helper()
 	if raw == nil {
 		raw = []byte{}
 	}
 	req := httptest.NewRequest(method, "http://127.0.0.1"+path, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
+	if accessKeyID != "" {
+		req.Header.Set("X-Access-Key", accessKeyID)
+	}
 	signAWSRequest(req, "lambda")
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
