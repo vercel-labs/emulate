@@ -4,6 +4,7 @@ packages:
   - "apps/*"
   - "examples/*"
   - "tests/*"
+minimumReleaseAge: 2880
 allowBuilds:
   '@mongodb-js/zstd': true
   esbuild: true
