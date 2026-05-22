@@ -500,7 +500,7 @@ In the native Go runtime, `@aws-sdk/client-kms` can use endpoint `${AWS_EMULATOR
 
 ### IAM
 
-Manual IAM calls can use AWS Query over `POST /iam/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-iam` with endpoint `${AWS_EMULATOR_URL}/iam`.
+Manual IAM calls can use AWS Query over `POST /iam/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-iam` with endpoint `${AWS_EMULATOR_URL}/iam`. Supported IAM operations include users, access keys, roles, inline user/role policies, managed policy storage, and user/role managed policy attachments.
 
 ```bash
 # Create user
@@ -557,6 +557,24 @@ curl -X POST http://localhost:4000/iam/ \
 curl -X POST http://localhost:4000/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteRole&RoleName=my-role"
+
+# Put and get an inline user policy
+curl -X POST http://localhost:4000/iam/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=PutUserPolicy&UserName=new-user&PolicyName=inline-policy&PolicyDocument={}"
+
+curl -X POST http://localhost:4000/iam/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=GetUserPolicy&UserName=new-user&PolicyName=inline-policy"
+
+# Create and attach a managed policy
+curl -X POST http://localhost:4000/iam/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=CreatePolicy&PolicyName=my-policy&PolicyDocument={}"
+
+curl -X POST http://localhost:4000/iam/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "Action=AttachRolePolicy&RoleName=my-role&PolicyArn=arn:aws:iam::123456789012:policy/my-policy"
 ```
 
 ### STS
@@ -572,7 +590,7 @@ curl -X POST http://localhost:4000/sts/ \
 # Assume role
 curl -X POST http://localhost:4000/sts/ \
   -H "Authorization: Bearer $TOKEN" \
-  -d "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session"
+  -d "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session&DurationSeconds=1800&Tags.member.1.Key=env&Tags.member.1.Value=test"
 ```
 
 ### Inspector

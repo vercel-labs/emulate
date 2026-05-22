@@ -89,10 +89,12 @@ func seedIAMDefaults(store Store, credentialStore *auth.Store, accountID string)
 		user = existing[0]
 	} else {
 		user = store.IAMUsers.Insert(corestore.Record{
-			"user_name": "admin",
-			"user_id":   generateAWSID("AIDA"),
-			"arn":       "arn:aws:iam::" + accountID + ":user/admin",
-			"path":      "/",
+			"user_name":         "admin",
+			"user_id":           generateAWSID("AIDA"),
+			"arn":               "arn:aws:iam::" + accountID + ":user/admin",
+			"path":              "/",
+			"inline_policies":   []corestore.Record{},
+			"attached_policies": []string{},
 			"access_keys": []corestore.Record{
 				{
 					"access_key_id":     defaultAccessKeyID,

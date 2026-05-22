@@ -821,11 +821,16 @@ Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
 - `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
 - `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
+- `PutUserPolicy`, `GetUserPolicy`, `ListUserPolicies`, `DeleteUserPolicy`
+- `PutRolePolicy`, `GetRolePolicy`, `ListRolePolicies`, `DeleteRolePolicy`
+- `CreatePolicy`, `GetPolicy`, `GetPolicyVersion`, `ListPolicies`, `DeletePolicy`
+- `AttachUserPolicy`, `DetachUserPolicy`, `ListAttachedUserPolicies`
+- `AttachRolePolicy`, `DetachRolePolicy`, `ListAttachedRolePolicies`
 
 ### STS
 Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sts` v3 can use the `/sts/` endpoint directly.
 
-- `GetCallerIdentity`, `AssumeRole`
+- `GetCallerIdentity`, `AssumeRole` with duration and session tag metadata
 
 ## Resend
 

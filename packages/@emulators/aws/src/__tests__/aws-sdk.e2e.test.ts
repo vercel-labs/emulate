@@ -12,6 +12,25 @@ import {
   GetRoleCommand,
   ListRolesCommand,
   DeleteRoleCommand,
+  PutUserPolicyCommand,
+  GetUserPolicyCommand,
+  ListUserPoliciesCommand,
+  DeleteUserPolicyCommand,
+  PutRolePolicyCommand,
+  GetRolePolicyCommand,
+  ListRolePoliciesCommand,
+  DeleteRolePolicyCommand,
+  CreatePolicyCommand,
+  GetPolicyCommand,
+  GetPolicyVersionCommand,
+  ListPoliciesCommand,
+  DeletePolicyCommand,
+  AttachUserPolicyCommand,
+  DetachUserPolicyCommand,
+  ListAttachedUserPoliciesCommand,
+  AttachRolePolicyCommand,
+  DetachRolePolicyCommand,
+  ListAttachedRolePoliciesCommand,
 } from "@aws-sdk/client-iam";
 import {
   DynamoDBClient,
@@ -165,6 +184,12 @@ async function streamToString(stream: unknown): Promise<string> {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString();
+}
+
+function awsQueryEncoded(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 const describeExternalS3E2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
@@ -1570,6 +1595,88 @@ describeExternalIamStsE2E("AWS native runtime - real @aws-sdk/client-iam and @aw
     expect((afterDelete.Users ?? []).map((user) => user.UserName)).not.toContain("sdk-user");
   });
 
+  it("inline and managed policies roundtrip for users and roles", async () => {
+    const policyDocument = JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [{ Effect: "Allow", Action: "s3:ListBucket", Resource: "*" }],
+    });
+
+    await iam.send(new CreateUserCommand({ UserName: "sdk-policy-user" }));
+    await iam.send(
+      new PutUserPolicyCommand({
+        UserName: "sdk-policy-user",
+        PolicyName: "inline-user",
+        PolicyDocument: policyDocument,
+      }),
+    );
+    const userPolicies = await iam.send(new ListUserPoliciesCommand({ UserName: "sdk-policy-user" }));
+    expect(userPolicies.PolicyNames ?? []).toContain("inline-user");
+    const userPolicy = await iam.send(
+      new GetUserPolicyCommand({ UserName: "sdk-policy-user", PolicyName: "inline-user" }),
+    );
+    expect(userPolicy.PolicyDocument).toBe(awsQueryEncoded(policyDocument));
+
+    const role = await iam.send(
+      new CreateRoleCommand({
+        RoleName: "sdk-policy-role",
+        AssumeRolePolicyDocument: JSON.stringify({ Version: "2012-10-17", Statement: [] }),
+      }),
+    );
+    await iam.send(
+      new PutRolePolicyCommand({
+        RoleName: "sdk-policy-role",
+        PolicyName: "inline-role",
+        PolicyDocument: policyDocument,
+      }),
+    );
+    const rolePolicies = await iam.send(new ListRolePoliciesCommand({ RoleName: "sdk-policy-role" }));
+    expect(rolePolicies.PolicyNames ?? []).toContain("inline-role");
+    const rolePolicy = await iam.send(
+      new GetRolePolicyCommand({ RoleName: "sdk-policy-role", PolicyName: "inline-role" }),
+    );
+    expect(rolePolicy.PolicyDocument).toBe(awsQueryEncoded(policyDocument));
+
+    const managed = await iam.send(
+      new CreatePolicyCommand({
+        PolicyName: "sdk-managed-policy",
+        Path: "/team/",
+        Description: "SDK managed policy",
+        PolicyDocument: policyDocument,
+      }),
+    );
+    expect(managed.Policy?.Arn).toBe("arn:aws:iam::123456789012:policy/team/sdk-managed-policy");
+
+    const policy = await iam.send(new GetPolicyCommand({ PolicyArn: managed.Policy?.Arn }));
+    expect(policy.Policy?.PolicyName).toBe("sdk-managed-policy");
+    const version = await iam.send(
+      new GetPolicyVersionCommand({ PolicyArn: managed.Policy?.Arn, VersionId: policy.Policy?.DefaultVersionId }),
+    );
+    expect(version.PolicyVersion?.Document).toBe(awsQueryEncoded(policyDocument));
+
+    const listed = await iam.send(new ListPoliciesCommand({ PathPrefix: "/team/" }));
+    expect((listed.Policies ?? []).map((item) => item.Arn)).toContain(managed.Policy?.Arn);
+
+    await iam.send(new AttachUserPolicyCommand({ UserName: "sdk-policy-user", PolicyArn: managed.Policy?.Arn }));
+    await iam.send(new AttachRolePolicyCommand({ RoleName: "sdk-policy-role", PolicyArn: managed.Policy?.Arn }));
+    const attachedUserPolicies = await iam.send(
+      new ListAttachedUserPoliciesCommand({ UserName: "sdk-policy-user" }),
+    );
+    expect((attachedUserPolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(managed.Policy?.Arn);
+    const attachedRolePolicies = await iam.send(
+      new ListAttachedRolePoliciesCommand({ RoleName: "sdk-policy-role" }),
+    );
+    expect((attachedRolePolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(managed.Policy?.Arn);
+
+    await iam.send(new DetachUserPolicyCommand({ UserName: "sdk-policy-user", PolicyArn: managed.Policy?.Arn }));
+    await iam.send(new DetachRolePolicyCommand({ RoleName: "sdk-policy-role", PolicyArn: managed.Policy?.Arn }));
+    await iam.send(new DeleteUserPolicyCommand({ UserName: "sdk-policy-user", PolicyName: "inline-user" }));
+    await iam.send(new DeleteRolePolicyCommand({ RoleName: "sdk-policy-role", PolicyName: "inline-role" }));
+    await iam.send(new DeletePolicyCommand({ PolicyArn: managed.Policy?.Arn }));
+    await iam.send(new DeleteUserCommand({ UserName: "sdk-policy-user" }));
+    await iam.send(new DeleteRoleCommand({ RoleName: "sdk-policy-role" }));
+    expect(role.Role?.Arn).toBe("arn:aws:iam::123456789012:role/sdk-policy-role");
+  });
+
   it("CreateRole, GetRole, ListRoles, AssumeRole, and DeleteRole roundtrip", async () => {
     const created = await iam.send(
       new CreateRoleCommand({
@@ -1590,10 +1697,15 @@ describeExternalIamStsE2E("AWS native runtime - real @aws-sdk/client-iam and @aw
       new AssumeRoleCommand({
         RoleArn: created.Role?.Arn,
         RoleSessionName: "sdk-session",
+        DurationSeconds: 1800,
+        Tags: [{ Key: "env", Value: "test" }],
+        TransitiveTagKeys: ["env"],
       }),
     );
     expect(assumed.Credentials?.AccessKeyId).toMatch(/^ASIA/);
     expect(assumed.Credentials?.SessionToken).toBeTruthy();
+    expect(assumed.Credentials?.Expiration).toBeTruthy();
+    expect(assumed.PackedPolicySize).toBe(0);
     expect(assumed.AssumedRoleUser?.Arn).toBe(`${created.Role?.Arn}/sdk-session`);
 
     const assumedSTS = new STSClient({

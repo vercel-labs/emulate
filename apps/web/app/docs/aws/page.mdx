@@ -124,13 +124,18 @@ Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the
 - `CreateUser` / `GetUser` / `ListUsers` / `DeleteUser` - user management
 - `CreateAccessKey` / `ListAccessKeys` / `DeleteAccessKey` - access key management
 - `CreateRole` / `GetRole` / `ListRoles` / `DeleteRole` - role management
+- `PutUserPolicy` / `GetUserPolicy` / `ListUserPolicies` / `DeleteUserPolicy` - inline user policy storage
+- `PutRolePolicy` / `GetRolePolicy` / `ListRolePolicies` / `DeleteRolePolicy` - inline role policy storage
+- `CreatePolicy` / `GetPolicy` / `GetPolicyVersion` / `ListPolicies` / `DeletePolicy` - managed policy storage
+- `AttachUserPolicy` / `DetachUserPolicy` / `ListAttachedUserPolicies` - user managed policy attachments
+- `AttachRolePolicy` / `DetachRolePolicy` / `ListAttachedRolePolicies` - role managed policy attachments
 
 ## STS
 
 Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sts` v3 can use the `/sts/` endpoint directly.
 
 - `GetCallerIdentity` - get caller identity
-- `AssumeRole` - assume a role (returns temporary credentials)
+- `AssumeRole` - assume a role (returns temporary credentials with duration and session tag metadata)
 
 ## Inspector
 

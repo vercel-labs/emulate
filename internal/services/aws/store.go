@@ -25,6 +25,7 @@ type Store struct {
 	KMSAliases       *corestore.Collection
 	IAMUsers         *corestore.Collection
 	IAMRoles         *corestore.Collection
+	IAMPolicies      *corestore.Collection
 	DynamoDBTables   *corestore.Collection
 	DynamoDBItems    *corestore.Collection
 }
@@ -53,6 +54,7 @@ func NewStore(runtimeStore *corestore.Store) Store {
 		KMSAliases:       runtimeStore.MustCollection("aws.kms_aliases", "account_id", "region", "alias_name", "alias_arn", "target_key_id"),
 		IAMUsers:         runtimeStore.MustCollection("aws.iam_users", "user_name", "user_id"),
 		IAMRoles:         runtimeStore.MustCollection("aws.iam_roles", "role_name", "role_id"),
+		IAMPolicies:      runtimeStore.MustCollection("aws.iam_policies", "policy_name", "arn"),
 		DynamoDBTables:   runtimeStore.MustCollection("aws.dynamodb_tables", "table_name", "arn"),
 		DynamoDBItems:    runtimeStore.MustCollection("aws.dynamodb_items", "table_name", "table_arn", "pk", "sk"),
 	}

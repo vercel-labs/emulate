@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -80,7 +81,12 @@ func (h *Handler) assumeRole(params map[string]string, requestID string) protoco
 	accessKeyID := "ASIA" + h.generateID("")[0:16]
 	secretAccessKey := h.generateSecret(30)
 	sessionToken := h.generateSecret(64)
-	expiration := h.now().Add(time.Hour).Format(time.RFC3339Nano)
+	durationSeconds := intParam(params["DurationSeconds"], 3600)
+	if durationSeconds <= 0 {
+		durationSeconds = 3600
+	}
+	expirationTime := h.now().Add(time.Duration(durationSeconds) * time.Second)
+	expiration := expirationTime.Format(time.RFC3339Nano)
 	principalARN := roleARN + "/" + sessionName
 	h.CredentialStore.Put(auth.Credential{
 		AccessKeyID:     accessKeyID,
@@ -88,6 +94,9 @@ func (h *Handler) assumeRole(params map[string]string, requestID string) protoco
 		SessionToken:    sessionToken,
 		AccountID:       h.accountID(),
 		PrincipalARN:    principalARN,
+		ExpiresAt:       expirationTime,
+		SessionTags:     indexedTags(params),
+		TransitiveTags:  indexedNames(params, "TransitiveTagKeys.member"),
 	})
 	body := `<?xml version="1.0" encoding="UTF-8"?>
 <AssumeRoleResponse>
@@ -102,6 +111,7 @@ func (h *Handler) assumeRole(params map[string]string, requestID string) protoco
       <Arn>` + xmlEscape(principalARN) + `</Arn>
       <AssumedRoleId>` + xmlEscape(stringField(role, "role_id")+":"+sessionName) + `</AssumedRoleId>
     </AssumedRoleUser>
+    <PackedPolicySize>0</PackedPolicySize>
   </AssumeRoleResult>
   <ResponseMetadata><RequestId>` + xmlEscape(requestID) + `</RequestId></ResponseMetadata>
 </AssumeRoleResponse>`
@@ -200,6 +210,43 @@ func stringField(record corestore.Record, name string) string {
 		}
 		return fmt.Sprint(value)
 	}
+}
+
+func intParam(raw string, fallback int) int {
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func indexedTags(params map[string]string) map[string]string {
+	tags := map[string]string{}
+	for index := 1; ; index++ {
+		prefix := "Tags.member." + strconv.Itoa(index)
+		key := params[prefix+".Key"]
+		if key == "" {
+			prefix = "Tag." + strconv.Itoa(index)
+			key = params[prefix+".Key"]
+		}
+		if key == "" {
+			break
+		}
+		tags[key] = params[prefix+".Value"]
+	}
+	return tags
+}
+
+func indexedNames(params map[string]string, prefix string) []string {
+	names := []string{}
+	for index := 1; ; index++ {
+		name := params[prefix+"."+strconv.Itoa(index)]
+		if name == "" {
+			break
+		}
+		names = append(names, name)
+	}
+	return names
 }
 
 func xmlResponse(status int, body string) protocols.ErrorResponse {

@@ -195,11 +195,13 @@ func seedIAMFromConfig(store Store, credentialStore *auth.Store, accountID strin
 			})
 		}
 		store.IAMUsers.Insert(corestore.Record{
-			"user_name":   userName,
-			"user_id":     generateAWSID("AIDA"),
-			"arn":         arn,
-			"path":        path,
-			"access_keys": accessKeys,
+			"user_name":         userName,
+			"user_id":           generateAWSID("AIDA"),
+			"arn":               arn,
+			"path":              path,
+			"inline_policies":   []corestore.Record{},
+			"attached_policies": []string{},
+			"access_keys":       accessKeys,
 		})
 	}
 	for _, role := range config.Roles {
@@ -215,6 +217,8 @@ func seedIAMFromConfig(store Store, credentialStore *auth.Store, accountID strin
 			"path":                        path,
 			"assume_role_policy_document": firstNonEmpty(role.AssumeRolePolicy, "{}"),
 			"description":                 role.Description,
+			"inline_policies":             []corestore.Record{},
+			"attached_policies":           []string{},
 		})
 	}
 }

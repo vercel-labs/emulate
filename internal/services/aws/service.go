@@ -134,6 +134,7 @@ func New(options Options) *Service {
 		iam: awsiam.Handler{
 			Users:           awsStore.IAMUsers,
 			Roles:           awsStore.IAMRoles,
+			Policies:        awsStore.IAMPolicies,
 			CredentialStore: credentialStore,
 			AccountID:       defaultAccountID,
 		},
