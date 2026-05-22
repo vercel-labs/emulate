@@ -418,7 +418,11 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, route
 }
 
 func (h *Handler) localCodeExecutionAllowed(req *http.Request, ctx gateway.AwsRequestContext) bool {
-	return h.AllowLocalCodeExecution && ctx.Auth.Status == auth.StatusKnown && isLoopbackRequest(req)
+	return h.AllowLocalCodeExecution && ctx.Auth.Status == auth.StatusKnown && isDirectLocalRequest(req)
+}
+
+func isDirectLocalRequest(req *http.Request) bool {
+	return isLoopbackRequest(req) && isLocalRequestHost(req) && !hasForwardedRequestHeaders(req)
 }
 
 func isLoopbackRequest(req *http.Request) bool {
@@ -432,6 +436,40 @@ func isLoopbackRequest(req *http.Request) bool {
 	host = strings.Trim(host, "[]")
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func isLocalRequestHost(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	host := strings.TrimSpace(req.Host)
+	if host == "" && req.URL != nil {
+		host = strings.TrimSpace(req.URL.Host)
+	}
+	if host == "" {
+		return false
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	host = strings.Trim(strings.TrimSuffix(strings.ToLower(host), "."), "[]")
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func hasForwardedRequestHeaders(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	for _, header := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"} {
+		if strings.TrimSpace(req.Header.Get(header)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) publishVersion(ctx gateway.AwsRequestContext, route route, requestID string) protocols.ErrorResponse {

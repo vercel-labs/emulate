@@ -4225,6 +4225,27 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 		t.Fatalf("unexpected context succeed body: %#v", contextSucceedBody)
 	}
 
+	callbackReturnZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = (event, context, callback) => {
+  setTimeout(() => callback(null, { message: "callback " + event.name }), 10);
+  return { message: "returned " + event.name };
+};
+`})
+	callbackReturnUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": callbackReturnZip})
+	if callbackReturnUpdate.Code != http.StatusOK {
+		t.Fatalf("update callback return code status = %d, body = %s", callbackReturnUpdate.Code, callbackReturnUpdate.Body.String())
+	}
+	callbackReturnInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{"name":"Ada"}`), accessKeyID)
+	if callbackReturnInvoke.Code != http.StatusOK {
+		t.Fatalf("callback return invoke status = %d, body = %s", callbackReturnInvoke.Code, callbackReturnInvoke.Body.String())
+	}
+	var callbackReturnBody struct {
+		Message string `json:"message"`
+	}
+	decodeJSONBody(t, callbackReturnInvoke, &callbackReturnBody)
+	if callbackReturnBody.Message != "callback Ada" {
+		t.Fatalf("unexpected callback return body: %#v", callbackReturnBody)
+	}
+
 	logs := executeAWSLogsRequest(t, handler, "FilterLogEvents", map[string]any{"logGroupName": "/aws/lambda/node-runner", "filterPattern": "node runner"})
 	if logs.Code != http.StatusOK {
 		t.Fatalf("filter logs status = %d, body = %s", logs.Code, logs.Body.String())
@@ -4406,6 +4427,41 @@ func TestServiceDoesNotRunLocalNodeLambdaHandlerFromNonLoopback(t *testing.T) {
 		t.Fatalf("invoke body = %s", invoke.Body.String())
 	}
 	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerThroughProxyHost(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-proxy",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	proxyHostInvoke := executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-proxy/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE", "127.0.0.1:1234", "lambda.example.test", nil)
+	if proxyHostInvoke.Code != http.StatusOK {
+		t.Fatalf("proxy host invoke status = %d, body = %s", proxyHostInvoke.Code, proxyHostInvoke.Body.String())
+	}
+	if proxyHostInvoke.Body.String() != "{}" {
+		t.Fatalf("proxy host invoke body = %s", proxyHostInvoke.Body.String())
+	}
+
+	forwardedInvoke := executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-proxy/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE", "127.0.0.1:1234", "127.0.0.1", map[string]string{"X-Forwarded-For": "203.0.113.10"})
+	if forwardedInvoke.Code != http.StatusOK {
+		t.Fatalf("forwarded invoke status = %d, body = %s", forwardedInvoke.Code, forwardedInvoke.Body.String())
+	}
+	if forwardedInvoke.Body.String() != "{}" {
+		t.Fatalf("forwarded invoke body = %s", forwardedInvoke.Body.String())
+	}
+	if got := forwardedInvoke.Header().Get("x-amz-function-error"); got != "" {
 		t.Fatalf("function error = %q", got)
 	}
 }
@@ -5145,12 +5201,23 @@ func executeAWSLambdaRawRequestWithAccessKey(t *testing.T, handler http.Handler,
 
 func executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string, remoteAddr string) *httptest.ResponseRecorder {
 	t.Helper()
+	return executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t, handler, method, path, raw, accessKeyID, remoteAddr, "127.0.0.1", nil)
+}
+
+func executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string, remoteAddr string, host string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	if raw == nil {
 		raw = []byte{}
 	}
-	req := httptest.NewRequest(method, "http://127.0.0.1"+path, bytes.NewReader(raw))
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	req := httptest.NewRequest(method, "http://"+host+path, bytes.NewReader(raw))
 	req.RemoteAddr = remoteAddr
 	req.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	if accessKeyID != "" {
 		req.Header.Set("X-Access-Key", accessKeyID)
 	}
