@@ -222,7 +222,8 @@ const describeExternalCloudWatchLogsE2E = process.env.AWS_EMULATOR_E2E_URL ? des
 const describeExternalKMSE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalLambdaE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const itExternalLocalLambdaE2E = process.env.AWS_EMULATOR_ALLOW_LOCAL_LAMBDA ? it : it.skip;
-const lambdaNodeRunnerZipBase64 = "UEsDBBQAAAAIAAAAIVyFNywbwgAAAC8BAAAIAAAAaW5kZXguanNljUEKwjAQRfeeYhAXLZTgulJXunChQvEADe23BtKJJqlWinc3rVQXwmxm5v330V2N9U5cJFcaljKS7sklRbiDfUKlYY/Ox5StqZ/RsDujIbSpozmbCmRbZth5QmNCsGyQ0NWaEs4J8F3sj5vtVyTOLZdeGT4ELl4Fo4VvLY9yoiaEZI2Uigu0NrTof9ZXkXyY0Jr+N4w/i1sL53dV+i2UD5dP1wlqpGLF9Q+q4fPpelINdrxXWisXxbSm5RB7rWZh3lBLAQIUAxQAAAAIAAAAIVyFNywbwgAAAC8BAAAIAAAAAAAAAAAAAACkAQAAAABpbmRleC5qc1BLBQYAAAAAAQABADYAAADoAAAAAAA=";
+const lambdaNodeRunnerZipBase64 =
+  "UEsDBBQAAAAIAAAAIVyFNywbwgAAAC8BAAAIAAAAaW5kZXguanNljUEKwjAQRfeeYhAXLZTgulJXunChQvEADe23BtKJJqlWinc3rVQXwmxm5v330V2N9U5cJFcaljKS7sklRbiDfUKlYY/Ox5StqZ/RsDujIbSpozmbCmRbZth5QmNCsGyQ0NWaEs4J8F3sj5vtVyTOLZdeGT4ELl4Fo4VvLY9yoiaEZI2Uigu0NrTof9ZXkXyY0Jr+N4w/i1sL53dV+i2UD5dP1wlqpGLF9Q+q4fPpelINdrxXWisXxbSm5RB7rWZh3lBLAQIUAxQAAAAIAAAAIVyFNywbwgAAAC8BAAAIAAAAAAAAAAAAAACkAQAAAABpbmRleC5qc1BLBQYAAAAAAQABADYAAADoAAAAAAA=";
 
 const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSSME2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
@@ -1482,9 +1483,7 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
     const payload = JSON.parse(Buffer.from(invoked.Payload ?? []).toString());
     expect(payload).toMatchObject({ message: "hello Ada", mode: "sdk", remaining: true });
     expect(payload.requestId).toBeTruthy();
-    expect(Buffer.from(invoked.LogResult ?? "", "base64").toString()).toContain(
-      `node runner Ada sdk ${functionName}`,
-    );
+    expect(Buffer.from(invoked.LogResult ?? "", "base64").toString()).toContain(`node runner Ada sdk ${functionName}`);
 
     await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
   });

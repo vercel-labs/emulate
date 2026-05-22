@@ -4351,6 +4351,71 @@ exports.handler = async () => ({ ok: true });
 	if !strings.Contains(string(failedTail), "before boom") {
 		t.Fatalf("tail log missing error output: %s", string(failedTail))
 	}
+
+	timeoutConfig := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/configuration", map[string]any{"Timeout": 1})
+	if timeoutConfig.Code != http.StatusOK {
+		t.Fatalf("update timeout config status = %d, body = %s", timeoutConfig.Code, timeoutConfig.Body.String())
+	}
+	timeoutZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
+  console.log("before timeout");
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+};
+`})
+	timeoutUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": timeoutZip})
+	if timeoutUpdate.Code != http.StatusOK {
+		t.Fatalf("update timeout code status = %d, body = %s", timeoutUpdate.Code, timeoutUpdate.Body.String())
+	}
+	timedOut := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{}`), accessKeyID)
+	if timedOut.Code != http.StatusOK {
+		t.Fatalf("timeout invoke status = %d, body = %s", timedOut.Code, timedOut.Body.String())
+	}
+	if got := timedOut.Header().Get("x-amz-function-error"); got != "Unhandled" {
+		t.Fatalf("timeout function error = %q, want Unhandled", got)
+	}
+	var timedOutBody struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	decodeJSONBody(t, timedOut, &timedOutBody)
+	if timedOutBody.ErrorMessage != "Task timed out after 1 seconds" {
+		t.Fatalf("unexpected timeout body: %#v", timedOutBody)
+	}
+	timedOutTail, err := base64.StdEncoding.DecodeString(timedOut.Header().Get("x-amz-log-result"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(timedOutTail), "before timeout") {
+		t.Fatalf("tail log missing timeout output: %s", string(timedOutTail))
+	}
+}
+
+func TestServiceReturnsLocalLambdaErrorForInvalidZip(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-invalid-zip",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": base64.StdEncoding.EncodeToString([]byte("not a zip"))},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-invalid-zip/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE")
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "Unhandled" {
+		t.Fatalf("function error = %q, want Unhandled", got)
+	}
+	var body struct {
+		ErrorType string `json:"errorType"`
+	}
+	decodeJSONBody(t, invoke, &body)
+	if body.ErrorType != "Runtime.InvalidZipFileException" {
+		t.Fatalf("unexpected error body: %#v", body)
+	}
 }
 
 func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutOptIn(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 )
 
 const lambdaNodeResultMarker = "__EMULATE_LAMBDA_RESULT__"
+const lambdaNodeLogMarker = "__EMULATE_LAMBDA_LOG__"
 
 type localInvokeResult struct {
 	Payload       []byte
@@ -45,7 +46,7 @@ func (h *Handler) invokeLocalNode(ctx gateway.AwsRequestContext, fn corestore.Re
 	}
 	zipReader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
 	if err != nil {
-		return localInvokeResult{}, false
+		return localInvokeFailure("Runtime.InvalidZipFileException", err.Error(), nil), true
 	}
 	workingDir, err := os.MkdirTemp("", "emulate-lambda-*")
 	if err != nil {
@@ -80,11 +81,11 @@ func (h *Handler) invokeLocalNode(ctx gateway.AwsRequestContext, fn corestore.Re
 	err = cmd.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		message := fmt.Sprintf("Task timed out after %d seconds", timeoutSeconds)
-		return localInvokeFailure("TimeoutError", message, append(splitLogLines(stdout.String()), splitLogLines(stderr.String())...)), true
+		return localInvokeFailure("TimeoutError", message, nodeProcessLogs(stdout.String(), stderr.String())), true
 	}
 	result, ok := parseNodeInvokeOutput(stdout.String(), stderr.String())
 	if !ok {
-		logs := append(splitLogLines(stdout.String()), splitLogLines(stderr.String())...)
+		logs := nodeProcessLogs(stdout.String(), stderr.String())
 		if err != nil {
 			logs = append(logs, err.Error())
 		}
@@ -227,9 +228,34 @@ func parseNodeInvokeOutput(stdout string, stderr string) (nodeEnvelope, bool) {
 	}
 	logs := append([]string{}, splitLogLines(prefix)...)
 	logs = append(logs, envelope.Logs...)
-	logs = append(logs, splitLogLines(stderr)...)
+	_, stderrLogs := splitNodeSideChannelLogs(stderr)
+	logs = append(logs, stderrLogs...)
 	envelope.Logs = logs
 	return envelope, true
+}
+
+func nodeProcessLogs(stdout string, stderr string) []string {
+	sideChannelLogs, stderrLogs := splitNodeSideChannelLogs(stderr)
+	logs := append([]string{}, splitLogLines(stdout)...)
+	logs = append(logs, sideChannelLogs...)
+	logs = append(logs, stderrLogs...)
+	return logs
+}
+
+func splitNodeSideChannelLogs(stderr string) ([]string, []string) {
+	var sideChannelLogs []string
+	var stderrLogs []string
+	for _, line := range splitLogLines(stderr) {
+		if encoded, ok := strings.CutPrefix(line, lambdaNodeLogMarker); ok {
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+			if err == nil {
+				sideChannelLogs = append(sideChannelLogs, string(decoded))
+				continue
+			}
+		}
+		stderrLogs = append(stderrLogs, line)
+	}
+	return sideChannelLogs, stderrLogs
 }
 
 func localInvokeFailure(errorType string, errorMessage string, logs []string) localInvokeResult {
@@ -265,6 +291,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const marker = "__EMULATE_LAMBDA_RESULT__";
+const logMarker = "__EMULATE_LAMBDA_LOG__";
 const [handlerSpec, contextBase64 = ""] = process.argv.slice(2);
 const logs = [];
 
@@ -280,7 +307,9 @@ function formatLog(value) {
 
 for (const method of ["debug", "error", "info", "log", "warn"]) {
   console[method] = (...args) => {
-    logs.push(args.map(formatLog).join(" "));
+    const line = args.map(formatLog).join(" ");
+    logs.push(line);
+    process.stderr.write(logMarker + Buffer.from(line).toString("base64") + "\n");
   };
 }
 
