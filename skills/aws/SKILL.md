@@ -116,7 +116,7 @@ const eventbridge = new EventBridgeClient({
 })
 ```
 
-The native Go runtime accepts the EventBridge SDK client's `X-Amz-Target: AWSEvents.<Action>` JSON requests to `/events` and can deliver matching events to SQS queues, SNS topics, and Lambda functions. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a signed direct localhost endpoint.
+The native Go runtime accepts the EventBridge SDK client's `X-Amz-Target: AWSEvents.<Action>` JSON requests to `/events` and can deliver matching events to SQS queues, SNS topics, and Lambda functions. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a direct localhost endpoint signed by a known AWS access key.
 
 ```typescript
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
@@ -466,7 +466,7 @@ In the native Go runtime, `@aws-sdk/client-sns` can use endpoint `${AWS_EMULATOR
 
 ### EventBridge
 
-In the native Go runtime, `@aws-sdk/client-eventbridge` can use endpoint `${AWS_EMULATOR_URL}/events`. SDK responses are JSON. Matching events can deliver to SQS, SNS, and Lambda targets. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a signed direct localhost endpoint.
+In the native Go runtime, `@aws-sdk/client-eventbridge` can use endpoint `${AWS_EMULATOR_URL}/events`. SDK responses are JSON. Matching events can deliver to SQS, SNS, and Lambda targets. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a direct localhost endpoint signed by a known AWS access key.
 
 - `CreateEventBus`, `DeleteEventBus`, `ListEventBuses`
 - `PutRule`, `DescribeRule`, `ListRules`, `DeleteRule`, `EnableRule`, `DisableRule`

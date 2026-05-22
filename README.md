@@ -778,7 +778,7 @@ In the native Go runtime, `@aws-sdk/client-sns` v3 can use the `/sns/` endpoint 
 - `AddPermission`, `RemovePermission`
 
 ### EventBridge
-In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/` endpoint directly. The SDK sends `X-Amz-Target: AWSEvents.<Action>` JSON requests and receives JSON responses. Matching events can be delivered to SQS queues, SNS topics, and Lambda functions. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a signed direct localhost endpoint.
+In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/` endpoint directly. The SDK sends `X-Amz-Target: AWSEvents.<Action>` JSON requests and receives JSON responses. Matching events can be delivered to SQS queues, SNS topics, and Lambda functions. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a direct localhost endpoint signed by a known AWS access key.
 
 - `CreateEventBus`, `DeleteEventBus`, `ListEventBuses`
 - `PutRule`, `DescribeRule`, `ListRules`, `DeleteRule`, `EnableRule`, `DisableRule`
