@@ -285,6 +285,38 @@ func TestHandlerGetLogEventsEndTimeIsExclusive(t *testing.T) {
 	}
 }
 
+func TestHandlerFilterLogEventsDefaultLimitIsTenThousand(t *testing.T) {
+	handler := newTestLogsHandler()
+	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})
+	handler.call("CreateLogStream", map[string]any{"logGroupName": "app", "logStreamName": "web"})
+
+	events := make([]map[string]any, 0, 101)
+	for index := 0; index < 101; index++ {
+		events = append(events, map[string]any{
+			"timestamp": int64(1000 + index),
+			"message":   "event " + strconv.Itoa(index),
+		})
+	}
+	handler.call("PutLogEvents", map[string]any{
+		"logGroupName":  "app",
+		"logStreamName": "web",
+		"logEvents":     events,
+	})
+
+	response := handler.call("FilterLogEvents", map[string]any{"logGroupName": "app"})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("filter status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var filtered struct {
+		Events    []map[string]any `json:"events"`
+		NextToken string           `json:"nextToken"`
+	}
+	decodeLogsBody(t, response, &filtered)
+	if len(filtered.Events) != 101 || filtered.NextToken != "" {
+		t.Fatalf("filtered events = %d, next token = %q", len(filtered.Events), filtered.NextToken)
+	}
+}
+
 func TestHandlerRejectsInvalidStreamFilterCombinations(t *testing.T) {
 	handler := newTestLogsHandler()
 	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})
@@ -293,6 +325,11 @@ func TestHandlerRejectsInvalidStreamFilterCombinations(t *testing.T) {
 	response := handler.call("DescribeLogStreams", map[string]any{"logGroupName": "app", "logStreamNamePrefix": "web", "orderBy": "LastEventTime"})
 	if response.StatusCode != http.StatusBadRequest || response.Headers["x-amzn-errortype"] != "InvalidParameterException" {
 		t.Fatalf("describe streams status = %d, headers = %#v, body = %s", response.StatusCode, response.Headers, response.Body)
+	}
+
+	response = handler.call("DescribeLogStreams", map[string]any{"logGroupName": "app", "orderBy": "CreationTime"})
+	if response.StatusCode != http.StatusBadRequest || response.Headers["x-amzn-errortype"] != "InvalidParameterException" {
+		t.Fatalf("describe streams order status = %d, headers = %#v, body = %s", response.StatusCode, response.Headers, response.Body)
 	}
 
 	response = handler.call("FilterLogEvents", map[string]any{"logGroupName": "app", "logStreamNames": []string{"web"}, "logStreamNamePrefix": "web"})
@@ -376,7 +413,12 @@ func TestHandlerRetentionTagsAndDeletes(t *testing.T) {
 	handler := newTestLogsHandler()
 	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})
 
-	response := handler.call("PutRetentionPolicy", map[string]any{"logGroupName": "app", "retentionInDays": 7})
+	response := handler.call("PutRetentionPolicy", map[string]any{"logGroupName": "app", "retentionInDays": 2})
+	if response.StatusCode != http.StatusBadRequest || response.Headers["x-amzn-errortype"] != "InvalidParameterException" {
+		t.Fatalf("invalid retention status = %d, headers = %#v, body = %s", response.StatusCode, response.Headers, response.Body)
+	}
+
+	response = handler.call("PutRetentionPolicy", map[string]any{"logGroupName": "app", "retentionInDays": 7})
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("retention status = %d, body = %s", response.StatusCode, response.Body)
 	}

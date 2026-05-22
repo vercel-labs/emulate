@@ -210,6 +210,9 @@ func (h *Handler) describeLogStreams(ctx gateway.AwsRequestContext, requestID st
 	groupName := stringField(group, "log_group_name")
 	prefix := stringInput(ctx.Input, "logStreamNamePrefix", "LogStreamNamePrefix")
 	orderBy := strings.TrimSpace(stringInput(ctx.Input, "orderBy", "OrderBy"))
+	if orderBy != "" && orderBy != "LogStreamName" && orderBy != "LastEventTime" {
+		return h.validation("orderBy must be LogStreamName or LastEventTime.", requestID)
+	}
 	if orderBy == "LastEventTime" && prefix != "" {
 		return h.validation("logStreamNamePrefix cannot be specified when orderBy is LastEventTime.", requestID)
 	}
@@ -406,7 +409,7 @@ func (h *Handler) filterLogEvents(ctx gateway.AwsRequestContext, requestID strin
 	}
 	events = h.filterEventsByTime(events, int64Input(ctx.Input, "startTime", "StartTime", 0), int64Input(ctx.Input, "endTime", "EndTime", 0), false)
 	sortEvents(events)
-	start, end, nextToken, pageResponse, ok := h.pageBounds(ctx.Input, len(events), 100, requestID)
+	start, end, nextToken, pageResponse, ok := h.pageBounds(ctx.Input, len(events), 10000, requestID)
 	if !ok {
 		return pageResponse
 	}
@@ -434,8 +437,8 @@ func (h *Handler) putRetentionPolicy(ctx gateway.AwsRequestContext, requestID st
 		return response
 	}
 	retention := intInput(ctx.Input, "retentionInDays", "RetentionInDays", 0)
-	if retention <= 0 {
-		return h.validation("retentionInDays must be positive.", requestID)
+	if !isValidRetentionDays(retention) {
+		return h.validation("retentionInDays is invalid.", requestID)
 	}
 	h.LogGroups.Update(intField(group, "id"), corestore.Record{"retention_in_days": retention})
 	return jsonResponse(http.StatusOK, map[string]any{})
@@ -873,6 +876,15 @@ func logEventsBytes(events []map[string]any) int {
 		total += len(stringValue(inputValue(event, "message", "Message")))
 	}
 	return total
+}
+
+func isValidRetentionDays(days int) bool {
+	switch days {
+	case 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653:
+		return true
+	default:
+		return false
+	}
 }
 
 func tokenOffset(token string) int {
