@@ -601,7 +601,9 @@ export class WebhookDispatcher {
     return stored;
   }
 
-  subscribe(subscription: Omit<WebhookSubscription, "id" | "active" | "events" | "owner"> & Partial<WebhookSubscription>): void {
+  subscribe(
+    subscription: Omit<WebhookSubscription, "id" | "active" | "events" | "owner"> & Partial<WebhookSubscription>,
+  ): void {
     this.register({
       url: subscription.url,
       events: subscription.events ?? ["*"],
@@ -642,7 +644,13 @@ export class WebhookDispatcher {
     return subscription;
   }
 
-  async dispatch(event: string, action: string | undefined, payload: unknown, owner = "", repo?: string): Promise<void> {
+  async dispatch(
+    event: string,
+    action: string | undefined,
+    payload: unknown,
+    owner = "",
+    repo?: string,
+  ): Promise<void> {
     const matchingSubscriptions = this.subscriptions.filter((subscription) => {
       if (!subscription.active) return false;
       if (owner && subscription.owner !== owner) return false;
@@ -673,7 +681,8 @@ export class WebhookDispatcher {
         "X-GitHub-Delivery": String(delivery.id),
       };
       if (subscription.secret) {
-        headers["X-Hub-Signature-256"] = `sha256=${createHmac("sha256", subscription.secret).update(body).digest("hex")}`;
+        headers["X-Hub-Signature-256"] =
+          `sha256=${createHmac("sha256", subscription.secret).update(body).digest("hex")}`;
       }
 
       try {
@@ -698,7 +707,9 @@ export class WebhookDispatcher {
   }
 
   getDeliveries(hookId?: number): WebhookDelivery[] {
-    return hookId === undefined ? [...this.deliveries] : this.deliveries.filter((delivery) => delivery.hook_id === hookId);
+    return hookId === undefined
+      ? [...this.deliveries]
+      : this.deliveries.filter((delivery) => delivery.hook_id === hookId);
   }
 
   clear(): void {
@@ -930,7 +941,8 @@ export interface PaginationParams {
 }
 
 export function parsePagination(input: Context | string | URL): PaginationParams {
-  const pageValue = input instanceof Context ? input.req.query("page") : new URL(input.toString()).searchParams.get("page");
+  const pageValue =
+    input instanceof Context ? input.req.query("page") : new URL(input.toString()).searchParams.get("page");
   const perPageValue =
     input instanceof Context ? input.req.query("per_page") : new URL(input.toString()).searchParams.get("per_page");
   return {
