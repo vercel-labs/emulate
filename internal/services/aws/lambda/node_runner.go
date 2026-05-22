@@ -208,7 +208,7 @@ func hRegion(ctx gateway.AwsRequestContext) string {
 
 func lambdaNodeEnvironment(ctx gateway.AwsRequestContext, fn corestore.Record, executedVersion string, logStreamName string) []string {
 	executedVersion = firstNonEmpty(executedVersion, "$LATEST")
-	env := append([]string{}, os.Environ()...)
+	env := lambdaNodeBaseEnvironment()
 	for key, value := range mapRecord(fn["environment"]) {
 		env = append(env, key+"="+stringValue(value))
 	}
@@ -226,6 +226,16 @@ func lambdaNodeEnvironment(ctx gateway.AwsRequestContext, fn corestore.Record, e
 		"AWS_LAMBDA_LOG_GROUP_NAME="+logGroupName(stringField(fn, "function_name")),
 		"AWS_LAMBDA_LOG_STREAM_NAME="+logStreamName,
 	)
+	return env
+}
+
+func lambdaNodeBaseEnvironment() []string {
+	env := make([]string, 0)
+	for _, key := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
 	return env
 }
 

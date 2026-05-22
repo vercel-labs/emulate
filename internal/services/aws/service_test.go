@@ -3,7 +3,10 @@ package aws
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -4160,6 +4164,7 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required for local Lambda Node.js runner coverage")
 	}
+	t.Setenv("EMULATE_HOST_SECRET_FOR_TEST", "hidden")
 	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
 	const accessKeyID = "AKIAIOSFODNN7EXAMPLE"
 	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async (event, context) => {
@@ -4171,6 +4176,7 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
     remaining: context.getRemainingTimeInMillis() > 0,
     logStreamName: context.logStreamName,
     envLogStreamName: process.env.AWS_LAMBDA_LOG_STREAM_NAME,
+    hostSecret: process.env.EMULATE_HOST_SECRET_FOR_TEST || "",
   };
 };
 `})
@@ -4198,9 +4204,10 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 		Remaining        bool   `json:"remaining"`
 		LogStreamName    string `json:"logStreamName"`
 		EnvLogStreamName string `json:"envLogStreamName"`
+		HostSecret       string `json:"hostSecret"`
 	}
 	decodeJSONBody(t, invoke, &body)
-	if body.Message != "hello Ada" || body.Mode != "test" || body.RequestID == "" || !body.Remaining {
+	if body.Message != "hello Ada" || body.Mode != "test" || body.RequestID == "" || !body.Remaining || body.HostSecret != "" {
 		t.Fatalf("unexpected invoke body: %#v", body)
 	}
 	if body.LogStreamName == "" || body.EnvLogStreamName != body.LogStreamName {
@@ -4594,6 +4601,39 @@ func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutKnownCredential(t *testin
 	}
 	if invoke.Body.String() != "{}" {
 		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerWithInvalidSignature(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-invalid-signature",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/2015-03-31/functions/node-runner-invalid-signature/invocations", strings.NewReader(`{}`))
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amz-Date", "20260519T000000Z")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20260519/us-east-1/lambda/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
+	invoke := httptest.NewRecorder()
+	handler.ServeHTTP(invoke, req)
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
 	}
 }
 
@@ -5565,6 +5605,76 @@ func signAWSRequestWithRegion(req *http.Request, service string, region string) 
 		accessKeyID = "AKIAEXAMPLE"
 	}
 	req.Header.Del("X-Access-Key")
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/20260519/"+region+"/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
-	req.Header.Set("X-Amz-Date", "20260519T000000Z")
+	date := "20260519"
+	timestamp := date + "T000000Z"
+	payloadHash := "UNSIGNED-PAYLOAD"
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	req.Header.Set("X-Amz-Date", timestamp)
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	scope := date + "/" + region + "/" + service + "/aws4_request"
+	canonicalRequest := strings.Join([]string{
+		req.Method,
+		testSigV4CanonicalURI(req.URL),
+		testSigV4CanonicalQuery(req.URL.Query()),
+		"host:" + req.Host + "\n" +
+			"x-amz-content-sha256:" + payloadHash + "\n" +
+			"x-amz-date:" + timestamp + "\n",
+		signedHeaders,
+		payloadHash,
+	}, "\n")
+	canonicalHash := sha256.Sum256([]byte(canonicalRequest))
+	stringToSign := strings.Join([]string{"AWS4-HMAC-SHA256", timestamp, scope, hex.EncodeToString(canonicalHash[:])}, "\n")
+	signature := hex.EncodeToString(testSigV4HMAC(testSigV4SigningKey(testSecretAccessKey(accessKeyID), date, region, service), []byte(stringToSign)))
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
+}
+
+func testSecretAccessKey(accessKeyID string) string {
+	if accessKeyID == "AKIAIOSFODNN7EXAMPLE" {
+		return "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+	}
+	return "secret"
+}
+
+func testSigV4CanonicalURI(urlValue *url.URL) string {
+	if urlValue == nil {
+		return "/"
+	}
+	path := urlValue.EscapedPath()
+	if path == "" {
+		return "/"
+	}
+	return path
+}
+
+func testSigV4CanonicalQuery(values url.Values) string {
+	pairs := make([]string, 0)
+	for key, items := range values {
+		sortedItems := append([]string(nil), items...)
+		sort.Strings(sortedItems)
+		for _, value := range sortedItems {
+			pairs = append(pairs, testSigV4Escape(key)+"="+testSigV4Escape(value))
+		}
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, "&")
+}
+
+func testSigV4SigningKey(secretAccessKey string, date string, region string, service string) []byte {
+	dateKey := testSigV4HMAC([]byte("AWS4"+secretAccessKey), []byte(date))
+	regionKey := testSigV4HMAC(dateKey, []byte(region))
+	serviceKey := testSigV4HMAC(regionKey, []byte(service))
+	return testSigV4HMAC(serviceKey, []byte("aws4_request"))
+}
+
+func testSigV4HMAC(key []byte, data []byte) []byte {
+	hash := hmac.New(sha256.New, key)
+	hash.Write(data)
+	return hash.Sum(nil)
+}
+
+func testSigV4Escape(value string) string {
+	escaped := url.QueryEscape(value)
+	escaped = strings.ReplaceAll(escaped, "+", "%20")
+	escaped = strings.ReplaceAll(escaped, "%7E", "~")
+	return escaped
 }

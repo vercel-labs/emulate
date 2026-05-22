@@ -420,7 +420,10 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, route
 }
 
 func (h *Handler) localCodeExecutionAllowed(req *http.Request, ctx gateway.AwsRequestContext) bool {
-	return h.AllowLocalCodeExecution && ctx.Auth.Status == auth.StatusKnown && isDirectLocalRequest(req)
+	if !h.AllowLocalCodeExecution || ctx.Auth.Status != auth.StatusKnown || ctx.Auth.Credential == nil {
+		return false
+	}
+	return isDirectLocalRequest(req) && auth.ValidateSigV4(req, ctx.RawBody, *ctx.Auth.Credential)
 }
 
 func isDirectLocalRequest(req *http.Request) bool {

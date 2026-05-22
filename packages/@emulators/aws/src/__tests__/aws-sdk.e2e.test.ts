@@ -1496,7 +1496,7 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
     const created = await lambda.send(
       new CreateFunctionCommand({
         FunctionName: functionName,
-        Runtime: "nodejs22.x",
+        Runtime: "python3.12",
         Role: "arn:aws:iam::123456789012:role/lambda-execution-role",
         Handler: "index.handler",
         Code: { ZipFile: zip },
