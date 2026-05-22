@@ -892,7 +892,9 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     await logs.send(new CreateLogStreamCommand({ logGroupName, logStreamName }));
     const streams = await logs.send(new DescribeLogStreamsCommand({ logGroupName, logStreamNamePrefix: "web-" }));
     expect((streams.logStreams ?? []).map((item) => item.logStreamName)).toContain(logStreamName);
-    const streamsByIdentifier = await logs.send(new DescribeLogStreamsCommand({ logGroupIdentifier: group.logGroupArn }));
+    const streamsByIdentifier = await logs.send(
+      new DescribeLogStreamsCommand({ logGroupIdentifier: group.logGroupArn }),
+    );
     expect((streamsByIdentifier.logStreams ?? []).map((item) => item.logStreamName)).toContain(logStreamName);
     await expect(
       logs.send(
