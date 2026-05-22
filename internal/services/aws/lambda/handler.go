@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -398,7 +399,7 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, route
 	}
 	logLines := []string{"Lambda API-only invoke " + invocationType + " RequestId: " + requestID}
 	functionError := ""
-	if h.localCodeExecutionAllowed(ctx) {
+	if h.localCodeExecutionAllowed(req, ctx) {
 		if result, ran := h.invokeLocalNode(ctx, invoked, executedVersion, ctx.RawBody, requestID); ran {
 			payload = result.Payload
 			logLines = result.Logs
@@ -416,8 +417,21 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, route
 	return lambdaBodyResponse(http.StatusOK, payload, headers)
 }
 
-func (h *Handler) localCodeExecutionAllowed(ctx gateway.AwsRequestContext) bool {
-	return h.AllowLocalCodeExecution && ctx.Auth.Status == auth.StatusKnown
+func (h *Handler) localCodeExecutionAllowed(req *http.Request, ctx gateway.AwsRequestContext) bool {
+	return h.AllowLocalCodeExecution && ctx.Auth.Status == auth.StatusKnown && isLoopbackRequest(req)
+}
+
+func isLoopbackRequest(req *http.Request) bool {
+	if req == nil || req.RemoteAddr == "" {
+		return false
+	}
+	host := req.RemoteAddr
+	if parsedHost, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+		host = parsedHost
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (h *Handler) publishVersion(ctx gateway.AwsRequestContext, route route, requestID string) protocols.ErrorResponse {

@@ -108,7 +108,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	seedValue := fs.String("seed", "", "Path to seed config file")
 	baseURLValue := fs.String("base-url", "", "Override advertised base URL")
 	portlessValue := fs.Bool("portless", false, "Serve over HTTPS via portless")
-	allowLocalLambdaValue := fs.Bool("allow-local-lambda", false, "Allow AWS Lambda Node.js ZipFile code to run locally")
+	allowLocalLambdaValue := fs.Bool("allow-local-lambda", false, "Allow localhost AWS Lambda Node.js ZipFile code execution")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -586,7 +586,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "      --seed <file>          Path to YAML or JSON seed config file")
 	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
 	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless")
-	fmt.Fprintln(w, "      --allow-local-lambda   Allow AWS Lambda Node.js ZipFile code to run locally")
+	fmt.Fprintln(w, "      --allow-local-lambda   Allow localhost AWS Lambda Node.js ZipFile code execution")
 }
 
 func printStartHelp(w io.Writer) {
@@ -598,7 +598,7 @@ func printStartHelp(w io.Writer) {
 	fmt.Fprintln(w, "      --seed <file>          Path to YAML or JSON seed config file")
 	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
 	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless")
-	fmt.Fprintln(w, "      --allow-local-lambda   Allow AWS Lambda Node.js ZipFile code to run locally")
+	fmt.Fprintln(w, "      --allow-local-lambda   Allow localhost AWS Lambda Node.js ZipFile code execution")
 }
 
 func printInitHelp(w io.Writer) {

@@ -4205,6 +4205,26 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 		t.Fatalf("tail log missing runner output: %s", string(logTail))
 	}
 
+	contextSucceedZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = (event, context) => {
+  setTimeout(() => context.succeed({ message: "context " + event.name }), 10);
+};
+`})
+	contextSucceedUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": contextSucceedZip})
+	if contextSucceedUpdate.Code != http.StatusOK {
+		t.Fatalf("update context succeed code status = %d, body = %s", contextSucceedUpdate.Code, contextSucceedUpdate.Body.String())
+	}
+	contextSucceedInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{"name":"Ada"}`), accessKeyID)
+	if contextSucceedInvoke.Code != http.StatusOK {
+		t.Fatalf("context succeed invoke status = %d, body = %s", contextSucceedInvoke.Code, contextSucceedInvoke.Body.String())
+	}
+	var contextSucceedBody struct {
+		Message string `json:"message"`
+	}
+	decodeJSONBody(t, contextSucceedInvoke, &contextSucceedBody)
+	if contextSucceedBody.Message != "context Ada" {
+		t.Fatalf("unexpected context succeed body: %#v", contextSucceedBody)
+	}
+
 	logs := executeAWSLogsRequest(t, handler, "FilterLogEvents", map[string]any{"logGroupName": "/aws/lambda/node-runner", "filterPattern": "node runner"})
 	if logs.Code != http.StatusOK {
 		t.Fatalf("filter logs status = %d, body = %s", logs.Code, logs.Body.String())
@@ -4360,6 +4380,33 @@ func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutKnownCredential(t *testin
 	}
 	if invoke.Body.String() != "{}" {
 		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerFromNonLoopback(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-remote",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-remote/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE", "203.0.113.10:1234")
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
 	}
 }
 
@@ -5093,10 +5140,16 @@ func executeAWSLambdaRawRequest(t *testing.T, handler http.Handler, method strin
 
 func executeAWSLambdaRawRequestWithAccessKey(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string) *httptest.ResponseRecorder {
 	t.Helper()
+	return executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t, handler, method, path, raw, accessKeyID, "127.0.0.1:1234")
+}
+
+func executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string, remoteAddr string) *httptest.ResponseRecorder {
+	t.Helper()
 	if raw == nil {
 		raw = []byte{}
 	}
 	req := httptest.NewRequest(method, "http://127.0.0.1"+path, bytes.NewReader(raw))
+	req.RemoteAddr = remoteAddr
 	req.Header.Set("Content-Type", "application/json")
 	if accessKeyID != "" {
 		req.Header.Set("X-Access-Key", accessKeyID)

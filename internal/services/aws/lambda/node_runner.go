@@ -369,7 +369,7 @@ function invokeHandler(handler, event, context) {
       const returned = handler(event, context, callback);
       if (returned && typeof returned.then === "function") {
         returned.then((value) => callback(null, value), callback);
-      } else if (handler.length < 3) {
+      } else if (returned !== undefined || handler.length < 2) {
         callback(null, returned);
       }
     } catch (error) {
