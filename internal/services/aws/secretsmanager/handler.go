@@ -165,13 +165,11 @@ func (h *Handler) putSecretValue(ctx gateway.AwsRequestContext, requestID string
 		if !samePayload(existing, secretString, hasString, secretBinary, hasBinary) {
 			return h.error("ResourceExistsException", "A secret version with this ClientRequestToken already exists and has a different value.", http.StatusBadRequest, requestID)
 		}
-		h.moveVersionStages(secret, versionID, stages)
-		h.touchSecret(secret, now)
 		return jsonResponse(http.StatusOK, map[string]any{
 			"ARN":           stringField(secret, "arn"),
 			"Name":          stringField(secret, "name"),
 			"VersionId":     versionID,
-			"VersionStages": stages,
+			"VersionStages": uniqueStrings(stringSlice(existing["version_stages"])),
 		})
 	}
 	h.insertVersion(secret, versionID, secretString, hasString, secretBinary, hasBinary, nil, now)
@@ -203,6 +201,7 @@ func (h *Handler) updateSecret(ctx gateway.AwsRequestContext, requestID string) 
 		patch["kms_key_id"] = value
 	}
 	versionID := ""
+	insertedVersion := false
 	if hasString || hasBinary {
 		versionID = firstNonEmpty(stringInput(ctx.Input, "ClientRequestToken"), h.generateVersionID())
 		if existing, ok := h.findVersionByID(secret, versionID); ok {
@@ -211,10 +210,11 @@ func (h *Handler) updateSecret(ctx gateway.AwsRequestContext, requestID string) 
 			}
 		} else {
 			h.insertVersion(secret, versionID, secretString, hasString, secretBinary, hasBinary, nil, now)
+			insertedVersion = true
+			h.moveVersionStages(secret, versionID, []string{"AWSCURRENT"})
 		}
-		h.moveVersionStages(secret, versionID, []string{"AWSCURRENT"})
 	}
-	if len(patch) > 0 || versionID != "" {
+	if len(patch) > 0 || insertedVersion {
 		patch["last_changed_date"] = now
 		h.Secrets.Update(intField(secret, "id"), patch)
 	}

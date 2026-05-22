@@ -255,6 +255,77 @@ func TestHandlerCreateSecretIsIdempotentForClientRequestToken(t *testing.T) {
 	}
 }
 
+func TestHandlerIdempotentExistingVersionDoesNotMoveStages(t *testing.T) {
+	handler := newTestSecretsManagerHandler()
+	response := handler.call("CreateSecret", map[string]any{
+		"Name":               "stage-retry",
+		"ClientRequestToken": "one",
+		"SecretString":       "one",
+	})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	response = handler.call("PutSecretValue", map[string]any{
+		"SecretId":           "stage-retry",
+		"ClientRequestToken": "two",
+		"SecretString":       "two",
+	})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", response.StatusCode, response.Body)
+	}
+
+	response = handler.call("PutSecretValue", map[string]any{
+		"SecretId":           "stage-retry",
+		"ClientRequestToken": "one",
+		"SecretString":       "one",
+	})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("idempotent put status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var putBody struct {
+		VersionStages []string `json:"VersionStages"`
+	}
+	decodeSecretsBody(t, response, &putBody)
+	if strings.Join(putBody.VersionStages, ",") != "AWSPREVIOUS" {
+		t.Fatalf("idempotent put moved stages: %#v", putBody.VersionStages)
+	}
+
+	response = handler.call("UpdateSecret", map[string]any{
+		"SecretId":           "stage-retry",
+		"ClientRequestToken": "one",
+		"SecretString":       "one",
+	})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("idempotent update status = %d, body = %s", response.StatusCode, response.Body)
+	}
+
+	response = handler.call("GetSecretValue", map[string]any{"SecretId": "stage-retry"})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("get current status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var current struct {
+		SecretString  string   `json:"SecretString"`
+		VersionID     string   `json:"VersionId"`
+		VersionStages []string `json:"VersionStages"`
+	}
+	decodeSecretsBody(t, response, &current)
+	if current.SecretString != "two" || current.VersionID != "two" || strings.Join(current.VersionStages, ",") != "AWSCURRENT" {
+		t.Fatalf("current version changed after idempotent retry: %#v", current)
+	}
+
+	response = handler.call("DescribeSecret", map[string]any{"SecretId": "stage-retry"})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("describe status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var described struct {
+		VersionIDsToStages map[string][]string `json:"VersionIdsToStages"`
+	}
+	decodeSecretsBody(t, response, &described)
+	if strings.Join(described.VersionIDsToStages["one"], ",") != "AWSPREVIOUS" || strings.Join(described.VersionIDsToStages["two"], ",") != "AWSCURRENT" {
+		t.Fatalf("unexpected stages after idempotent retry: %#v", described.VersionIDsToStages)
+	}
+}
+
 func TestHandlerForceDeleteRemovesSecretAndVersions(t *testing.T) {
 	handler := newTestSecretsManagerHandler()
 	response := handler.call("CreateSecret", map[string]any{
