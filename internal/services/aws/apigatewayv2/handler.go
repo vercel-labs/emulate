@@ -417,8 +417,8 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, spec 
 	if result.FunctionError != "" {
 		return lambdaProxyGatewayError()
 	}
-	status, headers, body := lambdaProxyHTTPResponse(result.Payload)
-	return protocols.ErrorResponse{StatusCode: status, ContentType: firstNonEmpty(headers["Content-Type"], headers["content-type"], "text/plain"), Headers: headers, Body: body}
+	status, headers, headerValues, body := lambdaProxyHTTPResponse(result.Payload)
+	return protocols.ErrorResponse{StatusCode: status, ContentType: firstNonEmpty(headerValue(headers, "Content-Type"), "text/plain"), Headers: headers, HeaderValues: headerValues, Body: body}
 }
 
 func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestContext, api corestore.Record, stage corestore.Record, route corestore.Record, rawPath string, requestID string) map[string]any {
@@ -434,7 +434,7 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 	query := map[string]string{}
 	for key, values := range req.URL.Query() {
 		if len(values) > 0 {
-			query[key] = values[len(values)-1]
+			query[key] = strings.Join(values, ",")
 		}
 	}
 	body := string(ctx.RawBody)
@@ -468,31 +468,32 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 	}
 }
 
-func lambdaProxyHTTPResponse(payload []byte) (int, map[string]string, []byte) {
+func lambdaProxyHTTPResponse(payload []byte) (int, map[string]string, map[string][]string, []byte) {
 	payload = []byte(strings.TrimSpace(string(payload)))
 	if len(payload) == 0 {
-		return http.StatusOK, map[string]string{"Content-Type": "text/plain"}, nil
+		return http.StatusOK, map[string]string{"Content-Type": "text/plain"}, nil, nil
 	}
 	var response lambdaProxyResponse
 	if err := json.Unmarshal(payload, &response); err != nil || response.StatusCode == 0 {
-		return http.StatusOK, map[string]string{"Content-Type": "application/json"}, payload
+		return http.StatusOK, map[string]string{"Content-Type": "application/json"}, nil, payload
 	}
 	status := response.StatusCode
 	headers := map[string]string{}
+	headerValues := map[string][]string{}
 	for key, value := range response.Headers {
-		headers[key] = value
+		addLambdaProxyHeader(headers, headerValues, key, value)
 	}
 	for key, values := range response.MultiValueHeaders {
 		if len(values) > 0 {
-			headers[key] = strings.Join(values, ",")
+			if strings.EqualFold(key, "Set-Cookie") {
+				headerValues["Set-Cookie"] = append(headerValues["Set-Cookie"], values...)
+			} else {
+				headers[key] = strings.Join(values, ",")
+			}
 		}
 	}
 	for _, cookie := range response.Cookies {
-		if existing := headers["Set-Cookie"]; existing != "" {
-			headers["Set-Cookie"] = existing + "," + cookie
-		} else {
-			headers["Set-Cookie"] = cookie
-		}
+		headerValues["Set-Cookie"] = append(headerValues["Set-Cookie"], cookie)
 	}
 	body := []byte(response.Body)
 	if response.IsBase64Encoded {
@@ -500,10 +501,27 @@ func lambdaProxyHTTPResponse(payload []byte) (int, map[string]string, []byte) {
 			body = decoded
 		}
 	}
-	if _, ok := headers["Content-Type"]; !ok {
+	if headerValue(headers, "Content-Type") == "" {
 		headers["Content-Type"] = "text/plain"
 	}
-	return status, headers, body
+	return status, headers, headerValues, body
+}
+
+func addLambdaProxyHeader(headers map[string]string, headerValues map[string][]string, key string, value string) {
+	if strings.EqualFold(key, "Set-Cookie") {
+		headerValues["Set-Cookie"] = append(headerValues["Set-Cookie"], value)
+		return
+	}
+	headers[key] = value
+}
+
+func headerValue(headers map[string]string, name string) string {
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 func lambdaProxyGatewayError() protocols.ErrorResponse {

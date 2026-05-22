@@ -1946,6 +1946,83 @@ func TestServicePrefersAPIGatewayV2GreedyProxyRouteOverDefault(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesAPIGatewayV2LambdaProxyResponseHeaders(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{BaseURL: "http://127.0.0.1"})
+	const accessKeyID = "AKIAIOSFODNN7EXAMPLE"
+
+	createLambda := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName":  "apigateway-response-headers",
+		"Runtime":       "nodejs22.x",
+		"Role":          "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":       "index.handler",
+		"InvokePayload": `{"statusCode":200,"headers":{"content-type":"application/json"},"cookies":["sid=one; Path=/; HttpOnly","prefs=two; Path=/; Secure"],"body":"{\"ok\":true}"}`,
+	})
+	if createLambda.Code != http.StatusCreated {
+		t.Fatalf("create lambda status = %d, body = %s", createLambda.Code, createLambda.Body.String())
+	}
+	var lambdaCreated struct {
+		FunctionArn string `json:"FunctionArn"`
+	}
+	decodeJSONBody(t, createLambda, &lambdaCreated)
+
+	createAPI := executeAPIGatewayV2Request(t, handler, http.MethodPost, "/v2/apis", map[string]any{"Name": "local-response-headers", "ProtocolType": "HTTP"})
+	if createAPI.Code != http.StatusCreated {
+		t.Fatalf("create api status = %d, body = %s", createAPI.Code, createAPI.Body.String())
+	}
+	var api struct {
+		APIID       string `json:"apiId"`
+		APIEndpoint string `json:"apiEndpoint"`
+	}
+	decodeJSONBody(t, createAPI, &api)
+
+	createIntegration := executeAPIGatewayV2Request(t, handler, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
+		"IntegrationType":      "AWS_PROXY",
+		"IntegrationUri":       lambdaCreated.FunctionArn,
+		"IntegrationMethod":    "POST",
+		"PayloadFormatVersion": "2.0",
+	})
+	if createIntegration.Code != http.StatusCreated {
+		t.Fatalf("create integration status = %d, body = %s", createIntegration.Code, createIntegration.Body.String())
+	}
+	var integration struct {
+		IntegrationID string `json:"integrationId"`
+	}
+	decodeJSONBody(t, createIntegration, &integration)
+
+	createRoute := executeAPIGatewayV2Request(t, handler, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
+		"RouteKey": "GET /headers",
+		"Target":   "integrations/" + integration.IntegrationID,
+	})
+	if createRoute.Code != http.StatusCreated {
+		t.Fatalf("create route status = %d, body = %s", createRoute.Code, createRoute.Body.String())
+	}
+	createStage := executeAPIGatewayV2Request(t, handler, http.MethodPost, "/v2/apis/"+api.APIID+"/stages", map[string]any{
+		"StageName":  "$default",
+		"AutoDeploy": true,
+	})
+	if createStage.Code != http.StatusCreated {
+		t.Fatalf("create stage status = %d, body = %s", createStage.Code, createStage.Body.String())
+	}
+
+	invoke := executeAPIGatewayInvokeRequest(t, handler, http.MethodGet, api.APIEndpoint+"/headers", nil, accessKeyID)
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if got := invoke.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content type = %q", got)
+	}
+	cookies := invoke.Result().Header.Values("Set-Cookie")
+	if len(cookies) != 2 {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+	if cookies[0] != "sid=one; Path=/; HttpOnly" || cookies[1] != "prefs=two; Path=/; Secure" {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+	if got := invoke.Body.String(); got != `{"ok":true}` {
+		t.Fatalf("body = %q", got)
+	}
+}
+
 func TestServiceHandlesEventBridgeRuleAndSQSTarget(t *testing.T) {
 	handler := newTestHandler()
 

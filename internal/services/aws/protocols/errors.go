@@ -18,10 +18,11 @@ type AWSError struct {
 }
 
 type ErrorResponse struct {
-	StatusCode  int
-	ContentType string
-	Headers     map[string]string
-	Body        []byte
+	StatusCode   int
+	ContentType  string
+	Headers      map[string]string
+	HeaderValues map[string][]string
+	Body         []byte
 }
 
 func SerializeXMLError(awsError AWSError) ErrorResponse {
