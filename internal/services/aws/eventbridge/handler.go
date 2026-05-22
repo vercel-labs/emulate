@@ -16,6 +16,7 @@ import (
 
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
+	awslambda "github.com/vercel-labs/emulate/internal/services/aws/lambda"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 )
 
@@ -30,24 +31,31 @@ type eventBusRef struct {
 }
 
 type Handler struct {
-	EventBuses       *corestore.Collection
-	EventRules       *corestore.Collection
-	EventTargets     *corestore.Collection
-	EventDeliveries  *corestore.Collection
-	SQSQueues        *corestore.Collection
-	SQSMessages      *corestore.Collection
-	SNSTopics        *corestore.Collection
-	SNSSubscriptions *corestore.Collection
-	SNSDeliveries    *corestore.Collection
-	AccountID        string
-	Region           string
-	Now              func() time.Time
-	IDGenerator      func(string) string
+	EventBuses               *corestore.Collection
+	EventRules               *corestore.Collection
+	EventTargets             *corestore.Collection
+	EventDeliveries          *corestore.Collection
+	SQSQueues                *corestore.Collection
+	SQSMessages              *corestore.Collection
+	SNSTopics                *corestore.Collection
+	SNSSubscriptions         *corestore.Collection
+	SNSDeliveries            *corestore.Collection
+	LambdaFunctions          *corestore.Collection
+	LambdaVersions           *corestore.Collection
+	LambdaAliases            *corestore.Collection
+	LogGroups                *corestore.Collection
+	LogStreams               *corestore.Collection
+	LogEvents                *corestore.Collection
+	LambdaLocalCodeExecution bool
+	AccountID                string
+	Region                   string
+	Now                      func() time.Time
+	IDGenerator              func(string) string
 }
 
 var fallbackIDCounter atomic.Uint64
 
-func (h *Handler) Handle(_ *http.Request, ctx gateway.AwsRequestContext) protocols.ErrorResponse {
+func (h *Handler) Handle(req *http.Request, ctx gateway.AwsRequestContext) protocols.ErrorResponse {
 	requestID := ctx.RequestID
 	if requestID == "" {
 		requestID = h.generateID("req")
@@ -79,7 +87,7 @@ func (h *Handler) Handle(_ *http.Request, ctx gateway.AwsRequestContext) protoco
 	case "RemoveTargets":
 		response = h.removeTargets(ctx, requestID)
 	case "PutEvents":
-		response = h.putEvents(ctx, requestID)
+		response = h.putEvents(req, ctx, requestID)
 	case "TagResource":
 		response = h.tagResource(ctx, requestID)
 	case "UntagResource":
@@ -372,7 +380,7 @@ func (h *Handler) removeTargets(ctx gateway.AwsRequestContext, requestID string)
 	return jsonResponse(http.StatusOK, map[string]any{"FailedEntryCount": 0, "FailedEntries": []any{}})
 }
 
-func (h *Handler) putEvents(ctx gateway.AwsRequestContext, requestID string) protocols.ErrorResponse {
+func (h *Handler) putEvents(req *http.Request, ctx gateway.AwsRequestContext, requestID string) protocols.ErrorResponse {
 	entries := mapSlice(ctx.Input["Entries"])
 	if len(entries) == 0 {
 		return h.validation("Entries is required.", requestID)
@@ -421,7 +429,7 @@ func (h *Handler) putEvents(ctx gateway.AwsRequestContext, requestID string) pro
 			"resources":   stringSlice(entry["Resources"]),
 			"detail":      detail,
 		}
-		h.deliverEvent(ctx, busName, eventID, event)
+		h.deliverEvent(req, ctx, busName, eventID, event)
 		out = append(out, map[string]any{"EventId": eventID})
 	}
 	return jsonResponse(http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": out})
@@ -457,7 +465,7 @@ func (h *Handler) listTagsForResource(ctx gateway.AwsRequestContext, requestID s
 	return jsonResponse(http.StatusOK, map[string]any{"Tags": recordList(record["tags"])})
 }
 
-func (h *Handler) deliverEvent(ctx gateway.AwsRequestContext, busName string, eventID string, event map[string]any) {
+func (h *Handler) deliverEvent(req *http.Request, ctx gateway.AwsRequestContext, busName string, eventID string, event map[string]any) {
 	for _, rule := range h.EventRules.FindBy("event_bus_name", busName) {
 		if !h.sameScope(ctx, rule) || stringField(rule, "state") == "DISABLED" || !matchesPattern(rule, event) {
 			continue
@@ -472,6 +480,8 @@ func (h *Handler) deliverEvent(ctx gateway.AwsRequestContext, busName string, ev
 			case h.deliverToSQS(ctx, target, body):
 				status = "DELIVERED"
 			case h.deliverToSNS(ctx, target, body):
+				status = "DELIVERED"
+			case h.deliverToLambda(req, ctx, target, body):
 				status = "DELIVERED"
 			}
 			h.EventDeliveries.Insert(corestore.Record{
@@ -570,6 +580,27 @@ func (h *Handler) deliverToSNS(ctx gateway.AwsRequestContext, target corestore.R
 		delivered = true
 	}
 	return delivered
+}
+
+func (h *Handler) deliverToLambda(req *http.Request, ctx gateway.AwsRequestContext, target corestore.Record, body string) bool {
+	if h.LambdaFunctions == nil {
+		return false
+	}
+	lambdaHandler := awslambda.Handler{
+		Functions:               h.LambdaFunctions,
+		Versions:                h.LambdaVersions,
+		Aliases:                 h.LambdaAliases,
+		LogGroups:               h.LogGroups,
+		LogStreams:              h.LogStreams,
+		LogEvents:               h.LogEvents,
+		AccountID:               h.AccountID,
+		Region:                  h.Region,
+		AllowLocalCodeExecution: h.LambdaLocalCodeExecution,
+		Now:                     h.Now,
+		IDGenerator:             h.IDGenerator,
+	}
+	_, ok := lambdaHandler.InvokeFromEventSource(req, ctx, stringField(target, "arn"), []byte(body), h.generateID("req"), "EventBridge")
+	return ok
 }
 
 func (h *Handler) snsSQSBody(topic corestore.Record, subscription corestore.Record, messageID string, message string) string {

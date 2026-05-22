@@ -224,6 +224,8 @@ const describeExternalLambdaE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : 
 const itExternalLocalLambdaE2E = process.env.AWS_EMULATOR_ALLOW_LOCAL_LAMBDA ? it : it.skip;
 const lambdaNodeRunnerZipBase64 =
   "UEsDBBQAAAAIAAAAIVyFNywbwgAAAC8BAAAIAAAAaW5kZXguanNljUEKwjAQRfeeYhAXLZTgulJXunChQvEADe23BtKJJqlWinc3rVQXwmxm5v330V2N9U5cJFcaljKS7sklRbiDfUKlYY/Ox5StqZ/RsDujIbSpozmbCmRbZth5QmNCsGyQ0NWaEs4J8F3sj5vtVyTOLZdeGT4ELl4Fo4VvLY9yoiaEZI2Uigu0NrTof9ZXkXyY0Jr+N4w/i1sL53dV+i2UD5dP1wlqpGLF9Q+q4fPpelINdrxXWisXxbSm5RB7rWZh3lBLAQIUAxQAAAAIAAAAIVyFNywbwgAAAC8BAAAIAAAAAAAAAAAAAACkAQAAAABpbmRleC5qc1BLBQYAAAAAAQABADYAAADoAAAAAAA=";
+const lambdaEventBridgeTargetZipBase64 =
+  "UEsDBBQAAAAIAC92tlxVY73JegAAAJYAAAAIAAAAaW5kZXguanM9jEEKgzAQRfee4uNKQXKAij1C7zAmUxsaJyWZiEV696YuCn/zH4/H+ysmzeZB4gInTKD8FouONxYdYKMo79pjuuJo8Ps5BjYhLl17OnPybmEEWmdH7YATGsdKPhihlf8Rcy9i1Ue5VdqPtZZYSxIciM8LNBXGZ2zqvlBLAQIUAxQAAAAIAC92tlxVY73JegAAAJYAAAAIAAAAAAAAAAAAAACAAQAAAABpbmRleC5qc1BLBQYAAAAAAQABADYAAACgAAAAAAA=";
 
 const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSSME2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
@@ -917,6 +919,8 @@ describeExternalEventBridgeE2E("AWS native runtime - real @aws-sdk/client-eventb
   let emulator: EmulatorHandle;
   let events: EventBridgeClient;
   let sqs: SQSClient;
+  let lambda: LambdaClient;
+  let logs: CloudWatchLogsClient;
 
   beforeAll(async () => {
     emulator = await startEmulator();
@@ -936,12 +940,76 @@ describeExternalEventBridgeE2E("AWS native runtime - real @aws-sdk/client-eventb
         secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
       },
     });
+    lambda = new LambdaClient({
+      endpoint: emulator.url,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+    logs = new CloudWatchLogsClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/logs/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
   });
 
   afterAll(async () => {
     events.destroy();
     sqs.destroy();
+    lambda.destroy();
+    logs.destroy();
     await emulator.close();
+  });
+
+  itExternalLocalLambdaE2E("routes matching events to a local Lambda target", async () => {
+    const suffix = Date.now().toString(36);
+    const functionName = `sdk-events-lambda-${suffix}`;
+    const ruleName = `sdk-events-lambda-rule-${suffix}`;
+
+    const created = await lambda.send(
+      new CreateFunctionCommand({
+        FunctionName: functionName,
+        Runtime: "nodejs22.x",
+        Role: "arn:aws:iam::123456789012:role/lambda-execution-role",
+        Handler: "index.handler",
+        Code: { ZipFile: Buffer.from(lambdaEventBridgeTargetZipBase64, "base64") },
+      }),
+    );
+    expect(created.FunctionArn).toContain(`:function:${functionName}`);
+
+    await events.send(
+      new PutRuleCommand({
+        Name: ruleName,
+        EventPattern: JSON.stringify({ source: ["app.orders"], "detail-type": ["OrderCreated"] }),
+      }),
+    );
+    await events.send(new PutTargetsCommand({ Rule: ruleName, Targets: [{ Id: "lambda", Arn: created.FunctionArn }] }));
+
+    const published = await events.send(
+      new PutEventsCommand({
+        Entries: [{ Source: "app.orders", DetailType: "OrderCreated", Detail: JSON.stringify({ name: "Ada" }) }],
+      }),
+    );
+    expect(published.FailedEntryCount).toBe(0);
+
+    const filtered = await logs.send(
+      new FilterLogEventsCommand({
+        logGroupName: `/aws/lambda/${functionName}`,
+        filterPattern: "eventbridge lambda",
+      }),
+    );
+    expect((filtered.events ?? []).map((event) => event.message).join("\n")).toContain(
+      `eventbridge lambda Ada ${functionName}`,
+    );
+
+    await events.send(new RemoveTargetsCommand({ Rule: ruleName, Ids: ["lambda"] }));
+    await events.send(new DeleteRuleCommand({ Name: ruleName }));
+    await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
   });
 
   it("CreateEventBus, PutRule, PutTargets, and PutEvents route matching events to SQS", async () => {

@@ -1711,6 +1711,128 @@ func TestServiceHandlesEventBridgeRuleAndSQSTarget(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesEventBridgeLambdaTarget(t *testing.T) {
+	handler := newTestHandler()
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "eventbridge-target",
+		"Runtime":      "python3.12",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": base64.StdEncoding.EncodeToString([]byte("stub"))},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create lambda status = %d, body = %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		FunctionArn string `json:"FunctionArn"`
+	}
+	decodeJSONBody(t, create, &created)
+
+	res := executeAWSEventBridgeRequest(t, handler, "PutRule", map[string]any{
+		"Name":         "lambda-orders",
+		"EventPattern": `{"source":["app.orders"],"detail-type":["OrderCreated"]}`,
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutTargets", map[string]any{
+		"Rule": "lambda-orders",
+		"Targets": []map[string]any{{
+			"Id":  "lambda",
+			"Arn": created.FunctionArn,
+		}},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"FailedEntryCount":0`) {
+		t.Fatalf("put targets status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSEventBridgeRequest(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{{"Source": "app.orders", "DetailType": "OrderCreated", "Detail": `{"id":"ord_1"}`}},
+	})
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"FailedEntryCount":0`) {
+		t.Fatalf("put events status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	logs := executeAWSLogsRequest(t, handler, "FilterLogEvents", map[string]any{"logGroupName": "/aws/lambda/eventbridge-target", "filterPattern": "EventBridge"})
+	if logs.Code != http.StatusOK {
+		t.Fatalf("filter logs status = %d, body = %s", logs.Code, logs.Body.String())
+	}
+	var logBody struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeJSONBody(t, logs, &logBody)
+	if len(logBody.Events) == 0 || !strings.Contains(logBody.Events[0].Message, "Lambda EventBridge invoke accepted") {
+		t.Fatalf("unexpected lambda target logs: %#v", logBody.Events)
+	}
+}
+
+func TestServiceRunsEventBridgeLambdaTargetWithLocalNodeHandler(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for local Lambda Node.js runner coverage")
+	}
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	const accessKeyID = "AKIAIOSFODNN7EXAMPLE"
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async (event, context) => {
+  console.log("eventbridge lambda", event.detail.name, context.functionName);
+  return { ok: true };
+};
+`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "eventbridge-local-target",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create lambda status = %d, body = %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		FunctionArn string `json:"FunctionArn"`
+	}
+	decodeJSONBody(t, create, &created)
+
+	res := executeAWSEventBridgeRequestWithAccessKey(t, handler, "PutRule", map[string]any{
+		"Name":         "lambda-local-orders",
+		"EventPattern": `{"source":["app.orders"],"detail-type":["OrderCreated"]}`,
+	}, accessKeyID)
+	if res.Code != http.StatusOK {
+		t.Fatalf("put rule status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = executeAWSEventBridgeRequestWithAccessKey(t, handler, "PutTargets", map[string]any{
+		"Rule":    "lambda-local-orders",
+		"Targets": []map[string]any{{"Id": "lambda", "Arn": created.FunctionArn}},
+	}, accessKeyID)
+	if res.Code != http.StatusOK {
+		t.Fatalf("put targets status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = executeAWSEventBridgeRequestWithAccessKey(t, handler, "PutEvents", map[string]any{
+		"Entries": []map[string]any{{"Source": "app.orders", "DetailType": "OrderCreated", "Detail": `{"name":"Ada"}`}},
+	}, accessKeyID)
+	if res.Code != http.StatusOK {
+		t.Fatalf("put events status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	logs := executeAWSLogsRequest(t, handler, "FilterLogEvents", map[string]any{"logGroupName": "/aws/lambda/eventbridge-local-target", "filterPattern": "eventbridge lambda"})
+	if logs.Code != http.StatusOK {
+		t.Fatalf("filter logs status = %d, body = %s", logs.Code, logs.Body.String())
+	}
+	var logBody struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeJSONBody(t, logs, &logBody)
+	if len(logBody.Events) != 1 || !strings.Contains(logBody.Events[0].Message, "eventbridge lambda Ada eventbridge-local-target") {
+		t.Fatalf("unexpected lambda target logs: %#v", logBody.Events)
+	}
+}
+
 func TestServiceHandlesEventBridgeCustomBusTagsAndSNSTarget(t *testing.T) {
 	handler := newTestHandler()
 
@@ -5301,6 +5423,7 @@ func executeAWSEventBridgeRequestWithAccessKey(t *testing.T, handler http.Handle
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/events/", bytes.NewReader(raw))
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "AWSEvents."+action)
 	req.Header.Set("X-Access-Key", accessKeyID)
