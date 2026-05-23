@@ -30,12 +30,17 @@ export interface SlackChannel extends Entity {
   name: string;
   is_channel: boolean;
   is_private: boolean;
+  is_im?: boolean;
+  is_mpim?: boolean;
+  is_open?: boolean;
+  user?: string;
   is_archived: boolean;
   topic: { value: string; creator: string; last_set: number };
   purpose: { value: string; creator: string; last_set: number };
   members: string[];
   creator: string;
   num_members: number;
+  last_read?: Record<string, string>;
 }
 
 export type SlackJsonObject = Record<string, unknown>;

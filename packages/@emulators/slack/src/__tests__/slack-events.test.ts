@@ -455,4 +455,125 @@ describe("Slack plugin - event dispatch baseline", () => {
       }),
     ]);
   });
+
+  it("dispatches member join and leave events for invite and kick", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["member_joined_channel", "member_left_channel"]);
+
+    getSlackStore(store).users.insert({
+      user_id: "U000000002",
+      team_id: "T000000001",
+      name: "events-member",
+      real_name: "events-member",
+      email: "events-member@emulate.dev",
+      is_admin: false,
+      is_bot: false,
+      deleted: false,
+      profile: {
+        display_name: "events-member",
+        real_name: "events-member",
+        email: "events-member@emulate.dev",
+        image_48: "",
+        image_192: "",
+      },
+    });
+    const channel = getSlackStore(store).channels.findOneBy("name", "random")!.channel_id;
+
+    await app.request(`${base}/api/conversations.invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, users: "U000000002" }),
+    });
+    await app.request(`${base}/api/conversations.kick`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, user: "U000000002" }),
+    });
+
+    expect(capture.requests).toHaveLength(2);
+    expect(capture.jsonBodies()).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "member_joined_channel",
+          user: "U000000002",
+          channel,
+          channel_type: "C",
+          team: "T000000001",
+          inviter: "U000000001",
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "member_left_channel",
+          user: "U000000002",
+          channel,
+          channel_type: "C",
+          team: "T000000001",
+        }),
+      }),
+    ]);
+  });
+
+  it("dispatches IM open, close, and mark events", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["im_created", "im_open", "im_close", "im_marked"]);
+
+    getSlackStore(store).users.insert({
+      user_id: "U000000002",
+      team_id: "T000000001",
+      name: "events-dm",
+      real_name: "events-dm",
+      email: "events-dm@emulate.dev",
+      is_admin: false,
+      is_bot: false,
+      deleted: false,
+      profile: {
+        display_name: "events-dm",
+        real_name: "events-dm",
+        email: "events-dm@emulate.dev",
+        image_48: "",
+        image_192: "",
+      },
+    });
+
+    const openRes = await app.request(`${base}/api/conversations.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ users: "U000000002" }),
+    });
+    const opened = (await openRes.json()) as any;
+    const channel = opened.channel.id;
+
+    await app.request(`${base}/api/conversations.mark`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, ts: "1234567890.000001" }),
+    });
+    await app.request(`${base}/api/conversations.close`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+
+    expect(capture.requests).toHaveLength(4);
+    expect(capture.jsonBodies()).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "im_created",
+          channel: expect.objectContaining({ id: channel, is_im: true }),
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({ type: "im_open", channel }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({ type: "im_marked", channel, ts: "1234567890.000001" }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({ type: "im_close", channel }),
+      }),
+    ]);
+  });
 });

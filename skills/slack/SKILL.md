@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # Slack API Emulator
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation lifecycle writes update archive state, names, topics, and purposes. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Start
 
@@ -131,7 +131,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 ### Chat
 
-`chat.postMessage`, `chat.update`, `conversations.history`, and `conversations.replies` round trip text plus common rich message fields: `blocks`, `attachments`, `metadata`, `mrkdwn`, `parse`, `link_names`, `unfurl_links`, `unfurl_media`, `username`, `icon_url`, `icon_emoji`, `bot_id`, `app_id`, `client_msg_id`, and `reply_broadcast`.
+`chat.postMessage`, `chat.update`, `conversations.history`, and `conversations.replies` round trip text plus common rich message fields: `blocks`, `attachments`, `metadata`, `mrkdwn`, `parse`, `link_names`, `unfurl_links`, `unfurl_media`, `username`, `icon_url`, `icon_emoji`, `bot_id`, `app_id`, `client_msg_id`, and `reply_broadcast`. `chat.postMessage` can also post to opened DM conversations or supported Slack user IDs.
 
 `chat.postEphemeral` stores ephemeral messages outside channel history. `chat.scheduleMessage`, `chat.deleteScheduledMessage`, and `chat.scheduledMessages.list` keep scheduled messages pending until deleted or inspected.
 
@@ -208,6 +208,12 @@ curl -X POST http://localhost:4003/api/chat.meMessage \
 curl -X POST http://localhost:4003/api/conversations.list \
   -H "Authorization: Bearer $TOKEN"
 
+# List DMs and MPIMs
+curl -X POST http://localhost:4003/api/conversations.list \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"types": "im,mpim"}'
+
 # Get channel info
 curl -X POST http://localhost:4003/api/conversations.info \
   -H "Authorization: Bearer $TOKEN" \
@@ -265,6 +271,34 @@ curl -X POST http://localhost:4003/api/conversations.join \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
+
+# Invite / kick user
+curl -X POST http://localhost:4003/api/conversations.invite \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "users": "U000000002"}'
+
+curl -X POST http://localhost:4003/api/conversations.kick \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "user": "U000000002"}'
+
+# Open / close DM
+curl -X POST http://localhost:4003/api/conversations.open \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"users": "U000000002", "return_im": true}'
+
+curl -X POST http://localhost:4003/api/conversations.close \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "D000000001"}'
+
+# Mark conversation read
+curl -X POST http://localhost:4003/api/conversations.mark \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "ts": "1234567890.123456"}'
 
 # List members
 curl -X POST http://localhost:4003/api/conversations.members \
@@ -391,6 +425,8 @@ When messages are posted, updated, deleted, or reactions are added/removed, the 
 - `group_archive` / `group_unarchive` for private lifecycle archive writes
 - `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
 - `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
+- `member_joined_channel` / `member_left_channel` on invite, join, leave, and kick writes
+- `im_created`, `im_open`, `im_close`, `im_marked`, and group open/close/marked events for DM and MPIM writes
 
 ## Common Patterns
 

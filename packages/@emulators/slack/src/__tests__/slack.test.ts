@@ -8,6 +8,26 @@ import {
   type SlackTestApp,
 } from "./helpers.js";
 
+function insertSlackTestUser(store: Store, userId: string, name: string) {
+  return getSlackStore(store).users.insert({
+    user_id: userId,
+    team_id: "T000000001",
+    name,
+    real_name: name,
+    email: `${name}@emulate.dev`,
+    is_admin: false,
+    is_bot: false,
+    deleted: false,
+    profile: {
+      display_name: name,
+      real_name: name,
+      email: `${name}@emulate.dev`,
+      image_48: "",
+      image_192: "",
+    },
+  });
+}
+
 describe("Slack plugin - auth.test", () => {
   let app: SlackTestApp["app"];
 
@@ -1050,6 +1070,199 @@ describe("Slack plugin - conversations", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.members.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("invites and kicks channel members", async () => {
+    insertSlackTestUser(store, "U000000002", "teammate");
+    const ss = getSlackStore(store);
+    const ch = ss.channels.findOneBy("name", "random")!;
+
+    const inviteRes = await app.request(`${base}/api/conversations.invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, users: "U000000002" }),
+    });
+    const invited = (await inviteRes.json()) as any;
+    expect(invited.ok).toBe(true);
+    expect(invited.channel.members).toBeUndefined();
+
+    const membersRes = await app.request(`${base}/api/conversations.members`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const members = (await membersRes.json()) as any;
+    expect(members.members).toContain("U000000002");
+
+    const duplicateRes = await app.request(`${base}/api/conversations.invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, users: "U000000002" }),
+    });
+    const duplicate = (await duplicateRes.json()) as any;
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.error).toBe("already_in_channel");
+
+    const kickRes = await app.request(`${base}/api/conversations.kick`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, user: "U000000002" }),
+    });
+    expect(((await kickRes.json()) as any).ok).toBe(true);
+
+    const afterKickRes = await app.request(`${base}/api/conversations.members`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const afterKick = (await afterKickRes.json()) as any;
+    expect(afterKick.members).not.toContain("U000000002");
+  });
+
+  it("rejects invalid membership writes", async () => {
+    insertSlackTestUser(store, "U000000002", "cannotkick");
+    const ss = getSlackStore(store);
+    const general = ss.channels.findOneBy("name", "general")!;
+    const random = ss.channels.findOneBy("name", "random")!;
+
+    const selfInviteRes = await app.request(`${base}/api/conversations.invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: random.channel_id, users: "U000000001" }),
+    });
+    const selfInvite = (await selfInviteRes.json()) as any;
+    expect(selfInvite.ok).toBe(false);
+    expect(selfInvite.error).toBe("cant_invite_self");
+
+    const selfKickRes = await app.request(`${base}/api/conversations.kick`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: random.channel_id, user: "U000000001" }),
+    });
+    const selfKick = (await selfKickRes.json()) as any;
+    expect(selfKick.ok).toBe(false);
+    expect(selfKick.error).toBe("cant_kick_self");
+
+    const generalKickRes = await app.request(`${base}/api/conversations.kick`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: general.channel_id, user: "U000000002" }),
+    });
+    const generalKick = (await generalKickRes.json()) as any;
+    expect(generalKick.ok).toBe(false);
+    expect(generalKick.error).toBe("cant_kick_from_general");
+  });
+
+  it("opens, closes, lists, marks, and posts to direct messages", async () => {
+    insertSlackTestUser(store, "U000000002", "dmuser");
+
+    const openRes = await app.request(`${base}/api/conversations.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ users: "U000000002", return_im: true }),
+    });
+    const opened = (await openRes.json()) as any;
+    expect(opened.ok).toBe(true);
+    expect(opened.channel.id).toMatch(/^D/);
+    expect(opened.channel.is_im).toBe(true);
+    expect(opened.channel.is_open).toBe(true);
+    expect(opened.channel.user).toBe("U000000002");
+
+    const listRes = await app.request(`${base}/api/conversations.list`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ types: "im" }),
+    });
+    const list = (await listRes.json()) as any;
+    expect(list.channels.map((channel: any) => channel.id)).toContain(opened.channel.id);
+
+    const postRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: "U000000002", text: "hello dm" }),
+    });
+    const posted = (await postRes.json()) as any;
+    expect(posted.ok).toBe(true);
+    expect(posted.channel).toBe(opened.channel.id);
+
+    const markRes = await app.request(`${base}/api/conversations.mark`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id, ts: posted.ts }),
+    });
+    expect(((await markRes.json()) as any).ok).toBe(true);
+
+    const infoRes = await app.request(`${base}/api/conversations.info`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id }),
+    });
+    const info = (await infoRes.json()) as any;
+    expect(info.channel.last_read).toBe(posted.ts);
+
+    const closeRes = await app.request(`${base}/api/conversations.close`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id }),
+    });
+    expect(((await closeRes.json()) as any).ok).toBe(true);
+
+    const duplicateCloseRes = await app.request(`${base}/api/conversations.close`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id }),
+    });
+    const duplicateClose = (await duplicateCloseRes.json()) as any;
+    expect(duplicateClose).toMatchObject({ ok: true, no_op: true, already_closed: true });
+  });
+
+  it("opens MPIMs and filters conversation list types", async () => {
+    insertSlackTestUser(store, "U000000002", "mpimone");
+    insertSlackTestUser(store, "U000000003", "mpimtwo");
+    insertSlackTestUser(store, "U000000004", "mpimthree");
+
+    const openRes = await app.request(`${base}/api/conversations.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ users: "U000000002,U000000003", return_im: true }),
+    });
+    const opened = (await openRes.json()) as any;
+    expect(opened.ok).toBe(true);
+    expect(opened.channel.id).toMatch(/^G/);
+    expect(opened.channel.is_mpim).toBe(true);
+    expect(opened.channel.num_members).toBe(3);
+
+    const repeatOpenRes = await app.request(`${base}/api/conversations.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ users: "U000000003,U000000002" }),
+    });
+    const repeatOpen = (await repeatOpenRes.json()) as any;
+    expect(repeatOpen).toMatchObject({ ok: true, no_op: true, already_open: true });
+    expect(repeatOpen.channel.id).toBe(opened.channel.id);
+
+    const listRes = await app.request(`${base}/api/conversations.list`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ types: "mpim" }),
+    });
+    const list = (await listRes.json()) as any;
+    expect(list.channels.map((channel: any) => channel.id)).toContain(opened.channel.id);
+    expect(list.channels.every((channel: any) => channel.is_mpim)).toBe(true);
+
+    const inviteRes = await app.request(`${base}/api/conversations.invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id, users: "U000000004" }),
+    });
+    expect(((await inviteRes.json()) as any).ok).toBe(true);
+
+    const kickRes = await app.request(`${base}/api/conversations.kick`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id, user: "U000000004" }),
+    });
+    expect(((await kickRes.json()) as any).ok).toBe(true);
   });
 });
 

@@ -20,8 +20,54 @@ export function chatRoutes(ctx: RouteContext): void {
   const ss = () => getSlackStore(store);
   const findChannel = (channel: string) =>
     ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
+  const getAuthUserId = (authUser: { login: string }) =>
+    ss().users.findOneBy("user_id", authUser.login)?.user_id ??
+    ss().users.findOneBy("name", authUser.login)?.user_id ??
+    authUser.login;
   const isChannelMember = (channel: SlackChannel, user: SlackUser) =>
     channel.members.includes(user.user_id) || channel.members.includes(user.name);
+  const findOrCreateDirectMessage = (authUser: { login: string }, userId: string) => {
+    const targetUser = ss().users.findOneBy("user_id", userId);
+    if (!targetUser || targetUser.deleted) return undefined;
+
+    const authUserId = getAuthUserId(authUser);
+    if (targetUser.user_id === authUserId) return undefined;
+
+    const members = [authUserId, targetUser.user_id].sort();
+    const existing = ss()
+      .channels.all()
+      .find(
+        (ch) =>
+          ch.is_im && ch.members.length === members.length && [...ch.members].sort().join(",") === members.join(","),
+      );
+    if (existing) {
+      if (existing.is_open === false) return ss().channels.update(existing.id, { is_open: true });
+      return existing;
+    }
+
+    const team = ss().teams.all()[0];
+    const now = Math.floor(Date.now() / 1000);
+    return ss().channels.insert({
+      channel_id: generateSlackId("D"),
+      team_id: team?.team_id ?? "T000000001",
+      name: targetUser.name,
+      is_channel: false,
+      is_private: true,
+      is_im: true,
+      is_mpim: false,
+      is_open: true,
+      user: targetUser.user_id,
+      is_archived: false,
+      topic: { value: "", creator: authUserId, last_set: now },
+      purpose: { value: "", creator: authUserId, last_set: now },
+      members,
+      creator: authUserId,
+      num_members: members.length,
+      last_read: {},
+    });
+  };
+  const findWritableConversation = (authUser: { login: string }, channel: string) =>
+    findChannel(channel) ?? findOrCreateDirectMessage(authUser, channel);
 
   // chat.postMessage
   app.post("/api/chat.postMessage", async (c) => {
@@ -38,7 +84,7 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");
 
-    const ch = ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
+    const ch = findWritableConversation(authUser, channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
 

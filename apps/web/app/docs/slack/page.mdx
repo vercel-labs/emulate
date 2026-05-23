@@ -1,6 +1,6 @@
 # Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation lifecycle writes update archive state, names, topics, and purposes. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Auth
 
@@ -8,7 +8,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 
 ## Chat
 
-- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts`)
+- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields
 - `POST /api/chat.delete` - delete message
@@ -20,7 +20,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 
 ## Conversations
 
-- `POST /api/conversations.list` - list channels (cursor pagination)
+- `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` - get channel info
 - `POST /api/conversations.create` - create channel
 - `POST /api/conversations.archive` - archive channel
@@ -32,6 +32,11 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/conversations.replies` - thread replies with rich message fields
 - `POST /api/conversations.join` - join channel
 - `POST /api/conversations.leave` - leave channel
+- `POST /api/conversations.invite` - invite user to a channel
+- `POST /api/conversations.kick` - remove user from a channel
+- `POST /api/conversations.open` - open or resume DM/MPIM
+- `POST /api/conversations.close` - close DM/MPIM
+- `POST /api/conversations.mark` - set read cursor
 - `POST /api/conversations.members` - list members
 
 ## Users
@@ -77,3 +82,5 @@ When messages are posted, updated, deleted, or reactions change, the emulator di
 - `group_archive` / `group_unarchive` for private lifecycle archive writes
 - `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
 - `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
+- `member_joined_channel` / `member_left_channel` on invite, join, leave, and kick writes
+- `im_created`, `im_open`, `im_close`, `im_marked`, and group open/close/marked events for DM and MPIM writes

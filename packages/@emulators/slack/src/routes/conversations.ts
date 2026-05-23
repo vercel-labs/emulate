@@ -54,6 +54,23 @@ export function conversationsRoutes(ctx: RouteContext): void {
     );
     return msg;
   };
+  const dispatchMemberJoined = async (channel: SlackChannel, user: string, inviter?: string) => {
+    await dispatchConversationEvent("member_joined_channel", {
+      user,
+      channel: channel.channel_id,
+      channel_type: channelTypeLetter(channel),
+      team: channel.team_id,
+      ...(inviter ? { inviter } : {}),
+    });
+  };
+  const dispatchMemberLeft = async (channel: SlackChannel, user: string) => {
+    await dispatchConversationEvent("member_left_channel", {
+      user,
+      channel: channel.channel_id,
+      channel_type: channelTypeLetter(channel),
+      team: channel.team_id,
+    });
+  };
 
   // conversations.list
   app.post("/api/conversations.list", async (c) => {
@@ -64,9 +81,12 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const limit = Math.min(Number(body.limit) || 100, 1000);
     const cursor = typeof body.cursor === "string" ? body.cursor : "";
     const excludeArchived = isTruthySlackBoolean(body.exclude_archived);
+    const types = parseConversationTypes(body.types);
+    const authUserId = getAuthUserId(authUser);
 
     const allChannels = ss()
       .channels.all()
+      .filter((ch) => matchesConversationTypes(ch, types))
       .filter((ch) => !excludeArchived || !ch.is_archived);
 
     // Simple cursor pagination using channel id
@@ -80,7 +100,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const nextCursor = startIndex + limit < allChannels.length ? allChannels[startIndex + limit].channel_id : "";
 
     return slackOk(c, {
-      channels: page.map(formatChannel),
+      channels: page.map((ch) => formatChannel(ch, authUserId)),
       response_metadata: { next_cursor: nextCursor },
     });
   });
@@ -96,7 +116,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const ch = ss().channels.findOneBy("channel_id", channel);
     if (!ch) return slackError(c, "channel_not_found");
 
-    return slackOk(c, { channel: formatChannel(ch) });
+    return slackOk(c, { channel: formatChannel(ch, getAuthUserId(authUser)) });
   });
 
   // conversations.create
@@ -129,12 +149,12 @@ export function conversationsRoutes(ctx: RouteContext): void {
       is_archived: false,
       topic: { value: "", creator: "", last_set: 0 },
       purpose: { value: "", creator: authUser.login, last_set: now },
-      members: [authUser.login],
-      creator: authUser.login,
+      members: [getAuthUserId(authUser)],
+      creator: getAuthUserId(authUser),
       num_members: 1,
     });
 
-    return slackOk(c, { channel: formatChannel(ch) });
+    return slackOk(c, { channel: formatChannel(ch, getAuthUserId(authUser)) });
   });
 
   // conversations.archive
@@ -387,12 +407,16 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const ch = ss().channels.findOneBy("channel_id", channel);
     if (!ch) return slackError(c, "channel_not_found");
+    if (ch.is_archived) return slackError(c, "is_archived");
+    if (ch.is_im || ch.is_mpim) return slackError(c, "method_not_supported_for_channel_type");
 
-    if (!ch.members.includes(authUser.login)) {
-      ss().channels.update(ch.id, {
-        members: [...ch.members, authUser.login],
+    const authUserId = getAuthUserId(authUser);
+    if (!ch.members.includes(authUserId)) {
+      const updated = ss().channels.update(ch.id, {
+        members: [...ch.members, authUserId],
         num_members: ch.num_members + 1,
-      });
+      })!;
+      await dispatchMemberJoined(updated, authUserId);
     }
 
     const updated = ss().channels.findOneBy("channel_id", channel)!;
@@ -409,13 +433,228 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const ch = ss().channels.findOneBy("channel_id", channel);
     if (!ch) return slackError(c, "channel_not_found");
+    if (ch.is_im) return slackError(c, "method_not_supported_for_channel_type");
 
-    if (ch.members.includes(authUser.login)) {
-      ss().channels.update(ch.id, {
-        members: ch.members.filter((m) => m !== authUser.login),
-        num_members: Math.max(0, ch.num_members - 1),
+    const authUserId = getAuthUserId(authUser);
+    if (ch.members.includes(authUserId)) {
+      const updatedMembers = ch.members.filter((m) => m !== authUserId);
+      const updated = ss().channels.update(ch.id, {
+        members: updatedMembers,
+        num_members: updatedMembers.length,
+      })!;
+      await dispatchMemberLeft(updated, authUserId);
+    }
+
+    return slackOk(c, {});
+  });
+
+  // conversations.invite
+  app.post("/api/conversations.invite", async (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return slackError(c, "not_authed");
+
+    const body = await parseSlackBody(c);
+    const channel = typeof body.channel === "string" ? body.channel : "";
+    const users = parseUserList(body.users);
+    if (!channel) return slackError(c, "channel_not_found");
+    if (users.length === 0) return slackError(c, "user_not_found");
+    if (users.length > 100) return slackError(c, "too_many_users");
+
+    const ch = ss().channels.findOneBy("channel_id", channel);
+    if (!ch) return slackError(c, "channel_not_found");
+    if (ch.is_archived) return slackError(c, "is_archived");
+    if (ch.is_im) return slackError(c, "method_not_supported_for_channel_type");
+
+    const authUserId = getAuthUserId(authUser);
+    const authSlackUser = getAuthSlackUser(authUser);
+    if (!isChannelMember(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
+
+    const errors: Array<{ user: string; ok: false; error: string }> = [];
+    const validUsers: string[] = [];
+    for (const userId of users) {
+      const user = ss().users.findOneBy("user_id", userId);
+      if (!user || user.deleted) {
+        errors.push({ user: userId, ok: false, error: "user_not_found" });
+      } else if (userId === authUserId) {
+        errors.push({ user: userId, ok: false, error: "cant_invite_self" });
+      } else if (ch.members.includes(userId)) {
+        errors.push({ user: userId, ok: false, error: "already_in_channel" });
+      } else {
+        validUsers.push(userId);
+      }
+    }
+
+    if (errors.length > 0) {
+      return c.json({ ok: false, error: errors[0].error, errors });
+    }
+
+    const updatedMembers = [...ch.members, ...validUsers];
+    const updated = ss().channels.update(ch.id, {
+      members: updatedMembers,
+      num_members: updatedMembers.length,
+    })!;
+
+    for (const user of validUsers) {
+      await dispatchMemberJoined(updated, user, authUserId);
+    }
+
+    return slackOk(c, { channel: formatChannel(updated, authUserId) });
+  });
+
+  // conversations.kick
+  app.post("/api/conversations.kick", async (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return slackError(c, "not_authed");
+
+    const body = await parseSlackBody(c);
+    const channel = typeof body.channel === "string" ? body.channel : "";
+    const user = typeof body.user === "string" ? body.user : "";
+    if (!channel) return slackError(c, "channel_not_found");
+    if (!user) return slackError(c, "user_not_found");
+
+    const ch = ss().channels.findOneBy("channel_id", channel);
+    if (!ch) return slackError(c, "channel_not_found");
+    if (isGeneralChannel(ch)) return slackError(c, "cant_kick_from_general");
+    if (ch.is_im) return slackError(c, "method_not_supported_for_channel_type");
+
+    const authUserId = getAuthUserId(authUser);
+    const authSlackUser = getAuthSlackUser(authUser);
+    if (!isChannelMember(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
+    if (user === authUserId) return slackError(c, "cant_kick_self");
+    if (!ss().users.findOneBy("user_id", user)) return slackError(c, "user_not_found");
+    if (!ch.members.includes(user)) return slackError(c, "user_not_in_channel");
+
+    const updatedMembers = ch.members.filter((member) => member !== user);
+    const updated = ss().channels.update(ch.id, {
+      members: updatedMembers,
+      num_members: updatedMembers.length,
+    })!;
+    await dispatchMemberLeft(updated, user);
+
+    return slackOk(c, { errors: {} });
+  });
+
+  // conversations.open
+  app.post("/api/conversations.open", async (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return slackError(c, "not_authed");
+
+    const body = await parseSlackBody(c);
+    const channel = typeof body.channel === "string" ? body.channel : "";
+    const users = parseUserList(body.users);
+    const returnIm = isTruthySlackBoolean(body.return_im);
+    const preventCreation = isTruthySlackBoolean(body.prevent_creation);
+    const authUserId = getAuthUserId(authUser);
+
+    if (channel) {
+      const existing = ss().channels.findOneBy("channel_id", channel);
+      if (!existing || (!existing.is_im && !existing.is_mpim)) return slackError(c, "channel_not_found");
+      const alreadyOpen = existing.is_open !== false;
+      const updated = alreadyOpen ? existing : ss().channels.update(existing.id, { is_open: true })!;
+      if (!alreadyOpen) await dispatchConversationEvent(openEventType(updated), { channel: updated.channel_id });
+      return slackOk(c, {
+        ...(alreadyOpen ? { no_op: true, already_open: true } : {}),
+        channel: returnIm ? formatChannel(updated, authUserId) : { id: updated.channel_id },
       });
     }
+
+    if (users.length === 0) return slackError(c, "users_list_not_supplied");
+    if (users.length > 8) return slackError(c, "too_many_users");
+
+    const targetUsers: SlackUser[] = [];
+    for (const userId of users) {
+      if (userId === authUserId) continue;
+      const user = ss().users.findOneBy("user_id", userId);
+      if (!user || user.deleted) return slackError(c, "user_not_found");
+      targetUsers.push(user);
+    }
+    if (targetUsers.length === 0) return slackError(c, "users_list_not_supplied");
+
+    const memberIds = [...new Set([authUserId, ...targetUsers.map((user) => user.user_id)])];
+    const isMpim = memberIds.length > 2;
+    const existing = findConversationByMembers(ss().channels.all(), memberIds, isMpim);
+    if (existing) {
+      const alreadyOpen = existing.is_open !== false;
+      const updated = alreadyOpen ? existing : ss().channels.update(existing.id, { is_open: true })!;
+      if (!alreadyOpen) await dispatchConversationEvent(openEventType(updated), { channel: updated.channel_id });
+      return slackOk(c, {
+        ...(alreadyOpen ? { no_op: true, already_open: true } : {}),
+        channel: returnIm ? formatChannel(updated, authUserId) : { id: updated.channel_id },
+      });
+    }
+    if (preventCreation) return slackError(c, "channel_not_found");
+
+    const team = ss().teams.all()[0];
+    const now = Math.floor(Date.now() / 1000);
+    const created = ss().channels.insert({
+      channel_id: generateSlackId(isMpim ? "G" : "D"),
+      team_id: team?.team_id ?? "T000000001",
+      name: isMpim
+        ? `mpdm-${targetUsers.map((user) => user.name).join("-")}`
+        : targetUsers[0]?.name ?? "direct-message",
+      is_channel: false,
+      is_private: true,
+      is_im: !isMpim,
+      is_mpim: isMpim,
+      is_open: true,
+      user: isMpim ? undefined : targetUsers[0]?.user_id,
+      is_archived: false,
+      topic: { value: "", creator: authUserId, last_set: now },
+      purpose: { value: "", creator: authUserId, last_set: now },
+      members: memberIds,
+      creator: authUserId,
+      num_members: memberIds.length,
+      last_read: {},
+    });
+
+    await dispatchConversationEvent(created.is_im ? "im_created" : "group_joined", {
+      channel: formatChannel(created, authUserId),
+    });
+    await dispatchConversationEvent(openEventType(created), { channel: created.channel_id });
+
+    return slackOk(c, { channel: returnIm ? formatChannel(created, authUserId) : { id: created.channel_id } });
+  });
+
+  // conversations.close
+  app.post("/api/conversations.close", async (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return slackError(c, "not_authed");
+
+    const body = await parseSlackBody(c);
+    const channel = typeof body.channel === "string" ? body.channel : "";
+    if (!channel) return slackError(c, "channel_not_found");
+
+    const ch = ss().channels.findOneBy("channel_id", channel);
+    if (!ch || (!ch.is_im && !ch.is_mpim)) return slackError(c, "channel_not_found");
+    if (ch.is_open === false) return slackOk(c, { no_op: true, already_closed: true });
+
+    const updated = ss().channels.update(ch.id, { is_open: false })!;
+    await dispatchConversationEvent(closeEventType(updated), { channel: updated.channel_id });
+    return slackOk(c, {});
+  });
+
+  // conversations.mark
+  app.post("/api/conversations.mark", async (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return slackError(c, "not_authed");
+
+    const body = await parseSlackBody(c);
+    const channel = typeof body.channel === "string" ? body.channel : "";
+    const ts = typeof body.ts === "string" ? body.ts : "";
+    if (!channel) return slackError(c, "channel_not_found");
+    if (!ts) return slackError(c, "invalid_ts");
+
+    const ch = ss().channels.findOneBy("channel_id", channel);
+    if (!ch) return slackError(c, "channel_not_found");
+
+    const authUserId = getAuthUserId(authUser);
+    const authSlackUser = getAuthSlackUser(authUser);
+    if (!isChannelMember(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
+
+    ss().channels.update(ch.id, {
+      last_read: { ...(ch.last_read ?? {}), [authUserId]: ts },
+    });
+    await dispatchConversationEvent(markEventType(ch), { channel: ch.channel_id, ts });
 
     return slackOk(c, {});
   });
@@ -438,13 +677,21 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 }
 
-function formatChannel(ch: SlackChannel) {
+function formatChannel(ch: SlackChannel, viewer?: string) {
   return {
     id: ch.channel_id,
     name: ch.name,
+    name_normalized: ch.name,
     is_channel: ch.is_channel,
+    is_group: ch.is_private && !ch.is_im && !ch.is_mpim,
+    is_im: ch.is_im ?? false,
+    is_mpim: ch.is_mpim ?? false,
     is_private: ch.is_private,
     is_archived: ch.is_archived,
+    is_open: ch.is_open ?? false,
+    ...(ch.user ? { user: ch.user } : {}),
+    is_member: viewer ? ch.members.includes(viewer) : undefined,
+    last_read: viewer ? (ch.last_read?.[viewer] ?? "0000000000.000000") : undefined,
     topic: ch.topic,
     purpose: ch.purpose,
     creator: ch.creator,
@@ -494,4 +741,59 @@ function conversationEventPrefix(ch: SlackChannel): "channel" | "group" {
 
 function conversationNoun(ch: SlackChannel): "channel" | "group" {
   return ch.is_private ? "group" : "channel";
+}
+
+function parseConversationTypes(value: unknown): Set<string> {
+  const raw = typeof value === "string" && value.length > 0 ? value : "public_channel";
+  return new Set(raw.split(",").map((type) => type.trim()).filter(Boolean));
+}
+
+function matchesConversationTypes(ch: SlackChannel, types: Set<string>): boolean {
+  if (types.has("public_channel") && !ch.is_private && !ch.is_im && !ch.is_mpim) return true;
+  if (types.has("private_channel") && ch.is_private && !ch.is_im && !ch.is_mpim) return true;
+  if (types.has("im") && ch.is_im) return true;
+  if (types.has("mpim") && ch.is_mpim) return true;
+  return false;
+}
+
+function parseUserList(value: unknown): string[] {
+  const users = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  return [...new Set(users.map((user) => String(user).trim()).filter(Boolean))];
+}
+
+function sameMembers(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const leftKey = [...left].sort().join(",");
+  const rightKey = [...right].sort().join(",");
+  return leftKey === rightKey;
+}
+
+function findConversationByMembers(
+  channels: SlackChannel[],
+  members: string[],
+  isMpim: boolean,
+): SlackChannel | undefined {
+  return channels.find(
+    (ch) => Boolean(ch.is_mpim) === isMpim && Boolean(ch.is_im) === !isMpim && sameMembers(ch.members, members),
+  );
+}
+
+function channelTypeLetter(ch: SlackChannel): "C" | "D" | "G" {
+  if (ch.is_im) return "D";
+  if (ch.is_private || ch.is_mpim) return "G";
+  return "C";
+}
+
+function openEventType(ch: SlackChannel): "group_open" | "im_open" {
+  return ch.is_im ? "im_open" : "group_open";
+}
+
+function closeEventType(ch: SlackChannel): "group_close" | "im_close" {
+  return ch.is_im ? "im_close" : "group_close";
+}
+
+function markEventType(ch: SlackChannel): "channel_marked" | "group_marked" | "im_marked" {
+  if (ch.is_im) return "im_marked";
+  if (ch.is_private || ch.is_mpim) return "group_marked";
+  return "channel_marked";
 }

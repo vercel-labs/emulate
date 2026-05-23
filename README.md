@@ -598,11 +598,11 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 ## Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation lifecycle writes update archive state, names, topics, and purposes.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors.
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
-- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts`)
+- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields
 - `POST /api/chat.delete` - delete message
@@ -613,7 +613,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/chat.meMessage` - /me message
 
 ### Conversations
-- `POST /api/conversations.list` - list channels (cursor pagination)
+- `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` - get channel info
 - `POST /api/conversations.create` - create channel
 - `POST /api/conversations.archive` / `conversations.unarchive` - archive/restore channel
@@ -622,6 +622,9 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/conversations.history` - channel history with rich message fields
 - `POST /api/conversations.replies` - thread replies with rich message fields
 - `POST /api/conversations.join` / `conversations.leave` - join/leave
+- `POST /api/conversations.invite` / `conversations.kick` - manage membership
+- `POST /api/conversations.open` / `conversations.close` - open/close DMs and MPIMs
+- `POST /api/conversations.mark` - mark read cursor
 - `POST /api/conversations.members` - list members
 
 ### Users & Reactions

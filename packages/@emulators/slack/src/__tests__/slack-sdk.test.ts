@@ -202,6 +202,56 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect((unarchivedInfo.channel as any).is_archived).toBe(false);
   });
 
+  it("exercises membership and DM writes through the Slack SDK", async () => {
+    expect(emulator).toBeDefined();
+    const ss = getSlackStore(emulator!.store);
+    ss.users.insert({
+      user_id: "U000000002",
+      team_id: "T000000001",
+      name: "sdk-teammate",
+      real_name: "sdk-teammate",
+      email: "sdk-teammate@emulate.dev",
+      is_admin: false,
+      is_bot: false,
+      deleted: false,
+      profile: {
+        display_name: "sdk-teammate",
+        real_name: "sdk-teammate",
+        email: "sdk-teammate@emulate.dev",
+        image_48: "",
+        image_192: "",
+      },
+    });
+
+    const created = await client.conversations.create({ name: "sdk-membership-dms" });
+    const channel = created.channel!.id!;
+
+    const invited = await client.conversations.invite({ channel, users: "U000000002" });
+    expect(invited.ok).toBe(true);
+
+    const members = await client.conversations.members({ channel });
+    expect(members.members).toContain("U000000002");
+
+    const kicked = await client.conversations.kick({ channel, user: "U000000002" });
+    expect(kicked.ok).toBe(true);
+
+    const dm = await client.conversations.open({ users: "U000000002", return_im: true } as any);
+    expect(dm.ok).toBe(true);
+    const dmChannel = dm.channel!.id!;
+    expect((dm.channel as any).is_im).toBe(true);
+
+    const posted = await client.chat.postMessage({ channel: "U000000002", text: "DM from WebClient" });
+    expect(posted.ok).toBe(true);
+    expect(posted.channel).toBe(dmChannel);
+
+    await expect(client.conversations.mark({ channel: dmChannel, ts: posted.ts! })).resolves.toMatchObject({
+      ok: true,
+    });
+
+    const closed = await client.conversations.close({ channel: dmChannel });
+    expect(closed.ok).toBe(true);
+  });
+
   it("exercises users, reactions, and bots through the Slack SDK", async () => {
     expect(emulator).toBeDefined();
     const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;
