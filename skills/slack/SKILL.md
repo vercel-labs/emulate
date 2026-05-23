@@ -220,16 +220,16 @@ curl -X POST http://localhost:4003/api/conversations.create \
   -H "Content-Type: application/json" \
   -d '{"name": "new-channel", "is_private": false}'
 
-# Archive / unarchive channel
+# Archive and unarchive a non-general channel
 curl -X POST http://localhost:4003/api/conversations.archive \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"channel": "C000000001"}'
+  -d '{"channel": "C000000002"}'
 
 curl -X POST http://localhost:4003/api/conversations.unarchive \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"channel": "C000000001"}'
+  -d '{"channel": "C000000002"}'
 
 # Rename channel
 curl -X POST http://localhost:4003/api/conversations.rename \

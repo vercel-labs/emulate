@@ -63,10 +63,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const limit = Math.min(Number(body.limit) || 100, 1000);
     const cursor = typeof body.cursor === "string" ? body.cursor : "";
+    const excludeArchived = isTruthySlackBoolean(body.exclude_archived);
 
     const allChannels = ss()
       .channels.all()
-      .filter((ch) => !ch.is_archived);
+      .filter((ch) => !excludeArchived || !ch.is_archived);
 
     // Simple cursor pagination using channel id
     let startIndex = 0;
@@ -147,7 +148,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const ch = ss().channels.findOneBy("channel_id", channel);
     if (!ch) return slackError(c, "channel_not_found");
-    if (ch.name === "general") return slackError(c, "cant_archive_general");
+    if (isGeneralChannel(ch)) return slackError(c, "cant_archive_general");
     if (ch.is_archived) return slackError(c, "already_archived");
 
     const authSlackUser = getAuthSlackUser(authUser);
@@ -460,4 +461,15 @@ function validateChannelName(name: string): string | undefined {
   if (!/[a-z0-9]/.test(name)) return "invalid_name_punctuation";
   if (!/^[a-z0-9_-]+$/.test(name)) return "invalid_name_specials";
   return undefined;
+}
+
+function isTruthySlackBoolean(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.toLowerCase();
+  return normalized === "true" || normalized === "1";
+}
+
+function isGeneralChannel(ch: SlackChannel): boolean {
+  return ch.channel_id === "C000000001" || ch.name === "general";
 }

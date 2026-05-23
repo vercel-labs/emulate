@@ -97,7 +97,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.list",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
-    notes: "Lists non-archived channels with simple cursor pagination. Type filtering is future work.",
+    notes: "Lists channels with simple cursor pagination and supports exclude_archived. Type filtering is future work.",
   },
   {
     family: "conversations",

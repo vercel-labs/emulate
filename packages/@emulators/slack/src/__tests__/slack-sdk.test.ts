@@ -192,7 +192,7 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     const archivedInfo = await client.conversations.info({ channel });
     expect((archivedInfo.channel as any).is_archived).toBe(true);
 
-    const list = await client.conversations.list();
+    const list = await client.conversations.list({ exclude_archived: true });
     expect(list.channels?.map((ch) => ch.id)).not.toContain(channel);
 
     const unarchived = await client.conversations.unarchive({ channel });

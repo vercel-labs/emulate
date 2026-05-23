@@ -738,7 +738,16 @@ describe("Slack plugin - conversations", () => {
       headers: authHeaders(),
     });
     const list = (await listRes.json()) as any;
-    expect(list.channels.map((channel: any) => channel.id)).not.toContain(channelId);
+    expect(list.channels.map((channel: any) => channel.id)).toContain(channelId);
+    expect(list.channels.find((channel: any) => channel.id === channelId).is_archived).toBe(true);
+
+    const excludeArchivedListRes = await app.request(`${base}/api/conversations.list`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ exclude_archived: true }),
+    });
+    const excludeArchivedList = (await excludeArchivedListRes.json()) as any;
+    expect(excludeArchivedList.channels.map((channel: any) => channel.id)).not.toContain(channelId);
 
     const duplicateArchiveRes = await app.request(`${base}/api/conversations.archive`, {
       method: "POST",
@@ -778,6 +787,21 @@ describe("Slack plugin - conversations", () => {
     const archiveGeneral = (await archiveGeneralRes.json()) as any;
     expect(archiveGeneral.ok).toBe(false);
     expect(archiveGeneral.error).toBe("cant_archive_general");
+
+    await app.request(`${base}/api/conversations.rename`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: general.channel_id, name: "renamed-general" }),
+    });
+
+    const archiveRenamedGeneralRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: general.channel_id }),
+    });
+    const archiveRenamedGeneral = (await archiveRenamedGeneralRes.json()) as any;
+    expect(archiveRenamedGeneral.ok).toBe(false);
+    expect(archiveRenamedGeneral.error).toBe("cant_archive_general");
 
     const unarchiveActiveRes = await app.request(`${base}/api/conversations.unarchive`, {
       method: "POST",
