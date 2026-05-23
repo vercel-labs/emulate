@@ -110,5 +110,6 @@ describe("Slack plugin - event dispatch baseline", () => {
         text: "webhook event baseline",
       },
     });
+    expect((capture.jsonBodies()[0] as any).event.user).toBeUndefined();
   });
 });

@@ -87,13 +87,15 @@ export function webhookRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
+    const { user: _user, ...eventMessage } = formatSlackMessage(msg);
+
     await webhooks.dispatch(
       "message",
       undefined,
       {
         type: "event_callback",
         event: {
-          ...formatSlackMessage(msg),
+          ...eventMessage,
           type: "message",
           subtype: "bot_message",
           channel: targetChannel.channel_id,

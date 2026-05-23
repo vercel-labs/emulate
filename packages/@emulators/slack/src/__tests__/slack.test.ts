@@ -923,6 +923,26 @@ describe("Slack plugin - Message Inspector", () => {
     expect(html).toContain("Inspector test message");
   });
 
+  it("shows rich messages with no text in the inspector", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        channel: ch.channel_id,
+        blocks: [{ type: "section", text: { type: "plain_text", text: "Inspector rich block" } }],
+      }),
+    });
+
+    const res = await app.request(`${base}/?channel=${ch.channel_id}`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Inspector rich block");
+    expect(html).toContain('badge badge-granted">rich');
+  });
+
   it("switches channels via query param", async () => {
     const ss = getSlackStore(store);
     const randomCh = ss.channels.findOneBy("name", "random")!;

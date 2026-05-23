@@ -21,10 +21,54 @@ function renderReactions(reactions: Array<{ name: string; count: number }>): str
   return `<div style="margin-top:4px">${badges}</div>`;
 }
 
+function collectTextValues(value: unknown, output: string[]): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectTextValues(item, output);
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+
+  const record = value as Record<string, unknown>;
+  const text = record.text;
+  if (typeof text === "string" && text.trim().length > 0) {
+    output.push(text);
+  } else {
+    collectTextValues(text, output);
+  }
+  collectTextValues(record.fields, output);
+  collectTextValues(record.elements, output);
+  collectTextValues(record.accessory, output);
+}
+
+function richMessagePreview(msg: SlackMessage): string {
+  if (msg.text.trim().length > 0) return msg.text;
+
+  const blockText: string[] = [];
+  collectTextValues(msg.blocks, blockText);
+  if (blockText.length > 0) return blockText.join(" ");
+
+  const attachmentText =
+    msg.attachments
+      ?.flatMap((attachment) => [attachment.text, attachment.title])
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0) ?? [];
+  if (attachmentText.length > 0) return attachmentText.join(" ");
+
+  if (msg.blocks?.length) return `${msg.blocks.length} ${msg.blocks.length === 1 ? "block" : "blocks"}`;
+  if (msg.attachments?.length) {
+    return `${msg.attachments.length} ${msg.attachments.length === 1 ? "attachment" : "attachments"}`;
+  }
+  return msg.text;
+}
+
 function renderMessage(msg: SlackMessage, users: Map<string, string>): string {
   const displayName = users.get(msg.user) ?? msg.user;
   const isBot = msg.subtype === "bot_message";
   const letter = isBot ? "B" : (displayName[0] ?? "?").toUpperCase();
+  const messageText = richMessagePreview(msg);
+  const richBadge =
+    msg.text.length === 0 && ((msg.blocks?.length ?? 0) > 0 || (msg.attachments?.length ?? 0) > 0)
+      ? ' <span class="badge badge-granted">rich</span>'
+      : "";
   const threadBadge =
     msg.reply_count > 0
       ? ` <span class="badge badge-requested">${msg.reply_count} ${msg.reply_count === 1 ? "reply" : "replies"}</span>`
@@ -37,7 +81,7 @@ function renderMessage(msg: SlackMessage, users: Map<string, string>): string {
   <span class="org-name">${escapeHtml(displayName)}${isBot ? ' <span class="badge badge-granted">bot</span>' : ""}</span>
   <span class="user-meta" style="margin-left:auto">${timeAgo(msg.created_at)}</span>
 </div>
-<div class="info-text">${threadIndicator}${escapeHtml(msg.text)}${threadBadge}</div>
+<div class="info-text">${threadIndicator}${escapeHtml(messageText)}${richBadge}${threadBadge}</div>
 ${renderReactions(msg.reactions)}`;
 }
 
