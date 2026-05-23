@@ -272,27 +272,41 @@ curl -X POST http://localhost:4003/api/conversations.join \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
 
+# Discover IDs before membership or DM examples
+curl -X POST http://localhost:4003/api/users.list \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST http://localhost:4003/api/conversations.list \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"types": "public_channel,private_channel"}'
+
+CHANNEL_ID="<channel-id-from-conversations.list>"
+USER_ID="<user-id-from-users.list>"
+
 # Invite / kick user
 curl -X POST http://localhost:4003/api/conversations.invite \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"channel": "C000000002", "users": "U000000002"}'
+  -d "{\"channel\": \"$CHANNEL_ID\", \"users\": \"$USER_ID\"}"
 
 curl -X POST http://localhost:4003/api/conversations.kick \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"channel": "C000000002", "user": "U000000002"}'
+  -d "{\"channel\": \"$CHANNEL_ID\", \"user\": \"$USER_ID\"}"
 
-# Open / close DM
+# Open DM, then set DM_CHANNEL_ID to the returned channel.id
 curl -X POST http://localhost:4003/api/conversations.open \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"users": "U000000002", "return_im": true}'
+  -d "{\"users\": \"$USER_ID\", \"return_im\": true}"
+
+DM_CHANNEL_ID="<channel.id-from-conversations.open>"
 
 curl -X POST http://localhost:4003/api/conversations.close \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"channel": "D000000001"}'
+  -d "{\"channel\": \"$DM_CHANNEL_ID\"}"
 
 # Mark conversation read
 curl -X POST http://localhost:4003/api/conversations.mark \
