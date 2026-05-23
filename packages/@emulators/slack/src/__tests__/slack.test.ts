@@ -645,9 +645,10 @@ describe("Slack plugin - chat.postEphemeral", () => {
 describe("Slack plugin - scheduled messages", () => {
   let app: SlackTestApp["app"];
   let store: Store;
+  let tokenMap: SlackTestApp["tokenMap"];
 
   beforeEach(() => {
-    ({ app, store } = createTestApp());
+    ({ app, store, tokenMap } = createTestApp());
   });
 
   it("schedules, lists, and deletes a message", async () => {
@@ -701,6 +702,46 @@ describe("Slack plugin - scheduled messages", () => {
     });
     expect(((await deleteRes.json()) as any).ok).toBe(true);
     expect(ss.scheduledMessages.all()).toEqual([]);
+  });
+
+  it("scopes scheduled message list and delete to the author", async () => {
+    insertSlackTestUser(store, "U000000002", "scheduled-peer");
+    tokenMap.set("xoxb-scheduled-peer-token", { login: "U000000002", id: 2, scopes: ["chat:write"] });
+    const peerHeaders = { Authorization: "Bearer xoxb-scheduled-peer-token", "Content-Type": "application/json" };
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const postAt = Math.floor(Date.now() / 1000) + 3600;
+
+    const scheduleRes = await app.request(`${base}/api/chat.scheduleMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        channel: ch.channel_id,
+        text: "admin scheduled message",
+        post_at: postAt,
+      }),
+    });
+    const scheduled = (await scheduleRes.json()) as any;
+    expect(scheduled.ok).toBe(true);
+
+    const peerListRes = await app.request(`${base}/api/chat.scheduledMessages.list`, {
+      method: "POST",
+      headers: peerHeaders,
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const peerList = (await peerListRes.json()) as any;
+    expect(peerList.ok).toBe(true);
+    expect(peerList.scheduled_messages).toEqual([]);
+
+    const peerDeleteRes = await app.request(`${base}/api/chat.deleteScheduledMessage`, {
+      method: "POST",
+      headers: peerHeaders,
+      body: JSON.stringify({ channel: ch.channel_id, scheduled_message_id: scheduled.scheduled_message_id }),
+    });
+    const peerDelete = (await peerDeleteRes.json()) as any;
+    expect(peerDelete.ok).toBe(false);
+    expect(peerDelete.error).toBe("cant_delete_message");
+    expect(ss.scheduledMessages.findOneBy("scheduled_message_id", scheduled.scheduled_message_id)).toBeDefined();
   });
 
   it("returns time_in_past for past scheduled messages", async () => {
@@ -803,6 +844,39 @@ describe("Slack plugin - conversations", () => {
     expect(body.ok).toBe(true);
     expect(body.channel.id).toBe(ch.channel_id);
     expect(body.channel.name).toBe(ch.name);
+  });
+
+  it("handles legacy username channel membership consistently", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.findOneBy("name", "random")!;
+    ss.channels.update(ch.id, { members: ["admin"], num_members: 1 });
+
+    const infoRes = await app.request(`${base}/api/conversations.info`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const info = (await infoRes.json()) as any;
+    expect(info.ok).toBe(true);
+    expect(info.channel.is_member).toBe(true);
+
+    const joinRes = await app.request(`${base}/api/conversations.join`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const joined = (await joinRes.json()) as any;
+    expect(joined.ok).toBe(true);
+    expect(joined.channel.num_members).toBe(1);
+    expect(ss.channels.findOneBy("channel_id", ch.channel_id)?.members).toEqual(["admin"]);
+
+    const leaveRes = await app.request(`${base}/api/conversations.leave`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    expect(((await leaveRes.json()) as any).ok).toBe(true);
+    expect(ss.channels.findOneBy("channel_id", ch.channel_id)?.members).toEqual([]);
   });
 
   it("hides private channel reads from non-members", async () => {

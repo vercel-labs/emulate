@@ -35,7 +35,7 @@ export function chatRoutes(ctx: RouteContext): void {
   };
   const canAccessConversation = (channel: SlackChannel, authUser: { login: string }) =>
     !channel.is_private || isAuthChannelMember(channel, authUser);
-  const isAuthoredByUser = (msg: SlackMessage, authUser: { login: string }) => {
+  const isAuthoredByUser = (msg: { user: string }, authUser: { login: string }) => {
     const user = getAuthSlackUser(authUser);
     return msg.user === authUser.login || msg.user === user?.user_id || msg.user === user?.name;
   };
@@ -412,6 +412,7 @@ export function chatRoutes(ctx: RouteContext): void {
       .scheduledMessages.all()
       .find((m) => m.channel_id === ch.channel_id && m.scheduled_message_id === scheduledMessageId);
     if (!scheduled) return slackError(c, "invalid_scheduled_message_id");
+    if (!isAuthoredByUser(scheduled, authUser)) return slackError(c, "cant_delete_message");
 
     ss().scheduledMessages.delete(scheduled.id);
     return slackOk(c, {});
@@ -446,6 +447,7 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const allScheduled = ss()
       .scheduledMessages.all()
+      .filter((msg) => isAuthoredByUser(msg, authUser))
       .filter((msg) => !ch || msg.channel_id === ch.channel_id)
       .filter((msg) => {
         const messageChannel = ss().channels.findOneBy("channel_id", msg.channel_id);

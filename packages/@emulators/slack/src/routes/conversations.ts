@@ -18,8 +18,14 @@ export function conversationsRoutes(ctx: RouteContext): void {
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
+  const memberAliases = (user: SlackUser | undefined, userId: string) =>
+    new Set([userId, user?.name].filter((value): value is string => Boolean(value)));
+  const getChannelMemberKey = (channel: SlackChannel, user: SlackUser | undefined, userId: string) => {
+    const aliases = memberAliases(user, userId);
+    return channel.members.find((member) => aliases.has(member));
+  };
   const isChannelMember = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
-    channel.members.includes(userId) || (user ? channel.members.includes(user.name) : false);
+    getChannelMemberKey(channel, user, userId) !== undefined;
   const canReadConversation = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
     !channel.is_private || isChannelMember(channel, user, userId);
   const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
@@ -113,7 +119,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const nextCursor = startIndex + limit < allChannels.length ? allChannels[startIndex + limit].channel_id : "";
 
     return slackOk(c, {
-      channels: page.map((ch) => formatChannel(ch, authUserId)),
+      channels: page.map((ch) => formatChannel(ch, authUserId, authSlackUser?.name)),
       response_metadata: { next_cursor: nextCursor },
     });
   });
@@ -132,7 +138,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const authUserId = getAuthUserId(authUser);
     if (!canReadConversation(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
 
-    return slackOk(c, { channel: formatChannel(ch, authUserId) });
+    return slackOk(c, { channel: formatChannel(ch, authUserId, authSlackUser?.name) });
   });
 
   // conversations.create
@@ -169,7 +175,9 @@ export function conversationsRoutes(ctx: RouteContext): void {
       num_members: 1,
     });
 
-    return slackOk(c, { channel: formatChannel(ch, getAuthUserId(authUser)) });
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = getAuthUserId(authUser);
+    return slackOk(c, { channel: formatChannel(ch, authUserId, authSlackUser?.name) });
   });
 
   // conversations.archive
@@ -269,7 +277,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const existing = findNamedChannel(ss().channels.all(), name);
     if (existing && existing.id !== ch.id) return slackError(c, "name_taken");
-    if (name === ch.name) return slackOk(c, { channel: formatChannel(ch) });
+    if (name === ch.name) return slackOk(c, { channel: formatChannel(ch, authUserId, authSlackUser?.name) });
 
     const oldName = ch.name;
     const updated = ss().channels.update(ch.id, { name })!;
@@ -287,7 +295,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       name: updated.name,
     });
 
-    return slackOk(c, { channel: formatChannel(updated) });
+    return slackOk(c, { channel: formatChannel(updated, authUserId, authSlackUser?.name) });
   });
 
   // conversations.setTopic
@@ -322,7 +330,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       topic,
     });
 
-    return slackOk(c, { channel: formatChannel(updated) });
+    return slackOk(c, { channel: formatChannel(updated, authUserId, authSlackUser?.name) });
   });
 
   // conversations.setPurpose
@@ -357,7 +365,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       purpose,
     });
 
-    return slackOk(c, { purpose, channel: formatChannel(updated) });
+    return slackOk(c, { purpose, channel: formatChannel(updated, authUserId, authSlackUser?.name) });
   });
 
   // conversations.history
@@ -447,7 +455,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
       return slackError(c, "not_in_channel");
     }
 
-    if (!ch.members.includes(authUserId)) {
+    const memberKey = getChannelMemberKey(ch, authSlackUser, authUserId);
+    if (!memberKey) {
       const updated = ss().channels.update(ch.id, {
         members: [...ch.members, authUserId],
         num_members: ch.num_members + 1,
@@ -456,7 +465,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     }
 
     const updated = ss().channels.findOneBy("channel_id", channel)!;
-    return slackOk(c, { channel: formatChannel(updated) });
+    return slackOk(c, { channel: formatChannel(updated, authUserId, authSlackUser?.name) });
   });
 
   // conversations.leave
@@ -472,8 +481,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
     if (ch.is_im) return slackError(c, "method_not_supported_for_channel_type");
 
     const authUserId = getAuthUserId(authUser);
-    if (ch.members.includes(authUserId)) {
-      const updatedMembers = ch.members.filter((m) => m !== authUserId);
+    const authSlackUser = getAuthSlackUser(authUser);
+    const memberKey = getChannelMemberKey(ch, authSlackUser, authUserId);
+    if (memberKey) {
+      const aliases = memberAliases(authSlackUser, authUserId);
+      const updatedMembers = ch.members.filter((m) => !aliases.has(m));
       const updated = ss().channels.update(ch.id, {
         members: updatedMembers,
         num_members: updatedMembers.length,
@@ -513,7 +525,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
         errors.push({ user: userId, ok: false, error: "user_not_found" });
       } else if (userId === authUserId) {
         errors.push({ user: userId, ok: false, error: "cant_invite_self" });
-      } else if (ch.members.includes(userId)) {
+      } else if (isChannelMember(ch, user, userId)) {
         errors.push({ user: userId, ok: false, error: "already_in_channel" });
       } else {
         validUsers.push(userId);
@@ -534,7 +546,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       await dispatchMemberJoined(updated, user, authUserId);
     }
 
-    return slackOk(c, { channel: formatChannel(updated, authUserId) });
+    return slackOk(c, { channel: formatChannel(updated, authUserId, authSlackUser?.name) });
   });
 
   // conversations.kick
@@ -558,10 +570,13 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const authSlackUser = getAuthSlackUser(authUser);
     if (!isChannelMember(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
     if (user === authUserId) return slackError(c, "cant_kick_self");
-    if (!ss().users.findOneBy("user_id", user)) return slackError(c, "user_not_found");
-    if (!ch.members.includes(user)) return slackError(c, "user_not_in_channel");
+    const targetUser = ss().users.findOneBy("user_id", user);
+    if (!targetUser) return slackError(c, "user_not_found");
+    const targetMemberKey = getChannelMemberKey(ch, targetUser, user);
+    if (!targetMemberKey) return slackError(c, "user_not_in_channel");
 
-    const updatedMembers = ch.members.filter((member) => member !== user);
+    const targetAliases = memberAliases(targetUser, user);
+    const updatedMembers = ch.members.filter((member) => !targetAliases.has(member));
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
       num_members: updatedMembers.length,
@@ -582,11 +597,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const returnIm = isTruthySlackBoolean(body.return_im);
     const preventCreation = isTruthySlackBoolean(body.prevent_creation);
     const authUserId = getAuthUserId(authUser);
+    const authSlackUser = getAuthSlackUser(authUser);
 
     if (channel) {
       const existing = ss().channels.findOneBy("channel_id", channel);
       if (!existing || (!existing.is_im && !existing.is_mpim)) return slackError(c, "channel_not_found");
-      const authSlackUser = getAuthSlackUser(authUser);
       if (!isChannelMember(existing, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
       const alreadyOpen = getSlackConversationOpenState(existing, authUserId);
       const updated = alreadyOpen
@@ -595,7 +610,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       if (!alreadyOpen) await dispatchConversationEvent(openEventType(updated), { channel: updated.channel_id });
       return slackOk(c, {
         ...(alreadyOpen ? { no_op: true, already_open: true } : {}),
-        channel: returnIm ? formatChannel(updated, authUserId) : { id: updated.channel_id },
+        channel: returnIm ? formatChannel(updated, authUserId, authSlackUser?.name) : { id: updated.channel_id },
       });
     }
 
@@ -622,7 +637,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       if (!alreadyOpen) await dispatchConversationEvent(openEventType(updated), { channel: updated.channel_id });
       return slackOk(c, {
         ...(alreadyOpen ? { no_op: true, already_open: true } : {}),
-        channel: returnIm ? formatChannel(updated, authUserId) : { id: updated.channel_id },
+        channel: returnIm ? formatChannel(updated, authUserId, authSlackUser?.name) : { id: updated.channel_id },
       });
     }
     if (preventCreation) return slackError(c, "channel_not_found");
@@ -651,11 +666,13 @@ export function conversationsRoutes(ctx: RouteContext): void {
     });
 
     await dispatchConversationEvent(created.is_im ? "im_created" : "group_joined", {
-      channel: formatChannel(created, authUserId),
+      channel: formatChannel(created, authUserId, authSlackUser?.name),
     });
     await dispatchConversationEvent(openEventType(created), { channel: created.channel_id });
 
-    return slackOk(c, { channel: returnIm ? formatChannel(created, authUserId) : { id: created.channel_id } });
+    return slackOk(c, {
+      channel: returnIm ? formatChannel(created, authUserId, authSlackUser?.name) : { id: created.channel_id },
+    });
   });
 
   // conversations.close
@@ -728,8 +745,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 }
 
-function formatChannel(ch: SlackChannel, viewer?: string) {
+function formatChannel(ch: SlackChannel, viewer?: string, viewerName?: string) {
   const imUser = ch.is_im && viewer ? ch.members.find((member) => member !== viewer) : ch.user;
+  const isMember = viewer
+    ? ch.members.includes(viewer) || (viewerName !== undefined && ch.members.includes(viewerName))
+    : undefined;
   return {
     id: ch.channel_id,
     name: ch.name,
@@ -742,7 +762,7 @@ function formatChannel(ch: SlackChannel, viewer?: string) {
     is_archived: ch.is_archived,
     is_open: getSlackConversationOpenState(ch, viewer),
     ...(imUser ? { user: imUser } : {}),
-    is_member: viewer ? ch.members.includes(viewer) : undefined,
+    is_member: viewer ? isMember : undefined,
     last_read: viewer ? (ch.last_read?.[viewer] ?? "0000000000.000000") : undefined,
     topic: ch.topic,
     purpose: ch.purpose,
