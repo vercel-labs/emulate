@@ -97,7 +97,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.list",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
-    notes: "Lists non-archived channels with simple cursor pagination. Type filtering is future work.",
+    notes: "Lists channels with simple cursor pagination and supports exclude_archived. Type filtering is future work.",
   },
   {
     family: "conversations",
@@ -114,6 +114,51 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Creates public or private channels and rejects duplicate names.",
+  },
+  {
+    family: "conversations",
+    method: "conversations.archive",
+    route: "POST /api/conversations.archive",
+    status: "partial",
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    notes:
+      "Archives channels, excludes them from list results, and dispatches channel_archive or group_archive lifecycle events.",
+  },
+  {
+    family: "conversations",
+    method: "conversations.unarchive",
+    route: "POST /api/conversations.unarchive",
+    status: "partial",
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    notes:
+      "Unarchives channels, adds the caller back to membership when needed, and dispatches channel_unarchive or group_unarchive lifecycle events.",
+  },
+  {
+    family: "conversations",
+    method: "conversations.rename",
+    route: "POST /api/conversations.rename",
+    status: "partial",
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    notes:
+      "Renames member-visible channels with basic Slack name validation and dispatches channel_rename or group_rename events.",
+  },
+  {
+    family: "conversations",
+    method: "conversations.setTopic",
+    route: "POST /api/conversations.setTopic",
+    status: "partial",
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    notes:
+      "Updates channel topic metadata, validates membership and length, and dispatches channel_topic or group_topic messages.",
+  },
+  {
+    family: "conversations",
+    method: "conversations.setPurpose",
+    route: "POST /api/conversations.setPurpose",
+    status: "partial",
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    notes:
+      "Updates channel purpose metadata, validates membership and length, and dispatches channel_purpose or group_purpose messages.",
   },
   {
     family: "conversations",

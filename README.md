@@ -598,7 +598,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 ## Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation lifecycle writes update archive state, names, topics, and purposes.
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
@@ -616,6 +616,9 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/conversations.list` - list channels (cursor pagination)
 - `POST /api/conversations.info` - get channel info
 - `POST /api/conversations.create` - create channel
+- `POST /api/conversations.archive` / `conversations.unarchive` - archive/restore channel
+- `POST /api/conversations.rename` - rename channel
+- `POST /api/conversations.setTopic` / `conversations.setPurpose` - update topic/purpose
 - `POST /api/conversations.history` - channel history with rich message fields
 - `POST /api/conversations.replies` - thread replies with rich message fields
 - `POST /api/conversations.join` / `conversations.leave` - join/leave

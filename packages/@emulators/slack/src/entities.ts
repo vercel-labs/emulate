@@ -62,6 +62,10 @@ export interface SlackMessage extends Entity {
   app_id?: string;
   client_msg_id?: string;
   reply_broadcast?: boolean;
+  topic?: string;
+  purpose?: string;
+  old_name?: string;
+  name?: string;
   edited?: { user: string; ts: string };
   thread_ts?: string;
   reply_count: number;

@@ -1,6 +1,6 @@
 # Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation lifecycle writes update archive state, names, topics, and purposes. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Auth
 
@@ -23,6 +23,11 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/conversations.list` - list channels (cursor pagination)
 - `POST /api/conversations.info` - get channel info
 - `POST /api/conversations.create` - create channel
+- `POST /api/conversations.archive` - archive channel
+- `POST /api/conversations.unarchive` - restore archived channel
+- `POST /api/conversations.rename` - rename channel
+- `POST /api/conversations.setTopic` - update channel topic
+- `POST /api/conversations.setPurpose` - update channel purpose
 - `POST /api/conversations.history` - channel history with rich message fields (top-level messages)
 - `POST /api/conversations.replies` - thread replies with rich message fields
 - `POST /api/conversations.join` - join channel
@@ -68,3 +73,7 @@ When messages are posted, updated, deleted, or reactions change, the emulator di
 - rich message fields are included on posted `message` events when present
 - `reaction_added` / `reaction_removed` events on `reactions.add` / `reactions.remove`
 - `message` with `subtype: bot_message` on incoming webhook posts
+- `channel_archive` / `channel_unarchive` for public lifecycle archive writes
+- `group_archive` / `group_unarchive` for private lifecycle archive writes
+- `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
+- `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes

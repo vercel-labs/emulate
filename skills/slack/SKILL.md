@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # Slack API Emulator
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation lifecycle writes update archive state, names, topics, and purposes. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Start
 
@@ -220,6 +220,34 @@ curl -X POST http://localhost:4003/api/conversations.create \
   -H "Content-Type: application/json" \
   -d '{"name": "new-channel", "is_private": false}'
 
+# Archive and unarchive a non-general channel
+curl -X POST http://localhost:4003/api/conversations.archive \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000002"}'
+
+curl -X POST http://localhost:4003/api/conversations.unarchive \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000002"}'
+
+# Rename channel
+curl -X POST http://localhost:4003/api/conversations.rename \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "name": "new-channel-name"}'
+
+# Set topic / purpose
+curl -X POST http://localhost:4003/api/conversations.setTopic \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "topic": "Release coordination"}'
+
+curl -X POST http://localhost:4003/api/conversations.setPurpose \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "purpose": "Coordinate release work"}'
+
 # Channel history (top-level messages only)
 curl -X POST http://localhost:4003/api/conversations.history \
   -H "Authorization: Bearer $TOKEN" \
@@ -359,6 +387,10 @@ When messages are posted, updated, deleted, or reactions are added/removed, the 
 - rich message fields are included on posted `message` events when present
 - `reaction_added` / `reaction_removed` events on `reactions.add` / `reactions.remove`
 - `message` with `subtype: bot_message` on incoming webhook posts
+- `channel_archive` / `channel_unarchive` for public lifecycle archive writes
+- `group_archive` / `group_unarchive` for private lifecycle archive writes
+- `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
+- `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
 
 ## Common Patterns
 

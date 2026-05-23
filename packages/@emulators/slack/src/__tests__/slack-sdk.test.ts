@@ -170,6 +170,38 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(list.channels?.map((ch) => ch.name)).toContain("sdk-membership");
   });
 
+  it("exercises conversation lifecycle writes through the Slack SDK", async () => {
+    const created = await client.conversations.create({ name: "sdk-lifecycle" });
+    const channel = created.channel!.id!;
+
+    const topic = await client.conversations.setTopic({ channel, topic: "SDK lifecycle topic" });
+    expect(topic.ok).toBe(true);
+    expect((topic.channel as any).topic.value).toBe("SDK lifecycle topic");
+
+    const purpose = await client.conversations.setPurpose({ channel, purpose: "SDK lifecycle purpose" });
+    expect(purpose.ok).toBe(true);
+    expect((purpose as any).purpose).toBe("SDK lifecycle purpose");
+
+    const renamed = await client.conversations.rename({ channel, name: "sdk-lifecycle-renamed" });
+    expect(renamed.ok).toBe(true);
+    expect(renamed.channel?.name).toBe("sdk-lifecycle-renamed");
+
+    const archived = await client.conversations.archive({ channel });
+    expect(archived.ok).toBe(true);
+
+    const archivedInfo = await client.conversations.info({ channel });
+    expect((archivedInfo.channel as any).is_archived).toBe(true);
+
+    const list = await client.conversations.list({ exclude_archived: true });
+    expect(list.channels?.map((ch) => ch.id)).not.toContain(channel);
+
+    const unarchived = await client.conversations.unarchive({ channel });
+    expect(unarchived.ok).toBe(true);
+
+    const unarchivedInfo = await client.conversations.info({ channel });
+    expect((unarchivedInfo.channel as any).is_archived).toBe(false);
+  });
+
   it("exercises users, reactions, and bots through the Slack SDK", async () => {
     expect(emulator).toBeDefined();
     const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;

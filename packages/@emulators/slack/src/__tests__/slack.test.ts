@@ -709,6 +709,248 @@ describe("Slack plugin - conversations", () => {
     expect(body.error).toBe("name_taken");
   });
 
+  it("archives and unarchives a channel", async () => {
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "archive-test" }),
+    });
+    const created = (await createRes.json()) as any;
+    const channelId = created.channel.id;
+
+    const archiveRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    expect(((await archiveRes.json()) as any).ok).toBe(true);
+
+    const archivedInfoRes = await app.request(`${base}/api/conversations.info`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    const archivedInfo = (await archivedInfoRes.json()) as any;
+    expect(archivedInfo.channel.is_archived).toBe(true);
+
+    const listRes = await app.request(`${base}/api/conversations.list`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    const list = (await listRes.json()) as any;
+    expect(list.channels.map((channel: any) => channel.id)).toContain(channelId);
+    expect(list.channels.find((channel: any) => channel.id === channelId).is_archived).toBe(true);
+
+    const excludeArchivedListRes = await app.request(`${base}/api/conversations.list`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ exclude_archived: true }),
+    });
+    const excludeArchivedList = (await excludeArchivedListRes.json()) as any;
+    expect(excludeArchivedList.channels.map((channel: any) => channel.id)).not.toContain(channelId);
+
+    const duplicateArchiveRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    const duplicateArchive = (await duplicateArchiveRes.json()) as any;
+    expect(duplicateArchive.ok).toBe(false);
+    expect(duplicateArchive.error).toBe("already_archived");
+
+    const unarchiveRes = await app.request(`${base}/api/conversations.unarchive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    expect(((await unarchiveRes.json()) as any).ok).toBe(true);
+
+    const unarchivedInfoRes = await app.request(`${base}/api/conversations.info`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    const unarchivedInfo = (await unarchivedInfoRes.json()) as any;
+    expect(unarchivedInfo.channel.is_archived).toBe(false);
+  });
+
+  it("rejects archiving general and unarchiving active channels", async () => {
+    const ss = getSlackStore(store);
+    const general = ss.channels.findOneBy("name", "general")!;
+    const random = ss.channels.findOneBy("name", "random")!;
+
+    const archiveGeneralRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: general.channel_id }),
+    });
+    const archiveGeneral = (await archiveGeneralRes.json()) as any;
+    expect(archiveGeneral.ok).toBe(false);
+    expect(archiveGeneral.error).toBe("cant_archive_general");
+
+    await app.request(`${base}/api/conversations.rename`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: general.channel_id, name: "renamed-general" }),
+    });
+
+    const archiveRenamedGeneralRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: general.channel_id }),
+    });
+    const archiveRenamedGeneral = (await archiveRenamedGeneralRes.json()) as any;
+    expect(archiveRenamedGeneral.ok).toBe(false);
+    expect(archiveRenamedGeneral.error).toBe("cant_archive_general");
+
+    const unarchiveActiveRes = await app.request(`${base}/api/conversations.unarchive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: random.channel_id }),
+    });
+    const unarchiveActive = (await unarchiveActiveRes.json()) as any;
+    expect(unarchiveActive.ok).toBe(false);
+    expect(unarchiveActive.error).toBe("not_archived");
+  });
+
+  it("renames a channel and rejects invalid rename requests", async () => {
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "rename-test" }),
+    });
+    const created = (await createRes.json()) as any;
+    const channelId = created.channel.id;
+
+    const renameRes = await app.request(`${base}/api/conversations.rename`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId, name: "Renamed Test" }),
+    });
+    const renamed = (await renameRes.json()) as any;
+    expect(renamed.ok).toBe(true);
+    expect(renamed.channel.name).toBe("renamed-test");
+
+    const infoRes = await app.request(`${base}/api/conversations.info`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    const info = (await infoRes.json()) as any;
+    expect(info.channel.name).toBe("renamed-test");
+
+    const duplicateRes = await app.request(`${base}/api/conversations.rename`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId, name: "general" }),
+    });
+    const duplicate = (await duplicateRes.json()) as any;
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.error).toBe("name_taken");
+
+    const invalidRes = await app.request(`${base}/api/conversations.rename`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId, name: "bad!" }),
+    });
+    const invalid = (await invalidRes.json()) as any;
+    expect(invalid.ok).toBe(false);
+    expect(invalid.error).toBe("invalid_name_specials");
+  });
+
+  it("sets conversation topic and purpose", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.findOneBy("name", "random")!;
+
+    const topicRes = await app.request(`${base}/api/conversations.setTopic`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, topic: "Release coordination" }),
+    });
+    const topic = (await topicRes.json()) as any;
+    expect(topic.ok).toBe(true);
+    expect(topic.channel.topic).toMatchObject({
+      value: "Release coordination",
+      creator: "U000000001",
+    });
+
+    const purposeRes = await app.request(`${base}/api/conversations.setPurpose`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, purpose: "Coordinate release work" }),
+    });
+    const purpose = (await purposeRes.json()) as any;
+    expect(purpose.ok).toBe(true);
+    expect(purpose.purpose).toBe("Coordinate release work");
+    expect(purpose.channel.purpose).toMatchObject({
+      value: "Coordinate release work",
+      creator: "U000000001",
+    });
+
+    const infoRes = await app.request(`${base}/api/conversations.info`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const info = (await infoRes.json()) as any;
+    expect(info.channel.topic.value).toBe("Release coordination");
+    expect(info.channel.purpose.value).toBe("Coordinate release work");
+  });
+
+  it("rejects topic and purpose updates for invalid lifecycle states", async () => {
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "lifecycle-state-test" }),
+    });
+    const created = (await createRes.json()) as any;
+    const channelId = created.channel.id;
+
+    await app.request(`${base}/api/conversations.leave`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+
+    const topicRes = await app.request(`${base}/api/conversations.setTopic`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId, topic: "no access" }),
+    });
+    const topic = (await topicRes.json()) as any;
+    expect(topic.ok).toBe(false);
+    expect(topic.error).toBe("not_in_channel");
+
+    await app.request(`${base}/api/conversations.join`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+    await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId }),
+    });
+
+    const archivedPurposeRes = await app.request(`${base}/api/conversations.setPurpose`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channelId, purpose: "archived" }),
+    });
+    const archivedPurpose = (await archivedPurposeRes.json()) as any;
+    expect(archivedPurpose.ok).toBe(false);
+    expect(archivedPurpose.error).toBe("is_archived");
+
+    const longTopicRes = await app.request(`${base}/api/conversations.setTopic`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: "C000000001", topic: "x".repeat(251) }),
+    });
+    const longTopic = (await longTopicRes.json()) as any;
+    expect(longTopic.ok).toBe(false);
+    expect(longTopic.error).toBe("too_long");
+  });
+
   it("gets conversation history", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.all()[0];
