@@ -110,6 +110,46 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(message.metadata).toEqual(metadata);
   });
 
+  it("exercises ephemeral and scheduled messages through the Slack SDK", async () => {
+    expect(emulator).toBeDefined();
+    const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;
+
+    const ephemeral = await client.chat.postEphemeral({
+      channel,
+      user: "U000000001",
+      text: "ephemeral from WebClient",
+    });
+    expect(ephemeral.ok).toBe(true);
+    expect(ephemeral.message_ts).toBeDefined();
+
+    const history = await client.conversations.history({ channel });
+    expect(history.messages?.some((message) => message.ts === ephemeral.message_ts)).toBe(false);
+
+    const postAt = Math.floor(Date.now() / 1000) + 3600;
+    const scheduled = await client.chat.scheduleMessage({
+      channel,
+      text: "scheduled from WebClient",
+      post_at: postAt,
+    });
+    expect(scheduled.ok).toBe(true);
+    expect(scheduled.scheduled_message_id).toMatch(/^Q/);
+
+    const scheduledList = await client.chat.scheduledMessages.list({ channel });
+    expect(scheduledList.ok).toBe(true);
+    expect(scheduledList.scheduled_messages?.[0]).toMatchObject({
+      id: scheduled.scheduled_message_id,
+      channel_id: channel,
+      post_at: postAt,
+      text: "scheduled from WebClient",
+    });
+
+    const deleted = await client.chat.deleteScheduledMessage({
+      channel,
+      scheduled_message_id: scheduled.scheduled_message_id!,
+    });
+    expect(deleted.ok).toBe(true);
+  });
+
   it("exercises conversation membership through the Slack SDK", async () => {
     const created = await client.conversations.create({ name: "sdk-membership" });
     const channel = created.channel!.id!;

@@ -69,6 +69,37 @@ export interface SlackMessage extends Entity {
   reactions: Array<{ name: string; users: string[]; count: number }>;
 }
 
+export interface SlackEphemeralMessage extends SlackMessage {
+  target_user: string;
+}
+
+export interface SlackScheduledMessage extends Entity {
+  scheduled_message_id: string;
+  channel_id: string;
+  user: string;
+  text: string;
+  type: "delayed_message";
+  subtype: "bot_message";
+  blocks?: SlackJsonObject[];
+  attachments?: SlackJsonObject[];
+  metadata?: SlackJsonObject;
+  mrkdwn?: boolean;
+  parse?: string;
+  link_names?: boolean;
+  unfurl_links?: boolean;
+  unfurl_media?: boolean;
+  username?: string;
+  icon_url?: string;
+  icon_emoji?: string;
+  bot_id?: string;
+  app_id?: string;
+  client_msg_id?: string;
+  reply_broadcast?: boolean;
+  thread_ts?: string;
+  post_at: number;
+  date_created: number;
+}
+
 export interface SlackBot extends Entity {
   bot_id: string;
   name: string;

@@ -1,7 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { escapeHtml, renderSettingsPage } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import type { SlackMessage, SlackChannel } from "../entities.js";
+import type { SlackChannel, SlackEphemeralMessage, SlackMessage, SlackScheduledMessage } from "../entities.js";
 
 const SERVICE_LABEL = "Slack";
 
@@ -40,7 +40,7 @@ function collectTextValues(value: unknown, output: string[]): void {
   collectTextValues(record.accessory, output);
 }
 
-function richMessagePreview(msg: SlackMessage): string {
+function richMessagePreview(msg: Pick<SlackMessage, "text" | "blocks" | "attachments">): string {
   if (msg.text.trim().length > 0) return msg.text;
 
   const blockText: string[] = [];
@@ -83,6 +83,26 @@ function renderMessage(msg: SlackMessage, users: Map<string, string>): string {
 </div>
 <div class="info-text">${threadIndicator}${escapeHtml(messageText)}${richBadge}${threadBadge}</div>
 ${renderReactions(msg.reactions)}`;
+}
+
+function renderEphemeralMessage(msg: SlackEphemeralMessage, users: Map<string, string>): string {
+  const displayName = users.get(msg.target_user) ?? msg.target_user;
+  return `<div class="org-row">
+  <span class="org-icon">E</span>
+  <span class="org-name">${escapeHtml(displayName)} <span class="badge badge-requested">ephemeral</span></span>
+  <span class="user-meta" style="margin-left:auto">${timeAgo(msg.created_at)}</span>
+</div>
+<div class="info-text">${escapeHtml(richMessagePreview(msg))}</div>`;
+}
+
+function renderScheduledMessage(msg: SlackScheduledMessage): string {
+  const scheduledAt = new Date(msg.post_at * 1000).toLocaleString("en-US", { timeZone: "UTC" });
+  return `<div class="org-row">
+  <span class="org-icon">S</span>
+  <span class="org-name">${escapeHtml(msg.scheduled_message_id)} <span class="badge badge-requested">scheduled</span></span>
+  <span class="user-meta" style="margin-left:auto">${escapeHtml(scheduledAt)} UTC</span>
+</div>
+<div class="info-text">${escapeHtml(richMessagePreview(msg))}</div>`;
 }
 
 function renderChannelSidebar(channels: SlackChannel[], activeId: string): string {
@@ -136,6 +156,14 @@ export function inspectorRoutes(ctx: RouteContext): void {
       .messages.findBy("channel_id", activeChannel.channel_id)
       .sort((a, b) => (b.ts > a.ts ? 1 : -1))
       .slice(0, 50);
+    const ephemeralMessages = ss()
+      .ephemeralMessages.findBy("channel_id", activeChannel.channel_id)
+      .sort((a, b) => (b.ts > a.ts ? 1 : -1))
+      .slice(0, 20);
+    const scheduledMessages = ss()
+      .scheduledMessages.findBy("channel_id", activeChannel.channel_id)
+      .sort((a, b) => a.post_at - b.post_at)
+      .slice(0, 20);
 
     const sidebar = renderChannelSidebar(channels, activeChannel.channel_id);
 
@@ -144,6 +172,18 @@ export function inspectorRoutes(ctx: RouteContext): void {
       messages.length === 0
         ? '<p class="empty">No messages yet. Post one with chat.postMessage or an incoming webhook.</p>'
         : messages.map((m) => renderMessage(m, userMap)).join("\n<div style='height:8px'></div>\n");
+    const ephemeralHtml =
+      ephemeralMessages.length === 0
+        ? ""
+        : `<div class="section-heading">Ephemeral</div>${ephemeralMessages
+            .map((m) => renderEphemeralMessage(m, userMap))
+            .join("\n<div style='height:8px'></div>\n")}`;
+    const scheduledHtml =
+      scheduledMessages.length === 0
+        ? ""
+        : `<div class="section-heading">Scheduled</div>${scheduledMessages
+            .map(renderScheduledMessage)
+            .join("\n<div style='height:8px'></div>\n")}`;
 
     const stats = `${ss().users.all().length} users, ${channels.length} channels, ${ss().messages.all().length} messages`;
 
@@ -161,6 +201,8 @@ export function inspectorRoutes(ctx: RouteContext): void {
     <span class="user-meta">${stats}</span>
   </div>
   ${messageHtml}
+  ${ephemeralHtml}
+  ${scheduledHtml}
 </div>`;
 
     return c.html(renderSettingsPage(`${team?.name ?? "Slack"} - Message Inspector`, sidebar, bodyHtml, SERVICE_LABEL));

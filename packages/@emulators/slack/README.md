@@ -15,9 +15,13 @@ npm install @emulators/slack
 ### Auth & Chat
 - `POST /api/auth.test` — test authentication
 - `POST /api/chat.postMessage` — post message with text or rich payload fields (supports threads via `thread_ts`)
+- `POST /api/chat.postEphemeral` — post ephemeral message outside channel history
 - `POST /api/chat.update` — update message text and rich payload fields
 - `POST /api/chat.delete` — delete message
 - `GET /api/chat.getPermalink` / `POST /api/chat.getPermalink` — get message permalink
+- `POST /api/chat.scheduleMessage` — schedule pending message
+- `POST /api/chat.deleteScheduledMessage` — delete pending scheduled message
+- `POST /api/chat.scheduledMessages.list` — list pending scheduled messages
 - `POST /api/chat.meMessage` — /me message
 
 ### Conversations

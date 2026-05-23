@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import type { Context } from "@emulators/core";
 import type { ContentfulStatusCode } from "@emulators/core";
-import type { SlackJsonObject, SlackMessage } from "./entities.js";
+import type { SlackJsonObject, SlackMessage, SlackScheduledMessage } from "./entities.js";
 
 let tsCounter = 0;
 
@@ -113,6 +113,40 @@ export function formatSlackPermalink(baseUrl: string, channel: string, msg: Slac
 
   const params = new URLSearchParams({ thread_ts: msg.thread_ts, cid: channel });
   return `${permalink}?${params.toString()}`;
+}
+
+export function formatSlackScheduledMessage(msg: SlackScheduledMessage) {
+  return {
+    text: msg.text,
+    type: msg.type,
+    subtype: msg.subtype,
+    ...(msg.username ? { username: msg.username } : {}),
+    ...(msg.bot_id ? { bot_id: msg.bot_id } : {}),
+    ...(msg.app_id ? { app_id: msg.app_id } : {}),
+    ...(msg.icon_url ? { icon_url: msg.icon_url } : {}),
+    ...(msg.icon_emoji ? { icon_emoji: msg.icon_emoji } : {}),
+    ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
+    ...(msg.blocks !== undefined ? { blocks: msg.blocks } : {}),
+    ...(msg.attachments !== undefined ? { attachments: msg.attachments } : {}),
+    ...(msg.metadata !== undefined ? { metadata: msg.metadata } : {}),
+    ...(msg.mrkdwn !== undefined ? { mrkdwn: msg.mrkdwn } : {}),
+    ...(msg.parse !== undefined ? { parse: msg.parse } : {}),
+    ...(msg.link_names !== undefined ? { link_names: msg.link_names } : {}),
+    ...(msg.unfurl_links !== undefined ? { unfurl_links: msg.unfurl_links } : {}),
+    ...(msg.unfurl_media !== undefined ? { unfurl_media: msg.unfurl_media } : {}),
+    ...(msg.reply_broadcast !== undefined ? { reply_broadcast: msg.reply_broadcast } : {}),
+    ...(msg.thread_ts ? { thread_ts: msg.thread_ts } : {}),
+  };
+}
+
+export function formatSlackScheduledMessageListItem(msg: SlackScheduledMessage) {
+  return {
+    id: msg.scheduled_message_id,
+    channel_id: msg.channel_id,
+    post_at: msg.post_at,
+    date_created: msg.date_created,
+    text: msg.text,
+  };
 }
 
 export function parseSlackRichMessageFields(body: Record<string, unknown>): SlackRichMessageParseResult {

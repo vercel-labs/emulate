@@ -133,6 +133,8 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 `chat.postMessage`, `chat.update`, `conversations.history`, and `conversations.replies` round trip text plus common rich message fields: `blocks`, `attachments`, `metadata`, `mrkdwn`, `parse`, `link_names`, `unfurl_links`, `unfurl_media`, `username`, `icon_url`, `icon_emoji`, `bot_id`, `app_id`, `client_msg_id`, and `reply_broadcast`.
 
+`chat.postEphemeral` stores ephemeral messages outside channel history. `chat.scheduleMessage`, `chat.deleteScheduledMessage`, and `chat.scheduledMessages.list` keep scheduled messages pending until deleted or inspected.
+
 ```bash
 # Post message
 curl -X POST http://localhost:4003/api/chat.postMessage \
@@ -167,6 +169,30 @@ curl -X POST http://localhost:4003/api/chat.delete \
 # Get message permalink
 curl -X GET 'http://localhost:4003/api/chat.getPermalink?channel=C000000001&message_ts=1234567890.123456' \
   -H "Authorization: Bearer $TOKEN"
+
+# Post ephemeral message
+curl -X POST http://localhost:4003/api/chat.postEphemeral \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "user": "U000000001", "text": "Only you can see this"}'
+
+# Schedule message
+curl -X POST http://localhost:4003/api/chat.scheduleMessage \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "text": "Reminder", "post_at": 1893456000}'
+
+# List scheduled messages
+curl -X POST http://localhost:4003/api/chat.scheduledMessages.list \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001"}'
+
+# Delete scheduled message
+curl -X POST http://localhost:4003/api/chat.deleteScheduledMessage \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "scheduled_message_id": "Q123456789"}'
 
 # /me message
 curl -X POST http://localhost:4003/api/chat.meMessage \

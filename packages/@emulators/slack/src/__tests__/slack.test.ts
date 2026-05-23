@@ -442,6 +442,167 @@ describe("Slack plugin - chat.getPermalink", () => {
   });
 });
 
+describe("Slack plugin - chat.postEphemeral", () => {
+  let app: SlackTestApp["app"];
+  let store: Store;
+
+  beforeEach(() => {
+    ({ app, store } = createTestApp());
+  });
+
+  it("stores ephemeral messages outside channel history", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const blocks = [{ type: "section", text: { type: "plain_text", text: "Only you can see this" } }];
+
+    const res = await app.request(`${base}/api/chat.postEphemeral`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, user: "U000000001", blocks }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.message_ts).toBeDefined();
+
+    const ephemeral = ss.ephemeralMessages.findOneBy("ts", body.message_ts);
+    expect(ephemeral?.target_user).toBe("U000000001");
+    expect(ephemeral?.blocks).toEqual(blocks);
+
+    const historyRes = await app.request(`${base}/api/conversations.history`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const history = (await historyRes.json()) as any;
+    expect(history.messages).toEqual([]);
+  });
+
+  it("returns user_not_in_channel for a target outside the channel", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    ss.users.insert({
+      user_id: "U000000999",
+      team_id: "T000000001",
+      name: "outsider",
+      real_name: "Outsider",
+      email: "outsider@emulate.dev",
+      is_admin: false,
+      is_bot: false,
+      deleted: false,
+      profile: {
+        display_name: "outsider",
+        real_name: "Outsider",
+        email: "outsider@emulate.dev",
+        image_48: "",
+        image_192: "",
+      },
+    });
+
+    const res = await app.request(`${base}/api/chat.postEphemeral`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, user: "U000000999", text: "private" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("user_not_in_channel");
+  });
+});
+
+describe("Slack plugin - scheduled messages", () => {
+  let app: SlackTestApp["app"];
+  let store: Store;
+
+  beforeEach(() => {
+    ({ app, store } = createTestApp());
+  });
+
+  it("schedules, lists, and deletes a message", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const postAt = Math.floor(Date.now() / 1000) + 3600;
+    const blocks = [{ type: "section", text: { type: "plain_text", text: "Scheduled block" } }];
+
+    const scheduleRes = await app.request(`${base}/api/chat.scheduleMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        channel: ch.channel_id,
+        text: "scheduled message",
+        blocks,
+        post_at: postAt,
+      }),
+    });
+    const scheduled = (await scheduleRes.json()) as any;
+    expect(scheduled.ok).toBe(true);
+    expect(scheduled.channel).toBe(ch.channel_id);
+    expect(scheduled.scheduled_message_id).toMatch(/^Q/);
+    expect(scheduled.post_at).toBe(String(postAt));
+    expect(scheduled.message).toMatchObject({
+      type: "delayed_message",
+      subtype: "bot_message",
+      text: "scheduled message",
+      blocks,
+    });
+
+    const listRes = await app.request(`${base}/api/chat.scheduledMessages.list`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id }),
+    });
+    const list = (await listRes.json()) as any;
+    expect(list.ok).toBe(true);
+    expect(list.scheduled_messages).toEqual([
+      expect.objectContaining({
+        id: scheduled.scheduled_message_id,
+        channel_id: ch.channel_id,
+        post_at: postAt,
+        text: "scheduled message",
+      }),
+    ]);
+
+    const deleteRes = await app.request(`${base}/api/chat.deleteScheduledMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, scheduled_message_id: scheduled.scheduled_message_id }),
+    });
+    expect(((await deleteRes.json()) as any).ok).toBe(true);
+    expect(ss.scheduledMessages.all()).toEqual([]);
+  });
+
+  it("returns time_in_past for past scheduled messages", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    const res = await app.request(`${base}/api/chat.scheduleMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        channel: ch.channel_id,
+        text: "too late",
+        post_at: Math.floor(Date.now() / 1000) - 1,
+      }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("time_in_past");
+  });
+
+  it("returns invalid_scheduled_message_id for unknown scheduled messages", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    const res = await app.request(`${base}/api/chat.deleteScheduledMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, scheduled_message_id: "Q000000999" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("invalid_scheduled_message_id");
+  });
+});
+
 describe("Slack plugin - conversations", () => {
   let app: SlackTestApp["app"];
   let store: Store;
