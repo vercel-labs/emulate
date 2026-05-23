@@ -25,7 +25,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
-      "Text, thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, and client message ids round trip. DMs, permalinks, and membership checks are future work.",
+      "Text, thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, and client message ids round trip. DMs and membership checks are future work.",
   },
   {
     family: "chat",
