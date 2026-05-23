@@ -54,6 +54,10 @@ func TestMatchRouteCapturesPathParameters(t *testing.T) {
 	if got := match.PathParameters["proxy"]; got != "a/b.txt" {
 		t.Fatalf("proxy path parameter = %q", got)
 	}
+
+	if match, ok = handler.matchRoute(ctx, "api-1", http.MethodPost, "/files"); ok {
+		t.Fatalf("greedy route matched zero path segments: %#v", match)
+	}
 }
 
 func TestLambdaProxyEventCombinesDuplicateQueryValues(t *testing.T) {

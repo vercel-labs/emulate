@@ -159,11 +159,12 @@ export function getAwsStore(store: CompatStoreSource): AwsStore {
       "api_id",
       "name",
     ]),
-    apiGatewayV2Integrations: compatCollection<APIGatewayV2Integration>(
-      store,
-      "aws.apigatewayv2_integrations",
-      ["account_id", "region", "api_id", "integration_id"],
-    ),
+    apiGatewayV2Integrations: compatCollection<APIGatewayV2Integration>(store, "aws.apigatewayv2_integrations", [
+      "account_id",
+      "region",
+      "api_id",
+      "integration_id",
+    ]),
     apiGatewayV2Routes: compatCollection<APIGatewayV2Route>(store, "aws.apigatewayv2_routes", [
       "account_id",
       "region",

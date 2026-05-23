@@ -822,7 +822,7 @@ func matchRoutePath(routePath string, pathValue string) (map[string]string, int,
 			continue
 		}
 		if greedy {
-			if index != len(routeParts)-1 || len(requestParts) < index {
+			if index != len(routeParts)-1 || len(requestParts) <= index {
 				return nil, 0, false
 			}
 			params[name] = decodeSegment(strings.Join(requestParts[index:], "/"))

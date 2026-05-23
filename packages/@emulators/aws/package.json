@@ -35,7 +35,7 @@
     "lint": "eslint src"
   },
   "devDependencies": {
-    "@aws-sdk/client-apigatewayv2": "^3.1051.0",
+    "@aws-sdk/client-apigatewayv2": "^3.1053.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.1052.0",
     "@aws-sdk/client-dynamodb": "^3.1050.0",
     "@aws-sdk/client-eventbridge": "3.1051.0",

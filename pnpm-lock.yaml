@@ -387,8 +387,8 @@ importers:
   packages/@emulators/aws:
     devDependencies:
       '@aws-sdk/client-apigatewayv2':
-        specifier: ^3.1051.0
-        version: 3.1051.0
+        specifier: ^3.1053.0
+        version: 3.1053.0
       '@aws-sdk/client-cloudwatch-logs':
         specifier: ^3.1052.0
         version: 3.1052.0
@@ -650,8 +650,8 @@ packages:
   '@aws-crypto/util@5.2.0':
     resolution: {integrity: sha512-4RkU9EsI6ZpBve5fseQlGNUWKMa1RLPQ1dnjnQoe07ldfIzcsGb5hC5W0Dm7u423KWzawlrpbjXBrXCEv9zazQ==}
 
-  '@aws-sdk/client-apigatewayv2@3.1051.0':
-    resolution: {integrity: sha512-RXP7ph/U2H9pxOcwg87bkW7wrkWqVGETC+GkKCTz1VtPLErB4bFNk1SMaItJpIcKSsjigIHPjM0fRN3W6AsDxw==}
+  '@aws-sdk/client-apigatewayv2@3.1053.0':
+    resolution: {integrity: sha512-UsRUooDQgUEvmckkAdfTLIAVikBKNsmP0NaKsX3MksKvKH1JjWrRR3gGpf1bHe8+zi7sutwZptZcMGsXLi6Arg==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-cloudwatch-logs@3.1052.0':
@@ -6199,7 +6199,7 @@ snapshots:
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-apigatewayv2@3.1051.0':
+  '@aws-sdk/client-apigatewayv2@3.1053.0':
     dependencies:
       '@aws-crypto/sha256-browser': 5.2.0
       '@aws-crypto/sha256-js': 5.2.0
