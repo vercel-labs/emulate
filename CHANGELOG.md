@@ -1,8 +1,36 @@
 # Changelog
 
-## 0.5.0
+## 0.6.0
 
 <!-- release:start -->
+### New Features
+
+- **Native Go runtime** — the CLI now ships platform native binaries and runs services through the Go engine (#103, #133)
+- **API Gateway v2 and Lambda** — local HTTP API proxy events, Lambda control plane APIs, and Node.js Lambda invocation support (#144, #145, #147)
+- **EventBridge Lambda targets** — EventBridge rules can now deliver events to Lambda functions in the AWS emulator (#146)
+- **Expanded AWS coverage** — added DynamoDB, SNS, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, and deeper IAM and STS support (#122, #123, #136, #138, #139, #140, #143)
+- **Native service parity** — added Go backed implementations for Apple, Clerk, GitHub, Google, Microsoft Entra, MongoDB Atlas, Okta, Resend, Slack, Stripe, and Vercel (#114, #119, #120, #124, #125, #126, #127, #128, #129, #130, #131)
+- **Vercel and Next.js foundations** — added Vercel API parity, Go Function scaffolding, and the Next proxy adapter foundation (#116, #117, #118, #119)
+
+### Improvements
+
+- **AWS SDK compatibility** — hardened gateway parsing, SigV4 auth, AWS error responses, S3 range and conditional reads, and SQS batch APIs (#107, #108, #141, #142)
+- **Package compatibility facades** — package APIs now route to native implementations while preserving existing SDK entry points (#135)
+- **Dependency policy** — added a minimum dependency release age requirement (#137)
+- **Development runtime** — moved the repo to pnpm 11 and Node.js 24 (#115)
+- **Docs and agent skills** — updated README, docs site, and service skills for the native runtime and expanded service coverage (#87, #119, #120, #124, #125, #126, #127, #128, #129, #130, #131)
+
+### Breaking Changes
+
+- **Node service engines removed** — emulator services now run through the native Go engine instead of the previous Hono based Node service implementations (#102, #134)
+
+### Contributors
+
+- @ctate
+<!-- release:end -->
+
+## 0.5.0
+
 ### New Features
 
 - **Clerk emulator** — local emulation of Clerk authentication and session management (#38)
@@ -29,7 +57,6 @@
 - @jlucaso1
 - @Railly
 - @tmm
-<!-- release:end -->
 
 ## 0.4.1
 

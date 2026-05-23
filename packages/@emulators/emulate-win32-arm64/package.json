@@ -1,6 +1,6 @@
 {
   "name": "@emulators/emulate-win32-arm64",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Native emulate binary for Windows arm64",
   "license": "Apache-2.0",
   "os": [

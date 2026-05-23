@@ -1,6 +1,6 @@
 {
   "name": "@emulators/emulate-darwin-x64",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Native emulate binary for macOS x64",
   "license": "Apache-2.0",
   "os": [
