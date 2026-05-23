@@ -21,7 +21,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   const isChannelMember = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
     channel.members.includes(userId) || (user ? channel.members.includes(user.name) : false);
   const canReadConversation = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
-    !isDirectConversation(channel) || isChannelMember(channel, user, userId);
+    !channel.is_private || isChannelMember(channel, user, userId);
   const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
     await webhooks.dispatch(
       type,
@@ -221,7 +221,10 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const authSlackUser = getAuthSlackUser(authUser);
     const authUserId = getAuthUserId(authUser);
-    const members = isChannelMember(ch, authSlackUser, authUserId) ? ch.members : [...ch.members, authUserId];
+    const isMember = isChannelMember(ch, authSlackUser, authUserId);
+    if (ch.is_private && !isMember) return slackError(c, "not_in_channel");
+
+    const members = isMember ? ch.members : [...ch.members, authUserId];
     const updated = ss().channels.update(ch.id, {
       is_archived: false,
       members,

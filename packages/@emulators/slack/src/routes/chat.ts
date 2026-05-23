@@ -22,15 +22,20 @@ export function chatRoutes(ctx: RouteContext): void {
   const ss = () => getSlackStore(store);
   const findChannel = (channel: string) =>
     ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
+  const getAuthSlackUser = (authUser: { login: string }) =>
+    ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) =>
-    ss().users.findOneBy("user_id", authUser.login)?.user_id ??
-    ss().users.findOneBy("name", authUser.login)?.user_id ??
-    authUser.login;
+    getAuthSlackUser(authUser)?.user_id ?? authUser.login;
   const isAuthChannelMember = (channel: SlackChannel, authUser: { login: string }) => {
-    const user =
-      ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
+    const user = getAuthSlackUser(authUser);
     const userId = user?.user_id ?? authUser.login;
     return channel.members.includes(userId) || (user ? channel.members.includes(user.name) : false);
+  };
+  const canAccessConversation = (channel: SlackChannel, authUser: { login: string }) =>
+    !channel.is_private || isAuthChannelMember(channel, authUser);
+  const isAuthoredByUser = (msg: SlackMessage, authUser: { login: string }) => {
+    const user = getAuthSlackUser(authUser);
+    return msg.user === authUser.login || msg.user === user?.user_id || msg.user === user?.name;
   };
   const isChannelMember = (channel: SlackChannel, user: SlackUser) =>
     channel.members.includes(user.user_id) || channel.members.includes(user.name);
@@ -97,9 +102,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const ch = findWritableConversation(authUser, channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
-    if ((ch.is_im || ch.is_mpim) && !isAuthChannelMember(ch, authUser)) {
-      return slackError(c, "not_in_channel");
-    }
+    if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const ts = generateTs();
     const msg = ss().messages.insert({
@@ -172,6 +175,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const ch = findChannel(channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
+    if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const targetUser = ss().users.findOneBy("user_id", user);
     if (!targetUser) return slackError(c, "user_not_found");
@@ -210,10 +214,14 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!channel || !ts) return slackError(c, "message_not_found");
 
+    const ch = ss().channels.findOneBy("channel_id", channel);
+    if (ch && !canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
+
     const msg = ss()
       .messages.all()
       .find((m) => m.ts === ts && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
+    if (!isAuthoredByUser(msg, authUser)) return slackError(c, "cant_update_message");
 
     const updates: Partial<SlackMessage> = { ...richMessage.fields };
     if (hasText) {
@@ -270,10 +278,14 @@ export function chatRoutes(ctx: RouteContext): void {
 
     if (!channel || !ts) return slackError(c, "message_not_found");
 
+    const ch = ss().channels.findOneBy("channel_id", channel);
+    if (ch && !canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
+
     const msg = ss()
       .messages.all()
       .find((m) => m.ts === ts && m.channel_id === channel);
     if (!msg) return slackError(c, "message_not_found");
+    if (!isAuthoredByUser(msg, authUser)) return slackError(c, "cant_delete_message");
 
     ss().messages.delete(msg.id);
 
@@ -313,6 +325,7 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const ch = ss().channels.findOneBy("channel_id", channel);
     if (!ch) return slackError(c, "channel_not_found");
+    if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const msg = ss()
       .messages.all()
@@ -354,6 +367,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const ch = findChannel(channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
+    if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const scheduled = ss().scheduledMessages.insert({
       scheduled_message_id: generateSlackId("Q"),
@@ -390,6 +404,7 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const ch = findChannel(channel);
     if (!ch) return slackError(c, "channel_not_found");
+    if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const scheduled = ss()
       .scheduledMessages.all()
@@ -425,10 +440,15 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const ch = channel ? findChannel(channel) : undefined;
     if (channel && !ch) return slackError(c, "channel_not_found");
+    if (ch && !canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const allScheduled = ss()
       .scheduledMessages.all()
       .filter((msg) => !ch || msg.channel_id === ch.channel_id)
+      .filter((msg) => {
+        const messageChannel = ss().channels.findOneBy("channel_id", msg.channel_id);
+        return messageChannel ? canAccessConversation(messageChannel, authUser) : false;
+      })
       .filter((msg) => oldest === undefined || msg.post_at >= oldest)
       .filter((msg) => latest === undefined || msg.post_at <= latest)
       .sort((a, b) => a.post_at - b.post_at || a.scheduled_message_id.localeCompare(b.scheduled_message_id));
@@ -463,6 +483,8 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const ch = ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
     if (!ch) return slackError(c, "channel_not_found");
+    if (ch.is_archived) return slackError(c, "is_archived");
+    if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
 
     const ts = generateTs();
     ss().messages.insert({

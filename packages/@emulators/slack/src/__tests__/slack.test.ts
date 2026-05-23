@@ -256,9 +256,10 @@ describe("Slack plugin - chat.postMessage", () => {
 describe("Slack plugin - chat.update", () => {
   let app: SlackTestApp["app"];
   let store: Store;
+  let tokenMap: SlackTestApp["tokenMap"];
 
   beforeEach(() => {
-    ({ app, store } = createTestApp());
+    ({ app, store, tokenMap } = createTestApp());
   });
 
   it("updates a message", async () => {
@@ -354,14 +355,63 @@ describe("Slack plugin - chat.update", () => {
     expect(updated.ok).toBe(true);
     expect(updated.message.blocks).toBeUndefined();
   });
+
+  it("rejects private updates by non-members and public updates by non-authors", async () => {
+    insertSlackTestUser(store, "U000000002", "update-outsider");
+    tokenMap.set("xoxb-update-outsider-token", { login: "U000000002", id: 2, scopes: ["chat:write"] });
+    const outsiderHeaders = {
+      Authorization: "Bearer xoxb-update-outsider-token",
+      "Content-Type": "application/json",
+    };
+
+    const privateCreateRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "update-private-authz", is_private: true }),
+    });
+    const privateChannel = ((await privateCreateRes.json()) as any).channel.id;
+
+    const privatePostRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: privateChannel, text: "private original" }),
+    });
+    const privatePost = (await privatePostRes.json()) as any;
+
+    const privateUpdateRes = await app.request(`${base}/api/chat.update`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: privateChannel, ts: privatePost.ts, text: "private changed" }),
+    });
+    const privateUpdate = (await privateUpdateRes.json()) as any;
+    expect(privateUpdate.ok).toBe(false);
+    expect(privateUpdate.error).toBe("not_in_channel");
+
+    const publicPostRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: "C000000001", text: "public original" }),
+    });
+    const publicPost = (await publicPostRes.json()) as any;
+
+    const publicUpdateRes = await app.request(`${base}/api/chat.update`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: "C000000001", ts: publicPost.ts, text: "public changed" }),
+    });
+    const publicUpdate = (await publicUpdateRes.json()) as any;
+    expect(publicUpdate.ok).toBe(false);
+    expect(publicUpdate.error).toBe("cant_update_message");
+  });
 });
 
 describe("Slack plugin - chat.delete", () => {
   let app: SlackTestApp["app"];
   let store: Store;
+  let tokenMap: SlackTestApp["tokenMap"];
 
   beforeEach(() => {
-    ({ app, store } = createTestApp());
+    ({ app, store, tokenMap } = createTestApp());
   });
 
   it("deletes a message", async () => {
@@ -382,6 +432,54 @@ describe("Slack plugin - chat.delete", () => {
     });
     const deleted = (await deleteRes.json()) as any;
     expect(deleted.ok).toBe(true);
+  });
+
+  it("rejects private deletes by non-members and public deletes by non-authors", async () => {
+    insertSlackTestUser(store, "U000000002", "delete-outsider");
+    tokenMap.set("xoxb-delete-outsider-token", { login: "U000000002", id: 2, scopes: ["chat:write"] });
+    const outsiderHeaders = {
+      Authorization: "Bearer xoxb-delete-outsider-token",
+      "Content-Type": "application/json",
+    };
+
+    const privateCreateRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "delete-private-authz", is_private: true }),
+    });
+    const privateChannel = ((await privateCreateRes.json()) as any).channel.id;
+
+    const privatePostRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: privateChannel, text: "private delete original" }),
+    });
+    const privatePost = (await privatePostRes.json()) as any;
+
+    const privateDeleteRes = await app.request(`${base}/api/chat.delete`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: privateChannel, ts: privatePost.ts }),
+    });
+    const privateDelete = (await privateDeleteRes.json()) as any;
+    expect(privateDelete.ok).toBe(false);
+    expect(privateDelete.error).toBe("not_in_channel");
+
+    const publicPostRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: "C000000001", text: "public delete original" }),
+    });
+    const publicPost = (await publicPostRes.json()) as any;
+
+    const publicDeleteRes = await app.request(`${base}/api/chat.delete`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: "C000000001", ts: publicPost.ts }),
+    });
+    const publicDelete = (await publicDeleteRes.json()) as any;
+    expect(publicDelete.ok).toBe(false);
+    expect(publicDelete.error).toBe("cant_delete_message");
   });
 });
 
@@ -705,6 +803,56 @@ describe("Slack plugin - conversations", () => {
     expect(body.ok).toBe(true);
     expect(body.channel.id).toBe(ch.channel_id);
     expect(body.channel.name).toBe(ch.name);
+  });
+
+  it("hides private channel reads from non-members", async () => {
+    insertSlackTestUser(store, "U000000002", "private-outsider");
+    tokenMap.set("xoxb-private-outsider-token", { login: "U000000002", id: 2, scopes: ["channels:read"] });
+    const outsiderHeaders = {
+      Authorization: "Bearer xoxb-private-outsider-token",
+      "Content-Type": "application/json",
+    };
+
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "private-read-authz", is_private: true }),
+    });
+    const channel = ((await createRes.json()) as any).channel.id;
+
+    const postRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text: "private message" }),
+    });
+    const posted = (await postRes.json()) as any;
+
+    const listRes = await app.request(`${base}/api/conversations.list`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ types: "private_channel" }),
+    });
+    const list = (await listRes.json()) as any;
+    expect(list.ok).toBe(true);
+    expect(list.channels.map((listed: any) => listed.id)).not.toContain(channel);
+
+    const blockedReads = [
+      { path: "conversations.info", body: { channel } },
+      { path: "conversations.history", body: { channel } },
+      { path: "conversations.replies", body: { channel, ts: posted.ts } },
+      { path: "conversations.members", body: { channel } },
+    ];
+
+    for (const request of blockedReads) {
+      const res = await app.request(`${base}/api/${request.path}`, {
+        method: "POST",
+        headers: outsiderHeaders,
+        body: JSON.stringify(request.body),
+      });
+      const body = (await res.json()) as any;
+      expect(body.ok, request.path).toBe(false);
+      expect(body.error, request.path).toBe("not_in_channel");
+    }
   });
 
   it("creates a channel", async () => {
