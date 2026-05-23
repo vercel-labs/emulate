@@ -131,7 +131,7 @@ const apigatewayv2 = new ApiGatewayV2Client({
 })
 ```
 
-The native Go runtime accepts the API Gateway v2 SDK client's REST JSON requests to `/apigatewayv2/v2/apis`. Created HTTP APIs return local invoke URLs such as `${process.env.AWS_EMULATOR_URL}/_aws/apigatewayv2/<api-id>` for Lambda proxy route testing.
+The native Go runtime accepts the API Gateway v2 SDK client's REST JSON requests to `/apigatewayv2/v2/apis`. Created HTTP APIs return local invoke URLs such as `${process.env.AWS_EMULATOR_URL}/_aws/apigatewayv2/<api-id>` for Lambda proxy route testing with payload format version `2.0`.
 
 ```typescript
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
@@ -462,11 +462,11 @@ curl -X POST http://localhost:4000/sqs/ \
 
 ### API Gateway v2
 
-In the native Go runtime, `@aws-sdk/client-apigatewayv2` can use endpoint `${AWS_EMULATOR_URL}/apigatewayv2`. SDK responses are JSON. `CreateApi` returns an `ApiEndpoint` such as `${AWS_EMULATOR_URL}/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
+In the native Go runtime, `@aws-sdk/client-apigatewayv2` can use endpoint `${AWS_EMULATOR_URL}/apigatewayv2`. SDK responses are JSON. `CreateApi` returns an `ApiEndpoint` such as `${AWS_EMULATOR_URL}/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations using payload format version `2.0`. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
 
 - `CreateApi`, `GetApi`, `GetApis`, `DeleteApi`
-- `CreateIntegration`, `GetIntegration`, `GetIntegrations`, `DeleteIntegration` for `AWS_PROXY` Lambda integrations
-- `CreateRoute`, `GetRoute`, `GetRoutes`, `DeleteRoute` for exact HTTP routes, `ANY` routes, greedy proxy routes, and `$default`
+- `CreateIntegration`, `GetIntegration`, `GetIntegrations`, `DeleteIntegration` for `AWS_PROXY` Lambda integrations with payload format version `2.0`
+- `CreateRoute`, `GetRoute`, `GetRoutes`, `DeleteRoute` for exact HTTP routes, path parameter routes, `ANY` routes, greedy proxy routes, and `$default`
 - `CreateStage`, `GetStage`, `GetStages`, `DeleteStage` for local stages, including `$default`
 - Local route invokes under `/_aws/apigatewayv2/<api-id>/...`
 

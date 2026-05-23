@@ -56,6 +56,11 @@ type invokeSpec struct {
 	RawPath   string
 }
 
+type routeMatch struct {
+	Record         corestore.Record
+	PathParameters map[string]string
+}
+
 type lambdaProxyResponse struct {
 	StatusCode        int                 `json:"statusCode"`
 	Headers           map[string]string   `json:"headers"`
@@ -206,6 +211,10 @@ func (h *Handler) createIntegration(ctx gateway.AwsRequestContext, apiID string,
 	if integrationURI == "" {
 		return h.validation("IntegrationUri is required.", requestID)
 	}
+	payloadFormatVersion := firstNonEmpty(stringInput(ctx.Input, "PayloadFormatVersion", "payloadFormatVersion"), "2.0")
+	if payloadFormatVersion != "2.0" {
+		return h.validation("PayloadFormatVersion must be 2.0.", requestID)
+	}
 	integrationID := h.generateID("int")
 	record := h.Integrations.Insert(corestore.Record{
 		"account_id":             h.accountID(ctx),
@@ -215,7 +224,7 @@ func (h *Handler) createIntegration(ctx gateway.AwsRequestContext, apiID string,
 		"integration_type":       integrationType,
 		"integration_uri":        integrationURI,
 		"integration_method":     firstNonEmpty(stringInput(ctx.Input, "IntegrationMethod", "integrationMethod"), "POST"),
-		"payload_format_version": firstNonEmpty(stringInput(ctx.Input, "PayloadFormatVersion", "payloadFormatVersion"), "2.0"),
+		"payload_format_version": payloadFormatVersion,
 		"timeout_in_millis":      intInputDefault(ctx.Input, 30000, "TimeoutInMillis", "timeoutInMillis"),
 		"description":            stringInput(ctx.Input, "Description", "description"),
 	})
@@ -263,6 +272,9 @@ func (h *Handler) createRoute(ctx gateway.AwsRequestContext, apiID string, reque
 	target := strings.TrimSpace(stringInput(ctx.Input, "Target", "target"))
 	if target == "" {
 		return h.validation("Target is required.", requestID)
+	}
+	if _, ok := h.findRouteByKey(ctx, apiID, routeKey); ok {
+		return h.conflict("Route already exists.", requestID)
 	}
 	routeID := h.generateID("route")
 	record := h.Routes.Insert(corestore.Record{
@@ -315,6 +327,9 @@ func (h *Handler) createStage(ctx gateway.AwsRequestContext, apiID string, reque
 	if stageName == "" {
 		return h.validation("StageName is required.", requestID)
 	}
+	if _, ok := h.findStage(ctx, apiID, stageName); ok {
+		return h.conflict("Stage already exists.", requestID)
+	}
 	now := h.now().UTC().Format(time.RFC3339)
 	record := corestore.Record{
 		"account_id":        h.accountID(ctx),
@@ -327,11 +342,6 @@ func (h *Handler) createStage(ctx gateway.AwsRequestContext, apiID string, reque
 		"stage_variables":   stringMap(firstPresent(ctx.Input, "StageVariables", "stageVariables")),
 		"created_date":      now,
 		"last_updated_date": now,
-	}
-	if existing, ok := h.findStage(ctx, apiID, stageName); ok {
-		record["created_date"] = stringField(existing, "created_date")
-		updated, _ := h.Stages.Update(intField(existing, "id"), record)
-		return jsonResponse(http.StatusCreated, h.stageResponse(updated))
 	}
 	created := h.Stages.Insert(record)
 	return jsonResponse(http.StatusCreated, h.stageResponse(created))
@@ -381,13 +391,16 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, spec 
 	if !ok {
 		return h.error("NotFoundException", "No matching API Gateway route was found.", http.StatusNotFound, requestID)
 	}
-	integrationID := strings.TrimPrefix(stringField(route, "target"), "integrations/")
+	integrationID := strings.TrimPrefix(stringField(route.Record, "target"), "integrations/")
 	integration, response, ok := h.requireIntegration(ctx, spec.APIID, integrationID, requestID)
 	if !ok {
 		return response
 	}
 	if strings.ToUpper(stringField(integration, "integration_type")) != "AWS_PROXY" {
 		return h.error("BadGatewayException", "Only AWS_PROXY integrations are supported for local API Gateway invokes.", http.StatusBadGateway, requestID)
+	}
+	if stringField(integration, "payload_format_version") != "2.0" {
+		return h.error("BadGatewayException", "Only payload format version 2.0 is supported for local API Gateway invokes.", http.StatusBadGateway, requestID)
 	}
 	lambdaTarget := lambdaTargetFromIntegrationURI(stringField(integration, "integration_uri"))
 	if lambdaTarget == "" {
@@ -421,7 +434,7 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, spec 
 	return protocols.ErrorResponse{StatusCode: status, ContentType: firstNonEmpty(headerValue(headers, "Content-Type"), "text/plain"), Headers: headers, HeaderValues: headerValues, Body: body}
 }
 
-func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestContext, api corestore.Record, stage corestore.Record, route corestore.Record, rawPath string, requestID string) map[string]any {
+func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestContext, api corestore.Record, stage corestore.Record, route routeMatch, rawPath string, requestID string) map[string]any {
 	headers := map[string]string{}
 	for key, values := range req.Header {
 		if len(values) > 0 {
@@ -438,9 +451,9 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 		}
 	}
 	body := string(ctx.RawBody)
-	return map[string]any{
+	event := map[string]any{
 		"version":               "2.0",
-		"routeKey":              stringField(route, "route_key"),
+		"routeKey":              stringField(route.Record, "route_key"),
 		"rawPath":               rawPath,
 		"rawQueryString":        req.URL.RawQuery,
 		"headers":               headers,
@@ -451,7 +464,7 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 			"domainName":   req.Host,
 			"domainPrefix": stringField(api, "api_id"),
 			"requestId":    requestID,
-			"routeKey":     stringField(route, "route_key"),
+			"routeKey":     stringField(route.Record, "route_key"),
 			"stage":        stringField(stage, "stage_name"),
 			"time":         h.now().UTC().Format("02/Jan/2006:15:04:05 +0000"),
 			"timeEpoch":    h.now().UnixMilli(),
@@ -466,6 +479,10 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 		"body":            body,
 		"isBase64Encoded": false,
 	}
+	if len(route.PathParameters) > 0 {
+		event["pathParameters"] = route.PathParameters
+	}
+	return event
 }
 
 func lambdaProxyHTTPResponse(payload []byte) (int, map[string]string, map[string][]string, []byte) {
@@ -665,47 +682,99 @@ func (h *Handler) resolveInvokeStage(ctx gateway.AwsRequestContext, apiID string
 	return firstStageName(h.stagesForAPI(ctx, apiID)), rawPath
 }
 
-func (h *Handler) matchRoute(ctx gateway.AwsRequestContext, apiID string, method string, pathValue string) (corestore.Record, bool) {
+func (h *Handler) matchRoute(ctx gateway.AwsRequestContext, apiID string, method string, pathValue string) (routeMatch, bool) {
 	routes := h.routesForAPI(ctx, apiID)
 	candidates := []string{method + " " + pathValue, "ANY " + pathValue}
 	for _, candidate := range candidates {
 		for _, route := range routes {
 			if stringField(route, "route_key") == candidate {
-				return route, true
+				return routeMatch{Record: route}, true
 			}
 		}
 	}
-	var bestGreedy corestore.Record
-	bestGreedyScore := -1
+	best := routeMatch{}
+	bestScore := -1
 	for _, route := range routes {
 		routeKey := stringField(route, "route_key")
 		parts := strings.SplitN(routeKey, " ", 2)
 		if len(parts) != 2 || (parts[0] != method && parts[0] != "ANY") {
 			continue
 		}
-		if strings.HasSuffix(parts[1], "/{proxy+}") {
-			prefix := strings.TrimSuffix(parts[1], "/{proxy+}")
-			if prefix == "" || pathValue == prefix || strings.HasPrefix(pathValue, prefix+"/") {
-				score := len(prefix)
-				if parts[0] == method {
-					score += 1 << 20
-				}
-				if score > bestGreedyScore {
-					bestGreedy = route
-					bestGreedyScore = score
-				}
-			}
+		params, score, ok := matchRoutePath(parts[1], pathValue)
+		if !ok {
+			continue
+		}
+		if parts[0] == method {
+			score += 1 << 20
+		}
+		if score > bestScore {
+			best = routeMatch{Record: route, PathParameters: params}
+			bestScore = score
 		}
 	}
-	if bestGreedy != nil {
-		return bestGreedy, true
+	if best.Record != nil {
+		return best, true
 	}
 	for _, route := range routes {
 		if stringField(route, "route_key") == "$default" {
-			return route, true
+			return routeMatch{Record: route}, true
 		}
 	}
-	return nil, false
+	return routeMatch{}, false
+}
+
+func matchRoutePath(routePath string, pathValue string) (map[string]string, int, bool) {
+	if !strings.Contains(routePath, "{") {
+		return nil, 0, false
+	}
+	routeParts := pathParts(routePath)
+	requestParts := pathParts(pathValue)
+	params := map[string]string{}
+	staticSegments := 0
+	for index, routePart := range routeParts {
+		name, greedy, param := routePathParameter(routePart)
+		if !param {
+			if index >= len(requestParts) || routePart != requestParts[index] {
+				return nil, 0, false
+			}
+			staticSegments++
+			continue
+		}
+		if greedy {
+			if index != len(routeParts)-1 || len(requestParts) < index {
+				return nil, 0, false
+			}
+			params[name] = decodeSegment(strings.Join(requestParts[index:], "/"))
+			return params, 1<<18 + staticSegments*1000 + len(routePath), true
+		}
+		if index >= len(requestParts) {
+			return nil, 0, false
+		}
+		params[name] = decodeSegment(requestParts[index])
+	}
+	if len(requestParts) != len(routeParts) {
+		return nil, 0, false
+	}
+	return params, 1<<19 + staticSegments*1000 + len(routePath), true
+}
+
+func routePathParameter(segment string) (string, bool, bool) {
+	if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+		return "", false, false
+	}
+	name := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"), "+")
+	if name == "" {
+		return "", false, false
+	}
+	return name, strings.HasSuffix(segment, "+}"), true
+}
+
+func pathParts(pathValue string) []string {
+	trimmed := strings.Trim(pathValue, "/")
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "/")
 }
 
 func (h *Handler) requireAPI(ctx gateway.AwsRequestContext, apiID string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
@@ -741,6 +810,15 @@ func (h *Handler) requireRoute(ctx gateway.AwsRequestContext, apiID string, rout
 		}
 	}
 	return nil, h.error("NotFoundException", "Route not found.", http.StatusNotFound, requestID), false
+}
+
+func (h *Handler) findRouteByKey(ctx gateway.AwsRequestContext, apiID string, routeKey string) (corestore.Record, bool) {
+	for _, route := range h.Routes.FindBy("api_id", apiID) {
+		if h.sameScope(ctx, route) && stringField(route, "route_key") == routeKey {
+			return route, true
+		}
+	}
+	return nil, false
 }
 
 func (h *Handler) requireStage(ctx gateway.AwsRequestContext, apiID string, stageName string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
@@ -897,6 +975,10 @@ func withRequestID(response protocols.ErrorResponse, requestID string) protocols
 
 func (h *Handler) validation(message string, requestID string) protocols.ErrorResponse {
 	return h.error("BadRequestException", message, http.StatusBadRequest, requestID)
+}
+
+func (h *Handler) conflict(message string, requestID string) protocols.ErrorResponse {
+	return h.error("ConflictException", message, http.StatusConflict, requestID)
 }
 
 func (h *Handler) error(code string, message string, status int, requestID string) protocols.ErrorResponse {

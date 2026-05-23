@@ -787,11 +787,11 @@ In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/
 - `TagResource`, `UntagResource`, `ListTagsForResource`
 
 ### API Gateway v2
-In the native Go runtime, `@aws-sdk/client-apigatewayv2` v3 can use the `/apigatewayv2/` endpoint directly. The SDK sends REST JSON requests under `/v2/apis` and receives JSON responses. `CreateApi` returns an `ApiEndpoint` such as `http://localhost:4000/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
+In the native Go runtime, `@aws-sdk/client-apigatewayv2` v3 can use the `/apigatewayv2/` endpoint directly. The SDK sends REST JSON requests under `/v2/apis` and receives JSON responses. `CreateApi` returns an `ApiEndpoint` such as `http://localhost:4000/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations using payload format version `2.0`. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
 
 - `CreateApi`, `GetApi`, `GetApis`, `DeleteApi` for HTTP API metadata
-- `CreateIntegration`, `GetIntegration`, `GetIntegrations`, `DeleteIntegration` for `AWS_PROXY` Lambda integrations
-- `CreateRoute`, `GetRoute`, `GetRoutes`, `DeleteRoute` for exact HTTP routes, `ANY` routes, greedy proxy routes, and `$default`
+- `CreateIntegration`, `GetIntegration`, `GetIntegrations`, `DeleteIntegration` for `AWS_PROXY` Lambda integrations with payload format version `2.0`
+- `CreateRoute`, `GetRoute`, `GetRoutes`, `DeleteRoute` for exact HTTP routes, path parameter routes, `ANY` routes, greedy proxy routes, and `$default`
 - `CreateStage`, `GetStage`, `GetStages`, `DeleteStage` for local stages, including `$default`
 - `GET`, `POST`, `PUT`, `PATCH`, `DELETE` under `/_aws/apigatewayv2/<api-id>/...` for local Lambda proxy route invokes
 
