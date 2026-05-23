@@ -1,5 +1,5 @@
 import type { Context, RouteContext } from "@emulators/core";
-import type { SlackMessage } from "../entities.js";
+import type { SlackChannel, SlackMessage, SlackUser } from "../entities.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -20,6 +20,8 @@ export function chatRoutes(ctx: RouteContext): void {
   const ss = () => getSlackStore(store);
   const findChannel = (channel: string) =>
     ss().channels.findOneBy("channel_id", channel) ?? ss().channels.findOneBy("name", channel);
+  const isChannelMember = (channel: SlackChannel, user: SlackUser) =>
+    channel.members.includes(user.user_id) || channel.members.includes(user.name);
 
   // chat.postMessage
   app.post("/api/chat.postMessage", async (c) => {
@@ -114,7 +116,7 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const targetUser = ss().users.findOneBy("user_id", user);
     if (!targetUser) return slackError(c, "user_not_found");
-    if (!ch.members.includes(targetUser.user_id)) return slackError(c, "user_not_in_channel");
+    if (!isChannelMember(ch, targetUser)) return slackError(c, "user_not_in_channel");
 
     const ts = generateTs();
     ss().ephemeralMessages.insert({

@@ -477,6 +477,21 @@ describe("Slack plugin - chat.postEphemeral", () => {
     expect(history.messages).toEqual([]);
   });
 
+  it("accepts channel membership stored by seeded login name", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    ss.channels.update(ch.id, { members: ["admin"], num_members: 1 });
+
+    const res = await app.request(`${base}/api/chat.postEphemeral`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, user: "U000000001", text: "private" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.message_ts).toBeDefined();
+  });
+
   it("returns user_not_in_channel for a target outside the channel", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.all()[0];
