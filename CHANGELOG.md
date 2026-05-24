@@ -1,8 +1,24 @@
 # Changelog
 
-## 0.5.0
+## 0.6.0
 
 <!-- release:start -->
+### New Features
+
+- **Expanded Slack emulator support** — stateful Slack writes for rich chat messages, updates, deletes, permalinks, ephemeral and scheduled messages, conversations and DMs, OAuth installs and scopes, user profiles and presence, modern file uploads, pins and bookmarks, App Home views, modals, inspector tabs, event delivery visibility, docs, and coverage matrix (#152-#164)
+
+### Improvements
+
+- **Slack SDK coverage** — added Slack WebClient conformance tests and route coverage for the supported Slack Web API surface (#152-#164)
+- **Slack docs** — audited README, package docs, web docs, skill guidance, CLI seed output, strict scope notes, and unsupported Slack families against the implemented surface (#164)
+
+### Contributors
+
+- @ctate
+<!-- release:end -->
+
+## 0.5.0
+
 ### New Features
 
 - **Clerk emulator** — local emulation of Clerk authentication and session management (#38)
@@ -29,7 +45,6 @@
 - @jlucaso1
 - @Railly
 - @tmm
-<!-- release:end -->
 
 ## 0.4.1
 
