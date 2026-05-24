@@ -42,6 +42,13 @@ export function chatRoutes(ctx: RouteContext): void {
   };
   const isChannelMember = (channel: SlackChannel, user: SlackUser) =>
     channel.members.includes(user.user_id) || channel.members.includes(user.name);
+  const deletePinsForMessage = (channel: string, ts: string) => {
+    for (const pin of ss()
+      .pins.findBy("message_ts", ts)
+      .filter((pin) => pin.channel_id === channel)) {
+      ss().pins.delete(pin.id);
+    }
+  };
   const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
     await webhooks.dispatch(
       type,
@@ -317,6 +324,7 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!isAuthoredByUser(msg, authUser)) return slackError(c, "cant_delete_message");
 
     ss().messages.delete(msg.id);
+    deletePinsForMessage(channel, ts);
 
     const eventTs = generateTs();
     await webhooks.dispatch(

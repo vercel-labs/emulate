@@ -200,6 +200,11 @@ export function inspectorRoutes(ctx: RouteContext): void {
       .slice(0, 20);
     const pins = ss()
       .pins.findBy("channel_id", activeChannel.channel_id)
+      .filter((pin) =>
+        ss()
+          .messages.findBy("channel_id", pin.channel_id)
+          .some((message) => message.ts === pin.message_ts),
+      )
       .sort((a, b) => b.created - a.created)
       .slice(0, 20);
     const bookmarks = ss()

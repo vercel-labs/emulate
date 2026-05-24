@@ -128,9 +128,11 @@ export function pinsRoutes(ctx: RouteContext): void {
 
     const pin = findPin(channel.channel_id, timestamp);
     const message = findPinnedMessage(channel.channel_id, timestamp);
-    if (!pin || !message) return slackError(c, "no_pin");
+    if (!pin) return slackError(c, "no_pin");
 
     ss().pins.delete(pin.id);
+    if (!message) return slackOk(c, {});
+
     const hasPins = ss().pins.findBy("channel_id", channel.channel_id).length > 0;
     await dispatchPinEvent("pin_removed", {
       user: authUserId,

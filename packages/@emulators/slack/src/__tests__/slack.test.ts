@@ -3484,6 +3484,62 @@ describe("Slack plugin - pins and bookmarks", () => {
     expect(((await removedListRes.json()) as any).items).toEqual([]);
   });
 
+  it("removes message pins when the backing message is deleted", async () => {
+    const ss = getSlackStore(store);
+    const channel = ss.channels.findOneBy("name", "general")!.channel_id;
+    const posted = await postPinnedMessage(channel, "Pinned then deleted");
+
+    const addRes = await app.request(`${base}/api/pins.add`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, timestamp: posted.ts }),
+    });
+    expect((await addRes.json()) as any).toMatchObject({ ok: true });
+
+    const deleteRes = await app.request(`${base}/api/chat.delete`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, ts: posted.ts }),
+    });
+    expect((await deleteRes.json()) as any).toMatchObject({ ok: true });
+    expect(ss.pins.findBy("message_ts", posted.ts)).toEqual([]);
+
+    const listRes = await app.request(`${base}/api/pins.list`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+    const listed = (await listRes.json()) as any;
+    expect(listed.ok).toBe(true);
+    expect(listed.items).toEqual([]);
+  });
+
+  it("removes orphaned pin records without rendering them in the inspector", async () => {
+    const ss = getSlackStore(store);
+    const channel = ss.channels.findOneBy("name", "general")!.channel_id;
+    const timestamp = "1234567890.123456";
+    ss.pins.insert({
+      pin_id: "P000ORPHAN",
+      team_id: "T000000001",
+      channel_id: channel,
+      message_ts: timestamp,
+      created: 1234567890,
+      created_by: "U000000001",
+    });
+
+    const inspectorRes = await app.request(`${base}/?channel=${channel}`);
+    const html = await inspectorRes.text();
+    expect(html).not.toContain(timestamp);
+
+    const removeRes = await app.request(`${base}/api/pins.remove`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, timestamp }),
+    });
+    expect((await removeRes.json()) as any).toMatchObject({ ok: true });
+    expect(ss.pins.findBy("message_ts", timestamp)).toEqual([]);
+  });
+
   it("adds, edits, lists, and removes link bookmarks", async () => {
     const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
 
