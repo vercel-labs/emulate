@@ -372,9 +372,19 @@ export function filesRoutes(ctx: RouteContext): void {
     if (!canDeleteFile(file, authUser)) return slackError(c, "cant_delete_file");
 
     const deleted = ss().files.update(file.id, { deleted: true })!;
+    removeFileFromMessages(deleted.file_id);
     await dispatchFileEvent(webhooks, "file_deleted", deleted);
     return slackOk(c, {});
   });
+
+  function removeFileFromMessages(fileId: string) {
+    for (const message of ss().messages.all()) {
+      if (!message.files?.some((file) => file.file_id === fileId)) continue;
+      ss().messages.update(message.id, {
+        files: message.files.filter((file) => file.file_id !== fileId),
+      });
+    }
+  }
 
   function updateParentThread(channelId: string, threadTs: string | undefined, userId: string) {
     if (!threadTs) return;

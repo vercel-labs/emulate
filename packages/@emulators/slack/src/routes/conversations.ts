@@ -60,7 +60,14 @@ export function conversationsRoutes(ctx: RouteContext): void {
   const formatSlackMessageForAuth = (msg: SlackMessage, authUser: { login: string }) =>
     formatSlackMessage({
       ...msg,
-      ...(msg.files ? { files: msg.files.map((file) => visibleFileForAuth(file, authUser)) } : {}),
+      ...(msg.files
+        ? {
+            files: msg.files
+              .map((file) => ss().files.findOneBy("file_id", file.file_id) ?? file)
+              .filter((file) => !file.deleted)
+              .map((file) => visibleFileForAuth(file, authUser)),
+          }
+        : {}),
     });
   const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
     await webhooks.dispatch(

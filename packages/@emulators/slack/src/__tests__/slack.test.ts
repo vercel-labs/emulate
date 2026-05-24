@@ -2924,6 +2924,63 @@ describe("Slack plugin - files", () => {
       body: JSON.stringify({ file: upload.file_id }),
     });
     expect(((await missingInfoRes.json()) as any).error).toBe("file_not_found");
+
+    const historyRes = await app.request(`${base}/api/conversations.history`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+    const history = (await historyRes.json()) as any;
+    const deletedFileShare = history.messages.find((item: any) => item.ts === message.ts);
+    expect(deletedFileShare.files).toEqual([]);
+    expect(JSON.stringify(deletedFileShare)).not.toContain(upload.file_id);
+  });
+
+  it("removes deleted files from threaded file share replies", async () => {
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+    const parentRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text: "Thread parent" }),
+    });
+    const parent = (await parentRes.json()) as any;
+
+    const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "thread.txt", length: 13 }),
+    });
+    const upload = (await urlRes.json()) as any;
+    await app.request(upload.upload_url, { method: "POST", body: "thread upload" });
+
+    const completeRes = await app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        files: [{ id: upload.file_id, title: "Thread Upload" }],
+        channel_id: channel,
+        initial_comment: "Thread file",
+        thread_ts: parent.ts,
+      }),
+    });
+    expect(((await completeRes.json()) as any).ok).toBe(true);
+
+    const deleteRes = await app.request(`${base}/api/files.delete`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ file: upload.file_id }),
+    });
+    expect(((await deleteRes.json()) as any).ok).toBe(true);
+
+    const repliesRes = await app.request(`${base}/api/conversations.replies`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, ts: parent.ts }),
+    });
+    const replies = (await repliesRes.json()) as any;
+    const deletedFileReply = replies.messages.find((item: any) => item.subtype === "file_share");
+    expect(deletedFileReply.files).toEqual([]);
+    expect(JSON.stringify(deletedFileReply)).not.toContain(upload.file_id);
   });
 
   it("uses the configured base URL for generated file URLs", async () => {
