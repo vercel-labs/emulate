@@ -432,6 +432,10 @@ curl -X POST http://localhost:4003/api/files.list \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001"}'
 
+# Download file bytes from url_private
+curl -X GET http://localhost:4003/files-pri/F000000001/deploy.txt \
+  -H "Authorization: Bearer $TOKEN"
+
 # Delete a file
 curl -X POST http://localhost:4003/api/files.delete \
   -H "Authorization: Bearer $TOKEN" \

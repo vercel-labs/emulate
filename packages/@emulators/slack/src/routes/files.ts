@@ -1,5 +1,13 @@
 import type { Context, RouteContext } from "@emulators/core";
-import type { SlackChannel, SlackFile, SlackFileShare, SlackJsonObject, SlackMessage, SlackUser } from "../entities.js";
+import type {
+  SlackChannel,
+  SlackFile,
+  SlackFileShare,
+  SlackFileUploadSession,
+  SlackJsonObject,
+  SlackMessage,
+  SlackUser,
+} from "../entities.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackFile,
@@ -22,6 +30,22 @@ export function filesRoutes(ctx: RouteContext): void {
     channel.members.includes(userId) || (user ? channel.members.includes(user.name) : false);
   const canReadConversation = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
     !channel.is_private || isChannelMember(channel, user, userId);
+  const canAccessFile = (file: SlackFile, authUser: { login: string }) => {
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = authSlackUser?.user_id ?? authUser.login;
+    if (file.user === authUserId || (authSlackUser && file.user === authSlackUser.name)) return true;
+    if (file.channels.length > 0) return true;
+
+    return [...file.groups, ...file.ims].some((channelId) => {
+      const channel = ss().channels.findOneBy("channel_id", channelId);
+      return channel ? isChannelMember(channel, authSlackUser, authUserId) : false;
+    });
+  };
+  const canDeleteFile = (file: SlackFile, authUser: { login: string }) => {
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = authSlackUser?.user_id ?? authUser.login;
+    return file.user === authUserId || authSlackUser?.is_admin === true;
+  };
   const findChannel = (channel: string) =>
     ss().channels.findOneBy("channel_id", channel) ??
     ss()
@@ -108,7 +132,9 @@ export function filesRoutes(ctx: RouteContext): void {
     const session = ss().fileUploadSessions.findOneBy("file_id", c.req.param("fileId"));
     if (!session || session.completed) return c.text("file_not_found", 404);
 
-    const data = Buffer.from(await c.req.arrayBuffer());
+    const data = await readUploadBytes(c);
+    if (!data) return c.text("invalid_upload", 400);
+
     ss().fileUploadSessions.update(session.id, {
       uploaded: true,
       uploaded_size: data.byteLength,
@@ -126,6 +152,9 @@ export function filesRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const requestedFiles = parseCompleteFiles(body.files);
     if (requestedFiles.length === 0) return slackError(c, "invalid_arguments");
+    if (new Set(requestedFiles.map((file) => file.id)).size !== requestedFiles.length) {
+      return slackError(c, "invalid_arguments");
+    }
 
     const authUserId = getAuthUserId(authUser);
     const rawChannelIds = parseDestinationChannels(body.channel_id, body.channels);
@@ -143,11 +172,19 @@ export function filesRoutes(ctx: RouteContext): void {
     const blocks = initialComment ? undefined : parseBlocks(body.blocks);
     if (body.blocks !== undefined && blocks === undefined && !initialComment) return slackError(c, "invalid_blocks");
 
-    const completedFiles: SlackFile[] = [];
+    const requestedSessions: SlackFileUploadSession[] = [];
     for (const requestedFile of requestedFiles) {
       const session = ss().fileUploadSessions.findOneBy("file_id", requestedFile.id);
-      if (!session || !session.uploaded || session.completed) return slackError(c, "file_not_found");
+      if (!session || !session.uploaded || session.completed || session.user !== authUserId) {
+        return slackError(c, "file_not_found");
+      }
+      requestedSessions.push(session);
+    }
 
+    const completedFiles: SlackFile[] = [];
+    for (let index = 0; index < requestedFiles.length; index++) {
+      const requestedFile = requestedFiles[index];
+      const session = requestedSessions[index];
       const file = ss().files.insert(
         buildSlackFile(session, {
           title: requestedFile.title ?? session.title,
@@ -227,7 +264,7 @@ export function filesRoutes(ctx: RouteContext): void {
     const body = await parseSlackRequest(c);
     const fileId = typeof body.file === "string" ? body.file : "";
     const file = fileId ? ss().files.findOneBy("file_id", fileId) : undefined;
-    if (!file || file.deleted) return slackError(c, "file_not_found");
+    if (!file || file.deleted || !canAccessFile(file, authUser)) return slackError(c, "file_not_found");
 
     return slackOk(c, { file: formatSlackFile(file), comments: [], paging: { count: 0, total: 0, page: 1, pages: 0 } });
   }
@@ -250,6 +287,7 @@ export function filesRoutes(ctx: RouteContext): void {
     const files = ss()
       .files.all()
       .filter((file) => !file.deleted)
+      .filter((file) => canAccessFile(file, authUser))
       .filter((file) => !channel || fileChannels(file).includes(channel))
       .filter((file) => !user || file.user === user)
       .filter((file) => tsFrom === undefined || file.created >= tsFrom)
@@ -276,8 +314,14 @@ export function filesRoutes(ctx: RouteContext): void {
   app.post("/api/files.list", fileList);
 
   app.get("/files-pri/:fileId/:filename", (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return c.text("not_authed", 401);
+    const scopeError = requireSlackScopes(c, store, ["files:read"]);
+    if (scopeError) return scopeError;
+
     const file = ss().files.findOneBy("file_id", c.req.param("fileId"));
     if (!file || file.deleted) return c.text("file_not_found", 404);
+    if (!canAccessFile(file, authUser)) return c.text("file_not_found", 404);
 
     const data = Buffer.from(file.content_base64 ?? "", "base64");
     return new Response(data, {
@@ -298,7 +342,8 @@ export function filesRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const fileId = typeof body.file === "string" ? body.file : "";
     const file = fileId ? ss().files.findOneBy("file_id", fileId) : undefined;
-    if (!file || file.deleted) return slackError(c, "file_not_found");
+    if (!file || file.deleted || !canAccessFile(file, authUser)) return slackError(c, "file_not_found");
+    if (!canDeleteFile(file, authUser)) return slackError(c, "cant_delete_file");
 
     const deleted = ss().files.update(file.id, { deleted: true })!;
     await dispatchFileEvent(webhooks, "file_deleted", deleted);
@@ -354,6 +399,31 @@ async function parseSlackRequest(c: Context): Promise<Record<string, unknown>> {
     return Object.fromEntries(new URL(c.req.url).searchParams.entries());
   }
   return parseSlackBody(c);
+}
+
+async function readUploadBytes(c: Context): Promise<Buffer | undefined> {
+  const contentType = c.req.header("Content-Type") ?? "";
+  if (!contentType.includes("multipart/form-data")) {
+    return Buffer.from(await c.req.arrayBuffer());
+  }
+
+  const body = await c.req.parseBody();
+  const value = firstFormValue(body.body);
+  if (value === undefined) return undefined;
+  return formValueToBuffer(value);
+}
+
+function firstFormValue(value: unknown): unknown {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+async function formValueToBuffer(value: unknown): Promise<Buffer | undefined> {
+  if (typeof value === "string") return Buffer.from(value);
+  if (value && typeof value === "object" && "arrayBuffer" in value) {
+    const arrayBuffer = (value as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer;
+    if (typeof arrayBuffer === "function") return Buffer.from(await arrayBuffer.call(value));
+  }
+  return undefined;
 }
 
 function parseCompleteFiles(value: unknown): Array<{ id: string; title?: string; highlight_type?: string }> {

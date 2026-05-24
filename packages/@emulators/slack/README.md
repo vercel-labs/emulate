@@ -55,6 +55,7 @@ npm install @emulators/slack
 - `POST /api/files.completeUploadExternal` — complete uploads and optionally share file messages
 - `GET /api/files.info` / `POST /api/files.info` — get file metadata
 - `GET /api/files.list` / `POST /api/files.list` — list completed files
+- `GET /files-pri/:fileId/:filename` — download file bytes with a bearer token that can access the file
 - `POST /api/files.delete` — delete a completed file
 
 ### Team, Bots & Webhooks

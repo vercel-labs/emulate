@@ -404,6 +404,10 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(file.title).toBe("SDK Upload");
     expect(file.channels).toContain(channel);
 
+    const download = await fetch(file.url_private, { headers: { Authorization: `Bearer ${slackTestToken}` } });
+    expect(download.status).toBe(200);
+    expect(await download.text()).toBe("SDK upload body");
+
     const info = await client.files.info({ file: file.id });
     expect(info.ok).toBe(true);
     expect(info.file?.title).toBe("SDK Upload");
