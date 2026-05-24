@@ -3150,7 +3150,7 @@ describe("Slack plugin - files", () => {
       headers: authHeaders(),
       body: JSON.stringify({
         files: [{ id: upload.file_id, title: "Mixed" }],
-        channels: `${publicChannel},${privateChannel.channel_id}`,
+        channels: `${privateChannel.channel_id},${publicChannel}`,
       }),
     });
     expect(((await completeRes.json()) as any).ok).toBe(true);
@@ -3188,6 +3188,18 @@ describe("Slack plugin - files", () => {
     const publicList = (await publicListRes.json()) as any;
     expect(publicList.ok).toBe(true);
     expect(publicList.files.map((file: any) => file.id)).toContain(upload.file_id);
+
+    const historyRes = await app.request(`${base}/api/conversations.history`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: publicChannel }),
+    });
+    const history = (await historyRes.json()) as any;
+    expect(history.ok).toBe(true);
+    const fileShare = history.messages.find((message: any) => message.subtype === "file_share");
+    expect(fileShare.files[0].channels).toEqual([publicChannel]);
+    expect(fileShare.files[0].groups).toEqual([]);
+    expect(fileShare.files[0].shares.private).toBeUndefined();
   });
 
   it("does not partially complete multi-file uploads when one file is invalid", async () => {

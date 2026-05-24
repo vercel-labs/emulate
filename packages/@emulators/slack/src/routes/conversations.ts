@@ -1,5 +1,5 @@
 import type { RouteContext } from "@emulators/core";
-import type { SlackChannel, SlackMessage, SlackUser } from "../entities.js";
+import type { SlackChannel, SlackFile, SlackFileShare, SlackMessage, SlackUser } from "../entities.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -33,6 +33,35 @@ export function conversationsRoutes(ctx: RouteContext): void {
     getChannelMemberKey(channel, user, userId) !== undefined;
   const canReadConversation = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
     !channel.is_private || isChannelMember(channel, user, userId);
+  const visibleFileChannelIds = (file: SlackFile, authUser: { login: string }) => {
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = authSlackUser?.user_id ?? authUser.login;
+    return fileChannels(file).filter((channelId) => {
+      const channel = ss().channels.findOneBy("channel_id", channelId);
+      return channel ? canReadConversation(channel, authSlackUser, authUserId) : false;
+    });
+  };
+  const visibleFileForAuth = (file: SlackFile, authUser: { login: string }): SlackFile => {
+    const visibleIds = new Set(visibleFileChannelIds(file, authUser));
+    const publicShares = filterVisibleShares(file.shares.public, visibleIds);
+    const privateShares = filterVisibleShares(file.shares.private, visibleIds);
+    const shares: SlackFile["shares"] = {};
+    if (publicShares) shares.public = publicShares;
+    if (privateShares) shares.private = privateShares;
+
+    return {
+      ...file,
+      channels: file.channels.filter((channelId) => visibleIds.has(channelId)),
+      groups: file.groups.filter((channelId) => visibleIds.has(channelId)),
+      ims: file.ims.filter((channelId) => visibleIds.has(channelId)),
+      shares,
+    };
+  };
+  const formatSlackMessageForAuth = (msg: SlackMessage, authUser: { login: string }) =>
+    formatSlackMessage({
+      ...msg,
+      ...(msg.files ? { files: msg.files.map((file) => visibleFileForAuth(file, authUser)) } : {}),
+    });
   const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
     await webhooks.dispatch(
       type,
@@ -428,7 +457,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const nextCursor = hasMore ? allMessages[startIndex + limit].ts : "";
 
     return slackOk(c, {
-      messages: page.map(formatSlackMessage),
+      messages: page.map((message) => formatSlackMessageForAuth(message, authUser)),
       has_more: hasMore,
       response_metadata: { next_cursor: nextCursor },
     });
@@ -458,7 +487,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       .sort((a, b) => (a.ts > b.ts ? 1 : -1));
 
     return slackOk(c, {
-      messages: allMessages.map(formatSlackMessage),
+      messages: allMessages.map((message) => formatSlackMessageForAuth(message, authUser)),
       has_more: false,
     });
   });
@@ -918,6 +947,15 @@ function findConversationByMembers(
 
 function findNamedChannel(channels: SlackChannel[], name: string): SlackChannel | undefined {
   return channels.find((ch) => !ch.is_im && !ch.is_mpim && ch.name === name);
+}
+
+function fileChannels(file: SlackFile): string[] {
+  return [...file.channels, ...file.groups, ...file.ims];
+}
+
+function filterVisibleShares(shares: Record<string, SlackFileShare[]> | undefined, visibleIds: Set<string>) {
+  const entries = Object.entries(shares ?? {}).filter(([channelId]) => visibleIds.has(channelId));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function channelTypeLetter(ch: SlackChannel): "C" | "D" | "G" {

@@ -215,7 +215,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
 
   slack: {
     label: "Slack API emulator",
-    endpoints: "auth, chat, conversations, users, reactions, team, OAuth, incoming webhooks",
+    endpoints: "auth, chat, conversations, users, files, reactions, team, OAuth, incoming webhooks",
     async load() {
       const mod = await import("@emulators/slack");
       return { plugin: mod.slackPlugin, seedFromConfig: mod.seedFromConfig };
