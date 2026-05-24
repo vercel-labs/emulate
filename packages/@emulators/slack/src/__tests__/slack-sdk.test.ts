@@ -430,6 +430,61 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     ).resolves.toMatchObject({ ok: true });
   });
 
+  it("exercises App Home and modal views through the Slack SDK", async () => {
+    const published = (await client.views.publish({
+      user_id: "U000000001",
+      view: {
+        type: "home",
+        blocks: [{ type: "section", text: { type: "plain_text", text: "SDK App Home" } }],
+        callback_id: "sdk_home",
+        external_id: "sdk-home-view",
+      },
+    } as any)) as any;
+    expect(published.ok).toBe(true);
+    expect(published.view.type).toBe("home");
+    expect(published.view.blocks[0].text.text).toBe("SDK App Home");
+
+    const opened = (await client.views.open({
+      trigger_id: "12345.98765.sdkopen",
+      view: {
+        type: "modal",
+        title: { type: "plain_text", text: "SDK Modal" },
+        close: { type: "plain_text", text: "Close" },
+        blocks: [{ type: "section", text: { type: "plain_text", text: "SDK modal body" } }],
+        external_id: "sdk-modal-open",
+      },
+    } as any)) as any;
+    expect(opened.ok).toBe(true);
+    expect(opened.view.root_view_id).toBe(opened.view.id);
+
+    const updated = (await client.views.update({
+      view_id: opened.view.id,
+      hash: opened.view.hash,
+      view: {
+        type: "modal",
+        title: { type: "plain_text", text: "SDK Modal Updated" },
+        blocks: [{ type: "section", text: { type: "plain_text", text: "SDK modal update" } }],
+        external_id: "sdk-modal-open",
+      },
+    } as any)) as any;
+    expect(updated.ok).toBe(true);
+    expect(updated.view.id).toBe(opened.view.id);
+    expect(updated.view.blocks[0].text.text).toBe("SDK modal update");
+
+    const pushed = (await client.views.push({
+      trigger_id: "12345.98765.sdkpush",
+      view: {
+        type: "modal",
+        title: { type: "plain_text", text: "SDK Modal Pushed" },
+        blocks: [{ type: "section", text: { type: "plain_text", text: "SDK modal push" } }],
+        external_id: "sdk-modal-pushed",
+      },
+    } as any)) as any;
+    expect(pushed.ok).toBe(true);
+    expect(pushed.view.previous_view_id).toBe(opened.view.id);
+    expect(pushed.view.root_view_id).toBe(opened.view.id);
+  });
+
   it("uploads files through the Slack SDK uploadV2 helper", async () => {
     expect(emulator).toBeDefined();
     const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;

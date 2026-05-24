@@ -8,6 +8,7 @@ import type {
   SlackMessage,
   SlackPin,
   SlackScheduledMessage,
+  SlackView,
 } from "../entities.js";
 import { compareSlackBookmarks } from "./bookmarks.js";
 
@@ -140,6 +141,30 @@ function renderBookmark(bookmark: SlackBookmark): string {
 <div class="info-text">${escapeHtml(bookmark.link)}</div>`;
 }
 
+function viewPreview(view: SlackView): string {
+  const blockText: string[] = [];
+  collectTextValues(view.blocks, blockText);
+  if (blockText.length > 0) return blockText.join(" ");
+
+  const title = view.title?.text;
+  if (typeof title === "string" && title.trim().length > 0) return title;
+
+  if (view.callback_id) return view.callback_id;
+  if (view.external_id) return view.external_id;
+  return `${view.blocks.length} ${view.blocks.length === 1 ? "block" : "blocks"}`;
+}
+
+function renderView(view: SlackView, users: Map<string, string>): string {
+  const userName = users.get(view.user_id) ?? view.user_id;
+  const label = view.type === "home" ? "app home" : "modal";
+  return `<div class="org-row">
+  <span class="org-icon">${view.type === "home" ? "H" : "M"}</span>
+  <span class="org-name">${escapeHtml(userName)} <span class="badge badge-granted">${label}</span></span>
+  <span class="user-meta">${escapeHtml(view.hash)}</span>
+</div>
+<div class="info-text">${escapeHtml(viewPreview(view))}</div>`;
+}
+
 function renderChannelSidebar(channels: SlackChannel[], activeId: string): string {
   return channels
     .map((ch) => {
@@ -208,6 +233,16 @@ export function inspectorRoutes(ctx: RouteContext): void {
       .bookmarks.findBy("channel_id", activeChannel.channel_id)
       .sort(compareSlackBookmarks)
       .slice(0, 20);
+    const homeViews = ss()
+      .views.all()
+      .filter((view) => view.type === "home")
+      .sort((a, b) => b.updated - a.updated || b.id - a.id)
+      .slice(0, 20);
+    const modalViews = ss()
+      .views.all()
+      .filter((view) => view.type === "modal")
+      .sort((a, b) => b.updated - a.updated || b.id - a.id)
+      .slice(0, 20);
 
     const sidebar = renderChannelSidebar(channels, activeChannel.channel_id);
 
@@ -246,8 +281,20 @@ export function inspectorRoutes(ctx: RouteContext): void {
         : `<div class="section-heading">Bookmarks</div>${bookmarks
             .map(renderBookmark)
             .join("\n<div style='height:8px'></div>\n")}`;
+    const homeViewsHtml =
+      homeViews.length === 0
+        ? ""
+        : `<div class="section-heading">App Home</div>${homeViews
+            .map((view) => renderView(view, userMap))
+            .join("\n<div style='height:8px'></div>\n")}`;
+    const modalViewsHtml =
+      modalViews.length === 0
+        ? ""
+        : `<div class="section-heading">Modals</div>${modalViews
+            .map((view) => renderView(view, userMap))
+            .join("\n<div style='height:8px'></div>\n")}`;
 
-    const stats = `${ss().users.all().length} users, ${channels.length} channels, ${ss().messages.all().length} messages`;
+    const stats = `${ss().users.all().length} users, ${channels.length} channels, ${ss().messages.all().length} messages, ${ss().views.all().length} views`;
 
     const bodyHtml = `
 <div class="s-card">
@@ -267,6 +314,8 @@ export function inspectorRoutes(ctx: RouteContext): void {
   ${scheduledHtml}
   ${pinsHtml}
   ${bookmarksHtml}
+  ${homeViewsHtml}
+  ${modalViewsHtml}
 </div>`;
 
     return c.html(renderSettingsPage(`${team?.name ?? "Slack"} - Message Inspector`, sidebar, bodyHtml, SERVICE_LABEL));

@@ -1,12 +1,12 @@
 ---
 name: slack
-description: Emulated Slack API for local development and testing. Use when the user needs to interact with Slack API endpoints locally, test Slack integrations, emulate channels/messages/users, set up Slack OAuth flows, test incoming webhooks, or work with the Slack Web API without hitting the real Slack API. Triggers include "Slack API", "emulate Slack", "mock Slack", "test Slack OAuth", "Slack bot", "incoming webhook", "local Slack", or any task requiring a local Slack API.
+description: Emulated Slack API for local development and testing. Use when the user needs to interact with Slack API endpoints locally, test Slack integrations, emulate channels/messages/users/views, set up Slack OAuth flows, test incoming webhooks, or work with the Slack Web API without hitting the real Slack API. Triggers include "Slack API", "emulate Slack", "mock Slack", "test Slack OAuth", "Slack bot", "Slack views", "incoming webhook", "local Slack", or any task requiring a local Slack API.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Slack API Emulator
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Start
 
@@ -38,7 +38,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 Requests without a token return `not_authed`. In relaxed scope mode, any non-empty unknown bearer token maps to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Pointing Your App at the Emulator
 
@@ -493,6 +493,40 @@ curl -X POST http://localhost:4003/api/bookmarks.remove \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel_id": "C000000001", "bookmark_id": "Bk000000001"}'
+```
+
+### Views
+
+```bash
+# Publish an App Home view
+curl -X POST http://localhost:4003/api/views.publish \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "U000000001", "view": {"type": "home", "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Local App Home"}}]}}'
+
+# Generate a local trigger id for modal tests
+curl -X POST http://localhost:4003/api/views.generateTriggerId \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "U000000001"}'
+
+# Open a modal view
+curl -X POST http://localhost:4003/api/views.open \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"trigger_id": "12345.98765.local", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Local Modal"}, "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Modal body"}}]}}'
+
+# Update a view
+curl -X POST http://localhost:4003/api/views.update \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"view_id": "V000000001", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Updated Modal"}, "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Updated body"}}]}}'
+
+# Push a modal view onto the current stack
+curl -X POST http://localhost:4003/api/views.push \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"trigger_id": "12345.98765.local", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Next Modal"}, "blocks": []}}'
 ```
 
 ### Reactions

@@ -1,6 +1,6 @@
 # @emulators/slack
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -67,6 +67,13 @@ npm install @emulators/slack
 - `POST /api/bookmarks.list` — list channel bookmarks
 - `POST /api/bookmarks.remove` — remove a bookmark from a channel
 
+### Views
+- `POST /api/views.publish` — publish or update an App Home view for a user
+- `POST /api/views.open` — open a modal view
+- `POST /api/views.update` — update a view by `view_id` or `external_id`
+- `POST /api/views.push` — push a modal view onto the current modal stack
+- `POST /api/views.generateTriggerId` — local helper for tests that need a modal trigger id
+
 ### Team, Bots & Webhooks
 - `POST /api/team.info` — workspace info
 - `POST /api/bots.info` — bot info
@@ -78,7 +85,7 @@ npm install @emulators/slack
 
 ## Auth
 
-All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`.
+All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Seed Configuration
 

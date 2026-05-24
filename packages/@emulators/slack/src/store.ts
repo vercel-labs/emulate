@@ -15,6 +15,8 @@ import type {
   SlackFileUploadSession,
   SlackPin,
   SlackBookmark,
+  SlackView,
+  SlackViewTrigger,
 } from "./entities.js";
 
 export interface SlackStore {
@@ -33,6 +35,8 @@ export interface SlackStore {
   fileUploadSessions: Collection<SlackFileUploadSession>;
   pins: Collection<SlackPin>;
   bookmarks: Collection<SlackBookmark>;
+  views: Collection<SlackView>;
+  viewTriggers: Collection<SlackViewTrigger>;
 }
 
 export function getSlackStore(store: Store): SlackStore {
@@ -64,5 +68,7 @@ export function getSlackStore(store: Store): SlackStore {
     fileUploadSessions: store.collection<SlackFileUploadSession>("slack.file_upload_sessions", ["file_id"]),
     pins: store.collection<SlackPin>("slack.pins", ["pin_id", "channel_id", "message_ts"]),
     bookmarks: store.collection<SlackBookmark>("slack.bookmarks", ["bookmark_id", "channel_id"]),
+    views: store.collection<SlackView>("slack.views", ["view_id", "user_id", "external_id", "root_view_id"]),
+    viewTriggers: store.collection<SlackViewTrigger>("slack.view_triggers", ["trigger_id", "user_id", "view_id"]),
   };
 }

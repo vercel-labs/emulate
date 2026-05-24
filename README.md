@@ -612,7 +612,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 ## Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
@@ -669,6 +669,13 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/bookmarks.list` - list channel bookmarks
 - `POST /api/bookmarks.remove` - remove a bookmark from a channel
 
+### Views
+- `POST /api/views.publish` - publish or update an App Home view for a user
+- `POST /api/views.open` - open a modal view
+- `POST /api/views.update` - update a view by `view_id` or `external_id`
+- `POST /api/views.push` - push a modal view onto the current modal stack
+- `POST /api/views.generateTriggerId` - local helper for tests that need a modal trigger id
+
 ### Team, Bots & Webhooks
 - `POST /api/team.info` - workspace info
 - `POST /api/bots.info` - bot info
@@ -678,7 +685,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /api/oauth.v2.access` - token exchange
 
-Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`.
+Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Apple Sign In
 

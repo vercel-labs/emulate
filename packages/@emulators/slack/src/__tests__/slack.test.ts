@@ -3875,6 +3875,216 @@ describe("Slack plugin - pins and bookmarks", () => {
   });
 });
 
+describe("Slack plugin - views", () => {
+  let app: SlackTestApp["app"];
+  let store: Store;
+  let tokenMap: SlackTestApp["tokenMap"];
+
+  beforeEach(() => {
+    ({ app, store, tokenMap } = createTestApp());
+  });
+
+  it("publishes and updates App Home views", async () => {
+    const blocks = [{ type: "section", text: { type: "plain_text", text: "Home view from route test" } }];
+
+    const publishRes = await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user_id: "U000000001",
+        view: {
+          type: "home",
+          blocks,
+          callback_id: "home_callback",
+          external_id: "home-route-test",
+          private_metadata: "home-metadata",
+        },
+      }),
+    });
+    const published = (await publishRes.json()) as any;
+    expect(published.ok).toBe(true);
+    expect(published.view).toMatchObject({
+      type: "home",
+      blocks,
+      callback_id: "home_callback",
+      external_id: "home-route-test",
+      private_metadata: "home-metadata",
+    });
+    expect(published.view.id).toMatch(/^V/);
+    expect(published.view.root_view_id).toBe(published.view.id);
+    expect(getSlackStore(store).views.all()).toHaveLength(1);
+
+    const updateRes = await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user_id: "U000000001",
+        hash: published.view.hash,
+        view: {
+          type: "home",
+          blocks: [{ type: "section", text: { type: "plain_text", text: "Updated App Home" } }],
+          external_id: "home-route-test",
+        },
+      }),
+    });
+    const updated = (await updateRes.json()) as any;
+    expect(updated.ok).toBe(true);
+    expect(updated.view.id).toBe(published.view.id);
+    expect(updated.view.hash).not.toBe(published.view.hash);
+    expect(getSlackStore(store).views.all()).toHaveLength(1);
+
+    const inspector = await app.request(`${base}/`);
+    const html = await inspector.text();
+    expect(html).toContain("App Home");
+    expect(html).toContain("Updated App Home");
+  });
+
+  it("opens, updates, and pushes modal views", async () => {
+    const triggerRes = await app.request(`${base}/api/views.generateTriggerId`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ user_id: "U000000001" }),
+    });
+    const trigger = (await triggerRes.json()) as any;
+    expect(trigger.ok).toBe(true);
+    expect(trigger.trigger_id).toBeDefined();
+
+    const openRes = await app.request(`${base}/api/views.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        trigger_id: trigger.trigger_id,
+        view: {
+          type: "modal",
+          title: { type: "plain_text", text: "Route Modal" },
+          close: { type: "plain_text", text: "Close" },
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Opened modal" } }],
+          callback_id: "route_modal",
+          external_id: "route-modal-open",
+        },
+      }),
+    });
+    const opened = (await openRes.json()) as any;
+    expect(opened.ok).toBe(true);
+    expect(opened.view.type).toBe("modal");
+    expect(opened.view.root_view_id).toBe(opened.view.id);
+    expect(opened.view.previous_view_id).toBeNull();
+
+    const updateRes = await app.request(`${base}/api/views.update`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        view_id: opened.view.id,
+        hash: opened.view.hash,
+        view: {
+          type: "modal",
+          title: { type: "plain_text", text: "Updated Route Modal" },
+          blocks: [{ type: "section", text: { type: "plain_text", text: "Updated modal body" } }],
+          external_id: "route-modal-open",
+        },
+      }),
+    });
+    const updated = (await updateRes.json()) as any;
+    expect(updated.ok).toBe(true);
+    expect(updated.view.id).toBe(opened.view.id);
+    expect(updated.view.hash).not.toBe(opened.view.hash);
+    expect(updated.view.blocks[0].text.text).toBe("Updated modal body");
+
+    const pushTriggerRes = await app.request(`${base}/api/views.generateTriggerId`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ view_id: opened.view.id }),
+    });
+    const pushTrigger = (await pushTriggerRes.json()) as any;
+    expect(pushTrigger.ok).toBe(true);
+
+    const pushRes = await app.request(`${base}/api/views.push`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        trigger_id: pushTrigger.trigger_id,
+        view: {
+          type: "modal",
+          title: { type: "plain_text", text: "Pushed Route Modal" },
+          blocks: [{ type: "section", text: { type: "plain_text", text: "Pushed modal body" } }],
+          external_id: "route-modal-pushed",
+        },
+      }),
+    });
+    const pushed = (await pushRes.json()) as any;
+    expect(pushed.ok).toBe(true);
+    expect(pushed.view.previous_view_id).toBe(opened.view.id);
+    expect(pushed.view.root_view_id).toBe(opened.view.id);
+    expect(getSlackStore(store).views.findBy("user_id", "U000000001")).toHaveLength(2);
+
+    const reusedTriggerRes = await app.request(`${base}/api/views.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        trigger_id: pushTrigger.trigger_id,
+        view: { type: "modal", title: { type: "plain_text", text: "Reuse" }, blocks: [] },
+      }),
+    });
+    expect(((await reusedTriggerRes.json()) as any).error).toBe("exchanged_trigger_id");
+  });
+
+  it("matches Slack views methods having no strict scope requirement", async () => {
+    store.setData("slack.strict_scopes", true);
+    tokenMap.set("xoxb-views-no-scope-token", { login: "U000000001", id: 1, scopes: [] });
+
+    const res = await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer xoxb-views-no-scope-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: "U000000001",
+        view: {
+          type: "home",
+          blocks: [{ type: "section", text: { type: "plain_text", text: "No view scopes required" } }],
+        },
+      }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+  });
+
+  it("rejects invalid view payloads and stale hashes", async () => {
+    const invalidRes = await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user_id: "U000000001",
+        view: { type: "home", blocks: "not blocks" },
+      }),
+    });
+    expect(((await invalidRes.json()) as any).error).toBe("invalid_view");
+
+    const publishRes = await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user_id: "U000000001",
+        view: { type: "home", blocks: [] },
+      }),
+    });
+    const published = (await publishRes.json()) as any;
+    expect(published.ok).toBe(true);
+
+    const staleRes = await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user_id: "U000000001",
+        hash: "stale-hash",
+        view: { type: "home", blocks: [] },
+      }),
+    });
+    expect(((await staleRes.json()) as any).error).toBe("hash_conflict");
+  });
+});
+
 describe("Slack plugin - Message Inspector", () => {
   let app: SlackTestApp["app"];
   let store: Store;

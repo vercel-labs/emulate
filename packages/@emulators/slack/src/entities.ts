@@ -298,3 +298,38 @@ export interface SlackBookmark extends Entity {
   access_level?: "read" | "write";
   parent_id?: string;
 }
+
+export type SlackViewType = "home" | "modal";
+
+export interface SlackView extends Entity {
+  view_id: string;
+  team_id: string;
+  user_id: string;
+  type: SlackViewType;
+  blocks: SlackJsonObject[];
+  private_metadata: string;
+  callback_id: string;
+  external_id: string;
+  title: SlackJsonObject | null;
+  submit: SlackJsonObject | null;
+  close: SlackJsonObject | null;
+  state: SlackJsonObject;
+  hash: string;
+  clear_on_close: boolean;
+  notify_on_close: boolean;
+  root_view_id: string;
+  previous_view_id?: string;
+  app_id: string;
+  bot_id: string;
+  created: number;
+  updated: number;
+}
+
+export interface SlackViewTrigger extends Entity {
+  trigger_id: string;
+  team_id: string;
+  user_id: string;
+  expires_at: number;
+  used: boolean;
+  view_id?: string;
+}

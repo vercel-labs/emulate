@@ -40,7 +40,7 @@ describe("Slack coverage matrix", () => {
 
   it("keeps planned gaps explicit", () => {
     const planned = slackCoverageMatrix.filter((entry) => entry.status === "not_started");
-    expect(planned.map((entry) => entry.method)).toEqual(expect.arrayContaining(["views.publish"]));
+    expect(planned.map((entry) => entry.method)).toEqual(expect.arrayContaining(["views.interaction_simulation"]));
     for (const entry of planned) {
       expect(entry.notes).toMatch(/Planned|future/i);
     }

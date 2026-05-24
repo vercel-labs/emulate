@@ -2,7 +2,14 @@ import { randomBytes } from "crypto";
 import type { Context } from "@emulators/core";
 import type { ContentfulStatusCode } from "@emulators/core";
 import type { Store } from "@emulators/core";
-import type { SlackChannel, SlackFile, SlackJsonObject, SlackMessage, SlackScheduledMessage } from "./entities.js";
+import type {
+  SlackChannel,
+  SlackFile,
+  SlackJsonObject,
+  SlackMessage,
+  SlackScheduledMessage,
+  SlackView,
+} from "./entities.js";
 
 export type SlackScopeRequirement = string | string[];
 
@@ -251,6 +258,29 @@ export function formatSlackScheduledMessageListItem(msg: SlackScheduledMessage) 
     post_at: msg.post_at,
     date_created: msg.date_created,
     text: msg.text,
+  };
+}
+
+export function formatSlackView(view: SlackView) {
+  return {
+    id: view.view_id,
+    team_id: view.team_id,
+    type: view.type,
+    title: view.title,
+    close: view.close,
+    submit: view.submit,
+    blocks: view.blocks,
+    private_metadata: view.private_metadata,
+    callback_id: view.callback_id,
+    external_id: view.external_id,
+    state: view.state,
+    hash: view.hash,
+    clear_on_close: view.clear_on_close,
+    notify_on_close: view.notify_on_close,
+    root_view_id: view.root_view_id,
+    previous_view_id: view.previous_view_id ?? null,
+    app_id: view.app_id,
+    bot_id: view.bot_id,
   };
 }
 
