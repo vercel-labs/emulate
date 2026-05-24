@@ -1,6 +1,6 @@
 # @emulators/slack
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. Supported write state changes dispatch Slack `event_callback` payloads to configured webhook URLs.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -83,6 +83,7 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 
 ### OAuth
 - `GET /oauth/v2/authorize` — authorization (shows user picker)
+- `POST /oauth/v2/authorize/callback` — local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` — token exchange
 
 ### Inspector
@@ -90,7 +91,11 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 
 ## Auth
 
-All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+
+## Current Limits
+
+Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Seed Configuration
 
@@ -125,6 +130,21 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - channels:history
+        - channels:join
+        - channels:manage
+        - channels:write
+        - groups:read
+        - groups:history
+        - groups:write
+        - im:read
+        - im:history
+        - im:write
+        - mpim:read
+        - mpim:history
+        - mpim:write
+        - users:read
+        - users:read.email
         - users.profile:read
         - users.profile:write
         - users:write
@@ -134,6 +154,9 @@ slack:
         - pins:write
         - bookmarks:read
         - bookmarks:write
+        - reactions:read
+        - reactions:write
+        - team:read
       user_scopes:
         - users:read
         - users.profile:read
@@ -144,6 +167,21 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - channels:history
+        - channels:join
+        - channels:manage
+        - channels:write
+        - groups:read
+        - groups:history
+        - groups:write
+        - im:read
+        - im:history
+        - im:write
+        - mpim:read
+        - mpim:history
+        - mpim:write
+        - users:read
+        - users:read.email
         - users.profile:read
         - users.profile:write
         - users:write
@@ -153,6 +191,9 @@ slack:
         - pins:write
         - bookmarks:read
         - bookmarks:write
+        - reactions:read
+        - reactions:write
+        - team:read
   strict_scopes: false
 ```
 

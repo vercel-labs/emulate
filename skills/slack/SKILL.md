@@ -38,7 +38,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 Requests without a token return `not_authed`. In relaxed scope mode, any non-empty unknown bearer token maps to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user, presence, file, pin, and bookmark checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, and `bookmarks:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Pointing Your App at the Emulator
 
@@ -125,6 +125,21 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - channels:history
+        - channels:join
+        - channels:manage
+        - channels:write
+        - groups:read
+        - groups:history
+        - groups:write
+        - im:read
+        - im:history
+        - im:write
+        - mpim:read
+        - mpim:history
+        - mpim:write
+        - users:read
+        - users:read.email
         - users.profile:read
         - users.profile:write
         - users:write
@@ -134,6 +149,9 @@ slack:
         - pins:write
         - bookmarks:read
         - bookmarks:write
+        - reactions:read
+        - reactions:write
+        - team:read
       user_scopes:
         - users:read
         - users.profile:read
@@ -144,6 +162,21 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - channels:history
+        - channels:join
+        - channels:manage
+        - channels:write
+        - groups:read
+        - groups:history
+        - groups:write
+        - im:read
+        - im:history
+        - im:write
+        - mpim:read
+        - mpim:history
+        - mpim:write
+        - users:read
+        - users:read.email
         - users.profile:read
         - users.profile:write
         - users:write
@@ -153,6 +186,9 @@ slack:
         - pins:write
         - bookmarks:read
         - bookmarks:write
+        - reactions:read
+        - reactions:write
+        - team:read
   incoming_webhooks:
     - channel: general
       label: CI Notifications
@@ -599,6 +635,7 @@ curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
 ```bash
 # Authorize (browser flow, shows user picker)
 # GET /oauth/v2/authorize?client_id=...&redirect_uri=...&scope=...&state=...
+# The picker submits POST /oauth/v2/authorize/callback to create the auth code.
 
 # Token exchange
 curl -X POST http://localhost:4003/api/oauth.v2.access \
@@ -627,7 +664,7 @@ Open `GET /` in the Slack emulator to inspect conversations, messages, files, vi
 
 ## Event Dispatching
 
-When messages are posted, updated, deleted, reactions change, pins change, or files change, the emulator dispatches `event_callback` payloads to configured webhook URLs. These payloads match Slack's Events API format:
+When supported Slack writes mutate state, the emulator dispatches `event_callback` payloads to configured webhook URLs. These payloads match Slack's Events API format:
 
 - `message` events on `chat.postMessage`
 - `message` with `subtype: message_changed` on `chat.update`
@@ -646,6 +683,10 @@ When messages are posted, updated, deleted, reactions change, pins change, or fi
 - `presence_change` on presence writes
 - `file_created`, `file_shared`, and `file_deleted` on file writes
 - `message` with `subtype: file_share` on shared file uploads
+
+## Current Limits
+
+Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Common Patterns
 
