@@ -19,6 +19,7 @@ interface ParsedViewPayload {
 
 interface ConsumedTrigger {
   user_id?: string;
+  app_id?: string;
   view_id?: string;
 }
 
@@ -86,13 +87,13 @@ export function viewsRoutes(ctx: RouteContext): void {
     if (parsed.error || !parsed.view) return slackError(c, parsed.error ?? "invalid_view");
     const viewPayload = parsed.view;
 
-    const trigger = consumeTrigger(stringField(body.trigger_id));
+    const actor = viewActor(c);
+    const trigger = consumeTrigger(stringField(body.trigger_id), actor.app_id);
     if (trigger.error) return slackError(c, trigger.error);
     const userId = trigger.value!.user_id!;
     if (!resolveUserId(userId)) return slackError(c, "user_not_found");
     if (findDuplicateExternalId(viewPayload.external_id)) return slackError(c, "duplicate_external_id");
 
-    const actor = viewActor(c);
     const view = createView(viewPayload, {
       user_id: userId,
       app_id: actor.app_id,
@@ -108,6 +109,8 @@ export function viewsRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const view = findView(stringField(body.view_id), stringField(body.external_id));
     if (!view) return slackError(c, "view_not_found");
+    const actor = viewActor(c);
+    if (view.app_id !== actor.app_id) return slackError(c, "view_not_found");
 
     const hash = stringField(body.hash);
     if (hash && hash !== view.hash) return slackError(c, "hash_conflict");
@@ -136,7 +139,8 @@ export function viewsRoutes(ctx: RouteContext): void {
     if (parsed.error || !parsed.view) return slackError(c, parsed.error ?? "invalid_view");
     const viewPayload = parsed.view;
 
-    const trigger = consumeTrigger(stringField(body.trigger_id));
+    const actor = viewActor(c);
+    const trigger = consumeTrigger(stringField(body.trigger_id), actor.app_id);
     if (trigger.error) return slackError(c, trigger.error);
     const userId = trigger.value!.user_id!;
     if (!resolveUserId(userId)) return slackError(c, "user_not_found");
@@ -146,7 +150,6 @@ export function viewsRoutes(ctx: RouteContext): void {
     if (!parent || parent.type !== "modal" || parent.user_id !== userId) return slackError(c, "view_not_found");
     if (modalStackDepth(parent) >= MAX_MODAL_STACK_DEPTH) return slackError(c, "push_limit_reached");
 
-    const actor = viewActor(c);
     const view = createView(viewPayload, {
       user_id: userId,
       app_id: actor.app_id,
@@ -166,9 +169,11 @@ export function viewsRoutes(ctx: RouteContext): void {
       ? ss().views.findOneBy("view_id", stringField(body.view_id))
       : undefined;
     if (stringField(body.view_id) && !referencedView) return slackError(c, "view_not_found");
+    const actor = viewActor(c);
+    if (referencedView && referencedView.app_id !== actor.app_id) return slackError(c, "view_not_found");
 
-    const userId = resolveUserId(stringField(body.user_id)) ?? referencedView?.user_id ?? authUser.login;
-    if (!resolveUserId(userId)) return slackError(c, "user_not_found");
+    const userId = resolveUserId(stringField(body.user_id)) ?? referencedView?.user_id ?? resolveUserId(authUser.login);
+    if (!userId || !resolveUserId(userId)) return slackError(c, "user_not_found");
 
     const triggerId = generateTriggerId();
     const expiresAt = nowSeconds() + VIEW_TRIGGER_TTL_SECONDS;
@@ -176,6 +181,7 @@ export function viewsRoutes(ctx: RouteContext): void {
       trigger_id: triggerId,
       team_id: teamId(),
       user_id: userId,
+      app_id: actor.app_id,
       expires_at: expiresAt,
       used: false,
       ...(referencedView ? { view_id: referencedView.view_id } : {}),
@@ -247,14 +253,15 @@ export function viewsRoutes(ctx: RouteContext): void {
     return token ? ss().tokens.findOneBy("token", token) : undefined;
   }
 
-  function consumeTrigger(triggerId: string): { value?: ConsumedTrigger; error?: string } {
+  function consumeTrigger(triggerId: string, appId: string): { value?: ConsumedTrigger; error?: string } {
     if (!triggerId) return { error: "invalid_trigger_id" };
     const trigger = ss().viewTriggers.findOneBy("trigger_id", triggerId);
     if (!trigger) return { error: "invalid_trigger_id" };
+    if (trigger.app_id !== appId) return { error: "invalid_trigger_id" };
     if (trigger.used) return { error: "exchanged_trigger_id" };
     if (trigger.expires_at <= nowSeconds()) return { error: "expired_trigger_id" };
     const updated = ss().viewTriggers.update(trigger.id, { used: true }) ?? trigger;
-    return { value: { user_id: updated.user_id, view_id: updated.view_id } };
+    return { value: { user_id: updated.user_id, app_id: updated.app_id, view_id: updated.view_id } };
   }
 
   function parseViewPayload(

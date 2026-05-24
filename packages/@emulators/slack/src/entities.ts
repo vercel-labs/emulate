@@ -329,6 +329,7 @@ export interface SlackViewTrigger extends Entity {
   trigger_id: string;
   team_id: string;
   user_id: string;
+  app_id: string;
   expires_at: number;
   used: boolean;
   view_id?: string;

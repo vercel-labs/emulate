@@ -4066,6 +4066,111 @@ describe("Slack plugin - views", () => {
     expect(((await expiredRes.json()) as any).error).toBe("expired_trigger_id");
   });
 
+  it("keeps modal triggers and updates scoped to their Slack app", async () => {
+    const ss = getSlackStore(store);
+    ss.tokens.insert({
+      token: "xoxb-app-a-token",
+      token_type: "bot",
+      team_id: "T000000001",
+      user_id: "U000000001",
+      scopes: [],
+      app_id: "A000000101",
+      bot_id: "B000000101",
+    });
+    ss.tokens.insert({
+      token: "xoxb-app-b-token",
+      token_type: "bot",
+      team_id: "T000000001",
+      user_id: "U000000001",
+      scopes: [],
+      app_id: "A000000202",
+      bot_id: "B000000202",
+    });
+
+    const appAHeaders = { Authorization: "Bearer xoxb-app-a-token", "Content-Type": "application/json" };
+    const appBHeaders = { Authorization: "Bearer xoxb-app-b-token", "Content-Type": "application/json" };
+    const view = {
+      type: "modal",
+      title: { type: "plain_text", text: "App A Modal" },
+      blocks: [{ type: "section", text: { type: "plain_text", text: "Owned by app A" } }],
+      external_id: "app-a-modal",
+    };
+
+    const triggerRes = await app.request(`${base}/api/views.generateTriggerId`, {
+      method: "POST",
+      headers: appAHeaders,
+      body: JSON.stringify({ user_id: "U000000001" }),
+    });
+    const trigger = (await triggerRes.json()) as any;
+
+    const wrongAppOpenRes = await app.request(`${base}/api/views.open`, {
+      method: "POST",
+      headers: appBHeaders,
+      body: JSON.stringify({ trigger_id: trigger.trigger_id, view }),
+    });
+    expect(((await wrongAppOpenRes.json()) as any).error).toBe("invalid_trigger_id");
+
+    const openRes = await app.request(`${base}/api/views.open`, {
+      method: "POST",
+      headers: appAHeaders,
+      body: JSON.stringify({ trigger_id: trigger.trigger_id, view }),
+    });
+    const opened = (await openRes.json()) as any;
+    expect(opened.ok).toBe(true);
+    expect(ss.views.findOneBy("view_id", opened.view.id)?.app_id).toBe("A000000101");
+
+    const wrongAppUpdateRes = await app.request(`${base}/api/views.update`, {
+      method: "POST",
+      headers: appBHeaders,
+      body: JSON.stringify({
+        view_id: opened.view.id,
+        view: {
+          type: "modal",
+          title: { type: "plain_text", text: "Wrong App Update" },
+          blocks: [],
+        },
+      }),
+    });
+    expect(((await wrongAppUpdateRes.json()) as any).error).toBe("view_not_found");
+    expect(ss.views.findOneBy("view_id", opened.view.id)?.title?.text).toBe("App A Modal");
+
+    const wrongAppTriggerRes = await app.request(`${base}/api/views.generateTriggerId`, {
+      method: "POST",
+      headers: appBHeaders,
+      body: JSON.stringify({ view_id: opened.view.id }),
+    });
+    expect(((await wrongAppTriggerRes.json()) as any).error).toBe("view_not_found");
+  });
+
+  it("canonicalizes the authenticated user when generating default modal triggers", async () => {
+    tokenMap.set("xoxb-admin-name-token", { login: "admin", id: 99, scopes: [] });
+
+    const triggerRes = await app.request(`${base}/api/views.generateTriggerId`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-admin-name-token", "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const trigger = (await triggerRes.json()) as any;
+    expect(trigger.ok).toBe(true);
+    expect(getSlackStore(store).viewTriggers.findOneBy("trigger_id", trigger.trigger_id)?.user_id).toBe("U000000001");
+
+    const openRes = await app.request(`${base}/api/views.open`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-admin-name-token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trigger_id: trigger.trigger_id,
+        view: {
+          type: "modal",
+          title: { type: "plain_text", text: "Canonical User Modal" },
+          blocks: [],
+        },
+      }),
+    });
+    const opened = (await openRes.json()) as any;
+    expect(opened.ok).toBe(true);
+    expect(getSlackStore(store).views.findOneBy("view_id", opened.view.id)?.user_id).toBe("U000000001");
+  });
+
   it("requires an existing modal stack and enforces the push limit", async () => {
     const looseTriggerRes = await app.request(`${base}/api/views.generateTriggerId`, {
       method: "POST",
