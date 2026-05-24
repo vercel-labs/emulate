@@ -33,7 +33,7 @@ export interface SlackTestEmulator extends SlackTestApp {
   close: () => Promise<void>;
 }
 
-export function createSlackTestApp(): SlackTestApp {
+export function createSlackTestApp(baseUrl = slackTestBaseUrl): SlackTestApp {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
@@ -47,8 +47,8 @@ export function createSlackTestApp(): SlackTestApp {
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
   app.use("*", (authMiddleware as (tokens: TokenMap) => ReturnType<typeof authMiddleware>)(tokenMap));
-  slackPlugin.register!(app, store, webhooks, slackTestBaseUrl, tokenMap);
-  slackPlugin.seed?.(store, slackTestBaseUrl);
+  slackPlugin.register!(app, store, webhooks, baseUrl, tokenMap);
+  slackPlugin.seed?.(store, baseUrl);
 
   const ss = getSlackStore(store);
   const firstUser = ss.users.all()[0];
@@ -66,19 +66,43 @@ export function authHeaders(contentType = "application/json"): Record<string, st
 export async function startSlackTestEmulator(
   customize?: (setup: SlackTestApp) => void | Promise<void>,
 ): Promise<SlackTestEmulator> {
-  const setup = createSlackTestApp();
-  await customize?.(setup);
+  const store = new Store();
+  const webhooks = new WebhookDispatcher();
+  const tokenMap: TokenMap = new Map();
+  tokenMap.set(slackTestToken, {
+    login: "U000000001",
+    id: 1,
+    scopes: ["chat:write", "channels:read", "users:read", "reactions:write"],
+  });
 
-  const server = serve({ fetch: setup.app.fetch, port: 0, hostname: "127.0.0.1" }) as unknown as Server;
+  const app = new Hono<AppEnv>() as Hono<AppEnv> & SlackTestHttpApp;
+  app.onError(createApiErrorHandler());
+  app.use("*", createErrorHandler());
+  app.use("*", (authMiddleware as (tokens: TokenMap) => ReturnType<typeof authMiddleware>)(tokenMap));
+
+  const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }) as unknown as Server;
   await new Promise<void>((resolve, reject) => {
     server.once("listening", () => resolve());
     server.once("error", reject);
   });
 
   const { port } = server.address() as AddressInfo;
+  const url = `http://127.0.0.1:${port}`;
+  slackPlugin.register!(app, store, webhooks, url, tokenMap);
+  slackPlugin.seed?.(store, url);
+
+  const ss = getSlackStore(store);
+  const firstUser = ss.users.all()[0];
+  if (firstUser) {
+    ss.users.update(firstUser.id, { user_id: "U000000001" });
+  }
+
+  const setup = { app, store, webhooks, tokenMap };
+  await customize?.(setup);
+
   return {
     ...setup,
-    url: `http://127.0.0.1:${port}`,
+    url,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));

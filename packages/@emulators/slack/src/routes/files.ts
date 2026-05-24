@@ -23,6 +23,7 @@ import {
 export function filesRoutes(ctx: RouteContext): void {
   const { app, store, webhooks, baseUrl } = ctx;
   const ss = () => getSlackStore(store);
+  const serviceBaseUrl = baseUrl.replace(/\/$/, "");
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
@@ -30,15 +31,37 @@ export function filesRoutes(ctx: RouteContext): void {
     channel.members.includes(userId) || (user ? channel.members.includes(user.name) : false);
   const canReadConversation = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
     !channel.is_private || isChannelMember(channel, user, userId);
+  const visibleFileChannelIds = (file: SlackFile, authUser: { login: string }) => {
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = authSlackUser?.user_id ?? authUser.login;
+    return fileChannels(file).filter((channelId) => {
+      const channel = ss().channels.findOneBy("channel_id", channelId);
+      return channel ? canReadConversation(channel, authSlackUser, authUserId) : false;
+    });
+  };
   const canAccessFile = (file: SlackFile, authUser: { login: string }) => {
     const authSlackUser = getAuthSlackUser(authUser);
     const authUserId = authSlackUser?.user_id ?? authUser.login;
     if (file.user === authUserId || (authSlackUser && file.user === authSlackUser.name)) return true;
-    if (file.channels.length > 0) return true;
+    return visibleFileChannelIds(file, authUser).length > 0;
+  };
+  const canAccessFileInChannel = (file: SlackFile, authUser: { login: string }, channelId: string) => {
+    return visibleFileChannelIds(file, authUser).includes(channelId);
+  };
+  const formatSlackFileForAuth = (file: SlackFile, authUser: { login: string }) => {
+    const visibleIds = new Set(visibleFileChannelIds(file, authUser));
+    const publicShares = filterVisibleShares(file.shares.public, visibleIds);
+    const privateShares = filterVisibleShares(file.shares.private, visibleIds);
+    const shares: SlackFile["shares"] = {};
+    if (publicShares) shares.public = publicShares;
+    if (privateShares) shares.private = privateShares;
 
-    return [...file.groups, ...file.ims].some((channelId) => {
-      const channel = ss().channels.findOneBy("channel_id", channelId);
-      return channel ? isChannelMember(channel, authSlackUser, authUserId) : false;
+    return formatSlackFile({
+      ...file,
+      channels: file.channels.filter((channelId) => visibleIds.has(channelId)),
+      groups: file.groups.filter((channelId) => visibleIds.has(channelId)),
+      ims: file.ims.filter((channelId) => visibleIds.has(channelId)),
+      shares,
     });
   };
   const canDeleteFile = (file: SlackFile, authUser: { login: string }) => {
@@ -109,8 +132,7 @@ export function filesRoutes(ctx: RouteContext): void {
 
     const team = ss().teams.all()[0];
     const fileId = generateSlackId("F");
-    const requestBaseUrl = new URL(c.req.url).origin;
-    const uploadUrl = `${requestBaseUrl}/upload/v1/${fileId}`;
+    const uploadUrl = `${serviceBaseUrl}/upload/v1/${fileId}`;
     ss().fileUploadSessions.insert({
       file_id: fileId,
       team_id: team?.team_id ?? "T000000001",
@@ -169,8 +191,8 @@ export function filesRoutes(ctx: RouteContext): void {
 
     const initialComment = typeof body.initial_comment === "string" ? body.initial_comment : "";
     const threadTs = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
-    const blocks = initialComment ? undefined : parseBlocks(body.blocks);
-    if (body.blocks !== undefined && blocks === undefined && !initialComment) return slackError(c, "invalid_blocks");
+    const blocks = parseBlocks(body.blocks);
+    if (body.blocks !== undefined && blocks === undefined) return slackError(c, "invalid_blocks");
 
     const requestedSessions: SlackFileUploadSession[] = [];
     for (const requestedFile of requestedFiles) {
@@ -189,7 +211,7 @@ export function filesRoutes(ctx: RouteContext): void {
         buildSlackFile(session, {
           title: requestedFile.title ?? session.title,
           user: authUserId,
-          baseUrl: new URL(c.req.url).origin || baseUrl,
+          baseUrl: serviceBaseUrl,
           initialComment,
           threadTs,
         }),
@@ -200,7 +222,7 @@ export function filesRoutes(ctx: RouteContext): void {
     }
 
     const sharedFiles = targets.length > 0 ? await shareFiles(targets, completedFiles) : completedFiles;
-    return slackOk(c, { files: sharedFiles.map(formatSlackFile) });
+    return slackOk(c, { files: sharedFiles.map((file) => formatSlackFileForAuth(file, authUser)) });
 
     async function shareFiles(channels: SlackChannel[], files: SlackFile[]) {
       const updatedFiles = [...files];
@@ -266,7 +288,11 @@ export function filesRoutes(ctx: RouteContext): void {
     const file = fileId ? ss().files.findOneBy("file_id", fileId) : undefined;
     if (!file || file.deleted || !canAccessFile(file, authUser)) return slackError(c, "file_not_found");
 
-    return slackOk(c, { file: formatSlackFile(file), comments: [], paging: { count: 0, total: 0, page: 1, pages: 0 } });
+    return slackOk(c, {
+      file: formatSlackFileForAuth(file, authUser),
+      comments: [],
+      paging: { count: 0, total: 0, page: 1, pages: 0 },
+    });
   }
 
   async function fileList(c: Context) {
@@ -288,7 +314,7 @@ export function filesRoutes(ctx: RouteContext): void {
       .files.all()
       .filter((file) => !file.deleted)
       .filter((file) => canAccessFile(file, authUser))
-      .filter((file) => !channel || fileChannels(file).includes(channel))
+      .filter((file) => !channel || canAccessFileInChannel(file, authUser, channel))
       .filter((file) => !user || file.user === user)
       .filter((file) => tsFrom === undefined || file.created >= tsFrom)
       .filter((file) => tsTo === undefined || file.created <= tsTo)
@@ -298,7 +324,7 @@ export function filesRoutes(ctx: RouteContext): void {
     const start = (page - 1) * count;
     const paged = files.slice(start, start + count);
     return slackOk(c, {
-      files: paged.map(formatSlackFile),
+      files: paged.map((file) => formatSlackFileForAuth(file, authUser)),
       paging: {
         count,
         total: files.length,
@@ -538,6 +564,11 @@ function nextFileChannelFields(file: SlackFile, channel: SlackChannel) {
 
 function fileChannels(file: SlackFile): string[] {
   return [...file.channels, ...file.groups, ...file.ims];
+}
+
+function filterVisibleShares(shares: Record<string, SlackFileShare[]> | undefined, visibleIds: Set<string>) {
+  const entries = Object.entries(shares ?? {}).filter(([channelId]) => visibleIds.has(channelId));
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function matchesFileTypes(file: SlackFile, types: string): boolean {

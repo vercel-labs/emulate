@@ -2926,6 +2926,64 @@ describe("Slack plugin - files", () => {
     expect(((await missingInfoRes.json()) as any).error).toBe("file_not_found");
   });
 
+  it("uses the configured base URL for generated file URLs", async () => {
+    const prefixedBase = `${base}/emulate/slack`;
+    const setup = createTestApp(prefixedBase);
+    const channel = getSlackStore(setup.store).channels.findOneBy("name", "general")!.channel_id;
+
+    const urlRes = await setup.app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "prefixed.txt", length: 8 }),
+    });
+    const upload = (await urlRes.json()) as any;
+    expect(upload.upload_url).toBe(`${prefixedBase}/upload/v1/${upload.file_id}`);
+
+    await setup.app.request(`${base}/upload/v1/${upload.file_id}`, { method: "POST", body: "prefixed" });
+
+    const completeRes = await setup.app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ files: [{ id: upload.file_id, title: "Prefixed" }], channel_id: channel }),
+    });
+    const completed = (await completeRes.json()) as any;
+    expect(completed.ok).toBe(true);
+    expect(completed.files[0].url_private).toBe(`${prefixedBase}/files-pri/${upload.file_id}/prefixed.txt`);
+    expect(completed.files[0].url_private_download).toBe(
+      `${prefixedBase}/files-pri/${upload.file_id}/prefixed.txt?download=1`,
+    );
+  });
+
+  it("preserves blocks when completing a file upload with an initial comment", async () => {
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+    const blocks = [{ type: "section", text: { type: "mrkdwn", text: "Block detail" } }];
+
+    const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "blocks.txt", length: 6 }),
+    });
+    const upload = (await urlRes.json()) as any;
+    await app.request(upload.upload_url, { method: "POST", body: "blocks" });
+
+    const params = new URLSearchParams({
+      files: JSON.stringify([{ id: upload.file_id, title: "Blocks" }]),
+      channel_id: channel,
+      initial_comment: "Comment with blocks",
+      blocks: JSON.stringify(blocks),
+    });
+    const completeRes = await app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders("application/x-www-form-urlencoded"),
+      body: params,
+    });
+    expect(((await completeRes.json()) as any).ok).toBe(true);
+
+    const message = getSlackStore(store).messages.findBy("channel_id", channel)[0];
+    expect(message.text).toBe("Comment with blocks");
+    expect(message.blocks).toEqual(blocks);
+  });
+
   it("supports private completion without sharing to a channel", async () => {
     const content = "private note";
     const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
@@ -3038,6 +3096,98 @@ describe("Slack plugin - files", () => {
     });
     expect(ownerDownloadRes.status).toBe(200);
     expect(await ownerDownloadRes.text()).toBe("secret data");
+  });
+
+  it("filters private share metadata when a public file is also shared privately", async () => {
+    const ss = getSlackStore(store);
+    ss.users.insert({
+      user_id: "U000000003",
+      team_id: "T000000001",
+      name: "mixed-outsider",
+      real_name: "Mixed Outsider",
+      email: "mixed-outsider@emulate.dev",
+      is_admin: false,
+      is_bot: false,
+      deleted: false,
+      profile: {
+        display_name: "mixed-outsider",
+        real_name: "Mixed Outsider",
+        email: "mixed-outsider@emulate.dev",
+        image_48: "",
+        image_192: "",
+      },
+    });
+    tokenMap.set("xoxb-mixed-outsider-token", {
+      login: "U000000003",
+      id: 3,
+      scopes: ["files:read"],
+    });
+    const publicChannel = ss.channels.findOneBy("name", "general")!.channel_id;
+    const privateChannel = ss.channels.insert({
+      channel_id: "G000000003",
+      team_id: "T000000001",
+      name: "mixed-secrets",
+      is_channel: false,
+      is_private: true,
+      is_archived: false,
+      topic: { value: "", creator: "U000000001", last_set: 0 },
+      purpose: { value: "", creator: "U000000001", last_set: 0 },
+      members: ["U000000001"],
+      creator: "U000000001",
+      num_members: 1,
+    });
+
+    const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "mixed.txt", length: 5 }),
+    });
+    const upload = (await urlRes.json()) as any;
+    await app.request(upload.upload_url, { method: "POST", body: "mixed" });
+
+    const completeRes = await app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        files: [{ id: upload.file_id, title: "Mixed" }],
+        channels: `${publicChannel},${privateChannel.channel_id}`,
+      }),
+    });
+    expect(((await completeRes.json()) as any).ok).toBe(true);
+
+    const outsiderHeaders = {
+      Authorization: "Bearer xoxb-mixed-outsider-token",
+      "Content-Type": "application/json",
+    };
+    const infoRes = await app.request(`${base}/api/files.info`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ file: upload.file_id }),
+    });
+    const info = (await infoRes.json()) as any;
+    expect(info.ok).toBe(true);
+    expect(info.file.channels).toEqual([publicChannel]);
+    expect(info.file.groups).toEqual([]);
+    expect(info.file.shares.public[publicChannel]).toHaveLength(1);
+    expect(info.file.shares.private).toBeUndefined();
+
+    const privateListRes = await app.request(`${base}/api/files.list`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: privateChannel.channel_id }),
+    });
+    const privateList = (await privateListRes.json()) as any;
+    expect(privateList.ok).toBe(true);
+    expect(privateList.files).toEqual([]);
+
+    const publicListRes = await app.request(`${base}/api/files.list`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel: publicChannel }),
+    });
+    const publicList = (await publicListRes.json()) as any;
+    expect(publicList.ok).toBe(true);
+    expect(publicList.files.map((file: any) => file.id)).toContain(upload.file_id);
   });
 
   it("does not partially complete multi-file uploads when one file is invalid", async () => {
