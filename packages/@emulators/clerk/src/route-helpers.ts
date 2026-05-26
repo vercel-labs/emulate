@@ -41,7 +41,7 @@ export function requireSecretKey(c: Context<AppEnv>, tokenMap?: TokenMap): AuthU
   const authHeader = c.req.header("Authorization") ?? "";
   if (authHeader.startsWith("Bearer ")) {
     const token = authHeader.slice(7).trim();
-    if (token.startsWith("sk_test_") || token.startsWith("sk_live_")) {
+    if (token.startsWith("sk_test_") || token.startsWith("sk_live_") || token.startsWith("ak_")) {
       const mapped = tokenMap?.get(token);
       if (mapped) {
         c.set("authUser", mapped);

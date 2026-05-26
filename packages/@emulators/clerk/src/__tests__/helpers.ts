@@ -13,6 +13,7 @@ import type { Server } from "node:http";
 import { clerkPlugin, getClerkStore, seedFromConfig } from "../index.js";
 
 export const clerkTestSecretKey = "sk_test_emulate";
+export const clerkTestMachineKey = "ak_test_emulate";
 
 export interface ClerkTestEmulator {
   url: string;
@@ -28,6 +29,7 @@ export async function startClerkTestEmulator(
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
   tokenMap.set(clerkTestSecretKey, { login: "admin", id: 1, scopes: [] });
+  tokenMap.set("ak_test_emulate", { login: "machine", id: 2, scopes: [] });
 
   const app = new Hono<AppEnv>();
   app.onError(createApiErrorHandler());

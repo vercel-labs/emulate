@@ -89,6 +89,20 @@ export interface ClerkSession extends Entity {
   updated_at_unix: number;
 }
 
+export interface ClerkM2MToken extends Entity {
+  token_id: string;
+  token: string;
+  subject: string;
+  scopes: string[];
+  claims: Record<string, unknown> | null;
+  revoked: boolean;
+  revocation_reason: string | null;
+  expired: boolean;
+  expiration: number | null;
+  created_at_unix: number;
+  updated_at_unix: number;
+}
+
 export interface ClerkOAuthApplication extends Entity {
   app_id: string;
   name: string;

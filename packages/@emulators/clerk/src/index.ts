@@ -8,6 +8,7 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { m2mTokenRoutes } from "./routes/m2m-tokens.js";
 import { getClerkStore } from "./store.js";
 
 export { getClerkStore, type ClerkStore } from "./store.js";
@@ -219,6 +220,23 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
 export const clerkPlugin: ServicePlugin = {
   name: "clerk",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    // Clerk SDK checks Content-Type === "application/json" (strict equality).
+    // The framework defaults to "application/json; charset=UTF-8" which fails.
+    // Pre-setting via c.header() overrides the default in c.json().
+    // Skip for OAuth/HTML routes that return non-JSON responses.
+    app.use("/v1/*", async (c, next) => {
+      c.header("Content-Type", "application/json");
+      await next();
+    });
+    app.use("/m2m_tokens/*", async (c, next) => {
+      c.header("Content-Type", "application/json");
+      await next();
+    });
+    app.use("/m2m_tokens", async (c, next) => {
+      c.header("Content-Type", "application/json");
+      await next();
+    });
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userRoutes(ctx);
@@ -227,6 +245,7 @@ export const clerkPlugin: ServicePlugin = {
     membershipRoutes(ctx);
     invitationRoutes(ctx);
     sessionRoutes(ctx);
+    m2mTokenRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

@@ -89,6 +89,73 @@ describe("Clerk plugin - real @clerk/backend SDK", () => {
     expect(auth.orgSlug).toBe("acme");
   });
 
+  it("authenticateRequest works with acceptsToken and jwtKey", async () => {
+    const cs = getClerkStore(emulator.store);
+    const aliceUser = cs.users.all().find((u) => u.first_name === "Alice")!;
+
+    const { jwt, sessionId } = await createSessionJwt(aliceUser.clerk_id);
+
+    const pemRes = await fetch(`${emulator.url}/_emulate/jwt-public-key`);
+    const jwtKey = await pemRes.text();
+
+    // Typical backend pattern: strip the body, pass jwtKey + acceptsToken
+    const incoming = new Request("https://app.example.com/api/some-endpoint", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ some: "payload" }),
+    });
+
+    const stripped = new Request(incoming.url, {
+      headers: incoming.headers,
+      method: incoming.method,
+    });
+
+    const result = await clerk.authenticateRequest(stripped, {
+      jwtKey,
+      acceptsToken: "session_token",
+    });
+
+    expect(result.isSignedIn).toBe(true);
+
+    const auth = result.toAuth();
+    expect(auth.userId).toBe(aliceUser.clerk_id);
+    expect(auth.sessionId).toBe(sessionId);
+    expect(auth.orgId).toMatch(/^org_/);
+    expect(auth.orgRole).toBe("org:admin");
+    expect(auth.orgSlug).toBe("acme");
+    expect(auth.orgPermissions).toContain("org:sys_memberships:read");
+
+    // sessionClaims should include metadata if user has public_metadata
+    expect(auth.sessionClaims).toBeDefined();
+    expect(auth.sessionClaims.sub).toBe(aliceUser.clerk_id);
+    expect(auth.sessionClaims.sid).toBe(sessionId);
+  });
+
+  it("authenticateRequest works without jwtKey (auto-fetches JWKS)", async () => {
+    const cs = getClerkStore(emulator.store);
+    const aliceUser = cs.users.all().find((u) => u.first_name === "Alice")!;
+
+    const { jwt, sessionId } = await createSessionJwt(aliceUser.clerk_id);
+
+    const request = new Request("https://example.com/api/test", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+
+    // No jwtKey — SDK should fetch /v1/jwks from the emulator automatically
+    const result = await clerk.authenticateRequest(request, {
+      acceptsToken: "session_token",
+    });
+
+    expect(result.isSignedIn).toBe(true);
+
+    const auth = result.toAuth();
+    expect(auth.userId).toBe(aliceUser.clerk_id);
+    expect(auth.sessionId).toBe(sessionId);
+  });
+
   it("authenticateRequest rejects unsigned/invalid tokens", async () => {
     const pemRes = await fetch(`${emulator.url}/_emulate/jwt-public-key`);
     const jwtKey = await pemRes.text();
