@@ -9,6 +9,7 @@ import {
   readJsonBody,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
+import { dispatchClerkEvent } from "../webhook-events.js";
 import type { ClerkOrganizationDomain } from "../entities.js";
 
 function domainResponse(domain: ClerkOrganizationDomain): Record<string, unknown> {
@@ -32,7 +33,7 @@ function domainResponse(domain: ClerkOrganizationDomain): Record<string, unknown
   };
 }
 
-export function organizationDomainRoutes({ app, store, tokenMap }: RouteContext): void {
+export function organizationDomainRoutes({ app, store, webhooks, tokenMap }: RouteContext): void {
   const cs = getClerkStore(store);
 
   app.get("/v1/organizations/:orgId/domains", (c) => {
@@ -82,7 +83,9 @@ export function organizationDomainRoutes({ app, store, tokenMap }: RouteContext)
       updated_at_unix: now,
     });
 
-    return c.json(domainResponse(domain));
+    const response = domainResponse(domain);
+    dispatchClerkEvent(webhooks, "org_domain.created", response);
+    return c.json(response);
   });
 
   app.patch("/v1/organizations/:orgId/domains/:domainId", async (c) => {
@@ -112,7 +115,9 @@ export function organizationDomainRoutes({ app, store, tokenMap }: RouteContext)
 
     cs.organizationDomains.update(domain.id, updates);
     const updated = cs.organizationDomains.findOneBy("domain_id", domainId)!;
-    return c.json(domainResponse(updated));
+    const response = domainResponse(updated);
+    dispatchClerkEvent(webhooks, "org_domain.updated", response);
+    return c.json(response);
   });
 
   app.delete("/v1/organizations/:orgId/domains/:domainId", (c) => {
@@ -130,6 +135,7 @@ export function organizationDomainRoutes({ app, store, tokenMap }: RouteContext)
     }
 
     cs.organizationDomains.delete(domain.id);
+    dispatchClerkEvent(webhooks, "org_domain.deleted", { id: domainId, deleted: true });
     return c.json(deletedResponse("organization_domain", domainId));
   });
 }

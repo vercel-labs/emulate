@@ -10,6 +10,7 @@ import {
   readJsonBody,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
+import { dispatchClerkEvent } from "../webhook-events.js";
 
 function defaultPermissions(role: string): string[] {
   if (role === "org:admin") {
@@ -25,7 +26,7 @@ function defaultPermissions(role: string): string[] {
   return ["org:sys_memberships:read"];
 }
 
-export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
+export function membershipRoutes({ app, store, webhooks, tokenMap }: RouteContext): void {
   const cs = getClerkStore(store);
 
   app.get("/v1/organizations/:orgId/memberships", (c) => {
@@ -94,7 +95,9 @@ export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
 
     const emails = cs.emailAddresses.findBy("user_id", userId);
     const updatedOrg = cs.organizations.findOneBy("clerk_id", orgId)!;
-    return c.json(membershipResponse(membership, updatedOrg, user, emails), 200);
+    const response = membershipResponse(membership, updatedOrg, user, emails);
+    dispatchClerkEvent(webhooks, "org_membership.created", response);
+    return c.json(response, 200);
   });
 
   app.patch("/v1/organizations/:orgId/memberships/:userId", async (c) => {
@@ -122,7 +125,9 @@ export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
     const updated = cs.memberships.findBy("org_id", orgId).find((m) => m.user_id === userId)!;
     const user = cs.users.findOneBy("clerk_id", userId);
     const emails = user ? cs.emailAddresses.findBy("user_id", userId) : [];
-    return c.json(membershipResponse(updated, org, user, emails));
+    const response = membershipResponse(updated, org, user, emails);
+    dispatchClerkEvent(webhooks, "org_membership.updated", response);
+    return c.json(response);
   });
 
   app.delete("/v1/organizations/:orgId/memberships/:userId", (c) => {
@@ -140,6 +145,7 @@ export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.memberships.delete(membership.id);
     cs.organizations.update(org.id, { members_count: Math.max(0, org.members_count - 1), updated_at_unix: nowUnix() });
 
+    dispatchClerkEvent(webhooks, "org_membership.deleted", { id: membership.membership_id, deleted: true });
     return c.json(deletedResponse("organization_membership", membership.membership_id));
   });
 
@@ -173,6 +179,8 @@ export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
     const updated = cs.memberships.findBy("org_id", orgId).find((m) => m.user_id === userId)!;
     const user = cs.users.findOneBy("clerk_id", userId);
     const emails = user ? cs.emailAddresses.findBy("user_id", userId) : [];
-    return c.json(membershipResponse(updated, org, user, emails));
+    const response = membershipResponse(updated, org, user, emails);
+    dispatchClerkEvent(webhooks, "org_membership.updated", response);
+    return c.json(response);
   });
 }

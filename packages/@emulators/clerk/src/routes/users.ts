@@ -10,8 +10,9 @@ import {
   readJsonBody,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
+import { dispatchClerkEvent } from "../webhook-events.js";
 
-export function userRoutes({ app, store, tokenMap }: RouteContext): void {
+export function userRoutes({ app, store, webhooks, tokenMap }: RouteContext): void {
   const cs = getClerkStore(store);
 
   app.get("/v1/users", (c) => {
@@ -143,7 +144,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
 
     const emails = cs.emailAddresses.findBy("user_id", clerkId);
     const updatedUser = cs.users.findOneBy("clerk_id", clerkId)!;
-    return c.json(userResponse(updatedUser, emails), 200);
+    const response = userResponse(updatedUser, emails);
+    dispatchClerkEvent(webhooks, "user.created", response);
+    return c.json(response, 200);
   });
 
   app.patch("/v1/users/:userId", async (c) => {
@@ -177,7 +180,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.users.update(user.id, patch);
     const updated = cs.users.findOneBy("clerk_id", userId)!;
     const emails = cs.emailAddresses.findBy("user_id", userId);
-    return c.json(userResponse(updated, emails));
+    const response = userResponse(updated, emails);
+    dispatchClerkEvent(webhooks, "user.updated", response);
+    return c.json(response);
   });
 
   app.delete("/v1/users/:userId", (c) => {
@@ -201,6 +206,7 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     }
     cs.users.delete(user.id);
 
+    dispatchClerkEvent(webhooks, "user.deleted", { id: userId, deleted: true });
     return c.json(deletedResponse("user", userId));
   });
 
@@ -215,7 +221,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.users.update(user.id, { banned: true, updated_at_unix: nowUnix() });
     const updated = cs.users.findOneBy("clerk_id", userId)!;
     const emails = cs.emailAddresses.findBy("user_id", userId);
-    return c.json(userResponse(updated, emails));
+    const response = userResponse(updated, emails);
+    dispatchClerkEvent(webhooks, "user.updated", response);
+    return c.json(response);
   });
 
   app.post("/v1/users/:userId/unban", (c) => {
@@ -229,7 +237,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.users.update(user.id, { banned: false, updated_at_unix: nowUnix() });
     const updated = cs.users.findOneBy("clerk_id", userId)!;
     const emails = cs.emailAddresses.findBy("user_id", userId);
-    return c.json(userResponse(updated, emails));
+    const response = userResponse(updated, emails);
+    dispatchClerkEvent(webhooks, "user.updated", response);
+    return c.json(response);
   });
 
   app.post("/v1/users/:userId/lock", (c) => {
@@ -243,7 +253,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.users.update(user.id, { locked: true, updated_at_unix: nowUnix() });
     const updated = cs.users.findOneBy("clerk_id", userId)!;
     const emails = cs.emailAddresses.findBy("user_id", userId);
-    return c.json(userResponse(updated, emails));
+    const response = userResponse(updated, emails);
+    dispatchClerkEvent(webhooks, "user.updated", response);
+    return c.json(response);
   });
 
   app.post("/v1/users/:userId/unlock", (c) => {
@@ -257,7 +269,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.users.update(user.id, { locked: false, updated_at_unix: nowUnix() });
     const updated = cs.users.findOneBy("clerk_id", userId)!;
     const emails = cs.emailAddresses.findBy("user_id", userId);
-    return c.json(userResponse(updated, emails));
+    const response = userResponse(updated, emails);
+    dispatchClerkEvent(webhooks, "user.updated", response);
+    return c.json(response);
   });
 
   app.patch("/v1/users/:userId/metadata", async (c) => {
@@ -284,7 +298,9 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
     cs.users.update(user.id, patch);
     const updated = cs.users.findOneBy("clerk_id", userId)!;
     const emails = cs.emailAddresses.findBy("user_id", userId);
-    return c.json(userResponse(updated, emails));
+    const response = userResponse(updated, emails);
+    dispatchClerkEvent(webhooks, "user.updated", response);
+    return c.json(response);
   });
 
   app.post("/v1/users/:userId/verify_password", async (c) => {

@@ -48,6 +48,11 @@ export interface ClerkSeedConfig {
     scopes?: string[];
     public?: boolean;
   }>;
+  webhooks?: Array<{
+    url: string;
+    events?: string[];
+    secret?: string;
+  }>;
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -76,7 +81,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   });
 }
 
-export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeedConfig): void {
+export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeedConfig, webhooks?: WebhookDispatcher): void {
   const cs = getClerkStore(store);
   const now = nowUnix();
 
@@ -213,6 +218,18 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
         redirect_uris: appCfg.redirect_uris,
         created_at_unix: now,
         updated_at_unix: now,
+      });
+    }
+  }
+
+  if (config.webhooks && webhooks) {
+    for (const hookCfg of config.webhooks) {
+      webhooks.register({
+        url: hookCfg.url,
+        events: hookCfg.events ?? ["*"],
+        active: true,
+        owner: "clerk",
+        secret: hookCfg.secret,
       });
     }
   }

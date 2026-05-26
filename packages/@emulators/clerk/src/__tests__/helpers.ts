@@ -18,6 +18,7 @@ export const clerkTestMachineKey = "ak_test_emulate";
 export interface ClerkTestEmulator {
   url: string;
   store: Store;
+  webhooks: WebhookDispatcher;
   tokenMap: TokenMap;
   close: () => Promise<void>;
 }
@@ -69,6 +70,7 @@ export async function startClerkTestEmulator(
   return {
     url,
     store,
+    webhooks,
     tokenMap,
     close: () =>
       new Promise<void>((resolve, reject) => {
