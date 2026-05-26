@@ -8,6 +8,7 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { organizationDomainRoutes } from "./routes/organization-domains.js";
 import { m2mTokenRoutes } from "./routes/m2m-tokens.js";
 import { getClerkStore } from "./store.js";
 
@@ -238,6 +239,7 @@ export const clerkPlugin: ServicePlugin = {
     organizationRoutes(ctx);
     membershipRoutes(ctx);
     invitationRoutes(ctx);
+    organizationDomainRoutes(ctx);
     sessionRoutes(ctx);
     m2mTokenRoutes(ctx);
   },
