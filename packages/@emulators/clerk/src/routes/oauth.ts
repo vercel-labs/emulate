@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { SignJWT, exportJWK, exportSPKI, generateKeyPair } from "jose";
 import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext, Store } from "@emulators/core";
 import {
@@ -61,6 +61,7 @@ export async function createSessionToken(
 
   const claims: Record<string, unknown> = {
     sid: sessionId,
+    sts: "active",
   };
 
   if (orgId) {
@@ -124,6 +125,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return c.json({
       keys: [{ ...jwk, kid: KID, use: "sig", alg: "RS256" }],
     });
+  });
+
+  app.get("/_emulate/jwt-public-key", async (c) => {
+    const { publicKey } = await keyPairPromise;
+    const pem = await exportSPKI(publicKey);
+    return c.text(pem);
   });
 
   app.get("/oauth/authorize", (c) => {
