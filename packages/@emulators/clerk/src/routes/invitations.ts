@@ -4,7 +4,6 @@ import {
   clerkError,
   requireSecretKey,
   isAuthResponse,
-  paginatedResponse,
   parsePagination,
   invitationResponse,
   readJsonBody,
@@ -34,7 +33,7 @@ export function invitationRoutes({ app, store, tokenMap }: RouteContext): void {
     const totalCount = invitations.length;
     const paged = invitations.slice(offset, offset + limit);
 
-    return c.json(paginatedResponse(paged.map(invitationResponse), totalCount, limit, offset));
+    return c.json(paged.map(invitationResponse));
   });
 
   app.get("/v1/organizations/:orgId/invitations/:invitationId", (c) => {

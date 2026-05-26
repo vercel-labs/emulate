@@ -4,7 +4,6 @@ import {
   clerkError,
   requireSecretKey,
   isAuthResponse,
-  paginatedResponse,
   parsePagination,
   sessionResponse,
   readJsonBody,
@@ -32,7 +31,7 @@ export function sessionRoutes({ app, store, baseUrl, tokenMap }: RouteContext): 
     const totalCount = sessions.length;
     const paged = sessions.slice(offset, offset + limit);
 
-    return c.json(paginatedResponse(paged.map(sessionResponse), totalCount, limit, offset));
+    return c.json(paged.map(sessionResponse));
   });
 
   app.get("/v1/sessions/:sessionId", (c) => {

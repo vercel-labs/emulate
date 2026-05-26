@@ -46,6 +46,32 @@ describe("Clerk plugin - real @clerk/backend SDK", () => {
     return { jwt, sessionId: session.id };
   }
 
+  it("lists users through the SDK", async () => {
+    const { data: users } = await clerk.users.getUserList();
+    expect(users.length).toBeGreaterThanOrEqual(2);
+    const alice = users.find((u) => u.firstName === "Alice");
+    expect(alice).toBeDefined();
+    expect(alice!.lastName).toBe("Smith");
+  });
+
+  it("gets a single user through the SDK", async () => {
+    const cs = getClerkStore(emulator.store);
+    const aliceUser = cs.users.all().find((u) => u.first_name === "Alice")!;
+
+    const user = await clerk.users.getUser(aliceUser.clerk_id);
+    expect(user.id).toBe(aliceUser.clerk_id);
+    expect(user.firstName).toBe("Alice");
+  });
+
+  it("lists organizations through the SDK", async () => {
+    const orgs = await clerk.organizations.getOrganizationList();
+    const orgList = Array.isArray(orgs) ? orgs : (orgs as any).data;
+    expect(orgList.length).toBeGreaterThanOrEqual(1);
+    const acme = orgList.find((o: any) => o.slug === "acme");
+    expect(acme).toBeDefined();
+    expect(acme!.name).toBe("Acme Corp");
+  });
+
   it("authenticateRequest verifies emulator-issued JWTs", async () => {
     const cs = getClerkStore(emulator.store);
     const aliceUser = cs.users.all().find((u) => u.first_name === "Alice")!;

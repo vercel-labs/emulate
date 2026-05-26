@@ -223,17 +223,11 @@ export const clerkPlugin: ServicePlugin = {
     // Clerk SDK checks Content-Type === "application/json" (strict equality).
     // The framework defaults to "application/json; charset=UTF-8" which fails.
     // Pre-setting via c.header() overrides the default in c.json().
-    // Skip for OAuth/HTML routes that return non-JSON responses.
-    app.use("/v1/*", async (c, next) => {
-      c.header("Content-Type", "application/json");
-      await next();
-    });
-    app.use("/m2m_tokens/*", async (c, next) => {
-      c.header("Content-Type", "application/json");
-      await next();
-    });
-    app.use("/m2m_tokens", async (c, next) => {
-      c.header("Content-Type", "application/json");
+    app.use("*", async (c, next) => {
+      const path = c.req.path;
+      if (path.startsWith("/v1/") || path.startsWith("/m2m_tokens") || path.startsWith("/_emulate/")) {
+        c.header("Content-Type", "application/json");
+      }
       await next();
     });
 

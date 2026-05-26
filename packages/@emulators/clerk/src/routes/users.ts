@@ -5,7 +5,6 @@ import {
   requireSecretKey,
   isAuthResponse,
   deletedResponse,
-  paginatedResponse,
   parsePagination,
   userResponse,
   readJsonBody,
@@ -63,7 +62,7 @@ export function userRoutes({ app, store, tokenMap }: RouteContext): void {
       return userResponse(u, emails);
     });
 
-    return c.json(paginatedResponse(data, totalCount, limit, offset));
+    return c.json(data);
   });
 
   app.get("/v1/users/count", (c) => {

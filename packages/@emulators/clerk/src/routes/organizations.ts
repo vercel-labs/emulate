@@ -5,7 +5,6 @@ import {
   requireSecretKey,
   isAuthResponse,
   deletedResponse,
-  paginatedResponse,
   parsePagination,
   organizationResponse,
   readJsonBody,
@@ -33,7 +32,7 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
     const totalCount = orgs.length;
     const paged = orgs.slice(offset, offset + limit);
 
-    return c.json(paginatedResponse(paged.map(organizationResponse), totalCount, limit, offset));
+    return c.json(paged.map(organizationResponse));
   });
 
   app.get("/v1/organizations/:orgId", (c) => {

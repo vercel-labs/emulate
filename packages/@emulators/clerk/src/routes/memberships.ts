@@ -5,7 +5,6 @@ import {
   requireSecretKey,
   isAuthResponse,
   deletedResponse,
-  paginatedResponse,
   parsePagination,
   membershipResponse,
   readJsonBody,
@@ -55,7 +54,7 @@ export function membershipRoutes({ app, store, tokenMap }: RouteContext): void {
       return membershipResponse(m, org, user, emails);
     });
 
-    return c.json(paginatedResponse(data, totalCount, limit, offset));
+    return c.json(data);
   });
 
   app.post("/v1/organizations/:orgId/memberships", async (c) => {
