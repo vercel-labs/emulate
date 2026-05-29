@@ -1,5 +1,5 @@
 import type { RouteContext } from "@emulators/core";
-import { generateClerkId, nowUnix } from "../helpers.js";
+import { generateClerkId, nowUnix, defaultOrganizationPermissions } from "../helpers.js";
 import {
   clerkError,
   requireSecretKey,
@@ -11,20 +11,6 @@ import {
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
 import { dispatchClerkEvent } from "../webhook-events.js";
-
-function defaultPermissions(role: string): string[] {
-  if (role === "org:admin") {
-    return [
-      "org:sys_profile:manage",
-      "org:sys_profile:delete",
-      "org:sys_memberships:read",
-      "org:sys_memberships:manage",
-      "org:sys_domains:read",
-      "org:sys_domains:manage",
-    ];
-  }
-  return ["org:sys_memberships:read"];
-}
 
 export function membershipRoutes({ app, store, webhooks, tokenMap }: RouteContext): void {
   const cs = getClerkStore(store);
@@ -84,7 +70,7 @@ export function membershipRoutes({ app, store, webhooks, tokenMap }: RouteContex
       org_id: orgId,
       user_id: userId,
       role,
-      permissions: defaultPermissions(role),
+      permissions: defaultOrganizationPermissions(role),
       public_metadata: {},
       private_metadata: {},
       created_at_unix: now,
@@ -118,7 +104,7 @@ export function membershipRoutes({ app, store, webhooks, tokenMap }: RouteContex
 
     if (body.role !== undefined) {
       patch.role = body.role;
-      patch.permissions = defaultPermissions(body.role as string);
+      patch.permissions = defaultOrganizationPermissions(body.role as string);
     }
 
     cs.memberships.update(membership.id, patch);

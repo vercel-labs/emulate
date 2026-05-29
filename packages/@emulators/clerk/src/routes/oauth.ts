@@ -14,7 +14,7 @@ import {
 } from "@emulators/core";
 import type { ClerkUser } from "../entities.js";
 import { userDisplayName } from "../helpers.js";
-import { clerkError } from "../route-helpers.js";
+import { clerkError, type PrimaryOrgClaims } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
 
 const keyPairPromise = generateKeyPair("RS256");
@@ -51,10 +51,7 @@ export async function createSessionToken(
   user: ClerkUser,
   sessionId: string,
   baseUrl: string,
-  orgId?: string,
-  orgRole?: string,
-  orgSlug?: string,
-  orgPermissions?: string[],
+  orgClaims: PrimaryOrgClaims,
 ): Promise<string> {
   const { privateKey } = await keyPairPromise;
   const now = Math.floor(Date.now() / 1000);
@@ -64,11 +61,11 @@ export async function createSessionToken(
     sts: "active",
   };
 
-  if (orgId) {
-    claims.org_id = orgId;
-    claims.org_role = orgRole ?? "org:member";
-    claims.org_slug = orgSlug;
-    claims.org_permissions = orgPermissions ?? [];
+  if (orgClaims.orgId) {
+    claims.org_id = orgClaims.orgId;
+    claims.org_role = orgClaims.orgRole ?? "org:member";
+    claims.org_slug = orgClaims.orgSlug;
+    claims.org_permissions = orgClaims.orgPermissions ?? [];
   }
 
   if (Object.keys(user.public_metadata).length > 0) {

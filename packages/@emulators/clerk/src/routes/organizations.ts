@@ -1,5 +1,5 @@
 import type { RouteContext } from "@emulators/core";
-import { generateClerkId, nowUnix } from "../helpers.js";
+import { generateClerkId, nowUnix, defaultOrganizationPermissions } from "../helpers.js";
 import {
   clerkError,
   requireSecretKey,
@@ -88,14 +88,7 @@ export function organizationRoutes({ app, store, webhooks, tokenMap }: RouteCont
           org_id: org.clerk_id,
           user_id: userId,
           role: "org:admin",
-          permissions: [
-            "org:sys_profile:manage",
-            "org:sys_profile:delete",
-            "org:sys_memberships:read",
-            "org:sys_memberships:manage",
-            "org:sys_domains:read",
-            "org:sys_domains:manage",
-          ],
+          permissions: defaultOrganizationPermissions("org:admin"),
           public_metadata: {},
           private_metadata: {},
           created_at_unix: now,

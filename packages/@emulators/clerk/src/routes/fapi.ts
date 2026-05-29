@@ -1,9 +1,12 @@
 import type { RouteContext, Store, Context, AppEnv } from "@emulators/core";
 import { generateClerkId, nowUnix } from "../helpers.js";
-import { clerkError, userResponse } from "../route-helpers.js";
+import { clerkError, userResponse, resolvePrimaryOrgClaims } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
 import { createSessionToken } from "./oauth.js";
-import type { ClerkUser, ClerkSession } from "../entities.js";
+import { buildEnvironmentJson } from "./fapi-environment.js";
+import { fapiResponse, buildClientJson, buildSessionJson, fapiMembershipJson } from "./fapi-serializers.js";
+import { dispatchClerkEvent } from "../webhook-events.js";
+import type { ClerkUser } from "../entities.js";
 
 // clerk-js posts FAPI bodies as application/x-www-form-urlencoded (with a JSON fallback).
 async function readFapiBody(c: Context<AppEnv>): Promise<Record<string, string>> {
@@ -24,240 +27,6 @@ async function readFapiBody(c: Context<AppEnv>): Promise<Record<string, string>>
   } catch {
     return {};
   }
-}
-
-// Build the org_membership JSON array embedded in a user resource.
-function userOrgMemberships(store: Store, user: ClerkUser): Record<string, unknown>[] {
-  const cs = getClerkStore(store);
-  return cs.memberships
-    .findBy("user_id", user.clerk_id)
-    .map((m) => {
-      const org = cs.organizations.findOneBy("clerk_id", m.org_id);
-      if (!org) return null;
-      return {
-        object: "organization_membership",
-        id: m.membership_id,
-        role: m.role,
-        permissions: m.permissions,
-        public_metadata: m.public_metadata,
-        organization: {
-          object: "organization",
-          id: org.clerk_id,
-          name: org.name,
-          slug: org.slug,
-          image_url: org.image_url,
-          has_image: org.image_url !== null,
-          members_count: org.members_count,
-          max_allowed_memberships: org.max_allowed_memberships,
-          admin_delete_enabled: org.admin_delete_enabled,
-          public_metadata: org.public_metadata,
-          created_at: org.created_at_unix * 1000,
-          updated_at: org.updated_at_unix * 1000,
-        },
-        created_at: m.created_at_unix * 1000,
-        updated_at: m.updated_at_unix * 1000,
-      };
-    })
-    .filter((m): m is Record<string, unknown> => m !== null);
-}
-
-// Build a FAPI SessionJSON (with embedded user, org memberships, and a live token).
-async function buildSessionJson(store: Store, baseUrl: string, s: ClerkSession): Promise<Record<string, unknown>> {
-  const cs = getClerkStore(store);
-  const user = cs.users.findOneBy("clerk_id", s.user_id);
-  const emails = user ? cs.emailAddresses.findBy("user_id", user.clerk_id) : [];
-  const primaryEmail = emails.find((e) => e.is_primary) ?? emails[0];
-
-  // last_active_token is REQUIRED by clerk-js — must be a real token object.
-  let lastActiveToken: { object: string; jwt: string } | null = null;
-  let lastActiveOrgId: string | null = null;
-  let userJson: Record<string, unknown> | null = null;
-
-  if (user) {
-    const memberships = cs.memberships.findBy("user_id", user.clerk_id);
-    const firstMembership = memberships[0];
-    let orgId: string | undefined;
-    let orgRole: string | undefined;
-    let orgSlug: string | undefined;
-    let orgPermissions: string[] | undefined;
-    if (firstMembership) {
-      const org = cs.organizations.findOneBy("clerk_id", firstMembership.org_id);
-      if (org) {
-        orgId = org.clerk_id;
-        orgRole = firstMembership.role;
-        orgSlug = org.slug;
-        orgPermissions = firstMembership.permissions;
-        lastActiveOrgId = org.clerk_id;
-      }
-    }
-    const jwt = await createSessionToken(store, user, s.clerk_id, baseUrl, orgId, orgRole, orgSlug, orgPermissions);
-    lastActiveToken = { object: "token", jwt };
-    userJson = { ...userResponse(user, emails), organization_memberships: userOrgMemberships(store, user) };
-  }
-
-  return {
-    object: "session",
-    id: s.clerk_id,
-    status: s.status,
-    factor_verification_age: [0, 0],
-    expire_at: s.expire_at * 1000,
-    abandon_at: s.abandon_at * 1000,
-    last_active_at: (s.last_active_at ?? s.created_at_unix) * 1000,
-    last_active_token: lastActiveToken,
-    last_active_organization_id: lastActiveOrgId,
-    actor: null,
-    tasks: [],
-    user: userJson,
-    public_user_data: user
-      ? {
-          first_name: user.first_name,
-          last_name: user.last_name,
-          image_url: user.image_url ?? `https://img.clerk.com/preview?seed=${user.clerk_id}`,
-          has_image: user.image_url !== null,
-          identifier: primaryEmail?.email_address ?? user.username ?? user.clerk_id,
-        }
-      : null,
-    created_at: s.created_at_unix * 1000,
-    updated_at: s.updated_at_unix * 1000,
-  };
-}
-
-async function buildClientJson(store: Store, baseUrl: string, activeSessionId?: string | null) {
-  const cs = getClerkStore(store);
-  const sessions = cs.sessions.all().filter((s) => s.status === "active");
-
-  const sessionJsons = await Promise.all(sessions.map((s) => buildSessionJson(store, baseUrl, s)));
-
-  return {
-    object: "client",
-    id: "client_emulate",
-    sessions: sessionJsons,
-    sign_up: null,
-    sign_in: null,
-    last_active_session_id: activeSessionId ?? sessionJsons[0]?.id ?? null,
-    last_authentication_strategy: null,
-    cookie_expires_at: null,
-    created_at: Date.now(),
-    updated_at: Date.now(),
-  };
-}
-
-async function fapiResponse(
-  response: unknown,
-  store: Store,
-  baseUrl: string,
-  activeSessionId?: string | null,
-  embedSignIn?: Record<string, unknown> | null,
-  embedSignUp?: Record<string, unknown> | null,
-) {
-  const client = await buildClientJson(store, baseUrl, activeSessionId);
-  // clerk-js's useSignIn()/useSignUp() hooks proxy client.sign_in / client.sign_up —
-  // embed them so the hook resources reflect the in-progress attempt.
-  if (embedSignIn !== undefined) {
-    (client as Record<string, unknown>).sign_in = embedSignIn;
-  }
-  if (embedSignUp !== undefined) {
-    (client as Record<string, unknown>).sign_up = embedSignUp;
-  }
-  return { response, client };
-}
-
-function buildEnvironmentJson(baseUrl: string): Record<string, unknown> {
-  return {
-    api_keys_settings: { user_api_keys_enabled: false, orgs_api_keys_enabled: false },
-    auth_config: {
-      object: "auth_config",
-      id: "aac_emulate",
-      single_session_mode: false,
-      claimed_at: null,
-      reverification: false,
-    },
-    commerce_settings: {
-      billing: {
-        stripe_publishable_key: null,
-        organization: { enabled: false, has_paid_plans: false },
-        user: { enabled: false, has_paid_plans: false },
-      },
-    },
-    display_config: {
-      object: "display_config",
-      id: "display_emulate",
-      after_sign_in_url: "/",
-      after_sign_out_all_url: "/",
-      after_sign_out_one_url: "/",
-      after_sign_up_url: "/",
-      after_switch_session_url: "/",
-      application_name: "Emulate",
-      branded: false,
-      captcha_public_key: null,
-      captcha_widget_type: "invisible",
-      captcha_public_key_invisible: null,
-      captcha_provider: "turnstile",
-      captcha_oauth_bypass: [],
-      home_url: baseUrl,
-      instance_environment_type: "development",
-      logo_image_url: "",
-      favicon_image_url: "",
-      preferred_sign_in_strategy: "password",
-      sign_in_url: "/sign-in",
-      sign_up_url: "/sign-up",
-      support_email: "",
-      theme: {},
-      user_profile_url: "/user",
-      clerk_js_version: "5",
-      organization_profile_url: "/organization",
-      create_organization_url: "/create-organization",
-      after_leave_organization_url: "/",
-      after_create_organization_url: "/",
-      show_devmode_warning: false,
-      terms_url: "",
-      privacy_policy_url: "",
-      waitlist_url: "",
-      after_join_waitlist_url: "",
-    },
-    maintenance_mode: false,
-    organization_settings: {
-      enabled: true,
-      max_allowed_memberships: 100,
-      force_organization_selection: false,
-      actions: { admin_delete: true },
-      domains: { enabled: true, enrollment_modes: ["manual_invitation", "automatic_invitation", "automatic_suggestion"], default_role: "org:member" },
-      slug: { disabled: false },
-      organization_creation_defaults: { enabled: true },
-    },
-    user_settings: {
-      attributes: {
-        email_address: {
-          enabled: true,
-          required: true,
-          verifications: ["email_code"],
-          used_for_first_factor: true,
-          first_factors: ["email_code"],
-          used_for_second_factor: false,
-          second_factors: [],
-          verify_at_sign_up: false,
-        },
-        password: {
-          enabled: true,
-          required: true,
-        },
-        first_name: { enabled: true, required: false },
-        last_name: { enabled: true, required: false },
-        username: { enabled: false, required: false },
-        phone_number: { enabled: false, required: false },
-        web3_wallet: { enabled: false, required: false },
-      },
-      actions: { delete_self: true, create_organization: true },
-      social: {},
-      enterprise_sso: { enabled: false, self_serve_sso: false },
-      sign_in: { second_factor: { required: false, enabled: false } },
-      sign_up: { allowlist_only: false, progressive: true, captcha_enabled: false, mode: "public", legal_consent_enabled: false },
-      password_settings: { min_length: 8, max_length: 72, disable_hibp: true, allowed_special_characters: "" },
-      passkey_settings: { allow_autofill: false, show_sign_in_button: false },
-      username_settings: { min_length: 4, max_length: 64 },
-    },
-    protect_config: { object: "protect_config", id: "protect_emulate" },
-  };
 }
 
 // Fixed verification codes for the emulator (mirrors Clerk's test-mode 424242 convention).
@@ -303,9 +72,9 @@ function completeSignIn(cs: ReturnType<typeof getClerkStore>, signIn: PendingSig
   return session;
 }
 
-// First factor passed: go to MFA if the user has TOTP enabled, else complete.
-function advanceAfterFirstFactor(cs: ReturnType<typeof getClerkStore>, signIn: PendingSignIn): void {
-  signIn.firstFactorVerification = { status: "verified", strategy: signIn.firstFactorVerification?.strategy ?? "password" };
+// First factor verified with `strategy`: go to MFA if the user has TOTP enabled, else complete.
+function advanceAfterFirstFactor(cs: ReturnType<typeof getClerkStore>, signIn: PendingSignIn, strategy: string): void {
+  signIn.firstFactorVerification = { status: "verified", strategy };
   if (signIn.user.totp_enabled) {
     signIn.status = "needs_second_factor";
   } else {
@@ -399,7 +168,7 @@ function signUpJson(signUp: PendingSignUp): Record<string, unknown> {
   };
 }
 
-export function fapiRoutes({ app, store, baseUrl }: RouteContext): void {
+export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const cs = getClerkStore(store);
 
   // Dev browser init
@@ -491,7 +260,7 @@ export function fapiRoutes({ app, store, baseUrl }: RouteContext): void {
     const password = body.password as string | undefined;
     if (password !== undefined) {
       if (user.password_hash !== password) return incorrectPassword(c);
-      advanceAfterFirstFactor(cs, signIn);
+      advanceAfterFirstFactor(cs, signIn, "password");
       const json = signInJson(cs, signIn);
       return c.json(await fapiResponse(json, store, baseUrl, signIn.createdSessionId, json));
     }
@@ -526,9 +295,8 @@ export function fapiRoutes({ app, store, baseUrl }: RouteContext): void {
     } else if (strategy === "email_code") {
       if ((body.code as string) !== EMULATE_EMAIL_CODE) return incorrectCode(c);
     }
-    signIn.firstFactorVerification = { status: "verified", strategy };
 
-    advanceAfterFirstFactor(cs, signIn);
+    advanceAfterFirstFactor(cs, signIn, strategy);
     const json = signInJson(cs, signIn);
     return c.json(await fapiResponse(json, store, baseUrl, signIn.createdSessionId, json));
   });
@@ -664,6 +432,12 @@ export function fapiRoutes({ app, store, baseUrl }: RouteContext): void {
     signUp.status = "complete";
     signUp.createdSessionId = session.clerk_id;
 
+    // Real Clerk fires user.created when a user registers via the frontend (FAPI),
+    // not just via the Backend API. See clerk.com/docs/webhooks — user.created
+    // "triggers when a new user registers in the app".
+    const created = cs.users.findOneBy("clerk_id", clerkId)!;
+    dispatchClerkEvent(webhooks, "user.created", userResponse(created, cs.emailAddresses.findBy("user_id", clerkId)));
+
     const json = signUpJson(signUp);
     return c.json(await fapiResponse(json, store, baseUrl, session.clerk_id, undefined, json));
   });
@@ -677,24 +451,7 @@ export function fapiRoutes({ app, store, baseUrl }: RouteContext): void {
     const user = cs.users.findOneBy("clerk_id", session.user_id);
     if (!user) return clerkError(c, 404, "RESOURCE_NOT_FOUND", "User not found");
 
-    const memberships = cs.memberships.findBy("user_id", user.clerk_id);
-    const firstMembership = memberships[0];
-    let orgId: string | undefined;
-    let orgRole: string | undefined;
-    let orgSlug: string | undefined;
-    let orgPermissions: string[] | undefined;
-
-    if (firstMembership) {
-      const org = cs.organizations.findOneBy("clerk_id", firstMembership.org_id);
-      if (org) {
-        orgId = org.clerk_id;
-        orgRole = firstMembership.role;
-        orgSlug = org.slug;
-        orgPermissions = firstMembership.permissions;
-      }
-    }
-
-    const jwt = await createSessionToken(store, user, sessionId, baseUrl, orgId, orgRole, orgSlug, orgPermissions);
+    const jwt = await createSessionToken(store, user, sessionId, baseUrl, resolvePrimaryOrgClaims(cs, user));
 
     cs.sessions.update(session.id, { last_active_at: nowUnix() });
 
@@ -749,45 +506,11 @@ export function fapiRoutes({ app, store, baseUrl }: RouteContext): void {
     const session = cs.sessions.findOneBy("clerk_id", sessionId);
     if (!session) return c.json(await fapiResponse(empty, store, baseUrl));
 
-    const memberships = cs.memberships.findBy("user_id", session.user_id);
-    const data = memberships.map((m) => {
-      const org = cs.organizations.findOneBy("clerk_id", m.org_id);
-      return {
-        object: "organization_membership",
-        id: m.membership_id,
-        role: m.role,
-        permissions: m.permissions,
-        public_metadata: m.public_metadata,
-        organization: org
-          ? {
-              object: "organization",
-              id: org.clerk_id,
-              name: org.name,
-              slug: org.slug,
-              image_url: org.image_url,
-              has_image: org.image_url !== null,
-              members_count: org.members_count,
-              public_metadata: org.public_metadata,
-            }
-          : null,
-        created_at: m.created_at_unix * 1000,
-        updated_at: m.updated_at_unix * 1000,
-      };
-    });
+    const data = cs.memberships
+      .findBy("user_id", session.user_id)
+      .map((m) => fapiMembershipJson(cs, m))
+      .filter((m): m is Record<string, unknown> => m !== null);
 
     return c.json(await fapiResponse({ data, total_count: data.length }, store, baseUrl, sessionId));
-  });
-
-  // Proxy clerk-js from CDN
-  app.get("/npm/:path{.+}", async (c) => {
-    const path = c.req.param("path");
-    try {
-      const cdnRes = await fetch(`https://cdn.jsdelivr.net/npm/${path}`);
-      const body = await cdnRes.text();
-      const contentType = cdnRes.headers.get("content-type") ?? "application/javascript";
-      return c.body(body, 200, { "Content-Type": contentType, "Access-Control-Allow-Origin": "*" });
-    } catch {
-      return c.text("Failed to load clerk-js", 502);
-    }
   });
 }

@@ -208,4 +208,34 @@ describe("Clerk plugin - webhook emission", () => {
     expect(capture.requests).toHaveLength(1);
     expect(capture.requests[0].body.type).toBe("org_domain.deleted");
   });
+
+  it("emits user.created when a user registers via FAPI sign-up", async () => {
+    const email = `fapi-signup-${Date.now()}@example.com`;
+    const form = (url: string, fields: Record<string, string>) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(fields).toString(),
+      });
+
+    const createRes = await form(`${emulator.url}/v1/client/sign_ups`, {
+      email_address: email,
+      password: "newpass123",
+    });
+    const { response: signUp } = (await createRes.json()) as { response: { id: string } };
+    await form(`${emulator.url}/v1/client/sign_ups/${signUp.id}/prepare_verification`, { strategy: "email_code" });
+    capture.requests.length = 0;
+
+    const done = await form(`${emulator.url}/v1/client/sign_ups/${signUp.id}/attempt_verification`, {
+      strategy: "email_code",
+      code: "424242",
+    });
+    expect(done.ok).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capture.requests).toHaveLength(1);
+    expect(capture.requests[0].body.type).toBe("user.created");
+    expect((capture.requests[0].body.data.email_addresses as any[])[0].email_address).toBe(email);
+  });
 });

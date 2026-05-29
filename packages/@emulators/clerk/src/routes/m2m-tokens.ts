@@ -7,7 +7,7 @@ import {
   readJsonBody,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
-import { createSessionToken, keyPairPromise, KID } from "./oauth.js";
+import { keyPairPromise, KID } from "./oauth.js";
 import { SignJWT } from "jose";
 
 function m2mTokenResponse(token: {

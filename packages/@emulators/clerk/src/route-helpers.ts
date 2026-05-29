@@ -68,19 +68,6 @@ export function deletedResponse(objectType: string, objectId: string): Record<st
   };
 }
 
-export function paginatedResponse<T>(
-  data: T[],
-  totalCount: number,
-  limit: number,
-  offset: number,
-): Record<string, unknown> {
-  return {
-    data,
-    total_count: totalCount,
-    has_more: offset + limit < totalCount,
-  };
-}
-
 export function parsePagination(c: Context<AppEnv>): { limit: number; offset: number } {
   const limit = Math.min(Math.max(Number.parseInt(c.req.query("limit") ?? "10", 10) || 10, 1), 500);
   const offset = Math.max(Number.parseInt(c.req.query("offset") ?? "0", 10) || 0, 0);
@@ -223,6 +210,28 @@ export async function readJsonBody(c: Context<AppEnv>): Promise<Record<string, u
   } catch {
     return {};
   }
+}
+
+export interface PrimaryOrgClaims {
+  orgId?: string;
+  orgRole?: string;
+  orgSlug?: string;
+  orgPermissions?: string[];
+}
+
+// A user's session-token org claims come from their first organization membership.
+// Shared by the BAPI session-token route and the FAPI client/token builders.
+export function resolvePrimaryOrgClaims(cs: ClerkStore, user: ClerkUser): PrimaryOrgClaims {
+  const firstMembership = cs.memberships.findBy("user_id", user.clerk_id)[0];
+  if (!firstMembership) return {};
+  const org = cs.organizations.findOneBy("clerk_id", firstMembership.org_id);
+  if (!org) return {};
+  return {
+    orgId: org.clerk_id,
+    orgRole: firstMembership.role,
+    orgSlug: org.slug,
+    orgPermissions: firstMembership.permissions,
+  };
 }
 
 export function findUserByRef(cs: ClerkStore, ref: string): ClerkUser | undefined {

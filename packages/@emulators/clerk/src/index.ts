@@ -1,6 +1,12 @@
 import type { Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
-import { generateClerkId, nowUnix, createDefaultUser, createDefaultEmailAddress } from "./helpers.js";
+import {
+  generateClerkId,
+  nowUnix,
+  createDefaultUser,
+  createDefaultEmailAddress,
+  defaultOrganizationPermissions,
+} from "./helpers.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { userRoutes } from "./routes/users.js";
 import { emailAddressRoutes } from "./routes/email-addresses.js";
@@ -11,6 +17,7 @@ import { sessionRoutes } from "./routes/sessions.js";
 import { organizationDomainRoutes } from "./routes/organization-domains.js";
 import { m2mTokenRoutes } from "./routes/m2m-tokens.js";
 import { fapiRoutes } from "./routes/fapi.js";
+import { clerkJsProxyRoutes } from "./routes/clerk-js-proxy.js";
 import { getClerkStore } from "./store.js";
 
 export { getClerkStore, type ClerkStore } from "./store.js";
@@ -184,15 +191,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
             org_id: orgId,
             user_id: user.clerk_id,
             role,
-            permissions:
-              role === "org:admin"
-                ? [
-                    "org:sys_profile:manage",
-                    "org:sys_profile:delete",
-                    "org:sys_memberships:read",
-                    "org:sys_memberships:manage",
-                  ]
-                : ["org:sys_memberships:read"],
+            permissions: defaultOrganizationPermissions(role),
             public_metadata: {},
             private_metadata: {},
             created_at_unix: now,
@@ -262,6 +261,7 @@ export const clerkPlugin: ServicePlugin = {
     sessionRoutes(ctx);
     m2mTokenRoutes(ctx);
     fapiRoutes(ctx);
+    clerkJsProxyRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
