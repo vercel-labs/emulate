@@ -10,6 +10,7 @@ import { invitationRoutes } from "./routes/invitations.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { organizationDomainRoutes } from "./routes/organization-domains.js";
 import { m2mTokenRoutes } from "./routes/m2m-tokens.js";
+import { fapiRoutes } from "./routes/fapi.js";
 import { getClerkStore } from "./store.js";
 
 export { getClerkStore, type ClerkStore } from "./store.js";
@@ -24,6 +25,7 @@ export interface ClerkSeedConfig {
     username?: string;
     password?: string;
     external_id?: string;
+    totp_enabled?: boolean;
     public_metadata?: Record<string, unknown>;
     private_metadata?: Record<string, unknown>;
     unsafe_metadata?: Record<string, unknown>;
@@ -106,9 +108,9 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
         primary_phone_number_id: null,
         password_enabled: typeof userCfg.password === "string" && userCfg.password.length > 0,
         password_hash: userCfg.password ?? null,
-        totp_enabled: false,
+        totp_enabled: userCfg.totp_enabled ?? false,
         backup_code_enabled: false,
-        two_factor_enabled: false,
+        two_factor_enabled: userCfg.totp_enabled ?? false,
         banned: false,
         locked: false,
         public_metadata: userCfg.public_metadata ?? {},
@@ -259,6 +261,7 @@ export const clerkPlugin: ServicePlugin = {
     organizationDomainRoutes(ctx);
     sessionRoutes(ctx);
     m2mTokenRoutes(ctx);
+    fapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

@@ -52,6 +52,13 @@ export async function startClerkTestEmulator(
     users: [
       { email_addresses: ["alice@example.com"], first_name: "Alice", last_name: "Smith", password: "alice123" },
       { email_addresses: ["bob@example.com"], first_name: "Bob", last_name: "Jones" },
+      {
+        email_addresses: ["mfa@example.com"],
+        first_name: "Mfa",
+        last_name: "User",
+        password: "mfa12345",
+        totp_enabled: true,
+      },
     ],
     organizations: [
       {
