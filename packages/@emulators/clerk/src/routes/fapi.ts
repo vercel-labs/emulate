@@ -29,6 +29,14 @@ async function readFapiBody(c: Context<AppEnv>): Promise<Record<string, string>>
   }
 }
 
+// FAPI form-validation error envelope (HTTP 422), as clerk-js expects.
+function fapiFormError(c: Context<AppEnv>, code: string, message: string) {
+  return c.json({ errors: [{ code, message, long_message: message }], meta: {} }, 422);
+}
+
+const PASSWORD_INCORRECT = "Password is incorrect. Try again, or use another method.";
+const CODE_INCORRECT = "Incorrect code. Try again.";
+
 // Fixed verification codes for the emulator (mirrors Clerk's test-mode 424242 convention).
 const EMULATE_EMAIL_CODE = "424242";
 const EMULATE_TOTP_CODE = "424242";
@@ -190,59 +198,16 @@ export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
   app.get("/v1/client", clientHandler);
   app.post("/v1/client", clientHandler);
 
-  const incorrectCode = (c: Context<AppEnv>) =>
-    c.json(
-      {
-        errors: [
-          {
-            code: "form_code_incorrect",
-            message: "Incorrect code.",
-            long_message: "Incorrect code. Try again.",
-          },
-        ],
-        meta: {},
-      },
-      422,
-    );
-
-  const incorrectPassword = (c: Context<AppEnv>) =>
-    c.json(
-      {
-        errors: [
-          {
-            code: "form_password_incorrect",
-            message: "Password is incorrect. Try again, or use another method.",
-            long_message: "Password is incorrect. Try again, or use another method.",
-          },
-        ],
-        meta: {},
-      },
-      422,
-    );
-
   // Sign-in: create
   app.post("/v1/client/sign_ins", async (c) => {
     const body = await readFapiBody(c);
     const identifier = (body.identifier as string) ?? "";
 
     const email = cs.emailAddresses.findOneBy("email_address", identifier);
-    if (!email) {
-      return c.json(
-        {
-          errors: [{ code: "form_identifier_not_found", message: "Couldn't find your account.", long_message: "Couldn't find your account." }],
-          meta: {},
-        },
-        422,
-      );
-    }
+    if (!email) return fapiFormError(c, "form_identifier_not_found", "Couldn't find your account.");
 
     const user = cs.users.findOneBy("clerk_id", email.user_id);
-    if (!user) {
-      return c.json(
-        { errors: [{ code: "form_identifier_not_found", message: "Couldn't find your account." }] },
-        422,
-      );
-    }
+    if (!user) return fapiFormError(c, "form_identifier_not_found", "Couldn't find your account.");
 
     const signInId = generateClerkId("sia_");
     const signIn: PendingSignIn = {
@@ -259,7 +224,7 @@ export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
     // password in the create call and expects completion in one request.
     const password = body.password as string | undefined;
     if (password !== undefined) {
-      if (user.password_hash !== password) return incorrectPassword(c);
+      if (user.password_hash !== password) return fapiFormError(c, "form_password_incorrect", PASSWORD_INCORRECT);
       advanceAfterFirstFactor(cs, signIn, "password");
       const json = signInJson(cs, signIn);
       return c.json(await fapiResponse(json, store, baseUrl, signIn.createdSessionId, json));
@@ -291,9 +256,9 @@ export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
     const strategy = (body.strategy as string) ?? "password";
 
     if (strategy === "password") {
-      if (signIn.user.password_hash !== (body.password as string)) return incorrectPassword(c);
+      if (signIn.user.password_hash !== (body.password as string)) return fapiFormError(c, "form_password_incorrect", PASSWORD_INCORRECT);
     } else if (strategy === "email_code") {
-      if ((body.code as string) !== EMULATE_EMAIL_CODE) return incorrectCode(c);
+      if ((body.code as string) !== EMULATE_EMAIL_CODE) return fapiFormError(c, "form_code_incorrect", CODE_INCORRECT);
     }
 
     advanceAfterFirstFactor(cs, signIn, strategy);
@@ -308,7 +273,7 @@ export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
 
     const body = await readFapiBody(c);
     const strategy = (body.strategy as string) ?? "totp";
-    if ((body.code as string) !== EMULATE_TOTP_CODE) return incorrectCode(c);
+    if ((body.code as string) !== EMULATE_TOTP_CODE) return fapiFormError(c, "form_code_incorrect", CODE_INCORRECT);
 
     signIn.secondFactorVerification = { status: "verified", strategy };
     const session = completeSignIn(cs, signIn);
@@ -321,20 +286,9 @@ export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
     const body = await readFapiBody(c);
     const emailAddress = (body.email_address as string) ?? "";
 
-    if (!emailAddress) {
-      return c.json(
-        { errors: [{ code: "form_param_missing", message: "email_address is required", long_message: "email_address is required" }], meta: {} },
-        422,
-      );
-    }
+    if (!emailAddress) return fapiFormError(c, "form_param_missing", "email_address is required");
     if (cs.emailAddresses.findOneBy("email_address", emailAddress)) {
-      return c.json(
-        {
-          errors: [{ code: "form_identifier_exists", message: "That email address is taken.", long_message: "That email address is taken." }],
-          meta: {},
-        },
-        422,
-      );
+      return fapiFormError(c, "form_identifier_exists", "That email address is taken.");
     }
 
     const signUpId = generateClerkId("sua_");
@@ -372,7 +326,7 @@ export function fapiRoutes({ app, store, webhooks, baseUrl }: RouteContext): voi
     if (!signUp) return clerkError(c, 404, "RESOURCE_NOT_FOUND", "Sign-up not found");
 
     const body = await readFapiBody(c);
-    if ((body.code as string) !== EMULATE_EMAIL_CODE) return incorrectCode(c);
+    if ((body.code as string) !== EMULATE_EMAIL_CODE) return fapiFormError(c, "form_code_incorrect", CODE_INCORRECT);
 
     signUp.emailVerification = { status: "verified", strategy: "email_code" };
 

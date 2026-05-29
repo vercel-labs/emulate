@@ -9,33 +9,22 @@ import {
 import { getClerkStore } from "../store.js";
 import { keyPairPromise, KID } from "./oauth.js";
 import { SignJWT } from "jose";
+import type { ClerkM2MToken } from "../entities.js";
 
-function m2mTokenResponse(token: {
-  token_id: string;
-  token?: string;
-  subject: string;
-  scopes: string[];
-  claims: Record<string, unknown> | null;
-  revoked: boolean;
-  revocation_reason: string | null;
-  expired: boolean;
-  expiration: number | null;
-  created_at_unix: number;
-  updated_at_unix: number;
-}): Record<string, unknown> {
+function m2mTokenResponse(t: ClerkM2MToken): Record<string, unknown> {
   return {
     object: "machine_to_machine_token",
-    id: token.token_id,
-    token: token.token,
-    subject: token.subject,
-    scopes: token.scopes,
-    claims: token.claims,
-    revoked: token.revoked,
-    revocation_reason: token.revocation_reason,
-    expired: token.expired,
-    expiration: token.expiration,
-    created_at: token.created_at_unix,
-    updated_at: token.updated_at_unix,
+    id: t.token_id,
+    token: t.token,
+    subject: t.subject,
+    scopes: t.scopes,
+    claims: t.claims,
+    revoked: t.revoked,
+    revocation_reason: t.revocation_reason,
+    expired: t.expired,
+    expiration: t.expiration,
+    created_at: t.created_at_unix,
+    updated_at: t.updated_at_unix,
   };
 }
 
@@ -97,7 +86,7 @@ export function m2mTokenRoutes({ app, store, baseUrl, tokenMap }: RouteContext):
       updated_at_unix: nowMs,
     });
 
-    return c.json(m2mTokenResponse({ ...record, token: tokenString }));
+    return c.json(m2mTokenResponse(record));
   });
 
   app.post("/m2m_tokens/verify", async (c) => {
