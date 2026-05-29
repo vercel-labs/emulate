@@ -827,7 +827,7 @@ describe("AWS plugin - STS", () => {
 });
 
 describe("AWS plugin - seedFromConfig", () => {
-  it("seeds custom buckets, queues, users, and roles", () => {
+  it("seeds custom buckets, queues, topics, users, and roles", () => {
     const store = new Store();
     const webhooks = new WebhookDispatcher();
     const app = new Hono();
@@ -840,6 +840,9 @@ describe("AWS plugin - seedFromConfig", () => {
       },
       sqs: {
         queues: [{ name: "my-queue" }, { name: "orders.fifo", fifo: true }],
+      },
+      sns: {
+        topics: [{ name: "my-topic", attributes: { DisplayName: "My Topic" } }],
       },
       iam: {
         users: [{ user_name: "alice", create_access_key: true }],
@@ -859,6 +862,11 @@ describe("AWS plugin - seedFromConfig", () => {
     const queues = aws.sqsQueues.all();
     expect(queues.length).toBe(3);
     expect(queues.find((q) => q.queue_name === "orders.fifo")?.fifo).toBe(true);
+
+    const topics = aws.snsTopics.all();
+    expect(topics.length).toBe(1);
+    expect(topics[0].topic_name).toBe("my-topic");
+    expect(topics[0].attributes.DisplayName).toBe("My Topic");
 
     // Default admin + alice
     const users = aws.iamUsers.all();

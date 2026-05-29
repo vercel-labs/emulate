@@ -19,7 +19,7 @@ export function createTestApp(baseUrl: string = testBaseUrl) {
   tokenMap.set("test-aws-token", {
     login: "admin",
     id: 1,
-    scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"],
+    scopes: ["s3:*", "sqs:*", "sns:*", "iam:*", "sts:*"],
   });
 
   const app = new Hono<AppEnv>();

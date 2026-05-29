@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1031.0",
+    "@aws-sdk/client-sns": "^3.1042.0",
     "@aws-sdk/s3-presigned-post": "^3.1031.0",
     "tsup": "^8",
     "typescript": "^5.7",

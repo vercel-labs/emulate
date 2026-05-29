@@ -4,6 +4,7 @@ import { getAwsStore } from "./store.js";
 import { getAccountId, getDefaultRegion, generateAwsId } from "./helpers.js";
 import { s3Routes } from "./routes/s3.js";
 import { sqsRoutes } from "./routes/sqs.js";
+import { snsRoutes } from "./routes/sns.js";
 import { iamRoutes } from "./routes/iam.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
@@ -25,6 +26,12 @@ export interface AwsSeedConfig {
       name: string;
       fifo?: boolean;
       visibility_timeout?: number;
+    }>;
+  };
+  sns?: {
+    topics?: Array<{
+      name: string;
+      attributes?: Record<string, string>;
     }>;
   };
   iam?: {
@@ -127,6 +134,19 @@ export function seedFromConfig(store: Store, baseUrl: string, config: AwsSeedCon
     }
   }
 
+  if (config.sns?.topics) {
+    for (const t of config.sns.topics) {
+      const existing = aws.snsTopics.findOneBy("topic_name", t.name);
+      if (existing) continue;
+
+      aws.snsTopics.insert({
+        topic_name: t.name,
+        arn: `arn:aws:sns:${region}:${accountId}:${t.name}`,
+        attributes: t.attributes ?? {},
+      });
+    }
+  }
+
   if (config.iam?.users) {
     for (const u of config.iam.users) {
       const existing = aws.iamUsers.findOneBy("user_name", u.user_name);
@@ -182,6 +202,7 @@ export const awsPlugin: ServicePlugin = {
     // then S3 last since its routes use wildcard path params (/:bucket, /:bucket/:key)
     inspectorRoutes(ctx);
     sqsRoutes(ctx);
+    snsRoutes(ctx);
     iamRoutes(ctx);
     s3Routes(ctx);
   },
