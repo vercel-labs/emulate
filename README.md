@@ -684,6 +684,8 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/chat.scheduledMessages.list` - list pending scheduled messages
 - `POST /api/chat.meMessage` - /me message
 
+Chat writes and incoming webhooks apply Slack-compatible message limits: top-level `text` is truncated at 40,000 characters with a `message_truncated` warning, while oversized rich payloads such as too many blocks or overlong block text return Slack-style errors.
+
 ### Conversations
 - `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` - get channel info
