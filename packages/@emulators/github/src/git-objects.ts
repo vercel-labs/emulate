@@ -88,7 +88,12 @@ export function serializeBlob(content: string, encoding: "base64" | "utf-8"): Gi
 
 function identityLine(name: string, email: string, isoDate: string): string {
   const millis = Date.parse(isoDate);
-  const seconds = Number.isFinite(millis) ? Math.floor(millis / 1000) : 0;
+  if (!Number.isFinite(millis)) {
+    // A silent epoch fallback would bake 1970 timestamps into sha-stable
+    // commits; force callers to pass a real date.
+    throw new Error(`Invalid commit date "${isoDate}": expected an ISO-8601 timestamp`);
+  }
+  const seconds = Math.floor(millis / 1000);
   return `${sanitizeIdentity(name) || "emulate"} <${sanitizeIdentity(email)}> ${seconds} +0000`;
 }
 

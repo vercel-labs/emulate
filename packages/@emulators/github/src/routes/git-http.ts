@@ -4,7 +4,7 @@ import { debug } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo } from "../entities.js";
-import { canAccessRepo, ownerLoginOf } from "../route-helpers.js";
+import { canAccessRepo } from "../route-helpers.js";
 import { lookupRepo } from "../helpers.js";
 import { createRepoObjectSource } from "../git-data.js";
 import { buildPackfile, FLUSH_PKT, parsePktLines, pktLine, ZERO_SHA, type GitObject } from "../git-objects.js";
@@ -84,8 +84,10 @@ function authorizeGitRequest(c: Context, gh: GitHubStore, tokenMap: TokenMap | u
 
   if (repo.private) {
     if (!user) return unauthorized(c);
-    const allowed = user.login === ownerLoginOf(gh, repo) || canAccessRepo(gh, user, repo);
-    if (!allowed) return repoNotFound(c);
+    // canAccessRepo compares by user id (owner, org member, collaborator) —
+    // no login-string fast path, which would trust a token whose login
+    // merely collides with the owner's.
+    if (!canAccessRepo(gh, user, repo)) return repoNotFound(c);
   }
   return repo;
 }
@@ -149,10 +151,13 @@ export function gitHttpRoutes({ app, store, tokenMap }: RouteContext): void {
 
     const chunks: Buffer[] = [pktLine("# service=git-upload-pack\n"), FLUSH_PKT];
     if (refs.length === 0) {
+      // Real GitHub advertises symref=HEAD for empty repos too, so clones
+      // initialize local HEAD from the server's default branch instead of
+      // the client's init.defaultBranch.
       chunks.push(
         hasRefs
           ? pktLine(`ERR ${repo.full_name} has refs but no materialized git objects to serve`)
-          : pktLine(`${ZERO_SHA} capabilities^{}\0${UPLOAD_PACK_CAPS}\n`),
+          : pktLine(`${ZERO_SHA} capabilities^{}\0symref=HEAD:refs/heads/${repo.default_branch} ${UPLOAD_PACK_CAPS}\n`),
       );
     } else {
       let caps = UPLOAD_PACK_CAPS;

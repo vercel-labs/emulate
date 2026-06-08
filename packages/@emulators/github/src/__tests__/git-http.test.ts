@@ -14,6 +14,7 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
+import { serializeCommit } from "../git-objects.js";
 
 const base = "http://localhost:4000";
 
@@ -163,12 +164,15 @@ describe("git smart HTTP endpoints", () => {
     expect(res.status).toBe(200);
   });
 
-  it("advertises an empty repo with the zero id capabilities line", async () => {
+  it("advertises an empty repo with the zero id capabilities line and symref", async () => {
     const { app } = createTestApp();
     const res = await fetchAdvertisement(app, "octocat/empty-repo");
     expect(res.status).toBe(200);
     const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
     expect(body).toContain(`${"0".repeat(40)} capabilities^{}`);
+    // Without the symref, clones fall back to the client's init.defaultBranch
+    // and local HEAD can disagree with the repo's REST default_branch.
+    expect(body).toContain("symref=HEAD:refs/heads/main");
   });
 
   it("responds to upload-pack with NAK followed by a version 2 packfile", async () => {
@@ -303,6 +307,22 @@ describe("git smart HTTP endpoints", () => {
         repos: [{ owner: "octocat", name: "bad3", files: { a: "file", "a/b": "dir clash" } }],
       }),
     ).toThrow(/both a file and a directory|uses "a" as a directory/);
+  });
+
+  it("rejects invalid commit dates instead of minting epoch timestamps", () => {
+    expect(() =>
+      serializeCommit({
+        treeSha: "0".repeat(40),
+        parentShas: [],
+        authorName: "octocat",
+        authorEmail: "octocat@example.com",
+        authorDate: "not-a-date",
+        committerName: "octocat",
+        committerEmail: "octocat@example.com",
+        committerDate: "not-a-date",
+        message: "bad date",
+      }),
+    ).toThrow(/Invalid commit date/);
   });
 });
 
