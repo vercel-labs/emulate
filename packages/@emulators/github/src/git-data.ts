@@ -226,7 +226,13 @@ export function createRepoObjectSource(
   const verifiedObject = (sha: string, build: () => GitObject): GitObject | null => {
     let obj = verified.get(sha);
     if (!obj) {
-      obj = build();
+      try {
+        obj = build();
+      } catch {
+        // Rows the REST API accepts but git cannot represent (for example an
+        // unparseable commit date) are simply not materialized.
+        return null;
+      }
       if (gitObjectSha(obj) !== sha) return null;
       verified.set(sha, obj);
     }

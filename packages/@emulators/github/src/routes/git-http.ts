@@ -87,9 +87,22 @@ function authorizeGitRequest(c: Context, gh: GitHubStore, tokenMap: TokenMap | u
     // canAccessRepo compares by user id (owner, org member, collaborator) —
     // no login-string fast path, which would trust a token whose login
     // merely collides with the owner's.
-    if (!canAccessRepo(gh, user, repo)) return repoNotFound(c);
+    if (!canAccessRepo(gh, user, repo) && !isOrgInstallationPrincipal(gh, user, repo)) {
+      return repoNotFound(c);
+    }
   }
   return repo;
+}
+
+/**
+ * Installation tokens for org accounts carry the org's login and id (see the
+ * access_tokens route) and have no users row, so canAccessRepo cannot resolve
+ * them. Matching both id and login keeps a mere login collision insufficient.
+ */
+function isOrgInstallationPrincipal(gh: GitHubStore, user: AuthUser, repo: GitHubRepo): boolean {
+  if (repo.owner_type !== "Organization") return false;
+  const org = gh.orgs.get(repo.owner_id);
+  return org != null && user.id === org.id && user.login === org.login;
 }
 
 function loadServeableRefs(

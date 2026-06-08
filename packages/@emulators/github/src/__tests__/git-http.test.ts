@@ -39,10 +39,12 @@ function createTestApp(options: { fallbackUser?: AuthFallback } = {}) {
   githubPlugin.seed?.(store, base);
   seedFromConfig(store, base, {
     users: [{ login: "octocat" }],
+    orgs: [{ login: "acme" }],
     repos: [
       { owner: "octocat", name: "private-fixture", private: true, files: FIXTURE_FILES },
       { owner: "octocat", name: "public-fixture" },
       { owner: "octocat", name: "empty-repo", auto_init: false },
+      { owner: "acme", name: "org-private", private: true },
     ],
   });
 
@@ -158,6 +160,21 @@ describe("git smart HTTP endpoints", () => {
     expect(res.status).toBe(404);
   });
 
+  it("authorizes org installation tokens by account id and login", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const org = getGitHubStore(store).orgs.findOneBy("login", "acme")!;
+
+    // What POST /app/installations/:id/access_tokens records for an org install.
+    tokenMap.set("ghs_org_install", { login: org.login, id: org.id, scopes: ["contents:read"] });
+    const allowed = await fetchAdvertisement(app, "acme/org-private", "ghs_org_install");
+    expect(allowed.status).toBe(200);
+
+    // Same login with a different id is not the installation principal.
+    tokenMap.set("ghs_imposter", { login: org.login, id: org.id + 1000, scopes: ["contents:read"] });
+    const denied = await fetchAdvertisement(app, "acme/org-private", "ghs_imposter");
+    expect(denied.status).toBe(404);
+  });
+
   it("allows anonymous advertisement for public repos", async () => {
     const { app } = createTestApp();
     const res = await fetchAdvertisement(app, "octocat/public-fixture");
@@ -271,6 +288,34 @@ describe("git smart HTTP endpoints", () => {
     const blob = await app.request(`${base}/repos/octocat/private-fixture/git/blobs/${readmeEntry.sha}`, { headers });
     const blobJson = (await blob.json()) as { content: string };
     expect(Buffer.from(blobJson.content, "base64").toString("utf8")).toBe(FIXTURE_FILES["README.md"]);
+  });
+
+  it("skips refs whose rows cannot serialize instead of failing the advertisement", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/public-fixture")!;
+    gh.commits.insert({
+      repo_id: repo.id,
+      sha: "f".repeat(40),
+      node_id: "",
+      message: "bad",
+      author_name: "x",
+      author_email: "x@localhost",
+      author_date: "not-a-date",
+      committer_name: "x",
+      committer_email: "x@localhost",
+      committer_date: "not-a-date",
+      tree_sha: "e".repeat(40),
+      parent_shas: [],
+      user_id: null,
+    } as any);
+    gh.refs.insert({ repo_id: repo.id, ref: "refs/heads/broken", sha: "f".repeat(40), node_id: "" } as any);
+
+    const res = await fetchAdvertisement(app, "octocat/public-fixture");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain("refs/heads/broken");
+    expect(body).toContain("refs/heads/main");
   });
 
   it("produces identical shas across instances for the same fixture", async () => {
