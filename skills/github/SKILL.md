@@ -160,7 +160,27 @@ github:
         - http://localhost:3000/api/auth/callback/github
 ```
 
-Repos are auto-initialized with a commit, branch, and README unless `auto_init: false` is set.
+Repos are auto-initialized with a commit, branch, and README unless `auto_init: false` is set. A repo fixture can also declare file contents, which are materialized as real git objects:
+
+```yaml
+github:
+  repos:
+    - owner: octocat
+      name: cloneable
+      files:
+        README.md: "# cloneable\n"
+        src/index.js: "console.log('hi');\n"
+```
+
+## Git clone
+
+Seeded repos can be cloned with a real `git` client over smart HTTP. The token must be one the emulator knows (seeded in config or minted at runtime, for example through the installation access token endpoint); unknown tokens are rejected with a 401:
+
+```bash
+git clone "http://x-access-token:$TOKEN@localhost:4001/octocat/cloneable.git"
+```
+
+Public repos clone anonymously. Push, shallow clones, and partial fetches are not supported.
 
 ## Pagination
 

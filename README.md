@@ -190,6 +190,11 @@ github:
       name: hello-world
       language: JavaScript
       auto_init: true
+    - owner: octocat
+      name: cloneable
+      files:
+        README.md: "# cloneable\n"
+        src/index.js: "console.log('hi');\n"
 
 google:
   users:
@@ -613,6 +618,21 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Trees: get (with recursive), create (with inline content)
 - Blobs: get, create
 - Tags: get, create
+
+### Git over HTTP (clone)
+
+Repos can be cloned with a real `git` client through the smart HTTP protocol:
+
+```bash
+git clone http://x-access-token:$TOKEN@localhost:4001/octocat/hello-world.git
+```
+
+- `GET /:owner/:repo/info/refs?service=git-upload-pack` - ref advertisement
+- `POST /:owner/:repo/git-upload-pack` - clone and full fetch
+- Seed file contents with `files` on a repo fixture (path to content map); without `files`, `auto_init` repos serve their generated README
+- A presented token must be one the emulator knows: seeded through config or minted at runtime (for example by `POST /app/installations/:installation_id/access_tokens`). Unknown tokens get a 401 even where REST routes would fall back to the default user
+- Public repos clone anonymously; private repos require a token with access
+- Read only: push (`git-receive-pack`), shallow clones (`--depth`), and partial fetches are not supported
 
 ### Organizations & Teams
 - Orgs: get, update, list
