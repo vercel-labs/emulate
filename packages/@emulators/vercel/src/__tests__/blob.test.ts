@@ -123,6 +123,19 @@ describe("Vercel Blob via the @vercel/blob SDK", () => {
     expect(meta.pathname).toBe("meta/env-token.txt");
   });
 
+  it("put accepts SDK OIDC auth with an explicit storeId", async () => {
+    const uploaded = await put("auth/oidc.txt", "oidc token", {
+      access: "public",
+      oidcToken: "local-oidc-token",
+      storeId,
+    });
+
+    expect(uploaded.url).toBe(`${emulatorUrl}/blob/${storeId}/auth/oidc.txt`);
+    const res = await fetch(uploaded.url);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("oidc token");
+  });
+
   it("list filters by prefix and returns metadata", async () => {
     await put("listing/a.txt", "a", { access: "public", token });
     await put("listing/b.txt", "b", { access: "public", token });

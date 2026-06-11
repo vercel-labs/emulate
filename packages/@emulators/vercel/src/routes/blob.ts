@@ -44,22 +44,21 @@ function forbidden(c: Context): Response {
   return blobErr(c, 403, "forbidden", "Access denied");
 }
 
-/**
- * Parses the store id from a read-write token of the form
- * vercel_blob_rw_<storeId>_<random>, falling back to the
- * x-vercel-blob-store-id header. Returns null when the request
- * carries no well-formed token.
- */
 function resolveStoreId(c: Context): string | null {
   const authHeader = c.req.header("authorization") ?? "";
   const match = /^Bearer\s+(\S+)$/i.exec(authHeader);
   if (!match) return null;
   const token = match[1];
-  if (!token.startsWith("vercel_blob_rw_")) return null;
-  const parts = token.split("_");
-  if (parts.length < 5 || parts[4] === "") return null;
-  const storeId = parts[3] || c.req.header("x-vercel-blob-store-id") || "";
-  return storeId === "" ? null : storeId;
+  if (token.startsWith("vercel_blob_rw_")) {
+    const parts = token.split("_");
+    if (parts.length >= 5 && parts[3] !== "" && parts[4] !== "") {
+      return parts[3];
+    }
+    return null;
+  }
+
+  const storeId = c.req.header("x-vercel-blob-store-id")?.trim();
+  return storeId ? storeId : null;
 }
 
 function inferContentType(pathname: string): string {
@@ -151,8 +150,7 @@ function headResponse(baseUrl: string, blob: VercelBlob): Record<string, unknown
 export function blobRoutes({ app, store, baseUrl }: RouteContext): void {
   const vs = getVercelStore(store);
 
-  // ---------- Upload ----------
-  // The SDK sends PUT <api>/?pathname=<pathname> with the raw bytes as body.
+  // Upload. The SDK sends PUT <api>/?pathname=<pathname> with the raw bytes as body.
 
   const handlePut = async (c: Context): Promise<Response> => {
     const storeId = resolveStoreId(c);
@@ -223,7 +221,7 @@ export function blobRoutes({ app, store, baseUrl }: RouteContext): void {
     });
   };
 
-  // ---------- Head and list ----------
+  // Head and list.
   // The SDK sends GET <api>?url=<urlOrPathname> for head and
   // GET <api>?prefix=&limit=&cursor=&mode= for list.
 
@@ -297,7 +295,7 @@ export function blobRoutes({ app, store, baseUrl }: RouteContext): void {
   app.get("/api/blob", handleGet);
   app.get("/api/blob/", handleGet);
 
-  // ---------- Delete ----------
+  // Delete.
 
   app.post("/api/blob/delete", async (c) => {
     const storeId = resolveStoreId(c);
@@ -327,14 +325,14 @@ export function blobRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.json(null);
   });
 
-  // ---------- Multipart uploads (not supported) ----------
+  // Multipart uploads are not supported yet.
 
   const handleMpu = (c: Context): Response =>
     blobErr(c, 400, "bad_request", "Multipart uploads are not supported by the emulator yet");
   app.post("/api/blob/mpu", handleMpu);
   app.put("/api/blob/mpu", handleMpu);
 
-  // ---------- Public content serving ----------
+  // Public content serving.
   // Blob URLs point here. Public access, no authentication.
 
   app.get("/blob/:storeId/:pathname{.+}", (c) => {
