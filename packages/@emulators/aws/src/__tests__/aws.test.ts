@@ -204,6 +204,35 @@ describe("AWS plugin - S3 Objects", () => {
     const body = await getRes.text();
     expect(body).toBe("copy me");
   });
+
+  it("round-trips a binary object byte-for-byte", async () => {
+    // Bytes that are NOT valid UTF-8 (0x80, 0xff, 0xfe) plus a NUL and PNG
+    // magic. The old handler called `.text()`, which decodes the body as
+    // UTF-8 and replaces every non-UTF-8 byte with U+FFFD (EF BF BD) — so
+    // binary uploads (audio, images, gzip, …) came back corrupted and longer
+    // than they went in. Storing the body base64 round-trips any byte exactly.
+    const binary = new Uint8Array([0x00, 0x01, 0x02, 0x80, 0xff, 0xfe, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+
+    const putRes = await app.request(`${base}/emulate-default/audio.bin`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/octet-stream" },
+      body: binary,
+    });
+    expect(putRes.status).toBe(200);
+
+    const getRes = await app.request(`${base}/emulate-default/audio.bin`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    expect(getRes.status).toBe(200);
+    expect(getRes.headers.get("Content-Type")).toBe("application/octet-stream");
+
+    const received = new Uint8Array(await getRes.arrayBuffer());
+    expect(Array.from(received)).toEqual(Array.from(binary));
+    // Content-Length must reflect the raw byte count, not the inflated
+    // U+FFFD-substituted or base64 length.
+    expect(getRes.headers.get("Content-Length")).toBe(String(binary.byteLength));
+  });
 });
 
 describe("AWS plugin - S3 ListObjectsV2 pagination", () => {
