@@ -1,6 +1,6 @@
 # @emulators/aws
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+S3, SQS, SNS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/SNS/IAM/STS endpoints. Query responses use AWS-compatible XML.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -26,12 +26,28 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `GET /:bucket/:key` — get object
 - `HEAD /:bucket/:key` — head object
 - `DELETE /:bucket/:key` — delete object
+- `PUT /:bucket?notification` — set bucket notification XML with `TopicConfiguration`
+- `GET /:bucket?notification` — get bucket notification XML
 
 ### SQS
 All operations via `POST /sqs/` with `Action` parameter:
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
+
+### SNS
+All operations via `POST /sns/` with `Action` parameter:
+- `CreateTopic`, `ListTopics`, `DeleteTopic`
+- `Subscribe`, `Unsubscribe`
+- `Publish`
+- `GetTopicAttributes`, `SetTopicAttributes`
+- `GetSubscriptionAttributes`, `SetSubscriptionAttributes`
+
+SNS supports `sqs`, `http`, and `https` subscriptions. SQS subscriptions receive either the SNS notification envelope JSON or the raw message when `RawMessageDelivery` is `true`. HTTP and HTTPS subscriptions receive an SNS-shaped JSON notification body with fake signature fields; the emulator does not implement AWS-real signature verification fidelity.
+
+For HTTP delivery failures, a subscription `RedrivePolicy` with `deadLetterTargetArn` sends the failed notification envelope immediately to the target SQS queue. The emulator does not schedule AWS-style retry backoff.
+
+S3 bucket notifications can fan out `s3:ObjectCreated:Put` events to SNS topic configurations, including simple prefix and suffix filters.
 
 ### IAM
 All operations via `POST /iam/` with `Action` parameter:
@@ -60,6 +76,9 @@ aws:
     queues:
       - name: my-app-events
       - name: my-app-dlq
+  sns:
+    topics:
+      - name: my-app-object-created
   iam:
     users:
       - user_name: developer

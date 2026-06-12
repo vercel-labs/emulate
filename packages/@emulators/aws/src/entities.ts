@@ -8,9 +8,22 @@ export interface S3Bucket extends Entity {
   versioning_enabled: boolean;
 }
 
+export interface S3TopicNotificationConfiguration {
+  id?: string;
+  topic_arn: string;
+  events: string[];
+  filter_rules: Array<{ name: "prefix" | "suffix"; value: string }>;
+}
+
+export interface S3BucketNotification extends Entity {
+  bucket_name: string;
+  topic_configurations: S3TopicNotificationConfiguration[];
+}
+
 export interface S3Object extends Entity {
   bucket_name: string;
   key: string;
+  /** Object bytes, base64-encoded (binary-safe — see s3.ts handlePutObject). */
   body: string;
   content_type: string;
   content_length: number;
@@ -43,6 +56,20 @@ export interface SqsMessage extends Entity {
   visible_after: number;
   sent_timestamp: number;
   receive_count: number;
+}
+
+export interface SnsTopic extends Entity {
+  topic_name: string;
+  arn: string;
+  attributes: Record<string, string>;
+}
+
+export interface SnsSubscription extends Entity {
+  subscription_arn: string;
+  topic_arn: string;
+  protocol: string;
+  endpoint: string;
+  attributes: Record<string, string>;
 }
 
 export interface IamUser extends Entity {

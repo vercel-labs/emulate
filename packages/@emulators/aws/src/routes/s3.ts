@@ -1,7 +1,9 @@
 import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext } from "@emulators/core";
+import type { S3TopicNotificationConfiguration } from "../entities.js";
 import { getAwsStore } from "../store.js";
 import { awsXmlResponse, awsErrorXml, md5, escapeXml } from "../helpers.js";
+import { publishToSnsTopic } from "./sns.js";
 
 // Handlers are reused across multiple routes (root paths + legacy `/s3/` aliases,
 // with and without trailing slashes). Parameterizing on the bucket/key path pattern
@@ -40,7 +42,11 @@ ${bucketXml}
     return awsXmlResponse(c, xml);
   };
 
-  const handleCreateBucket = (c: S3BucketContext) => {
+  const handleCreateBucket = async (c: S3BucketContext) => {
+    if (hasSubresource(c, "notification")) {
+      return handlePutBucketNotification(c);
+    }
+
     const bucketName = c.req.param("bucket");
     const existing = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (existing) {
@@ -89,6 +95,10 @@ ${bucketXml}
   };
 
   const handleListObjects = (c: S3BucketContext) => {
+    if (hasSubresource(c, "notification")) {
+      return handleGetBucketNotification(c);
+    }
+
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
@@ -166,6 +176,57 @@ ${prefixesXml}
     return awsXmlResponse(c, xml);
   };
 
+  const handlePutBucketNotification = async (c: S3BucketContext) => {
+    const bucketName = c.req.param("bucket");
+    const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
+    if (!bucket) {
+      return awsErrorXml(c, "NoSuchBucket", "The specified bucket does not exist.", 404);
+    }
+
+    const body = await c.req.text();
+    const topicConfigurations = parseTopicNotificationConfigurations(body);
+    const existing = aws().s3BucketNotifications.findOneBy("bucket_name", bucketName);
+    if (existing) {
+      aws().s3BucketNotifications.update(existing.id, {
+        topic_configurations: topicConfigurations,
+      });
+    } else {
+      aws().s3BucketNotifications.insert({
+        bucket_name: bucketName,
+        topic_configurations: topicConfigurations,
+      });
+    }
+
+    return c.text("", 200);
+  };
+
+  const handleGetBucketNotification = (c: S3BucketContext) => {
+    const bucketName = c.req.param("bucket");
+    const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
+    if (!bucket) {
+      return awsErrorXml(c, "NoSuchBucket", "The specified bucket does not exist.", 404);
+    }
+
+    const notification = aws().s3BucketNotifications.findOneBy("bucket_name", bucketName);
+    const topicConfigurationXml = (notification?.topic_configurations ?? [])
+      .map((config) => {
+        const idXml = config.id ? `    <Id>${escapeXml(config.id)}</Id>\n` : "";
+        const eventXml = config.events.map((event) => `    <Event>${escapeXml(event)}</Event>`).join("\n");
+        const filterXml = topicFilterXml(config);
+        return `  <TopicConfiguration>
+${idXml}    <Topic>${escapeXml(config.topic_arn)}</Topic>
+${eventXml}${filterXml}
+  </TopicConfiguration>`;
+      })
+      .join("\n");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<NotificationConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+${topicConfigurationXml}
+</NotificationConfiguration>`;
+    return awsXmlResponse(c, xml);
+  };
+
   const handlePresignedPost = async (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
@@ -231,11 +292,13 @@ ${prefixesXml}
       }
     }
 
-    // Store the object
-    const fileContent = await file.text();
+    // Store the object. Read as raw bytes and persist base64 so binary
+    // payloads (audio/images/etc.) survive — `.text()` would UTF-8-mangle them.
+    const fileBuf = Buffer.from(await file.arrayBuffer());
+    const fileContent = fileBuf.toString("base64");
     const contentType = (body["Content-Type"] as string) ?? file.type ?? "application/octet-stream";
-    const etag = md5(fileContent);
-    const contentLength = new TextEncoder().encode(fileContent).byteLength;
+    const etag = md5(fileBuf);
+    const contentLength = fileBuf.byteLength;
 
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
@@ -347,9 +410,15 @@ ${prefixesXml}
       });
     }
 
-    const body = await c.req.text();
+    // Read the raw request bytes and store them base64-encoded. Using
+    // `c.req.text()` here would decode the body as UTF-8 and replace every
+    // non-UTF-8 byte with U+FFFD (EF BF BD), corrupting binary uploads
+    // (audio, images, gzip, …). base64 round-trips any byte exactly.
+    const bodyBuf = Buffer.from(await c.req.arrayBuffer());
+    const body = bodyBuf.toString("base64");
+    const contentLength = bodyBuf.byteLength;
     const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
-    const etag = md5(body);
+    const etag = md5(bodyBuf);
 
     // Extract user metadata (x-amz-meta-*)
     const metadata: Record<string, string> = {};
@@ -367,7 +436,7 @@ ${prefixesXml}
       aws().s3Objects.update(existing.id, {
         body,
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: contentLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -378,12 +447,14 @@ ${prefixesXml}
         key,
         body,
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: contentLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
       });
     }
+
+    await publishS3ObjectCreatedPut(bucketName, key, etag, contentLength);
 
     return c.text("", 200, { ETag: `"${etag}"` });
   };
@@ -415,7 +486,9 @@ ${prefixesXml}
       headers[`x-amz-meta-${k}`] = v;
     }
 
-    return c.text(obj.body, 200, headers);
+    // obj.body is base64 (see handlePutObject); decode back to raw bytes so
+    // binary objects stream out byte-for-byte. c.body sends a Uint8Array as-is.
+    return c.body(Buffer.from(obj.body, "base64"), 200, headers);
   };
 
   const handleHeadObject = (c: S3ObjectContext) => {
@@ -486,4 +559,129 @@ ${prefixesXml}
   app.get("/:bucket/:key{.+}", handleGetObject);
   app.on("HEAD", "/:bucket/:key{.+}", handleHeadObject);
   app.delete("/:bucket/:key{.+}", handleDeleteObject);
+
+  function hasSubresource(c: Context, name: string): boolean {
+    return new URL(c.req.url).searchParams.has(name);
+  }
+
+  function parseTopicNotificationConfigurations(xml: string): S3TopicNotificationConfiguration[] {
+    return [...xml.matchAll(/<TopicConfiguration\b[^>]*>([\s\S]*?)<\/TopicConfiguration>/g)].map((match) => {
+      const block = match[1] ?? "";
+      return {
+        id: readXmlText(block, "Id"),
+        topic_arn: readXmlText(block, "Topic") ?? readXmlText(block, "TopicArn") ?? "",
+        events: [...block.matchAll(/<Event>([\s\S]*?)<\/Event>/g)]
+          .map((eventMatch) => unescapeBasicXml(eventMatch[1] ?? ""))
+          .filter(Boolean),
+        filter_rules: parseNotificationFilterRules(block),
+      };
+    });
+  }
+
+  function readXmlText(xml: string, tagName: string): string | undefined {
+    const match = xml.match(new RegExp(`<${tagName}>([\\s\\S]*?)<\\/${tagName}>`));
+    return match ? unescapeBasicXml(match[1] ?? "") : undefined;
+  }
+
+  function parseNotificationFilterRules(xml: string): Array<{ name: "prefix" | "suffix"; value: string }> {
+    return [...xml.matchAll(/<FilterRule\b[^>]*>([\s\S]*?)<\/FilterRule>/g)]
+      .map((match) => {
+        const block = match[1] ?? "";
+        const name = readXmlText(block, "Name");
+        const value = readXmlText(block, "Value") ?? "";
+        if (name !== "prefix" && name !== "suffix") {
+          return undefined;
+        }
+        return { name, value };
+      })
+      .filter((rule): rule is { name: "prefix" | "suffix"; value: string } => Boolean(rule));
+  }
+
+  function topicFilterXml(config: S3TopicNotificationConfiguration): string {
+    if (config.filter_rules.length === 0) {
+      return "\n";
+    }
+
+    const rulesXml = config.filter_rules
+      .map(
+        (rule) => `          <FilterRule>
+            <Name>${escapeXml(rule.name)}</Name>
+            <Value>${escapeXml(rule.value)}</Value>
+          </FilterRule>`,
+      )
+      .join("\n");
+
+    return `
+    <Filter>
+      <S3Key>
+${rulesXml}
+      </S3Key>
+    </Filter>
+`;
+  }
+
+  function unescapeBasicXml(value: string): string {
+    return value
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&gt;/g, ">")
+      .replace(/&lt;/g, "<")
+      .replace(/&amp;/g, "&");
+  }
+
+  async function publishS3ObjectCreatedPut(
+    bucketName: string,
+    key: string,
+    etag: string,
+    contentLength: number,
+  ): Promise<void> {
+    const notification = aws().s3BucketNotifications.findOneBy("bucket_name", bucketName);
+    if (!notification) {
+      return;
+    }
+
+    const eventMessage = JSON.stringify({
+      Records: [
+        {
+          eventVersion: "2.1",
+          eventSource: "aws:s3",
+          awsRegion: "us-east-1",
+          eventTime: new Date().toISOString(),
+          eventName: "ObjectCreated:Put",
+          s3: {
+            bucket: { name: bucketName },
+            object: {
+              key,
+              size: contentLength,
+              eTag: etag,
+            },
+          },
+        },
+      ],
+    });
+
+    for (const config of notification.topic_configurations) {
+      if (!topicConfigMatches(config, key, "s3:ObjectCreated:Put")) {
+        continue;
+      }
+      await publishToSnsTopic(store, baseUrl, {
+        topicArn: config.topic_arn,
+        message: eventMessage,
+      });
+    }
+  }
+
+  function topicConfigMatches(config: S3TopicNotificationConfiguration, key: string, eventName: string): boolean {
+    const eventMatches = config.events.some((event) => event === eventName || event === "s3:ObjectCreated:*");
+    if (!eventMatches) {
+      return false;
+    }
+
+    return config.filter_rules.every((rule) => {
+      if (rule.name === "prefix") {
+        return key.startsWith(rule.value);
+      }
+      return key.endsWith(rule.value);
+    });
+  }
 }
