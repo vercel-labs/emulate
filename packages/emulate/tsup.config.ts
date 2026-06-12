@@ -40,7 +40,7 @@ export default defineConfig([
   },
   {
     ...shared,
-    entry: ["src/api.ts"],
+    entry: ["src/api.ts", "src/core.ts", "src/plugins.ts"],
     format: ["esm"],
     dts: true,
     clean: false,

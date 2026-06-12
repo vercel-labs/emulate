@@ -28,7 +28,7 @@ export {
   type Next,
   type ServeOptions,
 } from "./http.js";
-export { type ServicePlugin, type RouteContext } from "./plugin.js";
+export { createPlugin, type ServicePlugin, type RouteContext } from "./plugin.js";
 export { WebhookDispatcher, type WebhookSubscription, type WebhookDelivery } from "./webhooks.js";
 export {
   errorHandler,
