@@ -60,6 +60,7 @@ npx emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
+| `--slug` | none | Namespace slug for portless URLs: `<service>.<slug>.emulate.localhost` |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -269,7 +270,13 @@ npx emulate start --portless
 
 This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, emulate will prompt to install it.
 
-The `--portless` flag overwrites any existing portless aliases matching `*.emulate`. Aliases are removed automatically when emulate shuts down.
+Aliases are removed automatically when emulate shuts down. To run multiple projects concurrently, use `--slug`:
+
+```bash
+npx emulate start --portless --slug myapp
+# github  https://github.myapp.emulate.localhost
+# google  https://google.myapp.emulate.localhost
+```
 
 For a single service behind portless:
 
