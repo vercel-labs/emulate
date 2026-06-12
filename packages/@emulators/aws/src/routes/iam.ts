@@ -51,22 +51,6 @@ export function iamRoutes(ctx: RouteContext): void {
     }
   });
 
-  // STS endpoints
-  app.post("/sts/", async (c) => {
-    const body = await c.req.text();
-    const params = parseQueryString(body);
-    const action = params["Action"] ?? c.req.query("Action") ?? "";
-
-    switch (action) {
-      case "GetCallerIdentity":
-        return getCallerIdentity(c);
-      case "AssumeRole":
-        return assumeRole(c, params);
-      default:
-        return awsErrorXml(c, "InvalidAction", `The action ${action} is not valid for this endpoint.`, 400);
-    }
-  });
-
   function createUser(c: Context, params: Record<string, string>) {
     const userName = params["UserName"] ?? "";
     if (!userName) {
@@ -365,60 +349,4 @@ ${rolesXml}
     return awsXmlResponse(c, xml);
   }
 
-  function getCallerIdentity(c: Context) {
-    const authUser = c.get("authUser") as { login?: string } | undefined;
-    const userName = authUser?.login ?? "admin";
-    const arn = `arn:aws:iam::${accountId}:user/${userName}`;
-
-    // Return stable UserId from the IAM store when available
-    const user = aws().iamUsers.findOneBy("user_name", userName);
-    const userId = user?.user_id ?? generateAwsId("AIDA");
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<GetCallerIdentityResponse>
-  <GetCallerIdentityResult>
-    <Arn>${escapeXml(arn)}</Arn>
-    <UserId>${userId}</UserId>
-    <Account>${accountId}</Account>
-  </GetCallerIdentityResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</GetCallerIdentityResponse>`;
-    return awsXmlResponse(c, xml);
-  }
-
-  function assumeRole(c: Context, params: Record<string, string>) {
-    const roleArn = params["RoleArn"] ?? "";
-    const sessionName = params["RoleSessionName"] ?? "session";
-
-    // Find the role by ARN
-    const role = aws()
-      .iamRoles.all()
-      .find((r) => r.arn === roleArn);
-    if (!role) {
-      return awsErrorXml(c, "NoSuchEntity", `The role specified cannot be found.`, 404);
-    }
-
-    const accessKeyId = "ASIA" + randomBytes(8).toString("hex").toUpperCase();
-    const secretAccessKey = randomBytes(30).toString("base64");
-    const sessionToken = randomBytes(64).toString("base64");
-    const expiration = new Date(Date.now() + 3600 * 1000).toISOString();
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<AssumeRoleResponse>
-  <AssumeRoleResult>
-    <Credentials>
-      <AccessKeyId>${accessKeyId}</AccessKeyId>
-      <SecretAccessKey>${secretAccessKey}</SecretAccessKey>
-      <SessionToken>${sessionToken}</SessionToken>
-      <Expiration>${expiration}</Expiration>
-    </Credentials>
-    <AssumedRoleUser>
-      <Arn>${roleArn}/${sessionName}</Arn>
-      <AssumedRoleId>${role.role_id}:${sessionName}</AssumedRoleId>
-    </AssumedRoleUser>
-  </AssumeRoleResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</AssumeRoleResponse>`;
-    return awsXmlResponse(c, xml);
-  }
 }
