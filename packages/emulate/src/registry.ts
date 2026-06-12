@@ -27,11 +27,36 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "polar",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
 
 export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
+  polar: {
+    label: "Polar.sh open source funding emulator",
+    endpoints: "products, prices, checkouts, subscriptions, organizations, webhooks",
+    async load() {
+      const mod = await import("@emulators/polar");
+      return { plugin: mod.polarPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "polar_test_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      polar: {
+        organizations: [{ name: "My Project", slug: "my-project" }],
+        products: [
+          {
+            name: "Pro Tier",
+            description: "Support our project with a monthly subscription",
+            organization_slug: "my-project",
+            prices: [{ amount: 1000, currency: "usd" }],
+          },
+        ],
+      },
+    },
+  },
   vercel: {
     label: "Vercel REST API emulator",
     endpoints: "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass, blob storage",
