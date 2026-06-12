@@ -40,6 +40,11 @@ export interface SlackRichMessageParseResult {
   error?: string;
 }
 
+export interface SlackTextLimitResult {
+  responseMetadata?: SlackJsonObject;
+  text: string;
+}
+
 interface ParsedField<T> {
   value?: T;
   error?: string;
@@ -61,6 +66,34 @@ export function slackOk<T extends Record<string, unknown>>(c: Context, data: T) 
 
 export function slackError(c: Context, error: string, status: ContentfulStatusCode = 200) {
   return c.json({ ok: false, error }, status);
+}
+
+export const SLACK_MESSAGE_TEXT_MAX_CHARS = 40_000;
+export const SLACK_MESSAGE_MAX_BLOCKS = 50;
+export const SLACK_SECTION_TEXT_MAX_CHARS = 3_000;
+export const SLACK_SECTION_FIELD_TEXT_MAX_CHARS = 2_000;
+export const SLACK_MARKDOWN_BLOCK_TEXT_MAX_CHARS = 12_000;
+export const SLACK_CONTEXT_TEXT_MAX_CHARS = 3_000;
+export const SLACK_HEADER_TEXT_MAX_CHARS = 150;
+export const SLACK_MAX_ATTACHMENTS = 100;
+
+export function applySlackTextLimit(text: string): SlackTextLimitResult {
+  if (text.length <= SLACK_MESSAGE_TEXT_MAX_CHARS) return { text };
+  return {
+    text: text.slice(0, SLACK_MESSAGE_TEXT_MAX_CHARS),
+    responseMetadata: {
+      messages: [
+        `[WARN] Your message was truncated but still posted. The \`text\` field accepts up to ${SLACK_MESSAGE_TEXT_MAX_CHARS.toLocaleString()} characters.`,
+      ],
+      warnings: ["message_truncated"],
+    },
+  };
+}
+
+export function validateSlackRichMessageLimits(fields: SlackRichMessageFields): string | undefined {
+  if ((fields.attachments?.length ?? 0) > SLACK_MAX_ATTACHMENTS) return "too_many_attachments";
+  if (hasOversizedSlackBlocks(fields.blocks)) return "msg_blocks_too_long";
+  return undefined;
 }
 
 export function isSlackStrictScopes(store: Store): boolean {
@@ -356,6 +389,39 @@ function hasBodyField(body: Record<string, unknown>, field: string): boolean {
 
 function isSlackJsonObject(value: unknown): value is SlackJsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOversizedSlackBlocks(blocks: SlackJsonObject[] | undefined): boolean {
+  if (!blocks) return false;
+  if (blocks.length > SLACK_MESSAGE_MAX_BLOCKS) return true;
+  return blocks.some((block) => {
+    const type = typeof block.type === "string" ? block.type : "";
+    if (type === "section") {
+      return (
+        slackTextObjectLength(block.text) > SLACK_SECTION_TEXT_MAX_CHARS ||
+        slackTextObjectArrayTooLong(block.fields, SLACK_SECTION_FIELD_TEXT_MAX_CHARS)
+      );
+    }
+    if (type === "markdown") return stringField(block.text).length > SLACK_MARKDOWN_BLOCK_TEXT_MAX_CHARS;
+    if (type === "context") return slackTextObjectArrayTooLong(block.elements, SLACK_CONTEXT_TEXT_MAX_CHARS);
+    if (type === "header") return slackTextObjectLength(block.text) > SLACK_HEADER_TEXT_MAX_CHARS;
+    return false;
+  });
+}
+
+function slackTextObjectArrayTooLong(value: unknown, maxChars: number): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some((item) => slackTextObjectLength(item) > maxChars);
+}
+
+function slackTextObjectLength(value: unknown): number {
+  if (typeof value === "string") return value.length;
+  if (!isSlackJsonObject(value)) return 0;
+  return stringField(value.text).length;
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function parseSlackJsonString(value: string): ParsedField<unknown> {
