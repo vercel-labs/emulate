@@ -103,6 +103,27 @@ await vercel.close()
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
 
+### Custom composition
+
+Use `emulate/core` and `emulate/plugins` to compose custom emulators or add local endpoints without installing `@emulators/*` packages directly:
+
+```typescript
+import { createPlugin, createServer, serve } from 'emulate/core'
+import { githubPlugin } from 'emulate/plugins'
+
+const plugin = createPlugin({
+  name: 'github',
+  register(app, store, webhooks, baseUrl, tokenMap) {
+    githubPlugin.register(app, store, webhooks, baseUrl, tokenMap)
+    app.get('/extra', (c) => c.json({ ok: true }))
+  },
+  seed: githubPlugin.seed,
+})
+
+const { app } = createServer(plugin, { baseUrl: 'http://localhost:4000' })
+const server = serve({ fetch: app.fetch, port: 4000 })
+```
+
 ## Vitest / Jest Setup
 
 ```typescript
