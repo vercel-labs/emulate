@@ -279,37 +279,34 @@ describe("Clerk plugin integration", () => {
   });
 
   describe("users API", () => {
-    it("lists users with pagination", async () => {
+    it("lists users", async () => {
       const res = await app.request(`${base}/v1/users`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: unknown[]; total_count: number; has_more: boolean };
-      expect(body.total_count).toBeGreaterThanOrEqual(3);
-      expect(body.has_more).toBe(false);
-      expect(body.data.length).toBeGreaterThanOrEqual(3);
+      const body = (await res.json()) as unknown[];
+      expect(body.length).toBeGreaterThanOrEqual(3);
     });
 
     it("lists users with limit and offset", async () => {
       const res = await app.request(`${base}/v1/users?limit=1&offset=0`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: unknown[]; total_count: number; has_more: boolean };
-      expect(body.data).toHaveLength(1);
-      expect(body.has_more).toBe(true);
+      const body = (await res.json()) as unknown[];
+      expect(body).toHaveLength(1);
     });
 
     it("filters users by query", async () => {
       const res = await app.request(`${base}/v1/users?query=alice`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: Array<{ first_name: string }>; total_count: number };
-      expect(body.total_count).toBe(1);
-      expect(body.data[0].first_name).toBe("Alice");
+      const body = (await res.json()) as Array<{ first_name: string }>;
+      expect(body).toHaveLength(1);
+      expect(body[0].first_name).toBe("Alice");
     });
 
     it("filters users by email_address", async () => {
       const res = await app.request(`${base}/v1/users?email_address=bob@example.com`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: Array<{ first_name: string }>; total_count: number };
-      expect(body.total_count).toBe(1);
-      expect(body.data[0].first_name).toBe("Bob");
+      const body = (await res.json()) as Array<{ first_name: string }>;
+      expect(body).toHaveLength(1);
+      expect(body[0].first_name).toBe("Bob");
     });
 
     it("creates a user", async () => {
@@ -521,9 +518,9 @@ describe("Clerk plugin integration", () => {
     it("lists organizations", async () => {
       const res = await app.request(`${base}/v1/organizations`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: Array<Record<string, unknown>>; total_count: number };
-      expect(body.total_count).toBeGreaterThanOrEqual(1);
-      const acme = body.data.find((o) => o.slug === "acme");
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body.length).toBeGreaterThanOrEqual(1);
+      const acme = body.find((o) => o.slug === "acme");
       expect(acme).toBeDefined();
       expect(acme!.name).toBe("Acme Corp");
     });
@@ -597,8 +594,8 @@ describe("Clerk plugin integration", () => {
       const org = cs.organizations.findOneBy("slug", "acme")!;
       const res = await app.request(`${base}/v1/organizations/${org.clerk_id}/memberships`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: Array<Record<string, unknown>>; total_count: number };
-      expect(body.total_count).toBe(2);
+      const body = (await res.json()) as Array<Record<string, unknown>>;
+      expect(body).toHaveLength(2);
     });
 
     it("adds a member to organization", async () => {
@@ -698,8 +695,8 @@ describe("Clerk plugin integration", () => {
         headers: authHeaders(),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: unknown[]; total_count: number };
-      expect(body.total_count).toBeGreaterThanOrEqual(1);
+      const body = (await res.json()) as unknown[];
+      expect(body.length).toBeGreaterThanOrEqual(1);
     });
 
     it("revokes an invitation", async () => {
@@ -770,8 +767,8 @@ describe("Clerk plugin integration", () => {
 
       const res = await app.request(`${base}/v1/sessions`, { headers: authHeaders() });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { data: unknown[]; total_count: number };
-      expect(body.total_count).toBeGreaterThanOrEqual(1);
+      const body = (await res.json()) as unknown[];
+      expect(body.length).toBeGreaterThanOrEqual(1);
     });
 
     it("revokes a session", async () => {

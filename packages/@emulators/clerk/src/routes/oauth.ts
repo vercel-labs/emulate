@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { SignJWT, exportJWK, exportSPKI, generateKeyPair } from "jose";
 import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext, Store } from "@emulators/core";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@emulators/core";
 import type { ClerkUser } from "../entities.js";
 import { userDisplayName } from "../helpers.js";
-import { clerkError } from "../route-helpers.js";
+import { clerkError, type PrimaryOrgClaims } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
 
 const keyPairPromise = generateKeyPair("RS256");
@@ -51,23 +51,21 @@ export async function createSessionToken(
   user: ClerkUser,
   sessionId: string,
   baseUrl: string,
-  orgId?: string,
-  orgRole?: string,
-  orgSlug?: string,
-  orgPermissions?: string[],
+  orgClaims: PrimaryOrgClaims,
 ): Promise<string> {
   const { privateKey } = await keyPairPromise;
   const now = Math.floor(Date.now() / 1000);
 
   const claims: Record<string, unknown> = {
     sid: sessionId,
+    sts: "active",
   };
 
-  if (orgId) {
-    claims.org_id = orgId;
-    claims.org_role = orgRole ?? "org:member";
-    claims.org_slug = orgSlug;
-    claims.org_permissions = orgPermissions ?? [];
+  if (orgClaims.orgId) {
+    claims.org_id = orgClaims.orgId;
+    claims.org_role = orgClaims.orgRole ?? "org:member";
+    claims.org_slug = orgClaims.orgSlug;
+    claims.org_permissions = orgClaims.orgPermissions ?? [];
   }
 
   if (Object.keys(user.public_metadata).length > 0) {
@@ -124,6 +122,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return c.json({
       keys: [{ ...jwk, kid: KID, use: "sig", alg: "RS256" }],
     });
+  });
+
+  app.get("/_emulate/jwt-public-key", async (c) => {
+    const { publicKey } = await keyPairPromise;
+    const pem = await exportSPKI(publicKey);
+    return c.text(pem);
   });
 
   app.get("/oauth/authorize", (c) => {

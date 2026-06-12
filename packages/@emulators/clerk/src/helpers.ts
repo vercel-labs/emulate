@@ -10,6 +10,22 @@ export function nowUnix(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+// Canonical default system permissions for an organization role. Used by org
+// creation, membership create/update, and seeding so the lists never drift.
+export function defaultOrganizationPermissions(role: string): string[] {
+  if (role === "org:admin") {
+    return [
+      "org:sys_profile:manage",
+      "org:sys_profile:delete",
+      "org:sys_memberships:read",
+      "org:sys_memberships:manage",
+      "org:sys_domains:read",
+      "org:sys_domains:manage",
+    ];
+  }
+  return ["org:sys_memberships:read"];
+}
+
 export function createDefaultUser(): Omit<ClerkUser, "id" | "created_at" | "updated_at"> {
   const now = nowUnix();
   return {

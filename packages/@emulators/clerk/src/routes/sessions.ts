@@ -4,10 +4,10 @@ import {
   clerkError,
   requireSecretKey,
   isAuthResponse,
-  paginatedResponse,
   parsePagination,
   sessionResponse,
   readJsonBody,
+  resolvePrimaryOrgClaims,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
 import { createSessionToken } from "./oauth.js";
@@ -32,7 +32,7 @@ export function sessionRoutes({ app, store, baseUrl, tokenMap }: RouteContext): 
     const totalCount = sessions.length;
     const paged = sessions.slice(offset, offset + limit);
 
-    return c.json(paginatedResponse(paged.map(sessionResponse), totalCount, limit, offset));
+    return c.json(paged.map(sessionResponse));
   });
 
   app.get("/v1/sessions/:sessionId", (c) => {
@@ -103,24 +103,7 @@ export function sessionRoutes({ app, store, baseUrl, tokenMap }: RouteContext): 
     const user = cs.users.findOneBy("clerk_id", session.user_id);
     if (!user) return clerkError(c, 404, "RESOURCE_NOT_FOUND", "User not found");
 
-    const memberships = cs.memberships.findBy("user_id", user.clerk_id);
-    const firstMembership = memberships[0];
-    let orgId: string | undefined;
-    let orgRole: string | undefined;
-    let orgSlug: string | undefined;
-    let orgPermissions: string[] | undefined;
-
-    if (firstMembership) {
-      const org = cs.organizations.findOneBy("clerk_id", firstMembership.org_id);
-      if (org) {
-        orgId = org.clerk_id;
-        orgRole = firstMembership.role;
-        orgSlug = org.slug;
-        orgPermissions = firstMembership.permissions;
-      }
-    }
-
-    const jwt = await createSessionToken(store, user, sessionId, baseUrl, orgId, orgRole, orgSlug, orgPermissions);
+    const jwt = await createSessionToken(store, user, sessionId, baseUrl, resolvePrimaryOrgClaims(cs, user));
 
     cs.sessions.update(session.id, { last_active_at: nowUnix() });
 
@@ -142,7 +125,7 @@ export function sessionRoutes({ app, store, baseUrl, tokenMap }: RouteContext): 
     const user = cs.users.findOneBy("clerk_id", session.user_id);
     if (!user) return clerkError(c, 404, "RESOURCE_NOT_FOUND", "User not found");
 
-    const jwt = await createSessionToken(store, user, sessionId, baseUrl);
+    const jwt = await createSessionToken(store, user, sessionId, baseUrl, resolvePrimaryOrgClaims(cs, user));
 
     cs.sessions.update(session.id, { last_active_at: nowUnix() });
 

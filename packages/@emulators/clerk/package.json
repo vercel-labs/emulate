@@ -37,6 +37,7 @@
     "jose": "^6"
   },
   "devDependencies": {
+    "@clerk/backend": "^3.4.13",
     "tsup": "^8",
     "typescript": "^5.7",
     "vitest": "^4.1.0"

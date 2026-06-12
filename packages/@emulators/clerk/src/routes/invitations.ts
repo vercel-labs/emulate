@@ -4,14 +4,14 @@ import {
   clerkError,
   requireSecretKey,
   isAuthResponse,
-  paginatedResponse,
   parsePagination,
   invitationResponse,
   readJsonBody,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
+import { dispatchClerkEvent } from "../webhook-events.js";
 
-export function invitationRoutes({ app, store, tokenMap }: RouteContext): void {
+export function invitationRoutes({ app, store, webhooks, tokenMap }: RouteContext): void {
   const cs = getClerkStore(store);
 
   app.get("/v1/organizations/:orgId/invitations", (c) => {
@@ -34,7 +34,7 @@ export function invitationRoutes({ app, store, tokenMap }: RouteContext): void {
     const totalCount = invitations.length;
     const paged = invitations.slice(offset, offset + limit);
 
-    return c.json(paginatedResponse(paged.map(invitationResponse), totalCount, limit, offset));
+    return c.json(paged.map(invitationResponse));
   });
 
   app.get("/v1/organizations/:orgId/invitations/:invitationId", (c) => {
@@ -86,7 +86,9 @@ export function invitationRoutes({ app, store, tokenMap }: RouteContext): void {
       updated_at_unix: now,
     });
 
-    return c.json(invitationResponse(invitation), 200);
+    const response = invitationResponse(invitation);
+    dispatchClerkEvent(webhooks, "org_invitation.created", response);
+    return c.json(response, 200);
   });
 
   app.post("/v1/organizations/:orgId/invitations/bulk", async (c) => {
@@ -154,6 +156,8 @@ export function invitationRoutes({ app, store, tokenMap }: RouteContext): void {
     });
 
     const updated = cs.invitations.findOneBy("invitation_id", invitationId)!;
-    return c.json(invitationResponse(updated));
+    const response = invitationResponse(updated);
+    dispatchClerkEvent(webhooks, "org_invitation.revoked", response);
+    return c.json(response);
   });
 }

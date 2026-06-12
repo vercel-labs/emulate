@@ -1,6 +1,12 @@
 import type { Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
-import { generateClerkId, nowUnix, createDefaultUser, createDefaultEmailAddress } from "./helpers.js";
+import {
+  generateClerkId,
+  nowUnix,
+  createDefaultUser,
+  createDefaultEmailAddress,
+  defaultOrganizationPermissions,
+} from "./helpers.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { userRoutes } from "./routes/users.js";
 import { emailAddressRoutes } from "./routes/email-addresses.js";
@@ -8,6 +14,10 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { organizationDomainRoutes } from "./routes/organization-domains.js";
+import { m2mTokenRoutes } from "./routes/m2m-tokens.js";
+import { fapiRoutes } from "./routes/fapi.js";
+import { clerkJsProxyRoutes } from "./routes/clerk-js-proxy.js";
 import { getClerkStore } from "./store.js";
 
 export { getClerkStore, type ClerkStore } from "./store.js";
@@ -22,6 +32,7 @@ export interface ClerkSeedConfig {
     username?: string;
     password?: string;
     external_id?: string;
+    totp_enabled?: boolean;
     public_metadata?: Record<string, unknown>;
     private_metadata?: Record<string, unknown>;
     unsafe_metadata?: Record<string, unknown>;
@@ -45,6 +56,11 @@ export interface ClerkSeedConfig {
     redirect_uris: string[];
     scopes?: string[];
     public?: boolean;
+  }>;
+  webhooks?: Array<{
+    url: string;
+    events?: string[];
+    secret?: string;
   }>;
 }
 
@@ -74,7 +90,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
   });
 }
 
-export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeedConfig): void {
+export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeedConfig, webhooks?: WebhookDispatcher): void {
   const cs = getClerkStore(store);
   const now = nowUnix();
 
@@ -99,9 +115,9 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
         primary_phone_number_id: null,
         password_enabled: typeof userCfg.password === "string" && userCfg.password.length > 0,
         password_hash: userCfg.password ?? null,
-        totp_enabled: false,
+        totp_enabled: userCfg.totp_enabled ?? false,
         backup_code_enabled: false,
-        two_factor_enabled: false,
+        two_factor_enabled: userCfg.totp_enabled ?? false,
         banned: false,
         locked: false,
         public_metadata: userCfg.public_metadata ?? {},
@@ -175,15 +191,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
             org_id: orgId,
             user_id: user.clerk_id,
             role,
-            permissions:
-              role === "org:admin"
-                ? [
-                    "org:sys_profile:manage",
-                    "org:sys_profile:delete",
-                    "org:sys_memberships:read",
-                    "org:sys_memberships:manage",
-                  ]
-                : ["org:sys_memberships:read"],
+            permissions: defaultOrganizationPermissions(role),
             public_metadata: {},
             private_metadata: {},
             created_at_unix: now,
@@ -214,11 +222,34 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ClerkSeed
       });
     }
   }
+
+  if (config.webhooks && webhooks) {
+    for (const hookCfg of config.webhooks) {
+      webhooks.register({
+        url: hookCfg.url,
+        events: hookCfg.events ?? ["*"],
+        active: true,
+        owner: "clerk",
+        secret: hookCfg.secret,
+      });
+    }
+  }
 }
 
 export const clerkPlugin: ServicePlugin = {
   name: "clerk",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    // Clerk SDK checks Content-Type === "application/json" (strict equality).
+    // The framework defaults to "application/json; charset=UTF-8" which fails.
+    // Pre-setting via c.header() overrides the default in c.json().
+    app.use("*", async (c, next) => {
+      const path = c.req.path;
+      if (path.startsWith("/v1/") || path.startsWith("/m2m_tokens") || path.startsWith("/_emulate/")) {
+        c.header("Content-Type", "application/json");
+      }
+      await next();
+    });
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userRoutes(ctx);
@@ -226,7 +257,11 @@ export const clerkPlugin: ServicePlugin = {
     organizationRoutes(ctx);
     membershipRoutes(ctx);
     invitationRoutes(ctx);
+    organizationDomainRoutes(ctx);
     sessionRoutes(ctx);
+    m2mTokenRoutes(ctx);
+    fapiRoutes(ctx);
+    clerkJsProxyRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

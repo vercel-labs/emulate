@@ -7,6 +7,8 @@ import type {
   ClerkOrganizationInvitation,
   ClerkSession,
   ClerkOAuthApplication,
+  ClerkOrganizationDomain,
+  ClerkM2MToken,
 } from "./entities.js";
 
 export interface ClerkStore {
@@ -17,6 +19,8 @@ export interface ClerkStore {
   invitations: Collection<ClerkOrganizationInvitation>;
   sessions: Collection<ClerkSession>;
   oauthApps: Collection<ClerkOAuthApplication>;
+  organizationDomains: Collection<ClerkOrganizationDomain>;
+  m2mTokens: Collection<ClerkM2MToken>;
 }
 
 export function getClerkStore(store: Store): ClerkStore {
@@ -32,5 +36,7 @@ export function getClerkStore(store: Store): ClerkStore {
     invitations: store.collection<ClerkOrganizationInvitation>("clerk.invitations", ["invitation_id", "org_id"]),
     sessions: store.collection<ClerkSession>("clerk.sessions", ["clerk_id", "user_id"]),
     oauthApps: store.collection<ClerkOAuthApplication>("clerk.oauth_apps", ["app_id", "client_id"]),
+    organizationDomains: store.collection<ClerkOrganizationDomain>("clerk.org_domains", ["domain_id", "org_id"]),
+    m2mTokens: store.collection<ClerkM2MToken>("clerk.m2m_tokens", ["token_id", "subject"]),
   };
 }
