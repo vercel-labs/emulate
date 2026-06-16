@@ -6,7 +6,7 @@ import { formatCheckout } from "../formatters.js";
 export function checkoutRoutes({ app, store, webhooks }: RouteContext): void {
   const ps = getPolarStore(store);
 
-  app.post("/api/v1/checkouts/custom", async (c) => {
+  app.post("/v1/checkouts/custom", async (c) => {
     let body: any = {};
     try {
       body = await c.req.json();
@@ -45,7 +45,7 @@ export function checkoutRoutes({ app, store, webhooks }: RouteContext): void {
     return c.json(formatCheckout(checkout), 201);
   });
 
-  app.get("/api/v1/checkouts/custom/:id", (c) => {
+  app.get("/v1/checkouts/custom/:id", (c) => {
     const id = c.req.param("id");
     const checkout = ps.checkouts.findOneBy("polar_id", id);
     if (!checkout) {

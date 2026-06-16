@@ -5,7 +5,7 @@ import { formatOrganization } from "../formatters.js";
 export function organizationRoutes({ app, store }: RouteContext): void {
   const ps = getPolarStore(store);
 
-  app.get("/api/v1/organizations", (c) => {
+  app.get("/v1/organizations", (c) => {
     const orgs = ps.organizations.all();
     return c.json({
       items: orgs.map(formatOrganization),

@@ -51,13 +51,13 @@ describe("Polar plugin", () => {
       products: [{ name: "Pro Plan", price: 2000, organization_slug: "my-org" }],
     });
 
-    const resOrgs = await app.request(`${base}/api/v1/organizations`, { headers: authHeaders() });
+    const resOrgs = await app.request(`${base}/v1/organizations`, { headers: authHeaders() });
     expect(resOrgs.status).toBe(200);
     const orgsBody = (await resOrgs.json()) as any;
     expect(orgsBody.items.length).toBe(1);
     expect(orgsBody.items[0].slug).toBe("my-org");
 
-    const resProds = await app.request(`${base}/api/v1/products`, { headers: authHeaders() });
+    const resProds = await app.request(`${base}/v1/products`, { headers: authHeaders() });
     expect(resProds.status).toBe(200);
     const prodsBody = (await resProds.json()) as any;
     expect(prodsBody.items.length).toBe(1);
@@ -76,7 +76,7 @@ describe("Polar plugin", () => {
       organization_id: "org_123",
     });
 
-    const resCreate = await app.request(`${base}/api/v1/checkouts/custom`, {
+    const resCreate = await app.request(`${base}/v1/checkouts/custom`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
@@ -89,7 +89,7 @@ describe("Polar plugin", () => {
     expect(created.id).toBeDefined();
     expect(created.product_id).toBe("prod_123");
 
-    const resGet = await app.request(`${base}/api/v1/checkouts/custom/${created.id}`, { headers: authHeaders() });
+    const resGet = await app.request(`${base}/v1/checkouts/custom/${created.id}`, { headers: authHeaders() });
     expect(resGet.status).toBe(200);
     const retrieved = (await resGet.json()) as any;
     expect(retrieved.id).toBe(created.id);
