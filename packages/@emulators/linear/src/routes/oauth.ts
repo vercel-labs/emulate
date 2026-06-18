@@ -388,8 +388,12 @@ function clientCredentials(
   if (authHeader?.startsWith("Basic ")) {
     try {
       const decoded = Buffer.from(authHeader.slice("Basic ".length), "base64").toString("utf-8");
-      const [clientId, clientSecret] = decoded.split(":");
-      return { clientId: decodeURIComponent(clientId ?? ""), clientSecret: decodeURIComponent(clientSecret ?? "") };
+      const separator = decoded.indexOf(":");
+      if (separator < 0) return { clientId: "", clientSecret: "" };
+      return {
+        clientId: decodeURIComponent(decoded.slice(0, separator)),
+        clientSecret: decodeURIComponent(decoded.slice(separator + 1)),
+      };
     } catch {
       return { clientId: "", clientSecret: "" };
     }

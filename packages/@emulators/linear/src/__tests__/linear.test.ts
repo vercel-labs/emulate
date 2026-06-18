@@ -507,6 +507,39 @@ describe("Linear emulator", () => {
     expect(await actorMismatch.text()).toContain("Invalid actor");
   });
 
+  it("accepts OAuth client credentials from a Basic header with colons in the secret", async () => {
+    seedFromConfig(store, base, {
+      oauth_apps: [
+        {
+          client_id: "basic-client",
+          client_secret: "secret:with:colons",
+          name: "Basic App",
+          redirect_uris: ["http://localhost:3000/callback"],
+          scopes: ["read"],
+          actor: "app",
+        },
+      ],
+    });
+
+    const credentials = Buffer.from("basic-client:secret:with:colons", "utf8").toString("base64");
+    const res = await app.request(`${base}/oauth/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        scope: "read",
+      }).toString(),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.access_token).toMatch(/^lin_/);
+    expect(body.scope).toBe("read");
+  });
+
   it("lets seed config override the default test token", async () => {
     seedFromConfig(store, base, {
       strict_scopes: true,
