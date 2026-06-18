@@ -435,6 +435,96 @@ describe("Linear emulator", () => {
     expect(await actorMismatch.text()).toContain("Invalid actor");
   });
 
+  it("lets seed config override the default test token", async () => {
+    seedFromConfig(store, base, {
+      strict_scopes: true,
+      users: [
+        {
+          email: "admin@example.com",
+          name: "Config Admin",
+          admin: true,
+        },
+      ],
+      tokens: [
+        {
+          token: "lin_test_admin",
+          user: "admin@example.com",
+          scopes: ["read"],
+        },
+      ],
+    });
+
+    const viewer = await gql(app, "{ viewer { email name } }");
+    expect(viewer.status).toBe(200);
+    const viewerBody = (await viewer.json()) as any;
+    expect(viewerBody.errors).toBeUndefined();
+    expect(viewerBody.data.viewer).toEqual({ email: "admin@example.com", name: "Config Admin" });
+
+    const adminOnly = await gql(
+      app,
+      `mutation($input: WebhookCreateInput!) {
+        webhookCreate(input: $input) { success webhook { id } }
+      }`,
+      { input: { url: "http://127.0.0.1:1/linear" } },
+    );
+    expect(adminOnly.status).toBe(400);
+    const adminBody = (await adminOnly.json()) as any;
+    expect(adminBody.errors[0].message).toContain("admin");
+  });
+
+  it("lets seed config override the default OAuth app", async () => {
+    seedFromConfig(store, base, {
+      oauth_apps: [
+        {
+          client_id: "lin_example_client_id",
+          client_secret: "configured-secret",
+          name: "Configured App",
+          redirect_uris: ["http://localhost:3000/callback"],
+          scopes: ["read"],
+          actor: "app",
+        },
+      ],
+    });
+    const oauthApp = getLinearStore(store).oauthApps.findOneBy("client_id", "lin_example_client_id")!;
+    expect(oauthApp.name).toBe("Configured App");
+    expect(oauthApp.scopes).toEqual(["read"]);
+    expect(oauthApp.actor).toBe("app");
+    expect(oauthApp.app_user_id).toBeTruthy();
+
+    const invalidScope = await app.request(
+      `${base}/oauth/authorize?client_id=lin_example_client_id&redirect_uri=${encodeURIComponent("http://localhost:3000/callback")}&response_type=code&scope=admin`,
+    );
+    expect(invalidScope.status).toBe(400);
+    expect(await invalidScope.text()).toContain("Invalid scope");
+
+    const oldSecret = await app.request(`${base}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: "lin_example_client_id",
+        client_secret: "example_client_secret",
+        scope: "read",
+      }).toString(),
+    });
+    expect(oldSecret.status).toBe(400);
+
+    const clientCredentials = await app.request(`${base}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: "lin_example_client_id",
+        client_secret: "configured-secret",
+        scope: "read",
+      }).toString(),
+    });
+    expect(clientCredentials.status).toBe(200);
+    const tokenBody = (await clientCredentials.json()) as any;
+    expect(tokenBody.access_token).toMatch(/^lin_/);
+    expect(tokenBody.scope).toBe("read");
+  });
+
   it("requires read scope for queries in strict mode", async () => {
     seedFromConfig(store, base, {
       strict_scopes: true,

@@ -360,22 +360,34 @@ export function seedFromConfig(store: Store, baseUrl: string, config: LinearSeed
 
   if (config.oauth_apps) {
     for (const appCfg of config.oauth_apps) {
-      if (ls.oauthApps.findOneBy("client_id", appCfg.client_id)) continue;
-      let appUserId: string | null = null;
-      if (appCfg.actor === "app" || appCfg.assignable || appCfg.mentionable) {
-        appUserId = ensureAppUser(store, appCfg.name).linear_id;
+      const existing = ls.oauthApps.findOneBy("client_id", appCfg.client_id);
+      const actor = appCfg.actor ?? existing?.actor ?? "user";
+      const assignable = appCfg.assignable ?? existing?.assignable ?? false;
+      const mentionable = appCfg.mentionable ?? existing?.mentionable ?? false;
+      let appUserId = existing?.app_user_id ?? null;
+      if (actor === "app" || assignable || mentionable) {
+        appUserId = appUserId ?? ensureAppUser(store, appCfg.name).linear_id;
+      } else {
+        appUserId = null;
+      }
+      const oauthApp = {
+        client_secret: appCfg.client_secret,
+        name: appCfg.name,
+        redirect_uris: appCfg.redirect_uris,
+        scopes: normalizeScopes(appCfg.scopes, existing?.scopes ?? DEFAULT_SCOPES),
+        actor,
+        assignable,
+        mentionable,
+        app_user_id: appUserId,
+      };
+      if (existing) {
+        ls.oauthApps.update(existing.id, oauthApp);
+        continue;
       }
       ls.oauthApps.insert({
         linear_id: appCfg.id ?? linearId(),
         client_id: appCfg.client_id,
-        client_secret: appCfg.client_secret,
-        name: appCfg.name,
-        redirect_uris: appCfg.redirect_uris,
-        scopes: normalizeScopes(appCfg.scopes, DEFAULT_SCOPES),
-        actor: appCfg.actor ?? "user",
-        assignable: appCfg.assignable ?? false,
-        mentionable: appCfg.mentionable ?? false,
-        app_user_id: appUserId,
+        ...oauthApp,
       });
     }
   }
@@ -446,21 +458,28 @@ export function seedFromConfig(store: Store, baseUrl: string, config: LinearSeed
 
   if (config.tokens) {
     for (const tokenCfg of config.tokens) {
-      if (ls.tokens.findOneBy("token", tokenCfg.token)) continue;
+      const existing = ls.tokens.findOneBy("token", tokenCfg.token);
       const app = tokenCfg.app
         ? (ls.oauthApps.findOneBy("client_id", tokenCfg.app) ?? ls.oauthApps.findOneBy("linear_id", tokenCfg.app))
         : undefined;
       const user = tokenCfg.user ? resolveUser(store, tokenCfg.user) : undefined;
-      ls.tokens.insert({
-        token: tokenCfg.token,
-        type: tokenCfg.type ?? "personal",
-        actor_type: tokenCfg.actor ?? (app ? "app" : "user"),
-        user_id: user?.linear_id ?? app?.app_user_id ?? ls.users.all()[0]?.linear_id ?? null,
-        app_id: app?.linear_id ?? null,
-        scopes: normalizeScopes(tokenCfg.scopes, DEFAULT_SCOPES),
+      const tokenRecord = {
+        type: tokenCfg.type ?? existing?.type ?? "personal",
+        actor_type: tokenCfg.actor ?? (app ? "app" : (existing?.actor_type ?? "user")),
+        user_id: user?.linear_id ?? app?.app_user_id ?? existing?.user_id ?? ls.users.all()[0]?.linear_id ?? null,
+        app_id: tokenCfg.app ? (app?.linear_id ?? null) : (existing?.app_id ?? null),
+        scopes: normalizeScopes(tokenCfg.scopes, existing?.scopes ?? DEFAULT_SCOPES),
         expires_at: null,
         revoked: false,
         refresh_token: null,
+      };
+      if (existing) {
+        ls.tokens.update(existing.id, tokenRecord);
+        continue;
+      }
+      ls.tokens.insert({
+        token: tokenCfg.token,
+        ...tokenRecord,
       });
     }
   }
