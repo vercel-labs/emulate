@@ -109,6 +109,47 @@ describe("Linear emulator", () => {
     expect(readBody.data.issue.comments.nodes[0].body).toBe("Done locally.");
   });
 
+  it("rejects issue creation with an unknown workflow state", async () => {
+    const team = getLinearStore(store).teams.findOneBy("key", "ENG")!;
+
+    const res = await gql(
+      app,
+      `mutation CreateIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) { issue { identifier state { name } } }
+      }`,
+      { input: { teamId: team.linear_id, stateId: "missing-state", title: "Bad state" } },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as any;
+    expect(body.errors[0].message).toContain("Workflow state not found: missing-state");
+    expect(getLinearStore(store).issues.findOneBy("title", "Bad state")).toBeUndefined();
+  });
+
+  it("rejects adding an issue label from another team", async () => {
+    seedFromConfig(store, base, {
+      teams: [{ key: "SEC", name: "Security" }],
+      labels: [{ name: "Security", color: "#111827", team: "SEC" }],
+    });
+    const linearStore = getLinearStore(store);
+    const issue = linearStore.issues.findOneBy("identifier", "ENG-1")!;
+    const securityLabel = linearStore.issueLabels.findOneBy("name", "Security")!;
+    const beforeLabelIds = [...issue.label_ids];
+
+    const res = await gql(
+      app,
+      `mutation AddLabel($id: String!, $labelId: String!) {
+        issueAddLabel(id: $id, labelId: $labelId) { issue { labels { nodes { name } } } }
+      }`,
+      { id: issue.linear_id, labelId: securityLabel.linear_id },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as any;
+    expect(body.errors[0].message).toContain("Issue label not found for team");
+    expect(linearStore.issues.findOneBy("linear_id", issue.linear_id)?.label_ids).toEqual(beforeLabelIds);
+  });
+
   it("deletes issue comments and agent sessions with the issue", async () => {
     const team = getLinearStore(store).teams.findOneBy("key", "ENG")!;
     const createIssue = await gql(

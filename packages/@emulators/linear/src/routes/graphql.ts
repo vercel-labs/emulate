@@ -698,10 +698,11 @@ function createRoot(context: LinearGraphQLContext) {
       requireLinearScopes(store, c, ["issues:create"]);
       const actor = requireCurrentUser(context);
       const team = requireTeam(store, input.teamId);
-      const state =
-        resolveState(store, stringInput(input.stateId), team.linear_id) ??
-        resolveState(store, "Todo", team.linear_id) ??
-        ls().workflowStates.findBy("team_id", team.linear_id)[0];
+      const requestedStateId = stringInput(input.stateId);
+      const state = requestedStateId
+        ? resolveState(store, requestedStateId, team.linear_id)
+        : (resolveState(store, "Todo", team.linear_id) ?? ls().workflowStates.findBy("team_id", team.linear_id)[0]);
+      if (requestedStateId && !state) throw new Error(`Workflow state not found: ${requestedStateId}`);
       if (!state) throw new Error("No workflow state exists for the selected team");
       const number = nextIssueNumber(store, team.linear_id);
       const labelIds = arrayInput(input.labelIds)
@@ -982,7 +983,7 @@ function createRoot(context: LinearGraphQLContext) {
     issueAddLabel: async ({ id, labelId }: { id: string; labelId: string }) => {
       requireLinearScopes(store, c, ["write"]);
       const issue = requireIssue(store, id);
-      const label = requireLabel(store, labelId);
+      const label = requireTeamLabel(store, labelId, issue.team_id);
       const before = issueWebhookPayload(context, issue);
       const actor = requireCurrentUser(context);
       const next = Array.from(new Set([...issue.label_ids, label.linear_id]));
@@ -1002,7 +1003,7 @@ function createRoot(context: LinearGraphQLContext) {
     issueRemoveLabel: async ({ id, labelId }: { id: string; labelId: string }) => {
       requireLinearScopes(store, c, ["write"]);
       const issue = requireIssue(store, id);
-      const label = requireLabel(store, labelId);
+      const label = requireTeamLabel(store, labelId, issue.team_id);
       const before = issueWebhookPayload(context, issue);
       const actor = requireCurrentUser(context);
       const updated = ls().issues.update(issue.id, {
@@ -1776,6 +1777,13 @@ function requireComment(store: Store, id: unknown): LinearComment {
 function requireLabel(store: Store, id: unknown): LinearIssueLabel {
   const label = resolveLabel(store, requiredString(id, "id"));
   if (!label) throw new Error(`Issue label not found: ${String(id)}`);
+  return label;
+}
+
+function requireTeamLabel(store: Store, id: unknown, teamId: string): LinearIssueLabel {
+  const ref = requiredString(id, "labelId");
+  const label = resolveLabel(store, ref, teamId);
+  if (!label) throw new Error(`Issue label not found for team: ${ref}`);
   return label;
 }
 
