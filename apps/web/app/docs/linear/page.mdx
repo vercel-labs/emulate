@@ -1,0 +1,117 @@
+# Linear API
+
+Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions.
+
+## Start
+
+```bash
+npx emulate --service linear
+```
+
+When Linear is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4012`.
+
+## URL Mapping
+
+| Real Linear URL | Emulator URL |
+|-----------------|--------------|
+| `https://api.linear.app/graphql` | `$LINEAR_EMULATOR_URL/graphql` |
+| `https://linear.app/oauth/authorize` | `$LINEAR_EMULATOR_URL/oauth/authorize` |
+| `https://api.linear.app/oauth/token` | `$LINEAR_EMULATOR_URL/oauth/token` |
+| `https://api.linear.app/oauth/revoke` | `$LINEAR_EMULATOR_URL/oauth/revoke` |
+
+## GraphQL
+
+- `POST /graphql` - GraphQL endpoint for queries and mutations
+- `GET /graphql` - query-string GraphQL endpoint for tooling
+
+Supported queries:
+
+- `viewer`
+- `organization`
+- `users`, `user`
+- `teams`, `team`
+- `workflowStates`, `workflowState`
+- `issues`, `issue`
+- `comments`, `comment`
+- `issueLabels`, `issueLabel`
+- `projects`, `project`
+- `cycles`, `cycle`
+- `webhooks`, `webhook`
+- `agentSessions`, `agentSession`
+
+Supported mutations:
+
+- `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`
+- `commentCreate`, `commentUpdate`, `commentDelete`
+- `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`
+- `issueAddLabel`, `issueRemoveLabel`
+- `webhookCreate`, `webhookDelete`
+- `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`
+- `agentActivityCreate`
+
+Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
+
+## Auth
+
+GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. The default seeded token is `lin_test_admin`.
+
+Scope checks are relaxed by default. Set `linear.strict_scopes: true` to require supported operation scopes such as `read`, `write`, `issues:create`, `comments:create`, and `admin`.
+
+## OAuth
+
+- `GET /oauth/authorize` - authorization endpoint with local user picker
+- `POST /oauth/authorize/callback` - local callback used by the user picker
+- `POST /oauth/token` - authorization code, refresh token, and client credentials grants
+- `POST /oauth/revoke` - revoke access or refresh tokens
+
+OAuth apps can use `actor: user` or `actor: app`. App actor support is intended for local agent and service-account tests.
+
+## Seed Config
+
+```yaml
+linear:
+  organization:
+    name: Acme
+    url_key: acme
+  users:
+    - email: admin@example.com
+      name: Admin User
+      admin: true
+    - email: dev@example.com
+      name: Developer
+  teams:
+    - key: ENG
+      name: Engineering
+  issues:
+    - team: ENG
+      title: Fix local checkout test
+      state: Todo
+      assignee: dev@example.com
+  oauth_apps:
+    - client_id: lin_example_client_id
+      client_secret: example_client_secret
+      name: My Linear App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/linear
+      scopes: [read, write, issues:create, comments:create]
+  tokens:
+    - token: lin_test_admin
+      user: admin@example.com
+      scopes: [read, write, issues:create, comments:create, admin]
+```
+
+## Webhooks
+
+Create local webhook subscriptions through `webhookCreate` or seed config. Supported writes dispatch Linear-shaped payloads with these headers:
+
+- `Linear-Delivery`
+- `Linear-Event`
+- `Linear-Signature`
+
+## Inspector
+
+- `GET /` - tabbed inspector for issues, teams, users, projects, agent sessions, OAuth apps, tokens, webhook subscriptions, and webhook deliveries
+
+## Current Limits
+
+Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and full production agent behavior are not implemented.

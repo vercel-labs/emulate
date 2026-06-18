@@ -27,6 +27,7 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "linear",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -499,6 +500,72 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
           },
         ],
+      },
+    },
+  },
+  linear: {
+    label: "Linear GraphQL API emulator",
+    endpoints:
+      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agents, inspector",
+    async load() {
+      const mod = await import("@emulators/linear");
+      return { plugin: mod.linearPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "admin@linear.local";
+      return { login: firstEmail, id: 1, scopes: ["read", "write", "issues:create", "comments:create", "admin"] };
+    },
+    initConfig: {
+      linear: {
+        organization: { name: "Acme", url_key: "acme" },
+        users: [
+          { email: "admin@example.com", name: "Admin User", admin: true },
+          { email: "dev@example.com", name: "Developer" },
+        ],
+        teams: [
+          {
+            key: "ENG",
+            name: "Engineering",
+            states: [
+              { name: "Backlog", type: "backlog" },
+              { name: "Todo", type: "unstarted" },
+              { name: "In Progress", type: "started" },
+              { name: "Done", type: "completed" },
+            ],
+          },
+        ],
+        labels: [
+          { name: "Bug", color: "#d92d20", team: "ENG" },
+          { name: "Feature", color: "#2563eb", team: "ENG" },
+        ],
+        issues: [
+          {
+            team: "ENG",
+            title: "Fix local checkout test",
+            description: "Reproduce and fix the checkout failure.",
+            state: "Todo",
+            assignee: "dev@example.com",
+            labels: ["Bug"],
+          },
+        ],
+        oauth_apps: [
+          {
+            client_id: "lin_example_client_id",
+            client_secret: "example_client_secret",
+            name: "My Linear App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/linear"],
+            scopes: ["read", "write", "issues:create", "comments:create"],
+            actor: "user",
+          },
+        ],
+        tokens: [
+          {
+            token: "lin_test_admin",
+            user: "admin@example.com",
+            scopes: ["read", "write", "issues:create", "comments:create", "admin"],
+          },
+        ],
+        strict_scopes: false,
       },
     },
   },

@@ -16,7 +16,13 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
+- **Okta** on `http://localhost:4006`
+- **AWS** on `http://localhost:4007`
+- **Resend** on `http://localhost:4008`
+- **Stripe** on `http://localhost:4009`
+- **MongoDB Atlas** on `http://localhost:4010`
+- **Clerk** on `http://localhost:4011`
+- **Linear** on `http://localhost:4012`
 
 ## CLI
 
@@ -141,7 +147,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'linear'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -332,6 +338,51 @@ slack:
         - team:read
   strict_scopes: false
 
+linear:
+  organization:
+    name: Acme
+    url_key: acme
+  users:
+    - email: admin@example.com
+      name: Admin User
+      admin: true
+    - email: dev@example.com
+      name: Developer
+  teams:
+    - key: ENG
+      name: Engineering
+      states:
+        - name: Backlog
+          type: backlog
+        - name: Todo
+          type: unstarted
+        - name: In Progress
+          type: started
+        - name: Done
+          type: completed
+  labels:
+    - name: Bug
+      color: "#d92d20"
+      team: ENG
+  issues:
+    - team: ENG
+      title: Fix local checkout test
+      state: Todo
+      assignee: dev@example.com
+      labels: [Bug]
+  oauth_apps:
+    - client_id: lin_example_client_id
+      client_secret: example_client_secret
+      name: My Linear App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/linear
+      scopes: [read, write, issues:create, comments:create]
+  tokens:
+    - token: lin_test_admin
+      user: admin@example.com
+      scopes: [read, write, issues:create, comments:create, admin]
+  strict_scopes: false
+
 apple:
   users:
     - email: testuser@icloud.com
@@ -445,6 +496,20 @@ slack:
       name: "My Slack App"
       redirect_uris:
         - "http://localhost:3000/api/auth/callback/slack"
+```
+
+### Linear OAuth Apps
+
+```yaml
+linear:
+  oauth_apps:
+    - client_id: "lin_example_client_id"
+      client_secret: "example_client_secret"
+      name: "My Linear App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/linear"
+      scopes: [read, write, issues:create, comments:create]
+      actor: user
 ```
 
 ### Apple OAuth Clients
@@ -771,6 +836,33 @@ Slack scope checks are relaxed by default so local tests can use simple bearer t
 
 Current Slack limits: Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
+## Linear API
+
+Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when webhooks are configured.
+
+### GraphQL
+
+- `POST /graphql` - GraphQL endpoint for queries and mutations
+- `GET /graphql` - query-string GraphQL endpoint for tooling
+- Queries: `viewer`, `organization`, `users`, `user`, `teams`, `team`, `workflowStates`, `workflowState`, `issues`, `issue`, `comments`, `comment`, `issueLabels`, `issueLabel`, `projects`, `project`, `cycles`, `cycle`, `webhooks`, `webhook`, `agentSessions`, `agentSession`
+- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentActivityCreate`
+
+### OAuth
+
+- `GET /oauth/authorize` - authorization endpoint with local user picker
+- `POST /oauth/authorize/callback` - local user picker callback that creates an authorization code
+- `POST /oauth/token` - authorization code, refresh token, and client credentials grants
+- `POST /oauth/revoke` - revoke access or refresh tokens
+
+### Webhooks And Inspector
+
+- `webhookCreate` / `webhookDelete` manage local webhook subscriptions
+- `GET /` - tabbed local inspector for issues, teams, users, projects, agents, auth records, webhook subscriptions, and deliveries
+
+Linear scope checks are relaxed by default so local tests can use simple bearer tokens or the seeded `lin_test_admin` token. Set `linear.strict_scopes: true` in seed config to require `read`, `write`, `issues:create`, `comments:create`, or `admin` on supported GraphQL operations.
+
+Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and production agent behavior are not implemented. Agent support is a focused local-test subset.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -954,6 +1046,7 @@ packages/
     github/         # GitHub API service
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
     slack/          # Slack Web API, OAuth v2, incoming webhooks
+    linear/         # Linear GraphQL API, OAuth, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -974,6 +1067,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Google**: Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
 
 **Slack**: All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation records, and OAuth v2 flow with user picker UI creates scoped bot tokens. Optional strict scope mode returns `missing_scope` when a token lacks a required method scope.
+
+**Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
