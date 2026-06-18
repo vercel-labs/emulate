@@ -160,6 +160,28 @@ describe("Linear emulator", () => {
     expect(tokenBody.access_token).toMatch(/^lin_/);
     expect(tokenBody.refresh_token).toMatch(/^lin_refresh_/);
     expect(tokenBody.scope).toBe("read write");
+
+    const accessGraphql = await app.request(`${base}/graphql`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenBody.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: "{ viewer { email } }" }),
+    });
+    expect(accessGraphql.status).toBe(200);
+
+    const refreshGraphql = await app.request(`${base}/graphql`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenBody.refresh_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: "{ viewer { email } }" }),
+    });
+    expect(refreshGraphql.status).toBe(401);
+    const refreshBody = (await refreshGraphql.json()) as { message: string };
+    expect(refreshBody.message).toContain("refresh tokens");
   });
 
   it("stores webhook deliveries for issue mutations", async () => {

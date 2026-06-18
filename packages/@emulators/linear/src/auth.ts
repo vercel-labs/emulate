@@ -30,7 +30,7 @@ export function tokenScopes(store: Store, c: Context): string[] {
   const token = c.get("authToken");
   if (token) {
     const record = getLinearStore(store).tokens.findOneBy("token", token);
-    if (record && !record.revoked) return record.scopes;
+    if (record && record.type !== "oauth_refresh" && !record.revoked) return record.scopes;
   }
   return c.get("authScopes") ?? [];
 }

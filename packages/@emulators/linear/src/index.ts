@@ -490,7 +490,8 @@ export const linearPlugin: ServicePlugin = {
   name: "linear",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     app.use("*", async (c, next) => {
-      applyLinearTokenAuth(c, store);
+      const authError = applyLinearTokenAuth(c, store);
+      if (authError) return authError;
       await next();
     });
 
@@ -577,13 +578,19 @@ export function nextIssueNumber(store: Store, teamId: string): number {
   return next;
 }
 
-function applyLinearTokenAuth(c: Context, store: Store): void {
+function applyLinearTokenAuth(c: Context, store: Store): Response | undefined {
   const requestToken = linearRequestToken(c);
   if (!requestToken) return;
 
   const record = getLinearStore(store).tokens.findOneBy("token", requestToken);
-  if (!record || record.revoked) return;
-  if (record.expires_at && new Date(record.expires_at).getTime() <= Date.now()) return;
+  if (!record) return;
+  if (record.type === "oauth_refresh") {
+    return linearAuthError(c, "OAuth refresh tokens cannot be used as Linear API access tokens.");
+  }
+  if (record.revoked) return linearAuthError(c, "Linear token has been revoked.");
+  if (record.expires_at && new Date(record.expires_at).getTime() <= Date.now()) {
+    return linearAuthError(c, "Linear token has expired.");
+  }
 
   const user = record.user_id ? getLinearStore(store).users.findOneBy("linear_id", record.user_id) : undefined;
   c.set("authToken", record.token);
@@ -593,6 +600,16 @@ function applyLinearTokenAuth(c: Context, store: Store): void {
     id: record.id,
     scopes: record.scopes,
   });
+}
+
+function linearAuthError(c: Context, message: string): Response {
+  return c.json(
+    {
+      message,
+      documentation_url: c.get("docsUrl") ?? "https://emulate.dev/linear",
+    },
+    401,
+  );
 }
 
 function linearRequestToken(c: Context): string | undefined {
