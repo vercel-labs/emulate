@@ -1354,6 +1354,19 @@ function mapConnection<T, U>(items: T[], args: ConnectionArgs, mapper: (item: T)
   };
 }
 
+const ISSUE_FILTER_FIELDS = [
+  "id",
+  "identifier",
+  "title",
+  "team",
+  "state",
+  "assignee",
+  "creator",
+  "project",
+  "cycle",
+  "labels",
+] as const;
+
 function filteredIssues(
   context: LinearGraphQLContext,
   filter?: Record<string, unknown>,
@@ -1407,9 +1420,13 @@ function issueMatchesFilter(
         )
       : true,
   ];
-  const ownMatch = checks.every(Boolean);
   const orFilters = Array.isArray(filter.or) ? filter.or.filter(isRecord) : [];
+  const ownMatch = issueFilterHasOwnPredicates(filter) ? checks.every(Boolean) : orFilters.length === 0;
   return ownMatch || orFilters.some((orFilter) => issueMatchesFilter(context, issue, orFilter));
+}
+
+function issueFilterHasOwnPredicates(filter: Record<string, unknown>): boolean {
+  return ISSUE_FILTER_FIELDS.some((field) => filter[field] != null);
 }
 
 function filterUsers(

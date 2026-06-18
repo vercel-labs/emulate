@@ -109,6 +109,44 @@ describe("Linear emulator", () => {
     expect(readBody.data.issue.comments.nodes[0].body).toBe("Done locally.");
   });
 
+  it("honors issue filter or clauses", async () => {
+    const team = getLinearStore(store).teams.findOneBy("key", "ENG")!;
+    await gql(
+      app,
+      `mutation CreateIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) { issue { identifier } }
+      }`,
+      { input: { teamId: team.linear_id, title: "Review Linear filter logic" } },
+    );
+
+    const missing = await gql(
+      app,
+      `query Issues($filter: IssueFilter) {
+        issues(filter: $filter) { nodes { identifier title } }
+      }`,
+      { filter: { or: [{ title: { eq: "Definitely missing" } }] } },
+    );
+    expect(missing.status).toBe(200);
+    const missingBody = (await missing.json()) as any;
+    expect(missingBody.errors).toBeUndefined();
+    expect(missingBody.data.issues.nodes).toEqual([]);
+
+    const matching = await gql(
+      app,
+      `query Issues($filter: IssueFilter) {
+        issues(filter: $filter) { nodes { identifier title } }
+      }`,
+      {
+        filter: {
+          or: [{ title: { eq: "Definitely missing" } }, { title: { eq: "Review Linear filter logic" } }],
+        },
+      },
+    );
+    const matchingBody = (await matching.json()) as any;
+    expect(matchingBody.errors).toBeUndefined();
+    expect(matchingBody.data.issues.nodes).toEqual([{ identifier: "ENG-2", title: "Review Linear filter logic" }]);
+  });
+
   it("supports OAuth authorization code exchange with PKCE", async () => {
     seedFromConfig(store, base, {
       oauth_apps: [
