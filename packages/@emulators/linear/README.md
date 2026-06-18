@@ -26,4 +26,6 @@ npx emulate --service linear
 - Linear-shaped webhook delivery with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers.
 - Local inspector at `/`.
 
+OAuth app `actor` config is authoritative. Apps configured with `actor: user` use authorization code flows. Apps configured with `actor: app` use the app install flow and can request client credentials tokens.
+
 This is not a complete Linear clone. Unsupported GraphQL fields return GraphQL errors.

@@ -854,6 +854,8 @@ Stateful Linear GraphQL API emulation with seeded organizations, users, teams, w
 - `POST /oauth/token` - authorization code, refresh token, and client credentials grants
 - `POST /oauth/revoke` - revoke access or refresh tokens
 
+OAuth app `actor` config is authoritative. Apps configured with `actor: user` use authorization code flows. Apps configured with `actor: app` use the app install flow and can request client credentials tokens.
+
 ### Webhooks And Inspector
 
 - `webhookCreate` / `webhookDelete` manage local webhook subscriptions

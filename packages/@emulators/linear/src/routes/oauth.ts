@@ -48,7 +48,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const responseType = c.req.query("response_type") ?? "code";
     const state = c.req.query("state") ?? "";
     const scope = c.req.query("scope") ?? "read";
-    const actor = normalizeActor(c.req.query("actor")) ?? "user";
+    const requestedActor = normalizeActor(c.req.query("actor"));
     const codeChallenge = c.req.query("code_challenge") ?? "";
     const codeChallengeMethod = c.req.query("code_challenge_method") ?? "";
 
@@ -79,6 +79,13 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
           400,
         );
       }
+    }
+    const actor = requestedActor ?? oauthApp?.actor ?? "user";
+    if (requestedActor && oauthApp && requestedActor !== oauthApp.actor) {
+      return c.html(
+        renderErrorPage("Invalid actor", `This app is configured for actor=${oauthApp.actor}.`, SERVICE_LABEL),
+        400,
+      );
     }
 
     const requestedScopes = normalizeScopes(scope, oauthApp?.scopes ?? ["read"]);
@@ -155,7 +162,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const redirectUri = bodyStr(body.redirect_uri);
     const state = bodyStr(body.state);
     const scopes = normalizeScopes(bodyStr(body.scope), ["read"]);
-    const actor = normalizeActor(bodyStr(body.actor)) ?? "user";
+    const requestedActor = normalizeActor(bodyStr(body.actor));
     const userRef = bodyStr(body.user_ref);
     const codeChallenge = bodyStr(body.code_challenge);
     const codeChallengeMethod = bodyStr(body.code_challenge_method);
@@ -171,6 +178,13 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
           400,
         );
       }
+    }
+    const actor = requestedActor ?? oauthApp?.actor ?? "user";
+    if (requestedActor && oauthApp && requestedActor !== oauthApp.actor) {
+      return c.html(
+        renderErrorPage("Invalid actor", `This app is configured for actor=${oauthApp.actor}.`, SERVICE_LABEL),
+        400,
+      );
     }
     const invalidScopes = scopesOutsideApp(scopes, oauthApp);
     if (invalidScopes.length > 0) {
@@ -271,6 +285,9 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     }
 
     if (grantType === "client_credentials") {
+      if (oauthApp && oauthApp.actor !== "app") {
+        return oauthError("unauthorized_client", "The OAuth app is not configured for app actor tokens.");
+      }
       const scopes = normalizeScopes(bodyStr(body.scope), oauthApp?.scopes ?? ["read"]);
       const invalidScopes = scopesOutsideApp(scopes, oauthApp);
       if (invalidScopes.length > 0) {

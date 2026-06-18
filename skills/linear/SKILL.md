@@ -110,7 +110,7 @@ Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
 - `POST /oauth/token` - authorization code, refresh token, and client credentials grants
 - `POST /oauth/revoke` - revoke access or refresh tokens
 
-OAuth apps can use `actor: user` or `actor: app`. App actor support is sufficient for local agent and service-account tests, but it is not full production Linear agent behavior.
+OAuth apps can use `actor: user` or `actor: app`. The configured actor is authoritative. User actor apps use authorization code flows. App actor apps use the app install flow and can request client credentials tokens. App actor support is sufficient for local agent and service-account tests, but it is not full production Linear agent behavior.
 
 ## Webhooks
 

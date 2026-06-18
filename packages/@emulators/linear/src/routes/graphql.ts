@@ -623,6 +623,7 @@ function createRoot(context: LinearGraphQLContext) {
       const labelIds = arrayInput(input.labelIds)
         .map((labelId) => resolveLabel(store, labelId, team.linear_id)?.linear_id)
         .filter((id): id is string => Boolean(id));
+      const now = new Date().toISOString();
       const issue = ls().issues.insert({
         linear_id: linearId(),
         identifier: `${team.key}-${number}`,
@@ -640,9 +641,9 @@ function createRoot(context: LinearGraphQLContext) {
         label_ids: labelIds,
         url: `${baseUrl}/issue/${team.key}-${number}`,
         archived_at: null,
-        canceled_at: null,
-        completed_at: state.type === "completed" ? new Date().toISOString() : null,
-        started_at: state.type === "started" ? new Date().toISOString() : null,
+        canceled_at: state.type === "canceled" ? now : null,
+        completed_at: state.type === "completed" ? now : null,
+        started_at: state.type === "started" ? now : null,
         due_date: nullableString(input.dueDate),
         create_as_user: nullableString(input.createAsUser),
         display_icon_url: nullableString(input.displayIconUrl),
@@ -673,16 +674,12 @@ function createRoot(context: LinearGraphQLContext) {
       if ("stateId" in input) {
         const state = resolveState(store, stringInput(input.stateId), issue.team_id);
         if (!state) throw new Error("Workflow state not found");
+        const now = new Date().toISOString();
         patch.state_id = state.linear_id;
-        patch.started_at = state.type === "started" ? (issue.started_at ?? new Date().toISOString()) : issue.started_at;
-        patch.completed_at =
-          state.type === "completed"
-            ? (issue.completed_at ?? new Date().toISOString())
-            : state.type === "canceled"
-              ? null
-              : issue.completed_at;
-        patch.canceled_at =
-          state.type === "canceled" ? (issue.canceled_at ?? new Date().toISOString()) : issue.canceled_at;
+        patch.started_at =
+          state.type === "started" ? (issue.started_at ?? now) : state.type === "completed" ? issue.started_at : null;
+        patch.completed_at = state.type === "completed" ? (issue.completed_at ?? now) : null;
+        patch.canceled_at = state.type === "canceled" ? (issue.canceled_at ?? now) : null;
       }
       if ("assigneeId" in input)
         patch.assignee_id = resolveUser(store, stringInput(input.assigneeId))?.linear_id ?? null;
@@ -821,6 +818,12 @@ function createRoot(context: LinearGraphQLContext) {
       requireLinearScopes(store, c, ["write"]);
       const comment = requireComment(store, id);
       const issue = requireIssue(store, comment.issue_id);
+      const commentSessions = ls().agentSessions.findBy("comment_id", comment.linear_id);
+      const commentSessionIds = new Set(commentSessions.map((session) => session.linear_id));
+      for (const activity of ls().agentActivities.all()) {
+        if (commentSessionIds.has(activity.session_id)) ls().agentActivities.delete(activity.id);
+      }
+      for (const session of commentSessions) ls().agentSessions.delete(session.id);
       ls().comments.delete(comment.id);
       await dispatchLinearWebhook(store, {
         type: "Comment",
@@ -896,8 +899,19 @@ function createRoot(context: LinearGraphQLContext) {
       requireLinearScopes(store, c, ["write"]);
       const issue = requireIssue(store, id);
       const label = requireLabel(store, labelId);
+      const before = issueWebhookPayload(context, issue);
+      const actor = requireCurrentUser(context);
       const next = Array.from(new Set([...issue.label_ids, label.linear_id]));
       const updated = ls().issues.update(issue.id, { label_ids: next })!;
+      await dispatchLinearWebhook(store, {
+        type: "Issue",
+        action: "update",
+        data: issueWebhookPayload(context, updated),
+        actor,
+        teamId: updated.team_id,
+        url: updated.url,
+        updatedFrom: before,
+      });
       return { success: true, issue: formatIssue(context, updated) };
     },
 
@@ -905,9 +919,20 @@ function createRoot(context: LinearGraphQLContext) {
       requireLinearScopes(store, c, ["write"]);
       const issue = requireIssue(store, id);
       const label = requireLabel(store, labelId);
+      const before = issueWebhookPayload(context, issue);
+      const actor = requireCurrentUser(context);
       const updated = ls().issues.update(issue.id, {
         label_ids: issue.label_ids.filter((existing) => existing !== label.linear_id),
       })!;
+      await dispatchLinearWebhook(store, {
+        type: "Issue",
+        action: "update",
+        data: issueWebhookPayload(context, updated),
+        actor,
+        teamId: updated.team_id,
+        url: updated.url,
+        updatedFrom: before,
+      });
       return { success: true, issue: formatIssue(context, updated) };
     },
 

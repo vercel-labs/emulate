@@ -163,6 +163,97 @@ describe("Linear emulator", () => {
     expect(linearStore.agentActivities.findBy("session_id", sessionId)).toEqual([]);
   });
 
+  it("deletes comment-scoped agent sessions with the comment", async () => {
+    const issue = getLinearStore(store).issues.findOneBy("identifier", "ENG-1")!;
+    const commentRes = await gql(
+      app,
+      `mutation CreateComment($input: CommentCreateInput!) {
+        commentCreate(input: $input) { comment { id } }
+      }`,
+      { input: { issueId: issue.linear_id, body: "Start an agent session." } },
+    );
+    const commentBody = (await commentRes.json()) as any;
+    const commentId = commentBody.data.commentCreate.comment.id;
+
+    const sessionRes = await gql(
+      app,
+      `mutation CreateSession($input: AgentSessionCreateOnCommentInput!) {
+        agentSessionCreateOnComment(input: $input) { agentSession { id } }
+      }`,
+      { input: { commentId, plan: "Handle the comment." } },
+    );
+    const sessionBody = (await sessionRes.json()) as any;
+    const sessionId = sessionBody.data.agentSessionCreateOnComment.agentSession.id;
+
+    await gql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) { agentActivity { id } }
+      }`,
+      { input: { sessionId, type: "response", body: "Done." } },
+    );
+
+    const deleteComment = await gql(
+      app,
+      `mutation DeleteComment($id: String!) {
+        commentDelete(id: $id) { success }
+      }`,
+      { id: commentId },
+    );
+    expect(deleteComment.status).toBe(200);
+    const deleteBody = (await deleteComment.json()) as any;
+    expect(deleteBody.errors).toBeUndefined();
+
+    const linearStore = getLinearStore(store);
+    expect(linearStore.agentSessions.findBy("comment_id", commentId)).toEqual([]);
+    expect(linearStore.agentActivities.findBy("session_id", sessionId)).toEqual([]);
+
+    const readSessions = await gql(app, `{ agentSessions { nodes { id comment { id } } } }`);
+    const readBody = (await readSessions.json()) as any;
+    expect(readBody.errors).toBeUndefined();
+  });
+
+  it("clears stale issue lifecycle timestamps when moving between workflow states", async () => {
+    const linearStore = getLinearStore(store);
+    const team = linearStore.teams.findOneBy("key", "ENG")!;
+    const todo = linearStore.workflowStates.findOneBy("name", "Todo")!;
+    const done = linearStore.workflowStates.findOneBy("name", "Done")!;
+
+    const createIssue = await gql(
+      app,
+      `mutation CreateIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) { issue { id completedAt canceledAt startedAt } }
+      }`,
+      { input: { teamId: team.linear_id, stateId: todo.linear_id, title: "Move lifecycle states" } },
+    );
+    const issueBody = (await createIssue.json()) as any;
+    const issueId = issueBody.data.issueCreate.issue.id;
+
+    const complete = await gql(
+      app,
+      `mutation UpdateIssue($input: IssueUpdateInput!) {
+        issueUpdate(input: $input) { issue { completedAt canceledAt startedAt state { name } } }
+      }`,
+      { input: { id: issueId, stateId: done.linear_id } },
+    );
+    const completeBody = (await complete.json()) as any;
+    expect(completeBody.data.issueUpdate.issue.state.name).toBe("Done");
+    expect(completeBody.data.issueUpdate.issue.completedAt).toBeTruthy();
+
+    const reopen = await gql(
+      app,
+      `mutation UpdateIssue($input: IssueUpdateInput!) {
+        issueUpdate(input: $input) { issue { completedAt canceledAt startedAt state { name } } }
+      }`,
+      { input: { id: issueId, stateId: todo.linear_id } },
+    );
+    const reopenBody = (await reopen.json()) as any;
+    expect(reopenBody.data.issueUpdate.issue.state.name).toBe("Todo");
+    expect(reopenBody.data.issueUpdate.issue.completedAt).toBeNull();
+    expect(reopenBody.data.issueUpdate.issue.canceledAt).toBeNull();
+    expect(reopenBody.data.issueUpdate.issue.startedAt).toBeNull();
+  });
+
   it("honors issue filter or clauses", async () => {
     const team = getLinearStore(store).teams.findOneBy("key", "ENG")!;
     await gql(
@@ -295,6 +386,55 @@ describe("Linear emulator", () => {
     expect(refreshBody.message).toContain("refresh tokens");
   });
 
+  it("enforces the OAuth app actor configuration", async () => {
+    seedFromConfig(store, base, {
+      oauth_apps: [
+        {
+          client_id: "user-actor-client",
+          client_secret: "user-actor-secret",
+          name: "User Actor App",
+          redirect_uris: ["http://localhost:3000/callback"],
+          scopes: ["read"],
+          actor: "user",
+        },
+        {
+          client_id: "app-actor-client",
+          client_secret: "app-actor-secret",
+          name: "App Actor App",
+          redirect_uris: ["http://localhost:3000/callback"],
+          scopes: ["read"],
+          actor: "app",
+        },
+      ],
+    });
+
+    const userActorGrant = await app.request(`${base}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: "user-actor-client",
+        client_secret: "user-actor-secret",
+        scope: "read",
+      }).toString(),
+    });
+    expect(userActorGrant.status).toBe(400);
+    const userActorBody = (await userActorGrant.json()) as any;
+    expect(userActorBody.error).toBe("unauthorized_client");
+
+    const appActorAuthorize = await app.request(
+      `${base}/oauth/authorize?client_id=app-actor-client&redirect_uri=${encodeURIComponent("http://localhost:3000/callback")}&response_type=code&scope=read`,
+    );
+    expect(appActorAuthorize.status).toBe(200);
+    expect(await appActorAuthorize.text()).toContain("Install App Actor App");
+
+    const actorMismatch = await app.request(
+      `${base}/oauth/authorize?client_id=app-actor-client&redirect_uri=${encodeURIComponent("http://localhost:3000/callback")}&response_type=code&scope=read&actor=user`,
+    );
+    expect(actorMismatch.status).toBe(400);
+    expect(await actorMismatch.text()).toContain("Invalid actor");
+  });
+
   it("requires read scope for queries in strict mode", async () => {
     seedFromConfig(store, base, {
       strict_scopes: true,
@@ -363,6 +503,7 @@ describe("Linear emulator", () => {
           name: "Read Only App",
           redirect_uris: ["http://localhost:3000/callback"],
           scopes: ["read"],
+          actor: "app",
         },
       ],
     });
@@ -373,7 +514,7 @@ describe("Linear emulator", () => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         user_ref: user.linear_id,
-        actor: "user",
+        actor: "app",
         redirect_uri: "http://localhost:3000/callback",
         scope: "admin",
         state: "state-1",
@@ -500,6 +641,51 @@ describe("Linear emulator", () => {
     expect(deliveries[0].event).toBe("Issue");
     expect(deliveries[0].action).toBe("create");
     expect(deliveries[0].headers["Linear-Signature"]).toBeDefined();
+  });
+
+  it("stores webhook deliveries for issue label mutations", async () => {
+    seedFromConfig(store, base, {
+      webhooks: [
+        {
+          label: "Issue receiver",
+          url: "http://127.0.0.1:1/linear",
+          resource_types: ["Issue"],
+          all_public_teams: true,
+        },
+      ],
+    });
+    const linearStore = getLinearStore(store);
+    const issue = linearStore.issues.findOneBy("identifier", "ENG-1")!;
+    const bug = linearStore.issueLabels.findOneBy("name", "Bug")!;
+    const feature = linearStore.issueLabels.findOneBy("name", "Feature")!;
+
+    const addLabel = await gql(
+      app,
+      `mutation AddLabel($id: String!, $labelId: String!) {
+        issueAddLabel(id: $id, labelId: $labelId) { issue { identifier labels { nodes { name } } } }
+      }`,
+      { id: issue.linear_id, labelId: feature.linear_id },
+    );
+    expect(addLabel.status).toBe(200);
+    const addBody = (await addLabel.json()) as any;
+    expect(addBody.errors).toBeUndefined();
+
+    const removeLabel = await gql(
+      app,
+      `mutation RemoveLabel($id: String!, $labelId: String!) {
+        issueRemoveLabel(id: $id, labelId: $labelId) { issue { identifier labels { nodes { name } } } }
+      }`,
+      { id: issue.linear_id, labelId: feature.linear_id },
+    );
+    expect(removeLabel.status).toBe(200);
+    const removeBody = (await removeLabel.json()) as any;
+    expect(removeBody.errors).toBeUndefined();
+
+    const deliveries = linearStore.webhookDeliveries.all();
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.map((delivery) => delivery.event)).toEqual(["Issue", "Issue"]);
+    expect(deliveries.map((delivery) => delivery.action)).toEqual(["update", "update"]);
+    expect((deliveries[0].payload as any).updatedFrom.labels).toEqual([{ id: bug.linear_id, name: "Bug" }]);
   });
 
   it("does not send all public team webhooks for private team events", async () => {

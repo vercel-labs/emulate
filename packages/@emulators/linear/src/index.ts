@@ -397,6 +397,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: LinearSeed
       const labelIds = (issueCfg.labels ?? [])
         .map((label) => resolveLabel(store, label, team.linear_id)?.linear_id)
         .filter((id): id is string => Boolean(id));
+      const now = new Date().toISOString();
       ls.issues.insert({
         linear_id: issueCfg.id ?? linearId(),
         identifier: `${team.key}-${number}`,
@@ -416,9 +417,9 @@ export function seedFromConfig(store: Store, baseUrl: string, config: LinearSeed
         label_ids: labelIds,
         url: `${baseUrl}/issue/${team.key}-${number}`,
         archived_at: null,
-        canceled_at: null,
-        completed_at: state.type === "completed" ? new Date().toISOString() : null,
-        started_at: state.type === "started" ? new Date().toISOString() : null,
+        canceled_at: state.type === "canceled" ? now : null,
+        completed_at: state.type === "completed" ? now : null,
+        started_at: state.type === "started" ? now : null,
         due_date: issueCfg.due_date ?? null,
         create_as_user: null,
         display_icon_url: null,
