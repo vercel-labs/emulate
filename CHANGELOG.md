@@ -1,6 +1,22 @@
 # Changelog
 
 <!-- release:start -->
+## 0.7.0
+
+### New Features
+
+- **Linear emulator** — stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, agent sessions, and local inspector support (#180)
+
+### Improvements
+
+- **Linear docs and agent guidance** — added README, docs site, programmatic API, and skill coverage for Linear API, OAuth, and webhook testing (#180)
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
 ## 0.6.1
 
 ### New Features
@@ -14,8 +30,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.6.0
 
