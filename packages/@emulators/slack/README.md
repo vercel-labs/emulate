@@ -13,6 +13,7 @@ npm install @emulators/slack
 ## Endpoints
 
 ### Auth & Chat
+
 - `POST /api/auth.test` — test authentication
 - `POST /api/chat.postMessage` — post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` — post ephemeral message outside channel history
@@ -25,6 +26,7 @@ npm install @emulators/slack
 - `POST /api/chat.meMessage` — /me message
 
 ### Conversations
+
 - `POST /api/conversations.list` — list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` — get channel info
 - `POST /api/conversations.create` — create channel
@@ -40,6 +42,7 @@ npm install @emulators/slack
 - `POST /api/conversations.members` — list members
 
 ### Users & Reactions
+
 - `POST /api/users.list` — list users (cursor pagination)
 - `POST /api/users.info` — get user info
 - `POST /api/users.lookupByEmail` — lookup by email
@@ -50,6 +53,7 @@ npm install @emulators/slack
 - `POST /api/reactions.add` / `reactions.remove` / `reactions.get` — manage reactions
 
 ### Files
+
 - `POST /api/files.getUploadURLExternal` — create a local external upload session
 - `POST /upload/v1/:fileId` — receive raw uploaded file bytes
 - `POST /api/files.completeUploadExternal` — complete uploads and optionally share file messages
@@ -59,6 +63,7 @@ npm install @emulators/slack
 - `POST /api/files.delete` — delete a completed file
 
 ### Pins & Bookmarks
+
 - `POST /api/pins.add` — pin a message to a channel
 - `GET /api/pins.list` / `POST /api/pins.list` — list pinned message items for a channel
 - `POST /api/pins.remove` — remove a message pin from a channel
@@ -68,6 +73,7 @@ npm install @emulators/slack
 - `POST /api/bookmarks.remove` — remove a bookmark from a channel
 
 ### Views
+
 - `POST /api/views.publish` — publish or update an App Home view for a user
 - `POST /api/views.open` — open a modal view
 - `POST /api/views.update` — update a view by `view_id` or `external_id`
@@ -77,16 +83,19 @@ npm install @emulators/slack
 Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass the returned value as `trigger_id` or `interactivity_pointer`; generate push values with an existing `view_id` and use them within 3 seconds.
 
 ### Team, Bots & Webhooks
+
 - `POST /api/team.info` — workspace info
 - `POST /api/bots.info` — bot info
 - `POST /services/:teamId/:botId/:webhookId` — incoming webhook with text or rich payload fields
 
 ### OAuth
+
 - `GET /oauth/v2/authorize` — authorization (shows user picker)
 - `POST /oauth/v2/authorize/callback` — local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` — token exchange
 
 ### Inspector
+
 - `GET /` — tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
 
 ## Auth
