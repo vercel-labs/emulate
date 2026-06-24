@@ -3,31 +3,18 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { twilioClient, VERIFY_SERVICE_SID } from "@/lib/twilio";
-import { encodePendingVerification, encodeSession, getPendingVerification } from "@/lib/session";
+import { encodeSession, getPendingVerification } from "@/lib/session";
+import { startSmsVerification } from "@/lib/verification";
 
 export async function sendCodeAction(_prev: { error: string } | null, formData: FormData) {
   const phone = (formData.get("phone") as string)?.trim();
   if (!phone) return { error: "Phone number is required" };
 
   try {
-    await twilioClient.verify.v2.services(VERIFY_SERVICE_SID).verifications.create({
-      to: phone,
-      channel: "sms",
-    });
+    await startSmsVerification(phone);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to send verification code" };
   }
-
-  const cookieStore = await cookies();
-  cookieStore.set(
-    "pending_verification",
-    encodePendingVerification({ phone, expiresAt: Date.now() + 10 * 60 * 1000 }),
-    {
-      httpOnly: true,
-      path: "/",
-      maxAge: 600,
-    },
-  );
 
   redirect("/verify");
 }

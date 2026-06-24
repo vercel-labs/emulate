@@ -48,8 +48,8 @@ Visit [http://localhost:3000/emulate/twilio/?tab=verify](http://localhost:3000/e
 This is useful in tests or agent workflows where you need to complete the flow without a human reading the SMS:
 
 ```bash
-# Start a verification (sets the pending_verification cookie)
-curl -s -c cookies.txt -L -X POST http://localhost:3000 \
+# Start a verification through the example API route (sets the pending_verification cookie)
+curl -s -c cookies.txt -X POST http://localhost:3000/api/verification/start \
   --data-urlencode "phone=+15555550123"
 
 # Fetch the latest local code for that number
@@ -83,9 +83,13 @@ src/
       verify-form.tsx           Client component for code input
     dashboard/
       page.tsx                  Verified landing page
+    api/
+      verification/start/
+        route.ts                Programmatic send-code route for tests and agents
     emulate/
       [...path]/route.ts        Embedded emulator (Twilio)
   lib/
     twilio.ts                   Twilio SDK client + request client that targets the emulator
     session.ts                  Cookie-based session helpers
+    verification.ts             Shared verification starter
 ```
