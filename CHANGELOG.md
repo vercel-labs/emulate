@@ -1,6 +1,23 @@
 # Changelog
 
 <!-- release:start -->
+## 0.8.0
+
+### New Features
+
+- **Twilio emulator** — local Twilio API emulation with accounts, phone numbers, messages, calls, conversations, messaging services, Verify flows, simulator endpoints, SDK conformance tests, and inspector support (#185)
+- **Twilio SMS verification example** — working Next.js example for SMS verification with the Twilio emulator and local session handling (#186)
+
+### Improvements
+
+- **Twilio docs and agent guidance** — added README, docs site, and skill coverage for local Twilio development (#185, #186)
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
 ## 0.7.0
 
 ### New Features
@@ -14,8 +31,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.6.1
 
