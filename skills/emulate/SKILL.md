@@ -31,6 +31,7 @@ All services start with sensible defaults:
 | MongoDB Atlas | 4010   |
 | Clerk     | 4011        |
 | Linear    | 4012        |
+| Twilio    | 4013        |
 
 ## CLI
 

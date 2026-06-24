@@ -192,17 +192,25 @@ export async function dispatchTwilioWebhook(
 ): Promise<void> {
   if (!url) return;
   const normalizedMethod = normalizeMethod(method);
-  const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
-    "X-Twilio-Signature": signTwilioRequest(url, params, account.auth_token),
-  };
+  let requestUrl = url;
+  let headers: Record<string, string> = {};
   let responseStatus: number | null = null;
   let responseBody: string | null = null;
   let success = false;
   let error: string | null = null;
 
   try {
-    const response = await fetch(url, {
+    if (normalizedMethod === "GET") {
+      const parsedUrl = new URL(url);
+      for (const [key, value] of Object.entries(params)) parsedUrl.searchParams.append(key, value);
+      requestUrl = parsedUrl.toString();
+    }
+    const signatureParams = normalizedMethod === "GET" ? {} : params;
+    headers = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Twilio-Signature": signTwilioRequest(requestUrl, signatureParams, account.auth_token),
+    };
+    const response = await fetch(requestUrl, {
       method: normalizedMethod,
       headers,
       body: normalizedMethod === "GET" ? undefined : new URLSearchParams(params).toString(),
@@ -219,7 +227,7 @@ export async function dispatchTwilioWebhook(
     twilio_id: `TW${String(Date.now())}${String(ts.webhookDeliveries.all().length + 1).padStart(6, "0")}`,
     account_sid: account.sid,
     event,
-    url,
+    url: requestUrl,
     method: normalizedMethod,
     request_body: params,
     request_headers: headers,

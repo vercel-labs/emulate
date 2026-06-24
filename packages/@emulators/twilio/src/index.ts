@@ -126,7 +126,16 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
   }
 
   for (const key of config.api_keys ?? []) {
-    if (key.sid && ts.apiKeys.findOneBy("sid", key.sid)) continue;
+    const existing = key.sid ? ts.apiKeys.findOneBy("sid", key.sid) : undefined;
+    if (existing) {
+      ts.apiKeys.update(existing.id, {
+        account_sid: account.sid,
+        secret: key.secret,
+        friendly_name: key.friendly_name ?? existing.friendly_name,
+        active: true,
+      });
+      continue;
+    }
     ts.apiKeys.insert({
       sid: key.sid ?? twilioSid("SK"),
       account_sid: account.sid,
@@ -137,7 +146,22 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
   }
 
   for (const number of config.phone_numbers ?? []) {
-    if (ts.phoneNumbers.findOneBy("phone_number", number.phone_number)) continue;
+    const existing =
+      (number.sid ? ts.phoneNumbers.findOneBy("sid", number.sid) : undefined) ??
+      ts.phoneNumbers.findOneBy("phone_number", number.phone_number);
+    if (existing) {
+      ts.phoneNumbers.update(existing.id, {
+        account_sid: account.sid,
+        phone_number: number.phone_number,
+        friendly_name: number.friendly_name ?? existing.friendly_name,
+        sms_url: number.sms_url ?? existing.sms_url,
+        sms_method: number.sms_method ? number.sms_method.toUpperCase() : existing.sms_method,
+        voice_url: number.voice_url ?? existing.voice_url,
+        voice_method: number.voice_method ? number.voice_method.toUpperCase() : existing.voice_method,
+        status_callback: number.status_callback ?? existing.status_callback,
+      });
+      continue;
+    }
     ts.phoneNumbers.insert({
       sid: number.sid ?? twilioSid("PN"),
       account_sid: account.sid,
@@ -154,7 +178,11 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
   }
 
   for (const serviceCfg of config.messaging_services ?? []) {
-    let service = serviceCfg.sid ? ts.messagingServices.findOneBy("sid", serviceCfg.sid) : undefined;
+    let service = serviceCfg.sid
+      ? ts.messagingServices.findOneBy("sid", serviceCfg.sid)
+      : ts.messagingServices
+          .findBy("account_sid", account.sid)
+          .find((candidate) => candidate.friendly_name === serviceCfg.friendly_name);
     if (!service) {
       service = ts.messagingServices.insert({
         sid: serviceCfg.sid ?? twilioSid("MG"),
@@ -163,6 +191,12 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
         inbound_request_url: serviceCfg.inbound_request_url ?? null,
         status_callback: serviceCfg.status_callback ?? null,
       });
+    } else {
+      service = ts.messagingServices.update(service.id, {
+        friendly_name: serviceCfg.friendly_name,
+        inbound_request_url: serviceCfg.inbound_request_url ?? service.inbound_request_url,
+        status_callback: serviceCfg.status_callback ?? service.status_callback,
+      })!;
     }
     for (const numberRef of serviceCfg.phone_numbers ?? []) {
       const phoneNumber =
@@ -182,7 +216,19 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
   }
 
   for (const service of config.verify_services ?? []) {
-    if (service.sid && ts.verifyServices.findOneBy("sid", service.sid)) continue;
+    const existing = service.sid
+      ? ts.verifyServices.findOneBy("sid", service.sid)
+      : ts.verifyServices
+          .findBy("account_sid", account.sid)
+          .find((candidate) => candidate.friendly_name === service.friendly_name);
+    if (existing) {
+      ts.verifyServices.update(existing.id, {
+        friendly_name: service.friendly_name,
+        code: service.code ?? existing.code,
+        default_channel: service.default_channel ?? existing.default_channel,
+      });
+      continue;
+    }
     ts.verifyServices.insert({
       sid: service.sid ?? twilioSid("VA"),
       account_sid: account.sid,
@@ -193,7 +239,15 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
   }
 
   for (const service of config.conversations?.services ?? []) {
-    if (service.sid && ts.conversationServices.findOneBy("sid", service.sid)) continue;
+    const existing = service.sid
+      ? ts.conversationServices.findOneBy("sid", service.sid)
+      : ts.conversationServices
+          .findBy("account_sid", account.sid)
+          .find((candidate) => candidate.friendly_name === service.friendly_name);
+    if (existing) {
+      ts.conversationServices.update(existing.id, { friendly_name: service.friendly_name });
+      continue;
+    }
     ts.conversationServices.insert({
       sid: service.sid ?? twilioSid("IS"),
       account_sid: account.sid,

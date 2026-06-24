@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getTwilioStore,
+  seedFromConfig,
   DEFAULT_ACCOUNT_SID,
+  DEFAULT_API_KEY_SID,
   DEFAULT_MESSAGING_SERVICE_SID,
   DEFAULT_PHONE_NUMBER,
   DEFAULT_VERIFY_SERVICE_SID,
@@ -27,6 +29,54 @@ describe("Twilio emulator", () => {
     const body = (await res.json()) as any;
     expect(body.sid).toBe(DEFAULT_ACCOUNT_SID);
     expect(body.friendly_name).toBe("Local Twilio Account");
+  });
+
+  it("applies seed config to default resources without duplicating them", () => {
+    seedFromConfig(setup.store, "http://localhost:4301", {
+      account: {
+        sid: DEFAULT_ACCOUNT_SID,
+        auth_token: "custom_auth_token",
+        friendly_name: "Custom Twilio Account",
+      },
+      api_keys: [{ sid: DEFAULT_API_KEY_SID, secret: "custom_api_secret", friendly_name: "Custom API Key" }],
+      phone_numbers: [
+        {
+          phone_number: DEFAULT_PHONE_NUMBER,
+          friendly_name: "Custom SMS Number",
+          sms_url: "http://app.local/twilio/sms",
+          sms_method: "GET",
+          voice_url: "http://app.local/twilio/voice",
+        },
+      ],
+      messaging_services: [
+        {
+          friendly_name: "Local Messaging Service",
+          phone_numbers: [DEFAULT_PHONE_NUMBER],
+          inbound_request_url: "http://app.local/twilio/messaging-service-inbound",
+          status_callback: "http://app.local/twilio/status",
+        },
+      ],
+      verify_services: [{ friendly_name: "Local Verify Service", code: "654321", default_channel: "call" }],
+      conversations: { services: [{ friendly_name: "Local Conversations" }] },
+    });
+
+    const ts = getTwilioStore(setup.store);
+    expect(ts.accounts.findOneBy("sid", DEFAULT_ACCOUNT_SID)?.friendly_name).toBe("Custom Twilio Account");
+    expect(ts.apiKeys.all()).toHaveLength(1);
+    expect(ts.apiKeys.findOneBy("sid", DEFAULT_API_KEY_SID)?.secret).toBe("custom_api_secret");
+    expect(ts.phoneNumbers.all()).toHaveLength(1);
+    expect(ts.phoneNumbers.findOneBy("phone_number", DEFAULT_PHONE_NUMBER)?.sms_url).toBe(
+      "http://app.local/twilio/sms",
+    );
+    expect(ts.phoneNumbers.findOneBy("phone_number", DEFAULT_PHONE_NUMBER)?.sms_method).toBe("GET");
+    expect(ts.messagingServices.all()).toHaveLength(1);
+    expect(ts.messagingServices.findOneBy("sid", DEFAULT_MESSAGING_SERVICE_SID)?.inbound_request_url).toBe(
+      "http://app.local/twilio/messaging-service-inbound",
+    );
+    expect(ts.messagingServicePhoneNumbers.all()).toHaveLength(1);
+    expect(ts.verifyServices.all()).toHaveLength(1);
+    expect(ts.verifyServices.findOneBy("sid", DEFAULT_VERIFY_SERVICE_SID)?.code).toBe("654321");
+    expect(ts.conversationServices.all()).toHaveLength(1);
   });
 
   it("creates, reads, updates, and deletes messages", async () => {
@@ -119,6 +169,37 @@ describe("Twilio emulator", () => {
     expect(delivery.request_headers["X-Twilio-Signature"]).toBeTruthy();
     expect(delivery.request_body.Body).toBe("hello from user");
     expect(delivery.request_body.From).toBe("+15550009999");
+  });
+
+  it("sends inbound webhook params in the query string for GET callbacks", async () => {
+    let requestedUrl = "";
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      requestedUrl = String(url);
+      return new Response("ok", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const number = getTwilioStore(setup.store).phoneNumbers.findOneBy("phone_number", DEFAULT_PHONE_NUMBER)!;
+    getTwilioStore(setup.store).phoneNumbers.update(number.id, {
+      sms_url: "http://app.local/twilio/inbound",
+      sms_method: "GET",
+    });
+
+    const inbound = await setup.app.request("http://localhost/_twilio/simulate/inbound-message", {
+      method: "POST",
+      headers: formHeaders(),
+      body: formBody({ To: DEFAULT_PHONE_NUMBER, From: "+15550009999", Body: "hello over get" }),
+    });
+    expect(inbound.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const callbackUrl = new URL(requestedUrl);
+    expect(`${callbackUrl.origin}${callbackUrl.pathname}`).toBe("http://app.local/twilio/inbound");
+    expect(callbackUrl.searchParams.get("To")).toBe(DEFAULT_PHONE_NUMBER);
+    expect(callbackUrl.searchParams.get("From")).toBe("+15550009999");
+    expect(callbackUrl.searchParams.get("Body")).toBe("hello over get");
+
+    const delivery = getTwilioStore(setup.store).webhookDeliveries.all()[0];
+    expect(delivery.method).toBe("GET");
+    expect(new URL(delivery.url).searchParams.get("MessageSid")).toBe(delivery.request_body.MessageSid);
   });
 
   it("routes inbound SMS through assigned Messaging Service inbound URLs", async () => {
