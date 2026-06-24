@@ -254,3 +254,36 @@ export interface VercelIntegration extends Entity {
   name: string;
   redirect_uris: string[];
 }
+
+export interface VercelIntegrationConfiguration extends Entity {
+  uid: string;
+  integrationId: string;
+  ownerId: string;
+  userId: string;
+  teamId: string | null;
+  projectSelection: "all" | "selected";
+  projects: string[];
+  scopes: string[];
+  slug: string;
+  type: "integration-configuration";
+  status: "error" | "onboarding" | "pending" | "ready" | "resumed" | "suspended" | "uninstalled";
+  source:
+    | "backoffice"
+    | "cli"
+    | "deploy-button"
+    | "external"
+    | "marketplace"
+    | "oauth"
+    | "resource-claims"
+    | "v0"
+    | null;
+  installationType: "external" | "marketplace" | null;
+  canConfigureOpenTelemetry: boolean;
+  externalId: string | null;
+  completedAt: number | null;
+  disabledAt: number | null;
+  disabledReason: string | null;
+  deletedAt: number | null;
+  deleteRequestedAt: number | null;
+  customerDeleteRequestedAt: number | null;
+}

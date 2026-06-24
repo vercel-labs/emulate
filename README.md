@@ -439,6 +439,11 @@ vercel:
       name: "My Vercel App"
       redirect_uris:
         - "http://localhost:3000/api/auth/callback/vercel"
+  integration_configurations:
+    - id: "icfg_abc123"
+      integrationId: "oac_abc123"
+      ownerId: "team_xyz"
+      projectSelection: "all"
 ```
 
 ### GitHub OAuth Apps
@@ -585,6 +590,10 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `GET /v10/projects/:idOrName/env/:id` - get env var
 - `PATCH /v9/projects/:idOrName/env/:id` - update env var
 - `DELETE /v9/projects/:idOrName/env/:id` - delete env var
+
+### Integrations
+- `GET /v1/integrations/configuration/:id` - get integration configuration
+- `DELETE /v1/integrations/configuration/:id` - delete integration configuration
 
 ### Blob
 Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`).

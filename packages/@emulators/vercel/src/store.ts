@@ -14,6 +14,7 @@ import type {
   VercelEnvVar,
   VercelProtectionBypass,
   VercelIntegration,
+  VercelIntegrationConfiguration,
   VercelApiKey,
   VercelBlob,
 } from "./entities.js";
@@ -34,6 +35,7 @@ export interface VercelStore {
   protectionBypasses: Collection<VercelProtectionBypass>;
   apiKeys: Collection<VercelApiKey>;
   integrations: Collection<VercelIntegration>;
+  integrationConfigurations: Collection<VercelIntegrationConfiguration>;
   blobs: Collection<VercelBlob>;
 }
 
@@ -57,6 +59,11 @@ export function getVercelStore(store: Store): VercelStore {
     protectionBypasses: store.collection<VercelProtectionBypass>("vercel.protection_bypasses", ["projectId"]),
     apiKeys: store.collection<VercelApiKey>("vercel.api_keys", ["uid", "teamId", "userId"]),
     integrations: store.collection<VercelIntegration>("vercel.integrations", ["client_id"]),
+    integrationConfigurations: store.collection<VercelIntegrationConfiguration>("vercel.integration_configurations", [
+      "uid",
+      "ownerId",
+      "integrationId",
+    ]),
     blobs: store.collection<VercelBlob>("vercel.blobs", ["pathname", "storeId"]),
   };
 }

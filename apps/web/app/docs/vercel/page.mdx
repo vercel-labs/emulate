@@ -52,6 +52,11 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `PATCH /v9/projects/:idOrName/env/:id` - update env var
 - `DELETE /v9/projects/:idOrName/env/:id` - delete env var
 
+## Integrations
+
+- `GET /v1/integrations/configuration/:id` - get integration configuration
+- `DELETE /v1/integrations/configuration/:id` - delete integration configuration
+
 ## Blob
 
 Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`).

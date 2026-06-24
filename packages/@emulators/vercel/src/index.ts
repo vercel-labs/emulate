@@ -11,6 +11,7 @@ import { envRoutes } from "./routes/env.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { apiKeysRoutes } from "./routes/api-keys.js";
 import { blobRoutes } from "./routes/blob.js";
+import { integrationsRoutes } from "./routes/integrations.js";
 
 export { getVercelStore, type VercelStore } from "./store.js";
 export * from "./entities.js";
@@ -47,6 +48,19 @@ export interface VercelSeedConfig {
     client_secret: string;
     name: string;
     redirect_uris: string[];
+  }>;
+  integration_configurations?: Array<{
+    id: string;
+    integrationId: string;
+    ownerId: string;
+    userId?: string;
+    teamId?: string;
+    projectSelection?: "all" | "selected";
+    projects?: string[];
+    scopes?: string[];
+    slug?: string;
+    status?: "error" | "onboarding" | "pending" | "ready" | "resumed" | "suspended" | "uninstalled";
+    canConfigureOpenTelemetry?: boolean;
   }>;
 }
 
@@ -206,6 +220,40 @@ export function seedFromConfig(store: Store, baseUrl: string, config: VercelSeed
       });
     }
   }
+
+  if (config.integration_configurations) {
+    for (const ic of config.integration_configurations) {
+      const existing = vs.integrationConfigurations.findOneBy("uid", ic.id);
+      if (existing) continue;
+
+      const integration = vs.integrations.findOneBy("client_id", ic.integrationId);
+      const t = nowMs();
+
+      vs.integrationConfigurations.insert({
+        uid: ic.id,
+        integrationId: ic.integrationId,
+        ownerId: ic.ownerId,
+        userId: ic.userId ?? ic.ownerId,
+        teamId: ic.teamId ?? null,
+        projectSelection: ic.projectSelection ?? "all",
+        projects: ic.projects ?? [],
+        scopes: ic.scopes ?? [],
+        slug: ic.slug ?? integration?.name ?? "unknown",
+        type: "integration-configuration",
+        status: ic.status ?? "ready",
+        source: "external",
+        installationType: "external",
+        canConfigureOpenTelemetry: ic.canConfigureOpenTelemetry ?? false,
+        externalId: null,
+        completedAt: t,
+        disabledAt: null,
+        disabledReason: null,
+        deletedAt: null,
+        deleteRequestedAt: null,
+        customerDeleteRequestedAt: null,
+      });
+    }
+  }
 }
 
 export const vercelPlugin: ServicePlugin = {
@@ -220,6 +268,7 @@ export const vercelPlugin: ServicePlugin = {
     envRoutes(ctx);
     apiKeysRoutes(ctx);
     blobRoutes(ctx);
+    integrationsRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
