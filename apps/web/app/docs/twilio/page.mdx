@@ -1,0 +1,99 @@
+# Twilio API
+
+Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service twilio
+```
+
+When Twilio is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4013`.
+
+## Defaults
+
+```text
+TWILIO_ACCOUNT_SID=AC00000000000000000000000000000000
+TWILIO_AUTH_TOKEN=twilio_test_auth_token
+TWILIO_API_KEY=SK00000000000000000000000000000000
+TWILIO_API_SECRET=twilio_test_api_secret
+TWILIO_PHONE_NUMBER=+15551234567
+TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
+```
+
+## URL Mapping
+
+| Real Twilio URL | Emulator URL |
+|-----------------|--------------|
+| `https://api.twilio.com/2010-04-01/...` | `$TWILIO_EMULATOR_URL/2010-04-01/...` |
+| `https://messaging.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/messaging/v1/...` |
+| `https://verify.twilio.com/v2/...` | `$TWILIO_EMULATOR_URL/verify/v2/...` |
+| `https://conversations.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/conversations/v1/...` |
+
+The official Node SDK builds absolute Twilio product URLs. In SDK tests, use a custom request client that rewrites those hosts to the emulator prefixes above.
+
+## Supported Routes
+
+- `GET /2010-04-01/Accounts/{AccountSid}.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`
+- `POST /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`
+- `POST /2010-04-01/Accounts/{AccountSid}/Messages.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/Messages.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/Messages/{MessageSid}.json`
+- `POST /2010-04-01/Accounts/{AccountSid}/Messages/{MessageSid}.json`
+- `DELETE /2010-04-01/Accounts/{AccountSid}/Messages/{MessageSid}.json`
+- `POST /2010-04-01/Accounts/{AccountSid}/Calls.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/Calls.json`
+- `POST /messaging/v1/Services`
+- `GET /messaging/v1/Services`
+- `POST /verify/v2/Services/{ServiceSid}/Verifications`
+- `POST /verify/v2/Services/{ServiceSid}/VerificationCheck`
+- `POST /conversations/v1/Services`
+- `POST /conversations/v1/Services/{ServiceSid}/Conversations`
+- `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Participants`
+- `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Messages`
+
+## Simulator
+
+- `POST /_twilio/simulate/inbound-message`
+- `POST /_twilio/simulate/message-status`
+- `POST /_twilio/simulate/inbound-call`
+- `POST /_twilio/simulate/call-status`
+- `POST /_twilio/simulate/verification-status`
+
+## Seed Config
+
+```yaml
+twilio:
+  account:
+    sid: AC00000000000000000000000000000000
+    auth_token: twilio_test_auth_token
+    friendly_name: Local Twilio Account
+  api_keys:
+    - sid: SK00000000000000000000000000000000
+      secret: twilio_test_api_secret
+      friendly_name: Local API Key
+  phone_numbers:
+    - phone_number: "+15551234567"
+      friendly_name: Local SMS and Voice Number
+      sms_url: http://localhost:3000/api/twilio/sms
+      voice_url: http://localhost:3000/api/twilio/voice
+  messaging_services:
+    - friendly_name: Local Messaging Service
+      phone_numbers: ["+15551234567"]
+  verify_services:
+    - friendly_name: Local Verify Service
+      code: "123456"
+      default_channel: sms
+  conversations:
+    services:
+      - friendly_name: Local Conversations
+```
+
+## Inspector
+
+Open `GET /` in the Twilio emulator to inspect messages, Verify attempts, calls, Conversations, phone numbers, services, credentials, and webhook deliveries.
+
+## Current Limits
+
+No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, SendGrid, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.

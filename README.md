@@ -23,6 +23,7 @@ All services start with sensible defaults. No config file needed:
 - **MongoDB Atlas** on `http://localhost:4010`
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
+- **Twilio** on `http://localhost:4013`
 
 ## CLI
 
@@ -147,7 +148,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'linear'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -865,6 +866,49 @@ Linear scope checks are relaxed by default so local tests can use simple bearer 
 
 Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and production agent behavior are not implemented. Agent support is a focused local-test subset.
 
+## Twilio API
+
+Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector. No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, or SendGrid traffic is performed.
+
+Default local credentials:
+
+```text
+TWILIO_ACCOUNT_SID=AC00000000000000000000000000000000
+TWILIO_AUTH_TOKEN=twilio_test_auth_token
+TWILIO_API_KEY=SK00000000000000000000000000000000
+TWILIO_API_SECRET=twilio_test_api_secret
+TWILIO_PHONE_NUMBER=+15551234567
+TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
+```
+
+### REST Routes
+
+- `GET /2010-04-01/Accounts/{AccountSid}.json` - fetch account
+- `GET /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json` - list phone numbers
+- `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` - create outbound message
+- `GET /2010-04-01/Accounts/{AccountSid}/Messages.json` - list messages
+- `POST /2010-04-01/Accounts/{AccountSid}/Calls.json` - create outbound call
+- `POST /messaging/v1/Services` - create Messaging Service
+- `POST /verify/v2/Services/{ServiceSid}/Verifications` - start verification
+- `POST /verify/v2/Services/{ServiceSid}/VerificationCheck` - check verification code
+- `POST /conversations/v1/Services` - create Conversation Service
+- `POST /conversations/v1/Services/{ServiceSid}/Conversations` - create Conversation
+- `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Participants` - add participant
+- `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Messages` - add message
+
+Twilio uses multiple product hosts. For local SDK tests, rewrite Twilio SDK requests to the emulator and map `messaging.twilio.com` to `/messaging`, `verify.twilio.com` to `/verify`, and `conversations.twilio.com` to `/conversations`.
+
+### Simulator And Inspector
+
+- `POST /_twilio/simulate/inbound-message` - create an inbound message and invoke the configured SMS webhook
+- `POST /_twilio/simulate/message-status` - advance message status and send status callbacks
+- `POST /_twilio/simulate/inbound-call` - create an inbound call and invoke the configured voice webhook
+- `POST /_twilio/simulate/call-status` - advance call status
+- `POST /_twilio/simulate/verification-status` - force a verification state
+- `GET /` - tabbed inspector for messages, Verify, calls, Conversations, phone numbers, services, auth, and webhook deliveries
+
+Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1049,6 +1093,7 @@ packages/
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     linear/         # Linear GraphQL API, OAuth, webhooks
+    twilio/         # Twilio Messaging, Verify, Voice, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1071,6 +1116,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Slack**: All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation records, and OAuth v2 flow with user picker UI creates scoped bot tokens. Optional strict scope mode returns `missing_scope` when a token lacks a required method scope.
 
 **Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
+
+**Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

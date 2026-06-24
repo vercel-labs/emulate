@@ -28,6 +28,7 @@ const SERVICE_NAME_LIST = [
   "mongoatlas",
   "clerk",
   "linear",
+  "twilio",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -566,6 +567,64 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           },
         ],
         strict_scopes: false,
+      },
+    },
+  },
+
+  twilio: {
+    label: "Twilio API emulator",
+    endpoints:
+      "accounts, API keys, phone numbers, Programmable Messaging, Messaging Services, Verify, Voice, webhooks, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/twilio");
+      return { plugin: mod.twilioPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const account = cfg?.account as { sid?: string } | undefined;
+      return {
+        login: account?.sid ?? "AC00000000000000000000000000000000",
+        id: 1,
+        scopes: [],
+      };
+    },
+    initConfig: {
+      twilio: {
+        account: {
+          sid: "AC00000000000000000000000000000000",
+          auth_token: "twilio_test_auth_token",
+          friendly_name: "Local Twilio Account",
+        },
+        api_keys: [
+          {
+            sid: "SK00000000000000000000000000000000",
+            secret: "twilio_test_api_secret",
+            friendly_name: "Local API Key",
+          },
+        ],
+        phone_numbers: [
+          {
+            phone_number: "+15551234567",
+            friendly_name: "Local SMS and Voice Number",
+            sms_url: "http://localhost:3000/api/twilio/sms",
+            voice_url: "http://localhost:3000/api/twilio/voice",
+          },
+        ],
+        messaging_services: [
+          {
+            friendly_name: "Local Messaging Service",
+            phone_numbers: ["+15551234567"],
+          },
+        ],
+        verify_services: [
+          {
+            friendly_name: "Local Verify Service",
+            code: "123456",
+            default_channel: "sms",
+          },
+        ],
+        conversations: {
+          services: [{ friendly_name: "Local Conversations" }],
+        },
       },
     },
   },

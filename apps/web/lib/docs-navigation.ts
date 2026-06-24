@@ -13,6 +13,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Google API", href: "/docs/google" },
   { name: "Slack API", href: "/docs/slack" },
   { name: "Linear API", href: "/docs/linear" },
+  { name: "Twilio API", href: "/docs/twilio" },
   { name: "Apple Sign In", href: "/docs/apple" },
   { name: "Microsoft Entra ID", href: "/docs/microsoft" },
   { name: "AWS", href: "/docs/aws" },
