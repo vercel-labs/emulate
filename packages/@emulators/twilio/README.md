@@ -27,4 +27,6 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 Twilio uses multiple product hosts. When testing with the official Node SDK, use a custom request client that rewrites Twilio hosts to the local emulator. The emulator exposes product-prefixed local routes such as `/verify/v2` and `/messaging/v1`.
 
+For SMS and OTP tests, the seeded Verify Service uses code `123456`. Test runners can also read the latest local code with `GET /_twilio/simulate/verification-code?To=...&ServiceSid=...` using Basic auth. Inbound SMS webhooks are simulated with `POST /_twilio/simulate/inbound-message`, using an assigned Messaging Service `inbound_request_url` before falling back to the phone number `sms_url`. Outbound delivery transitions are simulated with `POST /_twilio/simulate/message-status`.
+
 No real SMS, voice, carrier, compliance, billing, or SendGrid traffic is performed.

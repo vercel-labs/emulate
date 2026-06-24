@@ -58,6 +58,16 @@ HTTP Basic auth accepts either:
 - `POST /_twilio/simulate/message-status` - simulate message status callback
 - `POST /_twilio/simulate/inbound-call` - simulate inbound call
 
+## SMS And OTP Testing
+
+- The seeded Verify Service code is `123456`.
+- Use `CustomCode` when creating a Verification to force a per-verification code.
+- Use `GET /_twilio/simulate/verification-code?To=...&ServiceSid=...` with Basic auth to fetch the latest local code for an E2E test.
+- Use `POST /_twilio/simulate/verification-status` with `VerificationSid` or `To` to force local Verify state.
+- Use `POST /_twilio/simulate/inbound-message` to test inbound SMS webhooks.
+- Inbound SMS uses an assigned Messaging Service `inbound_request_url` before falling back to the phone number `sms_url`.
+- Use `POST /_twilio/simulate/message-status` to test outbound status callbacks.
+
 ## Current Limits
 
 No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, SendGrid, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.

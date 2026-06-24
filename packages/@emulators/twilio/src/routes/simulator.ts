@@ -2,6 +2,7 @@ import type { RouteContext } from "@emulators/core";
 import { twilioSid } from "../ids.js";
 import { formatCall, formatMessage, formatVerification } from "../formatters.js";
 import { getTwilioStore } from "../store.js";
+import type { TwilioVerification, TwilioVerificationStatus } from "../entities.js";
 import {
   bodyString,
   dispatchTwilioWebhook,
@@ -12,6 +13,16 @@ import {
   twilioError,
 } from "../helpers.js";
 import { parseTwimlSteps } from "./calls.js";
+
+const VERIFICATION_STATUSES: TwilioVerificationStatus[] = [
+  "pending",
+  "approved",
+  "canceled",
+  "max_attempts_reached",
+  "deleted",
+  "failed",
+  "expired",
+];
 
 export function simulatorRoutes({ app, store }: RouteContext): void {
   const ts = getTwilioStore(store);
@@ -25,6 +36,10 @@ export function simulatorRoutes({ app, store }: RouteContext): void {
     if (!to || !from) return twilioError(c, 400, "To and From are required", 20001);
     const number = ts.phoneNumbers.findOneBy("phone_number", to);
     if (!number || number.account_sid !== account.sid) return twilioError(c, 404, "Phone number was not found", 20404);
+    const messagingServiceAssignment = ts.messagingServicePhoneNumbers.findOneBy("phone_number_sid", number.sid);
+    const messagingService = messagingServiceAssignment
+      ? ts.messagingServices.findOneBy("sid", messagingServiceAssignment.service_sid)
+      : undefined;
     const messageBody = bodyString(body, "Body") ?? "";
     const message = ts.messages.insert({
       sid: twilioSid("SM"),
@@ -34,7 +49,7 @@ export function simulatorRoutes({ app, store }: RouteContext): void {
       body: messageBody,
       direction: "inbound",
       status: "received",
-      messaging_service_sid: null,
+      messaging_service_sid: messagingService?.sid ?? null,
       num_segments: messageSegments(messageBody),
       num_media: "0",
       media_urls: [],
@@ -46,11 +61,14 @@ export function simulatorRoutes({ app, store }: RouteContext): void {
       status_callback: null,
       date_sent: new Date().toISOString(),
     });
-    await dispatchTwilioWebhook(ts, account, "message.inbound", number.sms_url, number.sms_method, {
+    const inboundUrl = messagingService?.inbound_request_url ?? number.sms_url;
+    const inboundMethod = messagingService?.inbound_request_url ? "POST" : number.sms_method;
+    await dispatchTwilioWebhook(ts, account, "message.inbound", inboundUrl, inboundMethod, {
       AccountSid: account.sid,
       MessageSid: message.sid,
       SmsSid: message.sid,
       SmsStatus: "received",
+      MessagingServiceSid: messagingService?.sid ?? "",
       To: message.to,
       From: message.from ?? "",
       Body: message.body ?? "",
@@ -169,16 +187,68 @@ export function simulatorRoutes({ app, store }: RouteContext): void {
     if (account instanceof Response) return account;
     const body = await parseTwilioBody(c);
     const sid = bodyString(body, "VerificationSid");
+    const to = normalizePhoneNumber(bodyString(body, "To"));
+    const serviceSid = bodyString(body, "ServiceSid");
     const status = bodyString(body, "Status");
-    if (!sid || !status) return twilioError(c, 400, "VerificationSid and Status are required", 20001);
-    const verification = ts.verifications.findOneBy("sid", sid);
-    if (!verification || verification.account_sid !== account.sid) {
+    if (!status) return twilioError(c, 400, "Status is required", 20001);
+    if (!sid && !to) return twilioError(c, 400, "VerificationSid or To is required", 20001);
+    if (!VERIFICATION_STATUSES.includes(status as TwilioVerificationStatus)) {
+      return twilioError(c, 400, "Status is invalid", 20001);
+    }
+    const verification = findVerification(account.sid, sid, to, serviceSid);
+    if (!verification) {
       return twilioError(c, 404, "The requested resource was not found", 20404);
     }
     const updated = ts.verifications.update(verification.id, {
-      status: status as typeof verification.status,
+      status: status as TwilioVerificationStatus,
       valid: status === "approved",
     })!;
     return c.json(formatVerification(updated));
   });
+
+  app.get("/_twilio/simulate/verification-code", (c) => {
+    const account = requireTwilioAuth(c, ts);
+    if (account instanceof Response) return account;
+    const sid = c.req.query("VerificationSid");
+    const to = normalizePhoneNumber(c.req.query("To"));
+    const serviceSid = c.req.query("ServiceSid");
+    if (!sid && !to) return twilioError(c, 400, "VerificationSid or To is required", 20001);
+    const verification = findVerification(account.sid, sid, to, serviceSid);
+    if (!verification) {
+      return twilioError(c, 404, "The requested resource was not found", 20404);
+    }
+    return c.json({
+      account_sid: verification.account_sid,
+      service_sid: verification.service_sid,
+      verification_sid: verification.sid,
+      to: verification.to,
+      channel: verification.channel,
+      status: verification.status,
+      code: verification.code,
+      attempts: verification.attempts,
+      valid: verification.valid,
+      date_created: verification.created_at,
+      date_updated: verification.updated_at,
+    });
+  });
+
+  function findVerification(
+    accountSid: string,
+    verificationSid: string | undefined,
+    to: string | null,
+    serviceSid: string | undefined,
+  ): TwilioVerification | null {
+    const candidates = verificationSid
+      ? [ts.verifications.findOneBy("sid", verificationSid)].filter((item): item is TwilioVerification => Boolean(item))
+      : ts.verifications
+          .all()
+          .filter((verification) => verification.to === to)
+          .sort((a, b) => b.id - a.id);
+    return (
+      candidates.find(
+        (verification) =>
+          verification.account_sid === accountSid && (!serviceSid || verification.service_sid === serviceSid),
+      ) ?? null
+    );
+  }
 }

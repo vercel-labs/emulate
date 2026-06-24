@@ -53,10 +53,24 @@ The official Node SDK builds absolute Twilio product URLs. In SDK tests, use a c
 - `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Participants`
 - `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Messages`
 
+## SMS And OTP Testing
+
+The seeded Verify Service uses code `123456`, so most local OTP tests can start a verification through the normal Verify API and submit that code. Tests that need to read the current local code can use the authenticated helper route:
+
+```bash
+curl -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+  "http://localhost:4000/_twilio/simulate/verification-code?To=%2B15550002222&ServiceSid=$TWILIO_VERIFY_SERVICE_SID"
+```
+
+The helper returns the latest local verification for that phone number, including `verification_sid`, `status`, `attempts`, and `code`. It is local-only test support, not a production Twilio API. The Verify inspector also shows each attempted code.
+
+For inbound SMS, configure a phone number `sms_url`, then call `POST /_twilio/simulate/inbound-message` with `To`, `From`, and `Body`. If the destination number is assigned to a Messaging Service with `inbound_request_url`, the simulator sends the inbound webhook there and includes `MessagingServiceSid`; otherwise it uses the phone number `sms_url`. For outbound delivery transitions, create a message with `StatusCallback`, then call `POST /_twilio/simulate/message-status`.
+
 ## Simulator
 
 - `POST /_twilio/simulate/inbound-message`
 - `POST /_twilio/simulate/message-status`
+- `GET /_twilio/simulate/verification-code`
 - `POST /_twilio/simulate/inbound-call`
 - `POST /_twilio/simulate/call-status`
 - `POST /_twilio/simulate/verification-status`

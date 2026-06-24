@@ -898,13 +898,27 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 Twilio uses multiple product hosts. For local SDK tests, rewrite Twilio SDK requests to the emulator and map `messaging.twilio.com` to `/messaging`, `verify.twilio.com` to `/verify`, and `conversations.twilio.com` to `/conversations`.
 
+### SMS And OTP Testing
+
+For the common SMS verification loop, the seeded Verify Service uses code `123456`. Start a verification through the normal Verify API, then either submit `123456` in your app test or fetch the latest local code with the authenticated helper route:
+
+```sh
+curl -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+  "http://localhost:4000/_twilio/simulate/verification-code?To=%2B15550002222&ServiceSid=$TWILIO_VERIFY_SERVICE_SID"
+```
+
+The helper returns the latest local verification for that phone number, including `verification_sid`, `status`, `attempts`, and `code`. It is local-only test support and is not part of Twilio's production API. The Verify inspector also shows each attempted code.
+
+To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then call `POST /_twilio/simulate/inbound-message` with `To`, `From`, and `Body`. If the destination number is assigned to a Messaging Service with `inbound_request_url`, the simulator sends the inbound webhook there and includes `MessagingServiceSid`; otherwise it uses the phone number `sms_url`. To test outbound delivery transitions, create a message with `StatusCallback`, then call `POST /_twilio/simulate/message-status`.
+
 ### Simulator And Inspector
 
 - `POST /_twilio/simulate/inbound-message` - create an inbound message and invoke the configured SMS webhook
 - `POST /_twilio/simulate/message-status` - advance message status and send status callbacks
+- `GET /_twilio/simulate/verification-code` - fetch the latest local Verify code by `VerificationSid` or `To`
 - `POST /_twilio/simulate/inbound-call` - create an inbound call and invoke the configured voice webhook
 - `POST /_twilio/simulate/call-status` - advance call status
-- `POST /_twilio/simulate/verification-status` - force a verification state
+- `POST /_twilio/simulate/verification-status` - force a verification state by `VerificationSid` or `To`
 - `GET /` - tabbed inspector for messages, Verify, calls, Conversations, phone numbers, services, auth, and webhook deliveries
 
 Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.

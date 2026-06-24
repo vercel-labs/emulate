@@ -73,13 +73,14 @@ export function inspectorRoutes({ app, store }: RouteContext): void {
         escapeHtml(verification.to),
         escapeHtml(verification.channel),
         escapeHtml(verification.status),
+        escapeHtml(verification.code),
         escapeHtml(String(verification.attempts)),
       ]);
     return (
       section("Verify Services", table(["SID", "Name", "Code"], serviceRows, "No Verify services.")) +
       section(
         "Verifications",
-        table(["SID", "To", "Channel", "Status", "Attempts"], verificationRows, "No verifications."),
+        table(["SID", "To", "Channel", "Status", "Code", "Attempts"], verificationRows, "No verifications."),
       )
     );
   }
