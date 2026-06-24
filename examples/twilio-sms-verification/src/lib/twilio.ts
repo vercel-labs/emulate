@@ -38,7 +38,7 @@ class EmulatorRequestClient {
   async request(opts: TwilioRequestOptions) {
     const original = new URL(opts.uri);
     const prefix = HOST_PREFIXES[original.hostname] ?? "";
-    const target = new URL(`${EMULATOR_BASE_URL}${prefix}${original.pathname}`);
+    const target = new URL(`${EMULATOR_BASE_URL}${prefix}${original.pathname}${original.search}`);
 
     for (const [key, value] of Object.entries(opts.params ?? {})) {
       target.searchParams.set(key, String(value));
