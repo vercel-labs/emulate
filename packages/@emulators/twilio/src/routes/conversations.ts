@@ -16,7 +16,7 @@ export function conversationRoutes({ app, store }: RouteContext): void {
     const account = authenticatedAccount(c);
     if (account instanceof Response) return account;
     const services = ts.conversationServices.findBy("account_sid", account.sid);
-    return twilioList(c, "services", services, "/conversations/v1/Services", formatConversationService);
+    return twilioList(c, "services", services, "/v1/Services", formatConversationService);
   });
 
   app.post("/conversations/v1/Services", async (c) => {
@@ -70,7 +70,7 @@ export function conversationRoutes({ app, store }: RouteContext): void {
       c,
       "conversations",
       conversations,
-      `/conversations/v1/Services/${service.sid}/Conversations`,
+      `/v1/Services/${service.sid}/Conversations`,
       formatConversation,
     );
   });
@@ -139,7 +139,7 @@ export function conversationRoutes({ app, store }: RouteContext): void {
       c,
       "participants",
       participants,
-      `/conversations/v1/Services/${conversation.service_sid}/Conversations/${conversation.sid}/Participants`,
+      `/v1/Services/${conversation.service_sid}/Conversations/${conversation.sid}/Participants`,
       formatConversationParticipant,
     );
   });
@@ -172,7 +172,7 @@ export function conversationRoutes({ app, store }: RouteContext): void {
       c,
       "messages",
       messages,
-      `/conversations/v1/Services/${conversation.service_sid}/Conversations/${conversation.sid}/Messages`,
+      `/v1/Services/${conversation.service_sid}/Conversations/${conversation.sid}/Messages`,
       formatConversationMessage,
     );
   });

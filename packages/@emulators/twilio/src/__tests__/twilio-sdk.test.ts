@@ -42,6 +42,14 @@ describe("Twilio SDK compatibility", () => {
     expect(check.valid).toBe(true);
   });
 
+  it("paginates product-host service lists through twilio-node", async () => {
+    const created = await client.messaging.v1.services.create({ friendlyName: "Paged Messaging Service" });
+    const services = await client.messaging.v1.services.list({ pageSize: 1, limit: 2 });
+
+    expect(services.map((service) => service.sid)).toContain(created.sid);
+    expect(requestClient.lastResponse?.statusCode).toBe(200);
+  });
+
   it("creates and updates calls through twilio-node", async () => {
     const call = await client.calls.create({
       to: "+15550006666",

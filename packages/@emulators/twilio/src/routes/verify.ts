@@ -11,7 +11,7 @@ export function verifyRoutes({ app, store }: RouteContext): void {
     const account = authenticatedAccount(c);
     if (account instanceof Response) return account;
     const services = ts.verifyServices.findBy("account_sid", account.sid);
-    return twilioList(c, "services", services, "/verify/v2/Services", formatVerifyService);
+    return twilioList(c, "services", services, "/v2/Services", formatVerifyService);
   });
 
   app.post("/verify/v2/Services", async (c) => {

@@ -18,7 +18,7 @@ export function messagingServiceRoutes({ app, store }: RouteContext): void {
     const account = authenticatedAccount(c);
     if (account instanceof Response) return account;
     const services = ts.messagingServices.findBy("account_sid", account.sid);
-    return twilioList(c, "services", services, "/messaging/v1/Services", formatMessagingService);
+    return twilioList(c, "services", services, "/v1/Services", formatMessagingService);
   });
 
   app.post("/messaging/v1/Services", async (c) => {
@@ -69,13 +69,8 @@ export function messagingServiceRoutes({ app, store }: RouteContext): void {
     const service = authenticatedService(c);
     if (service instanceof Response) return service;
     const assignments = ts.messagingServicePhoneNumbers.findBy("service_sid", service.sid);
-    return twilioList(
-      c,
-      "phone_numbers",
-      assignments,
-      `/messaging/v1/Services/${service.sid}/PhoneNumbers`,
-      (assignment) =>
-        formatMessagingServicePhoneNumber(assignment, ts.phoneNumbers.findOneBy("sid", assignment.phone_number_sid)),
+    return twilioList(c, "phone_numbers", assignments, `/v1/Services/${service.sid}/PhoneNumbers`, (assignment) =>
+      formatMessagingServicePhoneNumber(assignment, ts.phoneNumbers.findOneBy("sid", assignment.phone_number_sid)),
     );
   });
 
