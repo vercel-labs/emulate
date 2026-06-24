@@ -2,7 +2,12 @@ import type { RouteContext } from "@emulators/core";
 import { twilioSid } from "../ids.js";
 import { formatCall, formatMessage, formatVerification } from "../formatters.js";
 import { getTwilioStore } from "../store.js";
-import type { TwilioVerification, TwilioVerificationStatus } from "../entities.js";
+import type {
+  TwilioCallStatus,
+  TwilioMessageStatus,
+  TwilioVerification,
+  TwilioVerificationStatus,
+} from "../entities.js";
 import {
   bodyString,
   dispatchTwilioWebhook,
@@ -23,6 +28,31 @@ const VERIFICATION_STATUSES: TwilioVerificationStatus[] = [
   "failed",
   "expired",
 ];
+const MESSAGE_STATUSES: TwilioMessageStatus[] = [
+  "accepted",
+  "scheduled",
+  "canceled",
+  "queued",
+  "sending",
+  "sent",
+  "failed",
+  "delivered",
+  "undelivered",
+  "receiving",
+  "received",
+  "read",
+];
+const CALL_STATUSES: TwilioCallStatus[] = [
+  "queued",
+  "ringing",
+  "in-progress",
+  "completed",
+  "busy",
+  "failed",
+  "no-answer",
+  "canceled",
+];
+const TERMINAL_CALL_STATUSES: TwilioCallStatus[] = ["completed", "busy", "failed", "no-answer", "canceled"];
 
 export function simulatorRoutes({ app, store }: RouteContext): void {
   const ts = getTwilioStore(store);
@@ -86,11 +116,14 @@ export function simulatorRoutes({ app, store }: RouteContext): void {
     const sid = bodyString(body, "MessageSid");
     const status = bodyString(body, "Status");
     if (!sid || !status) return twilioError(c, 400, "MessageSid and Status are required", 20001);
+    if (!MESSAGE_STATUSES.includes(status as TwilioMessageStatus)) {
+      return twilioError(c, 400, "Status is invalid", 20001);
+    }
     const message = ts.messages.findOneBy("sid", sid);
     if (!message || message.account_sid !== account.sid)
       return twilioError(c, 404, "The requested resource was not found", 20404);
     const updated = ts.messages.update(message.id, {
-      status: status as typeof message.status,
+      status: status as TwilioMessageStatus,
       date_sent: ["sent", "delivered"].includes(status) ? new Date().toISOString() : message.date_sent,
     })!;
     await dispatchTwilioWebhook(ts, account, `message.${status}`, updated.status_callback, "POST", {
@@ -160,12 +193,15 @@ export function simulatorRoutes({ app, store }: RouteContext): void {
     const status = bodyString(body, "Status");
     const twiml = bodyString(body, "Twiml");
     if (!sid || !status) return twilioError(c, 400, "CallSid and Status are required", 20001);
+    if (!CALL_STATUSES.includes(status as TwilioCallStatus)) {
+      return twilioError(c, 400, "Status is invalid", 20001);
+    }
     const call = ts.calls.findOneBy("sid", sid);
     if (!call || call.account_sid !== account.sid)
       return twilioError(c, 404, "The requested resource was not found", 20404);
-    const terminal = ["completed", "busy", "failed", "no-answer", "canceled"].includes(status);
+    const terminal = TERMINAL_CALL_STATUSES.includes(status as TwilioCallStatus);
     const updated = ts.calls.update(call.id, {
-      status: status as typeof call.status,
+      status: status as TwilioCallStatus,
       twiml: twiml ?? call.twiml,
       twiml_steps: twiml ? parseTwimlSteps(twiml) : call.twiml_steps,
       end_time: terminal ? new Date().toISOString() : call.end_time,

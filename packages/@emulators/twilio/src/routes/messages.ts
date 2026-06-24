@@ -167,20 +167,26 @@ export function messageRoutes({ app, store }: RouteContext): void {
   }
 
   function resolveSender(c: Context, account: TwilioAccount, explicitFrom: string | null, serviceSid: string | null) {
+    const service = serviceSid ? ts.messagingServices.findOneBy("sid", serviceSid) : null;
+    if (serviceSid && (!service || service.account_sid !== account.sid)) {
+      return twilioError(c, 400, "Messaging Service was not found", 20404);
+    }
+
     if (explicitFrom) {
       const number = ts.phoneNumbers.findOneBy("phone_number", explicitFrom);
       if (!number || number.account_sid !== account.sid)
         return twilioError(c, 400, "From phone number is not owned by this account", 21606);
-      return { from: explicitFrom, statusCallback: number.status_callback };
+      return { from: explicitFrom, statusCallback: number.status_callback ?? service?.status_callback ?? null };
     }
-    if (serviceSid) {
-      const service = ts.messagingServices.findOneBy("sid", serviceSid);
-      if (!service || service.account_sid !== account.sid)
-        return twilioError(c, 400, "Messaging Service was not found", 20404);
-      const assignment = ts.messagingServicePhoneNumbers.findBy("service_sid", serviceSid)[0];
-      if (!assignment) return twilioError(c, 400, "Messaging Service has no senders", 21712);
-      const number = ts.phoneNumbers.findOneBy("sid", assignment.phone_number_sid);
-      return { from: number?.phone_number ?? null, statusCallback: service.status_callback };
+
+    if (service && serviceSid) {
+      for (const assignment of ts.messagingServicePhoneNumbers.findBy("service_sid", serviceSid)) {
+        const number = ts.phoneNumbers.findOneBy("sid", assignment.phone_number_sid);
+        if (number && number.account_sid === account.sid) {
+          return { from: number.phone_number, statusCallback: service.status_callback };
+        }
+      }
+      return twilioError(c, 400, "Messaging Service has no senders", 21712);
     }
     return twilioError(c, 400, "A 'From' phone number or MessagingServiceSid is required.", 21603);
   }

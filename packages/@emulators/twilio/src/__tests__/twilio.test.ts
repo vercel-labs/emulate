@@ -120,6 +120,59 @@ describe("Twilio emulator", () => {
     expect(del.status).toBe(204);
   });
 
+  it("validates MessagingServiceSid even when From is supplied", async () => {
+    const create = await setup.app.request(
+      `http://localhost/2010-04-01/Accounts/${DEFAULT_ACCOUNT_SID}/Messages.json`,
+      {
+        method: "POST",
+        headers: formHeaders(),
+        body: formBody({
+          To: "+15550001111",
+          From: DEFAULT_PHONE_NUMBER,
+          MessagingServiceSid: "MG11111111111111111111111111111111",
+          Body: "Invalid service",
+        }),
+      },
+    );
+    expect(create.status).toBe(400);
+    const error = (await create.json()) as any;
+    expect(error.code).toBe(20404);
+    expect(getTwilioStore(setup.store).messages.all()).toHaveLength(0);
+  });
+
+  it("removes Messaging Service sender assignments when phone numbers are deleted", async () => {
+    const ts = getTwilioStore(setup.store);
+    const number = ts.phoneNumbers.findOneBy("phone_number", DEFAULT_PHONE_NUMBER)!;
+    expect(ts.messagingServicePhoneNumbers.findBy("phone_number_sid", number.sid)).toHaveLength(1);
+
+    const del = await setup.app.request(
+      `http://localhost/2010-04-01/Accounts/${DEFAULT_ACCOUNT_SID}/IncomingPhoneNumbers/${number.sid}.json`,
+      {
+        method: "DELETE",
+        headers: { Authorization: basicAuth() },
+      },
+    );
+    expect(del.status).toBe(204);
+    expect(ts.messagingServicePhoneNumbers.findBy("phone_number_sid", number.sid)).toHaveLength(0);
+
+    const create = await setup.app.request(
+      `http://localhost/2010-04-01/Accounts/${DEFAULT_ACCOUNT_SID}/Messages.json`,
+      {
+        method: "POST",
+        headers: formHeaders(),
+        body: formBody({
+          To: "+15550001111",
+          MessagingServiceSid: DEFAULT_MESSAGING_SERVICE_SID,
+          Body: "No sender",
+        }),
+      },
+    );
+    expect(create.status).toBe(400);
+    const error = (await create.json()) as any;
+    expect(error.code).toBe(21712);
+    expect(ts.messages.all()).toHaveLength(0);
+  });
+
   it("dispatches signed message callbacks and captures deliveries", async () => {
     vi.stubGlobal(
       "fetch",
@@ -325,6 +378,41 @@ describe("Twilio emulator", () => {
     );
     const completed = (await complete.json()) as any;
     expect(completed.status).toBe("completed");
+  });
+
+  it("rejects invalid simulator status values without mutating resources", async () => {
+    const messageRes = await setup.app.request(
+      `http://localhost/2010-04-01/Accounts/${DEFAULT_ACCOUNT_SID}/Messages.json`,
+      {
+        method: "POST",
+        headers: formHeaders(),
+        body: formBody({ To: "+15550001111", From: DEFAULT_PHONE_NUMBER, Body: "Status check" }),
+      },
+    );
+    const message = (await messageRes.json()) as any;
+
+    const invalidMessageStatus = await setup.app.request("http://localhost/_twilio/simulate/message-status", {
+      method: "POST",
+      headers: formHeaders(),
+      body: formBody({ MessageSid: message.sid, Status: "totally-done" }),
+    });
+    expect(invalidMessageStatus.status).toBe(400);
+    expect(getTwilioStore(setup.store).messages.findOneBy("sid", message.sid)?.status).toBe("queued");
+
+    const callRes = await setup.app.request(`http://localhost/2010-04-01/Accounts/${DEFAULT_ACCOUNT_SID}/Calls.json`, {
+      method: "POST",
+      headers: formHeaders(),
+      body: formBody({ To: "+15550003333", From: DEFAULT_PHONE_NUMBER, Twiml: "<Response><Say>Hi</Say></Response>" }),
+    });
+    const call = (await callRes.json()) as any;
+
+    const invalidCallStatus = await setup.app.request("http://localhost/_twilio/simulate/call-status", {
+      method: "POST",
+      headers: formHeaders(),
+      body: formBody({ CallSid: call.sid, Status: "totally-done" }),
+    });
+    expect(invalidCallStatus.status).toBe(400);
+    expect(getTwilioStore(setup.store).calls.findOneBy("sid", call.sid)?.status).toBe("ringing");
   });
 
   it("creates Conversations resources", async () => {

@@ -85,6 +85,9 @@ export function phoneNumberRoutes({ app, store }: RouteContext): void {
   app.delete("/2010-04-01/Accounts/:accountSid/IncomingPhoneNumbers/:sid.json", (c) => {
     const number = authenticatedPhoneNumber(c);
     if (number instanceof Response) return number;
+    for (const assignment of ts.messagingServicePhoneNumbers.findBy("phone_number_sid", number.sid)) {
+      ts.messagingServicePhoneNumbers.delete(assignment.id);
+    }
     ts.phoneNumbers.delete(number.id);
     return c.body(null, 204);
   });
