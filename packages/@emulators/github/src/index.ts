@@ -4,7 +4,8 @@ import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteCo
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
-import { generateNodeId, generateSha } from "./helpers.js";
+import { generateNodeId } from "./helpers.js";
+import { defaultReadmeFiles, FIXTURE_COMMIT_DATE, materializeRepoGit, validateRepoFiles } from "./git-data.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -23,6 +24,7 @@ import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
+import { gitHttpRoutes } from "./routes/git-http.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -56,6 +58,7 @@ export interface GitHubSeedConfig {
     topics?: string[];
     default_branch?: string;
     auto_init?: boolean;
+    files?: Record<string, string>;
   }>;
   oauth_apps?: Array<{
     client_id: string;
@@ -202,6 +205,9 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
       const existing = gh.repos.findOneBy("full_name", fullName);
       if (existing) continue;
 
+      // Fail on bad fixture paths before any rows for this repo are created.
+      if (r.files) validateRepoFiles(r.files);
+
       const ownerType = ownerUser ? "User" : "Organization";
       const defaultBranch = r.default_branch ?? "main";
 
@@ -246,52 +252,17 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
       });
       gh.repos.update(repo.id, { node_id: generateNodeId("Repository", repo.id) });
 
-      if (r.auto_init !== false) {
-        const sha = generateSha();
-        const treeSha = generateSha();
-
-        const commit = gh.commits.insert({
-          repo_id: repo.id,
-          sha,
-          node_id: "",
+      if (r.files || r.auto_init !== false) {
+        // Real git objects with canonical shas, deterministic across restarts,
+        // so the repo can be cloned through the git smart HTTP endpoints.
+        materializeRepoGit(gh, gh.repos.get(repo.id)!, r.files ?? defaultReadmeFiles(r.name), {
+          authorName: r.owner,
+          authorEmail: `${r.owner}@localhost`,
+          commitDate: FIXTURE_COMMIT_DATE,
+          pushedAt: repo.created_at,
           message: "Initial commit",
-          author_name: r.owner,
-          author_email: `${r.owner}@localhost`,
-          author_date: repo.created_at,
-          committer_name: r.owner,
-          committer_email: `${r.owner}@localhost`,
-          committer_date: repo.created_at,
-          tree_sha: treeSha,
-          parent_shas: [],
-          user_id: owner.id,
+          userId: owner.id,
         });
-        gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-
-        const tree = gh.trees.insert({
-          repo_id: repo.id,
-          sha: treeSha,
-          node_id: "",
-          tree: [{ path: "README.md", mode: "100644", type: "blob", sha: generateSha(), size: 20 }],
-          truncated: false,
-        });
-        gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
-
-        gh.branches.insert({
-          repo_id: repo.id,
-          name: defaultBranch,
-          sha,
-          protected: false,
-        });
-
-        const refRow = gh.refs.insert({
-          repo_id: repo.id,
-          ref: `refs/heads/${defaultBranch}`,
-          sha,
-          node_id: "",
-        });
-        gh.refs.update(refRow.id, { node_id: generateNodeId("Ref", refRow.id) });
-
-        gh.repos.update(repo.id, { pushed_at: repo.created_at, size: 1 });
       }
 
       if (ownerType === "User") {
@@ -493,6 +464,8 @@ export const githubPlugin: ServicePlugin = {
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);
+    // Registered last so explicit REST paths always win over /:owner/:repo.
+    gitHttpRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

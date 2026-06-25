@@ -65,7 +65,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   github: {
     label: "GitHub REST API emulator",
     endpoints:
-      "users, repos, issues, PRs, comments, reviews, labels, milestones, branches, git data, orgs, teams, releases, webhooks, search, actions, checks, rate limit",
+      "users, repos, issues, PRs, comments, reviews, labels, milestones, branches, git data, git clone (smart HTTP), orgs, teams, releases, webhooks, search, actions, checks, rate limit",
     async load() {
       const mod = await import("@emulators/github");
       return {
