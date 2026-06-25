@@ -41,7 +41,7 @@ export function requireSecretKey(c: Context<AppEnv>, tokenMap?: TokenMap): AuthU
   const authHeader = c.req.header("Authorization") ?? "";
   if (authHeader.startsWith("Bearer ")) {
     const token = authHeader.slice(7).trim();
-    if (token.startsWith("sk_test_") || token.startsWith("sk_live_")) {
+    if (token.startsWith("sk_test_") || token.startsWith("sk_live_") || token.startsWith("ak_")) {
       const mapped = tokenMap?.get(token);
       if (mapped) {
         c.set("authUser", mapped);
@@ -65,19 +65,6 @@ export function deletedResponse(objectType: string, objectId: string): Record<st
     id: objectId,
     slug: null,
     deleted: true,
-  };
-}
-
-export function paginatedResponse<T>(
-  data: T[],
-  totalCount: number,
-  limit: number,
-  offset: number,
-): Record<string, unknown> {
-  return {
-    data,
-    total_count: totalCount,
-    has_more: offset + limit < totalCount,
   };
 }
 
@@ -223,6 +210,28 @@ export async function readJsonBody(c: Context<AppEnv>): Promise<Record<string, u
   } catch {
     return {};
   }
+}
+
+export interface PrimaryOrgClaims {
+  orgId?: string;
+  orgRole?: string;
+  orgSlug?: string;
+  orgPermissions?: string[];
+}
+
+// A user's session-token org claims come from their first organization membership.
+// Shared by the BAPI session-token route and the FAPI client/token builders.
+export function resolvePrimaryOrgClaims(cs: ClerkStore, user: ClerkUser): PrimaryOrgClaims {
+  const firstMembership = cs.memberships.findBy("user_id", user.clerk_id)[0];
+  if (!firstMembership) return {};
+  const org = cs.organizations.findOneBy("clerk_id", firstMembership.org_id);
+  if (!org) return {};
+  return {
+    orgId: org.clerk_id,
+    orgRole: firstMembership.role,
+    orgSlug: org.slug,
+    orgPermissions: firstMembership.permissions,
+  };
 }
 
 export function findUserByRef(cs: ClerkStore, ref: string): ClerkUser | undefined {

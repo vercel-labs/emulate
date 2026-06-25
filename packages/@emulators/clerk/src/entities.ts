@@ -89,6 +89,36 @@ export interface ClerkSession extends Entity {
   updated_at_unix: number;
 }
 
+export interface ClerkOrganizationDomain extends Entity {
+  domain_id: string;
+  name: string;
+  org_id: string;
+  enrollment_mode: "manual_invitation" | "automatic_invitation" | "automatic_suggestion";
+  verification_status: "verified" | "unverified";
+  verification_strategy: string;
+  verification_attempts: number;
+  verification_expires_at: number;
+  affiliation_email_address: string | null;
+  total_pending_invitations: number;
+  total_pending_suggestions: number;
+  created_at_unix: number;
+  updated_at_unix: number;
+}
+
+export interface ClerkM2MToken extends Entity {
+  token_id: string;
+  token: string;
+  subject: string;
+  scopes: string[];
+  claims: Record<string, unknown> | null;
+  revoked: boolean;
+  revocation_reason: string | null;
+  expired: boolean;
+  expiration: number | null;
+  created_at_unix: number;
+  updated_at_unix: number;
+}
+
 export interface ClerkOAuthApplication extends Entity {
   app_id: string;
   name: string;

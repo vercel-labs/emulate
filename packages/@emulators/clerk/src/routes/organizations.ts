@@ -1,18 +1,18 @@
 import type { RouteContext } from "@emulators/core";
-import { generateClerkId, nowUnix } from "../helpers.js";
+import { generateClerkId, nowUnix, defaultOrganizationPermissions } from "../helpers.js";
 import {
   clerkError,
   requireSecretKey,
   isAuthResponse,
   deletedResponse,
-  paginatedResponse,
   parsePagination,
   organizationResponse,
   readJsonBody,
 } from "../route-helpers.js";
 import { getClerkStore } from "../store.js";
+import { dispatchClerkEvent } from "../webhook-events.js";
 
-export function organizationRoutes({ app, store, tokenMap }: RouteContext): void {
+export function organizationRoutes({ app, store, webhooks, tokenMap }: RouteContext): void {
   const cs = getClerkStore(store);
 
   app.get("/v1/organizations", (c) => {
@@ -33,7 +33,7 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
     const totalCount = orgs.length;
     const paged = orgs.slice(offset, offset + limit);
 
-    return c.json(paginatedResponse(paged.map(organizationResponse), totalCount, limit, offset));
+    return c.json(paged.map(organizationResponse));
   });
 
   app.get("/v1/organizations/:orgId", (c) => {
@@ -88,14 +88,7 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
           org_id: org.clerk_id,
           user_id: userId,
           role: "org:admin",
-          permissions: [
-            "org:sys_profile:manage",
-            "org:sys_profile:delete",
-            "org:sys_memberships:read",
-            "org:sys_memberships:manage",
-            "org:sys_domains:read",
-            "org:sys_domains:manage",
-          ],
+          permissions: defaultOrganizationPermissions("org:admin"),
           public_metadata: {},
           private_metadata: {},
           created_at_unix: now,
@@ -106,7 +99,9 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
     }
 
     const updated = cs.organizations.findOneBy("clerk_id", org.clerk_id)!;
-    return c.json(organizationResponse(updated), 200);
+    const response = organizationResponse(updated);
+    dispatchClerkEvent(webhooks, "organization.created", response);
+    return c.json(response, 200);
   });
 
   app.patch("/v1/organizations/:orgId", async (c) => {
@@ -130,7 +125,9 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
 
     cs.organizations.update(org.id, patch);
     const updated = cs.organizations.findOneBy("clerk_id", orgId)!;
-    return c.json(organizationResponse(updated));
+    const response = organizationResponse(updated);
+    dispatchClerkEvent(webhooks, "organization.updated", response);
+    return c.json(response);
   });
 
   app.delete("/v1/organizations/:orgId", (c) => {
@@ -145,6 +142,7 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
     for (const inv of cs.invitations.findBy("org_id", orgId)) cs.invitations.delete(inv.id);
     cs.organizations.delete(org.id);
 
+    dispatchClerkEvent(webhooks, "organization.deleted", { id: orgId, deleted: true });
     return c.json(deletedResponse("organization", orgId));
   });
 
@@ -169,6 +167,8 @@ export function organizationRoutes({ app, store, tokenMap }: RouteContext): void
 
     cs.organizations.update(org.id, patch);
     const updated = cs.organizations.findOneBy("clerk_id", orgId)!;
-    return c.json(organizationResponse(updated));
+    const response = organizationResponse(updated);
+    dispatchClerkEvent(webhooks, "organization.updated", response);
+    return c.json(response);
   });
 }
