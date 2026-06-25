@@ -1,0 +1,26 @@
+import { applePlugin as baseApplePlugin } from "@emulators/apple";
+import { awsPlugin as baseAwsPlugin } from "@emulators/aws";
+import { clerkPlugin as baseClerkPlugin } from "@emulators/clerk";
+import { githubPlugin as baseGithubPlugin } from "@emulators/github";
+import { googlePlugin as baseGooglePlugin } from "@emulators/google";
+import { microsoftPlugin as baseMicrosoftPlugin } from "@emulators/microsoft";
+import { mongoatlasPlugin as baseMongoatlasPlugin } from "@emulators/mongoatlas";
+import { oktaPlugin as baseOktaPlugin } from "@emulators/okta";
+import { resendPlugin as baseResendPlugin } from "@emulators/resend";
+import { slackPlugin as baseSlackPlugin } from "@emulators/slack";
+import { stripePlugin as baseStripePlugin } from "@emulators/stripe";
+import { vercelPlugin as baseVercelPlugin } from "@emulators/vercel";
+import type { ServicePlugin } from "@emulators/core";
+
+export const applePlugin: ServicePlugin = baseApplePlugin;
+export const awsPlugin: ServicePlugin = baseAwsPlugin;
+export const clerkPlugin: ServicePlugin = baseClerkPlugin;
+export const githubPlugin: ServicePlugin = baseGithubPlugin;
+export const googlePlugin: ServicePlugin = baseGooglePlugin;
+export const microsoftPlugin: ServicePlugin = baseMicrosoftPlugin;
+export const mongoatlasPlugin: ServicePlugin = baseMongoatlasPlugin;
+export const oktaPlugin: ServicePlugin = baseOktaPlugin;
+export const resendPlugin: ServicePlugin = baseResendPlugin;
+export const slackPlugin: ServicePlugin = baseSlackPlugin;
+export const stripePlugin: ServicePlugin = baseStripePlugin;
+export const vercelPlugin: ServicePlugin = baseVercelPlugin;
