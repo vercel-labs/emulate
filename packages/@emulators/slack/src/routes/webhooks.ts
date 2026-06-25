@@ -1,6 +1,13 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { formatSlackMessage, generateTs, hasSlackMessageContent, parseSlackRichMessageFields } from "../helpers.js";
+import {
+  applySlackTextLimit,
+  formatSlackMessage,
+  generateTs,
+  hasSlackMessageContent,
+  parseSlackRichMessageFields,
+  validateSlackRichMessageLimits,
+} from "../helpers.js";
 
 export function webhookRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
@@ -39,12 +46,17 @@ export function webhookRoutes(ctx: RouteContext): void {
       }
     }
 
-    const text = typeof body.text === "string" ? body.text : "";
+    const textLimit = applySlackTextLimit(typeof body.text === "string" ? body.text : "");
+    const text = textLimit.text;
     const channelName = typeof body.channel === "string" ? body.channel : "";
     const threadTs = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) {
       return c.text(richMessage.error, 400);
+    }
+    const limitError = validateSlackRichMessageLimits(richMessage.fields);
+    if (limitError) {
+      return c.text(limitError, 400);
     }
 
     if (!hasSlackMessageContent(text, richMessage.fields)) {
