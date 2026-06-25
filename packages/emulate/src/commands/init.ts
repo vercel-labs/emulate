@@ -5,6 +5,7 @@ import { SERVICE_REGISTRY, SERVICE_NAMES, DEFAULT_TOKENS, type ServiceName } fro
 
 interface InitOptions {
   service: string;
+  slug?: string;
 }
 
 export function initCommand(options: InitOptions): void {
@@ -31,9 +32,18 @@ export function initCommand(options: InitOptions): void {
     config = { ...DEFAULT_TOKENS, ...entry.initConfig };
   }
 
+  if (options.slug) {
+    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(options.slug)) {
+      console.error("Invalid slug: must be a lowercase DNS label (a-z, 0-9, hyphens, max 63 chars).");
+      process.exit(1);
+    }
+    config = { slug: options.slug, ...config };
+  }
+
   const content = yamlStringify(config);
   writeFileSync(fullPath, content, "utf-8");
 
   console.log(`Created ${filename}`);
-  console.log(`\nRun 'npx emulate' to start the emulator.`);
+  const startCmd = options.slug ? "npx emulate start --portless" : "npx emulate";
+  console.log(`\nRun '${startCmd}' to start the emulator.`);
 }
