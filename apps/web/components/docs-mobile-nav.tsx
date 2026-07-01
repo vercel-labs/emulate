@@ -17,6 +17,7 @@ const sections: NavSection[] = [
       { href: "/docs/programmatic-api", label: "Programmatic API" },
       { href: "/docs/configuration", label: "Configuration" },
       { href: "/docs/nextjs", label: "Next.js Integration" },
+      { href: "/docs/nuxt", label: "Nuxt Integration" },
     ],
   },
   {

@@ -1094,6 +1094,99 @@ persistence: filePersistence('.emulate/state.json'),
 
 The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
 
+## Nuxt Integration
+
+Embed emulators directly in your Nuxt app so they run on the same origin. This gives OAuth flows stable callback URLs in local and preview deployments.
+
+### Install
+
+```bash
+npm install @emulators/adapter-nuxt @emulators/github @emulators/google
+```
+
+Only install the emulators you need. Each `@emulators/*` package is published independently.
+
+### Server route
+
+Create a named catch-all route that serves emulator traffic:
+
+```typescript
+// server/routes/emulate/[...path].ts
+import { createEmulateHandler } from '@emulators/adapter-nuxt'
+import * as github from '@emulators/github'
+import * as google from '@emulators/google'
+
+export default defineEventHandler(createEmulateHandler({
+  services: {
+    github: {
+      emulator: github,
+      seed: {
+        users: [{ login: 'octocat', name: 'The Octocat' }],
+        repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+      },
+    },
+    google: {
+      emulator: google,
+      seed: {
+        users: [{ email: 'test@example.com', name: 'Test User' }],
+      },
+    },
+  },
+}))
+```
+
+### Nuxt config
+
+Emulator UI pages use bundled fonts. Wrap your Nuxt config so Nitro traces the core package assets into production builds:
+
+```typescript
+// nuxt.config.ts
+import { withEmulate } from '@emulators/adapter-nuxt'
+
+export default defineNuxtConfig(withEmulate({
+  // your normal Nuxt config
+}))
+```
+
+### OAuth configuration
+
+Point your OAuth provider at the emulator paths on the same origin:
+
+```typescript
+const baseUrl = process.env.NUXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+
+export const githubOAuth = {
+  clientId: 'any-value',
+  clientSecret: 'any-value',
+  authorizationUrl: `${baseUrl}/emulate/github/login/oauth/authorize`,
+  tokenUrl: `${baseUrl}/emulate/github/login/oauth/access_token`,
+  userInfoUrl: `${baseUrl}/emulate/github/user`,
+}
+```
+
+No `oauth_apps` need to be seeded. When none are configured, the emulator skips `client_id`, `client_secret`, and `redirect_uri` validation.
+
+### Persistence
+
+By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter:
+
+```typescript
+import { createEmulateHandler } from '@emulators/adapter-nuxt'
+import * as github from '@emulators/github'
+
+const storageAdapter = {
+  async load() { return await useStorage('emulate').getItem<string>('state') },
+  async save(data: string) { await useStorage('emulate').setItem('state', data) },
+}
+
+export default defineEventHandler(createEmulateHandler({
+  services: { github: { emulator: github } },
+  persistence: storageAdapter,
+}))
+```
+
+The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
+
 ## Architecture
 
 ```
@@ -1102,6 +1195,7 @@ packages/
   @emulators/
     core/           # HTTP server, in-memory store, plugin interface, middleware
     adapter-next/   # Next.js App Router integration
+    adapter-nuxt/   # Nuxt server route integration
     vercel/         # Vercel API service
     github/         # GitHub API service
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive

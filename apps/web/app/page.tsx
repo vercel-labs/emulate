@@ -151,12 +151,17 @@ afterAll(() => github.close())`}</code>
               </div>
             </div>
             <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
-              <div className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Next.js adapter</div>
+              <div className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Framework adapters</div>
               <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">
-                Embed in your app. Same origin, no CORS issues, works on Vercel preview deployments.
+                Embed in Next.js or Nuxt. Same origin, no CORS issues, works on preview deployments.
               </p>
-              <div className="overflow-x-auto rounded-md bg-neutral-100 px-3 py-2 font-mono text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-                npm install @emulators/adapter-next @emulators/github
+              <div className="space-y-2">
+                <div className="overflow-x-auto rounded-md bg-neutral-100 px-3 py-2 font-mono text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+                  npm install @emulators/adapter-next @emulators/github
+                </div>
+                <div className="overflow-x-auto rounded-md bg-neutral-100 px-3 py-2 font-mono text-xs text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+                  npm install @emulators/adapter-nuxt @emulators/github
+                </div>
               </div>
             </div>
           </div>

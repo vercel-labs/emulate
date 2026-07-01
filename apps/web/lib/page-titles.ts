@@ -3,6 +3,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "programmatic-api": "Programmatic API",
   configuration: "Configuration",
   nextjs: "Next.js Integration",
+  nuxt: "Nuxt Integration",
   vercel: "Vercel API",
   github: "GitHub API",
   google: "Google API",
