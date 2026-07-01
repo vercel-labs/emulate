@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+import { cpSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   createServer,
   debug,
@@ -413,20 +416,47 @@ export function createEmulateHandler(config: EmulateHandlerConfig, options: Nuxt
   };
 }
 
+interface NitroInstanceLike {
+  options?: { output?: { serverDir?: string } };
+}
+
+/**
+ * Copy the `@emulators/core` UI fonts into the built server output.
+ *
+ * The emulator UI reads its fonts with `readFileSync(join(__dirname, "fonts", …))`.
+ * In a Nitro build `__dirname` resolves to the server output root, so the font
+ * files must exist at `<serverDir>/fonts/`. Nitro's tracing does not place them
+ * there, so we copy them explicitly once the build is written.
+ */
+function copyCoreFonts(nitro: NitroInstanceLike): void {
+  const serverDir = nitro.options?.output?.serverDir;
+  if (!serverDir) return;
+  try {
+    const require = createRequire(import.meta.url);
+    const corePkg = require.resolve("@emulators/core/package.json");
+    const fontsDir = join(dirname(corePkg), "dist", "fonts");
+    cpSync(fontsDir, join(serverDir, "fonts"), { recursive: true });
+  } catch (err) {
+    debug("nuxt", "font copy failed: %o", err);
+  }
+}
+
 export function withEmulate<T>(nuxtConfig: T): T {
   const config = nuxtConfig as Record<string, unknown>;
   const nitro = { ...((config.nitro as Record<string, unknown> | undefined) ?? {}) };
-  const traceDeps = Array.isArray(nitro.traceDeps) ? [...nitro.traceDeps] : [];
+  const existingHooks = (nitro.hooks as Record<string, unknown> | undefined) ?? {};
+  const prevCompiled = existingHooks.compiled as ((nitro: NitroInstanceLike) => unknown) | undefined;
 
-  if (!traceDeps.includes("@emulators/core*")) {
-    traceDeps.push("@emulators/core*");
-  }
+  const compiled = async (nitroInstance: NitroInstanceLike) => {
+    if (prevCompiled) await prevCompiled(nitroInstance);
+    copyCoreFonts(nitroInstance);
+  };
 
   return {
     ...config,
     nitro: {
       ...nitro,
-      traceDeps,
+      hooks: { ...existingHooks, compiled },
     },
   } as T;
 }

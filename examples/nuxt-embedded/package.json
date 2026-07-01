@@ -1,0 +1,27 @@
+{
+  "name": "nuxt-embedded",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "command -v portless >/dev/null 2>&1 || (echo '\\nportless is required but not installed. Run: npm i -g portless\\nSee: https://github.com/vercel-labs/portless\\n' && exit 1)",
+    "dev": "portless run --name nuxt-embedded-demo.emulate nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@emulators/adapter-nuxt": "workspace:*",
+    "@emulators/github": "workspace:*",
+    "@emulators/google": "workspace:*",
+    "nuxt": "^4.4.8",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.16.0",
+    "eslint": "^9",
+    "typescript": "^5"
+  }
+}
