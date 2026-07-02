@@ -19,7 +19,7 @@ export type Provider = {
 // always match the current origin — even on preview deployments where the URL
 // changes with every deploy.
 export function getAppUrl(event: H3Event): string {
-  return getRequestURL(event).origin;
+  return getRequestURL(event, { xForwardedHost: true }).origin;
 }
 
 export function getProviders(event: H3Event): Record<string, Provider> {

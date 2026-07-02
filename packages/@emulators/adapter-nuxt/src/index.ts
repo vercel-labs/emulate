@@ -295,11 +295,10 @@ export function createEmulateHandler(config: EmulateHandlerConfig, options: Nuxt
   let initPromise: Promise<void> | null = null;
   let pendingSave: Promise<void> = Promise.resolve();
 
-  function enqueueSave(): void {
-    if (!persistence || !apps) return;
+  function enqueueSave(targetApps: Map<string, ServiceApp> | null = apps): void {
+    if (!persistence || !targetApps) return;
     pendingSave = pendingSave.then(async () => {
-      if (!apps) return;
-      const snapshot = takeSnapshot(apps);
+      const snapshot = takeSnapshot(targetApps);
       const json = JSON.stringify(snapshot);
       try {
         await persistence.save(json);
@@ -355,7 +354,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig, options: Nuxt
         }
       }
       if (persistence) {
-        enqueueSave();
+        enqueueSave(serviceApps);
       }
     }
 
