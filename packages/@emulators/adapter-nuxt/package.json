@@ -1,5 +1,5 @@
 {
-  "name": "@emulators/core",
+  "name": "@emulators/adapter-nuxt",
   "version": "0.8.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -7,16 +7,16 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./package.json": "./package.json"
+      "default": "./dist/index.js"
+    }
   },
   "homepage": "https://emulate.dev",
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel-labs/emulate.git",
-    "directory": "packages/@emulators/core"
+    "directory": "packages/@emulators/adapter-nuxt"
   },
   "bugs": {
     "url": "https://github.com/vercel-labs/emulate/issues"
@@ -30,17 +30,15 @@
   "scripts": {
     "build": "tsup --clean",
     "dev": "tsup --watch",
-    "test": "vitest run",
     "clean": "rm -rf dist .turbo",
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
   "dependencies": {
-    "jose": "^6.2.2"
+    "@emulators/core": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7",
-    "vitest": "^4.1.0"
+    "typescript": "^5.7"
   }
 }

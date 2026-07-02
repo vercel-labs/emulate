@@ -350,9 +350,11 @@ LINEAR_EMULATOR_URL=http://localhost:4012
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
-## Next.js Integration (Embedded Mode)
+## Framework Integration (Embedded Mode)
 
 The `@emulators/adapter-next` package embeds emulators directly into a Next.js app on the same origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, and font tracing details.
+
+The `@emulators/adapter-nuxt` package embeds emulators directly into a Nuxt app on the same origin. See the **nuxt** skill (`skills/nuxt/SKILL.md`) for the server route, Nuxt config, OAuth configuration, and persistence setup.
 
 ## Persistence
 
@@ -388,6 +390,7 @@ packages/
   @emulators/
     core/            # HTTP server, Store, plugin interface, middleware
     adapter-next/    # Next.js App Router integration
+    adapter-nuxt/    # Nuxt server route integration
     vercel/          # Vercel API service plugin
     github/          # GitHub API service plugin
     google/          # Google OAuth 2.0 / OIDC plugin

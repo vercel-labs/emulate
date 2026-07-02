@@ -2,7 +2,9 @@ minimumReleaseAge: 2880
 
 allowBuilds:
   "@mongodb-js/zstd@7.0.0": false
+  "@parcel/watcher@2.5.6": false
   "esbuild@0.27.4": false
+  "esbuild@0.28.1": false
   "msw@2.12.13": false
   "node-liblzma@2.2.0": false
   "sharp@0.34.5": false

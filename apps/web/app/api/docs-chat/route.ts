@@ -14,7 +14,7 @@ const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
 
 const SYSTEM_PROMPT = `You are a helpful documentation assistant for emulate, a local drop-in replacement for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, Linear, and Twilio APIs used in CI and no-network sandboxes.
 
-emulate provides fully stateful, production-fidelity API emulation, not mocks. The CLI is installed as the "emulate" npm package and run via "npx emulate". It also supports a programmatic API via createEmulator and a Next.js adapter (@emulators/adapter-next) for embedding emulators in your app.
+emulate provides fully stateful, production-fidelity API emulation, not mocks. The CLI is installed as the "emulate" npm package and run via "npx emulate". It also supports a programmatic API via createEmulator, a Next.js adapter (@emulators/adapter-next), and a Nuxt adapter (@emulators/adapter-nuxt) for embedding emulators in your app.
 
 You have access to the full emulate documentation via the bash and readFile tools. The docs are available as markdown files in the /workspace/ directory.
 

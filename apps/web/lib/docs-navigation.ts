@@ -8,6 +8,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Programmatic API", href: "/docs/programmatic-api" },
   { name: "Configuration", href: "/docs/configuration" },
   { name: "Next.js Integration", href: "/docs/nextjs" },
+  { name: "Nuxt Integration", href: "/docs/nuxt" },
   { name: "Vercel API", href: "/docs/vercel" },
   { name: "GitHub API", href: "/docs/github" },
   { name: "Google API", href: "/docs/google" },
