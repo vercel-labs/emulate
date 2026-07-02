@@ -21,7 +21,7 @@ Open [http://localhost:3000](http://localhost:3000) and click any provider to si
 
 1. Emulators are served from `/emulate/github/**` and `/emulate/google/**` via a catch-all server route in `server/routes/emulate/[...path].ts`.
 2. Clicking a provider button navigates to `/api/auth/[provider]`, which builds the OAuth authorize URL pointing at the embedded emulator (same origin).
-3. The emulator shows a user-picker page. Select a seeded user.
+3. The emulator shows a user-picker page. Select a seeded user. GitHub also includes its built-in `admin` and `ghost` users.
 4. The emulator redirects back to `/api/auth/callback/[provider]` with an authorization code.
 5. The callback route exchanges the code for an access token by calling the embedded emulator's token endpoint, fetches user info, and stores the session in an HTTP-only cookie.
 6. The dashboard displays the authenticated user's profile and access token.

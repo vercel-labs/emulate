@@ -12,7 +12,7 @@ export default defineEventHandler(
         emulator: github,
         seed: {
           users: [
-            { login: "admin", name: "Admin User", email: "admin@example.com" },
+            { login: "publisher", name: "Publishing Lead", email: "publisher@example.com" },
             { login: "designer", name: "Creative Director", email: "designer@example.com" },
             { login: "editor", name: "Content Editor", email: "editor@example.com" },
           ],
@@ -22,7 +22,7 @@ export default defineEventHandler(
         emulator: google,
         seed: {
           users: [
-            { email: "admin@example.com", name: "Admin User" },
+            { email: "publisher@example.com", name: "Publishing Lead" },
             { email: "designer@example.com", name: "Creative Director" },
             { email: "editor@example.com", name: "Content Editor" },
           ],

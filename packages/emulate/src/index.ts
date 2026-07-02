@@ -13,7 +13,15 @@ const program = new Command();
 program
   .name("emulate")
   .description("Local drop-in replacement services for CI and no-network sandboxes")
-  .version(pkg.version);
+  .version(pkg.version)
+  .addHelpText(
+    "after",
+    `
+Framework adapters:
+  Embed emulators in app routes with @emulators/adapter-next or @emulators/adapter-nuxt.
+  Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
+`,
+  );
 
 program
   .command("start", { isDefault: true })
