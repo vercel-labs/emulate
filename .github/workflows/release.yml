@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  EMULATOR_PACKAGES: adapter-next apple aws clerk core github google microsoft mongoatlas okta resend slack stripe vercel
+  EMULATOR_PACKAGES: adapter-next adapter-nuxt apple aws clerk core github google linear microsoft mongoatlas okta resend slack stripe twilio vercel
 
 jobs:
   check-release:
