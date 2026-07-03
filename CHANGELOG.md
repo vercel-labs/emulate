@@ -1,6 +1,23 @@
 # Changelog
 
 <!-- release:start -->
+## 0.9.0
+
+### New Features
+
+- **Nuxt emulator adapter** — new `@emulators/adapter-nuxt` package for embedding emulators in Nuxt apps, with Nuxt server route handling, persistence, response rewriting, and Nitro tracing support (#188)
+- **Nuxt embedded example** — added `examples/nuxt-embedded` demonstrating same-origin OAuth flows (GitHub + Google), a catch-all emulate server route, and cookie-based sessions (#188)
+
+### Improvements
+
+- **Nuxt docs and agent guidance** — documented Nuxt setup across the README, docs site, and agent skills (#188)
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
 ## 0.8.0
 
 ### New Features
@@ -15,8 +32,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.7.0
 
