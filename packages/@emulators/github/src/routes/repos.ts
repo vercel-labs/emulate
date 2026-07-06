@@ -10,19 +10,10 @@ import {
   ownerLoginOf,
 } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
-import type {
-  GitHubBlob,
-  GitHubBranch,
-  GitHubCollaborator,
-  GitHubCommit,
-  GitHubRef,
-  GitHubRepo,
-  GitHubTag,
-  GitHubTree,
-  GitHubUser,
-} from "../entities.js";
+import type { GitHubCollaborator, GitHubRepo, GitHubTag, GitHubUser } from "../entities.js";
 import type { Collection, Entity } from "@emulators/core";
-import { formatRepo, formatUser, generateNodeId, generateSha, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import { formatRepo, formatUser, generateNodeId, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import { defaultReadmeFiles, materializeRepoGit } from "../git-data.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
   mit: { key: "mit", name: "MIT License", spdx_id: "MIT" },
@@ -53,71 +44,23 @@ function validateRepoName(name: unknown): string {
 }
 
 function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | null, readmeTitle?: string) {
-  const repoId = repo.id;
-  const readme = `# ${readmeTitle ?? repo.name}\n`;
-  const size = Buffer.byteLength(readme, "utf8");
-
-  const blob = gh.blobs.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
-    content: readme,
-    encoding: "utf-8",
-    size,
-  } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-  gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-
-  const tree = gh.trees.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
-    tree: [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha }],
-    truncated: false,
-  } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-  gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
-
   const authorName = actor?.name ?? actor?.login ?? "User";
   const login = actor?.login ?? "user";
   const email = actor?.email ?? `${login}@users.noreply.github.com`;
   const now = timestamp();
 
-  const commit = gh.commits.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
+  const { totalBytes } = materializeRepoGit(gh, repo, defaultReadmeFiles(readmeTitle ?? repo.name), {
+    authorName,
+    authorEmail: email,
+    commitDate: now,
+    pushedAt: now,
     message: "Initial commit",
-    author_name: authorName,
-    author_email: email,
-    author_date: now,
-    committer_name: authorName,
-    committer_email: email,
-    committer_date: now,
-    tree_sha: tree.sha,
-    parent_shas: [],
-    user_id: actor?.id ?? null,
-  } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-  gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-
-  gh.branches.insert({
-    repo_id: repoId,
-    name: repo.default_branch,
-    sha: commit.sha,
-    protected: false,
-  } as Omit<GitHubBranch, "id" | "created_at" | "updated_at">);
-
-  const ref = gh.refs.insert({
-    repo_id: repoId,
-    ref: `refs/heads/${repo.default_branch}`,
-    sha: commit.sha,
-    node_id: "",
-  } as Omit<GitHubRef, "id" | "created_at" | "updated_at">);
-  gh.refs.update(ref.id, { node_id: generateNodeId("Ref", ref.id) });
+    userId: actor?.id ?? null,
+  });
 
   gh.repos.update(repo.id, {
-    size,
-    pushed_at: now,
     language: "Markdown",
-    languages: { Markdown: size },
+    languages: { Markdown: totalBytes },
   });
 }
 
