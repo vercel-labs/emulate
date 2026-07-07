@@ -16,3 +16,7 @@ export interface ServicePlugin {
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void;
   seed?(store: Store, baseUrl: string): void;
 }
+
+export function createPlugin<const T extends ServicePlugin>(plugin: T): T {
+  return plugin;
+}

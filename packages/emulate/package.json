@@ -9,6 +9,14 @@
       "import": "./dist/api.js",
       "types": "./dist/api.d.ts"
     },
+    "./core": {
+      "import": "./dist/core.js",
+      "types": "./dist/core.d.ts"
+    },
+    "./plugins": {
+      "import": "./dist/plugins.js",
+      "types": "./dist/plugins.d.ts"
+    },
     "./cli": {
       "import": "./dist/index.js"
     }
@@ -52,12 +60,12 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@emulators/core": "workspace:*",
     "commander": "^14",
     "picocolors": "^1.1.1",
     "yaml": "^2"
   },
   "devDependencies": {
-    "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",

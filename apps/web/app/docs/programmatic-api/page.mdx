@@ -104,6 +104,27 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
   </tbody>
 </table>
 
+### Custom composition
+
+The `emulate` package also exposes core runtime primitives and built-in service plugins for custom emulators or local endpoint additions without direct `@emulators/*` installs:
+
+```typescript
+import { createPlugin, createServer, serve } from 'emulate/core'
+import { githubPlugin } from 'emulate/plugins'
+
+const plugin = createPlugin({
+  name: 'github',
+  register(app, store, webhooks, baseUrl, tokenMap) {
+    githubPlugin.register(app, store, webhooks, baseUrl, tokenMap)
+    app.get('/extra', (c) => c.json({ ok: true }))
+  },
+  seed: githubPlugin.seed,
+})
+
+const { app } = createServer(plugin, { baseUrl: 'http://localhost:4000' })
+const server = serve({ fetch: app.fetch, port: 4000 })
+```
+
 ## Scoped packages
 
 Each emulator is published as its own `@emulators/*` package. Install only the ones you need:
