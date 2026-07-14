@@ -210,6 +210,9 @@ curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
 # Get repo
 curl http://localhost:4001/repos/octocat/hello-world
 
+# Get repo by numeric ID
+curl http://localhost:4001/repositories/1
+
 # Create user repo
 curl -X POST http://localhost:4001/user/repos \
   -H "Authorization: Bearer $TOKEN" \
@@ -233,6 +236,24 @@ curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
   -H "Authorization: Bearer $TOKEN"
 
 # Topics, languages, contributors, forks, collaborators, tags, transfer
+```
+
+### Contents & Commit History
+
+```bash
+# Read a file or list a directory at a branch, tag, or commit
+curl "http://localhost:4001/repos/octocat/hello-world/contents/README.md?ref=main"
+
+# Create or update a file and commit the change
+curl -X PUT http://localhost:4001/repos/octocat/hello-world/contents/notes.txt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Update notes", "content": "aGVsbG8K"}'
+
+# List commits, get a commit with file stats, or compare refs
+curl http://localhost:4001/repos/octocat/hello-world/commits
+curl http://localhost:4001/repos/octocat/hello-world/commits/main
+curl http://localhost:4001/repos/octocat/hello-world/compare/v1.0.0...main
 ```
 
 ### Issues

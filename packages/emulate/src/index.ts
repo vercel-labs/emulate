@@ -20,6 +20,9 @@ program
 Framework adapters:
   Embed emulators in app routes with @emulators/adapter-next or @emulators/adapter-nuxt.
   Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
+
+GitHub API coverage:
+  Includes repository contents, commit history, commit details, and ref comparisons.
 `,
   );
 

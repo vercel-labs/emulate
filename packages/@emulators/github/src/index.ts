@@ -13,6 +13,8 @@ import { commentsRoutes } from "./routes/comments.js";
 import { reviewsRoutes } from "./routes/reviews.js";
 import { labelsAndMilestonesRoutes } from "./routes/labels.js";
 import { branchesAndGitRoutes } from "./routes/branches.js";
+import { contentsRoutes } from "./routes/contents.js";
+import { commitsRoutes } from "./routes/commits.js";
 import { orgsAndTeamsRoutes } from "./routes/orgs.js";
 import { releasesRoutes } from "./routes/releases.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
@@ -249,6 +251,18 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
       if (r.auto_init !== false) {
         const sha = generateSha();
         const treeSha = generateSha();
+        const readme = `# ${r.name}\n${r.description ? `\n${r.description}\n` : ""}`;
+        const readmeSize = Buffer.byteLength(readme, "utf8");
+
+        const blob = gh.blobs.insert({
+          repo_id: repo.id,
+          sha: generateSha(),
+          node_id: "",
+          content: readme,
+          encoding: "utf-8",
+          size: readmeSize,
+        });
+        gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
 
         const commit = gh.commits.insert({
           repo_id: repo.id,
@@ -271,7 +285,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           repo_id: repo.id,
           sha: treeSha,
           node_id: "",
-          tree: [{ path: "README.md", mode: "100644", type: "blob", sha: generateSha(), size: 20 }],
+          tree: [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size: readmeSize }],
           truncated: false,
         });
         gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
@@ -493,6 +507,10 @@ export const githubPlugin: ServicePlugin = {
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);
+    contentsRoutes(ctx);
+    // Registered last: the catch-all /commits/:ref{.+} route must not shadow
+    // /commits/:sha/comments (comments.ts) or /commits/:ref/check-* (checks.ts).
+    commitsRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

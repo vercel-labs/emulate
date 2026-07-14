@@ -1,0 +1,354 @@
+import type { GitHubStore } from "./store.js";
+import type { GitHubCommit, GitHubRepo } from "./entities.js";
+import { formatUser } from "./helpers.js";
+
+export function findCommitBySha(gh: GitHubStore, repoId: number, sha: string): GitHubCommit | undefined {
+  return gh.commits.findBy("repo_id", repoId).find((c) => c.sha === sha);
+}
+
+function peelToCommit(gh: GitHubStore, repoId: number, sha: string): GitHubCommit | undefined {
+  const commit = findCommitBySha(gh, repoId, sha);
+  if (commit) return commit;
+  const tag = gh.tags.findBy("repo_id", repoId).find((t) => t.sha === sha);
+  if (tag) return peelToCommit(gh, repoId, tag.object_sha);
+  return undefined;
+}
+
+/** Resolve a ref expression (branch, tag, full ref, sha, sha prefix, or HEAD) to a commit. */
+export function resolveRefToCommit(gh: GitHubStore, repo: GitHubRepo, refParam?: string): GitHubCommit | undefined {
+  const ref = !refParam || refParam === "HEAD" ? repo.default_branch : refParam;
+
+  const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === ref);
+  if (branch) return peelToCommit(gh, repo.id, branch.sha);
+
+  const refs = gh.refs.findBy("repo_id", repo.id);
+  const refRec =
+    refs.find((r) => r.ref === (ref.startsWith("refs/") ? ref : `refs/heads/${ref}`)) ??
+    refs.find((r) => r.ref === `refs/tags/${ref}`);
+  if (refRec) return peelToCommit(gh, repo.id, refRec.sha);
+
+  const tag = gh.tags.findBy("repo_id", repo.id).find((t) => t.tag === ref);
+  if (tag) return peelToCommit(gh, repo.id, tag.object_sha);
+
+  const commits = gh.commits.findBy("repo_id", repo.id);
+  const exact = commits.find((c) => c.sha === ref);
+  if (exact) return exact;
+  if (/^[0-9a-f]{4,39}$/.test(ref)) {
+    return commits.find((c) => c.sha.startsWith(ref));
+  }
+  return undefined;
+}
+
+export interface FlatTree {
+  /** Full slash-separated blob path -> entry. */
+  blobs: Map<string, { mode: string; sha: string; size?: number }>;
+  /** Full slash-separated directory path -> tree sha ("" when synthesized from flat paths). */
+  dirs: Map<string, string>;
+}
+
+/**
+ * Flatten a tree into full-path blob and directory maps. Handles both nested
+ * subtree entries and flat trees whose entry paths contain slashes (the shape
+ * POST /git/trees produces).
+ */
+export function flattenTree(gh: GitHubStore, repoId: number, treeSha: string): FlatTree {
+  const blobs: FlatTree["blobs"] = new Map();
+  const dirs: FlatTree["dirs"] = new Map();
+  const visited = new Set<string>();
+
+  const registerParentDirs = (path: string) => {
+    const parts = path.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join("/");
+      if (!dirs.has(dir)) dirs.set(dir, "");
+    }
+  };
+
+  const walk = (sha: string, prefix: string) => {
+    if (visited.has(sha)) return;
+    visited.add(sha);
+    const tree = gh.trees.findBy("repo_id", repoId).find((t) => t.sha === sha);
+    if (!tree) return;
+    for (const e of tree.tree) {
+      const path = prefix ? `${prefix}/${e.path}` : e.path;
+      if (e.type === "blob") {
+        blobs.set(path, { mode: e.mode, sha: e.sha, size: e.size });
+        registerParentDirs(path);
+      } else {
+        dirs.set(path, e.sha);
+        registerParentDirs(path);
+        walk(e.sha, path);
+      }
+    }
+  };
+
+  walk(treeSha, "");
+  return { blobs, dirs };
+}
+
+/** All commits reachable from head (inclusive), newest first. */
+export function listAncestors(gh: GitHubStore, repoId: number, headSha: string): GitHubCommit[] {
+  const out: GitHubCommit[] = [];
+  const seen = new Set<string>();
+  const stack = [headSha];
+  while (stack.length) {
+    const sha = stack.pop()!;
+    if (seen.has(sha)) continue;
+    seen.add(sha);
+    const commit = findCommitBySha(gh, repoId, sha);
+    if (!commit) continue;
+    out.push(commit);
+    for (const p of commit.parent_shas) stack.push(p);
+  }
+  return out.sort((a, b) =>
+    a.committer_date === b.committer_date ? b.id - a.id : a.committer_date < b.committer_date ? 1 : -1,
+  );
+}
+
+export function blobText(gh: GitHubStore, repoId: number, sha: string): string | null {
+  const blob = gh.blobs.findBy("repo_id", repoId).find((b) => b.sha === sha);
+  if (!blob) return null;
+  const text = blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
+  if (text.includes("\0")) return null;
+  return text;
+}
+
+type Op = { type: "eq" | "del" | "ins"; text: string };
+
+function lcsOps(a: string[], b: string[]): Op[] {
+  const n = a.length;
+  const m = b.length;
+  const dp: Uint32Array[] = [];
+  for (let i = 0; i <= n; i++) dp.push(new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const ops: Op[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      ops.push({ type: "eq", text: a[i] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ type: "del", text: a[i] });
+      i++;
+    } else {
+      ops.push({ type: "ins", text: b[j] });
+      j++;
+    }
+  }
+  while (i < n) ops.push({ type: "del", text: a[i++] });
+  while (j < m) ops.push({ type: "ins", text: b[j++] });
+  return ops;
+}
+
+function diffOps(a: string[], b: string[]): Op[] {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const midA = a.slice(start, endA);
+  const midB = b.slice(start, endB);
+  const mid: Op[] =
+    midA.length * midB.length > 250_000
+      ? [...midA.map((text): Op => ({ type: "del", text })), ...midB.map((text): Op => ({ type: "ins", text }))]
+      : lcsOps(midA, midB);
+  return [
+    ...a.slice(0, start).map((text): Op => ({ type: "eq", text })),
+    ...mid,
+    ...a.slice(endA).map((text): Op => ({ type: "eq", text })),
+  ];
+}
+
+const PATCH_CONTEXT = 3;
+const PATCH_MAX_LINES = 10_000;
+
+function opsToPatch(ops: Array<Op & { oldLine: number; newLine: number }>): string | undefined {
+  const changeIdx = ops.map((o, i) => (o.type === "eq" ? -1 : i)).filter((i) => i >= 0);
+  if (!changeIdx.length) return undefined;
+
+  const groups: Array<[number, number]> = [];
+  let gs = changeIdx[0];
+  let ge = changeIdx[0];
+  for (const idx of changeIdx.slice(1)) {
+    if (idx - ge - 1 <= PATCH_CONTEXT * 2) {
+      ge = idx;
+    } else {
+      groups.push([gs, ge]);
+      gs = idx;
+      ge = idx;
+    }
+  }
+  groups.push([gs, ge]);
+
+  const chunks: string[] = [];
+  for (const [s, e] of groups) {
+    const lo = Math.max(0, s - PATCH_CONTEXT);
+    const hi = Math.min(ops.length - 1, e + PATCH_CONTEXT);
+    const slice = ops.slice(lo, hi + 1);
+    const oldCount = slice.filter((o) => o.type !== "ins").length;
+    const newCount = slice.filter((o) => o.type !== "del").length;
+    const oldStart = oldCount === 0 ? slice[0].oldLine - 1 : slice[0].oldLine;
+    const newStart = newCount === 0 ? slice[0].newLine - 1 : slice[0].newLine;
+    chunks.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`);
+    for (const o of slice) {
+      chunks.push(`${o.type === "eq" ? " " : o.type === "del" ? "-" : "+"}${o.text}`);
+    }
+  }
+  return chunks.join("\n");
+}
+
+export interface TextDiff {
+  additions: number;
+  deletions: number;
+  patch?: string;
+}
+
+export function diffText(oldText: string | null, newText: string | null): TextDiff {
+  const splitLines = (t: string | null) => (t === null || t === "" ? [] : t.replace(/\n$/, "").split("\n"));
+  const a = splitLines(oldText);
+  const b = splitLines(newText);
+  const ops = diffOps(a, b);
+
+  let additions = 0;
+  let deletions = 0;
+  let oldLine = 1;
+  let newLine = 1;
+  const annotated = ops.map((o) => {
+    const entry = { ...o, oldLine, newLine };
+    if (o.type === "eq") {
+      oldLine++;
+      newLine++;
+    } else if (o.type === "del") {
+      deletions++;
+      oldLine++;
+    } else {
+      additions++;
+      newLine++;
+    }
+    return entry;
+  });
+
+  const patch = a.length + b.length > PATCH_MAX_LINES ? undefined : opsToPatch(annotated);
+  return { additions, deletions, patch };
+}
+
+export interface FileDiff {
+  sha: string;
+  filename: string;
+  status: "added" | "removed" | "modified";
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+}
+
+/** Diff two trees by flattened blob paths. Pass null for baseTreeSha to diff from an empty tree. */
+export function diffTrees(
+  gh: GitHubStore,
+  repoId: number,
+  baseTreeSha: string | null,
+  headTreeSha: string,
+): FileDiff[] {
+  const base = baseTreeSha ? flattenTree(gh, repoId, baseTreeSha) : { blobs: new Map(), dirs: new Map() };
+  const head = flattenTree(gh, repoId, headTreeSha);
+
+  const paths = [...new Set([...base.blobs.keys(), ...head.blobs.keys()])].sort();
+  const out: FileDiff[] = [];
+  for (const path of paths) {
+    const before = base.blobs.get(path);
+    const after = head.blobs.get(path);
+    if (before && after && before.sha === after.sha) continue;
+
+    const status: FileDiff["status"] = !before ? "added" : !after ? "removed" : "modified";
+    const oldText = before ? blobText(gh, repoId, before.sha) : "";
+    const newText = after ? blobText(gh, repoId, after.sha) : "";
+    const binary = oldText === null || newText === null;
+    const diff = binary ? { additions: 0, deletions: 0, patch: undefined } : diffText(oldText, newText);
+
+    out.push({
+      sha: (after ?? before)!.sha,
+      filename: path,
+      status,
+      additions: diff.additions,
+      deletions: diff.deletions,
+      changes: diff.additions + diff.deletions,
+      patch: diff.patch,
+    });
+  }
+  return out;
+}
+
+export function formatFileDiff(diff: FileDiff, repo: GitHubRepo, headSha: string, baseUrl: string) {
+  const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
+  return {
+    sha: diff.sha,
+    filename: diff.filename,
+    status: diff.status,
+    additions: diff.additions,
+    deletions: diff.deletions,
+    changes: diff.changes,
+    blob_url: `${baseUrl}/${repo.full_name}/blob/${headSha}/${diff.filename}`,
+    raw_url: `${baseUrl}/${repo.full_name}/raw/${headSha}/${diff.filename}`,
+    contents_url: `${repoUrl}/contents/${diff.filename}?ref=${headSha}`,
+    ...(diff.patch !== undefined ? { patch: diff.patch } : {}),
+  };
+}
+
+/** REST commit object (the /repos/{owner}/{repo}/commits shape, without stats/files). */
+export function formatCommitItem(gh: GitHubStore, repo: GitHubRepo, c: GitHubCommit, baseUrl: string) {
+  const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
+  const user = c.user_id ? gh.users.get(c.user_id) : null;
+  return {
+    sha: c.sha,
+    node_id: c.node_id,
+    commit: {
+      author: { name: c.author_name, email: c.author_email, date: c.author_date },
+      committer: { name: c.committer_name, email: c.committer_email, date: c.committer_date },
+      message: c.message,
+      tree: { sha: c.tree_sha, url: `${repoUrl}/git/trees/${c.tree_sha}` },
+      url: `${repoUrl}/git/commits/${c.sha}`,
+      comment_count: 0,
+      verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
+    },
+    url: `${repoUrl}/commits/${c.sha}`,
+    html_url: `${baseUrl}/${repo.full_name}/commit/${c.sha}`,
+    comments_url: `${repoUrl}/commits/${c.sha}/comments`,
+    author: user ? formatUser(user, baseUrl) : null,
+    committer: user ? formatUser(user, baseUrl) : null,
+    parents: c.parent_shas.map((sha) => ({
+      sha,
+      url: `${repoUrl}/commits/${sha}`,
+      html_url: `${baseUrl}/${repo.full_name}/commit/${sha}`,
+    })),
+  };
+}
+
+/** Git-data commit object (the /git/commits shape) used in contents write responses. */
+export function formatGitCommit(repo: GitHubRepo, c: GitHubCommit, baseUrl: string) {
+  const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
+  return {
+    sha: c.sha,
+    node_id: c.node_id,
+    url: `${repoUrl}/git/commits/${c.sha}`,
+    html_url: `${baseUrl}/${repo.full_name}/commit/${c.sha}`,
+    author: { name: c.author_name, email: c.author_email, date: c.author_date },
+    committer: { name: c.committer_name, email: c.committer_email, date: c.committer_date },
+    message: c.message,
+    tree: { sha: c.tree_sha, url: `${repoUrl}/git/trees/${c.tree_sha}` },
+    parents: c.parent_shas.map((sha) => ({
+      sha,
+      url: `${repoUrl}/git/commits/${sha}`,
+      html_url: `${baseUrl}/${repo.full_name}/commit/${sha}`,
+    })),
+    verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
+  };
+}

@@ -620,6 +620,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 ### Repositories
 - `GET /repos/:owner/:repo` - get repo
+- `GET /repositories/:id` - get repo by numeric ID
 - `POST /user/repos` - create user repo
 - `POST /orgs/:org/repos` - create org repo
 - `PATCH /repos/:owner/:repo` - update repo
@@ -633,6 +634,14 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/collaborators/:username/permission`
 - `POST /repos/:owner/:repo/transfer` - transfer repo
 - `GET /repos/:owner/:repo/tags` - list tags
+
+### Contents & Commit History
+- `GET /repos/:owner/:repo/readme` - get the repository README
+- `GET /repos/:owner/:repo/contents/:path` - get a file or list a directory at a ref
+- `PUT/DELETE /repos/:owner/:repo/contents/:path` - create, update, or delete a file and commit the change
+- `GET /repos/:owner/:repo/commits` - list commits with ref, path, author, and date filters
+- `GET /repos/:owner/:repo/commits/:ref` - get a commit with file diffs and stats
+- `GET /repos/:owner/:repo/compare/:base...:head` - compare two refs
 
 ### Issues
 - `GET /repos/:owner/:repo/issues` - list (filter by state, labels, assignee, milestone, creator, since)

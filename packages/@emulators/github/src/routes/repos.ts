@@ -317,6 +317,15 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     return c.json(formatRepo(repo, gh, baseUrl));
   });
 
+  app.get("/repositories/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) throw notFoundResponse();
+    const repo = gh.repos.get(id);
+    if (!repo) throw notFoundResponse();
+    assertRepoRead(gh, c.get("authUser"), repo);
+    return c.json(formatRepo(repo, gh, baseUrl));
+  });
+
   app.post("/user/repos", async (c) => {
     const authUser = c.get("authUser");
     const user = assertAuthenticatedUser(gh, authUser);
