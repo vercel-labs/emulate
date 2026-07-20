@@ -34,6 +34,7 @@ function createTestApp() {
       { owner: "octocat", name: "hello-world" },
       { owner: "octocat", name: "empty-repo", auto_init: false },
       { owner: "acme", name: "project" },
+      { owner: "acme", name: "other" },
     ],
     apps: [
       {
@@ -46,8 +47,7 @@ function createTestApp() {
           {
             installation_id: 41,
             account: "acme",
-            repository_selection: "selected",
-            repositories: ["acme/project"],
+            repository_selection: "all",
             permissions: { contents: "write" },
           },
           {
@@ -84,14 +84,18 @@ async function putFile(app: Hono, path: string, text: string, extra: Record<stri
   });
 }
 
-async function issueInstallationToken(app: Hono, installationId: number, permissions?: Record<string, string>) {
+async function issueInstallationToken(app: Hono, installationId: number, requestBody?: Record<string, unknown>) {
   const response = await app.request(`${base}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     headers: jsonHeaders("test-app-jwt"),
-    ...(permissions ? { body: JSON.stringify({ permissions }) } : {}),
+    ...(requestBody ? { body: JSON.stringify(requestBody) } : {}),
   });
-  const body = (await response.json()) as { token: string };
-  return { response, token: body.token };
+  const body = (await response.json()) as {
+    token: string;
+    repository_selection?: string;
+    repositories?: Array<{ name: string }>;
+  };
+  return { response, token: body.token, body };
 }
 
 describe("GitHub contents routes", () => {
@@ -387,11 +391,13 @@ describe("GitHub contents routes", () => {
 
   it("uses installation repository access and Contents permissions for writes", async () => {
     const { app } = createTestApp();
-    const orgInstallation = await issueInstallationToken(app, 41);
+    const orgInstallation = await issueInstallationToken(app, 41, { repositories: ["project"] });
     expect(orgInstallation.response.status).toBe(201);
+    expect(orgInstallation.body.repository_selection).toBe("selected");
+    expect(orgInstallation.body.repositories?.map((repo) => repo.name)).toEqual(["project"]);
     const userInstallation = await issueInstallationToken(app, 42);
     expect(userInstallation.response.status).toBe(201);
-    const escalated = await issueInstallationToken(app, 42, { contents: "write" });
+    const escalated = await issueInstallationToken(app, 42, { permissions: { contents: "write" } });
     expect(escalated.response.status).toBe(422);
 
     const orgWrite = await app.request(`${base}/repos/acme/project/contents/installed.txt`, {
@@ -404,7 +410,7 @@ describe("GitHub contents routes", () => {
     });
     expect(orgWrite.status).toBe(201);
 
-    const outsideSelection = await app.request(`${base}/repos/octocat/hello-world/contents/blocked.txt`, {
+    const outsideSelection = await app.request(`${base}/repos/acme/other/contents/blocked.txt`, {
       method: "PUT",
       headers: jsonHeaders(orgInstallation.token),
       body: JSON.stringify({
@@ -431,7 +437,7 @@ describe("GitHub contents routes", () => {
     const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
     gh.repos.update(repo.id, { private: true });
 
-    const noContents = await issueInstallationToken(app, 42, {});
+    const noContents = await issueInstallationToken(app, 42, { permissions: {} });
     expect(noContents.response.status).toBe(201);
     const readContents = await issueInstallationToken(app, 42);
     expect(readContents.response.status).toBe(201);
@@ -462,6 +468,20 @@ describe("GitHub contents routes", () => {
     for (const url of protectedUrls) {
       expect((await app.request(url, { headers: authHeaders(noContents.token) })).status, url).toBe(403);
       expect((await app.request(url, { headers: authHeaders(readContents.token) })).status, url).toBe(200);
+    }
+
+    const searches = [
+      `${base}/search/code?q=${encodeURIComponent("hello-world repo:octocat/hello-world")}`,
+      `${base}/search/commits?q=${encodeURIComponent("Initial commit repo:octocat/hello-world")}`,
+    ];
+    for (const url of searches) {
+      const denied = await app.request(url, { headers: authHeaders(noContents.token) });
+      expect(denied.status, url).toBe(200);
+      expect((await denied.json()) as { total_count: number }).toEqual(expect.objectContaining({ total_count: 0 }));
+
+      const allowed = await app.request(url, { headers: authHeaders(readContents.token) });
+      expect(allowed.status, url).toBe(200);
+      expect(((await allowed.json()) as { total_count: number }).total_count, url).toBeGreaterThan(0);
     }
   });
 
@@ -770,6 +790,18 @@ describe("GitHub contents routes", () => {
     expect((await subtree.json()) as { tree: unknown[] }).toEqual(
       expect.objectContaining({ tree: [expect.objectContaining({ path: "index.ts", type: "blob" })] }),
     );
+
+    const recursive = await app.request(`${base}/repos/octocat/hello-world/git/trees/${treeBody.sha}?recursive=1`, {
+      headers: authHeaders(),
+    });
+    expect(recursive.status).toBe(200);
+    const recursiveBody = (await recursive.json()) as { tree: Array<{ path: string; type: string }> };
+    expect(recursiveBody.tree).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "src", type: "tree" }),
+        expect.objectContaining({ path: "src/index.ts", type: "blob" }),
+      ]),
+    );
   });
 
   it("deletes base-tree entries whose SHA is null", async () => {
@@ -820,6 +852,31 @@ describe("GitHub contents routes", () => {
       headers: authHeaders(),
     });
     expect(removed.status).toBe(404);
+  });
+
+  it("keeps archived repositories read-only across Contents and Git Data", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    gh.repos.update(repo.id, { archived: true });
+
+    const read = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    expect(read.status).toBe(200);
+
+    const contentsWrite = await putFile(app, "archived.txt", "blocked\n");
+    expect(contentsWrite.status).toBe(403);
+    expect((await contentsWrite.json()) as { message: string }).toEqual(
+      expect.objectContaining({ message: "Repository was archived so is read-only." }),
+    );
+
+    const blobWrite = await app.request(`${base}/repos/octocat/hello-world/git/blobs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ content: "blocked", encoding: "utf-8" }),
+    });
+    expect(blobWrite.status).toBe(403);
   });
 });
 
@@ -966,6 +1023,31 @@ describe("GitHub commits routes", () => {
     expect(commitBody.stats).toEqual(expect.objectContaining({ additions: 1, deletions: 1 }));
     expect(commitBody.files[0]).toEqual(expect.objectContaining({ additions: 1, deletions: 1 }));
     expect(commitBody.files[0].patch).toContain("No newline at end of file");
+  });
+
+  it("reports sparse changes accurately in large files", async () => {
+    const original = Array.from({ length: 1_000 }, (_, index) => `line ${index + 1}\n`);
+    const created = await putFile(app, "large.txt", original.join(""));
+    const createdBody = (await created.json()) as { content: { sha: string } };
+
+    const changed = [...original];
+    changed[99] = "changed line 100\n";
+    changed[899] = "changed line 900\n";
+    const updated = await putFile(app, "large.txt", changed.join(""), { sha: createdBody.content.sha });
+    const updatedBody = (await updated.json()) as { commit: { sha: string } };
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/commits/${updatedBody.commit.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(commit.status).toBe(200);
+    const commitBody = (await commit.json()) as {
+      stats: { additions: number; deletions: number };
+      files: Array<{ additions: number; deletions: number; patch?: string }>;
+    };
+    expect(commitBody.stats).toEqual(expect.objectContaining({ additions: 2, deletions: 2 }));
+    expect(commitBody.files[0]).toEqual(expect.objectContaining({ additions: 2, deletions: 2 }));
+    expect(commitBody.files[0].patch).toContain("changed line 100");
+    expect(commitBody.files[0].patch).toContain("changed line 900");
   });
 
   it("reports mode-only changes in commit details and comparisons", async () => {

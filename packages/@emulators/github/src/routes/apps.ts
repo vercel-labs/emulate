@@ -127,8 +127,44 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
           Object.entries(requested).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         );
       }
-      if (Array.isArray(body.repository_ids)) {
-        requestedRepoIds = (body.repository_ids as unknown[]).filter((id): id is number => typeof id === "number");
+
+      if (body.repositories !== undefined && body.repository_ids !== undefined) {
+        return c.json({ message: "Only one of repositories or repository_ids may be specified." }, 422);
+      }
+
+      if (body.repositories !== undefined) {
+        if (
+          !Array.isArray(body.repositories) ||
+          body.repositories.length > 500 ||
+          body.repositories.some((name) => typeof name !== "string")
+        ) {
+          return c.json({ message: "The repositories field must contain up to 500 repository names." }, 422);
+        }
+
+        const accountRepos = gh.repos
+          .all()
+          .filter((repo) => repo.owner_id === inst.account_id && repo.owner_type === inst.account_type);
+        const resolvedIds: number[] = [];
+        for (const name of body.repositories as string[]) {
+          const repo = accountRepos.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+          if (!repo) {
+            return c.json({ message: "The repositories requested are not accessible to this installation." }, 422);
+          }
+          resolvedIds.push(repo.id);
+        }
+        requestedRepoIds = [...new Set(resolvedIds)];
+        tokenRepositorySelection = "selected";
+      }
+
+      if (body.repository_ids !== undefined) {
+        if (
+          !Array.isArray(body.repository_ids) ||
+          body.repository_ids.length > 500 ||
+          body.repository_ids.some((id) => typeof id !== "number")
+        ) {
+          return c.json({ message: "The repository_ids field must contain up to 500 repository IDs." }, 422);
+        }
+        requestedRepoIds = [...new Set(body.repository_ids as number[])];
         tokenRepositorySelection = "selected";
       }
     } catch {

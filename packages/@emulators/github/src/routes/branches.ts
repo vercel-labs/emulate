@@ -147,17 +147,12 @@ function expandTreeEntries(
   const out: GitHubTree["tree"] = [];
   for (const e of entries) {
     const path = prefix ? `${prefix}/${e.path}` : e.path;
-    if (e.type === "blob") {
-      out.push({ ...e, path });
-    } else if (e.type === "tree" && recursive) {
+    out.push({ ...e, path });
+    if (e.type === "tree" && recursive) {
       const sub = findTreeBySha(gh, repoId, e.sha);
       if (sub) {
         out.push(...expandTreeEntries(gh, repoId, sub.tree, true, path));
-      } else {
-        out.push({ ...e, path });
       }
-    } else {
-      out.push({ ...e, path });
     }
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
@@ -927,7 +922,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     assertRepoContentsRead(gh, c.get("authUser"), repo);
     const tree = findTreeBySha(gh, repo.id, treeSha);
     if (!tree) throw notFoundResponse();
-    const recursive = c.req.query("recursive") === "1" || c.req.query("recursive") === "true";
+    const recursive = c.req.query("recursive") !== undefined;
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
     const entries = recursive
       ? expandTreeEntries(gh, repo.id, tree.tree, true)

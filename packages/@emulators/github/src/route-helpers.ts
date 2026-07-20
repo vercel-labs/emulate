@@ -81,11 +81,16 @@ export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, 
   throw forbidden();
 }
 
-export function assertRepoContentsRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
-  assertRepoRead(gh, authUser, repo);
-  if (!repo.private || !authUser?.installation) return;
+export function canReadRepoContents(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): boolean {
+  if (!canAccessRepo(gh, authUser, repo)) return false;
+  if (!repo.private || !authUser?.installation) return true;
   const permission = authUser.installation.permissions.contents;
-  if (permission === "read" || permission === "write") return;
+  return permission === "read" || permission === "write";
+}
+
+export function assertRepoContentsRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
+  if (canReadRepoContents(gh, authUser, repo)) return;
+  if (!authUser) throw unauthorized();
   throw forbidden();
 }
 
@@ -140,11 +145,13 @@ export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | un
   if (authUser?.installation) {
     if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
     if (authUser.installation.permissions.contents !== "write") throw forbidden();
+    if (repo.archived) throw new ApiError(403, "Repository was archived so is read-only.");
     return installationActor(gh, authUser);
   }
   const user = assertAuthenticatedUser(gh, authUser);
-  if (hasRepoContentsWrite(gh, user, repo)) return user;
-  throw forbidden();
+  if (!hasRepoContentsWrite(gh, user, repo)) throw forbidden();
+  if (repo.archived) throw new ApiError(403, "Repository was archived so is read-only.");
+  return user;
 }
 
 function hasBranchProtectionBypass(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {

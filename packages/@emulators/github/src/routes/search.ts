@@ -12,7 +12,7 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import { formatIssue, formatOrgBrief, formatPullRequest, formatRepo, formatUser, lookupRepo } from "../helpers.js";
-import { canAccessRepo } from "../route-helpers.js";
+import { canAccessRepo, canReadRepoContents } from "../route-helpers.js";
 import {
   commitIdentityMatches,
   encodeContentPath,
@@ -870,7 +870,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     }> = [];
 
     for (const repo of gh.repos.all()) {
-      if (!repoVisibleForSearch(repo, gh, authUser)) continue;
+      if (!canReadRepoContents(gh, authUser, repo)) continue;
       if (repoSpecs.length) {
         const ok = repoSpecs.some((rs) => {
           const r = resolveRepoQualifier(gh, rs);
@@ -962,7 +962,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     for (const commit of gh.commits.all()) {
       const repo = gh.repos.get(commit.repo_id);
       if (!repo) continue;
-      if (!repoVisibleForSearch(repo, gh, authUser)) continue;
+      if (!canReadRepoContents(gh, authUser, repo)) continue;
       if (repoSpecs.length) {
         const ok = repoSpecs.some((rs) => {
           const r = resolveRepoQualifier(gh, rs);

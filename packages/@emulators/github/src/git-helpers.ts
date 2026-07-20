@@ -269,6 +269,96 @@ function lcsOps(a: string[], b: string[]): Op[] {
   return ops;
 }
 
+function myersBisectOps(a: string[], b: string[]): Op[] {
+  const n = a.length;
+  const m = b.length;
+  const maxD = Math.ceil((n + m) / 2);
+  const offset = maxD;
+  const vectorLength = maxD * 2;
+  const forward = new Int32Array(vectorLength);
+  const reverse = new Int32Array(vectorLength);
+  forward.fill(-1);
+  reverse.fill(-1);
+  forward[offset + 1] = 0;
+  reverse[offset + 1] = 0;
+
+  const delta = n - m;
+  const frontOverlaps = delta % 2 !== 0;
+  let forwardStart = 0;
+  let forwardEnd = 0;
+  let reverseStart = 0;
+  let reverseEnd = 0;
+
+  const split = (x: number, y: number): Op[] => {
+    if ((x === 0 && y === 0) || (x === n && y === m)) {
+      return [...a.map((text): Op => ({ type: "del", text })), ...b.map((text): Op => ({ type: "ins", text }))];
+    }
+    return [...diffOps(a.slice(0, x), b.slice(0, y)), ...diffOps(a.slice(x), b.slice(y))];
+  };
+
+  for (let d = 0; d < maxD; d++) {
+    for (let k = -d + forwardStart; k <= d - forwardEnd; k += 2) {
+      const index = offset + k;
+      let x: number;
+      if (k === -d || (k !== d && forward[index - 1] < forward[index + 1])) {
+        x = forward[index + 1];
+      } else {
+        x = forward[index - 1] + 1;
+      }
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) {
+        x++;
+        y++;
+      }
+      forward[index] = x;
+
+      if (x > n) {
+        forwardEnd += 2;
+      } else if (y > m) {
+        forwardStart += 2;
+      } else if (frontOverlaps) {
+        const reverseIndex = offset + delta - k;
+        if (reverseIndex >= 0 && reverseIndex < vectorLength && reverse[reverseIndex] !== -1) {
+          const reverseX = n - reverse[reverseIndex];
+          if (x >= reverseX) return split(x, y);
+        }
+      }
+    }
+
+    for (let k = -d + reverseStart; k <= d - reverseEnd; k += 2) {
+      const index = offset + k;
+      let x: number;
+      if (k === -d || (k !== d && reverse[index - 1] < reverse[index + 1])) {
+        x = reverse[index + 1];
+      } else {
+        x = reverse[index - 1] + 1;
+      }
+      let y = x - k;
+      while (x < n && y < m && a[n - x - 1] === b[m - y - 1]) {
+        x++;
+        y++;
+      }
+      reverse[index] = x;
+
+      if (x > n) {
+        reverseEnd += 2;
+      } else if (y > m) {
+        reverseStart += 2;
+      } else if (!frontOverlaps) {
+        const forwardIndex = offset + delta - k;
+        if (forwardIndex >= 0 && forwardIndex < vectorLength && forward[forwardIndex] !== -1) {
+          const forwardX = forward[forwardIndex];
+          const forwardY = offset + forwardX - forwardIndex;
+          const reverseX = n - x;
+          if (forwardX >= reverseX) return split(forwardX, forwardY);
+        }
+      }
+    }
+  }
+
+  return [...a.map((text): Op => ({ type: "del", text })), ...b.map((text): Op => ({ type: "ins", text }))];
+}
+
 function diffOps(a: string[], b: string[]): Op[] {
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
@@ -280,10 +370,14 @@ function diffOps(a: string[], b: string[]): Op[] {
   }
   const midA = a.slice(start, endA);
   const midB = b.slice(start, endB);
-  const mid: Op[] =
-    midA.length * midB.length > 250_000
-      ? [...midA.map((text): Op => ({ type: "del", text })), ...midB.map((text): Op => ({ type: "ins", text }))]
-      : lcsOps(midA, midB);
+  let mid: Op[];
+  if (!midA.length) {
+    mid = midB.map((text): Op => ({ type: "ins", text }));
+  } else if (!midB.length) {
+    mid = midA.map((text): Op => ({ type: "del", text }));
+  } else {
+    mid = midA.length * midB.length > 250_000 ? myersBisectOps(midA, midB) : lcsOps(midA, midB);
+  }
   return [
     ...a.slice(0, start).map((text): Op => ({ type: "eq", text })),
     ...mid,
