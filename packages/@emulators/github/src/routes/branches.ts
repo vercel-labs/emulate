@@ -805,10 +805,17 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoContentsWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
+    if (fullRef.startsWith("refs/heads/")) {
+      const branchName = fullRef.slice("refs/heads/".length);
+      if (branchName === repo.default_branch) {
+        throw new ApiError(422, "Cannot delete the default branch");
+      }
+      assertBranchUpdateAllowed(gh, user, repo, branchName, { deletion: true });
+    }
     gh.refs.delete(r.id);
     deleteBranchForHeadRef(gh, repo.id, fullRef);
     return c.body(null, 204);

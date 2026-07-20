@@ -749,6 +749,19 @@ describe("GitHub commits routes", () => {
     expect(created.status).toBe(201);
     const createdBody = (await created.json()) as { sha: string };
 
+    const updateRef = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: createdBody.sha }),
+    });
+    expect(updateRef.status).toBe(200);
+
+    const pathHistory = await app.request(`${base}/repos/octocat/hello-world/commits?path=README.md`, {
+      headers: authHeaders(),
+    });
+    expect(pathHistory.status).toBe(200);
+    expect(((await pathHistory.json()) as Array<{ sha: string }>).map((item) => item.sha)).toContain(createdBody.sha);
+
     const commit = await app.request(`${base}/repos/octocat/hello-world/commits/${createdBody.sha}`, {
       headers: authHeaders(),
     });
@@ -772,6 +785,72 @@ describe("GitHub commits routes", () => {
     expect(comparisonBody.files).toEqual([
       expect.objectContaining({ filename: "README.md", status: "modified", additions: 0, deletions: 0, changes: 0 }),
     ]);
+  });
+
+  it("rejects default and disallowed protected branch deletion", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const createBranch = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/heads/protected", sha: head.sha }),
+    });
+    expect(createBranch.status).toBe(201);
+
+    const protectionBody = {
+      required_status_checks: null,
+      enforce_admins: true,
+      required_pull_request_reviews: null,
+      restrictions: null,
+      required_linear_history: false,
+      allow_force_pushes: false,
+      allow_deletions: false,
+      required_signatures: false,
+    };
+    const protect = await app.request(`${base}/repos/octocat/hello-world/branches/protected/protection`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify(protectionBody),
+    });
+    expect(protect.status).toBe(200);
+
+    const deleteDefault = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    expect(deleteDefault.status).toBe(422);
+    const defaultStillExists = await app.request(`${base}/repos/octocat/hello-world/git/ref/heads/main`, {
+      headers: authHeaders(),
+    });
+    expect(defaultStillExists.status).toBe(200);
+
+    const deleteProtected = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/protected`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    expect(deleteProtected.status).toBe(409);
+
+    const stillExists = await app.request(`${base}/repos/octocat/hello-world/git/ref/heads/protected`, {
+      headers: authHeaders(),
+    });
+    expect(stillExists.status).toBe(200);
+
+    const allowDeletion = await app.request(`${base}/repos/octocat/hello-world/branches/protected/protection`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ...protectionBody, allow_deletions: true }),
+    });
+    expect(allowDeletion.status).toBe(200);
+
+    const deleted = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/protected`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    expect(deleted.status).toBe(204);
+    const noLongerExists = await app.request(`${base}/repos/octocat/hello-world/git/ref/heads/protected`, {
+      headers: authHeaders(),
+    });
+    expect(noLongerExists.status).toBe(404);
   });
 
   it("keeps Git Data and REST commit response shapes distinct", async () => {

@@ -132,7 +132,7 @@ export function assertBranchUpdateAllowed(
   user: GitHubUser,
   repo: GitHubRepo,
   branchName: string,
-  options: { force?: boolean; parentCount?: number } = {},
+  options: { force?: boolean; parentCount?: number; deletion?: boolean } = {},
 ): void {
   const protection = gh.branchProtections
     .findBy("repo_id", repo.id)
@@ -143,14 +143,17 @@ export function assertBranchUpdateAllowed(
   const restricted =
     protection.restrictions &&
     !branchRestrictionsAllow(gh, user, repo, protection.restrictions.users, protection.restrictions.teams);
+  const blockedDeletion = options.deletion === true && !protection.allow_deletions;
   const requirementsBlockDirectUpdate =
-    protection.required_pull_request_reviews !== null ||
-    Boolean(protection.required_status_checks?.contexts.length) ||
-    protection.required_signatures;
-  const invalidHistory = protection.required_linear_history && (options.parentCount ?? 1) > 1;
-  const blockedForcePush = options.force === true && !protection.allow_force_pushes;
+    options.deletion !== true &&
+    (protection.required_pull_request_reviews !== null ||
+      Boolean(protection.required_status_checks?.contexts.length) ||
+      protection.required_signatures);
+  const invalidHistory =
+    options.deletion !== true && protection.required_linear_history && (options.parentCount ?? 1) > 1;
+  const blockedForcePush = options.deletion !== true && options.force === true && !protection.allow_force_pushes;
 
-  if (restricted || requirementsBlockDirectUpdate || invalidHistory || blockedForcePush) {
+  if (restricted || blockedDeletion || requirementsBlockDirectUpdate || invalidHistory || blockedForcePush) {
     throw new ApiError(409, `Protected branch update failed for refs/heads/${branchName}.`);
   }
 }

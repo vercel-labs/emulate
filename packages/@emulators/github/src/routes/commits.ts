@@ -16,16 +16,16 @@ import {
   resolveRefToCommit,
 } from "../git-helpers.js";
 
-function blobShaAt(gh: GitHubStore, repoId: number, treeSha: string, path: string): string | undefined {
-  return flattenTree(gh, repoId, treeSha).blobs.get(path)?.sha;
+function blobAt(gh: GitHubStore, repoId: number, treeSha: string, path: string) {
+  return flattenTree(gh, repoId, treeSha).blobs.get(path);
 }
 
-/** A commit "touches" a path when the blob sha at that path differs from its first parent's. */
+/** A commit "touches" a path when its blob identity or mode differs from its first parent's. */
 function commitTouchesPath(gh: GitHubStore, repoId: number, commit: GitHubCommit, path: string): boolean {
-  const current = blobShaAt(gh, repoId, commit.tree_sha, path);
+  const current = blobAt(gh, repoId, commit.tree_sha, path);
   const parent = commit.parent_shas[0] ? findCommitBySha(gh, repoId, commit.parent_shas[0]) : undefined;
-  const previous = parent ? blobShaAt(gh, repoId, parent.tree_sha, path) : undefined;
-  return current !== previous;
+  const previous = parent ? blobAt(gh, repoId, parent.tree_sha, path) : undefined;
+  return current?.sha !== previous?.sha || current?.mode !== previous?.mode;
 }
 
 function parseDateFilter(value: string): number | undefined {
