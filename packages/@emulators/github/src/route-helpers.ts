@@ -223,7 +223,7 @@ export function assertBranchUpdateAllowed(
   user: GitHubUser,
   repo: GitHubRepo,
   branchName: string,
-  options: { force?: boolean; parentCount?: number; deletion?: boolean } = {},
+  options: { force?: boolean; parentCount?: number; deletion?: boolean; targetSha?: string } = {},
 ): void {
   const protection = gh.branchProtections
     .findBy("repo_id", repo.id)
@@ -235,10 +235,23 @@ export function assertBranchUpdateAllowed(
     protection.restrictions &&
     !branchRestrictionsAllow(gh, user, repo, protection.restrictions.users, protection.restrictions.teams);
   const blockedDeletion = options.deletion === true && !protection.allow_deletions;
+  const requiredContexts = protection.required_status_checks?.contexts ?? [];
+  const successfulConclusions = new Set(["success", "neutral", "skipped"]);
+  const requiredChecksPassed = requiredContexts.every((context) => {
+    if (!options.targetSha) return false;
+    const latest = gh.checkRuns
+      .findBy("repo_id", repo.id)
+      .filter((run) => run.head_sha === options.targetSha && run.name === context)
+      .sort((left, right) => {
+        if (left.updated_at !== right.updated_at) return right.updated_at.localeCompare(left.updated_at);
+        return right.id - left.id;
+      })[0];
+    return latest?.status === "completed" && latest.conclusion !== null && successfulConclusions.has(latest.conclusion);
+  });
   const requirementsBlockDirectUpdate =
     options.deletion !== true &&
     (protection.required_pull_request_reviews !== null ||
-      Boolean(protection.required_status_checks?.contexts.length) ||
+      (requiredContexts.length > 0 && !requiredChecksPassed) ||
       protection.required_signatures);
   const invalidHistory =
     options.deletion !== true && protection.required_linear_history && (options.parentCount ?? 1) > 1;

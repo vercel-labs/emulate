@@ -5,7 +5,6 @@ import type { GitHubStore } from "../store.js";
 import type {
   GitHubBranch,
   GitHubBranchProtection,
-  GitHubCommit,
   GitHubRef,
   GitHubRepo,
   GitHubTag,
@@ -29,7 +28,7 @@ import {
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
-import { findOrCreateBlob, findOrCreateTree, formatGitCommit } from "../git-helpers.js";
+import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree, formatGitCommit } from "../git-helpers.js";
 
 function findBranchByName(gh: GitHubStore, repoId: number, name: string) {
   return gh.branches.findBy("repo_id", repoId).find((b) => b.name === name);
@@ -726,7 +725,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     if (fullRef.startsWith("refs/heads/")) {
       const branchName = fullRef.slice("refs/heads/".length);
       const commit = findCommitBySha(gh, repo.id, sha);
-      assertBranchUpdateAllowed(gh, user, repo, branchName, { parentCount: commit?.parent_shas.length });
+      assertBranchUpdateAllowed(gh, user, repo, branchName, {
+        parentCount: commit?.parent_shas.length,
+        targetSha: commit?.sha,
+      });
     }
     const refRow = gh.refs.insert({
       repo_id: repo.id,
@@ -789,6 +791,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       assertBranchUpdateAllowed(gh, user, repo, branchName, {
         force,
         parentCount: commit?.parent_shas.length,
+        targetSha: commit?.sha,
       });
     }
     gh.refs.update(r.id, { sha: newSha });
@@ -873,6 +876,9 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const defaultEmail = actor.email ?? `${actor.login}@users.noreply.github.com`;
     if (body.author && typeof body.author === "object" && body.author !== null) {
       const a = body.author as Record<string, unknown>;
+      if (a.date !== undefined && (typeof a.date !== "string" || !Number.isFinite(Date.parse(a.date)))) {
+        throw new ApiError(422, "author.date must be an ISO 8601 timestamp");
+      }
       author_name = typeof a.name === "string" ? a.name : defaultName;
       author_email = typeof a.email === "string" ? a.email : defaultEmail;
       author_date = typeof a.date === "string" ? a.date : now;
@@ -883,6 +889,9 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
     if (body.committer && typeof body.committer === "object" && body.committer !== null) {
       const a = body.committer as Record<string, unknown>;
+      if (a.date !== undefined && (typeof a.date !== "string" || !Number.isFinite(Date.parse(a.date)))) {
+        throw new ApiError(422, "committer.date must be an ISO 8601 timestamp");
+      }
       committer_name = typeof a.name === "string" ? a.name : defaultName;
       committer_email = typeof a.email === "string" ? a.email : defaultEmail;
       committer_date = typeof a.date === "string" ? a.date : now;
@@ -891,10 +900,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       committer_email = author_email;
       committer_date = author_date;
     }
-    const commit = gh.commits.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
+    const saved = findOrCreateCommit(gh, repo.id, {
       message: body.message as string,
       author_name,
       author_email,
@@ -905,9 +911,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       tree_sha: treeSha,
       parent_shas: parents,
       user_id: actor.id,
-    } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-    gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-    const saved = gh.commits.get(commit.id)!;
+    });
     return c.json(formatGitCommit(repo, saved, baseUrl), 201);
   });
 

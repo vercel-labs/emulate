@@ -73,11 +73,33 @@ function jsonHeaders(token = "test-token"): Record<string, string> {
   return { ...authHeaders(token), "Content-Type": "application/json" };
 }
 
-function gitObjectSha(type: "blob" | "tree", content: Buffer): string {
+function gitObjectSha(type: "blob" | "tree" | "commit", content: Buffer): string {
   return createHash("sha1")
     .update(Buffer.from(`${type} ${content.byteLength}\0`, "utf8"))
     .update(content)
     .digest("hex");
+}
+
+function gitIdentityDate(date: string): string {
+  const zone = date.match(/(Z|([+-])(\d{2}):?(\d{2}))$/i);
+  const offset = !zone || zone[1].toUpperCase() === "Z" ? "+0000" : `${zone[2]}${zone[3]}${zone[4]}`;
+  return `${Math.floor(Date.parse(date) / 1000)} ${offset}`;
+}
+
+function gitCommitSha(commit: {
+  message: string;
+  tree: { sha: string };
+  parents: Array<{ sha: string }>;
+  author: { name: string; email: string; date: string };
+  committer: { name: string; email: string; date: string };
+}): string {
+  const headers = [`tree ${commit.tree.sha}`, ...commit.parents.map((parent) => `parent ${parent.sha}`)];
+  headers.push(
+    `author ${commit.author.name} <${commit.author.email}> ${gitIdentityDate(commit.author.date)}`,
+    `committer ${commit.committer.name} <${commit.committer.email}> ${gitIdentityDate(commit.committer.date)}`,
+  );
+  const message = commit.message.endsWith("\n") ? commit.message : `${commit.message}\n`;
+  return gitObjectSha("commit", Buffer.from(`${headers.join("\n")}\n\n${message}`, "utf8"));
 }
 
 async function putFile(app: Hono, path: string, text: string, extra: Record<string, unknown> = {}) {
@@ -765,6 +787,58 @@ describe("GitHub contents routes", () => {
     expect((await putFile(app, "allowed.txt", "allowed\n")).status).toBe(201);
   });
 
+  it("allows protected ref updates after every required check succeeds on the target commit", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: head.commit.tree.sha,
+        tree: [{ path: "checked.txt", mode: "100644", type: "blob", content: "checked\n" }],
+      }),
+    });
+    const treeBody = (await tree.json()) as { sha: string };
+    const pending = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Checked update", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    const pendingBody = (await pending.json()) as { sha: string };
+
+    const protect = await app.request(`${base}/repos/octocat/hello-world/branches/main/protection`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        required_status_checks: { strict: false, contexts: ["ci"] },
+        enforce_admins: true,
+        required_pull_request_reviews: null,
+        restrictions: null,
+        required_linear_history: false,
+        allow_force_pushes: false,
+        allow_deletions: false,
+        required_signatures: false,
+      }),
+    });
+    expect(protect.status).toBe(200);
+
+    const update = () =>
+      app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ sha: pendingBody.sha }),
+      });
+    expect((await update()).status).toBe(409);
+
+    const check = await app.request(`${base}/repos/octocat/hello-world/check-runs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "ci", head_sha: pendingBody.sha, status: "completed", conclusion: "success" }),
+    });
+    expect(check.status).toBe(201);
+    expect((await update()).status).toBe(200);
+  });
+
   it("requires an existing branch for content writes", async () => {
     const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await commits.json()) as Array<{ sha: string }>;
@@ -961,6 +1035,87 @@ describe("GitHub commits routes", () => {
     expect(body).toHaveLength(3);
     expect(body[0].commit.message).toBe("Update b.txt");
     expect(body[2].commit.message).toBe("Initial commit");
+  });
+
+  it("keeps the branch head before newer-dated parents", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const oldIdentity = { name: "Old Commit", email: "old@example.com", date: "2000-01-02T03:04:05Z" };
+    const created = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        message: "Old-dated child",
+        tree: head.commit.tree.sha,
+        parents: [head.sha],
+        author: oldIdentity,
+        committer: oldIdentity,
+      }),
+    });
+    const createdBody = (await created.json()) as { sha: string };
+    const updated = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: createdBody.sha }),
+    });
+    expect(updated.status).toBe(200);
+
+    const firstPage = await app.request(`${base}/repos/octocat/hello-world/commits?per_page=1`, {
+      headers: authHeaders(),
+    });
+    expect(((await firstPage.json()) as Array<{ sha: string }>)[0].sha).toBe(createdBody.sha);
+  });
+
+  it("uses canonical Git identities for Git Data and Contents commits", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const identity = { name: "Fixture User", email: "fixture@example.com", date: "2024-01-02T03:04:05Z" };
+    const requestBody = {
+      message: "Deterministic commit",
+      tree: head.commit.tree.sha,
+      parents: [head.sha],
+      author: identity,
+      committer: identity,
+    };
+    const createGitCommit = () =>
+      app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(requestBody),
+      });
+
+    const first = await createGitCommit();
+    const firstBody = (await first.json()) as {
+      sha: string;
+      message: string;
+      tree: { sha: string };
+      parents: Array<{ sha: string }>;
+      author: typeof identity;
+      committer: typeof identity;
+    };
+    const second = await createGitCommit();
+    const secondBody = (await second.json()) as { sha: string };
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(firstBody.sha).toBe(gitCommitSha(firstBody));
+    expect(secondBody.sha).toBe(firstBody.sha);
+
+    const contents = await putFile(app, "canonical.txt", "canonical\n", {
+      author: identity,
+      committer: identity,
+    });
+    const contentsBody = (await contents.json()) as {
+      commit: {
+        sha: string;
+        message: string;
+        tree: { sha: string };
+        parents: Array<{ sha: string }>;
+        author: typeof identity;
+        committer: typeof identity;
+      };
+    };
+    expect(contents.status).toBe(201);
+    expect(contentsBody.commit.sha).toBe(gitCommitSha(contentsBody.commit));
   });
 
   it("filters commits by path", async () => {
@@ -1179,6 +1334,68 @@ describe("GitHub commits routes", () => {
     const comparisonBody = (await comparison.json()) as { files: Array<Record<string, unknown>> };
     expect(comparisonBody.files).toEqual([
       expect.objectContaining({ filename: "README.md", status: "modified", additions: 0, deletions: 0, changes: 0 }),
+    ]);
+  });
+
+  it("reports exact blob moves as renames", async () => {
+    const original = await putFile(app, "old-name.txt", "unchanged\n");
+    const originalBody = (await original.json()) as { content: { sha: string } };
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: head.commit.tree.sha,
+        tree: [
+          { path: "old-name.txt", mode: "100644", type: "blob", sha: null },
+          { path: "new-name.txt", mode: "100644", type: "blob", sha: originalBody.content.sha },
+        ],
+      }),
+    });
+    const treeBody = (await tree.json()) as { sha: string };
+    const created = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Rename file", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    const createdBody = (await created.json()) as { sha: string };
+    const updated = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: createdBody.sha }),
+    });
+    expect(updated.status).toBe(200);
+
+    const detail = await app.request(`${base}/repos/octocat/hello-world/commits/${createdBody.sha}`, {
+      headers: authHeaders(),
+    });
+    const detailBody = (await detail.json()) as {
+      stats: { additions: number; deletions: number; total: number };
+      files: Array<Record<string, unknown>>;
+    };
+    expect(detailBody.stats).toEqual({ additions: 0, deletions: 0, total: 0 });
+    expect(detailBody.files).toEqual([
+      expect.objectContaining({
+        filename: "new-name.txt",
+        previous_filename: "old-name.txt",
+        status: "renamed",
+        additions: 0,
+        deletions: 0,
+        changes: 0,
+      }),
+    ]);
+
+    const comparison = await app.request(`${base}/repos/octocat/hello-world/compare/${head.sha}...${createdBody.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(((await comparison.json()) as { files: Array<Record<string, unknown>> }).files).toEqual([
+      expect.objectContaining({
+        filename: "new-name.txt",
+        previous_filename: "old-name.txt",
+        status: "renamed",
+      }),
     ]);
   });
 

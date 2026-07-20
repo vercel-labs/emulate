@@ -10,18 +10,10 @@ import {
   ownerLoginOf,
 } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
-import type {
-  GitHubBranch,
-  GitHubCollaborator,
-  GitHubCommit,
-  GitHubRef,
-  GitHubRepo,
-  GitHubTag,
-  GitHubUser,
-} from "../entities.js";
+import type { GitHubBranch, GitHubCollaborator, GitHubRef, GitHubRepo, GitHubTag, GitHubUser } from "../entities.js";
 import type { Collection, Entity } from "@emulators/core";
-import { formatRepo, formatUser, generateNodeId, generateSha, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
-import { findOrCreateBlob, findOrCreateTree } from "../git-helpers.js";
+import { formatRepo, formatUser, generateNodeId, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "../git-helpers.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
   mit: { key: "mit", name: "MIT License", spdx_id: "MIT" },
@@ -64,10 +56,7 @@ function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | n
   const email = actor?.email ?? `${login}@users.noreply.github.com`;
   const now = timestamp();
 
-  const commit = gh.commits.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
+  const commit = findOrCreateCommit(gh, repoId, {
     message: "Initial commit",
     author_name: authorName,
     author_email: email,
@@ -78,8 +67,7 @@ function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | n
     tree_sha: tree.sha,
     parent_shas: [],
     user_id: actor?.id ?? null,
-  } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-  gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
+  });
 
   gh.branches.insert({
     repo_id: repoId,

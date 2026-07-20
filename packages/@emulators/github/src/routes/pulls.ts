@@ -28,6 +28,7 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
+import { findOrCreateCommit } from "../git-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -145,10 +146,7 @@ function insertCommit(
   const login = u?.login ?? "user";
   const email = u?.email ?? `${login}@users.noreply.github.com`;
   const now = timestamp();
-  const row = gh.commits.insert({
-    repo_id: repo.id,
-    sha: generateSha(),
-    node_id: "",
+  return findOrCreateCommit(gh, repo.id, {
     message: opts.message,
     author_name: authorName,
     author_email: email,
@@ -159,9 +157,7 @@ function insertCommit(
     tree_sha: opts.treeSha,
     parent_shas: opts.parentShas,
     user_id: u?.id ?? null,
-  } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-  gh.commits.update(row.id, { node_id: generateNodeId("Commit", row.id) });
-  return gh.commits.get(row.id)!;
+  });
 }
 
 function formatCommitApi(commit: GitHubCommit, repo: GitHubRepo, baseUrl: string) {

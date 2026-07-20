@@ -3,7 +3,7 @@ import type { GitHubStore } from "./store.js";
 import type { GitHubBlob, GitHubCommit, GitHubRepo, GitHubTree, GitHubUser } from "./entities.js";
 import { formatUser, generateNodeId } from "./helpers.js";
 
-function gitObjectSha(type: "blob" | "tree", content: Buffer): string {
+function gitObjectSha(type: "blob" | "tree" | "commit", content: Buffer): string {
   const header = Buffer.from(`${type} ${content.byteLength}\0`, "utf8");
   return createHash("sha1").update(header).update(content).digest("hex");
 }
@@ -61,6 +61,50 @@ export function findOrCreateTree(gh: GitHubStore, repoId: number, entries: GitTr
   } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
   gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
   return gh.trees.get(tree.id)!;
+}
+
+export interface GitCommitData {
+  message: string;
+  author_name: string;
+  author_email: string;
+  author_date: string;
+  committer_name: string;
+  committer_email: string;
+  committer_date: string;
+  tree_sha: string;
+  parent_shas: string[];
+  user_id: number | null;
+}
+
+function gitIdentityDate(date: string): string {
+  const milliseconds = Date.parse(date);
+  if (!Number.isFinite(milliseconds)) throw new Error(`Invalid Git identity date: ${date}`);
+  const zone = date.match(/(Z|([+-])(\d{2}):?(\d{2}))$/i);
+  const offset = !zone || zone[1].toUpperCase() === "Z" ? "+0000" : `${zone[2]}${zone[3]}${zone[4]}`;
+  return `${Math.floor(milliseconds / 1000)} ${offset}`;
+}
+
+function gitCommitContent(data: GitCommitData): Buffer {
+  const headers = [`tree ${data.tree_sha}`, ...data.parent_shas.map((sha) => `parent ${sha}`)];
+  headers.push(`author ${data.author_name} <${data.author_email}> ${gitIdentityDate(data.author_date)}`);
+  headers.push(`committer ${data.committer_name} <${data.committer_email}> ${gitIdentityDate(data.committer_date)}`);
+  const message = data.message.endsWith("\n") ? data.message : `${data.message}\n`;
+  return Buffer.from(`${headers.join("\n")}\n\n${message}`, "utf8");
+}
+
+export function findOrCreateCommit(gh: GitHubStore, repoId: number, data: GitCommitData): GitHubCommit {
+  const sha = gitObjectSha("commit", gitCommitContent(data));
+  const existing = gh.commits.findBy("repo_id", repoId).find((commit) => commit.sha === sha);
+  if (existing) return existing;
+
+  const commit = gh.commits.insert({
+    repo_id: repoId,
+    sha,
+    node_id: "",
+    ...data,
+  } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
+  gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
+  return gh.commits.get(commit.id)!;
 }
 
 export function findCommitBySha(gh: GitHubStore, repoId: number, sha: string): GitHubCommit | undefined {
@@ -159,23 +203,42 @@ export function flattenTree(gh: GitHubStore, repoId: number, treeSha: string): F
   return { blobs, dirs };
 }
 
-/** All commits reachable from head (inclusive), newest first. */
+/** All commits reachable from head in child-before-parent date order. */
 export function listAncestors(gh: GitHubStore, repoId: number, headSha: string): GitHubCommit[] {
-  const out: GitHubCommit[] = [];
-  const seen = new Set<string>();
+  const reachable = new Map<string, GitHubCommit>();
   const stack = [headSha];
   while (stack.length) {
     const sha = stack.pop()!;
-    if (seen.has(sha)) continue;
-    seen.add(sha);
+    if (reachable.has(sha)) continue;
     const commit = findCommitBySha(gh, repoId, sha);
     if (!commit) continue;
-    out.push(commit);
+    reachable.set(sha, commit);
     for (const p of commit.parent_shas) stack.push(p);
   }
-  return out.sort((a, b) =>
-    a.committer_date === b.committer_date ? b.id - a.id : a.committer_date < b.committer_date ? 1 : -1,
-  );
+
+  const childCounts = new Map([...reachable.keys()].map((sha) => [sha, 0]));
+  for (const commit of reachable.values()) {
+    for (const parentSha of commit.parent_shas) {
+      if (reachable.has(parentSha)) childCounts.set(parentSha, childCounts.get(parentSha)! + 1);
+    }
+  }
+
+  const eligible = [...reachable.values()].filter((commit) => childCounts.get(commit.sha) === 0);
+  const out: GitHubCommit[] = [];
+  while (eligible.length) {
+    eligible.sort((a, b) =>
+      a.committer_date === b.committer_date ? b.id - a.id : a.committer_date < b.committer_date ? 1 : -1,
+    );
+    const commit = eligible.shift()!;
+    out.push(commit);
+    for (const parentSha of commit.parent_shas) {
+      if (!reachable.has(parentSha)) continue;
+      const remainingChildren = childCounts.get(parentSha)! - 1;
+      childCounts.set(parentSha, remainingChildren);
+      if (remainingChildren === 0) eligible.push(reachable.get(parentSha)!);
+    }
+  }
+  return out;
 }
 
 export function blobText(gh: GitHubStore, repoId: number, sha: string): string | null {
@@ -447,7 +510,8 @@ export function diffText(oldText: string | null, newText: string | null): TextDi
 export interface FileDiff {
   sha: string;
   filename: string;
-  status: "added" | "removed" | "modified";
+  status: "added" | "removed" | "modified" | "renamed";
+  previous_filename?: string;
   additions: number;
   deletions: number;
   changes: number;
@@ -466,7 +530,37 @@ export function diffTrees(
 
   const paths = [...new Set([...base.blobs.keys(), ...head.blobs.keys()])].sort();
   const out: FileDiff[] = [];
+  const pairedPaths = new Set<string>();
+  const addedBySha = new Map<string, string[]>();
   for (const path of paths) {
+    if (base.blobs.has(path)) continue;
+    const entry = head.blobs.get(path);
+    if (!entry) continue;
+    const candidates = addedBySha.get(entry.sha) ?? [];
+    candidates.push(path);
+    addedBySha.set(entry.sha, candidates);
+  }
+  for (const previousPath of paths) {
+    const before = base.blobs.get(previousPath);
+    if (!before || head.blobs.has(previousPath)) continue;
+    const candidates = addedBySha.get(before.sha)?.filter((path) => !pairedPaths.has(path)) ?? [];
+    const filename = candidates.find((path) => head.blobs.get(path)?.mode === before.mode) ?? candidates[0];
+    if (!filename) continue;
+    pairedPaths.add(previousPath);
+    pairedPaths.add(filename);
+    out.push({
+      sha: before.sha,
+      filename,
+      previous_filename: previousPath,
+      status: "renamed",
+      additions: 0,
+      deletions: 0,
+      changes: 0,
+    });
+  }
+
+  for (const path of paths) {
+    if (pairedPaths.has(path)) continue;
     const before = base.blobs.get(path);
     const after = head.blobs.get(path);
     if (before && after && before.sha === after.sha && before.mode === after.mode) continue;
@@ -487,7 +581,7 @@ export function diffTrees(
       patch: diff.patch,
     });
   }
-  return out;
+  return out.sort((left, right) => left.filename.localeCompare(right.filename));
 }
 
 export function formatFileDiff(
@@ -510,6 +604,7 @@ export function formatFileDiff(
     blob_url: `${baseUrl}/${repo.full_name}/blob/${contentSha}/${encodedPath}`,
     raw_url: `${baseUrl}/${repo.full_name}/raw/${contentSha}/${encodedPath}`,
     contents_url: `${repoUrl}/contents/${encodedPath}?ref=${contentSha}`,
+    ...(diff.previous_filename !== undefined ? { previous_filename: diff.previous_filename } : {}),
     ...(diff.patch !== undefined ? { patch: diff.patch } : {}),
   };
 }

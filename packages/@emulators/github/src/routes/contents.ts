@@ -3,7 +3,7 @@ import { ApiError, parseJsonBody } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubBranch, GitHubCommit, GitHubRef, GitHubRepo, GitHubTree, GitHubUser } from "../entities.js";
-import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
+import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
 import {
   assertBranchUpdateAllowed,
   assertRepoContentsRead,
@@ -15,6 +15,7 @@ import {
   blobBytes,
   encodeContentPath,
   findOrCreateBlob,
+  findOrCreateCommit,
   findOrCreateTree,
   flattenTree,
   formatGitCommit,
@@ -258,10 +259,7 @@ function commitFiles(gh: GitHubStore, params: CommitFilesParams): GitHubCommit {
     date: params.author?.date ?? params.committer?.date ?? now,
   };
 
-  const commit = gh.commits.insert({
-    repo_id: repo.id,
-    sha: generateSha(),
-    node_id: "",
+  const saved = findOrCreateCommit(gh, repo.id, {
     message: params.message,
     author_name: author.name,
     author_email: author.email,
@@ -272,9 +270,7 @@ function commitFiles(gh: GitHubStore, params: CommitFilesParams): GitHubCommit {
     tree_sha: tree.sha,
     parent_shas: headCommit ? [headCommit.sha] : [],
     user_id: actor.id,
-  } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-  gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-  const saved = gh.commits.get(commit.id)!;
+  });
 
   const fullRef = `refs/heads/${branchName}`;
   const refRec = gh.refs.findBy("repo_id", repo.id).find((r) => r.ref === fullRef);

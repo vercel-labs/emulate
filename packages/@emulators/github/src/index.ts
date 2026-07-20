@@ -4,7 +4,7 @@ import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteCo
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
-import { generateNodeId, generateSha } from "./helpers.js";
+import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -25,7 +25,7 @@ import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
-import { findOrCreateBlob, findOrCreateTree } from "./git-helpers.js";
+import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -250,7 +250,6 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
       gh.repos.update(repo.id, { node_id: generateNodeId("Repository", repo.id) });
 
       if (r.auto_init !== false) {
-        const sha = generateSha();
         const readme = `# ${r.name}\n${r.description ? `\n${r.description}\n` : ""}`;
         const readmeSize = Buffer.byteLength(readme, "utf8");
         const blob = findOrCreateBlob(gh, repo.id, Buffer.from(readme, "utf8"));
@@ -258,10 +257,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           { path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size: readmeSize },
         ]);
 
-        const commit = gh.commits.insert({
-          repo_id: repo.id,
-          sha,
-          node_id: "",
+        const commit = findOrCreateCommit(gh, repo.id, {
           message: "Initial commit",
           author_name: r.owner,
           author_email: `${r.owner}@localhost`,
@@ -273,19 +269,18 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           parent_shas: [],
           user_id: owner.id,
         });
-        gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
 
         gh.branches.insert({
           repo_id: repo.id,
           name: defaultBranch,
-          sha,
+          sha: commit.sha,
           protected: false,
         });
 
         const refRow = gh.refs.insert({
           repo_id: repo.id,
           ref: `refs/heads/${defaultBranch}`,
-          sha,
+          sha: commit.sha,
           node_id: "",
         });
         gh.refs.update(refRow.id, { node_id: generateNodeId("Ref", refRow.id) });
