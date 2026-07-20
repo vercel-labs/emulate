@@ -163,6 +163,97 @@ function expandTreeEntries(
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+type GitTreeEntry = GitHubTree["tree"][number];
+
+interface PendingGitTree {
+  baseSha?: string;
+  mode: string;
+  files: Map<string, GitTreeEntry>;
+  dirs: Map<string, PendingGitTree>;
+}
+
+function persistGitTreeHierarchy(
+  gh: GitHubStore,
+  repoId: number,
+  baseSha: string | undefined,
+  updates: GitTreeEntry[],
+): GitHubTree {
+  const root: PendingGitTree = { baseSha, mode: "040000", files: new Map(), dirs: new Map() };
+
+  const baseEntry = (pending: PendingGitTree, name: string) => {
+    if (!pending.baseSha) return undefined;
+    return findTreeBySha(gh, repoId, pending.baseSha)?.tree.find((entry) => entry.path === name);
+  };
+
+  for (const update of updates) {
+    const parts = update.path.split("/");
+    let current = root;
+    for (const part of parts.slice(0, -1)) {
+      let child = current.dirs.get(part);
+      if (!child) {
+        const existing = current.files.get(part) ?? baseEntry(current, part);
+        if (existing?.type === "blob") {
+          throw new ApiError(422, `${update.path} conflicts with an existing file`);
+        }
+        child = {
+          baseSha: existing?.type === "tree" ? existing.sha : undefined,
+          mode: existing?.mode ?? "040000",
+          files: new Map(),
+          dirs: new Map(),
+        };
+        current.files.delete(part);
+        current.dirs.set(part, child);
+      }
+      current = child;
+    }
+
+    const name = parts.at(-1)!;
+    if (update.type === "tree") {
+      current.files.delete(name);
+      current.dirs.set(name, {
+        baseSha: update.sha,
+        mode: update.mode,
+        files: new Map(),
+        dirs: new Map(),
+      });
+    } else {
+      current.dirs.delete(name);
+      current.files.set(name, { ...update, path: name });
+    }
+  }
+
+  const write = (pending: PendingGitTree): GitHubTree => {
+    if (pending.baseSha && pending.files.size === 0 && pending.dirs.size === 0) {
+      const unchanged = findTreeBySha(gh, repoId, pending.baseSha);
+      if (!unchanged) throw new ApiError(422, "Invalid tree");
+      return unchanged;
+    }
+    const entries = new Map<string, GitTreeEntry>();
+    if (pending.baseSha) {
+      const base = findTreeBySha(gh, repoId, pending.baseSha);
+      if (!base) throw new ApiError(422, "Invalid tree");
+      for (const entry of base.tree) entries.set(entry.path, entry);
+    }
+    for (const [name, child] of pending.dirs) {
+      const subtree = write(child);
+      entries.set(name, { path: name, mode: child.mode, type: "tree", sha: subtree.sha });
+    }
+    for (const [name, entry] of pending.files) entries.set(name, { ...entry, path: name });
+
+    const tree = gh.trees.insert({
+      repo_id: repoId,
+      sha: generateSha(),
+      node_id: "",
+      tree: [...entries.values()].sort((a, b) => a.path.localeCompare(b.path)),
+      truncated: false,
+    } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
+    gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
+    return gh.trees.get(tree.id)!;
+  };
+
+  return write(root);
+}
+
 function protectionEntityToGitHub(gh: GitHubStore, repo: GitHubRepo, bp: GitHubBranchProtection, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const encBranch = encodeURIComponent(bp.branch_name);
@@ -828,16 +919,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       sha?: string;
       content?: string;
     }>;
-    const pathMap = new Map<string, { mode: string; type: "blob" | "tree"; sha: string; size?: number }>();
-
     const baseTreeSha = typeof body.base_tree === "string" ? body.base_tree : undefined;
-    if (baseTreeSha) {
-      const base = findTreeBySha(gh, repo.id, baseTreeSha);
-      if (!base) throw new ApiError(422, "Invalid base_tree");
-      for (const e of base.tree) {
-        pathMap.set(e.path, { mode: e.mode, type: e.type, sha: e.sha, size: e.size });
-      }
-    }
+    if (baseTreeSha && !findTreeBySha(gh, repo.id, baseTreeSha)) throw new ApiError(422, "Invalid base_tree");
+
+    const updates: GitTreeEntry[] = [];
 
     for (const raw of items) {
       if (
@@ -847,10 +932,21 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       ) {
         throw new ApiError(422, "Each tree entry needs path, mode, type (blob|tree)");
       }
+      if (
+        !raw.path ||
+        raw.path.includes("\0") ||
+        raw.path.split("/").some((part) => part === "" || part === "." || part === "..")
+      ) {
+        throw new ApiError(422, "Invalid tree path");
+      }
       if (raw.sha !== undefined && raw.content !== undefined) {
         throw new ApiError(422, "Cannot pass both sha and content");
       }
+      if (raw.type === "tree" && raw.content !== undefined) {
+        throw new ApiError(422, "Tree entries must reference a tree sha");
+      }
       let sha = raw.sha;
+      let size: number | undefined;
       if (raw.content !== undefined) {
         const buf = Buffer.from(String(raw.content), "utf8");
         const blob = gh.blobs.insert({
@@ -863,28 +959,20 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
         gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
         sha = blob.sha;
+        size = blob.size;
       }
       if (typeof sha !== "string") throw new ApiError(422, "sha or content required");
-      pathMap.set(raw.path, { mode: raw.mode, type: raw.type, sha });
+      if (raw.type === "blob") {
+        const blob = findBlobBySha(gh, repo.id, sha);
+        if (!blob) throw new ApiError(422, "Invalid blob sha");
+        size ??= blob.size;
+      } else if (!findTreeBySha(gh, repo.id, sha)) {
+        throw new ApiError(422, "Invalid tree sha");
+      }
+      updates.push({ path: raw.path, mode: raw.mode, type: raw.type, sha, size });
     }
 
-    const treeEntries: GitHubTree["tree"] = [...pathMap.entries()].map(([path, v]) => ({
-      path,
-      mode: v.mode,
-      type: v.type,
-      sha: v.sha,
-      size: v.size,
-    }));
-
-    const tree = gh.trees.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
-      tree: treeEntries,
-      truncated: false,
-    } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-    gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
-    const saved = gh.trees.get(tree.id)!;
+    const saved = persistGitTreeHierarchy(gh, repo.id, baseTreeSha, updates);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
     return c.json(
       {

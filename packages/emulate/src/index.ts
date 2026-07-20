@@ -22,7 +22,7 @@ Framework adapters:
   Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
 
 GitHub API coverage:
-  Includes repository contents, commit history, commit details, and ref comparisons.
+  Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
 `,
   );
 

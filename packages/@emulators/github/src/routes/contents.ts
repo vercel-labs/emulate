@@ -13,7 +13,14 @@ import type {
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
 import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
-import { encodeContentPath, flattenTree, formatGitCommit, resolveRefToCommit, type FlatTree } from "../git-helpers.js";
+import {
+  encodeContentPath,
+  flattenTree,
+  formatGitCommit,
+  resolveBranchToCommit,
+  resolveRefToCommit,
+  type FlatTree,
+} from "../git-helpers.js";
 
 function normalizePath(raw: string): string {
   let decoded: string;
@@ -72,6 +79,10 @@ function formatFileContent(
       : Buffer.from(blob.content, "utf8").toString("base64")
     : "";
   return { ...base, content, encoding: "base64" };
+}
+
+function blobBytes(blob: GitHubBlob): Buffer {
+  return blob.encoding === "base64" ? Buffer.from(blob.content, "base64") : Buffer.from(blob.content, "utf8");
 }
 
 function formatDirListing(
@@ -342,6 +353,28 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     throw notFoundResponse();
   };
 
+  app.get("/:owner/:repo/raw/:ref/:path{.+}", (c) => {
+    const owner = c.req.param("owner")!;
+    const repoName = c.req.param("repo")!;
+    const ref = c.req.param("ref")!;
+    const path = normalizePath(c.req.param("path")!);
+    const repo = lookupRepo(gh, owner, repoName);
+    if (!repo) throw notFoundResponse();
+    assertRepoRead(gh, c.get("authUser"), repo);
+
+    const commit = resolveRefToCommit(gh, repo, ref);
+    if (!commit) throw notFoundResponse();
+    const entry = flattenTree(gh, repo.id, commit.tree_sha).blobs.get(path);
+    if (!entry) throw notFoundResponse();
+    const blob = gh.blobs.findBy("repo_id", repo.id).find((candidate) => candidate.sha === entry.sha);
+    if (!blob) throw notFoundResponse();
+    const content = blobBytes(blob);
+    return c.body(content, 200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(content.byteLength),
+    });
+  });
+
   app.get("/repos/:owner/:repo/readme", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
@@ -355,7 +388,16 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const ref = refParam && refParam !== "HEAD" ? refParam : repo.default_branch;
 
     const flat = flattenTree(gh, repo.id, commit.tree_sha);
-    const readmePath = [...flat.blobs.keys()].filter((p) => !p.includes("/") && /^readme(\.|$)/i.test(p)).sort()[0];
+    const findReadme = (dir: "" | ".github" | "docs") =>
+      [...flat.blobs.keys()]
+        .filter((path) => {
+          const slash = path.lastIndexOf("/");
+          const parent = slash === -1 ? "" : path.slice(0, slash);
+          const name = slash === -1 ? path : path.slice(slash + 1);
+          return parent === dir && /^readme(\.|$)/i.test(name);
+        })
+        .sort()[0];
+    const readmePath = findReadme(".github") ?? findReadme("") ?? findReadme("docs");
     if (!readmePath) throw notFoundResponse();
     return c.json(formatFileContent(gh, repo, baseUrl, readmePath, ref, flat.blobs.get(readmePath)!, true));
   });
@@ -385,7 +427,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
 
     const branchName = typeof body.branch === "string" && body.branch ? body.branch : repo.default_branch;
     const hasCommits = gh.commits.findBy("repo_id", repo.id).length > 0;
-    const headCommit = resolveRefToCommit(gh, repo, branchName) ?? null;
+    const headCommit = resolveBranchToCommit(gh, repo, branchName) ?? null;
     if (hasCommits && !headCommit) throw notFoundResponse();
 
     const flat = headCommit ? flattenTree(gh, repo.id, headCommit.tree_sha) : undefined;
@@ -490,7 +532,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const committer = parseCommitIdentity(body.committer, "committer");
 
     const branchName = typeof body.branch === "string" && body.branch ? body.branch : repo.default_branch;
-    const headCommit = resolveRefToCommit(gh, repo, branchName);
+    const headCommit = resolveBranchToCommit(gh, repo, branchName);
     if (!headCommit) throw notFoundResponse();
 
     const existing = flattenTree(gh, repo.id, headCommit.tree_sha).blobs.get(path);

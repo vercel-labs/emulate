@@ -63,15 +63,20 @@ function findMergeBase(gh: GitHubStore, repoId: number, baseSha: string, headSha
     .sort((a, b) => a.score - b.score || b.commit.id - a.commit.id)[0]?.commit;
 }
 
-function formatFullCommit(gh: GitHubStore, repo: GitHubRepo, commit: GitHubCommit, baseUrl: string) {
-  const parent = commit.parent_shas[0] ? findCommitBySha(gh, repo.id, commit.parent_shas[0]) : undefined;
-  const files = diffTrees(gh, repo.id, parent?.tree_sha ?? null, commit.tree_sha);
-  const additions = files.reduce((sum, f) => sum + f.additions, 0);
-  const deletions = files.reduce((sum, f) => sum + f.deletions, 0);
+function formatFullCommit(
+  gh: GitHubStore,
+  repo: GitHubRepo,
+  commit: GitHubCommit,
+  baseUrl: string,
+  allFiles: ReturnType<typeof diffTrees>,
+  pageFiles: ReturnType<typeof diffTrees>,
+) {
+  const additions = allFiles.reduce((sum, f) => sum + f.additions, 0);
+  const deletions = allFiles.reduce((sum, f) => sum + f.deletions, 0);
   return {
     ...formatCommitItem(gh, repo, commit, baseUrl),
     stats: { total: additions + deletions, additions, deletions },
-    files: files.map((f) => formatFileDiff(f, repo, commit.sha, baseUrl)),
+    files: pageFiles.map((f) => formatFileDiff(f, repo, commit.sha, baseUrl)),
   };
 }
 
@@ -200,6 +205,14 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const commit = resolveRefToCommit(gh, repo, refParam);
     if (!commit) throw notFoundResponse();
-    return c.json(formatFullCommit(gh, repo, commit, baseUrl));
+    const parent = commit.parent_shas[0] ? findCommitBySha(gh, repo.id, commit.parent_shas[0]) : undefined;
+    const allFiles = diffTrees(gh, repo.id, parent?.tree_sha ?? null, commit.tree_sha);
+    const listedFiles = allFiles.slice(0, 3_000);
+    const hasPagination = c.req.query("page") !== undefined || c.req.query("per_page") !== undefined;
+    const { page, per_page } = hasPagination ? parsePagination(c) : { page: 1, per_page: 300 };
+    const start = (page - 1) * per_page;
+    const pageFiles = listedFiles.slice(start, start + per_page);
+    setLinkHeader(c, listedFiles.length, page, per_page);
+    return c.json(formatFullCommit(gh, repo, commit, baseUrl, allFiles, pageFiles));
   });
 }

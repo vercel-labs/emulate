@@ -18,16 +18,29 @@ function peelToCommit(gh: GitHubStore, repoId: number, sha: string): GitHubCommi
 export function resolveRefToCommit(gh: GitHubStore, repo: GitHubRepo, refParam?: string): GitHubCommit | undefined {
   const ref = !refParam || refParam === "HEAD" ? repo.default_branch : refParam;
 
-  const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === ref);
-  if (branch) return peelToCommit(gh, repo.id, branch.sha);
+  const branchName = ref.startsWith("refs/heads/")
+    ? ref.slice("refs/heads/".length)
+    : ref.startsWith("heads/")
+      ? ref.slice("heads/".length)
+      : ref;
+  const branch = resolveBranchToCommit(gh, repo, branchName);
+  if (branch && !ref.startsWith("tags/") && !ref.startsWith("refs/tags/")) return branch;
 
   const refs = gh.refs.findBy("repo_id", repo.id);
-  const refRec =
-    refs.find((r) => r.ref === (ref.startsWith("refs/") ? ref : `refs/heads/${ref}`)) ??
-    refs.find((r) => r.ref === `refs/tags/${ref}`);
+  const candidates = ref.startsWith("refs/")
+    ? [ref]
+    : ref.startsWith("heads/") || ref.startsWith("tags/")
+      ? [`refs/${ref}`]
+      : [`refs/heads/${ref}`, `refs/tags/${ref}`];
+  const refRec = candidates.map((candidate) => refs.find((r) => r.ref === candidate)).find(Boolean);
   if (refRec) return peelToCommit(gh, repo.id, refRec.sha);
 
-  const tag = gh.tags.findBy("repo_id", repo.id).find((t) => t.tag === ref);
+  const tagName = ref.startsWith("refs/tags/")
+    ? ref.slice("refs/tags/".length)
+    : ref.startsWith("tags/")
+      ? ref.slice("tags/".length)
+      : ref;
+  const tag = gh.tags.findBy("repo_id", repo.id).find((t) => t.tag === tagName);
   if (tag) return peelToCommit(gh, repo.id, tag.object_sha);
 
   const commits = gh.commits.findBy("repo_id", repo.id);
@@ -37,6 +50,14 @@ export function resolveRefToCommit(gh: GitHubStore, repo: GitHubRepo, refParam?:
     return commits.find((c) => c.sha.startsWith(ref));
   }
   return undefined;
+}
+
+/** Resolve only an existing branch name to its head commit. */
+export function resolveBranchToCommit(gh: GitHubStore, repo: GitHubRepo, branchName: string): GitHubCommit | undefined {
+  const branch = gh.branches.findBy("repo_id", repo.id).find((b) => b.name === branchName);
+  const ref = gh.refs.findBy("repo_id", repo.id).find((r) => r.ref === `refs/heads/${branchName}`);
+  const sha = ref?.sha ?? branch?.sha;
+  return sha ? peelToCommit(gh, repo.id, sha) : undefined;
 }
 
 export interface FlatTree {
@@ -208,7 +229,10 @@ function opsToPatch(ops: Array<Op & { oldLine: number; newLine: number }>): stri
     const newStart = newCount === 0 ? slice[0].newLine - 1 : slice[0].newLine;
     chunks.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`);
     for (const o of slice) {
-      chunks.push(`${o.type === "eq" ? " " : o.type === "del" ? "-" : "+"}${o.text}`);
+      const terminated = o.text.endsWith("\n");
+      const text = terminated ? o.text.slice(0, -1) : o.text;
+      chunks.push(`${o.type === "eq" ? " " : o.type === "del" ? "-" : "+"}${text}`);
+      if (!terminated) chunks.push("\\ No newline at end of file");
     }
   }
   return chunks.join("\n");
@@ -221,7 +245,13 @@ export interface TextDiff {
 }
 
 export function diffText(oldText: string | null, newText: string | null): TextDiff {
-  const splitLines = (t: string | null) => (t === null || t === "" ? [] : t.replace(/\n$/, "").split("\n"));
+  const splitLines = (t: string | null) => {
+    if (t === null || t === "") return [];
+    const terminated = t.endsWith("\n");
+    const lines = t.split("\n");
+    if (terminated) lines.pop();
+    return lines.map((line, index) => (terminated || index < lines.length - 1 ? `${line}\n` : line));
+  };
   const a = splitLines(oldText);
   const b = splitLines(newText);
   const ops = diffOps(a, b);

@@ -244,6 +244,9 @@ curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
 # Read a file or list a directory at a branch, tag, or commit
 curl "http://localhost:4001/repos/octocat/hello-world/contents/README.md?ref=main"
 
+# Download raw file content from the URL advertised by contents and commit responses
+curl http://localhost:4001/octocat/hello-world/raw/main/README.md
+
 # Create or update a file and commit the change
 curl -X PUT http://localhost:4001/repos/octocat/hello-world/contents/notes.txt \
   -H "Authorization: Bearer $TOKEN" \

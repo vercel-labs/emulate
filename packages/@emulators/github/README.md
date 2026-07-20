@@ -42,6 +42,7 @@ npm install @emulators/github
 ### Contents & Commit History
 - `GET /repos/:owner/:repo/readme` — get the repository README
 - `GET /repos/:owner/:repo/contents/:path` — get a file or list a directory at a ref
+- `GET /:owner/:repo/raw/:ref/:path` — download file content from advertised raw URLs
 - `PUT/DELETE /repos/:owner/:repo/contents/:path` — create, update, or delete a file and commit the change
 - `GET /repos/:owner/:repo/commits` — list commits with ref, path, author, and date filters
 - `GET /repos/:owner/:repo/commits/:ref` — get a commit with file diffs and stats

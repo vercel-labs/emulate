@@ -62,11 +62,22 @@ describe("GitHub contents routes", () => {
       headers: authHeaders(),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { type: string; encoding: string; content: string; sha: string; path: string };
+    const body = (await res.json()) as {
+      type: string;
+      encoding: string;
+      content: string;
+      sha: string;
+      path: string;
+      download_url: string;
+    };
     expect(body.type).toBe("file");
     expect(body.path).toBe("README.md");
     expect(Buffer.from(body.content, "base64").toString("utf8")).toBe("# hello-world\n");
     expect(body.sha).toBeTruthy();
+
+    const download = await app.request(body.download_url, { headers: authHeaders() });
+    expect(download.status).toBe(200);
+    expect(await download.text()).toBe("# hello-world\n");
   });
 
   it("serves the URL shape that code search results advertise (?ref=HEAD)", async () => {
@@ -83,6 +94,38 @@ describe("GitHub contents routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { name: string; content: string };
     expect(body.name).toBe("README.md");
+  });
+
+  it("selects READMEs from .github, root, then docs", async () => {
+    const docs = await putFile(app, "docs/README.md", "docs\n");
+    const docsBody = (await docs.json()) as { content: { sha: string } };
+    const dotGitHub = await putFile(app, ".github/README.md", "github\n");
+    const dotGitHubBody = (await dotGitHub.json()) as { content: { sha: string } };
+
+    const preferred = await app.request(`${base}/repos/octocat/hello-world/readme`, { headers: authHeaders() });
+    expect(((await preferred.json()) as { path: string }).path).toBe(".github/README.md");
+
+    const deleteDotGitHub = await app.request(`${base}/repos/octocat/hello-world/contents/.github/README.md`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Delete .github README", sha: dotGitHubBody.content.sha }),
+    });
+    expect(deleteDotGitHub.status).toBe(200);
+    const rootPreferred = await app.request(`${base}/repos/octocat/hello-world/readme`, { headers: authHeaders() });
+    expect(((await rootPreferred.json()) as { path: string }).path).toBe("README.md");
+
+    const root = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, { headers: authHeaders() });
+    const rootBody = (await root.json()) as { sha: string };
+    const deleteRoot = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Delete root README", sha: rootBody.sha }),
+    });
+    expect(deleteRoot.status).toBe(200);
+    const docsPreferred = await app.request(`${base}/repos/octocat/hello-world/readme`, { headers: authHeaders() });
+    const docsPreferredBody = (await docsPreferred.json()) as { path: string; sha: string };
+    expect(docsPreferredBody.path).toBe("docs/README.md");
+    expect(docsPreferredBody.sha).toBe(docsBody.content.sha);
   });
 
   it("lists the repo root and subdirectories", async () => {
@@ -112,13 +155,17 @@ describe("GitHub contents routes", () => {
   it("returns encoded content URLs that resolve for special path characters", async () => {
     const created = await putFile(app, "docs/My%20File%20%231.md", "hello\n");
     expect(created.status).toBe(201);
-    const createdBody = (await created.json()) as { content: { path: string; url: string } };
+    const createdBody = (await created.json()) as { content: { path: string; url: string; download_url: string } };
     expect(createdBody.content.path).toBe("docs/My File #1.md");
     expect(createdBody.content.url).toContain("My%20File%20%231.md");
 
     const read = await app.request(createdBody.content.url, { headers: authHeaders() });
     expect(read.status).toBe(200);
     expect(((await read.json()) as { path: string }).path).toBe("docs/My File #1.md");
+
+    const download = await app.request(createdBody.content.download_url, { headers: authHeaders() });
+    expect(download.status).toBe(200);
+    expect(await download.text()).toBe("hello\n");
   });
 
   it("404s on a missing path", async () => {
@@ -217,6 +264,36 @@ describe("GitHub contents routes", () => {
     expect(onMain.status).toBe(404);
   });
 
+  it("requires an existing branch for content writes", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const tag = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/tags/v1", sha: head.sha }),
+    });
+    expect(tag.status).toBe(201);
+
+    expect((await putFile(app, "from-tag.txt", "tag\n", { branch: "v1" })).status).toBe(404);
+    expect((await putFile(app, "from-sha.txt", "sha\n", { branch: head.sha })).status).toBe(404);
+
+    const readme = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    const readmeBody = (await readme.json()) as { sha: string };
+    const deleted = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Delete through tag", sha: readmeBody.sha, branch: "v1" }),
+    });
+    expect(deleted.status).toBe(404);
+
+    const inventedBranch = await app.request(`${base}/repos/octocat/hello-world/git/ref/heads/v1`, {
+      headers: authHeaders(),
+    });
+    expect(inventedBranch.status).toBe(404);
+  });
+
   it("reads a file at an older ref", async () => {
     const created = await putFile(app, "notes.txt", "one\n");
     const createdBody = (await created.json()) as { content: { sha: string }; commit: { sha: string } };
@@ -229,6 +306,53 @@ describe("GitHub contents routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { content: string };
     expect(Buffer.from(body.content, "base64").toString("utf8")).toBe("one\n");
+  });
+
+  it("creates traversable subtrees from nested Git Data paths", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        tree: [{ path: "src/index.ts", mode: "100644", type: "blob", content: "export {};\n" }],
+      }),
+    });
+    expect(tree.status).toBe(201);
+    const treeBody = (await tree.json()) as {
+      sha: string;
+      tree: Array<{ path: string; type: string; sha: string }>;
+    };
+    const srcTree = treeBody.tree.find((entry) => entry.path === "src");
+    expect(srcTree).toEqual(expect.objectContaining({ type: "tree", sha: expect.stringMatching(/^[0-9a-f]{40}$/) }));
+    expect(treeBody.tree.some((entry) => entry.path === "src/index.ts")).toBe(false);
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Create nested tree", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    expect(commit.status).toBe(201);
+    const commitBody = (await commit.json()) as { sha: string };
+    const updateRef = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: commitBody.sha }),
+    });
+    expect(updateRef.status).toBe(200);
+
+    const root = await app.request(`${base}/repos/octocat/hello-world/contents`, { headers: authHeaders() });
+    const rootBody = (await root.json()) as Array<{ name: string; type: string; sha: string; git_url: string | null }>;
+    const src = rootBody.find((entry) => entry.name === "src");
+    expect(src).toEqual(
+      expect.objectContaining({ type: "dir", sha: srcTree!.sha, git_url: expect.stringContaining(srcTree!.sha) }),
+    );
+    const subtree = await app.request(src!.git_url!, { headers: authHeaders() });
+    expect(subtree.status).toBe(200);
+    expect((await subtree.json()) as { tree: unknown[] }).toEqual(
+      expect.objectContaining({ tree: [expect.objectContaining({ path: "index.ts", type: "blob" })] }),
+    );
   });
 });
 
@@ -290,6 +414,80 @@ describe("GitHub commits routes", () => {
     expect(body.stats.additions).toBe(2);
   });
 
+  it("paginates a single commit file list and serves its raw URLs", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const gitCommit = await app.request(`${base}/repos/octocat/hello-world/git/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    const gitCommitBody = (await gitCommit.json()) as { tree: { sha: string } };
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: gitCommitBody.tree.sha,
+        tree: ["a.txt", "b.txt", "c.txt"].map((path) => ({
+          path,
+          mode: "100644",
+          type: "blob",
+          content: `${path}\n`,
+        })),
+      }),
+    });
+    const treeBody = (await tree.json()) as { sha: string };
+    const created = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Add three files", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    const createdBody = (await created.json()) as { sha: string };
+
+    const first = await app.request(`${base}/repos/octocat/hello-world/commits/${createdBody.sha}?per_page=2&page=1`, {
+      headers: authHeaders(),
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("link")).toContain('rel="next"');
+    const firstBody = (await first.json()) as {
+      stats: { additions: number };
+      files: Array<{ filename: string; raw_url: string }>;
+    };
+    expect(firstBody.stats.additions).toBe(3);
+    expect(firstBody.files.map((file) => file.filename)).toEqual(["a.txt", "b.txt"]);
+    const raw = await app.request(firstBody.files[0].raw_url, { headers: authHeaders() });
+    expect(raw.status).toBe(200);
+    expect(await raw.text()).toBe("a.txt\n");
+
+    const second = await app.request(`${base}/repos/octocat/hello-world/commits/${createdBody.sha}?per_page=2&page=2`, {
+      headers: authHeaders(),
+    });
+    expect(second.status).toBe(200);
+    expect(second.headers.get("link")).toContain('rel="prev"');
+    const secondBody = (await second.json()) as {
+      stats: { additions: number };
+      files: Array<{ filename: string }>;
+    };
+    expect(secondBody.stats.additions).toBe(3);
+    expect(secondBody.files.map((file) => file.filename)).toEqual(["c.txt"]);
+  });
+
+  it("reports trailing-newline-only changes in commit diffs", async () => {
+    const created = await putFile(app, "newline.txt", "x");
+    const createdBody = (await created.json()) as { content: { sha: string } };
+    const updated = await putFile(app, "newline.txt", "x\n", { sha: createdBody.content.sha });
+    const updatedBody = (await updated.json()) as { commit: { sha: string } };
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/commits/${updatedBody.commit.sha}`, {
+      headers: authHeaders(),
+    });
+    const commitBody = (await commit.json()) as {
+      stats: { additions: number; deletions: number };
+      files: Array<{ additions: number; deletions: number; patch?: string }>;
+    };
+    expect(commitBody.stats).toEqual(expect.objectContaining({ additions: 1, deletions: 1 }));
+    expect(commitBody.files[0]).toEqual(expect.objectContaining({ additions: 1, deletions: 1 }));
+    expect(commitBody.files[0].patch).toContain("No newline at end of file");
+  });
+
   it("keeps Git Data and REST commit response shapes distinct", async () => {
     const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await list.json()) as Array<{ sha: string }>;
@@ -319,13 +517,31 @@ describe("GitHub commits routes", () => {
     expect(restBody).not.toHaveProperty("tree");
   });
 
-  it("resolves a commit by branch name and by sha prefix", async () => {
+  it("resolves documented branch, tag, and sha commit references", async () => {
     const created = await putFile(app, "notes.txt", "one\n");
     const createdBody = (await created.json()) as { commit: { sha: string } };
 
     const byBranch = await app.request(`${base}/repos/octocat/hello-world/commits/main`, { headers: authHeaders() });
     expect(byBranch.status).toBe(200);
     expect(((await byBranch.json()) as { sha: string }).sha).toBe(createdBody.commit.sha);
+
+    const byHeadRef = await app.request(`${base}/repos/octocat/hello-world/commits/heads/main`, {
+      headers: authHeaders(),
+    });
+    expect(byHeadRef.status).toBe(200);
+    expect(((await byHeadRef.json()) as { sha: string }).sha).toBe(createdBody.commit.sha);
+
+    const tag = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/tags/v1", sha: createdBody.commit.sha }),
+    });
+    expect(tag.status).toBe(201);
+    const byTagRef = await app.request(`${base}/repos/octocat/hello-world/commits/tags/v1`, {
+      headers: authHeaders(),
+    });
+    expect(byTagRef.status).toBe(200);
+    expect(((await byTagRef.json()) as { sha: string }).sha).toBe(createdBody.commit.sha);
 
     const byPrefix = await app.request(
       `${base}/repos/octocat/hello-world/commits/${createdBody.commit.sha.slice(0, 8)}`,
