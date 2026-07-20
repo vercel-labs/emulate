@@ -12,7 +12,7 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
-import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { assertRepoContentsWrite, assertRepoRead, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 import {
   encodeContentPath,
   flattenTree,
@@ -23,13 +23,7 @@ import {
 } from "../git-helpers.js";
 
 function normalizePath(raw: string): string {
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch {
-    throw new ApiError(422, "path is invalid");
-  }
-  const path = decoded.replace(/^\/+|\/+$/g, "");
+  const path = raw.replace(/^\/+|\/+$/g, "");
   if (path.includes("\0") || path.split("/").some((part) => part === "" || part === "." || part === "..")) {
     throw new ApiError(422, "path is invalid");
   }
@@ -412,7 +406,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const path = normalizePath(c.req.param("path")!);
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     if (!path) throw new ApiError(422, "path is required");
 
     const body = await parseJsonBody(c);
@@ -519,7 +513,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const path = normalizePath(c.req.param("path")!);
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     if (!path) throw new ApiError(422, "path is required");
 
     const body = await parseJsonBody(c);

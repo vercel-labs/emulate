@@ -304,7 +304,7 @@ export function diffTrees(
   for (const path of paths) {
     const before = base.blobs.get(path);
     const after = head.blobs.get(path);
-    if (before && after && before.sha === after.sha) continue;
+    if (before && after && before.sha === after.sha && before.mode === after.mode) continue;
 
     const status: FileDiff["status"] = !before ? "added" : !after ? "removed" : "modified";
     const oldText = before ? blobText(gh, repoId, before.sha) : "";

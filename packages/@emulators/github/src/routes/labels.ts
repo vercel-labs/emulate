@@ -249,8 +249,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
 
-    const rawName = c.req.param("name")!;
-    const name = decodeURIComponent(rawName);
+    const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
     return c.json(formatLabel(label, repo, baseUrl));
@@ -263,8 +262,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!repo) throw notFoundResponse();
     const actor = assertIssueWrite(gh, c.get("authUser"), repo);
 
-    const rawName = c.req.param("name")!;
-    const name = decodeURIComponent(rawName);
+    const name = c.req.param("name")!;
     let label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
     const labelId = label.id;
@@ -313,8 +311,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!repo) throw notFoundResponse();
     const actor = assertIssueWrite(gh, c.get("authUser"), repo);
 
-    const rawName = c.req.param("name")!;
-    const name = decodeURIComponent(rawName);
+    const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
 
@@ -497,8 +494,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const issue = findIssueByNumber(gh, repo.id, issueNumber);
     if (!issue) throw notFoundResponse();
 
-    const rawLabelName = c.req.param("name")!;
-    const labelName = decodeURIComponent(rawLabelName);
+    const labelName = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === labelName);
     if (!label || !issue.label_ids.includes(label.id)) throw notFoundResponse();
 

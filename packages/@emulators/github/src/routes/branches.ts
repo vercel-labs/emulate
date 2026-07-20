@@ -417,7 +417,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection/required_status_checks", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
@@ -441,7 +441,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.patch("/repos/:owner/:repo/branches/:branch{.+}/protection/required_status_checks", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -470,7 +470,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection/enforce_admins", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
@@ -488,7 +488,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection/required_pull_request_reviews", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
@@ -509,7 +509,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.patch("/repos/:owner/:repo/branches/:branch{.+}/protection/required_pull_request_reviews", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -546,7 +546,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
@@ -558,7 +558,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.put("/repos/:owner/:repo/branches/:branch{.+}/protection", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -595,7 +595,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.delete("/repos/:owner/:repo/branches/:branch{.+}/protection", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -609,7 +609,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branchName = decodeURIComponent(c.req.param("branch")!);
+    const branchName = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);

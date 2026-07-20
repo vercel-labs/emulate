@@ -153,7 +153,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
 
-    const tag = decodeURIComponent(c.req.param("tag")!);
+    const tag = c.req.param("tag")!;
     const release = findReleaseByTag(gh, repo.id, tag);
     if (!release) throw notFoundResponse();
     assertReleaseVisible(gh, c.get("authUser"), release);

@@ -134,7 +134,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
   app.get("/repos/:owner/:repo/compare/:basehead{.+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const basehead = decodeURIComponent(c.req.param("basehead")!);
+    const basehead = c.req.param("basehead")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
@@ -198,7 +198,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
   app.get("/repos/:owner/:repo/commits/:ref{.+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const refParam = decodeURIComponent(c.req.param("ref")!);
+    const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);

@@ -69,10 +69,9 @@ function resolveWorkflow(gh: GitHubStore, repoId: number, param: string): GitHub
     const w = gh.workflows.get(asNum);
     if (w && w.repo_id === repoId) return w;
   }
-  const decoded = decodeURIComponent(trimmed);
   return gh.workflows
     .findBy("repo_id", repoId)
-    .find((w) => w.path === decoded || w.path.endsWith(`/${decoded}`) || w.name === decoded);
+    .find((w) => w.path === trimmed || w.path.endsWith(`/${trimmed}`) || w.name === trimmed);
 }
 
 function resolveRefToBranchAndSha(gh: GitHubStore, repo: GitHubRepo, ref: string): { branch: string; sha: string } {

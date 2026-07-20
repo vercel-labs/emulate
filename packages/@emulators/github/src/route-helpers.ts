@@ -55,6 +55,45 @@ export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo
   return collab?.permission === "admin" || collab?.permission === "maintain";
 }
 
+function grantsRepoWrite(permission: string): boolean {
+  return permission === "push" || permission === "write" || permission === "maintain" || permission === "admin";
+}
+
+export function hasRepoContentsWrite(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
+  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
+
+  const collaborator = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
+  if (collaborator && grantsRepoWrite(collaborator.permission)) return true;
+
+  if (repo.owner_type !== "Organization") return false;
+  const memberships = gh.teamMembers.findBy("user_id", user.id).filter((membership) => {
+    return gh.teams.get(membership.team_id)?.org_id === repo.owner_id;
+  });
+  if (!memberships.length) return false;
+
+  // Organization administrators are represented as maintainers of the members team by the emulator.
+  const isOrgAdmin = memberships.some((membership) => {
+    const team = gh.teams.get(membership.team_id);
+    return team?.slug === "members" && membership.role === "maintainer";
+  });
+  if (isOrgAdmin) return true;
+
+  const org = gh.orgs.get(repo.owner_id);
+  if (org && grantsRepoWrite(org.default_repository_permission)) return true;
+
+  return memberships.some((membership) => {
+    const team = gh.teams.get(membership.team_id);
+    if (!team || !grantsRepoWrite(team.permission)) return false;
+    return gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id);
+  });
+}
+
+export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  const user = assertAuthenticatedUser(gh, authUser);
+  if (hasRepoContentsWrite(gh, user, repo)) return user;
+  throw forbidden();
+}
+
 export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
   if (!authUser) throw unauthorized();
   const user = getActorUser(gh, authUser);

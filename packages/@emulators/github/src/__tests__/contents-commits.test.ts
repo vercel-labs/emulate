@@ -3,7 +3,7 @@ import { Hono } from "@emulators/core";
 import { Store } from "@emulators/core";
 import { WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
-import { githubPlugin, seedFromConfig } from "../index.js";
+import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";
 
@@ -12,6 +12,8 @@ function createTestApp() {
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
   tokenMap.set("test-token", { login: "octocat", id: 1, scopes: ["repo", "user", "admin:org"] });
+  tokenMap.set("outsider-token", { login: "outsider", id: 2, scopes: ["repo"] });
+  tokenMap.set("org-member-token", { login: "org-member", id: 3, scopes: ["repo"] });
 
   const app = new Hono();
   app.onError(createApiErrorHandler());
@@ -20,22 +22,24 @@ function createTestApp() {
   githubPlugin.register(app as any, store, webhooks, base, tokenMap);
   githubPlugin.seed?.(store, base);
   seedFromConfig(store, base, {
-    users: [{ login: "octocat" }],
+    users: [{ login: "octocat" }, { login: "outsider" }, { login: "org-member" }],
+    orgs: [{ login: "acme" }],
     repos: [
       { owner: "octocat", name: "hello-world" },
       { owner: "octocat", name: "empty-repo", auto_init: false },
+      { owner: "acme", name: "project" },
     ],
   });
 
   return { app, store, webhooks, tokenMap };
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: "Bearer test-token" };
+function authHeaders(token = "test-token"): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
 }
 
-function jsonHeaders(): Record<string, string> {
-  return { ...authHeaders(), "Content-Type": "application/json" };
+function jsonHeaders(token = "test-token"): Record<string, string> {
+  return { ...authHeaders(token), "Content-Type": "application/json" };
 }
 
 async function putFile(app: Hono, path: string, text: string, extra: Record<string, unknown> = {}) {
@@ -168,6 +172,18 @@ describe("GitHub contents routes", () => {
     expect(await download.text()).toBe("hello\n");
   });
 
+  it("addresses literal percent signs without decoding route parameters twice", async () => {
+    const created = await putFile(app, "100%25.md", "percent\n");
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { content: { path: string; url: string } };
+    expect(createdBody.content.path).toBe("100%.md");
+    expect(createdBody.content.url).toContain("100%25.md");
+
+    const read = await app.request(createdBody.content.url, { headers: authHeaders() });
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { path: string }).path).toBe("100%.md");
+  });
+
   it("404s on a missing path", async () => {
     const res = await app.request(`${base}/repos/octocat/hello-world/contents/nope.txt`, {
       headers: authHeaders(),
@@ -208,6 +224,99 @@ describe("GitHub contents routes", () => {
 
     const gone = await app.request(`${base}/repos/octocat/hello-world/contents/notes.txt`, { headers: authHeaders() });
     expect(gone.status).toBe(404);
+  });
+
+  it("requires repository contents write permission for PUT and DELETE", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    const outsider = gh.users.findOneBy("login", "outsider")!;
+    const body = JSON.stringify({
+      message: "Create guarded.txt",
+      content: Buffer.from("guarded\n", "utf8").toString("base64"),
+    });
+
+    const deniedCreate = await app.request(`${base}/repos/octocat/hello-world/contents/guarded.txt`, {
+      method: "PUT",
+      headers: jsonHeaders("outsider-token"),
+      body,
+    });
+    expect(deniedCreate.status).toBe(403);
+
+    const readme = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    const readmeBody = (await readme.json()) as { sha: string };
+    const deniedDelete = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      method: "DELETE",
+      headers: jsonHeaders("outsider-token"),
+      body: JSON.stringify({ message: "Delete README", sha: readmeBody.sha }),
+    });
+    expect(deniedDelete.status).toBe(403);
+
+    const collaborator = gh.collaborators.insert({ repo_id: repo.id, user_id: outsider.id, permission: "pull" });
+    const deniedReader = await app.request(`${base}/repos/octocat/hello-world/contents/guarded.txt`, {
+      method: "PUT",
+      headers: jsonHeaders("outsider-token"),
+      body,
+    });
+    expect(deniedReader.status).toBe(403);
+
+    gh.collaborators.update(collaborator.id, { permission: "push" });
+    const allowedCreate = await app.request(`${base}/repos/octocat/hello-world/contents/guarded.txt`, {
+      method: "PUT",
+      headers: jsonHeaders("outsider-token"),
+      body,
+    });
+    expect(allowedCreate.status).toBe(201);
+    const allowedBody = (await allowedCreate.json()) as { content: { sha: string } };
+
+    const allowedDelete = await app.request(`${base}/repos/octocat/hello-world/contents/guarded.txt`, {
+      method: "DELETE",
+      headers: jsonHeaders("outsider-token"),
+      body: JSON.stringify({ message: "Delete guarded.txt", sha: allowedBody.content.sha }),
+    });
+    expect(allowedDelete.status).toBe(200);
+  });
+
+  it("honors organization default and team repository write permissions", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const org = gh.orgs.findOneBy("login", "acme")!;
+    const repo = gh.repos.findOneBy("full_name", "acme/project")!;
+    const member = gh.users.findOneBy("login", "org-member")!;
+    const team = gh.teams.insert({
+      node_id: "team-node",
+      name: "Developers",
+      slug: "developers",
+      description: null,
+      privacy: "closed",
+      permission: "pull",
+      org_id: org.id,
+      parent_id: null,
+      members_count: 1,
+      repos_count: 0,
+    });
+    gh.teamMembers.insert({ team_id: team.id, user_id: member.id, role: "member" });
+    const request = (path: string) =>
+      app.request(`${base}/repos/acme/project/contents/${path}`, {
+        method: "PUT",
+        headers: jsonHeaders("org-member-token"),
+        body: JSON.stringify({
+          message: `Create ${path}`,
+          content: Buffer.from(`${path}\n`, "utf8").toString("base64"),
+        }),
+      });
+
+    expect((await request("denied.txt")).status).toBe(403);
+
+    gh.orgs.update(org.id, { default_repository_permission: "write" });
+    expect((await request("org-default.txt")).status).toBe(201);
+
+    gh.orgs.update(org.id, { default_repository_permission: "read" });
+    gh.teams.update(team.id, { permission: "push" });
+    gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id });
+    expect((await request("team-access.txt")).status).toBe(201);
   });
 
   it("rejects malformed Base64 and incomplete commit identities without creating commits", async () => {
@@ -488,6 +597,61 @@ describe("GitHub commits routes", () => {
     expect(commitBody.files[0].patch).toContain("No newline at end of file");
   });
 
+  it("reports mode-only changes in commit details and comparisons", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string }>;
+    const gitCommit = await app.request(`${base}/repos/octocat/hello-world/git/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    const gitCommitBody = (await gitCommit.json()) as { tree: { sha: string } };
+    const readme = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    const readmeBody = (await readme.json()) as { sha: string };
+
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: gitCommitBody.tree.sha,
+        tree: [{ path: "README.md", mode: "100755", type: "blob", sha: readmeBody.sha }],
+      }),
+    });
+    expect(tree.status).toBe(201);
+    const treeBody = (await tree.json()) as { sha: string };
+    const created = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Make README executable", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { sha: string };
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/commits/${createdBody.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(commit.status).toBe(200);
+    const commitBody = (await commit.json()) as {
+      stats: { additions: number; deletions: number; total: number };
+      files: Array<Record<string, unknown>>;
+    };
+    expect(commitBody.stats).toEqual({ additions: 0, deletions: 0, total: 0 });
+    expect(commitBody.files).toHaveLength(1);
+    expect(commitBody.files[0]).toEqual(
+      expect.objectContaining({ filename: "README.md", status: "modified", additions: 0, deletions: 0, changes: 0 }),
+    );
+    expect(commitBody.files[0]).not.toHaveProperty("patch");
+
+    const comparison = await app.request(`${base}/repos/octocat/hello-world/compare/${head.sha}...${createdBody.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(comparison.status).toBe(200);
+    const comparisonBody = (await comparison.json()) as { files: Array<Record<string, unknown>> };
+    expect(comparisonBody.files).toEqual([
+      expect.objectContaining({ filename: "README.md", status: "modified", additions: 0, deletions: 0, changes: 0 }),
+    ]);
+  });
+
   it("keeps Git Data and REST commit response shapes distinct", async () => {
     const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await list.json()) as Array<{ sha: string }>;
@@ -549,6 +713,35 @@ describe("GitHub commits routes", () => {
     );
     expect(byPrefix.status).toBe(200);
     expect(((await byPrefix.json()) as { sha: string }).sha).toBe(createdBody.commit.sha);
+  });
+
+  it("resolves percent signs in branch and comparison route parameters", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string }>;
+    const branch = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/heads/release%", sha: head.sha }),
+    });
+    expect(branch.status).toBe(201);
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/commits/release%25`, {
+      headers: authHeaders(),
+    });
+    expect(commit.status).toBe(200);
+    expect(((await commit.json()) as { sha: string }).sha).toBe(head.sha);
+
+    const comparison = await app.request(`${base}/repos/octocat/hello-world/compare/main...release%25`, {
+      headers: authHeaders(),
+    });
+    expect(comparison.status).toBe(200);
+    expect(((await comparison.json()) as { status: string }).status).toBe("identical");
+
+    const branchDetails = await app.request(`${base}/repos/octocat/hello-world/branches/release%25`, {
+      headers: authHeaders(),
+    });
+    expect(branchDetails.status).toBe(200);
+    expect(((await branchDetails.json()) as { name: string }).name).toBe("release%");
   });
 
   it("compares base...head", async () => {
