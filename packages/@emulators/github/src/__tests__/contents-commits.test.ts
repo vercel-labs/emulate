@@ -90,15 +90,35 @@ describe("GitHub contents routes", () => {
 
     const root = await app.request(`${base}/repos/octocat/hello-world/contents`, { headers: authHeaders() });
     expect(root.status).toBe(200);
-    const rootBody = (await root.json()) as Array<{ name: string; type: string }>;
+    const rootBody = (await root.json()) as Array<{ name: string; type: string; sha: string; git_url: string | null }>;
     expect(rootBody.find((e) => e.name === "README.md")?.type).toBe("file");
-    expect(rootBody.find((e) => e.name === "src")?.type).toBe("dir");
+    const src = rootBody.find((e) => e.name === "src");
+    expect(src?.type).toBe("dir");
+    expect(src?.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(src?.git_url).toBeTruthy();
+
+    const tree = await app.request(src!.git_url!, { headers: authHeaders() });
+    expect(tree.status).toBe(200);
+    const treeBody = (await tree.json()) as { tree: Array<{ path: string; type: string }> };
+    expect(treeBody.tree).toContainEqual(expect.objectContaining({ path: "index.ts", type: "blob" }));
 
     const dir = await app.request(`${base}/repos/octocat/hello-world/contents/src`, { headers: authHeaders() });
     expect(dir.status).toBe(200);
     const dirBody = (await dir.json()) as Array<{ path: string; type: string }>;
     expect(dirBody).toHaveLength(1);
     expect(dirBody[0].path).toBe("src/index.ts");
+  });
+
+  it("returns encoded content URLs that resolve for special path characters", async () => {
+    const created = await putFile(app, "docs/My%20File%20%231.md", "hello\n");
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { content: { path: string; url: string } };
+    expect(createdBody.content.path).toBe("docs/My File #1.md");
+    expect(createdBody.content.url).toContain("My%20File%20%231.md");
+
+    const read = await app.request(createdBody.content.url, { headers: authHeaders() });
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { path: string }).path).toBe("docs/My File #1.md");
   });
 
   it("404s on a missing path", async () => {
@@ -141,6 +161,60 @@ describe("GitHub contents routes", () => {
 
     const gone = await app.request(`${base}/repos/octocat/hello-world/contents/notes.txt`, { headers: authHeaders() });
     expect(gone.status).toBe(404);
+  });
+
+  it("rejects malformed Base64 and incomplete commit identities without creating commits", async () => {
+    const before = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const beforeCount = ((await before.json()) as unknown[]).length;
+
+    const invalidContent = await app.request(`${base}/repos/octocat/hello-world/contents/invalid.txt`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Invalid content", content: "not Base64!" }),
+    });
+    expect(invalidContent.status).toBe(422);
+
+    const invalidAuthor = await putFile(app, "invalid-author.txt", "hello\n", {
+      author: { name: "Missing Email" },
+    });
+    expect(invalidAuthor.status).toBe(422);
+
+    const after = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    expect((await after.json()) as unknown[]).toHaveLength(beforeCount);
+  });
+
+  it("uses an explicit committer as the default author", async () => {
+    const identity = { name: "Fixture User", email: "fixture@example.com", date: "2024-01-02T03:04:05Z" };
+    const created = await putFile(app, "identity.txt", "hello\n", { committer: identity });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as {
+      commit: { author: typeof identity; committer: typeof identity };
+    };
+    expect(body.commit.author).toEqual(identity);
+    expect(body.commit.committer).toEqual(identity);
+  });
+
+  it("updates only the selected branch", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [initial] = (await commits.json()) as Array<{ sha: string }>;
+    const branch = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/heads/feature", sha: initial.sha }),
+    });
+    expect(branch.status).toBe(201);
+
+    const created = await putFile(app, "feature.txt", "feature\n", { branch: "feature" });
+    expect(created.status).toBe(201);
+
+    const onFeature = await app.request(`${base}/repos/octocat/hello-world/contents/feature.txt?ref=feature`, {
+      headers: authHeaders(),
+    });
+    expect(onFeature.status).toBe(200);
+    const onMain = await app.request(`${base}/repos/octocat/hello-world/contents/feature.txt?ref=main`, {
+      headers: authHeaders(),
+    });
+    expect(onMain.status).toBe(404);
   });
 
   it("reads a file at an older ref", async () => {
@@ -216,6 +290,35 @@ describe("GitHub commits routes", () => {
     expect(body.stats.additions).toBe(2);
   });
 
+  it("keeps Git Data and REST commit response shapes distinct", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string }>;
+
+    const gitData = await app.request(`${base}/repos/octocat/hello-world/git/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(gitData.status).toBe(200);
+    const gitDataBody = (await gitData.json()) as Record<string, unknown> & {
+      tree: { sha: string };
+      author: { name: string; email: string; date: string };
+    };
+    expect(gitDataBody.tree.sha).toBeTruthy();
+    expect(gitDataBody.author.email).toBeTruthy();
+    expect(gitDataBody).not.toHaveProperty("commit");
+    expect(gitDataBody).not.toHaveProperty("stats");
+    expect(gitDataBody).not.toHaveProperty("files");
+
+    const rest = await app.request(`${base}/repos/octocat/hello-world/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(rest.status).toBe(200);
+    const restBody = (await rest.json()) as Record<string, unknown>;
+    expect(restBody).toHaveProperty("commit");
+    expect(restBody).toHaveProperty("stats");
+    expect(restBody).toHaveProperty("files");
+    expect(restBody).not.toHaveProperty("tree");
+  });
+
   it("resolves a commit by branch name and by sha prefix", async () => {
     const created = await putFile(app, "notes.txt", "one\n");
     const createdBody = (await created.json()) as { commit: { sha: string } };
@@ -271,6 +374,35 @@ describe("GitHub commits routes", () => {
     expect(body.status).toBe("identical");
     expect(body.ahead_by).toBe(0);
     expect(body.files).toHaveLength(0);
+  });
+
+  it("paginates comparison commits and only returns files on the first page", async () => {
+    const initialList = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [initial] = (await initialList.json()) as Array<{ sha: string }>;
+    await putFile(app, "a.txt", "a\n");
+    await putFile(app, "b.txt", "b\n");
+    await putFile(app, "c.txt", "c\n");
+
+    const first = await app.request(
+      `${base}/repos/octocat/hello-world/compare/${initial.sha}...main?per_page=1&page=1`,
+      { headers: authHeaders() },
+    );
+    expect(first.status).toBe(200);
+    expect(first.headers.get("link")).toContain('rel="next"');
+    const firstBody = (await first.json()) as { total_commits: number; commits: unknown[]; files: unknown[] };
+    expect(firstBody.total_commits).toBe(3);
+    expect(firstBody.commits).toHaveLength(1);
+    expect(firstBody.files).toHaveLength(3);
+
+    const second = await app.request(
+      `${base}/repos/octocat/hello-world/compare/${initial.sha}...main?per_page=1&page=2`,
+      { headers: authHeaders() },
+    );
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as { total_commits: number; commits: unknown[]; files: unknown[] };
+    expect(secondBody.total_commits).toBe(3);
+    expect(secondBody.commits).toHaveLength(1);
+    expect(secondBody.files).toHaveLength(0);
   });
 
   it("does not shadow /commits/{sha}/comments", async () => {

@@ -28,9 +28,39 @@ function commitTouchesPath(gh: GitHubStore, repoId: number, commit: GitHubCommit
 }
 
 function matchesAuthor(gh: GitHubStore, commit: GitHubCommit, author: string): boolean {
-  if (commit.author_name === author || commit.author_email === author) return true;
+  if (commit.author_name === author || commit.author_email.toLowerCase() === author.toLowerCase()) return true;
   const user = commit.user_id ? gh.users.get(commit.user_id) : null;
-  return user?.login === author;
+  return user?.login.toLowerCase() === author.toLowerCase();
+}
+
+function parseDateFilter(value: string): number | undefined {
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? date : undefined;
+}
+
+function ancestorDistances(gh: GitHubStore, repoId: number, startSha: string): Map<string, number> {
+  const distances = new Map<string, number>();
+  const queue: Array<{ sha: string; distance: number }> = [{ sha: startSha, distance: 0 }];
+  for (let i = 0; i < queue.length; i++) {
+    const { sha, distance } = queue[i];
+    const known = distances.get(sha);
+    if (known !== undefined && known <= distance) continue;
+    distances.set(sha, distance);
+    const commit = findCommitBySha(gh, repoId, sha);
+    if (!commit) continue;
+    for (const parent of commit.parent_shas) queue.push({ sha: parent, distance: distance + 1 });
+  }
+  return distances;
+}
+
+function findMergeBase(gh: GitHubStore, repoId: number, baseSha: string, headSha: string): GitHubCommit | undefined {
+  const fromBase = ancestorDistances(gh, repoId, baseSha);
+  const fromHead = ancestorDistances(gh, repoId, headSha);
+  return [...fromBase.keys()]
+    .filter((sha) => fromHead.has(sha))
+    .map((sha) => ({ commit: findCommitBySha(gh, repoId, sha), score: fromBase.get(sha)! + fromHead.get(sha)! }))
+    .filter((candidate): candidate is { commit: GitHubCommit; score: number } => candidate.commit !== undefined)
+    .sort((a, b) => a.score - b.score || b.commit.id - a.commit.id)[0]?.commit;
 }
 
 function formatFullCommit(gh: GitHubStore, repo: GitHubRepo, commit: GitHubCommit, baseUrl: string) {
@@ -75,11 +105,16 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     }
     const since = c.req.query("since");
     if (since) {
-      history = history.filter((commit) => commit.committer_date >= since);
+      const sinceDate = parseDateFilter(since);
+      history =
+        sinceDate === undefined ? [] : history.filter((commit) => Date.parse(commit.committer_date) >= sinceDate);
     }
     const until = c.req.query("until");
     if (until) {
-      history = history.filter((commit) => commit.committer_date <= until);
+      const untilDate = parseDateFilter(until);
+      if (untilDate !== undefined) {
+        history = history.filter((commit) => Date.parse(commit.committer_date) <= untilDate);
+      }
     }
 
     const { page, per_page } = parsePagination(c);
@@ -109,8 +144,8 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     const headAncestry = listAncestors(gh, repo.id, head.sha);
     const headAncestors = new Set(headAncestry.map((x) => x.sha));
 
-    // Newest common ancestor (listAncestors is sorted newest first).
-    const mergeBase = headAncestry.find((x) => baseAncestors.has(x.sha)) ?? base;
+    const mergeBase = findMergeBase(gh, repo.id, base.sha, head.sha);
+    if (!mergeBase) throw notFoundResponse();
     const aheadCommits = headAncestry.filter((x) => !baseAncestors.has(x.sha)).reverse();
     const behindBy = listAncestors(gh, repo.id, base.sha).filter((x) => !headAncestors.has(x.sha)).length;
 
@@ -123,7 +158,19 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
             ? "behind"
             : "diverged";
 
-    const files = diffTrees(gh, repo.id, mergeBase.tree_sha, head.tree_sha);
+    const allFiles = diffTrees(gh, repo.id, mergeBase.tree_sha, head.tree_sha);
+    const hasPagination = c.req.query("page") !== undefined || c.req.query("per_page") !== undefined;
+    let commits = aheadCommits;
+    let files = allFiles.slice(0, 300);
+    if (hasPagination) {
+      const { page, per_page } = parsePagination(c);
+      const start = (page - 1) * per_page;
+      commits = aheadCommits.slice(start, start + per_page);
+      files = page === 1 ? files : [];
+      setLinkHeader(c, aheadCommits.length, page, per_page);
+    } else if (commits.length > 250) {
+      commits = [...commits.slice(0, 249), commits.at(-1)!];
+    }
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
 
     return c.json({
@@ -138,7 +185,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
       ahead_by: aheadCommits.length,
       behind_by: behindBy,
       total_commits: aheadCommits.length,
-      commits: aheadCommits.map((commit) => formatCommitItem(gh, repo, commit, baseUrl)),
+      commits: commits.map((commit) => formatCommitItem(gh, repo, commit, baseUrl)),
       files: files.map((f) => formatFileDiff(f, repo, head.sha, baseUrl)),
     });
   });

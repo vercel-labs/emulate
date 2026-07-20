@@ -13,16 +13,28 @@ import type {
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
 import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
-import { flattenTree, formatGitCommit, resolveRefToCommit, type FlatTree } from "../git-helpers.js";
+import { encodeContentPath, flattenTree, formatGitCommit, resolveRefToCommit, type FlatTree } from "../git-helpers.js";
 
 function normalizePath(raw: string): string {
-  return decodeURIComponent(raw).replace(/^\/+|\/+$/g, "");
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    throw new ApiError(422, "path is invalid");
+  }
+  const path = decoded.replace(/^\/+|\/+$/g, "");
+  if (path.includes("\0") || path.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    throw new ApiError(422, "path is invalid");
+  }
+  return path;
 }
 
 function contentLinks(repo: GitHubRepo, baseUrl: string, path: string, ref: string, blobSha?: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-  const self = `${repoUrl}/contents/${path}?ref=${encodeURIComponent(ref)}`;
-  const html = `${baseUrl}/${repo.full_name}/blob/${ref}/${path}`;
+  const encodedPath = encodeContentPath(path);
+  const encodedRef = encodeURIComponent(ref);
+  const self = `${repoUrl}/contents/${encodedPath}?ref=${encodedRef}`;
+  const html = `${baseUrl}/${repo.full_name}/blob/${encodedRef}/${encodedPath}`;
   const git = blobSha ? `${repoUrl}/git/blobs/${blobSha}` : null;
   return { self, html, git };
 }
@@ -39,6 +51,8 @@ function formatFileContent(
   const blob = gh.blobs.findBy("repo_id", repo.id).find((b) => b.sha === entry.sha);
   const size = blob?.size ?? entry.size ?? 0;
   const links = contentLinks(repo, baseUrl, path, ref, entry.sha);
+  const encodedPath = encodeContentPath(path);
+  const encodedRef = encodeURIComponent(ref);
   const base = {
     type: "file",
     size,
@@ -48,7 +62,7 @@ function formatFileContent(
     url: links.self,
     git_url: links.git,
     html_url: links.html,
-    download_url: `${baseUrl}/${repo.full_name}/raw/${ref}/${path}`,
+    download_url: `${baseUrl}/${repo.full_name}/raw/${encodedRef}/${encodedPath}`,
     _links: { self: links.self, git: links.git, html: links.html },
   };
   if (!withContent) return base;
@@ -87,17 +101,22 @@ function formatDirListing(
   const dirs = [...dirNames].map((name) => {
     const path = prefix + name;
     const links = contentLinks(repo, baseUrl, path, ref);
+    const treeSha = flat.dirs.get(path) || null;
+    const gitUrl = treeSha ? `${baseUrl}/repos/${repo.full_name}/git/trees/${treeSha}` : null;
+    const encodedPath = encodeContentPath(path);
+    const encodedRef = encodeURIComponent(ref);
+    const htmlUrl = `${baseUrl}/${repo.full_name}/tree/${encodedRef}/${encodedPath}`;
     return {
       type: "dir",
       size: 0,
       name,
       path,
-      sha: flat.dirs.get(path) ?? "",
+      sha: treeSha ?? "",
       url: links.self,
-      git_url: null,
-      html_url: `${baseUrl}/${repo.full_name}/tree/${ref}/${path}`,
+      git_url: gitUrl,
+      html_url: htmlUrl,
       download_url: null,
-      _links: { self: links.self, git: null, html: `${baseUrl}/${repo.full_name}/tree/${ref}/${path}` },
+      _links: { self: links.self, git: gitUrl, html: htmlUrl },
     };
   });
 
@@ -105,13 +124,102 @@ function formatDirListing(
 }
 
 function decodeBodyContent(content: string): { text: string | null; base64: string } {
-  const buf = Buffer.from(content, "base64");
+  const normalized = content.replace(/\s/g, "");
+  if (
+    normalized.length % 4 === 1 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) ||
+    normalized.slice(0, -2).includes("=")
+  ) {
+    throw new ApiError(422, "content is not valid Base64");
+  }
+  const buf = Buffer.from(normalized, "base64");
+  if (buf.toString("base64").replace(/=+$/, "") !== normalized.replace(/=+$/, "")) {
+    throw new ApiError(422, "content is not valid Base64");
+  }
   const text = buf.toString("utf8");
-  // Round-trips cleanly -> store as searchable utf-8 text; otherwise keep base64.
   if (!text.includes("\0") && Buffer.from(text, "utf8").equals(buf)) {
-    return { text, base64: content };
+    return { text, base64: normalized };
   }
   return { text: null, base64: buf.toString("base64") };
+}
+
+interface CommitIdentity {
+  name: string;
+  email: string;
+  date?: string;
+}
+
+function parseCommitIdentity(value: unknown, field: "author" | "committer"): CommitIdentity | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError(422, `${field} must be an object`);
+  }
+  const input = value as Record<string, unknown>;
+  if (typeof input.name !== "string" || !input.name) {
+    throw new ApiError(422, `${field}.name is required`);
+  }
+  if (typeof input.email !== "string" || !input.email) {
+    throw new ApiError(422, `${field}.email is required`);
+  }
+  if (input.date !== undefined && (typeof input.date !== "string" || !Number.isFinite(Date.parse(input.date)))) {
+    throw new ApiError(422, `${field}.date must be an ISO 8601 timestamp`);
+  }
+  return {
+    name: input.name,
+    email: input.email,
+    ...(typeof input.date === "string" ? { date: input.date } : {}),
+  };
+}
+
+type FileTreeEntry = { mode: string; sha: string; size?: number };
+
+interface PendingTree {
+  files: Map<string, FileTreeEntry>;
+  dirs: Map<string, PendingTree>;
+}
+
+function persistTree(gh: GitHubStore, repoId: number, entries: Map<string, FileTreeEntry>): GitHubTree {
+  const root: PendingTree = { files: new Map(), dirs: new Map() };
+
+  for (const [path, entry] of entries) {
+    const parts = path.split("/");
+    let current = root;
+    for (const part of parts.slice(0, -1)) {
+      if (current.files.has(part)) throw new ApiError(422, `${path} conflicts with an existing file`);
+      let child = current.dirs.get(part);
+      if (!child) {
+        child = { files: new Map(), dirs: new Map() };
+        current.dirs.set(part, child);
+      }
+      current = child;
+    }
+    const name = parts.at(-1)!;
+    if (current.dirs.has(name)) throw new ApiError(422, `${path} conflicts with an existing directory`);
+    current.files.set(name, entry);
+  }
+
+  const write = (pending: PendingTree): GitHubTree => {
+    const treeEntries: GitHubTree["tree"] = [];
+    for (const [name, child] of [...pending.dirs].sort(([a], [b]) => a.localeCompare(b))) {
+      const subtree = write(child);
+      treeEntries.push({ path: name, mode: "040000", type: "tree", sha: subtree.sha });
+    }
+    for (const [name, entry] of [...pending.files].sort(([a], [b]) => a.localeCompare(b))) {
+      treeEntries.push({ path: name, mode: entry.mode, type: "blob", sha: entry.sha, size: entry.size });
+    }
+
+    const tree = gh.trees.insert({
+      repo_id: repoId,
+      sha: generateSha(),
+      node_id: "",
+      tree: treeEntries,
+      truncated: false,
+    } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
+    gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
+    return gh.trees.get(tree.id)!;
+  };
+
+  return write(root);
 }
 
 interface CommitFilesParams {
@@ -119,8 +227,8 @@ interface CommitFilesParams {
   branchName: string;
   message: string;
   actor: GitHubUser;
-  author?: { name?: string; email?: string; date?: string };
-  committer?: { name?: string; email?: string; date?: string };
+  author?: CommitIdentity;
+  committer?: CommitIdentity;
   /** path -> new entry, or null to delete the path */
   changes: Map<string, { mode: string; sha: string; size: number } | null>;
   headCommit: GitHubCommit | null;
@@ -140,33 +248,20 @@ function commitFiles(gh: GitHubStore, params: CommitFilesParams): GitHubCommit {
     else entries.set(path, change);
   }
 
-  const tree = gh.trees.insert({
-    repo_id: repo.id,
-    sha: generateSha(),
-    node_id: "",
-    tree: [...entries.entries()].map(([path, e]) => ({
-      path,
-      mode: e.mode,
-      type: "blob" as const,
-      sha: e.sha,
-      size: e.size,
-    })),
-    truncated: false,
-  } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-  gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
+  const tree = persistTree(gh, repo.id, entries);
 
   const now = timestamp();
   const defaultName = actor.name ?? actor.login;
   const defaultEmail = actor.email ?? `${actor.login}@users.noreply.github.com`;
-  const author = {
-    name: params.author?.name ?? defaultName,
-    email: params.author?.email ?? defaultEmail,
-    date: params.author?.date ?? now,
-  };
   const committer = {
-    name: params.committer?.name ?? author.name,
-    email: params.committer?.email ?? author.email,
-    date: params.committer?.date ?? author.date,
+    name: params.committer?.name ?? defaultName,
+    email: params.committer?.email ?? defaultEmail,
+    date: params.committer?.date ?? now,
+  };
+  const author = {
+    name: params.author?.name ?? params.committer?.name ?? defaultName,
+    email: params.author?.email ?? params.committer?.email ?? defaultEmail,
+    date: params.author?.date ?? params.committer?.date ?? now,
   };
 
   const commit = gh.commits.insert({
@@ -281,19 +376,39 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string" || !body.message) throw new ApiError(422, "message is required");
     if (typeof body.content !== "string") throw new ApiError(422, "content is required");
+    if (body.branch !== undefined && (typeof body.branch !== "string" || !body.branch)) {
+      throw new ApiError(422, "branch must be a non-empty string");
+    }
+    if (body.sha !== undefined && typeof body.sha !== "string") throw new ApiError(422, "sha must be a string");
+    const author = parseCommitIdentity(body.author, "author");
+    const committer = parseCommitIdentity(body.committer, "committer");
 
     const branchName = typeof body.branch === "string" && body.branch ? body.branch : repo.default_branch;
     const hasCommits = gh.commits.findBy("repo_id", repo.id).length > 0;
     const headCommit = resolveRefToCommit(gh, repo, branchName) ?? null;
     if (hasCommits && !headCommit) throw notFoundResponse();
 
-    const existing = headCommit ? flattenTree(gh, repo.id, headCommit.tree_sha).blobs.get(path) : undefined;
+    const flat = headCommit ? flattenTree(gh, repo.id, headCommit.tree_sha) : undefined;
+    const existing = flat?.blobs.get(path);
     if (existing) {
       if (typeof body.sha !== "string") {
         throw new ApiError(422, `"sha" wasn't supplied. ${path} already exists.`);
       }
       if (body.sha !== existing.sha) {
         throw new ApiError(409, `${path} does not match ${body.sha}`);
+      }
+    } else {
+      if (body.sha !== undefined) throw new ApiError(422, `${path} does not exist`);
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        const parent = parts.slice(0, i).join("/");
+        if (flat?.blobs.has(parent)) throw new ApiError(422, `${path} conflicts with an existing file`);
+      }
+      if (
+        flat?.dirs.has(path) ||
+        [...(flat?.blobs.keys() ?? [])].some((candidate) => candidate.startsWith(`${path}/`))
+      ) {
+        throw new ApiError(422, `${path} conflicts with an existing directory`);
       }
     }
 
@@ -315,8 +430,8 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       branchName,
       message: body.message,
       actor: user,
-      author: body.author as CommitFilesParams["author"],
-      committer: body.committer as CommitFilesParams["committer"],
+      author,
+      committer,
       changes: new Map([[path, { mode: existing?.mode ?? "100644", sha: gh.blobs.get(blob.id)!.sha, size }]]),
       headCommit,
     });
@@ -363,10 +478,16 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    if (!path) throw new ApiError(422, "path is required");
 
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string" || !body.message) throw new ApiError(422, "message is required");
     if (typeof body.sha !== "string") throw new ApiError(422, "sha is required");
+    if (body.branch !== undefined && (typeof body.branch !== "string" || !body.branch)) {
+      throw new ApiError(422, "branch must be a non-empty string");
+    }
+    const author = parseCommitIdentity(body.author, "author");
+    const committer = parseCommitIdentity(body.committer, "committer");
 
     const branchName = typeof body.branch === "string" && body.branch ? body.branch : repo.default_branch;
     const headCommit = resolveRefToCommit(gh, repo, branchName);
@@ -383,8 +504,8 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       branchName,
       message: body.message,
       actor: user,
-      author: body.author as CommitFilesParams["author"],
-      committer: body.committer as CommitFilesParams["committer"],
+      author,
+      committer,
       changes: new Map([[path, null]]),
       headCommit,
     });

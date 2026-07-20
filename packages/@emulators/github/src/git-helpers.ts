@@ -54,7 +54,6 @@ export interface FlatTree {
 export function flattenTree(gh: GitHubStore, repoId: number, treeSha: string): FlatTree {
   const blobs: FlatTree["blobs"] = new Map();
   const dirs: FlatTree["dirs"] = new Map();
-  const visited = new Set<string>();
 
   const registerParentDirs = (path: string) => {
     const parts = path.split("/");
@@ -64,11 +63,11 @@ export function flattenTree(gh: GitHubStore, repoId: number, treeSha: string): F
     }
   };
 
-  const walk = (sha: string, prefix: string) => {
-    if (visited.has(sha)) return;
-    visited.add(sha);
+  const walk = (sha: string, prefix: string, ancestors: Set<string>) => {
+    if (ancestors.has(sha)) return;
     const tree = gh.trees.findBy("repo_id", repoId).find((t) => t.sha === sha);
     if (!tree) return;
+    const nextAncestors = new Set(ancestors).add(sha);
     for (const e of tree.tree) {
       const path = prefix ? `${prefix}/${e.path}` : e.path;
       if (e.type === "blob") {
@@ -77,12 +76,12 @@ export function flattenTree(gh: GitHubStore, repoId: number, treeSha: string): F
       } else {
         dirs.set(path, e.sha);
         registerParentDirs(path);
-        walk(e.sha, path);
+        walk(e.sha, path, nextAncestors);
       }
     }
   };
 
-  walk(treeSha, "");
+  walk(treeSha, "", new Set());
   return { blobs, dirs };
 }
 
@@ -108,9 +107,18 @@ export function listAncestors(gh: GitHubStore, repoId: number, headSha: string):
 export function blobText(gh: GitHubStore, repoId: number, sha: string): string | null {
   const blob = gh.blobs.findBy("repo_id", repoId).find((b) => b.sha === sha);
   if (!blob) return null;
-  const text = blob.encoding === "base64" ? Buffer.from(blob.content, "base64").toString("utf8") : blob.content;
-  if (text.includes("\0")) return null;
+  if (blob.encoding !== "base64") return blob.content.includes("\0") ? null : blob.content;
+  const bytes = Buffer.from(blob.content, "base64");
+  const text = bytes.toString("utf8");
+  if (text.includes("\0") || !Buffer.from(text, "utf8").equals(bytes)) return null;
   return text;
+}
+
+export function encodeContentPath(path: string): string {
+  return path
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
 }
 
 type Op = { type: "eq" | "del" | "ins"; text: string };
@@ -289,6 +297,7 @@ export function diffTrees(
 
 export function formatFileDiff(diff: FileDiff, repo: GitHubRepo, headSha: string, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
+  const encodedPath = encodeContentPath(diff.filename);
   return {
     sha: diff.sha,
     filename: diff.filename,
@@ -296,9 +305,9 @@ export function formatFileDiff(diff: FileDiff, repo: GitHubRepo, headSha: string
     additions: diff.additions,
     deletions: diff.deletions,
     changes: diff.changes,
-    blob_url: `${baseUrl}/${repo.full_name}/blob/${headSha}/${diff.filename}`,
-    raw_url: `${baseUrl}/${repo.full_name}/raw/${headSha}/${diff.filename}`,
-    contents_url: `${repoUrl}/contents/${diff.filename}?ref=${headSha}`,
+    blob_url: `${baseUrl}/${repo.full_name}/blob/${headSha}/${encodedPath}`,
+    raw_url: `${baseUrl}/${repo.full_name}/raw/${headSha}/${encodedPath}`,
+    contents_url: `${repoUrl}/contents/${encodedPath}?ref=${headSha}`,
     ...(diff.patch !== undefined ? { patch: diff.patch } : {}),
   };
 }

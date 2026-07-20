@@ -11,7 +11,6 @@ import type {
   GitHubRepo,
   GitHubTag,
   GitHubTree,
-  GitHubUser,
 } from "../entities.js";
 import {
   formatBranch,
@@ -23,7 +22,6 @@ import {
   timestamp,
 } from "../helpers.js";
 import {
-  assertAuthenticatedUser,
   assertRepoAdmin,
   assertRepoRead,
   assertRepoWrite,
@@ -31,6 +29,7 @@ import {
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
+import { formatGitCommit } from "../git-helpers.js";
 
 function findBranchByName(gh: GitHubStore, repoId: number, name: string) {
   return gh.branches.findBy("repo_id", repoId).find((b) => b.name === name);
@@ -162,43 +161,6 @@ function expandTreeEntries(
     }
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
-}
-
-function formatCommitJson(gh: GitHubStore, repo: GitHubRepo, c: GitHubCommit, baseUrl: string) {
-  const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-  const htmlUrl = `${baseUrl}/${repo.full_name}/commit/${c.sha}`;
-  const authorUser = c.user_id ? gh.users.get(c.user_id) : null;
-  return {
-    sha: c.sha,
-    node_id: c.node_id,
-    url: `${repoUrl}/git/commits/${c.sha}`,
-    html_url: htmlUrl,
-    author: authorUser ? formatUser(authorUser, baseUrl) : null,
-    committer: authorUser ? formatUser(authorUser, baseUrl) : null,
-    parents: c.parent_shas.map((sha) => ({
-      sha,
-      url: `${repoUrl}/git/commits/${sha}`,
-    })),
-    stats: { total: 0, additions: 0, deletions: 0 },
-    files: [],
-    commit: {
-      author: {
-        name: c.author_name,
-        email: c.author_email,
-        date: c.author_date,
-      },
-      committer: {
-        name: c.committer_name,
-        email: c.committer_email,
-        date: c.committer_date,
-      },
-      message: c.message,
-      tree: { sha: c.tree_sha, url: `${repoUrl}/git/trees/${c.tree_sha}` },
-      url: `${repoUrl}/git/commits/${c.sha}`,
-      comment_count: 0,
-      verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
-    },
-  };
 }
 
 function protectionEntityToGitHub(gh: GitHubStore, repo: GitHubRepo, bp: GitHubBranchProtection, baseUrl: string) {
@@ -758,7 +720,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     assertRepoRead(gh, c.get("authUser"), repo);
     const commit = findCommitBySha(gh, repo.id, commitSha);
     if (!commit) throw notFoundResponse();
-    return c.json(formatCommitJson(gh, repo, commit, baseUrl));
+    return c.json(formatGitCommit(repo, commit, baseUrl));
   });
 
   app.post("/repos/:owner/:repo/git/commits", async (c) => {
@@ -824,7 +786,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
     gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
     const saved = gh.commits.get(commit.id)!;
-    return c.json(formatCommitJson(gh, repo, saved, baseUrl), 201);
+    return c.json(formatGitCommit(repo, saved, baseUrl), 201);
   });
 
   // --- Git trees ---
