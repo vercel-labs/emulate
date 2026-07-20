@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "@emulators/core";
 import { Store } from "@emulators/core";
@@ -42,7 +43,7 @@ function createTestApp() {
         slug: "contents-app",
         name: "Contents App",
         private_key: "test-key",
-        permissions: { contents: "write" },
+        permissions: { contents: "write", issues: "read", pull_requests: "read" },
         installations: [
           {
             installation_id: 41,
@@ -54,7 +55,7 @@ function createTestApp() {
             installation_id: 42,
             account: "octocat",
             repository_selection: "all",
-            permissions: { contents: "read" },
+            permissions: { contents: "read", issues: "read", pull_requests: "read" },
           },
         ],
       },
@@ -70,6 +71,13 @@ function authHeaders(token = "test-token"): Record<string, string> {
 
 function jsonHeaders(token = "test-token"): Record<string, string> {
   return { ...authHeaders(token), "Content-Type": "application/json" };
+}
+
+function gitObjectSha(type: "blob" | "tree", content: Buffer): string {
+  return createHash("sha1")
+    .update(Buffer.from(`${type} ${content.byteLength}\0`, "utf8"))
+    .update(content)
+    .digest("hex");
 }
 
 async function putFile(app: Hono, path: string, text: string, extra: Record<string, unknown> = {}) {
@@ -121,7 +129,27 @@ describe("GitHub contents routes", () => {
     expect(body.type).toBe("file");
     expect(body.path).toBe("README.md");
     expect(Buffer.from(body.content, "base64").toString("utf8")).toBe("# hello-world\n");
-    expect(body.sha).toBeTruthy();
+    expect(body.sha).toBe(gitObjectSha("blob", Buffer.from("# hello-world\n", "utf8")));
+
+    const duplicateBlob = await app.request(`${base}/repos/octocat/hello-world/git/blobs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ content: "# hello-world\n", encoding: "utf-8" }),
+    });
+    expect(duplicateBlob.status).toBe(201);
+    expect(((await duplicateBlob.json()) as { sha: string }).sha).toBe(body.sha);
+
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ commit: { tree: { sha: string } } }>;
+    const duplicateTree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        tree: [{ path: "README.md", mode: "100644", type: "blob", sha: body.sha }],
+      }),
+    });
+    expect(duplicateTree.status).toBe(201);
+    expect(((await duplicateTree.json()) as { sha: string }).sha).toBe(head.commit.tree.sha);
 
     const download = await app.request(body.download_url, { headers: authHeaders() });
     expect(download.status).toBe(200);
@@ -483,6 +511,42 @@ describe("GitHub contents routes", () => {
       expect(allowed.status, url).toBe(200);
       expect(((await allowed.json()) as { total_count: number }).total_count, url).toBeGreaterThan(0);
     }
+  });
+
+  it("enforces endpoint-specific installation permissions on private repository reads", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    gh.repos.update(repo.id, { private: true });
+
+    const contents = await issueInstallationToken(app, 42, { permissions: { contents: "read" } });
+    const issues = await issueInstallationToken(app, 42, { permissions: { issues: "read" } });
+    const pulls = await issueInstallationToken(app, 42, { permissions: { pull_requests: "read" } });
+    expect(contents.response.status).toBe(201);
+    expect(issues.response.status).toBe(201);
+    expect(pulls.response.status).toBe(201);
+
+    const urls = {
+      contents: `${base}/repos/octocat/hello-world/branches`,
+      refs: `${base}/repos/octocat/hello-world/git/ref/heads/main`,
+      issues: `${base}/repos/octocat/hello-world/issues`,
+      pulls: `${base}/repos/octocat/hello-world/pulls`,
+    };
+
+    expect((await app.request(urls.contents, { headers: authHeaders(contents.token) })).status).toBe(200);
+    expect((await app.request(urls.refs, { headers: authHeaders(contents.token) })).status).toBe(200);
+    expect((await app.request(urls.issues, { headers: authHeaders(contents.token) })).status).toBe(403);
+    expect((await app.request(urls.pulls, { headers: authHeaders(contents.token) })).status).toBe(403);
+
+    expect((await app.request(urls.issues, { headers: authHeaders(issues.token) })).status).toBe(200);
+    expect((await app.request(urls.contents, { headers: authHeaders(issues.token) })).status).toBe(403);
+    expect((await app.request(urls.refs, { headers: authHeaders(issues.token) })).status).toBe(403);
+    expect((await app.request(urls.pulls, { headers: authHeaders(issues.token) })).status).toBe(403);
+
+    expect((await app.request(urls.pulls, { headers: authHeaders(pulls.token) })).status).toBe(200);
+    expect((await app.request(urls.contents, { headers: authHeaders(pulls.token) })).status).toBe(403);
+    expect((await app.request(urls.refs, { headers: authHeaders(pulls.token) })).status).toBe(403);
+    expect((await app.request(urls.issues, { headers: authHeaders(pulls.token) })).status).toBe(403);
   });
 
   it("honors organization default and team repository write permissions", async () => {
@@ -1247,6 +1311,61 @@ describe("GitHub commits routes", () => {
     expect(((await byPrefix.json()) as { sha: string }).sha).toBe(createdBody.commit.sha);
   });
 
+  it("does not resolve an annotated tag object until a tag ref points to it", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string }>;
+    const tag = await app.request(`${base}/repos/octocat/hello-world/git/tags`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        tag: "v1",
+        message: "Version 1",
+        object: head.sha,
+        type: "commit",
+        tagger: { name: "Octocat", email: "octocat@example.com", date: "2024-01-02T03:04:05Z" },
+      }),
+    });
+    expect(tag.status).toBe(201);
+    const tagBody = (await tag.json()) as { sha: string };
+
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/commits/v1`, {
+          headers: authHeaders(),
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/contents/README.md?ref=v1`, {
+          headers: authHeaders(),
+        })
+      ).status,
+    ).toBe(404);
+
+    const ref = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/tags/v1", sha: tagBody.sha }),
+    });
+    expect(ref.status).toBe(201);
+
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/commits/v1`, {
+          headers: authHeaders(),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/contents/README.md?ref=v1`, {
+          headers: authHeaders(),
+        })
+      ).status,
+    ).toBe(200);
+  });
+
   it("resolves percent signs in branch and comparison route parameters", async () => {
     const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await list.json()) as Array<{ sha: string }>;
@@ -1344,6 +1463,38 @@ describe("GitHub commits routes", () => {
     expect(secondBody.total_commits).toBe(3);
     expect(secondBody.commits).toHaveLength(1);
     expect(secondBody.files).toHaveLength(0);
+  });
+
+  it("reports stored commit comment counts in list, detail, and comparison responses", async () => {
+    const list = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await list.json()) as Array<{ sha: string; commit: { comment_count: number } }>;
+    expect(head.commit.comment_count).toBe(0);
+
+    const comment = await app.request(`${base}/repos/octocat/hello-world/commits/${head.sha}/comments`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ body: "A commit comment" }),
+    });
+    expect(comment.status).toBe(201);
+
+    const updatedList = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [updatedHead] = (await updatedList.json()) as Array<{ commit: { comment_count: number } }>;
+    expect(updatedHead.commit.comment_count).toBe(1);
+
+    const detail = await app.request(`${base}/repos/octocat/hello-world/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(((await detail.json()) as { commit: { comment_count: number } }).commit.comment_count).toBe(1);
+
+    const comparison = await app.request(`${base}/repos/octocat/hello-world/compare/main...main`, {
+      headers: authHeaders(),
+    });
+    const comparisonBody = (await comparison.json()) as {
+      base_commit: { commit: { comment_count: number } };
+      merge_base_commit: { commit: { comment_count: number } };
+    };
+    expect(comparisonBody.base_commit.commit.comment_count).toBe(1);
+    expect(comparisonBody.merge_base_commit.commit.comment_count).toBe(1);
   });
 
   it("does not shadow /commits/{sha}/comments", async () => {

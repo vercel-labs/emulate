@@ -23,7 +23,7 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertIssueWrite, assertRepoRead, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -184,7 +184,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const { page, per_page } = parsePagination(c);
     const list = gh.labels.findBy("repo_id", repo.id).slice();
@@ -247,7 +247,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
@@ -340,7 +340,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -548,7 +548,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const stateQ = c.req.query("state") ?? "open";
@@ -646,7 +646,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);
@@ -790,7 +790,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);

@@ -11,18 +11,17 @@ import {
 } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type {
-  GitHubBlob,
   GitHubBranch,
   GitHubCollaborator,
   GitHubCommit,
   GitHubRef,
   GitHubRepo,
   GitHubTag,
-  GitHubTree,
   GitHubUser,
 } from "../entities.js";
 import type { Collection, Entity } from "@emulators/core";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import { findOrCreateBlob, findOrCreateTree } from "../git-helpers.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
   mit: { key: "mit", name: "MIT License", spdx_id: "MIT" },
@@ -57,24 +56,8 @@ function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | n
   const readme = `# ${readmeTitle ?? repo.name}\n`;
   const size = Buffer.byteLength(readme, "utf8");
 
-  const blob = gh.blobs.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
-    content: readme,
-    encoding: "utf-8",
-    size,
-  } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-  gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-
-  const tree = gh.trees.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
-    tree: [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha }],
-    truncated: false,
-  } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-  gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
+  const blob = findOrCreateBlob(gh, repoId, Buffer.from(readme, "utf8"));
+  const tree = findOrCreateTree(gh, repoId, [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size }]);
 
   const authorName = actor?.name ?? actor?.login ?? "User";
   const login = actor?.login ?? "user";

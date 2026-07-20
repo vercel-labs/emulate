@@ -13,7 +13,13 @@ import {
   generateNodeId,
   lookupRepo,
 } from "../helpers.js";
-import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoContentsRead,
+  assertRepoPermission,
+  assertRepoWrite,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, number: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === number);
@@ -84,7 +90,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
     if (!repo.has_issues) throw notFoundResponse();
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
@@ -187,7 +193,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
     if (!repo.has_issues) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
@@ -216,7 +222,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "pull_requests");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
@@ -314,7 +320,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "pull_requests");
 
     const { page, per_page } = parsePagination(c);
     const { sort, direction } = parseCommentSort(c, "asc");
@@ -338,7 +344,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
@@ -399,7 +405,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const { page, per_page } = parsePagination(c);
     const { sort, direction } = parseCommentSort(c, "asc");
@@ -423,7 +429,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -516,7 +522,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
@@ -652,7 +658,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const commitSha = c.req.param("commit_sha")!;
     const commit = findCommitInRepo(gh, repo.id, commitSha);

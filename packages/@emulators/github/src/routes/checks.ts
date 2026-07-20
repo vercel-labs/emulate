@@ -11,7 +11,7 @@ import type {
   GitHubCheckAnnotation,
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
-import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 const CONCLUSION_RANK: Record<string, number> = {
   success: 0,
@@ -337,7 +337,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const suiteId = parseInt(c.req.param("check_suite_id")!, 10);
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
@@ -349,7 +349,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const suiteId = parseInt(c.req.param("check_suite_id")!, 10);
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
@@ -397,7 +397,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const ref = c.req.param("ref")!;
     const headSha = resolveRefToHeadSha(gh, repo, ref);
     if (!headSha) throw notFoundResponse();
@@ -639,7 +639,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const run = gh.checkRuns.get(runId);
     if (!run || run.repo_id !== repo.id) throw notFoundResponse();
@@ -651,7 +651,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const run = gh.checkRuns.get(runId);
     if (!run || run.repo_id !== repo.id) throw notFoundResponse();
@@ -713,7 +713,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const ref = c.req.param("ref")!;
     const headSha = resolveRefToHeadSha(gh, repo, ref);
     if (!headSha) throw notFoundResponse();

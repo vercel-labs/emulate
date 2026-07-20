@@ -81,17 +81,48 @@ export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, 
   throw forbidden();
 }
 
-export function canReadRepoContents(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): boolean {
+function hasInstallationPermission(authUser: AuthUser, permissions: string[], required: "read" | "write"): boolean {
+  const requiredRank = required === "write" ? 2 : 1;
+  return permissions.some((name) => {
+    const granted = authUser.installation?.permissions[name];
+    const grantedRank = granted === "write" ? 2 : granted === "read" ? 1 : 0;
+    return grantedRank >= requiredRank;
+  });
+}
+
+function canAccessRepoWithPermission(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  permissions: string[],
+  required: "read" | "write",
+): boolean {
   if (!canAccessRepo(gh, authUser, repo)) return false;
-  if (!repo.private || !authUser?.installation) return true;
-  const permission = authUser.installation.permissions.contents;
-  return permission === "read" || permission === "write";
+  if (required === "write" && !authUser) return false;
+  if (!authUser?.installation || (!repo.private && required === "read")) return true;
+  return hasInstallationPermission(authUser, permissions, required);
+}
+
+export function assertRepoPermission(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  permissions: string | string[],
+  required: "read" | "write" = "read",
+): void {
+  const accepted = Array.isArray(permissions) ? permissions : [permissions];
+  if (!canAccessRepoWithPermission(gh, authUser, repo, accepted, required)) {
+    if (!authUser) throw unauthorized();
+    throw forbidden();
+  }
+}
+
+export function canReadRepoContents(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): boolean {
+  return canAccessRepoWithPermission(gh, authUser, repo, ["contents"], "read");
 }
 
 export function assertRepoContentsRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
-  if (canReadRepoContents(gh, authUser, repo)) return;
-  if (!authUser) throw unauthorized();
-  throw forbidden();
+  assertRepoPermission(gh, authUser, repo, "contents");
 }
 
 export function assertAuthenticatedUser(gh: GitHubStore, authUser: AuthUser | undefined): GitHubUser {

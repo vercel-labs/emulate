@@ -25,6 +25,7 @@ import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
+import { findOrCreateBlob, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -250,19 +251,12 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
 
       if (r.auto_init !== false) {
         const sha = generateSha();
-        const treeSha = generateSha();
         const readme = `# ${r.name}\n${r.description ? `\n${r.description}\n` : ""}`;
         const readmeSize = Buffer.byteLength(readme, "utf8");
-
-        const blob = gh.blobs.insert({
-          repo_id: repo.id,
-          sha: generateSha(),
-          node_id: "",
-          content: readme,
-          encoding: "utf-8",
-          size: readmeSize,
-        });
-        gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
+        const blob = findOrCreateBlob(gh, repo.id, Buffer.from(readme, "utf8"));
+        const tree = findOrCreateTree(gh, repo.id, [
+          { path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size: readmeSize },
+        ]);
 
         const commit = gh.commits.insert({
           repo_id: repo.id,
@@ -275,20 +269,11 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           committer_name: r.owner,
           committer_email: `${r.owner}@localhost`,
           committer_date: repo.created_at,
-          tree_sha: treeSha,
+          tree_sha: tree.sha,
           parent_shas: [],
           user_id: owner.id,
         });
         gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-
-        const tree = gh.trees.insert({
-          repo_id: repo.id,
-          sha: treeSha,
-          node_id: "",
-          tree: [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size: readmeSize }],
-          truncated: false,
-        });
-        gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
 
         gh.branches.insert({
           repo_id: repo.id,

@@ -13,9 +13,6 @@ export function blobBytes(blob: GitHubBlob): Buffer {
 }
 
 export function findOrCreateBlob(gh: GitHubStore, repoId: number, content: Buffer): GitHubBlob {
-  const existing = gh.blobs.findBy("repo_id", repoId).find((blob) => blobBytes(blob).equals(content));
-  if (existing) return existing;
-
   const sha = gitObjectSha("blob", content);
   const sameSha = gh.blobs.findBy("repo_id", repoId).find((blob) => blob.sha === sha);
   if (sameSha) return sameSha;
@@ -36,15 +33,6 @@ export function findOrCreateBlob(gh: GitHubStore, repoId: number, content: Buffe
 
 type GitTreeEntry = GitHubTree["tree"][number];
 
-function sameTreeEntries(left: GitTreeEntry[], right: GitTreeEntry[]): boolean {
-  if (left.length !== right.length) return false;
-  const byPath = new Map(left.map((entry) => [entry.path, entry]));
-  return right.every((entry) => {
-    const candidate = byPath.get(entry.path);
-    return candidate?.mode === entry.mode && candidate.type === entry.type && candidate.sha === entry.sha;
-  });
-}
-
 function treeContent(entries: GitTreeEntry[]): Buffer {
   const ordered = [...entries].sort((left, right) => {
     const leftName = left.type === "tree" ? `${left.path}/` : left.path;
@@ -60,9 +48,6 @@ function treeContent(entries: GitTreeEntry[]): Buffer {
 }
 
 export function findOrCreateTree(gh: GitHubStore, repoId: number, entries: GitTreeEntry[]): GitHubTree {
-  const existing = gh.trees.findBy("repo_id", repoId).find((tree) => sameTreeEntries(tree.tree, entries));
-  if (existing) return existing;
-
   const sha = gitObjectSha("tree", treeContent(entries));
   const sameSha = gh.trees.findBy("repo_id", repoId).find((tree) => tree.sha === sha);
   if (sameSha) return sameSha;
@@ -110,14 +95,6 @@ export function resolveRefToCommit(gh: GitHubStore, repo: GitHubRepo, refParam?:
       : [`refs/heads/${ref}`, `refs/tags/${ref}`];
   const refRec = candidates.map((candidate) => refs.find((r) => r.ref === candidate)).find(Boolean);
   if (refRec) return peelToCommit(gh, repo.id, refRec.sha);
-
-  const tagName = ref.startsWith("refs/tags/")
-    ? ref.slice("refs/tags/".length)
-    : ref.startsWith("tags/")
-      ? ref.slice("tags/".length)
-      : ref;
-  const tag = gh.tags.findBy("repo_id", repo.id).find((t) => t.tag === tagName);
-  if (tag) return peelToCommit(gh, repo.id, tag.object_sha);
 
   const commits = gh.commits.findBy("repo_id", repo.id);
   const exact = commits.find((c) => c.sha === ref);
@@ -542,6 +519,9 @@ export function formatCommitItem(gh: GitHubStore, repo: GitHubRepo, c: GitHubCom
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const authorUser = resolveCommitUser(gh, c.author_email);
   const committerUser = resolveCommitUser(gh, c.committer_email);
+  const commentCount = gh.comments
+    .findBy("repo_id", repo.id)
+    .filter((comment) => comment.comment_type === "commit" && comment.commit_sha === c.sha).length;
   return {
     sha: c.sha,
     node_id: c.node_id,
@@ -551,7 +531,7 @@ export function formatCommitItem(gh: GitHubStore, repo: GitHubRepo, c: GitHubCom
       message: c.message,
       tree: { sha: c.tree_sha, url: `${repoUrl}/git/trees/${c.tree_sha}` },
       url: `${repoUrl}/git/commits/${c.sha}`,
-      comment_count: 0,
+      comment_count: commentCount,
       verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
     },
     url: `${repoUrl}/commits/${c.sha}`,

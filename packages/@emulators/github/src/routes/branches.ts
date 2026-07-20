@@ -25,7 +25,7 @@ import {
   assertRepoAdmin,
   assertRepoContentsRead,
   assertRepoContentsWrite,
-  assertRepoRead,
+  assertRepoPermission,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -432,7 +432,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp || !bp.required_status_checks) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
@@ -485,7 +485,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
@@ -503,7 +503,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp || !bp.required_pull_request_reviews) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
@@ -561,7 +561,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     return c.json(protectionEntityToGitHub(gh, repo, bp, baseUrl));
@@ -624,7 +624,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const branchName = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const branch = findBranchByName(gh, repo.id, branchName);
     if (!branch) throw notFoundResponse();
     const commit = findCommitBySha(gh, repo.id, branch.sha);
@@ -659,7 +659,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     let list = [...gh.branches.findBy("repo_id", repo.id)].sort((a, b) => a.name.localeCompare(b.name));
     const prot = c.req.query("protected");
     if (prot === "true") list = list.filter((b) => b.protected);
@@ -680,7 +680,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
@@ -693,7 +693,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const prefix = fullRefFromParam(refParam);
     const matches = gh.refs
       .findBy("repo_id", repo.id)
@@ -1069,7 +1069,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const tagSha = c.req.param("tag_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const tag = findTagObjectBySha(gh, repo.id, tagSha);
     if (!tag) throw notFoundResponse();
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
