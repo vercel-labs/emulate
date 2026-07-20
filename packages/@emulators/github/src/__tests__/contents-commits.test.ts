@@ -942,6 +942,108 @@ describe("GitHub contents routes", () => {
     );
   });
 
+  it("applies nested tree updates independently of input order", async () => {
+    const subtree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        tree: [{ path: "base.txt", mode: "100644", type: "blob", content: "base\n" }],
+      }),
+    });
+    expect(subtree.status).toBe(201);
+    const subtreeBody = (await subtree.json()) as { sha: string };
+    const directory = { path: "dir", mode: "040000", type: "tree", sha: subtreeBody.sha };
+    const nested = { path: "dir/file.txt", mode: "100644", type: "blob", content: "nested\n" };
+
+    const create = (tree: Array<Record<string, unknown>>) =>
+      app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ tree }),
+      });
+    const nestedFirst = await create([nested, directory]);
+    const directoryFirst = await create([directory, nested]);
+    expect(nestedFirst.status).toBe(201);
+    expect(directoryFirst.status).toBe(201);
+    const nestedFirstBody = (await nestedFirst.json()) as { sha: string };
+    const directoryFirstBody = (await directoryFirst.json()) as { sha: string };
+    expect(nestedFirstBody.sha).toBe(directoryFirstBody.sha);
+
+    const recursive = await app.request(
+      `${base}/repos/octocat/hello-world/git/trees/${nestedFirstBody.sha}?recursive=1`,
+      { headers: authHeaders() },
+    );
+    expect(recursive.status).toBe(200);
+    const recursiveBody = (await recursive.json()) as { tree: Array<{ path: string }> };
+    expect(recursiveBody.tree.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining(["dir", "dir/base.txt", "dir/file.txt"]),
+    );
+  });
+
+  it("supports documented Git tree modes and rejects invalid mode and type pairs", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ commit: { tree: { sha: string } } }>;
+    const submoduleSha = "a".repeat(40);
+    const valid = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        tree: [
+          { path: "regular", mode: "100644", type: "blob", content: "regular\n" },
+          { path: "executable", mode: "100755", type: "blob", content: "executable\n" },
+          { path: "link", mode: "120000", type: "blob", content: "regular" },
+          { path: "directory", mode: "040000", type: "tree", sha: head.commit.tree.sha },
+          { path: "module", mode: "160000", type: "commit", sha: submoduleSha },
+        ],
+      }),
+    });
+    expect(valid.status).toBe(201);
+    expect((await valid.json()) as { tree: unknown[] }).toEqual(
+      expect.objectContaining({
+        tree: expect.arrayContaining([
+          expect.objectContaining({ path: "link", mode: "120000", type: "blob" }),
+          expect.objectContaining({ path: "module", mode: "160000", type: "commit", sha: submoduleSha }),
+        ]),
+      }),
+    );
+
+    const invalidEntries = [
+      { path: "bad", mode: "100600", type: "blob", content: "bad" },
+      { path: "bad", mode: "100644", type: "tree", sha: head.commit.tree.sha },
+      { path: "bad", mode: "040000", type: "blob", content: "bad" },
+      { path: "bad", mode: "160000", type: "blob", content: "bad" },
+      { path: "bad", mode: "120000", type: "commit", sha: submoduleSha },
+      { path: "bad", mode: "160000", type: "commit", sha: "not-a-sha" },
+    ];
+    for (const entry of invalidEntries) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ tree: [entry] }),
+      });
+      expect(response.status, JSON.stringify(entry)).toBe(422);
+    }
+  });
+
+  it("gets trees by branch and tag refs", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const tag = await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/tags/tree-test", sha: head.sha }),
+    });
+    expect(tag.status).toBe(201);
+
+    for (const ref of ["main", "tree-test"]) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/git/trees/${ref}`, {
+        headers: authHeaders(),
+      });
+      expect(response.status, ref).toBe(200);
+      expect(await response.json()).toEqual(expect.objectContaining({ sha: head.commit.tree.sha }));
+    }
+  });
+
   it("deletes base-tree entries whose SHA is null", async () => {
     const created = await putFile(app, "src/remove.txt", "remove me\n");
     const createdBody = (await created.json()) as { commit: { sha: string; tree: { sha: string } } };

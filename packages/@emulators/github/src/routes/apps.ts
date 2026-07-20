@@ -242,10 +242,12 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
 
-    const ownerEntity = gh.users.findOneBy("login", owner) ?? gh.orgs.findOneBy("login", owner);
-
     for (const inst of gh.appInstallations.all()) {
-      if (inst.repository_selection === "all" && ownerEntity && inst.account_id === ownerEntity.id) {
+      if (
+        inst.repository_selection === "all" &&
+        inst.account_id === repo.owner_id &&
+        inst.account_type === repo.owner_type
+      ) {
         const ghApp = gh.apps.all().find((a) => a.app_id === inst.app_id);
         return c.json(formatInstallation(inst, ghApp, baseUrl));
       }

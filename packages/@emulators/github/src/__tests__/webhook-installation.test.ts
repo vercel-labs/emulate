@@ -383,6 +383,44 @@ describe("app webhook_url delivery", () => {
     expect(headers["X-Hub-Signature-256"]).toBe(`sha256=${expectedHmac}`);
   });
 
+  it("distinguishes user and organization installations with the same account ID", async () => {
+    const { app, webhooks } = createTestApp({
+      users: [{ login: "octocat" }],
+      orgs: [{ login: "first-org" }, { login: "second-org" }, { login: "acme" }],
+      repos: [{ owner: "acme", name: "project" }],
+      apps: [
+        {
+          app_id: 701,
+          slug: "user-app",
+          name: "User App",
+          private_key: "fake-key",
+          events: ["push"],
+          webhook_url: "https://user.example/webhook",
+          installations: [{ installation_id: 81, account: "octocat", repository_selection: "all" }],
+        },
+        {
+          app_id: 702,
+          slug: "org-app",
+          name: "Organization App",
+          private_key: "fake-key",
+          events: ["push"],
+          webhook_url: "https://org.example/webhook",
+          installations: [{ installation_id: 82, account: "acme", repository_selection: "all" }],
+        },
+      ],
+    });
+
+    const installation = await app.request(`${base}/repos/acme/project/installation`, { headers: authHeaders() });
+    expect(installation.status).toBe(200);
+    expect(await installation.json()).toEqual(expect.objectContaining({ id: 82, target_type: "Organization" }));
+
+    mockFetch.mockClear();
+    await webhooks.dispatch("push", undefined, { ref: "refs/heads/main" }, "acme", "project");
+
+    expect(mockFetch.mock.calls.some((call) => call[0] === "https://org.example/webhook")).toBe(true);
+    expect(mockFetch.mock.calls.some((call) => call[0] === "https://user.example/webhook")).toBe(false);
+  });
+
   it("does not deliver to app when webhook_url is null", async () => {
     const { app } = createTestApp({
       users: [{ login: "octocat" }],

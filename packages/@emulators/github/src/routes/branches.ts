@@ -28,7 +28,13 @@ import {
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
-import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree, formatGitCommit } from "../git-helpers.js";
+import {
+  findOrCreateBlob,
+  findOrCreateCommit,
+  findOrCreateTree,
+  formatGitCommit,
+  resolveRefToCommit,
+} from "../git-helpers.js";
 
 function findBranchByName(gh: GitHubStore, repoId: number, name: string) {
   return gh.branches.findBy("repo_id", repoId).find((b) => b.name === name);
@@ -187,14 +193,15 @@ function persistGitTreeHierarchy(
     return findTreeBySha(gh, repoId, pending.baseSha)?.tree.find((entry) => entry.path === name);
   };
 
-  for (const update of updates) {
+  const orderedUpdates = [...updates].sort((left, right) => left.path.split("/").length - right.path.split("/").length);
+  for (const update of orderedUpdates) {
     const parts = update.path.split("/");
     let current = root;
     for (const part of parts.slice(0, -1)) {
       let child = current.dirs.get(part);
       if (!child) {
         const existing = current.files.get(part) ?? baseEntry(current, part);
-        if (existing?.type === "blob") {
+        if (existing && existing.type !== "tree") {
           throw new ApiError(422, `${update.path} conflicts with an existing file`);
         }
         child = {
@@ -924,7 +931,9 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoContentsRead(gh, c.get("authUser"), repo);
-    const tree = findTreeBySha(gh, repo.id, treeSha);
+    const commit = resolveRefToCommit(gh, repo, treeSha);
+    const tree =
+      findTreeBySha(gh, repo.id, treeSha) ?? (commit ? findTreeBySha(gh, repo.id, commit.tree_sha) : undefined);
     if (!tree) throw notFoundResponse();
     const recursive = c.req.query("recursive") !== undefined;
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -963,9 +972,9 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       if (
         typeof raw.path !== "string" ||
         typeof raw.mode !== "string" ||
-        (raw.type !== "blob" && raw.type !== "tree")
+        (raw.type !== "blob" && raw.type !== "tree" && raw.type !== "commit")
       ) {
-        throw new ApiError(422, "Each tree entry needs path, mode, type (blob|tree)");
+        throw new ApiError(422, "Each tree entry needs path, mode, type (blob|tree|commit)");
       }
       if (
         !raw.path ||
@@ -977,8 +986,15 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       if (raw.sha !== undefined && raw.content !== undefined) {
         throw new ApiError(422, "Cannot pass both sha and content");
       }
-      if (raw.type === "tree" && raw.content !== undefined) {
-        throw new ApiError(422, "Tree entries must reference a tree sha");
+      const validMode =
+        (raw.type === "blob" && ["100644", "100755", "120000"].includes(raw.mode)) ||
+        (raw.type === "tree" && raw.mode === "040000") ||
+        (raw.type === "commit" && raw.mode === "160000");
+      if (!validMode) {
+        throw new ApiError(422, "Invalid mode for tree entry type");
+      }
+      if (raw.type !== "blob" && raw.content !== undefined) {
+        throw new ApiError(422, "Only blob entries may specify content");
       }
       if (raw.sha === null) {
         updates.push({ path: raw.path, mode: raw.mode, type: raw.type, sha: null });
@@ -997,8 +1013,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
         const blob = findBlobBySha(gh, repo.id, sha);
         if (!blob) throw new ApiError(422, "Invalid blob sha");
         size ??= blob.size;
-      } else if (!findTreeBySha(gh, repo.id, sha)) {
+      } else if (raw.type === "tree" && !findTreeBySha(gh, repo.id, sha)) {
         throw new ApiError(422, "Invalid tree sha");
+      } else if (raw.type === "commit" && !/^[0-9a-f]{40}$/i.test(sha)) {
+        throw new ApiError(422, "Invalid commit sha");
       }
       updates.push({ path: raw.path, mode: raw.mode, type: raw.type, sha, size });
     }

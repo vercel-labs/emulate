@@ -372,14 +372,16 @@ function findInstallationsForRepo(
   repoName: string | undefined,
   event: string,
 ): GitHubAppInstallation[] {
-  const ownerEntity = gh.users.findOneBy("login", ownerLogin) ?? gh.orgs.findOneBy("login", ownerLogin);
-  if (!ownerEntity) return [];
-
   const repoEntity = repoName ? gh.repos.findOneBy("full_name", `${ownerLogin}/${repoName}`) : null;
+  const ownerUser = gh.users.findOneBy("login", ownerLogin);
+  const ownerOrg = gh.orgs.findOneBy("login", ownerLogin);
+  const ownerId = repoEntity?.owner_id ?? ownerUser?.id ?? ownerOrg?.id;
+  const ownerType = repoEntity?.owner_type ?? (ownerUser ? "User" : ownerOrg ? "Organization" : undefined);
+  if (ownerId === undefined || ownerType === undefined) return [];
 
   const results: GitHubAppInstallation[] = [];
   for (const inst of gh.appInstallations.all()) {
-    if (inst.account_id !== ownerEntity.id) continue;
+    if (inst.account_id !== ownerId || inst.account_type !== ownerType) continue;
     if (inst.suspended_at) continue;
 
     const ghApp = gh.apps.all().find((a) => a.app_id === inst.app_id);

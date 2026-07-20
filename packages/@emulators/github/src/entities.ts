@@ -297,7 +297,7 @@ export interface GitHubTree extends Entity {
   tree: Array<{
     path: string;
     mode: string;
-    type: "blob" | "tree";
+    type: "blob" | "tree" | "commit";
     sha: string;
     size?: number;
   }>;
