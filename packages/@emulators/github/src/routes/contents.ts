@@ -37,6 +37,8 @@ function isWorkflowPath(path: string): boolean {
   return path.startsWith(".github/workflows/");
 }
 
+type FileTreeEntry = { mode: string; type: "blob" | "commit"; sha: string; size?: number };
+
 function contentLinks(repo: GitHubRepo, baseUrl: string, path: string, ref: string, blobSha?: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const encodedPath = encodeContentPath(path);
@@ -47,24 +49,161 @@ function contentLinks(repo: GitHubRepo, baseUrl: string, path: string, ref: stri
   return { self, html, git };
 }
 
+function findBlob(gh: GitHubStore, repoId: number, sha: string) {
+  return gh.blobs.findBy("repo_id", repoId).find((blob) => blob.sha === sha);
+}
+
+function blobBase64(blob: ReturnType<typeof findBlob>): string {
+  if (!blob) return "";
+  return blob.encoding === "base64" ? blob.content : Buffer.from(blob.content, "utf8").toString("base64");
+}
+
+function resolveSymlinkPath(path: string, target: string): string | undefined {
+  if (!target || target.startsWith("/") || target.includes("\0")) return undefined;
+  const parts = path.split("/").slice(0, -1);
+  for (const part of target.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) return undefined;
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  return parts.join("/");
+}
+
+function resolveSymlinkEntry(
+  gh: GitHubStore,
+  repoId: number,
+  path: string,
+  entry: FileTreeEntry,
+  flat: FlatTree,
+): FileTreeEntry | undefined {
+  if (entry.mode !== "120000" || entry.type !== "blob") return undefined;
+  const link = findBlob(gh, repoId, entry.sha);
+  if (!link) return undefined;
+  const targetPath = resolveSymlinkPath(path, blobBytes(link).toString("utf8"));
+  if (!targetPath) return undefined;
+  const target = flat.blobs.get(targetPath);
+  return target?.type === "blob" && (target.mode === "100644" || target.mode === "100755") ? target : undefined;
+}
+
+function submoduleUrls(gh: GitHubStore, repoId: number, flat: FlatTree): Map<string, string> {
+  const result = new Map<string, string>();
+  const entry = flat.blobs.get(".gitmodules");
+  if (!entry || entry.type !== "blob") return result;
+  const blob = findBlob(gh, repoId, entry.sha);
+  if (!blob) return result;
+
+  let current: { path?: string; url?: string } | undefined;
+  const save = () => {
+    if (current?.path && current.url) result.set(current.path, current.url);
+  };
+  for (const line of blobBytes(blob).toString("utf8").split(/\r?\n/)) {
+    if (/^\s*\[submodule\s+"(?:[^"\\]|\\.)*"\]\s*(?:[#;].*)?$/.test(line)) {
+      save();
+      current = {};
+      continue;
+    }
+    if (!current) continue;
+    const property = line.match(/^\s*(path|url)\s*=\s*(.*?)\s*$/);
+    if (!property) continue;
+    current[property[1] as "path" | "url"] = property[2];
+  }
+  save();
+  return result;
+}
+
+function githubSubmoduleFullName(repo: GitHubRepo, url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const hosted = url.match(
+    /^(?:(?:https?|git):\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+)\/([^/]+?)(?:\.git)?\/?$/i,
+  );
+  if (hosted) return `${hosted[1]}/${hosted[2]}`;
+  const relative = url.match(/^\.\.\/([^/]+?)(?:\.git)?\/?$/);
+  if (relative) return `${repo.full_name.split("/")[0]}/${relative[1]}`;
+  return undefined;
+}
+
 function formatFileContent(
   gh: GitHubStore,
   repo: GitHubRepo,
   baseUrl: string,
   path: string,
   ref: string,
-  entry: { mode: string; sha: string; size?: number },
+  entry: FileTreeEntry,
   withContent: boolean,
+  flat?: FlatTree,
 ) {
-  const blob = gh.blobs.findBy("repo_id", repo.id).find((b) => b.sha === entry.sha);
-  const size = blob?.size ?? entry.size ?? 0;
-  const links = contentLinks(repo, baseUrl, path, ref, entry.sha);
+  const name = path.split("/").pop()!;
   const encodedPath = encodeContentPath(path);
   const encodedRef = encodeURIComponent(ref);
+  const self = contentLinks(repo, baseUrl, path, ref).self;
+
+  if (entry.type === "commit" || entry.mode === "160000") {
+    const submoduleUrl = flat ? submoduleUrls(gh, repo.id, flat).get(path) : undefined;
+    const fullName = githubSubmoduleFullName(repo, submoduleUrl);
+    const gitUrl = fullName ? `${baseUrl}/repos/${fullName}/git/trees/${entry.sha}` : null;
+    const htmlUrl = fullName ? `${baseUrl}/${fullName}/tree/${entry.sha}` : null;
+    return {
+      type: withContent ? "submodule" : "file",
+      submodule_git_url: submoduleUrl ?? null,
+      size: 0,
+      name,
+      path,
+      sha: entry.sha,
+      url: self,
+      git_url: gitUrl,
+      html_url: htmlUrl,
+      download_url: null,
+      _links: { self, git: gitUrl, html: htmlUrl },
+    };
+  }
+
+  const blob = findBlob(gh, repo.id, entry.sha);
+  if (entry.mode === "120000") {
+    const target = blob ? blobBytes(blob).toString("utf8") : "";
+    const resolved = flat ? resolveSymlinkEntry(gh, repo.id, path, entry, flat) : undefined;
+    if (!resolved) {
+      const links = contentLinks(repo, baseUrl, path, ref, entry.sha);
+      return {
+        type: "symlink",
+        target,
+        size: blob?.size ?? entry.size ?? 0,
+        name,
+        path,
+        sha: entry.sha,
+        url: links.self,
+        git_url: links.git,
+        html_url: links.html,
+        download_url: `${baseUrl}/${repo.full_name}/raw/${encodedRef}/${encodedPath}`,
+        _links: { self: links.self, git: links.git, html: links.html },
+      };
+    }
+    const targetBlob = findBlob(gh, repo.id, resolved.sha);
+    const links = contentLinks(repo, baseUrl, path, ref, entry.sha);
+    const base = {
+      type: "file",
+      size: targetBlob?.size ?? resolved.size ?? 0,
+      name,
+      path,
+      sha: entry.sha,
+      url: links.self,
+      git_url: links.git,
+      html_url: links.html,
+      download_url: `${baseUrl}/${repo.full_name}/raw/${encodedRef}/${encodedPath}`,
+      _links: { self: links.self, git: links.git, html: links.html },
+    };
+    return withContent ? { ...base, content: blobBase64(targetBlob), encoding: "base64" } : base;
+  }
+
+  const size = blob?.size ?? entry.size ?? 0;
+  const links = contentLinks(repo, baseUrl, path, ref, entry.sha);
   const base = {
     type: "file",
     size,
-    name: path.split("/").pop()!,
+    name,
     path,
     sha: entry.sha,
     url: links.self,
@@ -74,12 +213,7 @@ function formatFileContent(
     _links: { self: links.self, git: links.git, html: links.html },
   };
   if (!withContent) return base;
-  const content = blob
-    ? blob.encoding === "base64"
-      ? blob.content
-      : Buffer.from(blob.content, "utf8").toString("base64")
-    : "";
-  return { ...base, content, encoding: "base64" };
+  return { ...base, content: blobBase64(blob), encoding: "base64" };
 }
 
 function formatDirListing(
@@ -100,7 +234,7 @@ function formatDirListing(
     if (!rest) continue;
     const slash = rest.indexOf("/");
     if (slash === -1) {
-      files.push(formatFileContent(gh, repo, baseUrl, path, ref, entry, false));
+      files.push(formatFileContent(gh, repo, baseUrl, path, ref, entry, false, flat));
     } else {
       dirNames.add(rest.slice(0, slash));
     }
@@ -178,8 +312,6 @@ function parseCommitIdentity(value: unknown, field: "author" | "committer"): Com
     ...(typeof input.date === "string" ? { date: input.date } : {}),
   };
 }
-
-type FileTreeEntry = { mode: string; type: "blob" | "commit"; sha: string; size?: number };
 
 interface PendingTree {
   files: Map<string, FileTreeEntry>;
@@ -328,7 +460,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
     const entry = flat.blobs.get(path);
     if (entry) {
-      return c.json(formatFileContent(gh, repo, baseUrl, path, ref, entry, true));
+      return c.json(formatFileContent(gh, repo, baseUrl, path, ref, entry, true, flat));
     }
     const prefix = `${path}/`;
     if (flat.dirs.has(path) || [...flat.blobs.keys()].some((p) => p.startsWith(prefix))) {
@@ -348,9 +480,11 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
 
     const commit = resolveRefToCommit(gh, repo, ref);
     if (!commit) throw notFoundResponse();
-    const entry = flattenTree(gh, repo.id, commit.tree_sha).blobs.get(path);
+    const flat = flattenTree(gh, repo.id, commit.tree_sha);
+    const entry = flat.blobs.get(path);
     if (!entry) throw notFoundResponse();
-    const blob = gh.blobs.findBy("repo_id", repo.id).find((candidate) => candidate.sha === entry.sha);
+    const resolved = resolveSymlinkEntry(gh, repo.id, path, entry, flat);
+    const blob = findBlob(gh, repo.id, resolved?.sha ?? entry.sha);
     if (!blob) throw notFoundResponse();
     const content = blobBytes(blob);
     return c.body(content, 200, {
@@ -383,7 +517,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
         .sort()[0];
     const readmePath = findReadme(".github") ?? findReadme("") ?? findReadme("docs");
     if (!readmePath) throw notFoundResponse();
-    return c.json(formatFileContent(gh, repo, baseUrl, readmePath, ref, flat.blobs.get(readmePath)!, true));
+    return c.json(formatFileContent(gh, repo, baseUrl, readmePath, ref, flat.blobs.get(readmePath)!, true, flat));
   });
 
   app.get("/repos/:owner/:repo/contents", (c) => getContents(c, ""));
@@ -412,9 +546,11 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const committer = parseCommitIdentity(body.committer, "committer");
 
     const branchName = typeof body.branch === "string" && body.branch ? body.branch : repo.default_branch;
-    const hasCommits = gh.commits.findBy("repo_id", repo.id).length > 0;
+    const hasBranches =
+      gh.refs.findBy("repo_id", repo.id).some((ref) => ref.ref.startsWith("refs/heads/")) ||
+      gh.branches.findBy("repo_id", repo.id).length > 0;
     const headCommit = resolveBranchToCommit(gh, repo, branchName) ?? null;
-    if (hasCommits && !headCommit) throw notFoundResponse();
+    if (hasBranches && !headCommit) throw notFoundResponse();
     assertBranchUpdateAllowed(gh, user, repo, branchName, { parentCount: headCommit ? 1 : 0 });
 
     const flat = headCommit ? flattenTree(gh, repo.id, headCommit.tree_sha) : undefined;
@@ -492,7 +628,12 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       repo.name,
     );
 
-    const entry = { mode: existing?.type === "blob" ? existing.mode : "100644", sha: blob.sha, size };
+    const entry: FileTreeEntry = {
+      mode: existing?.type === "blob" ? existing.mode : "100644",
+      type: "blob",
+      sha: blob.sha,
+      size,
+    };
     return c.json(
       {
         content: formatFileContent(gh, repo, baseUrl, path, branchName, entry, false),

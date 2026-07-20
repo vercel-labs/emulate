@@ -97,6 +97,7 @@ function canAccessRepoWithPermission(
   permissions: string[],
   required: "read" | "write",
 ): boolean {
+  if (required === "write" && authUser?.installation && !installationCanAccessRepo(authUser, repo)) return false;
   if (!canAccessRepo(gh, authUser, repo)) return false;
   if (required === "write" && !authUser) return false;
   if (!authUser?.installation || (!repo.private && required === "read")) return true;
@@ -130,6 +131,12 @@ export function assertAuthenticatedUser(gh: GitHubStore, authUser: AuthUser | un
   const user = getActorUser(gh, authUser);
   if (!user) throw unauthorized();
   return user;
+}
+
+export function assertAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | undefined): GitHubUser {
+  if (!authUser) throw unauthorized();
+  if (authUser.installation) return installationActor(gh, authUser);
+  return assertAuthenticatedUser(gh, authUser);
 }
 
 export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {

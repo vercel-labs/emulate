@@ -559,7 +559,45 @@ describe("GitHub contents routes", () => {
     expect((await dispatch(reader.token)).status).toBe(403);
     expect(gh.workflowRuns.findBy("repo_id", repo.id)).toHaveLength(0);
     expect((await dispatch(writer.token)).status).toBe(204);
-    expect(gh.workflowRuns.findBy("repo_id", repo.id)).toHaveLength(1);
+    const [run] = gh.workflowRuns.findBy("repo_id", repo.id);
+    expect(run).toBeDefined();
+    expect(gh.users.get(run.actor_id)?.login).toBe("contents-app[bot]");
+  });
+
+  it("keeps installation writes within selected public repositories", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const project = gh.repos.findOneBy("full_name", "acme/project")!;
+    const other = gh.repos.findOneBy("full_name", "acme/other")!;
+    const createWorkflow = (repoId: number, fullName: string) =>
+      gh.workflows.insert({
+        node_id: `workflow-${repoId}`,
+        repo_id: repoId,
+        name: "CI",
+        path: ".github/workflows/ci.yml",
+        state: "active",
+        badge_url: `${base}/repos/${fullName}/actions/workflows/ci.yml/badge.svg`,
+      });
+    const selectedWorkflow = createWorkflow(project.id, project.full_name);
+    const outsideWorkflow = createWorkflow(other.id, other.full_name);
+    const installation = await issueInstallationToken(app, 41, {
+      repositories: ["project"],
+      permissions: { actions: "write" },
+    });
+    expect(installation.response.status).toBe(201);
+
+    const dispatch = (repoName: string, workflowId: number) =>
+      app.request(`${base}/repos/acme/${repoName}/actions/workflows/${workflowId}/dispatches`, {
+        method: "POST",
+        headers: jsonHeaders(installation.token),
+        body: JSON.stringify({ ref: "main" }),
+      });
+
+    expect((await dispatch("project", selectedWorkflow.id)).status).toBe(204);
+    expect((await dispatch("other", outsideWorkflow.id)).status).toBe(403);
+    const [run] = gh.workflowRuns.findBy("repo_id", project.id);
+    expect(gh.users.get(run.actor_id)?.login).toBe("contents-app[bot]");
+    expect(gh.workflowRuns.findBy("repo_id", other.id)).toHaveLength(0);
   });
 
   it("requires Contents permission for installation reads from private repositories", async () => {
@@ -1152,6 +1190,93 @@ describe("GitHub contents routes", () => {
     }
   });
 
+  it("formats symlinks and submodules through the Contents API", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const submoduleSha = "c".repeat(40);
+    const gitmodules = [
+      '[submodule "vendor/mod"]',
+      "\tpath = vendor/mod",
+      "\turl = https://github.com/acme/dependency.git",
+      "",
+    ].join("\n");
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: head.commit.tree.sha,
+        tree: [
+          { path: ".gitmodules", mode: "100644", type: "blob", content: gitmodules },
+          { path: "target.txt", mode: "100644", type: "blob", content: "target\n" },
+          { path: "link.txt", mode: "120000", type: "blob", content: "target.txt" },
+          { path: "broken-link", mode: "120000", type: "blob", content: "missing.txt" },
+          { path: "vendor/mod", mode: "160000", type: "commit", sha: submoduleSha },
+        ],
+      }),
+    });
+    expect(tree.status).toBe(201);
+    const treeBody = (await tree.json()) as { sha: string };
+    const commit = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Add special entries", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    expect(commit.status).toBe(201);
+    const commitBody = (await commit.json()) as { sha: string };
+    const update = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: commitBody.sha }),
+    });
+    expect(update.status).toBe(200);
+
+    const link = await app.request(`${base}/repos/octocat/hello-world/contents/link.txt`, {
+      headers: authHeaders(),
+    });
+    expect(link.status).toBe(200);
+    const linkBody = (await link.json()) as { type: string; content: string };
+    expect(linkBody.type).toBe("file");
+    expect(Buffer.from(linkBody.content, "base64").toString("utf8")).toBe("target\n");
+    const rawLink = await app.request(`${base}/octocat/hello-world/raw/main/link.txt`, { headers: authHeaders() });
+    expect(rawLink.status).toBe(200);
+    expect(await rawLink.text()).toBe("target\n");
+
+    const broken = await app.request(`${base}/repos/octocat/hello-world/contents/broken-link`, {
+      headers: authHeaders(),
+    });
+    expect(broken.status).toBe(200);
+    expect(await broken.json()).toEqual(
+      expect.objectContaining({ type: "symlink", target: "missing.txt", size: "missing.txt".length }),
+    );
+
+    const submodule = await app.request(`${base}/repos/octocat/hello-world/contents/vendor/mod`, {
+      headers: authHeaders(),
+    });
+    expect(submodule.status).toBe(200);
+    expect(await submodule.json()).toEqual(
+      expect.objectContaining({
+        type: "submodule",
+        submodule_git_url: "https://github.com/acme/dependency.git",
+        sha: submoduleSha,
+        download_url: null,
+        git_url: `${base}/repos/acme/dependency/git/trees/${submoduleSha}`,
+        html_url: `${base}/acme/dependency/tree/${submoduleSha}`,
+      }),
+    );
+    const listing = await app.request(`${base}/repos/octocat/hello-world/contents/vendor`, {
+      headers: authHeaders(),
+    });
+    expect(listing.status).toBe(200);
+    expect(await listing.json()).toEqual([
+      expect.objectContaining({
+        type: "file",
+        name: "mod",
+        submodule_git_url: "https://github.com/acme/dependency.git",
+        download_url: null,
+      }),
+    ]);
+  });
+
   it("preserves submodules when Contents writes rebuild a neighboring tree", async () => {
     const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await commits.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
@@ -1262,6 +1387,48 @@ describe("GitHub contents routes", () => {
       headers: authHeaders(),
     });
     expect(removed.status).toBe(404);
+  });
+
+  it("initializes an empty repository even when loose Git objects exist", async () => {
+    const blob = await app.request(`${base}/repos/octocat/empty-repo/git/blobs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ content: "loose\n", encoding: "utf-8" }),
+    });
+    expect(blob.status).toBe(201);
+    const blobBody = (await blob.json()) as { sha: string };
+    const tree = await app.request(`${base}/repos/octocat/empty-repo/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        tree: [{ path: "loose.txt", mode: "100644", type: "blob", sha: blobBody.sha }],
+      }),
+    });
+    expect(tree.status).toBe(201);
+    const treeBody = (await tree.json()) as { sha: string };
+    const looseCommit = await app.request(`${base}/repos/octocat/empty-repo/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Loose commit", tree: treeBody.sha, parents: [] }),
+    });
+    expect(looseCommit.status).toBe(201);
+
+    const initialized = await app.request(`${base}/repos/octocat/empty-repo/contents/README.md`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        message: "Initialize repository",
+        content: Buffer.from("# Empty\n", "utf8").toString("base64"),
+      }),
+    });
+    expect(initialized.status).toBe(201);
+    const initializedBody = (await initialized.json()) as { commit: { parents: unknown[] } };
+    expect(initializedBody.commit.parents).toEqual([]);
+
+    const contents = await app.request(`${base}/repos/octocat/empty-repo/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    expect(contents.status).toBe(200);
   });
 
   it("keeps archived repositories read-only across Contents and Git Data", async () => {

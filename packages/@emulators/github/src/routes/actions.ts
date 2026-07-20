@@ -14,7 +14,7 @@ import type {
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
 import {
-  assertAuthenticatedUser,
+  assertAuthenticatedActor,
   assertRepoAdmin,
   assertRepoPermission,
   getActorUser,
@@ -335,8 +335,9 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertAuthenticatedUser(gh, c.get("authUser"));
-    assertRepoPermission(gh, c.get("authUser"), repo, "actions", "write");
+    const authUser = c.get("authUser");
+    assertRepoPermission(gh, authUser, repo, "actions", "write");
+    const actor = assertAuthenticatedActor(gh, authUser);
     const w = resolveWorkflow(gh, repo.id, c.req.param("workflow_id")!);
     if (!w) throw notFoundResponse();
     if (w.state !== "active") {
