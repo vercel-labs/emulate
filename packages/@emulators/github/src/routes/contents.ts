@@ -2,25 +2,20 @@ import type { AppEnv, Context, RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
-import type {
-  GitHubBlob,
-  GitHubBranch,
-  GitHubCommit,
-  GitHubRef,
-  GitHubRepo,
-  GitHubTree,
-  GitHubUser,
-} from "../entities.js";
+import type { GitHubBranch, GitHubCommit, GitHubRef, GitHubRepo, GitHubTree, GitHubUser } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
 import {
   assertBranchUpdateAllowed,
+  assertRepoContentsRead,
   assertRepoContentsWrite,
-  assertRepoRead,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
 import {
+  blobBytes,
   encodeContentPath,
+  findOrCreateBlob,
+  findOrCreateTree,
   flattenTree,
   formatGitCommit,
   resolveBranchToCommit,
@@ -79,10 +74,6 @@ function formatFileContent(
       : Buffer.from(blob.content, "utf8").toString("base64")
     : "";
   return { ...base, content, encoding: "base64" };
-}
-
-function blobBytes(blob: GitHubBlob): Buffer {
-  return blob.encoding === "base64" ? Buffer.from(blob.content, "base64") : Buffer.from(blob.content, "utf8");
 }
 
 function formatDirListing(
@@ -219,15 +210,7 @@ function persistTree(gh: GitHubStore, repoId: number, entries: Map<string, FileT
       treeEntries.push({ path: name, mode: entry.mode, type: "blob", sha: entry.sha, size: entry.size });
     }
 
-    const tree = gh.trees.insert({
-      repo_id: repoId,
-      sha: generateSha(),
-      node_id: "",
-      tree: treeEntries,
-      truncated: false,
-    } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-    gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
-    return gh.trees.get(tree.id)!;
+    return findOrCreateTree(gh, repoId, treeEntries);
   };
 
   return write(root);
@@ -331,7 +314,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const refParam = c.req.query("ref");
     const commit = resolveRefToCommit(gh, repo, refParam);
@@ -360,7 +343,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const path = normalizePath(c.req.param("path")!);
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const commit = resolveRefToCommit(gh, repo, ref);
     if (!commit) throw notFoundResponse();
@@ -380,7 +363,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const refParam = c.req.query("ref");
     const commit = resolveRefToCommit(gh, repo, refParam);
@@ -456,17 +439,9 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
 
     const decoded = decodeBodyContent(body.content);
-    const size =
-      decoded.text !== null ? Buffer.byteLength(decoded.text, "utf8") : Buffer.from(decoded.base64, "base64").length;
-    const blob = gh.blobs.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
-      content: decoded.text ?? decoded.base64,
-      encoding: decoded.text !== null ? "utf-8" : "base64",
-      size,
-    } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-    gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
+    const bytes = decoded.text !== null ? Buffer.from(decoded.text, "utf8") : Buffer.from(decoded.base64, "base64");
+    const blob = findOrCreateBlob(gh, repo.id, bytes);
+    const size = blob.size;
 
     const commit = commitFiles(gh, {
       repo,
@@ -475,7 +450,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       actor: user,
       author,
       committer,
-      changes: new Map([[path, { mode: existing?.mode ?? "100644", sha: gh.blobs.get(blob.id)!.sha, size }]]),
+      changes: new Map([[path, { mode: existing?.mode ?? "100644", sha: blob.sha, size }]]),
       headCommit,
     });
 
@@ -504,7 +479,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       repo.name,
     );
 
-    const entry = { mode: existing?.mode ?? "100644", sha: gh.blobs.get(blob.id)!.sha, size };
+    const entry = { mode: existing?.mode ?? "100644", sha: blob.sha, size };
     return c.json(
       {
         content: formatFileContent(gh, repo, baseUrl, path, branchName, entry, false),

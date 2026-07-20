@@ -3,7 +3,6 @@ import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulat
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type {
-  GitHubBlob,
   GitHubBranch,
   GitHubBranchProtection,
   GitHubCommit,
@@ -24,13 +23,13 @@ import {
 import {
   assertBranchUpdateAllowed,
   assertRepoAdmin,
+  assertRepoContentsRead,
   assertRepoContentsWrite,
   assertRepoRead,
-  getActorUser,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
-import { formatGitCommit } from "../git-helpers.js";
+import { findOrCreateBlob, findOrCreateTree, formatGitCommit } from "../git-helpers.js";
 
 function findBranchByName(gh: GitHubStore, repoId: number, name: string) {
   return gh.branches.findBy("repo_id", repoId).find((b) => b.name === name);
@@ -165,24 +164,32 @@ function expandTreeEntries(
 }
 
 type GitTreeEntry = GitHubTree["tree"][number];
+type GitTreeUpdate = Omit<GitTreeEntry, "sha"> & { sha: string | null };
 
 interface PendingGitTree {
   baseSha?: string;
   mode: string;
   files: Map<string, GitTreeEntry>;
   dirs: Map<string, PendingGitTree>;
+  deletions: Set<string>;
 }
 
 function persistGitTreeHierarchy(
   gh: GitHubStore,
   repoId: number,
   baseSha: string | undefined,
-  updates: GitTreeEntry[],
+  updates: GitTreeUpdate[],
 ): GitHubTree {
-  const root: PendingGitTree = { baseSha, mode: "040000", files: new Map(), dirs: new Map() };
+  const root: PendingGitTree = {
+    baseSha,
+    mode: "040000",
+    files: new Map(),
+    dirs: new Map(),
+    deletions: new Set(),
+  };
 
   const baseEntry = (pending: PendingGitTree, name: string) => {
-    if (!pending.baseSha) return undefined;
+    if (!pending.baseSha || pending.deletions.has(name)) return undefined;
     return findTreeBySha(gh, repoId, pending.baseSha)?.tree.find((entry) => entry.path === name);
   };
 
@@ -201,14 +208,29 @@ function persistGitTreeHierarchy(
           mode: existing?.mode ?? "040000",
           files: new Map(),
           dirs: new Map(),
+          deletions: new Set(),
         };
         current.files.delete(part);
+        current.deletions.delete(part);
         current.dirs.set(part, child);
       }
       current = child;
     }
 
     const name = parts.at(-1)!;
+    if (update.sha === null) {
+      const existing =
+        current.files.get(name) ??
+        (current.dirs.has(name) ? { type: "tree" as const } : undefined) ??
+        baseEntry(current, name);
+      if (!existing) throw new ApiError(422, `Cannot delete ${update.path} because it does not exist`);
+      current.files.delete(name);
+      current.dirs.delete(name);
+      current.deletions.add(name);
+      continue;
+    }
+
+    current.deletions.delete(name);
     if (update.type === "tree") {
       current.files.delete(name);
       current.dirs.set(name, {
@@ -216,15 +238,16 @@ function persistGitTreeHierarchy(
         mode: update.mode,
         files: new Map(),
         dirs: new Map(),
+        deletions: new Set(),
       });
     } else {
       current.dirs.delete(name);
-      current.files.set(name, { ...update, path: name });
+      current.files.set(name, { ...update, path: name, sha: update.sha });
     }
   }
 
   const write = (pending: PendingGitTree): GitHubTree => {
-    if (pending.baseSha && pending.files.size === 0 && pending.dirs.size === 0) {
+    if (pending.baseSha && pending.files.size === 0 && pending.dirs.size === 0 && pending.deletions.size === 0) {
       const unchanged = findTreeBySha(gh, repoId, pending.baseSha);
       if (!unchanged) throw new ApiError(422, "Invalid tree");
       return unchanged;
@@ -240,16 +263,9 @@ function persistGitTreeHierarchy(
       entries.set(name, { path: name, mode: child.mode, type: "tree", sha: subtree.sha });
     }
     for (const [name, entry] of pending.files) entries.set(name, { ...entry, path: name });
+    for (const name of pending.deletions) entries.delete(name);
 
-    const tree = gh.trees.insert({
-      repo_id: repoId,
-      sha: generateSha(),
-      node_id: "",
-      tree: [...entries.values()].sort((a, b) => a.path.localeCompare(b.path)),
-      truncated: false,
-    } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-    gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
-    return gh.trees.get(tree.id)!;
+    return findOrCreateTree(gh, repoId, [...entries.values()]);
   };
 
   return write(root);
@@ -829,7 +845,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const commitSha = c.req.param("commit_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const commit = findCommitBySha(gh, repo.id, commitSha);
     if (!commit) throw notFoundResponse();
     return c.json(formatGitCommit(repo, commit, baseUrl));
@@ -840,7 +856,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoContentsWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string") throw new ApiError(422, "message is required");
     if (typeof body.tree !== "string") throw new ApiError(422, "tree is required");
@@ -858,9 +874,8 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     let committer_email: string;
     let committer_date: string;
     const now = timestamp();
-    const actor = getActorUser(gh, c.get("authUser")!);
-    const defaultName = actor?.name ?? actor?.login ?? "user";
-    const defaultEmail = actor?.email ?? `${actor?.login ?? "user"}@users.noreply.github.com`;
+    const defaultName = actor.name ?? actor.login;
+    const defaultEmail = actor.email ?? `${actor.login}@users.noreply.github.com`;
     if (body.author && typeof body.author === "object" && body.author !== null) {
       const a = body.author as Record<string, unknown>;
       author_name = typeof a.name === "string" ? a.name : defaultName;
@@ -894,7 +909,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       committer_date,
       tree_sha: treeSha,
       parent_shas: parents,
-      user_id: actor?.id ?? null,
+      user_id: actor.id,
     } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
     gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
     const saved = gh.commits.get(commit.id)!;
@@ -909,7 +924,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const treeSha = c.req.param("tree_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const tree = findTreeBySha(gh, repo.id, treeSha);
     if (!tree) throw notFoundResponse();
     const recursive = c.req.query("recursive") === "1" || c.req.query("recursive") === "true";
@@ -937,13 +952,13 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       path?: string;
       mode?: string;
       type?: string;
-      sha?: string;
+      sha?: string | null;
       content?: string;
     }>;
     const baseTreeSha = typeof body.base_tree === "string" ? body.base_tree : undefined;
     if (baseTreeSha && !findTreeBySha(gh, repo.id, baseTreeSha)) throw new ApiError(422, "Invalid base_tree");
 
-    const updates: GitTreeEntry[] = [];
+    const updates: GitTreeUpdate[] = [];
 
     for (const raw of items) {
       if (
@@ -966,19 +981,15 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       if (raw.type === "tree" && raw.content !== undefined) {
         throw new ApiError(422, "Tree entries must reference a tree sha");
       }
+      if (raw.sha === null) {
+        updates.push({ path: raw.path, mode: raw.mode, type: raw.type, sha: null });
+        continue;
+      }
       let sha = raw.sha;
       let size: number | undefined;
       if (raw.content !== undefined) {
         const buf = Buffer.from(String(raw.content), "utf8");
-        const blob = gh.blobs.insert({
-          repo_id: repo.id,
-          sha: generateSha(),
-          node_id: "",
-          content: String(raw.content),
-          encoding: "utf-8",
-          size: buf.byteLength,
-        } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-        gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
+        const blob = findOrCreateBlob(gh, repo.id, buf);
         sha = blob.sha;
         size = blob.size;
       }
@@ -1014,7 +1025,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const fileSha = c.req.param("file_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const blob = findBlobBySha(gh, repo.id, fileSha);
     if (!blob) throw notFoundResponse();
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -1041,40 +1052,8 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     };
     if (typeof body.content !== "string") throw new ApiError(422, "content is required");
     const enc = body.encoding === "base64" || body.encoding === "utf-8" ? body.encoding : "utf-8";
-    if (enc === "base64") {
-      const blob = gh.blobs.insert({
-        repo_id: repo.id,
-        sha: generateSha(),
-        node_id: "",
-        content: body.content,
-        encoding: "base64",
-        size: Buffer.from(body.content, "base64").length,
-      } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-      gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-      const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-      const saved = gh.blobs.get(blob.id)!;
-      return c.json(
-        {
-          sha: saved.sha,
-          node_id: saved.node_id,
-          url: `${repoUrl}/git/blobs/${saved.sha}`,
-          size: saved.size,
-        },
-        201,
-      );
-    }
-    const raw = body.content;
-    const size = Buffer.byteLength(raw, "utf8");
-    const blob = gh.blobs.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
-      content: raw,
-      encoding: "utf-8",
-      size,
-    } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-    gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-    const saved = gh.blobs.get(blob.id)!;
+    const content = enc === "base64" ? Buffer.from(body.content, "base64") : Buffer.from(body.content, "utf8");
+    const saved = findOrCreateBlob(gh, repo.id, content);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
     return c.json(
       {

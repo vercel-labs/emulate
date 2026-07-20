@@ -4,7 +4,7 @@ import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubCommit, GitHubRepo } from "../entities.js";
 import { lookupRepo } from "../helpers.js";
-import { assertRepoRead, notFoundResponse } from "../route-helpers.js";
+import { assertRepoContentsRead, notFoundResponse } from "../route-helpers.js";
 import {
   commitIdentityMatches,
   diffTrees,
@@ -94,7 +94,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     if (gh.commits.findBy("repo_id", repo.id).length === 0) {
       throw new ApiError(409, "Git Repository is empty.");
@@ -147,7 +147,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     const basehead = c.req.param("basehead")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const sep = basehead.indexOf("...");
     if (sep === -1) throw notFoundResponse();
@@ -211,7 +211,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const commit = resolveRefToCommit(gh, repo, refParam);
     if (!commit) throw notFoundResponse();

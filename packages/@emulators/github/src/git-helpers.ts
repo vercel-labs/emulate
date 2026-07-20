@@ -1,6 +1,82 @@
+import { createHash } from "crypto";
 import type { GitHubStore } from "./store.js";
-import type { GitHubCommit, GitHubRepo, GitHubUser } from "./entities.js";
-import { formatUser } from "./helpers.js";
+import type { GitHubBlob, GitHubCommit, GitHubRepo, GitHubTree, GitHubUser } from "./entities.js";
+import { formatUser, generateNodeId } from "./helpers.js";
+
+function gitObjectSha(type: "blob" | "tree", content: Buffer): string {
+  const header = Buffer.from(`${type} ${content.byteLength}\0`, "utf8");
+  return createHash("sha1").update(header).update(content).digest("hex");
+}
+
+export function blobBytes(blob: GitHubBlob): Buffer {
+  return blob.encoding === "base64" ? Buffer.from(blob.content, "base64") : Buffer.from(blob.content, "utf8");
+}
+
+export function findOrCreateBlob(gh: GitHubStore, repoId: number, content: Buffer): GitHubBlob {
+  const existing = gh.blobs.findBy("repo_id", repoId).find((blob) => blobBytes(blob).equals(content));
+  if (existing) return existing;
+
+  const sha = gitObjectSha("blob", content);
+  const sameSha = gh.blobs.findBy("repo_id", repoId).find((blob) => blob.sha === sha);
+  if (sameSha) return sameSha;
+
+  const text = content.toString("utf8");
+  const isText = !text.includes("\0") && Buffer.from(text, "utf8").equals(content);
+  const blob = gh.blobs.insert({
+    repo_id: repoId,
+    sha,
+    node_id: "",
+    content: isText ? text : content.toString("base64"),
+    encoding: isText ? "utf-8" : "base64",
+    size: content.byteLength,
+  } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
+  gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
+  return gh.blobs.get(blob.id)!;
+}
+
+type GitTreeEntry = GitHubTree["tree"][number];
+
+function sameTreeEntries(left: GitTreeEntry[], right: GitTreeEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  const byPath = new Map(left.map((entry) => [entry.path, entry]));
+  return right.every((entry) => {
+    const candidate = byPath.get(entry.path);
+    return candidate?.mode === entry.mode && candidate.type === entry.type && candidate.sha === entry.sha;
+  });
+}
+
+function treeContent(entries: GitTreeEntry[]): Buffer {
+  const ordered = [...entries].sort((left, right) => {
+    const leftName = left.type === "tree" ? `${left.path}/` : left.path;
+    const rightName = right.type === "tree" ? `${right.path}/` : right.path;
+    return Buffer.compare(Buffer.from(leftName, "utf8"), Buffer.from(rightName, "utf8"));
+  });
+  return Buffer.concat(
+    ordered.flatMap((entry) => [
+      Buffer.from(`${entry.mode.replace(/^0+/, "")} ${entry.path}\0`, "utf8"),
+      Buffer.from(entry.sha, "hex"),
+    ]),
+  );
+}
+
+export function findOrCreateTree(gh: GitHubStore, repoId: number, entries: GitTreeEntry[]): GitHubTree {
+  const existing = gh.trees.findBy("repo_id", repoId).find((tree) => sameTreeEntries(tree.tree, entries));
+  if (existing) return existing;
+
+  const sha = gitObjectSha("tree", treeContent(entries));
+  const sameSha = gh.trees.findBy("repo_id", repoId).find((tree) => tree.sha === sha);
+  if (sameSha) return sameSha;
+
+  const tree = gh.trees.insert({
+    repo_id: repoId,
+    sha,
+    node_id: "",
+    tree: [...entries].sort((left, right) => left.path.localeCompare(right.path)),
+    truncated: false,
+  } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
+  gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
+  return gh.trees.get(tree.id)!;
+}
 
 export function findCommitBySha(gh: GitHubStore, repoId: number, sha: string): GitHubCommit | undefined {
   return gh.commits.findBy("repo_id", repoId).find((c) => c.sha === sha);

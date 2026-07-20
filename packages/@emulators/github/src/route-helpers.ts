@@ -81,6 +81,14 @@ export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, 
   throw forbidden();
 }
 
+export function assertRepoContentsRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
+  assertRepoRead(gh, authUser, repo);
+  if (!repo.private || !authUser?.installation) return;
+  const permission = authUser.installation.permissions.contents;
+  if (permission === "read" || permission === "write") return;
+  throw forbidden();
+}
+
 export function assertAuthenticatedUser(gh: GitHubStore, authUser: AuthUser | undefined): GitHubUser {
   if (!authUser) throw unauthorized();
   const user = getActorUser(gh, authUser);

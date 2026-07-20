@@ -84,6 +84,16 @@ async function putFile(app: Hono, path: string, text: string, extra: Record<stri
   });
 }
 
+async function issueInstallationToken(app: Hono, installationId: number, permissions?: Record<string, string>) {
+  const response = await app.request(`${base}/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: jsonHeaders("test-app-jwt"),
+    ...(permissions ? { body: JSON.stringify({ permissions }) } : {}),
+  });
+  const body = (await response.json()) as { token: string };
+  return { response, token: body.token };
+}
+
 describe("GitHub contents routes", () => {
   let app: Hono;
 
@@ -184,6 +194,39 @@ describe("GitHub contents routes", () => {
     const dirBody = (await dir.json()) as Array<{ path: string; type: string }>;
     expect(dirBody).toHaveLength(1);
     expect(dirBody[0].path).toBe("src/index.ts");
+  });
+
+  it("reuses blob and untouched subtree identities", async () => {
+    const createdA = await putFile(app, "a/x.txt", "one\n");
+    const createdABody = (await createdA.json()) as { content: { sha: string } };
+    expect(createdABody.content.sha).toBe("5626abf0f72e58d7a153368ba57db4c673c0e171");
+    await putFile(app, "b/y.txt", "two\n");
+
+    const rootBefore = await app.request(`${base}/repos/octocat/hello-world/contents`, { headers: authHeaders() });
+    const rootBeforeBody = (await rootBefore.json()) as Array<{ name: string; sha: string }>;
+    const bTreeSha = rootBeforeBody.find((entry) => entry.name === "b")!.sha;
+    const commitsBefore = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [headBefore] = (await commitsBefore.json()) as Array<{ commit: { tree: { sha: string } } }>;
+
+    const identical = await putFile(app, "a/x.txt", "one\n", { sha: createdABody.content.sha });
+    expect(identical.status).toBe(200);
+    const identicalBody = (await identical.json()) as {
+      content: { sha: string };
+      commit: { sha: string; tree: { sha: string } };
+    };
+    expect(identicalBody.content.sha).toBe(createdABody.content.sha);
+    expect(identicalBody.commit.tree.sha).toBe(headBefore.commit.tree.sha);
+
+    const identicalCommit = await app.request(`${base}/repos/octocat/hello-world/commits/${identicalBody.commit.sha}`, {
+      headers: authHeaders(),
+    });
+    expect((await identicalCommit.json()) as { files: unknown[] }).toEqual(expect.objectContaining({ files: [] }));
+
+    const changed = await putFile(app, "a/x.txt", "changed\n", { sha: createdABody.content.sha });
+    expect(changed.status).toBe(200);
+    const rootAfter = await app.request(`${base}/repos/octocat/hello-world/contents`, { headers: authHeaders() });
+    const rootAfterBody = (await rootAfter.json()) as Array<{ name: string; sha: string }>;
+    expect(rootAfterBody.find((entry) => entry.name === "b")!.sha).toBe(bTreeSha);
   });
 
   it("returns encoded content URLs that resolve for special path characters", async () => {
@@ -344,21 +387,11 @@ describe("GitHub contents routes", () => {
 
   it("uses installation repository access and Contents permissions for writes", async () => {
     const { app } = createTestApp();
-    const issueToken = async (installationId: number, permissions?: Record<string, string>) => {
-      const response = await app.request(`${base}/app/installations/${installationId}/access_tokens`, {
-        method: "POST",
-        headers: jsonHeaders("test-app-jwt"),
-        ...(permissions ? { body: JSON.stringify({ permissions }) } : {}),
-      });
-      const body = (await response.json()) as { token: string };
-      return { response, token: body.token };
-    };
-
-    const orgInstallation = await issueToken(41);
+    const orgInstallation = await issueInstallationToken(app, 41);
     expect(orgInstallation.response.status).toBe(201);
-    const userInstallation = await issueToken(42);
+    const userInstallation = await issueInstallationToken(app, 42);
     expect(userInstallation.response.status).toBe(201);
-    const escalated = await issueToken(42, { contents: "write" });
+    const escalated = await issueInstallationToken(app, 42, { contents: "write" });
     expect(escalated.response.status).toBe(422);
 
     const orgWrite = await app.request(`${base}/repos/acme/project/contents/installed.txt`, {
@@ -390,6 +423,46 @@ describe("GitHub contents routes", () => {
       }),
     });
     expect(readOnlyWrite.status).toBe(403);
+  });
+
+  it("requires Contents permission for installation reads from private repositories", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    gh.repos.update(repo.id, { private: true });
+
+    const noContents = await issueInstallationToken(app, 42, {});
+    expect(noContents.response.status).toBe(201);
+    const readContents = await issueInstallationToken(app, 42);
+    expect(readContents.response.status).toBe(201);
+
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const gitCommit = await app.request(`${base}/repos/octocat/hello-world/git/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    const gitCommitBody = (await gitCommit.json()) as { tree: { sha: string } };
+    const readme = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    const readmeBody = (await readme.json()) as { sha: string };
+
+    const protectedUrls = [
+      `${base}/repos/octocat/hello-world/contents/README.md`,
+      `${base}/repos/octocat/hello-world/readme`,
+      `${base}/octocat/hello-world/raw/main/README.md`,
+      `${base}/repos/octocat/hello-world/commits`,
+      `${base}/repos/octocat/hello-world/commits/${head.sha}`,
+      `${base}/repos/octocat/hello-world/compare/${head.sha}...${head.sha}`,
+      `${base}/repos/octocat/hello-world/git/commits/${head.sha}`,
+      `${base}/repos/octocat/hello-world/git/trees/${gitCommitBody.tree.sha}`,
+      `${base}/repos/octocat/hello-world/git/blobs/${readmeBody.sha}`,
+    ];
+
+    for (const url of protectedUrls) {
+      expect((await app.request(url, { headers: authHeaders(noContents.token) })).status, url).toBe(403);
+      expect((await app.request(url, { headers: authHeaders(readContents.token) })).status, url).toBe(200);
+    }
   });
 
   it("honors organization default and team repository write permissions", async () => {
@@ -697,6 +770,56 @@ describe("GitHub contents routes", () => {
     expect((await subtree.json()) as { tree: unknown[] }).toEqual(
       expect.objectContaining({ tree: [expect.objectContaining({ path: "index.ts", type: "blob" })] }),
     );
+  });
+
+  it("deletes base-tree entries whose SHA is null", async () => {
+    const created = await putFile(app, "src/remove.txt", "remove me\n");
+    const createdBody = (await created.json()) as { commit: { sha: string; tree: { sha: string } } };
+
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: createdBody.commit.tree.sha,
+        tree: [{ path: "src/remove.txt", mode: "100644", type: "blob", sha: null }],
+      }),
+    });
+    expect(tree.status).toBe(201);
+    const treeBody = (await tree.json()) as { sha: string };
+
+    const nonexistent = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: createdBody.commit.tree.sha,
+        tree: [{ path: "src/missing.txt", mode: "100644", type: "blob", sha: null }],
+      }),
+    });
+    expect(nonexistent.status).toBe(422);
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        message: "Delete through Git Data",
+        tree: treeBody.sha,
+        parents: [createdBody.commit.sha],
+      }),
+    });
+    expect(commit.status).toBe(201);
+    const commitBody = (await commit.json()) as { sha: string };
+
+    const updateRef = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: commitBody.sha }),
+    });
+    expect(updateRef.status).toBe(200);
+
+    const removed = await app.request(`${base}/repos/octocat/hello-world/contents/src/remove.txt`, {
+      headers: authHeaders(),
+    });
+    expect(removed.status).toBe(404);
   });
 });
 
