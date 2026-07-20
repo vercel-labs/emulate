@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "../http.js";
-import { authMiddleware, requireAuth, requireAppAuth, type TokenMap, type AppEnv } from "../middleware/auth.js";
+import {
+  authMiddleware,
+  requireAuth,
+  requireAppAuth,
+  restoreTokenMap,
+  serializeTokenMap,
+  type TokenMap,
+  type AppEnv,
+} from "../middleware/auth.js";
 
 describe("authMiddleware", () => {
   let tokenMap: TokenMap;
@@ -54,6 +62,27 @@ describe("authMiddleware", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { user: unknown };
     expect(body.user).toBeNull();
+  });
+
+  it("preserves installation credentials when token maps are serialized", () => {
+    tokenMap.set("installation-token", {
+      login: "acme",
+      id: 7,
+      scopes: ["contents:write"],
+      installation: {
+        installationId: 42,
+        appId: 9,
+        accountId: 7,
+        accountType: "Organization",
+        permissions: { contents: "write" },
+        repositoryIds: [12],
+        repositorySelection: "selected",
+      },
+    });
+
+    const restored: TokenMap = new Map();
+    restoreTokenMap(restored, serializeTokenMap(tokenMap));
+    expect(restored.get("installation-token")).toEqual(tokenMap.get("installation-token"));
   });
 });
 

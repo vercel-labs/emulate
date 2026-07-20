@@ -19,6 +19,12 @@ function createTestApp() {
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
   app.use("*", authMiddleware(tokenMap));
+  app.use("*", async (c, next) => {
+    if (c.req.header("Authorization") === "Bearer test-app-jwt") {
+      c.set("authApp", { appId: 9, slug: "contents-app", name: "Contents App" });
+    }
+    await next();
+  });
   githubPlugin.register(app as any, store, webhooks, base, tokenMap);
   githubPlugin.seed?.(store, base);
   seedFromConfig(store, base, {
@@ -28,6 +34,30 @@ function createTestApp() {
       { owner: "octocat", name: "hello-world" },
       { owner: "octocat", name: "empty-repo", auto_init: false },
       { owner: "acme", name: "project" },
+    ],
+    apps: [
+      {
+        app_id: 9,
+        slug: "contents-app",
+        name: "Contents App",
+        private_key: "test-key",
+        permissions: { contents: "write" },
+        installations: [
+          {
+            installation_id: 41,
+            account: "acme",
+            repository_selection: "selected",
+            repositories: ["acme/project"],
+            permissions: { contents: "write" },
+          },
+          {
+            installation_id: 42,
+            account: "octocat",
+            repository_selection: "all",
+            permissions: { contents: "read" },
+          },
+        ],
+      },
     ],
   });
 
@@ -207,7 +237,7 @@ describe("GitHub contents routes", () => {
 
     const updated = await putFile(app, "notes.txt", "two\n", { sha: createdBody.content.sha });
     expect(updated.status).toBe(200);
-    const updatedBody = (await updated.json()) as { content: { sha: string } };
+    const updatedBody = (await updated.json()) as { content: { sha: string }; commit: { sha: string } };
 
     const read = await app.request(`${base}/repos/octocat/hello-world/contents/notes.txt`, { headers: authHeaders() });
     const readBody = (await read.json()) as { content: string };
@@ -221,6 +251,39 @@ describe("GitHub contents routes", () => {
     expect(deleted.status).toBe(200);
     const deletedBody = (await deleted.json()) as { content: null; commit: { sha: string } };
     expect(deletedBody.content).toBeNull();
+
+    const deletionCommit = await app.request(`${base}/repos/octocat/hello-world/commits/${deletedBody.commit.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(deletionCommit.status).toBe(200);
+    const deletionCommitBody = (await deletionCommit.json()) as {
+      files: Array<{ status: string; raw_url: string; contents_url: string }>;
+    };
+    const removed = deletionCommitBody.files[0];
+    expect(removed.status).toBe("removed");
+    expect(removed.raw_url).toContain(updatedBody.commit.sha);
+    expect(removed.contents_url).toContain(`ref=${updatedBody.commit.sha}`);
+    const removedRaw = await app.request(removed.raw_url, { headers: authHeaders() });
+    expect(removedRaw.status).toBe(200);
+    expect(await removedRaw.text()).toBe("two\n");
+    const removedContents = await app.request(removed.contents_url, { headers: authHeaders() });
+    expect(removedContents.status).toBe(200);
+
+    const comparison = await app.request(
+      `${base}/repos/octocat/hello-world/compare/${updatedBody.commit.sha}...${deletedBody.commit.sha}`,
+      { headers: authHeaders() },
+    );
+    expect(comparison.status).toBe(200);
+    const comparisonBody = (await comparison.json()) as {
+      files: Array<{ status: string; raw_url: string; contents_url: string }>;
+    };
+    expect(comparisonBody.files[0]).toEqual(
+      expect.objectContaining({
+        status: "removed",
+        raw_url: expect.stringContaining(updatedBody.commit.sha),
+        contents_url: expect.stringContaining(`ref=${updatedBody.commit.sha}`),
+      }),
+    );
 
     const gone = await app.request(`${base}/repos/octocat/hello-world/contents/notes.txt`, { headers: authHeaders() });
     expect(gone.status).toBe(404);
@@ -277,6 +340,56 @@ describe("GitHub contents routes", () => {
       body: JSON.stringify({ message: "Delete guarded.txt", sha: allowedBody.content.sha }),
     });
     expect(allowedDelete.status).toBe(200);
+  });
+
+  it("uses installation repository access and Contents permissions for writes", async () => {
+    const { app } = createTestApp();
+    const issueToken = async (installationId: number, permissions?: Record<string, string>) => {
+      const response = await app.request(`${base}/app/installations/${installationId}/access_tokens`, {
+        method: "POST",
+        headers: jsonHeaders("test-app-jwt"),
+        ...(permissions ? { body: JSON.stringify({ permissions }) } : {}),
+      });
+      const body = (await response.json()) as { token: string };
+      return { response, token: body.token };
+    };
+
+    const orgInstallation = await issueToken(41);
+    expect(orgInstallation.response.status).toBe(201);
+    const userInstallation = await issueToken(42);
+    expect(userInstallation.response.status).toBe(201);
+    const escalated = await issueToken(42, { contents: "write" });
+    expect(escalated.response.status).toBe(422);
+
+    const orgWrite = await app.request(`${base}/repos/acme/project/contents/installed.txt`, {
+      method: "PUT",
+      headers: jsonHeaders(orgInstallation.token),
+      body: JSON.stringify({
+        message: "Write through installation",
+        content: Buffer.from("installed\n").toString("base64"),
+      }),
+    });
+    expect(orgWrite.status).toBe(201);
+
+    const outsideSelection = await app.request(`${base}/repos/octocat/hello-world/contents/blocked.txt`, {
+      method: "PUT",
+      headers: jsonHeaders(orgInstallation.token),
+      body: JSON.stringify({
+        message: "Write outside installation",
+        content: Buffer.from("blocked\n").toString("base64"),
+      }),
+    });
+    expect(outsideSelection.status).toBe(403);
+
+    const readOnlyWrite = await app.request(`${base}/repos/octocat/hello-world/contents/read-only.txt`, {
+      method: "PUT",
+      headers: jsonHeaders(userInstallation.token),
+      body: JSON.stringify({
+        message: "Write with read permission",
+        content: Buffer.from("blocked\n").toString("base64"),
+      }),
+    });
+    expect(readOnlyWrite.status).toBe(403);
   });
 
   it("honors organization default and team repository write permissions", async () => {
@@ -616,6 +729,19 @@ describe("GitHub commits routes", () => {
     const body = (await res.json()) as Array<{ commit: { message: string } }>;
     expect(body).toHaveLength(1);
     expect(body[0].commit.message).toBe("Update b.txt");
+  });
+
+  it("filters commits by directory path", async () => {
+    await putFile(app, "src/index.ts", "one\n");
+    await putFile(app, "src/nested/file.ts", "two\n");
+    await putFile(app, "outside.ts", "outside\n");
+
+    const res = await app.request(`${base}/repos/octocat/hello-world/commits?path=src`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ commit: { message: string } }>;
+    expect(body.map((item) => item.commit.message)).toEqual(["Update src/nested/file.ts", "Update src/index.ts"]);
   });
 
   it("409s on an empty repository", async () => {

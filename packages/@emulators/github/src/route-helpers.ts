@@ -2,6 +2,7 @@ import type { AuthUser } from "@emulators/core";
 import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
+import { generateNodeId } from "./helpers.js";
 
 export { notFound as notFoundResponse };
 
@@ -25,9 +26,48 @@ export function getActorUser(gh: GitHubStore, authUser: AuthUser): GitHubUser | 
   return gh.users.findOneBy("login", authUser.login);
 }
 
+function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
+  const installation = authUser.installation;
+  if (!installation) return false;
+  if (repo.owner_id !== installation.accountId || repo.owner_type !== installation.accountType) return false;
+  return installation.repositorySelection === "all" || installation.repositoryIds.includes(repo.id);
+}
+
+function installationActor(gh: GitHubStore, authUser: AuthUser): GitHubUser {
+  const installation = authUser.installation!;
+  const app = gh.apps.findOneBy("app_id", installation.appId);
+  const login = `${app?.slug ?? `app-${installation.appId}`}[bot]`;
+  const existing = gh.users.findOneBy("login", login);
+  if (existing) return existing;
+
+  const actor = gh.users.insert({
+    login,
+    node_id: "",
+    avatar_url: "",
+    gravatar_id: "",
+    type: "Bot",
+    site_admin: false,
+    name: app?.name ?? "GitHub App",
+    company: null,
+    blog: "",
+    location: null,
+    email: `${installation.appId}+${login}@users.noreply.github.com`,
+    hireable: null,
+    bio: null,
+    twitter_username: null,
+    public_repos: 0,
+    public_gists: 0,
+    followers: 0,
+    following: 0,
+  });
+  gh.users.update(actor.id, { node_id: generateNodeId("Bot", actor.id) });
+  return gh.users.get(actor.id)!;
+}
+
 export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): boolean {
   if (!repo.private) return true;
   if (!authUser) return false;
+  if (authUser.installation) return installationCanAccessRepo(authUser, repo);
   const user = getActorUser(gh, authUser);
   if (!user) return false;
   if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
@@ -89,6 +129,11 @@ export function hasRepoContentsWrite(gh: GitHubStore, user: GitHubUser, repo: Gi
 }
 
 export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  if (authUser?.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (authUser.installation.permissions.contents !== "write") throw forbidden();
+    return installationActor(gh, authUser);
+  }
   const user = assertAuthenticatedUser(gh, authUser);
   if (hasRepoContentsWrite(gh, user, repo)) return user;
   throw forbidden();

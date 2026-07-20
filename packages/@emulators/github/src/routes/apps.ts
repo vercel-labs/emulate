@@ -117,19 +117,41 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
 
     let requestedPermissions = inst.permissions;
     let requestedRepoIds = inst.repository_ids;
+    let tokenRepositorySelection = inst.repository_selection;
 
     try {
       const body = (await c.req.json()) as Record<string, unknown>;
       if (body.permissions && typeof body.permissions === "object") {
-        requestedPermissions = body.permissions as Record<string, string>;
+        const requested = body.permissions as Record<string, unknown>;
+        requestedPermissions = Object.fromEntries(
+          Object.entries(requested).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+        );
       }
       if (Array.isArray(body.repository_ids)) {
-        requestedRepoIds = (body.repository_ids as number[]).filter(
-          (id) => inst.repository_selection === "all" || inst.repository_ids.includes(id),
-        );
+        requestedRepoIds = (body.repository_ids as unknown[]).filter((id): id is number => typeof id === "number");
+        tokenRepositorySelection = "selected";
       }
     } catch {
       // No body or invalid JSON, use installation defaults
+    }
+
+    const permissionRank = (permission: string | undefined) =>
+      permission === "write" ? 2 : permission === "read" ? 1 : 0;
+    const invalidPermission = Object.entries(requestedPermissions).some(
+      ([name, permission]) =>
+        permissionRank(permission) === 0 || permissionRank(permission) > permissionRank(inst.permissions[name]),
+    );
+    if (invalidPermission) {
+      return c.json({ message: "The permissions requested are not granted to this installation." }, 422);
+    }
+
+    const unavailableRepo = requestedRepoIds.some((id) => {
+      const repo = gh.repos.get(id);
+      if (!repo || repo.owner_id !== inst.account_id || repo.owner_type !== inst.account_type) return true;
+      return inst.repository_selection === "selected" && !inst.repository_ids.includes(id);
+    });
+    if (unavailableRepo) {
+      return c.json({ message: "The repositories requested are not accessible to this installation." }, 422);
     }
 
     const token = "ghs_" + randomBytes(20).toString("base64url");
@@ -140,6 +162,15 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
         login: inst.account_login,
         id: inst.account_id,
         scopes: Object.entries(requestedPermissions).map(([k, v]) => `${k}:${v}`),
+        installation: {
+          installationId: inst.installation_id,
+          appId: inst.app_id,
+          accountId: inst.account_id,
+          accountType: inst.account_type,
+          permissions: requestedPermissions,
+          repositoryIds: requestedRepoIds,
+          repositorySelection: tokenRepositorySelection,
+        },
       });
     }
 
@@ -159,8 +190,8 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
         token,
         expires_at: expiresAt,
         permissions: requestedPermissions,
-        repository_selection: inst.repository_selection,
-        ...(inst.repository_selection === "selected" ? { repositories: repos } : {}),
+        repository_selection: tokenRepositorySelection,
+        ...(tokenRepositorySelection === "selected" ? { repositories: repos } : {}),
       },
       201,
     );

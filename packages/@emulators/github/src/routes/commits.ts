@@ -16,16 +16,26 @@ import {
   resolveRefToCommit,
 } from "../git-helpers.js";
 
-function blobAt(gh: GitHubStore, repoId: number, treeSha: string, path: string) {
-  return flattenTree(gh, repoId, treeSha).blobs.get(path);
+function blobsAtPath(gh: GitHubStore, repoId: number, treeSha: string, path: string) {
+  const prefix = `${path.replace(/\/+$/, "")}/`;
+  return new Map(
+    [...flattenTree(gh, repoId, treeSha).blobs].filter(
+      ([candidate]) => candidate === path || candidate.startsWith(prefix),
+    ),
+  );
 }
 
-/** A commit "touches" a path when its blob identity or mode differs from its first parent's. */
+/** A commit "touches" a path when that blob or any descendant differs from its first parent's. */
 function commitTouchesPath(gh: GitHubStore, repoId: number, commit: GitHubCommit, path: string): boolean {
-  const current = blobAt(gh, repoId, commit.tree_sha, path);
+  const current = blobsAtPath(gh, repoId, commit.tree_sha, path);
   const parent = commit.parent_shas[0] ? findCommitBySha(gh, repoId, commit.parent_shas[0]) : undefined;
-  const previous = parent ? blobAt(gh, repoId, parent.tree_sha, path) : undefined;
-  return current?.sha !== previous?.sha || current?.mode !== previous?.mode;
+  const previous = parent ? blobsAtPath(gh, repoId, parent.tree_sha, path) : new Map();
+  const candidates = new Set([...current.keys(), ...previous.keys()]);
+  return [...candidates].some((candidate) => {
+    const after = current.get(candidate);
+    const before = previous.get(candidate);
+    return after?.sha !== before?.sha || after?.mode !== before?.mode;
+  });
 }
 
 function parseDateFilter(value: string): number | undefined {
@@ -63,6 +73,7 @@ function formatFullCommit(
   repo: GitHubRepo,
   commit: GitHubCommit,
   baseUrl: string,
+  baseSha: string | null,
   allFiles: ReturnType<typeof diffTrees>,
   pageFiles: ReturnType<typeof diffTrees>,
 ) {
@@ -71,7 +82,7 @@ function formatFullCommit(
   return {
     ...formatCommitItem(gh, repo, commit, baseUrl),
     stats: { total: additions + deletions, additions, deletions },
-    files: pageFiles.map((f) => formatFileDiff(f, repo, commit.sha, baseUrl)),
+    files: pageFiles.map((f) => formatFileDiff(f, repo, baseSha, commit.sha, baseUrl)),
   };
 }
 
@@ -190,7 +201,7 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
       behind_by: behindBy,
       total_commits: aheadCommits.length,
       commits: commits.map((commit) => formatCommitItem(gh, repo, commit, baseUrl)),
-      files: files.map((f) => formatFileDiff(f, repo, head.sha, baseUrl)),
+      files: files.map((f) => formatFileDiff(f, repo, mergeBase.sha, head.sha, baseUrl)),
     });
   });
 
@@ -212,6 +223,6 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     const start = (page - 1) * per_page;
     const pageFiles = listedFiles.slice(start, start + per_page);
     setLinkHeader(c, listedFiles.length, page, per_page);
-    return c.json(formatFullCommit(gh, repo, commit, baseUrl, allFiles, pageFiles));
+    return c.json(formatFullCommit(gh, repo, commit, baseUrl, parent?.sha ?? null, allFiles, pageFiles));
   });
 }

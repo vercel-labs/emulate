@@ -6,6 +6,7 @@ export interface AuthUser {
   login: string;
   id: number;
   scopes: string[];
+  installation?: AuthInstallation;
 }
 
 export interface AuthApp {
@@ -17,6 +18,8 @@ export interface AuthApp {
 export interface AuthInstallation {
   installationId: number;
   appId: number;
+  accountId: number;
+  accountType: "User" | "Organization";
   permissions: Record<string, string>;
   repositoryIds: number[];
   repositorySelection: "all" | "selected";
@@ -29,6 +32,7 @@ export interface TokenEntry {
   login: string;
   id: number;
   scopes: string[];
+  installation?: AuthInstallation;
 }
 
 export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
@@ -37,13 +41,19 @@ export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
     login: user.login,
     id: user.id,
     scopes: user.scopes,
+    ...(user.installation ? { installation: user.installation } : {}),
   }));
 }
 
 export function restoreTokenMap(tokenMap: TokenMap, tokens: TokenEntry[]): void {
   tokenMap.clear();
   for (const t of tokens) {
-    tokenMap.set(t.token, { login: t.login, id: t.id, scopes: t.scopes });
+    tokenMap.set(t.token, {
+      login: t.login,
+      id: t.id,
+      scopes: t.scopes,
+      ...(t.installation ? { installation: t.installation } : {}),
+    });
   }
 }
 

@@ -343,9 +343,16 @@ export function diffTrees(
   return out;
 }
 
-export function formatFileDiff(diff: FileDiff, repo: GitHubRepo, headSha: string, baseUrl: string) {
+export function formatFileDiff(
+  diff: FileDiff,
+  repo: GitHubRepo,
+  baseSha: string | null,
+  headSha: string,
+  baseUrl: string,
+) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const encodedPath = encodeContentPath(diff.filename);
+  const contentSha = diff.status === "removed" && baseSha ? baseSha : headSha;
   return {
     sha: diff.sha,
     filename: diff.filename,
@@ -353,9 +360,9 @@ export function formatFileDiff(diff: FileDiff, repo: GitHubRepo, headSha: string
     additions: diff.additions,
     deletions: diff.deletions,
     changes: diff.changes,
-    blob_url: `${baseUrl}/${repo.full_name}/blob/${headSha}/${encodedPath}`,
-    raw_url: `${baseUrl}/${repo.full_name}/raw/${headSha}/${encodedPath}`,
-    contents_url: `${repoUrl}/contents/${encodedPath}?ref=${headSha}`,
+    blob_url: `${baseUrl}/${repo.full_name}/blob/${contentSha}/${encodedPath}`,
+    raw_url: `${baseUrl}/${repo.full_name}/raw/${contentSha}/${encodedPath}`,
+    contents_url: `${repoUrl}/contents/${encodedPath}?ref=${contentSha}`,
     ...(diff.patch !== undefined ? { patch: diff.patch } : {}),
   };
 }
