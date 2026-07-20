@@ -12,7 +12,13 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
-import { assertRepoContentsWrite, assertRepoRead, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertBranchUpdateAllowed,
+  assertRepoContentsWrite,
+  assertRepoRead,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 import {
   encodeContentPath,
   flattenTree,
@@ -423,6 +429,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const hasCommits = gh.commits.findBy("repo_id", repo.id).length > 0;
     const headCommit = resolveBranchToCommit(gh, repo, branchName) ?? null;
     if (hasCommits && !headCommit) throw notFoundResponse();
+    assertBranchUpdateAllowed(gh, user, repo, branchName, { parentCount: headCommit ? 1 : 0 });
 
     const flat = headCommit ? flattenTree(gh, repo.id, headCommit.tree_sha) : undefined;
     const existing = flat?.blobs.get(path);
@@ -528,6 +535,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const branchName = typeof body.branch === "string" && body.branch ? body.branch : repo.default_branch;
     const headCommit = resolveBranchToCommit(gh, repo, branchName);
     if (!headCommit) throw notFoundResponse();
+    assertBranchUpdateAllowed(gh, user, repo, branchName, { parentCount: 1 });
 
     const existing = flattenTree(gh, repo.id, headCommit.tree_sha).blobs.get(path);
     if (!existing) throw notFoundResponse();

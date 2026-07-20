@@ -1,5 +1,5 @@
 import type { AuthUser } from "@emulators/core";
-import { notFound, unauthorized, forbidden } from "@emulators/core";
+import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
 
@@ -92,6 +92,67 @@ export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | un
   const user = assertAuthenticatedUser(gh, authUser);
   if (hasRepoContentsWrite(gh, user, repo)) return user;
   throw forbidden();
+}
+
+function hasBranchProtectionBypass(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
+  if (user.site_admin) return true;
+  if (repo.owner_type === "User") return repo.owner_id === user.id;
+
+  const isOrgAdmin = gh.teamMembers.findBy("user_id", user.id).some((membership) => {
+    const team = gh.teams.get(membership.team_id);
+    return team?.org_id === repo.owner_id && team.slug === "members" && membership.role === "maintainer";
+  });
+  if (isOrgAdmin) return true;
+
+  return gh.collaborators
+    .findBy("repo_id", repo.id)
+    .some((collaborator) => collaborator.user_id === user.id && collaborator.permission === "admin");
+}
+
+function branchRestrictionsAllow(
+  gh: GitHubStore,
+  user: GitHubUser,
+  repo: GitHubRepo,
+  users: string[],
+  teams: string[],
+) {
+  const login = user.login.toLowerCase();
+  if (users.some((allowed) => allowed.toLowerCase() === login)) return true;
+  if (repo.owner_type !== "Organization") return false;
+
+  const allowedTeams = new Set(teams.map((team) => team.toLowerCase()));
+  return gh.teamMembers.findBy("user_id", user.id).some((membership) => {
+    const team = gh.teams.get(membership.team_id);
+    return team?.org_id === repo.owner_id && allowedTeams.has(team.slug.toLowerCase());
+  });
+}
+
+export function assertBranchUpdateAllowed(
+  gh: GitHubStore,
+  user: GitHubUser,
+  repo: GitHubRepo,
+  branchName: string,
+  options: { force?: boolean; parentCount?: number } = {},
+): void {
+  const protection = gh.branchProtections
+    .findBy("repo_id", repo.id)
+    .find((candidate) => candidate.branch_name === branchName);
+  if (!protection) return;
+  if (hasBranchProtectionBypass(gh, user, repo) && !protection.enforce_admins) return;
+
+  const restricted =
+    protection.restrictions &&
+    !branchRestrictionsAllow(gh, user, repo, protection.restrictions.users, protection.restrictions.teams);
+  const requirementsBlockDirectUpdate =
+    protection.required_pull_request_reviews !== null ||
+    Boolean(protection.required_status_checks?.contexts.length) ||
+    protection.required_signatures;
+  const invalidHistory = protection.required_linear_history && (options.parentCount ?? 1) > 1;
+  const blockedForcePush = options.force === true && !protection.allow_force_pushes;
+
+  if (restricted || requirementsBlockDirectUpdate || invalidHistory || blockedForcePush) {
+    throw new ApiError(409, `Protected branch update failed for refs/heads/${branchName}.`);
+  }
 }
 
 export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {

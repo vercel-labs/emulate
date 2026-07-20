@@ -6,6 +6,7 @@ import type { GitHubCommit, GitHubRepo } from "../entities.js";
 import { lookupRepo } from "../helpers.js";
 import { assertRepoRead, notFoundResponse } from "../route-helpers.js";
 import {
+  commitIdentityMatches,
   diffTrees,
   findCommitBySha,
   flattenTree,
@@ -25,12 +26,6 @@ function commitTouchesPath(gh: GitHubStore, repoId: number, commit: GitHubCommit
   const parent = commit.parent_shas[0] ? findCommitBySha(gh, repoId, commit.parent_shas[0]) : undefined;
   const previous = parent ? blobShaAt(gh, repoId, parent.tree_sha, path) : undefined;
   return current !== previous;
-}
-
-function matchesAuthor(gh: GitHubStore, commit: GitHubCommit, author: string): boolean {
-  if (commit.author_name === author || commit.author_email.toLowerCase() === author.toLowerCase()) return true;
-  const user = commit.user_id ? gh.users.get(commit.user_id) : null;
-  return user?.login.toLowerCase() === author.toLowerCase();
 }
 
 function parseDateFilter(value: string): number | undefined {
@@ -106,7 +101,11 @@ export function commitsRoutes({ app, store, baseUrl }: RouteContext): void {
     }
     const author = c.req.query("author");
     if (author) {
-      history = history.filter((commit) => matchesAuthor(gh, commit, author));
+      history = history.filter((commit) => commitIdentityMatches(gh, commit.author_email, author));
+    }
+    const committer = c.req.query("committer");
+    if (committer) {
+      history = history.filter((commit) => commitIdentityMatches(gh, commit.committer_email, committer));
     }
     const since = c.req.query("since");
     if (since) {

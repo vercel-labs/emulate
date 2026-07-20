@@ -22,9 +22,10 @@ import {
   timestamp,
 } from "../helpers.js";
 import {
+  assertBranchUpdateAllowed,
   assertRepoAdmin,
+  assertRepoContentsWrite,
   assertRepoRead,
-  assertRepoWrite,
   getActorUser,
   notFoundResponse,
   ownerLoginOf,
@@ -695,7 +696,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = (await parseJsonBody(c)) as { ref?: unknown; sha?: unknown };
     if (typeof body.ref !== "string" || !body.ref.startsWith("refs/")) {
       throw new ApiError(422, "Invalid ref");
@@ -710,6 +711,11 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
     if (gh.refs.findBy("repo_id", repo.id).some((r) => r.ref === fullRef)) {
       throw new ApiError(422, "Reference already exists");
+    }
+    if (fullRef.startsWith("refs/heads/")) {
+      const branchName = fullRef.slice("refs/heads/".length);
+      const commit = findCommitBySha(gh, repo.id, sha);
+      assertBranchUpdateAllowed(gh, user, repo, branchName, { parentCount: commit?.parent_shas.length });
     }
     const refRow = gh.refs.insert({
       repo_id: repo.id,
@@ -742,7 +748,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
@@ -765,6 +771,14 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       if (!isDescendantOf(gh, repo.id, oldSha, newSha)) {
         throw new ApiError(422, "Update is not a fast-forward");
       }
+    }
+    if (fullRef.startsWith("refs/heads/")) {
+      const branchName = fullRef.slice("refs/heads/".length);
+      const commit = findCommitBySha(gh, repo.id, newSha);
+      assertBranchUpdateAllowed(gh, user, repo, branchName, {
+        force,
+        parentCount: commit?.parent_shas.length,
+      });
     }
     gh.refs.update(r.id, { sha: newSha });
     syncBranchFromRef(gh, repo, fullRef, newSha);
@@ -791,7 +805,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
@@ -819,7 +833,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string") throw new ApiError(422, "message is required");
     if (typeof body.tree !== "string") throw new ApiError(422, "tree is required");
@@ -909,7 +923,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (!Array.isArray(body.tree)) throw new ApiError(422, "tree array is required");
     const items = body.tree as Array<{
@@ -1013,7 +1027,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = (await parseJsonBody(c)) as {
       content?: unknown;
       encoding?: unknown;
@@ -1103,7 +1117,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (typeof body.tag !== "string") throw new ApiError(422, "tag is required");
     if (typeof body.message !== "string") throw new ApiError(422, "message is required");

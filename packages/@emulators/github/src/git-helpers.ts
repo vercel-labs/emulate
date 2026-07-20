@@ -1,5 +1,5 @@
 import type { GitHubStore } from "./store.js";
-import type { GitHubCommit, GitHubRepo } from "./entities.js";
+import type { GitHubCommit, GitHubRepo, GitHubUser } from "./entities.js";
 import { formatUser } from "./helpers.js";
 
 export function findCommitBySha(gh: GitHubStore, repoId: number, sha: string): GitHubCommit | undefined {
@@ -140,6 +140,24 @@ export function encodeContentPath(path: string): string {
     .split("/")
     .map((part) => encodeURIComponent(part))
     .join("/");
+}
+
+function commitEmailMatchesUser(email: string, user: GitHubUser): boolean {
+  const normalized = email.toLowerCase();
+  const login = user.login.toLowerCase();
+  if (user.email?.toLowerCase() === normalized) return true;
+  if (normalized === `${login}@localhost`) return true;
+  if (normalized === `${login}@users.noreply.github.com`) return true;
+  return normalized.endsWith(`+${login}@users.noreply.github.com`);
+}
+
+export function resolveCommitUser(gh: GitHubStore, email: string): GitHubUser | undefined {
+  return gh.users.all().find((user) => commitEmailMatchesUser(email, user));
+}
+
+export function commitIdentityMatches(gh: GitHubStore, email: string, query: string): boolean {
+  if (email.toLowerCase() === query.toLowerCase()) return true;
+  return resolveCommitUser(gh, email)?.login.toLowerCase() === query.toLowerCase();
 }
 
 type Op = { type: "eq" | "del" | "ins"; text: string };
@@ -345,7 +363,8 @@ export function formatFileDiff(diff: FileDiff, repo: GitHubRepo, headSha: string
 /** REST commit object (the /repos/{owner}/{repo}/commits shape, without stats/files). */
 export function formatCommitItem(gh: GitHubStore, repo: GitHubRepo, c: GitHubCommit, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-  const user = c.user_id ? gh.users.get(c.user_id) : null;
+  const authorUser = resolveCommitUser(gh, c.author_email);
+  const committerUser = resolveCommitUser(gh, c.committer_email);
   return {
     sha: c.sha,
     node_id: c.node_id,
@@ -361,8 +380,8 @@ export function formatCommitItem(gh: GitHubStore, repo: GitHubRepo, c: GitHubCom
     url: `${repoUrl}/commits/${c.sha}`,
     html_url: `${baseUrl}/${repo.full_name}/commit/${c.sha}`,
     comments_url: `${repoUrl}/commits/${c.sha}/comments`,
-    author: user ? formatUser(user, baseUrl) : null,
-    committer: user ? formatUser(user, baseUrl) : null,
+    author: authorUser ? formatUser(authorUser, baseUrl) : null,
+    committer: committerUser ? formatUser(committerUser, baseUrl) : null,
     parents: c.parent_shas.map((sha) => ({
       sha,
       url: `${repoUrl}/commits/${sha}`,

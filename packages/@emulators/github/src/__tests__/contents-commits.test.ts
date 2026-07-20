@@ -350,6 +350,49 @@ describe("GitHub contents routes", () => {
     expect(body.commit.committer).toEqual(identity);
   });
 
+  it("associates and filters commit authors and committers independently", async () => {
+    const external = { name: "External", email: "external@example.com" };
+    const created = await putFile(app, "external.txt", "external\n", { author: external });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { commit: { sha: string } };
+
+    const commit = await app.request(`${base}/repos/octocat/hello-world/commits/${createdBody.commit.sha}`, {
+      headers: authHeaders(),
+    });
+    expect(commit.status).toBe(200);
+    const commitBody = (await commit.json()) as {
+      commit: { author: { email: string }; committer: { email: string } };
+      author: { login: string } | null;
+      committer: { login: string } | null;
+    };
+    expect(commitBody.commit.author.email).toBe(external.email);
+    expect(commitBody.commit.committer.email).toBe("octocat@users.noreply.github.com");
+    expect(commitBody.author).toBeNull();
+    expect(commitBody.committer?.login).toBe("octocat");
+
+    const byExternalEmail = await app.request(
+      `${base}/repos/octocat/hello-world/commits?author=${encodeURIComponent(external.email)}`,
+      { headers: authHeaders() },
+    );
+    expect(((await byExternalEmail.json()) as Array<{ sha: string }>).map((item) => item.sha)).toContain(
+      createdBody.commit.sha,
+    );
+
+    const byActor = await app.request(`${base}/repos/octocat/hello-world/commits?author=octocat`, {
+      headers: authHeaders(),
+    });
+    expect(((await byActor.json()) as Array<{ sha: string }>).map((item) => item.sha)).not.toContain(
+      createdBody.commit.sha,
+    );
+
+    const byCommitter = await app.request(`${base}/repos/octocat/hello-world/commits?committer=octocat`, {
+      headers: authHeaders(),
+    });
+    expect(((await byCommitter.json()) as Array<{ sha: string }>).map((item) => item.sha)).toContain(
+      createdBody.commit.sha,
+    );
+  });
+
   it("updates only the selected branch", async () => {
     const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [initial] = (await commits.json()) as Array<{ sha: string }>;
@@ -371,6 +414,85 @@ describe("GitHub contents routes", () => {
       headers: authHeaders(),
     });
     expect(onMain.status).toBe(404);
+  });
+
+  it("enforces protected-branch requirements for contents writes and ref updates", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    const gitCommit = await app.request(`${base}/repos/octocat/hello-world/git/commits/${head.sha}`, {
+      headers: authHeaders(),
+    });
+    const gitCommitBody = (await gitCommit.json()) as { tree: { sha: string } };
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: gitCommitBody.tree.sha,
+        tree: [{ path: "via-ref.txt", mode: "100644", type: "blob", content: "via ref\n" }],
+      }),
+    });
+    const treeBody = (await tree.json()) as { sha: string };
+    const pending = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Pending protected update", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    const pendingBody = (await pending.json()) as { sha: string };
+
+    const protectionBody = {
+      required_status_checks: null,
+      enforce_admins: true,
+      required_pull_request_reviews: { required_approving_review_count: 1 },
+      restrictions: null,
+      required_linear_history: false,
+      allow_force_pushes: false,
+      allow_deletions: false,
+      required_signatures: false,
+    };
+    const protect = await app.request(`${base}/repos/octocat/hello-world/branches/main/protection`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify(protectionBody),
+    });
+    expect(protect.status).toBe(200);
+
+    const blobCount = gh.blobs.findBy("repo_id", gh.repos.findOneBy("full_name", "octocat/hello-world")!.id).length;
+    expect((await putFile(app, "blocked.txt", "blocked\n")).status).toBe(409);
+    expect(gh.blobs.findBy("repo_id", gh.repos.findOneBy("full_name", "octocat/hello-world")!.id)).toHaveLength(
+      blobCount,
+    );
+
+    const readme = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      headers: authHeaders(),
+    });
+    const readmeBody = (await readme.json()) as { sha: string };
+    const blockedDelete = await app.request(`${base}/repos/octocat/hello-world/contents/README.md`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Blocked delete", sha: readmeBody.sha }),
+    });
+    expect(blockedDelete.status).toBe(409);
+
+    const blockedRef = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: pendingBody.sha }),
+    });
+    expect(blockedRef.status).toBe(409);
+    const unchangedRef = await app.request(`${base}/repos/octocat/hello-world/git/ref/heads/main`, {
+      headers: authHeaders(),
+    });
+    expect(((await unchangedRef.json()) as { object: { sha: string } }).object.sha).toBe(head.sha);
+
+    const allowAdminBypass = await app.request(`${base}/repos/octocat/hello-world/branches/main/protection`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ...protectionBody, enforce_admins: false }),
+    });
+    expect(allowAdminBypass.status).toBe(200);
+    expect((await putFile(app, "allowed.txt", "allowed\n")).status).toBe(201);
   });
 
   it("requires an existing branch for content writes", async () => {
@@ -860,5 +982,63 @@ describe("search result URLs resolve against the contents API", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { type: string };
     expect(body.type).toBe("file");
+  });
+
+  it("searches current default-branch paths and encodes result URLs", async () => {
+    const { app } = createTestApp();
+    expect((await putFile(app, "src/nested.txt", "nested-search-needle\n")).status).toBe(201);
+    expect((await putFile(app, "My%20File%20%231.txt", "special-search-needle\n")).status).toBe(201);
+
+    const deleted = await putFile(app, "deleted.txt", "deleted-search-needle\n");
+    const deletedBody = (await deleted.json()) as { content: { sha: string } };
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/contents/deleted.txt`, {
+          method: "DELETE",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ message: "Delete searchable file", sha: deletedBody.content.sha }),
+        })
+      ).status,
+    ).toBe(200);
+
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string }>;
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/git/refs`, {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ ref: "refs/heads/search-feature", sha: head.sha }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (await putFile(app, "feature-only.txt", "feature-search-needle\n", { branch: "search-feature" })).status,
+    ).toBe(201);
+
+    const search = async (term: string) => {
+      const query = encodeURIComponent(`${term} repo:octocat/hello-world`);
+      const response = await app.request(`${base}/search/code?q=${query}`, { headers: authHeaders() });
+      expect(response.status).toBe(200);
+      return (await response.json()) as {
+        total_count: number;
+        items: Array<{ path: string; url: string; html_url: string }>;
+      };
+    };
+
+    const nested = await search("nested-search-needle");
+    expect(nested.items).toHaveLength(1);
+    expect(nested.items[0].path).toBe("src/nested.txt");
+    expect((await app.request(nested.items[0].url, { headers: authHeaders() })).status).toBe(200);
+
+    const special = await search("special-search-needle");
+    expect(special.items).toHaveLength(1);
+    expect(special.items[0].path).toBe("My File #1.txt");
+    expect(special.items[0].url).toContain("My%20File%20%231.txt");
+    expect(special.items[0].html_url).toContain("My%20File%20%231.txt");
+    expect((await app.request(special.items[0].url, { headers: authHeaders() })).status).toBe(200);
+
+    expect((await search("deleted-search-needle")).total_count).toBe(0);
+    expect((await search("feature-search-needle")).total_count).toBe(0);
   });
 });
