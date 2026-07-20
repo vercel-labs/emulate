@@ -8,6 +8,7 @@ import {
   assertBranchUpdateAllowed,
   assertRepoContentsRead,
   assertRepoContentsWrite,
+  assertRepoPermission,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -30,6 +31,10 @@ function normalizePath(raw: string): string {
     throw new ApiError(422, "path is invalid");
   }
   return path;
+}
+
+function isWorkflowPath(path: string): boolean {
+  return path.startsWith(".github/workflows/");
 }
 
 function contentLinks(repo: GitHubRepo, baseUrl: string, path: string, ref: string, blobSha?: string) {
@@ -174,7 +179,7 @@ function parseCommitIdentity(value: unknown, field: "author" | "committer"): Com
   };
 }
 
-type FileTreeEntry = { mode: string; sha: string; size?: number };
+type FileTreeEntry = { mode: string; type: "blob" | "commit"; sha: string; size?: number };
 
 interface PendingTree {
   files: Map<string, FileTreeEntry>;
@@ -208,7 +213,7 @@ function persistTree(gh: GitHubStore, repoId: number, entries: Map<string, FileT
       treeEntries.push({ path: name, mode: "040000", type: "tree", sha: subtree.sha });
     }
     for (const [name, entry] of [...pending.files].sort(([a], [b]) => a.localeCompare(b))) {
-      treeEntries.push({ path: name, mode: entry.mode, type: "blob", sha: entry.sha, size: entry.size });
+      treeEntries.push({ path: name, mode: entry.mode, type: entry.type, sha: entry.sha, size: entry.size });
     }
 
     return findOrCreateTree(gh, repoId, treeEntries);
@@ -225,14 +230,14 @@ interface CommitFilesParams {
   author?: CommitIdentity;
   committer?: CommitIdentity;
   /** path -> new entry, or null to delete the path */
-  changes: Map<string, { mode: string; sha: string; size: number } | null>;
+  changes: Map<string, FileTreeEntry | null>;
   headCommit: GitHubCommit | null;
 }
 
 function commitFiles(gh: GitHubStore, params: CommitFilesParams): GitHubCommit {
   const { repo, branchName, headCommit, actor } = params;
 
-  const entries = new Map<string, { mode: string; sha: string; size?: number }>();
+  const entries = new Map<string, FileTreeEntry>();
   if (headCommit) {
     for (const [path, entry] of flattenTree(gh, repo.id, headCommit.tree_sha).blobs) {
       entries.set(path, entry);
@@ -391,8 +396,10 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const path = normalizePath(c.req.param("path")!);
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const user = assertRepoContentsWrite(gh, authUser, repo);
     if (!path) throw new ApiError(422, "path is required");
+    if (isWorkflowPath(path)) assertRepoPermission(gh, authUser, repo, "workflows", "write");
 
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string" || !body.message) throw new ApiError(422, "message is required");
@@ -446,7 +453,17 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       actor: user,
       author,
       committer,
-      changes: new Map([[path, { mode: existing?.mode ?? "100644", sha: blob.sha, size }]]),
+      changes: new Map([
+        [
+          path,
+          {
+            mode: existing?.type === "blob" ? existing.mode : "100644",
+            type: "blob" as const,
+            sha: blob.sha,
+            size,
+          },
+        ],
+      ]),
       headCommit,
     });
 
@@ -475,7 +492,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       repo.name,
     );
 
-    const entry = { mode: existing?.mode ?? "100644", sha: blob.sha, size };
+    const entry = { mode: existing?.type === "blob" ? existing.mode : "100644", sha: blob.sha, size };
     return c.json(
       {
         content: formatFileContent(gh, repo, baseUrl, path, branchName, entry, false),
@@ -491,8 +508,10 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const path = normalizePath(c.req.param("path")!);
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const user = assertRepoContentsWrite(gh, authUser, repo);
     if (!path) throw new ApiError(422, "path is required");
+    if (isWorkflowPath(path)) assertRepoPermission(gh, authUser, repo, "workflows", "write");
 
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string" || !body.message) throw new ApiError(422, "message is required");

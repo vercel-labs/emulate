@@ -218,12 +218,38 @@ function branchRestrictionsAllow(
   });
 }
 
+function introducedRangeContainsMerge(gh: GitHubStore, repoId: number, currentSha: string, targetSha: string): boolean {
+  const commits = new Map(gh.commits.findBy("repo_id", repoId).map((commit) => [commit.sha, commit]));
+  const currentReachable = new Set<string>();
+  const currentStack = [currentSha];
+  while (currentStack.length) {
+    const sha = currentStack.pop()!;
+    if (currentReachable.has(sha)) continue;
+    currentReachable.add(sha);
+    const commit = commits.get(sha);
+    if (commit) currentStack.push(...commit.parent_shas);
+  }
+
+  const visited = new Set<string>();
+  const targetStack = [targetSha];
+  while (targetStack.length) {
+    const sha = targetStack.pop()!;
+    if (visited.has(sha) || currentReachable.has(sha)) continue;
+    visited.add(sha);
+    const commit = commits.get(sha);
+    if (!commit) continue;
+    if (commit.parent_shas.length > 1) return true;
+    targetStack.push(...commit.parent_shas);
+  }
+  return false;
+}
+
 export function assertBranchUpdateAllowed(
   gh: GitHubStore,
   user: GitHubUser,
   repo: GitHubRepo,
   branchName: string,
-  options: { force?: boolean; parentCount?: number; deletion?: boolean; targetSha?: string } = {},
+  options: { force?: boolean; parentCount?: number; deletion?: boolean; currentSha?: string; targetSha?: string } = {},
 ): void {
   const protection = gh.branchProtections
     .findBy("repo_id", repo.id)
@@ -254,7 +280,11 @@ export function assertBranchUpdateAllowed(
       (requiredContexts.length > 0 && !requiredChecksPassed) ||
       protection.required_signatures);
   const invalidHistory =
-    options.deletion !== true && protection.required_linear_history && (options.parentCount ?? 1) > 1;
+    options.deletion !== true &&
+    protection.required_linear_history &&
+    (options.currentSha && options.targetSha
+      ? introducedRangeContainsMerge(gh, repo.id, options.currentSha, options.targetSha)
+      : (options.parentCount ?? 1) > 1);
   const blockedForcePush = options.deletion !== true && options.force === true && !protection.allow_force_pushes;
 
   if (restricted || blockedDeletion || requirementsBlockDirectUpdate || invalidHistory || blockedForcePush) {

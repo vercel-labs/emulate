@@ -159,7 +159,7 @@ export function resolveBranchToCommit(gh: GitHubStore, repo: GitHubRepo, branchN
 
 export interface FlatTree {
   /** Full slash-separated non-tree path -> entry. */
-  blobs: Map<string, { mode: string; sha: string; size?: number }>;
+  blobs: Map<string, { mode: string; type: "blob" | "commit"; sha: string; size?: number }>;
   /** Full slash-separated directory path -> tree sha ("" when synthesized from flat paths). */
   dirs: Map<string, string>;
 }
@@ -189,7 +189,7 @@ export function flattenTree(gh: GitHubStore, repoId: number, treeSha: string): F
     for (const e of tree.tree) {
       const path = prefix ? `${prefix}/${e.path}` : e.path;
       if (e.type !== "tree") {
-        blobs.set(path, { mode: e.mode, sha: e.sha, size: e.size });
+        blobs.set(path, { mode: e.mode, type: e.type, sha: e.sha, size: e.size });
         registerParentDirs(path);
       } else {
         dirs.set(path, e.sha);

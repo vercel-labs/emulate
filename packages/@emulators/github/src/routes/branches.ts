@@ -798,6 +798,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       assertBranchUpdateAllowed(gh, user, repo, branchName, {
         force,
         parentCount: commit?.parent_shas.length,
+        currentSha: oldSha,
         targetSha: commit?.sha,
       });
     }

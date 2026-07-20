@@ -43,19 +43,30 @@ function createTestApp() {
         slug: "contents-app",
         name: "Contents App",
         private_key: "test-key",
-        permissions: { contents: "write", issues: "read", pull_requests: "read" },
+        permissions: {
+          contents: "write",
+          workflows: "write",
+          actions: "write",
+          issues: "read",
+          pull_requests: "read",
+        },
         installations: [
           {
             installation_id: 41,
             account: "acme",
             repository_selection: "all",
-            permissions: { contents: "write" },
+            permissions: { contents: "write", workflows: "write", actions: "write" },
           },
           {
             installation_id: 42,
             account: "octocat",
             repository_selection: "all",
-            permissions: { contents: "read", issues: "read", pull_requests: "read" },
+            permissions: {
+              contents: "read",
+              issues: "read",
+              pull_requests: "read",
+              actions: "write",
+            },
           },
         ],
       },
@@ -481,6 +492,76 @@ describe("GitHub contents routes", () => {
     expect(readOnlyWrite.status).toBe(403);
   });
 
+  it("requires Workflows write permission for Contents mutations under .github/workflows", async () => {
+    const { app } = createTestApp();
+    const contentsOnly = await issueInstallationToken(app, 41, {
+      repositories: ["project"],
+      permissions: { contents: "write" },
+    });
+    const workflowWriter = await issueInstallationToken(app, 41, {
+      repositories: ["project"],
+      permissions: { contents: "write", workflows: "write" },
+    });
+    expect(contentsOnly.response.status).toBe(201);
+    expect(workflowWriter.response.status).toBe(201);
+
+    const createFile = (path: string, token: string) =>
+      app.request(`${base}/repos/acme/project/contents/${path}`, {
+        method: "PUT",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({
+          message: `Create ${path}`,
+          content: Buffer.from("name: CI\n", "utf8").toString("base64"),
+        }),
+      });
+
+    expect((await createFile("ordinary.txt", contentsOnly.token)).status).toBe(201);
+    expect((await createFile(".github/workflows/ci.yml", contentsOnly.token)).status).toBe(403);
+
+    const created = await createFile(".github/workflows/ci.yml", workflowWriter.token);
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { content: { sha: string } };
+    const deleteWorkflow = (token: string) =>
+      app.request(`${base}/repos/acme/project/contents/.github/workflows/ci.yml`, {
+        method: "DELETE",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ message: "Delete workflow", sha: createdBody.content.sha }),
+      });
+
+    expect((await deleteWorkflow(contentsOnly.token)).status).toBe(403);
+    expect((await deleteWorkflow(workflowWriter.token)).status).toBe(200);
+  });
+
+  it("requires Actions write permission to dispatch a workflow", async () => {
+    const { app, store } = createTestApp();
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    const workflow = gh.workflows.insert({
+      node_id: "workflow-node",
+      repo_id: repo.id,
+      name: "CI",
+      path: ".github/workflows/ci.yml",
+      state: "active",
+      badge_url: `${base}/repos/octocat/hello-world/actions/workflows/ci.yml/badge.svg`,
+    });
+    const reader = await issueInstallationToken(app, 42, { permissions: { actions: "read" } });
+    const writer = await issueInstallationToken(app, 42, { permissions: { actions: "write" } });
+    expect(reader.response.status).toBe(201);
+    expect(writer.response.status).toBe(201);
+
+    const dispatch = (token: string) =>
+      app.request(`${base}/repos/octocat/hello-world/actions/workflows/${workflow.id}/dispatches`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ ref: "main" }),
+      });
+
+    expect((await dispatch(reader.token)).status).toBe(403);
+    expect(gh.workflowRuns.findBy("repo_id", repo.id)).toHaveLength(0);
+    expect((await dispatch(writer.token)).status).toBe(204);
+    expect(gh.workflowRuns.findBy("repo_id", repo.id)).toHaveLength(1);
+  });
+
   it("requires Contents permission for installation reads from private repositories", async () => {
     const { app, store } = createTestApp();
     const gh = getGitHubStore(store);
@@ -839,6 +920,52 @@ describe("GitHub contents routes", () => {
     expect((await update()).status).toBe(200);
   });
 
+  it("rejects merge commits anywhere in a protected linear-history update range", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [baseCommit] = (await commits.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const createCommit = async (message: string, parents: string[]) => {
+      const response = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ message, tree: baseCommit.commit.tree.sha, parents }),
+      });
+      expect(response.status).toBe(201);
+      return (await response.json()) as { sha: string };
+    };
+    const side = await createCommit("Side commit", [baseCommit.sha]);
+    const merge = await createCommit("Merge commit", [baseCommit.sha, side.sha]);
+    const tip = await createCommit("Tip commit", [merge.sha]);
+
+    const protection = await app.request(`${base}/repos/octocat/hello-world/branches/main/protection`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        required_status_checks: null,
+        enforce_admins: true,
+        required_pull_request_reviews: null,
+        restrictions: null,
+        required_linear_history: true,
+        allow_force_pushes: false,
+        allow_deletions: false,
+        required_signatures: false,
+      }),
+    });
+    expect(protection.status).toBe(200);
+
+    const update = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: tip.sha }),
+    });
+    expect(update.status).toBe(409);
+    const current = await app.request(`${base}/repos/octocat/hello-world/git/ref/heads/main`, {
+      headers: authHeaders(),
+    });
+    expect((await current.json()) as { object: { sha: string } }).toEqual(
+      expect.objectContaining({ object: expect.objectContaining({ sha: baseCommit.sha }) }),
+    );
+  });
+
   it("requires an existing branch for content writes", async () => {
     const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await commits.json()) as Array<{ sha: string }>;
@@ -1023,6 +1150,49 @@ describe("GitHub contents routes", () => {
       });
       expect(response.status, JSON.stringify(entry)).toBe(422);
     }
+  });
+
+  it("preserves submodules when Contents writes rebuild a neighboring tree", async () => {
+    const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+    const [head] = (await commits.json()) as Array<{ sha: string; commit: { tree: { sha: string } } }>;
+    const submoduleSha = "b".repeat(40);
+    const tree = await app.request(`${base}/repos/octocat/hello-world/git/trees`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        base_tree: head.commit.tree.sha,
+        tree: [{ path: "vendor/mod", mode: "160000", type: "commit", sha: submoduleSha }],
+      }),
+    });
+    expect(tree.status).toBe(201);
+    const treeBody = (await tree.json()) as { sha: string };
+    const commit = await app.request(`${base}/repos/octocat/hello-world/git/commits`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "Add submodule", tree: treeBody.sha, parents: [head.sha] }),
+    });
+    expect(commit.status).toBe(201);
+    const commitBody = (await commit.json()) as { sha: string };
+    const update = await app.request(`${base}/repos/octocat/hello-world/git/refs/heads/main`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ sha: commitBody.sha }),
+    });
+    expect(update.status).toBe(200);
+
+    expect((await putFile(app, "vendor/other.txt", "neighbor\n")).status).toBe(201);
+    const recursive = await app.request(`${base}/repos/octocat/hello-world/git/trees/main?recursive=1`, {
+      headers: authHeaders(),
+    });
+    expect(recursive.status).toBe(200);
+    expect((await recursive.json()) as { tree: unknown[] }).toEqual(
+      expect.objectContaining({
+        tree: expect.arrayContaining([
+          expect.objectContaining({ path: "vendor/mod", mode: "160000", type: "commit", sha: submoduleSha }),
+          expect.objectContaining({ path: "vendor/other.txt", mode: "100644", type: "blob" }),
+        ]),
+      }),
+    );
   });
 
   it("gets trees by branch and tag refs", async () => {
