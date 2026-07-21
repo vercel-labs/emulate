@@ -4,6 +4,7 @@ import { seedDefaults } from "./seed.js";
 import { metaRoutes } from "./routes/meta.js";
 import { recordRoutes } from "./routes/records.js";
 import { commentRoutes } from "./routes/comments.js";
+import { inspectorRoutes } from "./routes/inspector.js";
 
 export { getAirtableStore, type AirtableStore } from "./store.js";
 export * from "./entities.js";
@@ -23,6 +24,7 @@ export const airtablePlugin: ServicePlugin = {
     metaRoutes(ctx);
     recordRoutes(ctx);
     commentRoutes(ctx);
+    inspectorRoutes(ctx);
   },
   seed(store: Store): void {
     seedDefaults(store);
