@@ -3,6 +3,7 @@ import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispa
 import { seedDefaults } from "./seed.js";
 import { metaRoutes } from "./routes/meta.js";
 import { recordRoutes } from "./routes/records.js";
+import { commentRoutes } from "./routes/comments.js";
 
 export { getAirtableStore, type AirtableStore } from "./store.js";
 export * from "./entities.js";
@@ -21,6 +22,7 @@ export const airtablePlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     metaRoutes(ctx);
     recordRoutes(ctx);
+    commentRoutes(ctx);
   },
   seed(store: Store): void {
     seedDefaults(store);
