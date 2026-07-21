@@ -56,7 +56,6 @@ export interface AirtableSeedUser {
 export interface AirtableSeedConfig {
   user?: AirtableSeedUser;
   bases?: AirtableSeedBase[];
-  strict_tokens?: boolean;
   baseUrl?: string;
 }
 

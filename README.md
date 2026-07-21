@@ -1293,4 +1293,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
 
-**Airtable**: Relaxed by default so any `Authorization: Bearer <token>` works; `whoami` returns the seeded identity. Set `airtable.strict_tokens: true` to enforce seeded PATs and their scopes.
+**Airtable**: Relaxed by default so any `Authorization: Bearer <token>` works; `whoami` returns the seeded identity and scopes.

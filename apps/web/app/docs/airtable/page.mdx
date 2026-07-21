@@ -38,7 +38,7 @@ Tables and fields are addressable by id or name. `filterByFormula` references fi
 
 ## Auth
 
-Relaxed by default so any `Authorization: Bearer <token>` works; `whoami` returns the seeded identity. Set `airtable.strict_tokens: true` in seed config to enforce seeded PATs and their scopes.
+Relaxed by default so any `Authorization: Bearer <token>` works; `whoami` returns the seeded identity and scopes.
 
 Point clients at the emulator without code changes: Airtable.js via `endpointUrl` (or the `AIRTABLE_ENDPOINT_URL` env var), pyairtable via `endpoint_url`.
 

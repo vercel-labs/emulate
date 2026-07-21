@@ -35,7 +35,7 @@ AIRTABLE_ENDPOINT_URL=http://localhost:4014
 Api("pat_test_token", endpoint_url="http://localhost:4014")
 ```
 
-Set `airtable.strict_tokens: true` in seed config to enforce the seeded PATs and their scopes (`data.records:read`, `data.records:write`, `schema.bases:read`).
+The seeded user's scopes (`data.records:read`, `data.records:write`, `schema.bases:read`) are returned by `whoami`.
 
 ## Records
 
