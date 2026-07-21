@@ -1,0 +1,81 @@
+# Airtable API
+
+Stateful Airtable Data API emulation with user-defined bases, tables, fields, and views, plus records and record comments. Records are validated against the seeded schema, and lists support a pragmatic `filterByFormula` subset, `sort`, seeded `view` filters, field selection, `offset` pagination, and `returnFieldsByFieldId`.
+
+## Start
+
+```bash
+npx emulate --service airtable
+```
+
+When Airtable is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4014`.
+
+## Records
+
+- `GET /v0/:baseId/:tableIdOrName` - list records (`filterByFormula`, `sort`, `fields`, `view`, `pageSize`, `maxRecords`, `offset`, `cellFormat`, `returnFieldsByFieldId`)
+- `POST /v0/:baseId/:tableIdOrName/listRecords` - body-based list for long formulas
+- `GET /v0/:baseId/:tableIdOrName/:recordId` - get one record
+- `POST /v0/:baseId/:tableIdOrName` - create a single `{fields}` record or a `{records}` batch (up to 10, with optional `typecast`)
+- `PATCH /v0/:baseId/:tableIdOrName` - batch update, or upsert via `performUpsert.fieldsToMergeOn`
+- `PUT /v0/:baseId/:tableIdOrName` - batch replace
+- `PATCH` / `PUT /v0/:baseId/:tableIdOrName/:recordId` - update (merge) or replace one record
+- `DELETE /v0/:baseId/:tableIdOrName/:recordId` - delete one record
+- `DELETE /v0/:baseId/:tableIdOrName?records[]=...` - batch delete (up to 10)
+
+Tables and fields are addressable by id or name. `filterByFormula` references fields by name (a `{fldXXX}` id token errors, matching Airtable); computed fields filter on their stored value.
+
+## Record Comments
+
+- `GET /v0/:baseId/:tableIdOrName/:recordId/comments` - list comments (threaded, `offset` paginated)
+- `POST /v0/:baseId/:tableIdOrName/:recordId/comments` - add a comment (`{text}`, with `@[usrXXX]` mentions parsed)
+- `DELETE /v0/:baseId/:tableIdOrName/:recordId/comments/:commentId` - delete a comment
+
+## Meta
+
+- `GET /v0/meta/whoami` - token identity (id, email, scopes)
+- `GET /v0/meta/bases` - accessible bases
+- `GET /v0/meta/bases/:baseId/tables` - base schema (tables, fields, views)
+
+## Auth
+
+Relaxed by default so any `Authorization: Bearer <token>` works; `whoami` returns the seeded identity. Set `airtable.strict_tokens: true` in seed config to enforce seeded PATs and their scopes.
+
+Point clients at the emulator without code changes: Airtable.js via `endpointUrl` (or the `AIRTABLE_ENDPOINT_URL` env var), pyairtable via `endpoint_url`.
+
+## Seed Config
+
+```yaml
+airtable:
+  user:
+    email: dev@example.com
+    name: Local Developer
+  bases:
+    - id: appLocalDevExample
+      name: Product
+      tables:
+        - name: Tasks
+          fields:
+            - { name: Name, type: singleLineText }
+            - name: Status
+              type: singleSelect
+              options:
+                choices:
+                  - { name: Todo }
+                  - { name: Doing }
+                  - { name: Done }
+            - { name: Estimate, type: number }
+          views:
+            - { name: All Tasks, type: grid }
+          records:
+            - { Name: Ship the emulator, Status: Doing, Estimate: 3 }
+```
+
+Records seeded against a table with no declared `fields` infer their schema from the first record that carries each key. Base, table, and field ids pass through verbatim, so a config that mirrors a real base's ids lets code that hardcodes those ids run unchanged.
+
+## Inspector
+
+- `GET /` - tabbed inspector for bases, tables, records, and identity
+
+## Current Limits
+
+`filterByFormula` implements a documented function subset (unsupported functions return `INVALID_FILTER_BY_FORMULA`); computed fields (formula, rollup, lookup) are stored, not recomputed; view filters are seeded rather than discovered; webhooks, attachment uploads, and Meta write endpoints are not implemented.

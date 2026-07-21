@@ -24,6 +24,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
+- **Airtable** on `http://localhost:4014`
 
 ## CLI
 
@@ -423,6 +424,29 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+  airtable:
+    user:
+      email: dev@example.com
+      name: Local Developer
+    bases:
+      - id: appLocalDevExample
+        name: Product
+        tables:
+          - name: Tasks
+            fields:
+              - { name: Name, type: singleLineText }
+              - name: Status
+                type: singleSelect
+                options:
+                  choices:
+                    - { name: Todo }
+                    - { name: Doing }
+                    - { name: Done }
+              - { name: Estimate, type: number }
+            views:
+              - { name: All Tasks, type: grid }
+            records:
+              - { Name: Ship the emulator, Status: Doing, Estimate: 3 }
 ```
 
 ## OAuth & Integrations
@@ -923,6 +947,41 @@ To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then ca
 
 Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
 
+## Airtable API
+
+Stateful Airtable Data API emulation with user-defined bases, tables, fields, and views, plus records and record comments. Records are validated against the seeded schema (unknown fields error; select choices are enforced unless `typecast` is set), and lists support a pragmatic `filterByFormula` subset, `sort`, seeded `view` filters, field selection, `offset` pagination, and `returnFieldsByFieldId`.
+
+### Records
+
+- `GET /v0/:baseId/:tableIdOrName` - list (filterByFormula, sort, fields, view, pageSize, maxRecords, offset, cellFormat, returnFieldsByFieldId)
+- `POST /v0/:baseId/:tableIdOrName/listRecords` - body-based list for long formulas
+- `GET /v0/:baseId/:tableIdOrName/:recordId` - get one record
+- `POST /v0/:baseId/:tableIdOrName` - create a single `{fields}` record or a `{records}` batch (up to 10, with optional `typecast`)
+- `PATCH /v0/:baseId/:tableIdOrName` - batch update, or upsert via `performUpsert.fieldsToMergeOn`
+- `PUT /v0/:baseId/:tableIdOrName` - batch replace
+- `PATCH` / `PUT /v0/:baseId/:tableIdOrName/:recordId` - update (merge) or replace one record
+- `DELETE /v0/:baseId/:tableIdOrName/:recordId` - delete one record
+- `DELETE /v0/:baseId/:tableIdOrName?records[]=...` - batch delete (up to 10)
+
+Tables and fields are addressable by id or name. `filterByFormula` references fields by name (a `{fldXXX}` id token errors, matching Airtable); computed fields filter on their stored value.
+
+### Record Comments
+
+- `GET /v0/:baseId/:tableIdOrName/:recordId/comments` - list comments (threaded, `offset` paginated)
+- `POST /v0/:baseId/:tableIdOrName/:recordId/comments` - add a comment (`{text}`, with `@[usrXXX]` mentions parsed)
+- `DELETE /v0/:baseId/:tableIdOrName/:recordId/comments/:commentId` - delete a comment
+
+### Meta And Inspector
+
+- `GET /v0/meta/whoami` - token identity (id, email, scopes)
+- `GET /v0/meta/bases` - accessible bases
+- `GET /v0/meta/bases/:baseId/tables` - base schema (tables, fields, views)
+- `GET /` - tabbed local inspector for bases, tables, records, and identity
+
+Auth is relaxed by default so any bearer token works. Point Airtable.js at the emulator with `endpointUrl` (or the `AIRTABLE_ENDPOINT_URL` env var) and pyairtable with `endpoint_url`.
+
+Current Airtable limits: `filterByFormula` implements a documented function subset (unsupported functions return `INVALID_FILTER_BY_FORMULA`); computed fields (formula, rollup, lookup) are stored, not recomputed; view filters are seeded rather than discovered; webhooks, attachment uploads, and Meta write endpoints are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1205,6 +1264,7 @@ packages/
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
+    airtable/       # Airtable Data API, records, comments, Meta schema
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -1232,3 +1292,5 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+**Airtable**: Relaxed by default so any `Authorization: Bearer <token>` works; `whoami` returns the seeded identity. Set `airtable.strict_tokens: true` to enforce seeded PATs and their scopes.
