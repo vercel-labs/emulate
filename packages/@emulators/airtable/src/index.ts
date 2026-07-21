@@ -1,6 +1,8 @@
 import type { Hono } from "@emulators/core";
-import type { AppEnv, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
+import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import { seedDefaults } from "./seed.js";
+import { metaRoutes } from "./routes/meta.js";
+import { recordRoutes } from "./routes/records.js";
 
 export { getAirtableStore, type AirtableStore } from "./store.js";
 export * from "./entities.js";
@@ -15,14 +17,10 @@ export {
 
 export const airtablePlugin: ServicePlugin = {
   name: "airtable",
-  register(
-    _app: Hono<AppEnv>,
-    _store: Store,
-    _webhooks: WebhookDispatcher,
-    _baseUrl: string,
-    _tokenMap?: TokenMap,
-  ): void {
-    // HTTP routes are wired in a subsequent commit.
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    metaRoutes(ctx);
+    recordRoutes(ctx);
   },
   seed(store: Store): void {
     seedDefaults(store);
