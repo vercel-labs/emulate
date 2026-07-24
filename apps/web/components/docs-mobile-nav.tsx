@@ -35,13 +35,17 @@ const sections: NavSection[] = [
       { href: "/docs/mongoatlas", label: "MongoDB Atlas" },
       { href: "/docs/resend", label: "Resend" },
       { href: "/docs/stripe", label: "Stripe" },
+      { href: "/docs/clerk", label: "Clerk" },
+      { href: "/docs/twilio", label: "Twilio" },
     ],
   },
   {
     title: "Reference",
     items: [
+      { href: "/docs/connecting", label: "Connecting your app" },
       { href: "/docs/authentication", label: "Authentication" },
       { href: "/docs/architecture", label: "Architecture" },
+      { href: "/docs/troubleshooting", label: "Troubleshooting" },
     ],
   },
 ];

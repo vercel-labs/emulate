@@ -1,7 +1,7 @@
 ---
 name: aws
 description: Emulated AWS cloud services (S3, SQS, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
@@ -11,20 +11,25 @@ S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style
 ## Start
 
 ```bash
-# AWS only
-npx emulate --service aws
+# AWS only, pinned to the port used throughout this guide
+npx emulate --service aws --port 4007
 
-# Default port (when run alone)
-# http://localhost:4000
+# Or run all 14 services; AWS is the 8th, so it also lands on 4007
+npx emulate
 ```
+
+Ports are `--port` (default 4000) plus the service's index in the **enabled**
+set, so a bare `npx emulate --service aws` puts AWS on 4000, not 4007. The
+`--port 4007` above makes every example on this page valid in both modes. To pin
+the port no matter what else runs, set `aws.port` in the seed config.
 
 Or programmatically:
 
 ```typescript
 import { createEmulator } from 'emulate'
 
-const aws = await createEmulator({ service: 'aws', port: 4006 })
-// aws.url === 'http://localhost:4006'
+const aws = await createEmulator({ service: 'aws', port: 4007 })
+// aws.url === 'http://localhost:4007'
 ```
 
 ## Auth
@@ -32,7 +37,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
-curl http://localhost:4006/ \
+curl http://localhost:4007/ \
   -H "Authorization: Bearer test_token_admin"
 ```
 
@@ -41,7 +46,7 @@ curl http://localhost:4006/ \
 ### Environment Variable
 
 ```bash
-AWS_EMULATOR_URL=http://localhost:4006
+AWS_EMULATOR_URL=http://localhost:4007
 ```
 
 ### AWS SDK v3
@@ -124,46 +129,46 @@ S3 routes use root paths matching the real AWS S3 wire format. Legacy `/s3/` pre
 
 ```bash
 # List all buckets
-curl http://localhost:4006/ \
+curl http://localhost:4007/ \
   -H "Authorization: Bearer $TOKEN"
 
 # Create bucket
-curl -X PUT http://localhost:4006/my-bucket \
+curl -X PUT http://localhost:4007/my-bucket \
   -H "Authorization: Bearer $TOKEN"
 
 # Delete bucket (must be empty)
-curl -X DELETE http://localhost:4006/my-bucket \
+curl -X DELETE http://localhost:4007/my-bucket \
   -H "Authorization: Bearer $TOKEN"
 
 # Head bucket (check existence, get region)
-curl -I http://localhost:4006/my-bucket \
+curl -I http://localhost:4007/my-bucket \
   -H "Authorization: Bearer $TOKEN"
 
 # List objects (with prefix, delimiter, pagination)
-curl "http://localhost:4006/my-bucket?prefix=uploads/&delimiter=/&max-keys=100" \
+curl "http://localhost:4007/my-bucket?prefix=uploads/&delimiter=/&max-keys=100" \
   -H "Authorization: Bearer $TOKEN"
 
 # Put object
-curl -X PUT http://localhost:4006/my-bucket/path/to/file.txt \
+curl -X PUT http://localhost:4007/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: text/plain" \
   -H "x-amz-meta-author: test" \
   --data-binary "file contents"
 
 # Get object
-curl http://localhost:4006/my-bucket/path/to/file.txt \
+curl http://localhost:4007/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN"
 
 # Head object (metadata only)
-curl -I http://localhost:4006/my-bucket/path/to/file.txt \
+curl -I http://localhost:4007/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN"
 
 # Delete object
-curl -X DELETE http://localhost:4006/my-bucket/path/to/file.txt \
+curl -X DELETE http://localhost:4007/my-bucket/path/to/file.txt \
   -H "Authorization: Bearer $TOKEN"
 
 # Copy object
-curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
+curl -X PUT http://localhost:4007/dest-bucket/copy.txt \
   -H "Authorization: Bearer $TOKEN" \
   -H "x-amz-copy-source: /source-bucket/original.txt"
 ```
@@ -174,64 +179,64 @@ All SQS operations use `POST /sqs/` with `Action` as a form-urlencoded parameter
 
 ```bash
 # Create queue
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "Action=CreateQueue&QueueName=my-queue"
 
 # Create queue with attributes
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "Action=CreateQueue&QueueName=my-queue&Attribute.1.Name=VisibilityTimeout&Attribute.1.Value=30"
 
 # List queues
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ListQueues"
 
 # List queues with prefix filter
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ListQueues&QueueNamePrefix=my-"
 
 # Get queue URL
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=GetQueueUrl&QueueName=my-queue"
 
 # Get queue attributes
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=GetQueueAttributes&QueueUrl=<queue_url>"
 
 # Send message
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=SendMessage&QueueUrl=<queue_url>&MessageBody=Hello+World"
 
 # Send message with attributes
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=SendMessage&QueueUrl=<queue_url>&MessageBody=Hello&MessageAttribute.1.Name=type&MessageAttribute.1.Value.DataType=String&MessageAttribute.1.Value.StringValue=greeting"
 
 # Receive messages
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ReceiveMessage&QueueUrl=<queue_url>&MaxNumberOfMessages=5"
 
 # Delete message
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteMessage&QueueUrl=<queue_url>&ReceiptHandle=<receipt_handle>"
 
 # Purge queue
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=PurgeQueue&QueueUrl=<queue_url>"
 
 # Delete queue
-curl -X POST http://localhost:4006/sqs/ \
+curl -X POST http://localhost:4007/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteQueue&QueueUrl=<queue_url>"
 ```
@@ -242,57 +247,57 @@ All IAM operations use `POST /iam/` with `Action` as a form-urlencoded parameter
 
 ```bash
 # Create user
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=CreateUser&UserName=new-user"
 
 # Get user
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=GetUser&UserName=new-user"
 
 # List users
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ListUsers"
 
 # Delete user
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteUser&UserName=new-user"
 
 # Create access key
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=CreateAccessKey&UserName=developer"
 
 # List access keys
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ListAccessKeys&UserName=developer"
 
 # Delete access key
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteAccessKey&UserName=developer&AccessKeyId=AKIA..."
 
 # Create role
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=CreateRole&RoleName=my-role&AssumeRolePolicyDocument={}"
 
 # Get role
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=GetRole&RoleName=my-role"
 
 # List roles
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=ListRoles"
 
 # Delete role
-curl -X POST http://localhost:4006/iam/ \
+curl -X POST http://localhost:4007/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteRole&RoleName=my-role"
 ```
@@ -303,12 +308,12 @@ All STS operations use `POST /sts/` with `Action` as a form-urlencoded parameter
 
 ```bash
 # Get caller identity
-curl -X POST http://localhost:4006/sts/ \
+curl -X POST http://localhost:4007/sts/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=GetCallerIdentity"
 
 # Assume role
-curl -X POST http://localhost:4006/sts/ \
+curl -X POST http://localhost:4007/sts/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session"
 ```
@@ -317,9 +322,9 @@ curl -X POST http://localhost:4006/sts/ \
 
 ```bash
 # HTML dashboard (shows S3, SQS, IAM state)
-curl http://localhost:4006/_inspector?tab=s3
-curl http://localhost:4006/_inspector?tab=sqs
-curl http://localhost:4006/_inspector?tab=iam
+curl http://localhost:4007/_inspector?tab=s3
+curl http://localhost:4007/_inspector?tab=sqs
+curl http://localhost:4007/_inspector?tab=iam
 ```
 
 ## Common Patterns
@@ -328,7 +333,7 @@ curl http://localhost:4006/_inspector?tab=iam
 
 ```bash
 TOKEN="test_token_admin"
-BASE="http://localhost:4006"
+BASE="http://localhost:4007"
 
 # Create bucket
 curl -X PUT $BASE/my-data \
@@ -349,7 +354,7 @@ curl $BASE/my-data/config.json \
 
 ```bash
 TOKEN="test_token_admin"
-BASE="http://localhost:4006"
+BASE="http://localhost:4007"
 
 # Get queue URL
 QUEUE_URL=$(curl -s -X POST $BASE/sqs/ \
@@ -371,7 +376,7 @@ curl -X POST $BASE/sqs/ \
 
 ```bash
 TOKEN="test_token_admin"
-BASE="http://localhost:4006"
+BASE="http://localhost:4007"
 
 # Create user
 curl -X POST $BASE/iam/ \

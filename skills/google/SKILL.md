@@ -1,7 +1,7 @@
 ---
 name: google
 description: Emulated Google OAuth 2.0, OpenID Connect, Gmail, Calendar, and Drive for local development and testing. Use when the user needs to test Google sign-in locally, emulate OIDC discovery, handle Google token exchange, configure Google OAuth clients, work with Gmail messages/drafts/threads/labels, manage Calendar events, upload or list Drive files, or work with Google userinfo without hitting real Google APIs. Triggers include "Google OAuth", "emulate Google", "mock Google login", "test Google sign-in", "OIDC emulator", "Google OIDC", "Gmail API", "Google Calendar", "Google Drive", "local Google auth", or any task requiring a local Google API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Google OAuth 2.0 / OIDC + Gmail, Calendar & Drive Emulator
@@ -11,12 +11,17 @@ OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE suppor
 ## Start
 
 ```bash
-# Google only
-npx emulate --service google
+# Google only, pinned to the port used throughout this guide
+npx emulate --service google --port 4002
 
-# Default port
-# http://localhost:4002
+# Or run all 14 services; Google is the 3rd, so it also lands on 4002
+npx emulate
 ```
+
+Ports are `--port` (default 4000) plus the service's index in the **enabled**
+set, so a bare `npx emulate --service google` puts Google on 4000, not 4002. The
+`--port 4002` above makes every example on this page valid in both modes. To pin
+the port no matter what else runs, set `google.port` in the seed config.
 
 Or programmatically:
 

@@ -2,7 +2,123 @@
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
-## OAuth & OpenID Connect
+## Start
+
+```bash
+# Google only
+npx emulate --service google
+
+# Or run all 14 services; Google is the 3rd, so it lands on 4002
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service google` puts Google on **4000**, not 4002. Pass `--port` or set
+`google.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your app at it
+
+Google's client libraries do not share a single base-URL switch, so redirect them
+per endpoint. Any OIDC-aware library (Auth.js, `openid-client`, Passport) can
+instead be pointed at the discovery document and will find the rest itself:
+
+```
+http://localhost:4002/.well-known/openid-configuration
+```
+
+```bash
+GOOGLE_EMULATOR_URL=http://localhost:4002
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Google URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://accounts.google.com/o/oauth2/v2/auth</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/o/oauth2/v2/auth</code></td>
+    </tr>
+    <tr>
+      <td><code>https://oauth2.googleapis.com/token</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/oauth2/token</code></td>
+    </tr>
+    <tr>
+      <td><code>https://www.googleapis.com/oauth2/v2/userinfo</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/oauth2/v2/userinfo</code></td>
+    </tr>
+    <tr>
+      <td><code>https://accounts.google.com/.well-known/openid-configuration</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/.well-known/openid-configuration</code></td>
+    </tr>
+    <tr>
+      <td><code>https://www.googleapis.com/oauth2/v3/certs</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/oauth2/v3/certs</code></td>
+    </tr>
+    <tr>
+      <td><code>https://gmail.googleapis.com/gmail/v1/...</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/gmail/v1/...</code></td>
+    </tr>
+    <tr>
+      <td><code>https://www.googleapis.com/calendar/v3/...</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/calendar/v3/...</code></td>
+    </tr>
+    <tr>
+      <td><code>https://www.googleapis.com/drive/v3/...</code></td>
+      <td><code>$GOOGLE_EMULATOR_URL/drive/v3/...</code></td>
+    </tr>
+  </tbody>
+</table>
+
+```typescript
+import { OAuth2Client } from 'google-auth-library'
+
+const GOOGLE_URL = process.env.GOOGLE_EMULATOR_URL ?? 'https://accounts.google.com'
+
+const client = new OAuth2Client({
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  redirectUri: 'http://localhost:3000/api/auth/callback/google',
+})
+```
+
+The authorize endpoint renders a user-picker page instead of a real Google login,
+so a browser-driven flow works end to end. See the
+[oauth example](https://github.com/vercel-labs/emulate/tree/main/examples/oauth).
+
+## Seed config
+
+```yaml
+google:
+  users:
+    - email: testuser@example.com
+      name: Test User
+  oauth_clients:
+    - client_id: my-client-id.apps.googleusercontent.com
+      client_secret: GOCSPX-secret
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/google
+  messages:
+    - id: msg_welcome
+      user_email: testuser@example.com
+      from: welcome@example.com
+      to: testuser@example.com
+      subject: Welcome
+      body_text: Hello from the Gmail emulator
+      label_ids: [INBOX, UNREAD]
+```
+
+Gmail, Calendar and Drive entities are attached to a user through `user_email`,
+which must match a seeded user. Seed config is not validated, so an unknown key is
+dropped silently. Full reference, including calendars, events and drive items:
+[Configuration](/docs/configuration).
+
+## Endpoints
+
+### OAuth & OpenID Connect
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
@@ -10,7 +126,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
 
-## Gmail
+### Gmail
 
 - `GET /gmail/v1/users/:userId/messages` - list messages (`q`, `labelIds`, `maxResults`, `pageToken`)
 - `GET /gmail/v1/users/:userId/messages/:id` - get message (`full`, `metadata`, `minimal`, `raw` formats)
@@ -23,7 +139,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `POST /gmail/v1/users/:userId/messages/:id/trash` - trash message
 - `POST /gmail/v1/users/:userId/messages/:id/untrash` - untrash message
 
-## Gmail Drafts
+### Gmail Drafts
 
 - `GET /gmail/v1/users/:userId/drafts` - list drafts
 - `POST /gmail/v1/users/:userId/drafts` - create draft
@@ -32,26 +148,26 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `POST /gmail/v1/users/:userId/drafts/:id/send` - send draft
 - `DELETE /gmail/v1/users/:userId/drafts/:id` - delete draft
 
-## Gmail Threads
+### Gmail Threads
 
 - `GET /gmail/v1/users/:userId/threads` - list threads
 - `GET /gmail/v1/users/:userId/threads/:id` - get thread
 - `POST /gmail/v1/users/:userId/threads/:id/modify` - add/remove labels across a thread
 
-## Gmail Labels
+### Gmail Labels
 
 - `GET /gmail/v1/users/:userId/labels` - list labels
 - `POST /gmail/v1/users/:userId/labels` - create label
 - `PATCH /gmail/v1/users/:userId/labels/:id` - update label
 - `DELETE /gmail/v1/users/:userId/labels/:id` - delete label
 
-## Gmail History & Push
+### Gmail History & Push
 
 - `GET /gmail/v1/users/:userId/history` - list history changes
 - `POST /gmail/v1/users/:userId/watch` - set up push notifications
 - `POST /gmail/v1/users/:userId/stop` - stop push notifications
 
-## Gmail Settings
+### Gmail Settings
 
 - `GET /gmail/v1/users/:userId/settings/filters` - list filters
 - `POST /gmail/v1/users/:userId/settings/filters` - create filter
@@ -59,7 +175,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses` - list forwarding addresses
 - `GET /gmail/v1/users/:userId/settings/sendAs` - list send-as aliases
 
-## Calendar
+### Calendar
 
 - `GET /calendar/v3/users/:userId/calendarList` - list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` - list events
@@ -67,7 +183,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `DELETE /calendar/v3/calendars/:calendarId/events/:eventId` - delete event
 - `POST /calendar/v3/freeBusy` - query free/busy
 
-## Drive
+### Drive
 
 - `GET /drive/v3/files` - list files
 - `GET /drive/v3/files/:fileId` - get file metadata

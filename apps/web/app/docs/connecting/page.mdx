@@ -1,0 +1,235 @@
+# Connecting your app
+
+There is no proxy, no DNS trick, and no traffic interception. Each emulator is an
+ordinary HTTP server on localhost that speaks the same wire protocol as the real
+service. Connecting your app means one thing: **point the SDK at a different base
+URL**, and give it any non-empty credential.
+
+```typescript
+// before
+const client = new Client({ apiKey: process.env.API_KEY })
+
+// with emulate
+const client = new Client({
+  apiKey: 'anything',
+  baseUrl: process.env.SERVICE_EMULATOR_URL,
+})
+```
+
+Most SDKs expose that knob under a slightly different name. The table below gives
+the one you need per service. Substitute your own port — see
+[how ports are assigned](/docs).
+
+## Where the base URL goes, per SDK
+
+<table>
+  <thead>
+    <tr>
+      <th>Service</th>
+      <th>SDK</th>
+      <th>The knob</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Vercel</td>
+      <td><code>fetch</code> / custom</td>
+      <td>Replace <code>https://api.vercel.com</code> with the emulator URL</td>
+    </tr>
+    <tr>
+      <td>GitHub</td>
+      <td><code>@octokit/rest</code></td>
+      <td><code>{'new Octokit({ baseUrl })'}</code></td>
+    </tr>
+    <tr>
+      <td>Google</td>
+      <td><code>google-auth-library</code></td>
+      <td>Per-endpoint URLs — see <a href="/docs/google">Google</a></td>
+    </tr>
+    <tr>
+      <td>Slack</td>
+      <td><code>@slack/web-api</code></td>
+      <td><code>{'new WebClient(token, { slackApiUrl: \'<url>/api/\' })'}</code> — note the trailing <code>/api/</code></td>
+    </tr>
+    <tr>
+      <td>Apple</td>
+      <td>Auth.js / OIDC</td>
+      <td>Discovery at <code>{'<url>/.well-known/openid-configuration'}</code></td>
+    </tr>
+    <tr>
+      <td>Microsoft</td>
+      <td>Auth.js / MSAL</td>
+      <td>Discovery at <code>{'<url>/.well-known/openid-configuration'}</code></td>
+    </tr>
+    <tr>
+      <td>Okta</td>
+      <td><code>@okta/okta-sdk-nodejs</code></td>
+      <td><code>orgUrl</code> = the emulator URL; issuer is <code>{'<url>/oauth2/default'}</code></td>
+    </tr>
+    <tr>
+      <td>AWS</td>
+      <td>AWS SDK v3</td>
+      <td><code>endpoint</code> <strong>and</strong> <code>forcePathStyle: true</code> for S3</td>
+    </tr>
+    <tr>
+      <td>Resend</td>
+      <td><code>resend</code></td>
+      <td><code>RESEND_BASE_URL</code> env var — no code change needed</td>
+    </tr>
+    <tr>
+      <td>Stripe</td>
+      <td><code>stripe</code></td>
+      <td><code>{'new Stripe(key, { host: \'localhost\', port, protocol: \'http\' })'}</code></td>
+    </tr>
+    <tr>
+      <td>MongoDB Atlas</td>
+      <td>Admin API over <code>fetch</code></td>
+      <td>Replace <code>https://cloud.mongodb.com/api/atlas/v2</code> with the emulator URL</td>
+    </tr>
+    <tr>
+      <td>Clerk</td>
+      <td><code>@clerk/backend</code></td>
+      <td><code>{'createClerkClient({ apiUrl })'}</code></td>
+    </tr>
+    <tr>
+      <td>Linear</td>
+      <td><code>fetch</code> / GraphQL</td>
+      <td>POST to <code>{'<url>/graphql'}</code></td>
+    </tr>
+    <tr>
+      <td>Twilio</td>
+      <td><code>twilio</code></td>
+      <td>Product hosts map to path prefixes — see <a href="/docs/twilio">Twilio</a></td>
+    </tr>
+  </tbody>
+</table>
+
+Credentials are not checked for validity: any non-empty bearer token is accepted.
+A request with **no** `Authorization` header is still rejected with 401. See
+[Authentication](/docs/authentication).
+
+## Examples
+
+### AWS
+
+The AWS SDK needs both `endpoint` and, for S3, path-style addressing — without
+`forcePathStyle` it builds virtual-host URLs like `my-bucket.localhost` that never
+reach the emulator.
+
+```typescript
+import { S3Client } from '@aws-sdk/client-s3'
+
+const s3 = new S3Client({
+  endpoint: process.env.AWS_EMULATOR_URL,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+  forcePathStyle: true,
+})
+```
+
+SQS and IAM live under path prefixes, so append them to the endpoint:
+`${AWS_EMULATOR_URL}/sqs`, `${AWS_EMULATOR_URL}/iam`.
+
+### Stripe
+
+```typescript
+import Stripe from 'stripe'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-12-18.acacia',
+  host: 'localhost',
+  port: 4009,
+  protocol: 'http',
+})
+```
+
+### Resend
+
+The official Node SDK reads `RESEND_BASE_URL` at module load time, so no code
+change is needed at all:
+
+```bash
+RESEND_BASE_URL=http://localhost:4008
+```
+
+### Slack
+
+```typescript
+import { WebClient } from '@slack/web-api'
+
+const client = new WebClient(token, {
+  slackApiUrl: `${process.env.SLACK_EMULATOR_URL}/api/`,
+})
+```
+
+### Clerk
+
+```typescript
+import { createClerkClient } from '@clerk/backend'
+
+const clerk = createClerkClient({
+  secretKey: 'sk_test_anything',
+  apiUrl: process.env.CLERK_EMULATOR_URL,
+})
+```
+
+### Okta
+
+```typescript
+import { Client } from '@okta/okta-sdk-nodejs'
+
+const client = new Client({
+  orgUrl: process.env.OKTA_EMULATOR_URL,
+  token: 'anything',
+})
+```
+
+The OAuth issuer is `${OKTA_EMULATOR_URL}/oauth2/default`, matching the
+authorization server seeded with `id: default`.
+
+## OIDC providers
+
+Apple, Microsoft, Google, Okta and Clerk all serve a standards-compliant
+discovery document. Any OIDC-aware library — Auth.js, `openid-client`, Passport —
+can be pointed at it and will find the authorize, token, userinfo and JWKS
+endpoints on its own:
+
+```
+http://localhost:<port>/.well-known/openid-configuration
+```
+
+Microsoft additionally serves a tenant-scoped variant at
+`/{tenant}/v2.0/.well-known/openid-configuration`.
+
+## Env-var-only setups
+
+There is no single env var that redirects every SDK — each library has its own.
+The `<SERVICE>_EMULATOR_URL` names used across these docs are a convention for
+*your* application code to read; the emulator does not read them itself.
+
+Two genuine exceptions, where no code change is required:
+
+- **Resend** reads `RESEND_BASE_URL` natively.
+- **Any service**, if your code already reads its base URL from an env var — then
+  you only need to change that variable's value.
+
+For everything else, plan on a one-line code change guarded by an env var, as in
+the examples above.
+
+## Which URL the emulator advertises
+
+Some responses embed absolute URLs — OAuth redirects, webhook payloads, blob
+URLs. That advertised base URL is resolved in this order:
+
+1. Per-service `baseUrl` in the seed config
+2. The `--base-url` flag or the `baseUrl` option of `createEmulator`
+3. The `EMULATE_BASE_URL` env var (supports the `{service}` template)
+4. `PORTLESS_URL`, set automatically by the `portless` wrapper
+5. `http://localhost:<port>`
+
+If your app receives callbacks on a hostname other than `localhost` — a container,
+a preview deployment, a reverse proxy — set one of the first three so the
+emulator advertises a URL your app can actually reach.

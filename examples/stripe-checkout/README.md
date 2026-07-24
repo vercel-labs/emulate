@@ -18,14 +18,20 @@ The Stripe SDK is configured with `host: localhost` and `protocol: http` so all 
 
 ## Getting started
 
+The dev script runs through [portless](https://github.com/vercel-labs/portless),
+so install it once if you haven't: `npm i -g portless`.
+
 From the repository root:
 
 ```bash
 pnpm install
+pnpm build   # builds the workspace emulator packages once; required before first run
 pnpm --filter stripe-checkout dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [https://stripe-checkout.emulate.localhost](https://stripe-checkout.emulate.localhost)
+(or the `http://localhost:<port>` URL printed by portless). portless assigns a
+random local port, so this app is not served on `http://localhost:3000`.
 
 ## Seeded data
 

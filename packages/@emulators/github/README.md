@@ -159,9 +159,9 @@ github:
       slug: "my-github-app"
       name: "My GitHub App"
       private_key: |
-        -----BEGIN RSA PRIVATE KEY-----
+        -----BEGIN PRIVATE KEY-----
         ...your PEM key...
-        -----END RSA PRIVATE KEY-----
+        -----END PRIVATE KEY-----
       permissions:
         contents: read
         issues: write
@@ -172,7 +172,18 @@ github:
           repository_selection: all
 ```
 
+`private_key` must be **PKCS#8** — it is parsed with `importPKCS8`, so it has to
+begin with `-----BEGIN PRIVATE KEY-----`. GitHub issues App keys in PKCS#1
+(`-----BEGIN RSA PRIVATE KEY-----`), which the emulator cannot read. Convert once:
+
+```bash
+openssl pkcs8 -topk8 -nocrypt -in github-app.private-key.pem -out github-app.pkcs8.pem
+```
+
+A key in the wrong format fails silently: JWT verification throws, the error is
+swallowed, and the request is treated as unauthenticated.
+
 ## Links
 
-- [Full documentation](https://emulate.dev/github)
+- [Full documentation](https://emulate.dev/docs/github)
 - [GitHub](https://github.com/vercel-labs/emulate)

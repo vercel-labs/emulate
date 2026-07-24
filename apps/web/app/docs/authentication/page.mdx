@@ -2,6 +2,24 @@
 
 Tokens are configured in the seed config and map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`.
 
+When no `tokens` block is configured, the emulator creates `test_token_admin` for
+the user `admin`.
+
+## How permissive the check really is
+
+The emulator is deliberately lenient, in a way that can make a passing test
+misleading:
+
+- **No `Authorization` header** → unauthenticated; protected routes return 401.
+- **Any non-empty bearer token** → accepted. An unrecognized token resolves to the service's fallback user, so `Bearer totally-made-up` succeeds as though it were valid.
+
+Note the direction: a *missing* header fails, an *invalid* token does not. A test
+asserting "an invalid token is rejected with 401" passes against the real API and
+fails here. Assert on the missing-header case instead.
+
+Configure `tokens` when you need a request to authenticate as a specific user or
+carry specific scopes — not as a way to make invalid tokens fail.
+
 ## Vercel
 
 All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
@@ -99,7 +117,7 @@ Supports `Authorization: Basic` header with base64-encoded `client_id:client_sec
 Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
-curl http://localhost:4006/s3/ \
+curl http://localhost:4007/s3/ \
   -H "Authorization: Bearer test_token_admin"
 ```
 

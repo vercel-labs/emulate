@@ -1,7 +1,7 @@
 ---
 name: resend
 description: Emulated Resend email API for local development and testing. Use when the user needs to send emails locally, test transactional email flows, implement magic link or verification code auth, inspect sent emails, manage domains/contacts/API keys, or work with the Resend API without sending real emails. Triggers include "Resend API", "emulate Resend", "send email locally", "test email", "magic link", "verification email", "email inbox", "RESEND_BASE_URL", or any task requiring a local email API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Resend Email API Emulator
@@ -19,6 +19,12 @@ npx emulate --service resend
 # Default port (when run alone)
 # http://localhost:4000
 ```
+
+Every example on this page uses port 4000, which is what the command above
+gives. Ports are `--port` (default 4000) plus the service's index in the
+**enabled** set, so under a bare `npx emulate` Resend is the 9th service and
+moves to 4008. To pin it regardless, pass `--port` or set `resend.port` in the
+seed config.
 
 Or programmatically:
 
@@ -38,7 +44,7 @@ curl http://localhost:4000/emails \
   -H "Authorization: Bearer re_test_key"
 ```
 
-When no token is provided, requests fall back to the default user.
+Any non-empty token is accepted and unrecognized ones resolve to the default user; a request with no `Authorization` header is unauthenticated and protected routes return 401.
 
 ## Pointing Your App at the Emulator
 

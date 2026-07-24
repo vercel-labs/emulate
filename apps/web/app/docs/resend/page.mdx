@@ -2,7 +2,87 @@
 
 Resend email API emulation with email sending, domain management, API keys, audiences, contacts, and a local inbox for captured messages.
 
-## Emails
+## Start
+
+```bash
+# Resend only
+npx emulate --service resend
+
+# Or run all 14 services; Resend is the 9th, so it lands on 4008
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service resend` puts Resend on **4000**, not 4008. Pass `--port` or set
+`resend.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your SDK at it
+
+Resend is the easiest service to redirect: the official Node SDK reads
+`RESEND_BASE_URL` at module load time, so **no code change is needed at all**.
+
+```bash
+RESEND_BASE_URL=http://localhost:4000
+```
+
+```typescript
+import { Resend } from 'resend'
+
+// No baseUrl argument; the SDK picks up RESEND_BASE_URL itself.
+// The API key is not validated — any non-empty value works.
+const resend = new Resend('re_test_key')
+
+await resend.emails.send({
+  from: 'hello@example.com',
+  to: 'user@example.com',
+  subject: 'Hello',
+  html: '<p>It works!</p>',
+})
+```
+
+Because the variable is read at import time, set it before the process starts —
+in `.env`, your test runner's env config, or the shell. Setting
+`process.env.RESEND_BASE_URL` after importing the SDK has no effect.
+
+## Reading the mail back
+
+Nothing is actually delivered. Every message is captured and can be inspected,
+which is what makes this useful in tests:
+
+```bash
+# Browse captured mail in the browser
+open http://localhost:4000/inbox
+
+# Or read it over HTTP
+curl http://localhost:4000/emails -H "Authorization: Bearer re_test_key"
+```
+
+To assert on a magic link or verification code in a test, list `/emails`, take
+the newest id, then fetch `/emails/:id` and match against its `html`. See the
+[resend-magic-link example](https://github.com/vercel-labs/emulate/tree/main/examples/resend-magic-link).
+
+## Seed config
+
+```yaml
+resend:
+  domains:
+    - name: example.com
+      region: us-east-1 # optional, defaults to us-east-1
+  contacts:
+    - email: subscriber@example.com
+      first_name: Sub
+      last_name: Scriber
+      audience: newsletter
+```
+
+`domains` and `contacts` are the only seedable collections. API keys cannot be
+seeded — create them with `POST /api-keys`, or just send any non-empty bearer
+token, which the emulator accepts. Seed config is not validated, so an unknown
+key is dropped silently.
+
+## Endpoints
+
+### Emails
 
 - `POST /emails` — send single email
 - `POST /emails/batch` — send up to 100 emails
@@ -10,7 +90,7 @@ Resend email API emulation with email sending, domain management, API keys, audi
 - `GET /emails/:id` — get email
 - `POST /emails/:id/cancel` — cancel scheduled email
 
-## Domains
+### Domains
 
 - `POST /domains` — create domain
 - `GET /domains` — list domains
@@ -18,13 +98,13 @@ Resend email API emulation with email sending, domain management, API keys, audi
 - `DELETE /domains/:id` — remove domain
 - `POST /domains/:id/verify` — trigger domain verification
 
-## API Keys
+### API Keys
 
 - `POST /api-keys` — create API key
 - `GET /api-keys` — list API keys
 - `DELETE /api-keys/:id` — delete API key
 
-## Audiences & Contacts
+### Audiences & Contacts
 
 - `POST /audiences` — create audience
 - `GET /audiences` — list audiences
@@ -33,7 +113,7 @@ Resend email API emulation with email sending, domain management, API keys, audi
 - `GET /audiences/:audience_id/contacts` — list contacts
 - `DELETE /audiences/:audience_id/contacts/:id` — delete contact
 
-## Inbox
+### Inbox
 
 - `GET /inbox` — list captured emails
 - `GET /inbox/:id` — view captured email

@@ -2,7 +2,90 @@
 
 Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
 
-## Customers
+## Start
+
+```bash
+# Stripe only
+npx emulate --service stripe
+
+# Or run all 14 services; Stripe is the 10th, so it lands on 4009
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service stripe` puts Stripe on **4000**, not 4009. Pass `--port` or set
+`stripe.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your SDK at it
+
+The Stripe Node SDK has no env var for the base URL — pass the host explicitly.
+The secret key is not validated, so any non-empty value works:
+
+```typescript
+import Stripe from 'stripe'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? 'sk_test_emulated', {
+  apiVersion: '2024-12-18.acacia',
+  host: 'localhost',
+  port: 4000,
+  protocol: 'http',
+})
+
+const session = await stripe.checkout.sessions.create({
+  mode: 'payment',
+  line_items: [{ price: 'price_tshirt', quantity: 1 }],
+  success_url: 'http://localhost:3000/success?session_id={CHECKOUT_SESSION_ID}',
+  cancel_url: 'http://localhost:3000/cart',
+})
+```
+
+Or over plain HTTP:
+
+```bash
+curl http://localhost:4000/v1/customers \
+  -H "Authorization: Bearer sk_test_emulated"
+```
+
+The session's `url` points at a hosted checkout page served by the emulator.
+Clicking **Pay** there completes the session, fires
+`checkout.session.completed`, and redirects to your `success_url`.
+
+For a full working app, see the
+[stripe-checkout example](https://github.com/vercel-labs/emulate/tree/main/examples/stripe-checkout).
+
+## Seed config
+
+```yaml
+stripe:
+  customers:
+    - name: Test Customer
+      email: test@example.com
+  products:
+    - name: Pro Plan
+  prices:
+    - product_name: Pro Plan # must match a products[].name above
+      unit_amount: 2000
+      currency: usd
+  webhooks:
+    - url: http://localhost:3000/api/stripe/webhook
+      events: ["checkout.session.completed"]
+```
+
+Seed config is not validated, so two mistakes here fail silently and leave you
+with an empty store:
+
+- **Prices are seeded through their product.** A price is only created if its
+  `product_name` matches the `name` of a seeded product. Spell the key `product`,
+  or reference a product that isn't seeded, and `GET /v1/prices` returns
+  `{"data":[]}` and checkout fails with `No such price`.
+- **Seeded prices are always one-time.** There is no `recurring` key. Create
+  subscription-style prices at runtime with `POST /v1/prices`.
+
+Full reference: [Configuration](/docs/configuration).
+
+## Endpoints
+
+### Customers
 
 - `POST /v1/customers` — create customer
 - `GET /v1/customers/:id` — retrieve customer
@@ -10,15 +93,15 @@ Stripe API emulation with customers, payment methods, customer sessions, payment
 - `DELETE /v1/customers/:id` — delete customer
 - `GET /v1/customers` — list customers
 
-## Payment Methods
+### Payment Methods
 
 - `GET /v1/payment_methods` — list payment methods
 
-## Customer Sessions
+### Customer Sessions
 
 - `POST /v1/customer_sessions` — create customer session
 
-## Payment Intents
+### Payment Intents
 
 - `POST /v1/payment_intents` — create payment intent
 - `GET /v1/payment_intents/:id` — retrieve payment intent
@@ -27,24 +110,24 @@ Stripe API emulation with customers, payment methods, customer sessions, payment
 - `POST /v1/payment_intents/:id/cancel` — cancel payment intent
 - `GET /v1/payment_intents` — list payment intents
 
-## Charges
+### Charges
 
 - `GET /v1/charges/:id` — retrieve charge
 - `GET /v1/charges` — list charges
 
-## Products
+### Products
 
 - `POST /v1/products` — create product
 - `GET /v1/products/:id` — retrieve product
 - `GET /v1/products` — list products
 
-## Prices
+### Prices
 
 - `POST /v1/prices` — create price
 - `GET /v1/prices/:id` — retrieve price
 - `GET /v1/prices` — list prices
 
-## Checkout Sessions
+### Checkout Sessions
 
 - `POST /v1/checkout/sessions` — create checkout session
 - `GET /v1/checkout/sessions/:id` — retrieve session

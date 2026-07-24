@@ -1,7 +1,7 @@
 ---
 name: github
 description: Emulated GitHub REST API for local development and testing. Use when the user needs to interact with GitHub API endpoints locally, test GitHub integrations, emulate repos/issues/PRs, set up GitHub OAuth flows, configure GitHub Apps, test webhooks, or work with actions/checks without hitting the real GitHub API. Triggers include "GitHub API", "emulate GitHub", "mock GitHub", "test GitHub OAuth", "GitHub App JWT", "local GitHub", or any task requiring a local GitHub API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # GitHub API Emulator
@@ -11,12 +11,17 @@ Fully stateful GitHub REST API emulation. Creates, updates, and deletes persist 
 ## Start
 
 ```bash
-# GitHub only
-npx emulate --service github
+# GitHub only, pinned to the port used throughout this guide
+npx emulate --service github --port 4001
 
-# Default port
-# http://localhost:4001
+# Or run all 14 services; GitHub is the 2nd, so it also lands on 4001
+npx emulate
 ```
+
+Ports are `--port` (default 4000) plus the service's index in the **enabled**
+set, so a bare `npx emulate --service github` puts GitHub on 4000, not 4001. The
+`--port 4001` above makes every example on this page valid in both modes. To pin
+the port no matter what else runs, set `github.port` in the seed config.
 
 Or programmatically:
 
@@ -36,7 +41,9 @@ curl http://localhost:4001/user \
   -H "Authorization: Bearer test_token_admin"
 ```
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. When no token is provided, requests fall back to the first seeded user.
+Public repo endpoints work without auth. Private repos and write operations require an `Authorization` header.
+
+Token checking is deliberately permissive: **any non-empty token is accepted**, and an unrecognized one resolves to the fallback user. A request with **no** `Authorization` header is not authenticated at all, so protected routes return 401. Do not write a test asserting that an *invalid* token gives 401 — it will pass against real GitHub and fail here. Assert on the missing-header case instead.
 
 ### GitHub App JWT
 
@@ -49,9 +56,9 @@ github:
       slug: my-github-app
       name: My GitHub App
       private_key: |
-        -----BEGIN RSA PRIVATE KEY-----
+        -----BEGIN PRIVATE KEY-----
         ...
-        -----END RSA PRIVATE KEY-----
+        -----END PRIVATE KEY-----
       permissions:
         contents: read
         issues: write
@@ -68,6 +75,13 @@ github:
           events: [push]
           repositories: [my-org/org-repo]
 ```
+
+`private_key` must be **PKCS#8** (`-----BEGIN PRIVATE KEY-----`). It is parsed
+with `importPKCS8`; GitHub issues App keys in PKCS#1
+(`-----BEGIN RSA PRIVATE KEY-----`), which this emulator cannot read. Convert with
+`openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.pkcs8.pem`. A wrong-format key
+fails silently — verification throws, the error is swallowed, and the request is
+treated as unauthenticated.
 
 ## Pointing Your App at the Emulator
 

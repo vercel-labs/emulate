@@ -71,14 +71,26 @@ stripe:
   products:
     - name: Pro Plan
   prices:
-    - product: Pro Plan
+    - product_name: Pro Plan # must match a `products[].name` above
       unit_amount: 2000
       currency: usd
-      recurring:
-        interval: month
+  webhooks:
+    - url: http://localhost:3000/api/stripe/webhook
+      events: ["checkout.session.completed"]
 ```
+
+Two rules the emulator enforces silently — seed config is not validated, so a
+mistake produces an empty store rather than an error:
+
+- **Prices are seeded through their product.** A `prices[]` entry is only created
+  if its `product_name` matches the `name` of an entry in `products[]`. A `prices`
+  block with no matching product — or with the key spelled `product` — is dropped,
+  and `GET /v1/prices` returns `{"data":[]}`.
+- **All seeded prices are one-time.** The emulator sets `type: "one_time"`;
+  there is no `recurring` key. Create subscription-style prices through
+  `POST /v1/prices` at runtime instead.
 
 ## Links
 
-- [Full documentation](https://emulate.dev)
+- [Full documentation](https://emulate.dev/docs/stripe)
 - [GitHub](https://github.com/vercel-labs/emulate)

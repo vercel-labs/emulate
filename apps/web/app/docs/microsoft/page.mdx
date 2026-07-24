@@ -2,6 +2,108 @@
 
 Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
 
+## Start
+
+```bash
+# Microsoft only
+npx emulate --service microsoft
+
+# Or run all 14 services; Microsoft is the 6th, so it lands on 4005
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service microsoft` puts it on **4000**, not 4005. Pass `--port` or set
+`microsoft.port` in the seed config to pin it. See
+[how ports are assigned](/docs).
+
+## Point your app at it
+
+This is a standards-compliant OIDC provider, so point any OIDC-aware library
+(Auth.js, MSAL, `openid-client`) at the discovery document and it will find the
+rest itself. Both the org-wide and tenant-scoped forms are served:
+
+```
+http://localhost:4005/.well-known/openid-configuration
+http://localhost:4005/{tenant}/v2.0/.well-known/openid-configuration
+```
+
+```bash
+MICROSOFT_EMULATOR_URL=http://localhost:4005
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Microsoft URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://login.microsoftonline.com/common/oauth2/v2.0/authorize</code></td>
+      <td><code>$MICROSOFT_EMULATOR_URL/oauth2/v2.0/authorize</code></td>
+    </tr>
+    <tr>
+      <td><code>https://login.microsoftonline.com/common/oauth2/v2.0/token</code></td>
+      <td><code>$MICROSOFT_EMULATOR_URL/oauth2/v2.0/token</code></td>
+    </tr>
+    <tr>
+      <td><code>https://login.microsoftonline.com/common/discovery/v2.0/keys</code></td>
+      <td><code>$MICROSOFT_EMULATOR_URL/discovery/v2.0/keys</code></td>
+    </tr>
+    <tr>
+      <td><code>https://graph.microsoft.com/oidc/userinfo</code></td>
+      <td><code>$MICROSOFT_EMULATOR_URL/oidc/userinfo</code></td>
+    </tr>
+    <tr>
+      <td><code>https://graph.microsoft.com/v1.0/me</code></td>
+      <td><code>$MICROSOFT_EMULATOR_URL/v1.0/me</code></td>
+    </tr>
+  </tbody>
+</table>
+
+```typescript
+import MicrosoftEntraId from '@auth/core/providers/microsoft-entra-id'
+
+MicrosoftEntraId({
+  clientId: process.env.MICROSOFT_CLIENT_ID,
+  clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+  authorization: {
+    url: `${process.env.MICROSOFT_EMULATOR_URL}/oauth2/v2.0/authorize`,
+    params: { scope: 'openid email profile User.Read' },
+  },
+  token: { url: `${process.env.MICROSOFT_EMULATOR_URL}/oauth2/v2.0/token` },
+})
+```
+
+The authorize endpoint shows a user picker instead of a real Microsoft login, so
+a browser-driven flow works end to end.
+
+## Seed config
+
+```yaml
+microsoft:
+  users:
+    - email: testuser@example.com
+      name: Test User
+      given_name: Test
+      family_name: User
+      tenant_id: common
+  oauth_clients:
+    - client_id: example-client-id
+      client_secret: example_secret # required
+      name: My App # required
+      tenant_id: common
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/microsoft-entra-id
+```
+
+`oauth_clients` entries require `client_id`, `client_secret`, `name` and
+`redirect_uris`. Seed config is not validated, so a missing or misspelled key is
+dropped silently rather than reported. Full reference:
+[Configuration](/docs/configuration).
+
 ## Endpoints
 
 - `GET /.well-known/openid-configuration` - OIDC discovery document

@@ -23,12 +23,32 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 ## URL Mapping
 
-| Real Twilio URL | Emulator URL |
-|-----------------|--------------|
-| `https://api.twilio.com/2010-04-01/...` | `$TWILIO_EMULATOR_URL/2010-04-01/...` |
-| `https://messaging.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/messaging/v1/...` |
-| `https://verify.twilio.com/v2/...` | `$TWILIO_EMULATOR_URL/verify/v2/...` |
-| `https://conversations.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/conversations/v1/...` |
+<table>
+  <thead>
+    <tr>
+      <th>Real Twilio URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://api.twilio.com/2010-04-01/...</code></td>
+      <td><code>$TWILIO_EMULATOR_URL/2010-04-01/...</code></td>
+    </tr>
+    <tr>
+      <td><code>https://messaging.twilio.com/v1/...</code></td>
+      <td><code>$TWILIO_EMULATOR_URL/messaging/v1/...</code></td>
+    </tr>
+    <tr>
+      <td><code>https://verify.twilio.com/v2/...</code></td>
+      <td><code>$TWILIO_EMULATOR_URL/verify/v2/...</code></td>
+    </tr>
+    <tr>
+      <td><code>https://conversations.twilio.com/v1/...</code></td>
+      <td><code>$TWILIO_EMULATOR_URL/conversations/v1/...</code></td>
+    </tr>
+  </tbody>
+</table>
 
 The official Node SDK builds absolute Twilio product URLs. In SDK tests, use a custom request client that rewrites those hosts to the emulator prefixes above.
 

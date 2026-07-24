@@ -59,7 +59,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>service</code></td>
       <td><em>(required)</em></td>
-      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'okta'</code>, <code>'aws'</code>, <code>'resend'</code>, <code>'stripe'</code>, <code>'mongoatlas'</code>, <code>'clerk'</code>, or <code>'linear'</code></td>
+      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'okta'</code>, <code>'aws'</code>, <code>'resend'</code>, <code>'stripe'</code>, <code>'mongoatlas'</code>, <code>'clerk'</code>, <code>'linear'</code>, or <code>'twilio'</code></td>
     </tr>
     <tr>
       <td><code>port</code></td>
@@ -69,7 +69,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>seed</code></td>
       <td>none</td>
-      <td>Inline seed data (same shape as YAML config)</td>
+      <td>Inline seed data, keyed by service name — the same shape as the YAML config file, including the top-level service key. See <strong>Seeding data</strong> below.</td>
     </tr>
     <tr>
       <td><code>baseUrl</code></td>
@@ -78,6 +78,70 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     </tr>
   </tbody>
 </table>
+
+### Seeding data
+
+`seed` mirrors the YAML config file exactly, **including the top-level service
+key**. Even though you already passed `service`, the seed object must repeat it —
+`createEmulator` looks up `seed[service]` and ignores everything else.
+
+```typescript
+const github = await createEmulator({
+  service: 'github',
+  port: 4001,
+  seed: {
+    github: {
+      // <- the service key is required
+      users: [{ login: 'octocat', name: 'The Octocat' }],
+      repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+    },
+  },
+})
+
+const res = await fetch(`${github.url}/users/octocat/repos`, {
+  headers: { Authorization: 'Bearer test_token_admin' },
+})
+```
+
+Passing the inner object directly is the single most common mistake:
+
+```typescript
+// WRONG — silently seeds nothing, no error, no warning.
+// The emulator starts with defaults and /users/octocat/repos returns 404.
+await createEmulator({
+  service: 'github',
+  seed: { users: [{ login: 'octocat' }] },
+})
+```
+
+Seed config is not validated, so an unrecognized shape is dropped without a
+message. If a request returns 404 or an empty list right after startup, check
+this nesting first.
+
+The `tokens` key sits at the top level, next to the service key, not inside it:
+
+```typescript
+seed: {
+  tokens: { my_token: { login: 'octocat', scopes: ['repo'] } },
+  github: { users: [{ login: 'octocat' }] },
+}
+```
+
+When no `tokens` are given, the emulator creates `test_token_admin` for user
+`admin`.
+
+> The Next.js and Nuxt adapters use the **opposite** shape. In
+> `createEmulateHandler` the service name is already the key in `services`, so
+> `seed` holds the inner object directly, with no service key repeated inside
+> it — see [Next.js Integration](/docs/nextjs):
+>
+> ```typescript
+> createEmulateHandler({
+>   services: {
+>     github: { emulator: github, seed: { users: [{ login: 'octocat' }] } },
+>   },
+> })
+> ```
 
 ### Instance methods
 

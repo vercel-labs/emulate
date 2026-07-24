@@ -1,6 +1,38 @@
 # Configuration
 
-Configuration is optional. All services start with sensible defaults. To customize seed data, create `emulate.config.yaml` in your project root (or pass `--seed`):
+Configuration is optional. All services start with sensible defaults. To customize seed data, create `emulate.config.yaml` in your project root (or pass `--seed`).
+
+The CLI auto-detects, in order: `emulate.config.yaml` / `.yml`,
+`emulate.config.json`, `service-emulator.config.yaml` / `.yml`,
+`service-emulator.config.json`. Run `npx emulate init` to generate a starter file.
+
+Two things to know before writing one:
+
+- **A config file selects services.** Every top-level service key is treated as
+  an implicit `--service`. A file containing only `stripe:` makes `npx emulate`
+  start Stripe alone, on the base port — not all 14. Pass `--service` explicitly
+  to override.
+- **Nothing here is validated.** Unknown or misspelled keys are dropped without a
+  warning and the emulator starts anyway with that data missing. If something you
+  seeded isn't there, suspect a key name first.
+
+## Per-service options
+
+Alongside the seed collections, every service accepts two operational keys:
+
+```yaml
+github:
+  port: 4001 # pin this service's port, ignoring base + index
+  baseUrl: https://github.emulate.test # advertised URL in OAuth redirects, webhooks
+  users:
+    - login: octocat
+```
+
+`port` is the only way to give a service a stable port regardless of which other
+services are enabled. `baseUrl` has the highest priority of all base-URL sources,
+ahead of `--base-url` and the `EMULATE_BASE_URL` env var.
+
+## Tokens
 
 ```yaml
 tokens:
@@ -111,9 +143,9 @@ github:
       slug: "my-github-app"
       name: "My GitHub App"
       private_key: |
-        -----BEGIN RSA PRIVATE KEY-----
+        -----BEGIN PRIVATE KEY-----
         ...your PEM key...
-        -----END RSA PRIVATE KEY-----
+        -----END PRIVATE KEY-----
       permissions:
         contents: read
         issues: write
@@ -136,6 +168,21 @@ github:
 - `GET /users/:username/installation` - find user installation
 
 JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's private key (RS256). The emulator verifies the signature and resolves the app.
+
+### The private key must be PKCS#8
+
+`private_key` is parsed with `importPKCS8`, so it has to begin with
+`-----BEGIN PRIVATE KEY-----`. GitHub hands out App keys in PKCS#1 format
+(`-----BEGIN RSA PRIVATE KEY-----`), which this emulator cannot read. Convert it
+once:
+
+```bash
+openssl pkcs8 -topk8 -nocrypt -in github-app.private-key.pem -out github-app.pkcs8.pem
+```
+
+A key in the wrong format fails silently: JWT verification throws, the error is
+swallowed, and the request is simply treated as unauthenticated. If `GET /app`
+returns 401 with a JWT you believe is valid, check the PEM header first.
 
 ## Google Seed Config
 
@@ -327,8 +374,8 @@ okta:
   users:
     - login: testuser@example.com
       email: testuser@example.com
-      firstName: Test
-      lastName: User
+      first_name: Test # snake_case, not firstName
+      last_name: User
   groups:
     - name: Everyone
       description: All users
@@ -336,9 +383,15 @@ okta:
     - name: My App
       label: My App
   authorization_servers:
-    - name: default
+    - id: default # required — primary key used in /oauth2/:id/... paths
+      name: default
       audiences: ["api://default"]
 ```
+
+User fields are snake_case (`first_name`, `last_name`). A camelCase key is
+ignored and the user gets the default name `Test User`.
+`authorization_servers[].id` is required — it becomes the `server_id` that the
+OAuth routes look up, so a server seeded without it is unreachable.
 
 ## MongoDB Atlas Seed Config
 
@@ -360,9 +413,17 @@ mongoatlas:
 resend:
   domains:
     - name: example.com
-  api_keys:
-    - name: default
+      region: us-east-1 # optional, defaults to us-east-1
+  contacts:
+    - email: subscriber@example.com
+      first_name: Sub
+      last_name: Scriber
+      audience: newsletter
 ```
+
+`domains` and `contacts` are the only seedable collections. API keys cannot be
+seeded — create them with `POST /api-keys`, or just send any non-empty bearer
+token, which the emulator accepts.
 
 ## Stripe Seed Config
 
@@ -374,9 +435,19 @@ stripe:
   products:
     - name: Pro Plan
   prices:
-    - product: Pro Plan
+    - product_name: Pro Plan # must match a products[].name above
       unit_amount: 2000
       currency: usd
-      recurring:
-        interval: month
+  webhooks:
+    - url: http://localhost:3000/api/stripe/webhook
+      events: ["checkout.session.completed"]
 ```
+
+Prices are seeded through their product: an entry is only created if its
+`product_name` matches the `name` of an entry in `products`. Spell the key
+`product`, or reference a product that isn't seeded, and the price is dropped —
+`GET /v1/prices` then returns `{"data":[]}` and checkout fails with
+`No such price`.
+
+Seeded prices are always `type: "one_time"`; there is no `recurring` key. Create
+subscription-style prices at runtime with `POST /v1/prices`.

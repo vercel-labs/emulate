@@ -1,7 +1,7 @@
 ---
 name: apple
 description: Emulated Sign in with Apple / Apple OIDC for local development and testing. Use when the user needs to test Apple sign-in locally, emulate Apple OIDC discovery, handle Apple token exchange, configure Apple OAuth clients, or work with Apple userinfo without hitting real Apple APIs. Triggers include "Apple OAuth", "emulate Apple", "mock Apple login", "test Apple sign-in", "Sign in with Apple", "Apple OIDC", "local Apple auth", or any task requiring a local Apple OAuth/OIDC provider.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Apple Sign In Emulator
@@ -11,12 +11,17 @@ Sign in with Apple emulation with authorization code flow, PKCE support, RS256 I
 ## Start
 
 ```bash
-# Apple only
-npx emulate --service apple
+# Apple only, pinned to the port used throughout this guide
+npx emulate --service apple --port 4004
 
-# Default port (when run alone)
-# http://localhost:4000
+# Or run all 14 services; Apple is the 5th, so it also lands on 4004
+npx emulate
 ```
+
+Ports are `--port` (default 4000) plus the service's index in the **enabled**
+set, so a bare `npx emulate --service apple` puts Apple on 4000, not 4004. The
+`--port 4004` above makes every example on this page valid in both modes. To pin
+the port no matter what else runs, set `apple.port` in the seed config.
 
 Or programmatically:
 

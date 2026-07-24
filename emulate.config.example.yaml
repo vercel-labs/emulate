@@ -1,3 +1,9 @@
+# Every top-level service key below also selects that service: with this file
+# present, `npx emulate` starts only the services listed here, not all 14.
+#
+# Nothing in this file is validated. A misspelled key is dropped silently and
+# the emulator starts anyway with that data missing.
+
 tokens:
   gho_test_token_admin:
     login: admin
@@ -7,6 +13,9 @@ tokens:
     scopes: [repo, user, read:user, "user:email", workflow]
 
 github:
+  # Every service accepts these two operational keys alongside its seed data:
+  # port: 4001                            # pin the port, ignoring base + index
+  # baseUrl: https://github.emulate.test  # advertised URL for OAuth/webhooks
   users:
     - login: octocat
       name: The Octocat
@@ -37,10 +46,13 @@ github:
     - app_id: 12345
       slug: my-github-app
       name: My GitHub App
+      # Must be PKCS#8. GitHub issues App keys as PKCS#1 ("BEGIN RSA PRIVATE
+      # KEY"), which the emulator cannot read — convert once with:
+      #   openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.pkcs8.pem
       private_key: |
-        -----BEGIN RSA PRIVATE KEY-----
+        -----BEGIN PRIVATE KEY-----
         ...your PEM key...
-        -----END RSA PRIVATE KEY-----
+        -----END PRIVATE KEY-----
       permissions:
         contents: read
         issues: write

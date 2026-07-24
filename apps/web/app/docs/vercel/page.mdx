@@ -2,7 +2,100 @@
 
 Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination.
 
-## User & Teams
+## Start
+
+```bash
+# Vercel only
+npx emulate --service vercel
+
+# Or run all 14 services
+npx emulate
+```
+
+Vercel is the first service in the registry, so it is on `http://localhost:4000`
+in both modes. See [how ports are assigned](/docs).
+
+## Point your app at it
+
+There is no SDK option to override — replace the Vercel API host in your own base
+URL. Any non-empty bearer token is accepted:
+
+```bash
+VERCEL_EMULATOR_URL=http://localhost:4000
+```
+
+```typescript
+const VERCEL_API = process.env.VERCEL_EMULATOR_URL ?? 'https://api.vercel.com'
+
+const res = await fetch(`${VERCEL_API}/v10/projects`, {
+  headers: { Authorization: `Bearer ${token}` },
+})
+```
+
+For OAuth integrations:
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Vercel URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://vercel.com/integrations/oauth/authorize</code></td>
+      <td><code>$VERCEL_EMULATOR_URL/oauth/authorize</code></td>
+    </tr>
+    <tr>
+      <td><code>https://api.vercel.com/login/oauth/token</code></td>
+      <td><code>$VERCEL_EMULATOR_URL/login/oauth/token</code></td>
+    </tr>
+    <tr>
+      <td><code>https://api.vercel.com/login/oauth/userinfo</code></td>
+      <td><code>$VERCEL_EMULATOR_URL/login/oauth/userinfo</code></td>
+    </tr>
+  </tbody>
+</table>
+
+Blob storage is the one part with a real SDK switch — `@vercel/blob` reads both
+variables on every call:
+
+```bash
+VERCEL_BLOB_API_URL=http://localhost:4000/api/blob
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_mystore_secret
+```
+
+See the
+[vercel-blob-sharing example](https://github.com/vercel-labs/emulate/tree/main/examples/vercel-blob-sharing)
+for a working setup.
+
+## Seed config
+
+```yaml
+vercel:
+  users:
+    - username: developer
+      name: Developer
+      email: dev@example.com
+  teams:
+    - slug: my-team
+      name: My Team
+  projects:
+    - name: my-app
+      team: my-team
+      framework: nextjs
+      envVars:
+        - key: DATABASE_URL
+          value: postgres://localhost
+          target: [production, preview]
+```
+
+Seed config is not validated, so an unknown key is dropped silently. Full
+reference, including OAuth integrations: [Configuration](/docs/configuration).
+
+## Endpoints
+
+### User & Teams
 
 - `GET /v2/user` - authenticated user
 - `PATCH /v2/user` - update user
@@ -13,7 +106,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `GET /v2/teams/:teamId/members` - list members
 - `POST /v2/teams/:teamId/members` - add member
 
-## Projects
+### Projects
 
 - `POST /v11/projects` - create project (with optional env vars and git integration)
 - `GET /v10/projects` - list projects (search, cursor pagination)
@@ -23,7 +116,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `GET /v1/projects/:projectId/promote/aliases` - promote aliases status
 - `PATCH /v1/projects/:idOrName/protection-bypass` - manage bypass secrets
 
-## Deployments
+### Deployments
 
 - `POST /v13/deployments` - create deployment (auto-transitions to READY)
 - `GET /v13/deployments/:idOrUrl` - get deployment (by ID or URL)
@@ -35,7 +128,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `GET /v6/deployments/:id/files` - list deployment files
 - `POST /v2/files` - upload file (by SHA digest)
 
-## Domains
+### Domains
 
 - `POST /v10/projects/:idOrName/domains` - add domain (with verification challenge)
 - `GET /v9/projects/:idOrName/domains` - list domains
@@ -44,7 +137,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `DELETE /v9/projects/:idOrName/domains/:domain` - remove domain
 - `POST /v9/projects/:idOrName/domains/:domain/verify` - verify domain
 
-## Environment Variables
+### Environment Variables
 
 - `GET /v10/projects/:idOrName/env` - list env vars (with decrypt option)
 - `POST /v10/projects/:idOrName/env` - create env vars (single, batch, upsert)
@@ -52,7 +145,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `PATCH /v9/projects/:idOrName/env/:id` - update env var
 - `DELETE /v9/projects/:idOrName/env/:id` - delete env var
 
-## Blob
+### Blob
 
 Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`).
 

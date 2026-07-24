@@ -49,11 +49,19 @@ npm install @emulators/resend
 resend:
   domains:
     - name: example.com
-  api_keys:
-    - name: default
+      region: us-east-1 # optional, defaults to us-east-1
+  contacts:
+    - email: subscriber@example.com
+      first_name: Sub
+      last_name: Scriber
+      audience: newsletter
 ```
+
+`domains` and `contacts` are the only seedable collections. API keys cannot be
+seeded — create them at runtime with `POST /api-keys`, or send any non-empty
+bearer token, which the emulator accepts.
 
 ## Links
 
-- [Full documentation](https://emulate.dev)
+- [Full documentation](https://emulate.dev/docs/resend)
 - [GitHub](https://github.com/vercel-labs/emulate)

@@ -32,6 +32,7 @@ From the repository root:
 
 ```bash
 pnpm install
+pnpm build   # builds the workspace emulator packages once; required before first run
 pnpm --filter twilio-sms-verification dev
 ```
 
