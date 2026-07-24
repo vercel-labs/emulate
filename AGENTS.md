@@ -1,5 +1,25 @@
 # Agents
 
+## Build and Verify
+
+Requires Node `>=24` and pnpm `>=11 <12` (see `engines` in the root `package.json`).
+
+```bash
+pnpm install
+pnpm build        # turbo build across the workspace
+pnpm test         # vitest, per package
+pnpm lint
+pnpm type-check
+pnpm format       # prettier --write; pnpm format:check to verify only
+```
+
+`turbo.json` marks `test` with `dependsOn: ["^build"]`, but each package's own
+test script is a bare `vitest run`. Packages resolve their workspace deps through
+`dist/`, which is gitignored and has no `postinstall` step — so **run `pnpm build`
+at least once before running tests directly in a package**, or you get
+`Cannot find module '.../dist/index.js'`. The same applies before running anything
+in `examples/`.
+
 ## Package Manager
 
 Use `pnpm` for all package management commands (not npm or yarn).
@@ -43,10 +63,39 @@ If a new page type cannot be built with the existing render functions and CSS cl
 
 When a change affects how humans or agents use emulate (new/changed/removed commands, flags, behavior, routes, seed config, or SDK integration), update all of these:
 
-1. `README.md`
-2. `skills/*/SKILL.md` (agent skills for each service)
-3. `apps/web/` (docs site pages)
-4. CLI `--help` output in `packages/emulate/src/index.ts`
+1. `README.md` — also the npm page for the `emulate` package (copied on `prepack`)
+2. `packages/@emulators/<service>/README.md` — the npm page for that package
+3. `skills/*/SKILL.md` (agent skills for each service)
+4. `apps/web/app/docs/**` (docs site pages)
+5. `emulate.config.example.yaml`, if seed config changed
+6. `examples/`, if the change affects how an example is set up or run
+7. CLI `--help` output in `packages/emulate/src/index.ts`
+
+### Adding a service
+
+Registration lives in `packages/emulate/src/registry.ts`, not `index.ts` (which is
+generic). Add the name to `SERVICE_NAME_LIST` and an entry to `SERVICE_REGISTRY`
+with all five `ServiceEntry` fields (`label`, `endpoints`, `load()`,
+`defaultFallback()`, `initConfig`), plus the package to `packages/emulate/package.json`.
+
+A new service is not done until it also has:
+
+- `packages/@emulators/<service>/README.md`
+- `apps/web/app/docs/<service>/page.mdx`
+- `skills/<service>/SKILL.md`
+- entries in `apps/web/lib/docs-navigation.ts`, `apps/web/lib/page-titles.ts`,
+  `apps/web/components/docs-nav.tsx` **and** `apps/web/components/docs-mobile-nav.tsx`
+  (four separate lists — missing any one leaves the page orphaned)
+- the port table updated in `README.md`, `apps/web/app/docs/page.mdx`,
+  `skills/emulate/SKILL.md` and `apps/web/components/hero-terminal.tsx`
+
+### Which document is canonical
+
+Seed config is **not validated anywhere**, so a wrong key in the docs produces
+silently missing data rather than an error. When documenting seed config, copy the
+field names from the service's `*SeedConfig` interface in
+`packages/@emulators/<service>/src/index.ts` — that interface is the source of
+truth, and the docs must match it exactly.
 
 ## Releasing
 

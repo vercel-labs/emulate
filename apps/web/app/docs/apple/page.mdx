@@ -2,6 +2,106 @@
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
 
+## Start
+
+```bash
+# Apple only
+npx emulate --service apple
+
+# Or run all 14 services; Apple is the 5th, so it lands on 4004
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service apple` puts Apple on **4000**, not 4004. Pass `--port` or set
+`apple.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your app at it
+
+This is a standards-compliant OIDC provider, so point any OIDC-aware library
+(Auth.js, `openid-client`, Passport) at the discovery document and it will find
+the authorize, token and JWKS endpoints itself:
+
+```
+http://localhost:4004/.well-known/openid-configuration
+```
+
+```bash
+APPLE_EMULATOR_URL=http://localhost:4004
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Apple URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://appleid.apple.com/.well-known/openid-configuration</code></td>
+      <td><code>$APPLE_EMULATOR_URL/.well-known/openid-configuration</code></td>
+    </tr>
+    <tr>
+      <td><code>https://appleid.apple.com/auth/authorize</code></td>
+      <td><code>$APPLE_EMULATOR_URL/auth/authorize</code></td>
+    </tr>
+    <tr>
+      <td><code>https://appleid.apple.com/auth/token</code></td>
+      <td><code>$APPLE_EMULATOR_URL/auth/token</code></td>
+    </tr>
+    <tr>
+      <td><code>https://appleid.apple.com/auth/keys</code></td>
+      <td><code>$APPLE_EMULATOR_URL/auth/keys</code></td>
+    </tr>
+    <tr>
+      <td><code>https://appleid.apple.com/auth/revoke</code></td>
+      <td><code>$APPLE_EMULATOR_URL/auth/revoke</code></td>
+    </tr>
+  </tbody>
+</table>
+
+```typescript
+import Apple from '@auth/core/providers/apple'
+
+Apple({
+  clientId: process.env.APPLE_CLIENT_ID,
+  clientSecret: process.env.APPLE_CLIENT_SECRET,
+  authorization: {
+    url: `${process.env.APPLE_EMULATOR_URL}/auth/authorize`,
+    params: { scope: 'openid email name', response_mode: 'form_post' },
+  },
+  token: { url: `${process.env.APPLE_EMULATOR_URL}/auth/token` },
+})
+```
+
+Unlike real Apple, the emulator does not require a signed JWT client secret — any
+non-empty value works. The authorize endpoint shows a user picker instead of a
+real Apple login, so a browser-driven flow works end to end.
+
+## Seed config
+
+```yaml
+apple:
+  users:
+    - email: testuser@icloud.com
+      name: Test User
+      given_name: Test
+      family_name: User
+  oauth_clients:
+    - client_id: com.example.app
+      team_id: TEAM123456 # required
+      name: My App # required
+      key_id: KEY123456
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/apple
+```
+
+`oauth_clients` entries require `client_id`, `team_id`, `name` and
+`redirect_uris`. Seed config is not validated, so a missing or misspelled key is
+dropped silently rather than reported. Full reference:
+[Configuration](/docs/configuration).
+
 ## Endpoints
 
 - `GET /.well-known/openid-configuration` - OIDC discovery document

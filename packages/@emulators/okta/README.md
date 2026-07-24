@@ -79,20 +79,37 @@ okta:
   users:
     - login: testuser@example.com
       email: testuser@example.com
-      firstName: Test
-      lastName: User
+      first_name: Test # snake_case, not firstName
+      last_name: User
   groups:
     - name: Everyone
       description: All users
   apps:
     - name: My App
       label: My App
+  oauth_clients:
+    - client_id: okta_example_client
+      client_secret: okta_example_secret
+      name: My App
+      redirect_uris: ["http://localhost:3000/api/auth/callback/okta"]
   authorization_servers:
-    - name: default
+    - id: default # required — this is the primary key used in /oauth2/:id/... paths
+      name: default
       audiences: ["api://default"]
 ```
 
+Seed config is not validated, so both of these fail silently:
+
+- **User fields are snake_case.** `first_name` / `last_name`, not `firstName` /
+  `lastName`. A camelCase key is ignored and the user is seeded with the default
+  name `Test User`.
+- **`authorization_servers[].id` is required.** It becomes the server's
+  `server_id`, which is what `/oauth2/:authServerId/v1/token` and the other OAuth
+  routes look up. Omit it and the server is created but unreachable. The
+  emulator always creates a server with `id: default` on startup, so you only
+  need this block to add more.
+
 ## Links
 
-- [Full documentation](https://emulate.dev)
+- [Full documentation](https://emulate.dev/docs/okta)
 - [GitHub](https://github.com/vercel-labs/emulate)

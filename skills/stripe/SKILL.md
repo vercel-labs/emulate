@@ -1,7 +1,7 @@
 ---
 name: stripe
 description: Emulated Stripe API for local development and testing. Use when the user needs to process payments locally, test checkout flows, create customers, manage products and prices, handle payment intents, work with webhooks, or use the Stripe SDK without hitting real Stripe servers. Triggers include "Stripe API", "emulate Stripe", "test payments locally", "checkout flow", "payment intent", "Stripe webhook", "Stripe SDK", "STRIPE_API_KEY", or any task requiring a local Stripe API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Stripe API Emulator
@@ -19,6 +19,12 @@ npx emulate --service stripe
 # Default port (when run alone)
 # http://localhost:4000
 ```
+
+Every example on this page uses port 4000, which is what the command above
+gives. Ports are `--port` (default 4000) plus the service's index in the
+**enabled** set, so under a bare `npx emulate` Stripe is the 10th service and
+moves to 4009. To pin it regardless, pass `--port` or set `stripe.port` in the
+seed config.
 
 Or programmatically:
 

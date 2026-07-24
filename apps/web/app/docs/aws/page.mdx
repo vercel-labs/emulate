@@ -2,7 +2,93 @@
 
 S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
 
-## S3
+## Start
+
+```bash
+# AWS only
+npx emulate --service aws
+
+# Or run all 14 services; AWS is the 8th, so it lands on 4007
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service aws` puts AWS on **4000**, not 4007. Pass `--port` or set
+`aws.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your SDK at it
+
+The AWS SDK needs `endpoint`, and for S3 also **`forcePathStyle: true`** —
+without it the SDK builds virtual-host URLs like `my-bucket.localhost` that never
+reach the emulator. A default access key pair is always seeded:
+
+```typescript
+import { S3Client } from '@aws-sdk/client-s3'
+
+const s3 = new S3Client({
+  endpoint: process.env.AWS_EMULATOR_URL,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+  forcePathStyle: true,
+})
+```
+
+```bash
+AWS_EMULATOR_URL=http://localhost:4007
+```
+
+SQS, IAM and STS live under path prefixes, so append them to the endpoint:
+
+```typescript
+import { SQSClient } from '@aws-sdk/client-sqs'
+
+const sqs = new SQSClient({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/sqs`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
+Use `/iam` and `/sts` the same way.
+
+## Default seed
+
+Always created: S3 bucket `emulate-default`, SQS queue `emulate-default-queue`,
+and IAM user `admin` with the access key pair shown above.
+
+## Seed config
+
+```yaml
+aws:
+  region: us-east-1
+  s3:
+    buckets:
+      - name: my-app-bucket
+  sqs:
+    queues:
+      - name: my-app-events
+      - name: my-app-orders.fifo
+        fifo: true
+  iam:
+    users:
+      - user_name: developer
+        create_access_key: true
+    roles:
+      - role_name: lambda-execution-role
+```
+
+Seed config is not validated, so an unknown key is dropped silently. Full
+reference: [Configuration](/docs/configuration).
+
+## Endpoints
+
+### S3
 
 S3 routes use root paths matching the real AWS S3 wire format, so the official AWS SDK works out of the box with `forcePathStyle: true`. Legacy `/s3/` prefixed paths are also supported for backward compatibility.
 
@@ -18,7 +104,7 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `DELETE /:bucket/:key` - delete object
 - `PUT /:bucket/:key` with `x-amz-copy-source` - copy object
 
-## SQS
+### SQS
 
 All SQS operations use `POST /sqs/` with an `Action` form parameter.
 
@@ -32,7 +118,7 @@ All SQS operations use `POST /sqs/` with an `Action` form parameter.
 - `PurgeQueue` - purge all messages
 - `DeleteQueue` - delete queue
 
-## IAM
+### IAM
 
 All IAM operations use `POST /iam/` with an `Action` form parameter.
 
@@ -40,7 +126,7 @@ All IAM operations use `POST /iam/` with an `Action` form parameter.
 - `CreateAccessKey` / `ListAccessKeys` / `DeleteAccessKey` - access key management
 - `CreateRole` / `GetRole` / `ListRoles` / `DeleteRole` - role management
 
-## STS
+### STS
 
 All STS operations use `POST /sts/` with an `Action` form parameter.
 

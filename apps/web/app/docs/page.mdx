@@ -1,6 +1,6 @@
 # Getting Started
 
-Local drop-in replacement for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, and Linear APIs. Built for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.
+Local drop-in replacement for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, Linear, and Twilio APIs. Built for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.
 
 ## Quick Start
 
@@ -23,6 +23,24 @@ All services start with sensible defaults. No config file needed:
 - **MongoDB Atlas** on `http://localhost:4010`
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
+- **Twilio** on `http://localhost:4013`
+
+### How ports are assigned
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set — not a fixed number per service. The list above is what a bare `npx emulate`
+gives you, because that enables all 14 in registry order.
+
+Enable a subset and the numbering restarts from the base port:
+
+```bash
+npx emulate --service github        # GitHub on 4000, not 4001
+npx emulate --service github,google # GitHub 4000, Google 4001
+npx emulate --service google,github # Google 4000, GitHub 4001 (your order wins)
+```
+
+To pin a service to a port no matter what else is running, set `port` on it in
+the [seed config](/docs/configuration).
 
 ## CLI
 
@@ -63,7 +81,7 @@ npx emulate list
     <tr>
       <td><code>-p, --port</code></td>
       <td><code>4000</code></td>
-      <td>Base port (auto-increments per service)</td>
+      <td>Base port; each enabled service gets base + its index</td>
     </tr>
     <tr>
       <td><code>-s, --service</code></td>
@@ -75,10 +93,26 @@ npx emulate list
       <td>auto-detect</td>
       <td>Path to seed config (YAML or JSON)</td>
     </tr>
+    <tr>
+      <td><code>--base-url</code></td>
+      <td>none</td>
+      <td>Override the advertised base URL (supports the <code>{'{service}'}</code> template)</td>
+    </tr>
+    <tr>
+      <td><code>--portless</code></td>
+      <td>off</td>
+      <td>Serve over HTTPS via portless, auto-registering aliases</td>
+    </tr>
   </tbody>
 </table>
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+`--portless` and `--base-url` are mutually exclusive; passing both exits with an
+error.
+
+A seed config file also acts as an implicit `--service`: if it contains any
+top-level service keys, only those services start. See
+[Configuration](/docs/configuration).
 
 ## Programmatic API
 

@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, AWS, Linear, and other developer APIs. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, Linear, and Twilio. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation. For deep per-service API detail, prefer the matching service skill (github, google, slack, stripe, clerk, ...) if one exists.
 allowed-tools: Bash(npx emulate:*)
 ---
 
@@ -14,9 +14,10 @@ Local drop-in replacement services for CI and no-network sandboxes. Fully statef
 npx emulate
 ```
 
-All services start with sensible defaults:
+All services start with sensible defaults. These are the ports for a bare
+`npx emulate`, which enables all 14 in this order:
 
-| Service   | Default Port |
+| Service   | Port (all services) |
 |-----------|-------------|
 | Vercel    | 4000        |
 | GitHub    | 4001        |
@@ -32,6 +33,12 @@ All services start with sensible defaults:
 | Clerk     | 4011        |
 | Linear    | 4012        |
 | Twilio    | 4013        |
+
+**A port is `--port` (default 4000) plus the service's index in the *enabled*
+set** — not a fixed number per service. `npx emulate --service github` puts
+GitHub on **4000**, not 4001; `--service google,github` puts Google on 4000 and
+GitHub on 4001 (the order you pass wins). The table above holds only when all 14
+run. To pin a service regardless, set `port` on it in the seed config.
 
 ## CLI
 
@@ -84,10 +91,10 @@ Each call to `createEmulator` starts a single service:
 import { createEmulator } from 'emulate'
 
 const github = await createEmulator({ service: 'github', port: 4001 })
-const vercel = await createEmulator({ service: 'vercel', port: 4002 })
+const vercel = await createEmulator({ service: 'vercel', port: 4000 })
 
 github.url   // 'http://localhost:4001'
-vercel.url   // 'http://localhost:4002'
+vercel.url   // 'http://localhost:4000'
 
 await github.close()
 await vercel.close()
@@ -99,8 +106,54 @@ await vercel.close()
 |--------|---------|-------------|
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
 | `port` | `4000` | Port for the HTTP server |
-| `seed` | none | Inline seed data (same shape as YAML config) |
+| `seed` | none | Inline seed data, **keyed by service name** — same shape as the YAML config file, service key included. See "Seeding data" below. |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+
+### Seeding Data
+
+`seed` mirrors the YAML config file exactly, **including the top-level service
+key**. Even though `service` is already passed, the seed object must repeat it —
+`createEmulator` reads `seed[service]` and ignores everything else.
+
+```typescript
+const github = await createEmulator({
+  service: 'github',
+  port: 4001,
+  seed: {
+    github: {                                        // <- required service key
+      users: [{ login: 'octocat', name: 'The Octocat' }],
+      repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+    },
+  },
+})
+```
+
+```typescript
+// WRONG — seeds nothing. No error, no warning: the emulator starts with
+// defaults and GET /users/octocat/repos returns 404.
+await createEmulator({
+  service: 'github',
+  seed: { users: [{ login: 'octocat' }] },
+})
+```
+
+Seed config is never validated, so an unrecognized shape is dropped silently. If
+a request 404s or returns an empty list right after startup, check this nesting
+first.
+
+`tokens` sits at the top level, beside the service key, not inside it:
+
+```typescript
+seed: {
+  tokens: { my_token: { login: 'octocat', scopes: ['repo'] } },
+  github: { users: [{ login: 'octocat' }] },
+}
+```
+
+The Next.js and Nuxt adapters take the **opposite** shape: in
+`createEmulateHandler` the service name is already the key in `services`, so
+`seed` holds the inner object directly, with no service key inside it. See the
+`next` and `nuxt` skills.
 
 ### Instance Methods
 
@@ -121,7 +174,7 @@ let vercel: Emulator
 beforeAll(async () => {
   ;[github, vercel] = await Promise.all([
     createEmulator({ service: 'github', port: 4001 }),
-    createEmulator({ service: 'vercel', port: 4002 }),
+    createEmulator({ service: 'vercel', port: 4000 }),
   ])
   process.env.GITHUB_EMULATOR_URL = github.url
   process.env.VERCEL_EMULATOR_URL = vercel.url
@@ -291,7 +344,9 @@ aws:
 
 Tokens map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`. When no tokens are configured, a default `test_token_admin` is created for the `admin` user.
 
-Each service also has a fallback user. If no token is provided, requests authenticate as the first seeded user.
+Each service also has a fallback user, but it applies the other way round from what you might expect: **any non-empty bearer token is accepted**, and an unrecognized one resolves to that fallback user. A request with **no** `Authorization` header is not authenticated at all, so protected routes return 401.
+
+So `Bearer totally-made-up` succeeds, while sending nothing fails. A test asserting "an invalid token is rejected with 401" passes against the real API and fails here — assert on the missing-header case instead.
 
 ## HTTPS with portless
 
@@ -335,7 +390,13 @@ google:
 
 ## Pointing Your App at the Emulator
 
-Set environment variables to override real service URLs:
+There is no proxy and no traffic interception: each emulator is a plain HTTP
+server on localhost. Connecting an app means pointing its SDK at a different base
+URL and giving it any non-empty credential.
+
+These variable names are a **convention for your own application code to read** —
+the emulator does not read them itself. Values shown are for a bare
+`npx emulate`:
 
 ```bash
 VERCEL_EMULATOR_URL=http://localhost:4000
@@ -344,11 +405,32 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 SLACK_EMULATOR_URL=http://localhost:4003
 APPLE_EMULATOR_URL=http://localhost:4004
 MICROSOFT_EMULATOR_URL=http://localhost:4005
+OKTA_EMULATOR_URL=http://localhost:4006
 AWS_EMULATOR_URL=http://localhost:4007
+RESEND_EMULATOR_URL=http://localhost:4008
+STRIPE_EMULATOR_URL=http://localhost:4009
+MONGOATLAS_EMULATOR_URL=http://localhost:4010
+CLERK_EMULATOR_URL=http://localhost:4011
 LINEAR_EMULATOR_URL=http://localhost:4012
+TWILIO_EMULATOR_URL=http://localhost:4013
 ```
 
-Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
+Where that URL goes depends on the SDK:
+
+| Service | The knob |
+|---|---|
+| GitHub | `new Octokit({ baseUrl })` |
+| Slack | `new WebClient(token, { slackApiUrl: '<url>/api/' })` — trailing `/api/` |
+| AWS | `endpoint` **and** `forcePathStyle: true` for S3 |
+| Stripe | `new Stripe(key, { host: 'localhost', port, protocol: 'http' })` |
+| Resend | `RESEND_BASE_URL` — read natively by the SDK, no code change |
+| Clerk | `createClerkClient({ apiUrl })` |
+| Okta | `new Client({ orgUrl })`; issuer is `<url>/oauth2/default` |
+| Linear | POST to `<url>/graphql` |
+| Apple, Microsoft, Google | OIDC discovery at `<url>/.well-known/openid-configuration` |
+| Vercel, MongoDB Atlas | Replace the API host in your `fetch` base URL |
+
+See each service's skill for full SDK and OAuth URL mappings.
 
 ## Framework Integration (Embedded Mode)
 
@@ -358,15 +440,25 @@ The `@emulators/adapter-nuxt` package embeds emulators directly into a Nuxt app 
 
 ## Persistence
 
-By default, all emulator state is in-memory. For persistence across process restarts and serverless cold starts, use a `PersistenceAdapter`.
+All emulator state is in-memory and is lost when the process exits.
 
-### Built-in file persistence
+**Persistence is available only in the Next.js and Nuxt adapters**, through the
+`persistence` option of `createEmulateHandler`. Neither the CLI nor
+`createEmulator` supports it — the CLI has no persistence flag, and
+`EmulatorOptions` is `{ service, port?, seed?, baseUrl? }`. For the CLI, replay
+your seed config instead; for tests, use `reset()`, which wipes the store and
+replays the seed data.
+
+See the `next` and `nuxt` skills for the full setup. The adapter is wired like this:
 
 ```typescript
+import { createEmulateHandler } from '@emulators/adapter-next'
 import { filePersistence } from '@emulators/core'
 
-// CLI or local dev: persists to a JSON file
-const adapter = filePersistence('.emulate/state.json')
+export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+  services: { github: { emulator: github } },
+  persistence: filePersistence('.emulate/state.json'),
+})
 ```
 
 ### Custom adapters
@@ -395,11 +487,19 @@ packages/
     github/          # GitHub API service plugin
     google/          # Google OAuth 2.0 / OIDC plugin
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
-    linear/          # Linear GraphQL API, OAuth, webhooks plugin
-    twilio/          # Twilio Messaging, Verify, Voice, webhooks plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
+    okta/            # Okta users, groups, apps, OAuth plugin
     aws/             # AWS S3, SQS, IAM, STS plugin
+    resend/          # Resend email, domains, contacts, inbox plugin
+    stripe/          # Stripe customers, products, checkout, webhooks plugin
+    mongoatlas/      # MongoDB Atlas projects, clusters, database users plugin
+    clerk/           # Clerk users, sessions, organizations, OAuth plugin
+    linear/          # Linear GraphQL API, OAuth, webhooks plugin
+    twilio/          # Twilio Messaging, Verify, Voice, webhooks plugin
 ```
+
+The plugin order above is the registry order, which is also the port order for a
+bare `npx emulate`.
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.

@@ -4,18 +4,29 @@ A Next.js app with emulators embedded directly via `@emulators/adapter-next`. No
 
 This demonstrates the solution for **Vercel preview deployments** where OAuth callback URLs change with every deployment. Because the emulators run on the same origin as the app, callbacks always work regardless of the deployment URL.
 
+## Prerequisites
+
+The dev script runs through [portless](https://github.com/vercel-labs/portless),
+so install it once if you haven't: `npm i -g portless`.
+
 ## Setup
 
 ```bash
-# From the repo root, install dependencies
+# From the repo root: install, then build the workspace emulator packages.
+# This example imports @emulators/adapter-next from dist/, which is gitignored
+# and has no postinstall step, so the build is required before the first run.
 pnpm install
+pnpm build
 
 # Start the Next.js app (emulators are embedded, no separate process needed)
 cd examples/nextjs-embedded
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and click any provider to sign in.
+Open [https://nextjs-embedded-demo.emulate.localhost](https://nextjs-embedded-demo.emulate.localhost)
+(or the `http://localhost:<port>` URL printed by portless) and click any provider
+to sign in. portless assigns a random local port, so this app is not served on
+`http://localhost:3000`.
 
 ## How It Works
 
@@ -35,7 +46,7 @@ The session cookie in this example is a plain base64url-encoded JSON blob with n
 | | `examples/oauth` | `examples/nextjs-embedded` |
 |---|---|---|
 | Emulator process | Separate `npx emulate` process | Embedded in the Next.js app |
-| Config | `emulate.config.yaml` + `.env.local` | Seed data in `route.ts` |
+| Config | Optional `.env.local`; emulator defaults otherwise | Seed data inline in `route.ts` |
 | OAuth URLs | `http://localhost:4001/login/oauth/...` | `/emulate/github/login/oauth/...` (same origin) |
 | Client credentials | Must match config | `"any"` (validation skipped) |
 | Preview deploys | Requires fixed callback URL | Works on any URL |

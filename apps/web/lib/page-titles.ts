@@ -17,8 +17,11 @@ export const PAGE_TITLES: Record<string, string> = {
   mongoatlas: "MongoDB Atlas",
   resend: "Resend",
   stripe: "Stripe",
+  clerk: "Clerk",
+  connecting: "Connecting your app",
   authentication: "Authentication",
   architecture: "Architecture",
+  troubleshooting: "Troubleshooting",
 };
 
 export function getPageTitle(slug: string): string | null {

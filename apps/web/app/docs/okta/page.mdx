@@ -2,7 +2,111 @@
 
 Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
 
-## OAuth / OIDC
+## Start
+
+```bash
+# Okta only
+npx emulate --service okta
+
+# Or run all 14 services; Okta is the 7th, so it lands on 4006
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service okta` puts Okta on **4000**, not 4006. Pass `--port` or set
+`okta.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your SDK at it
+
+The Okta SDK takes an `orgUrl`. The token is not validated, so any non-empty
+value works:
+
+```typescript
+import { Client } from '@okta/okta-sdk-nodejs'
+
+const client = new Client({
+  orgUrl: process.env.OKTA_EMULATOR_URL,
+  token: 'anything',
+})
+```
+
+```bash
+OKTA_EMULATOR_URL=http://localhost:4006
+```
+
+For sign-in, the OIDC issuer is `${OKTA_EMULATOR_URL}/oauth2/default`. Point any
+OIDC-aware library (Auth.js, `openid-client`, Passport) at the discovery document
+and it will find the rest itself:
+
+```
+http://localhost:4006/oauth2/default/.well-known/openid-configuration
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Okta URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>{'https://<org>.okta.com/oauth2/default/v1/authorize'}</code></td>
+      <td><code>$OKTA_EMULATOR_URL/oauth2/default/v1/authorize</code></td>
+    </tr>
+    <tr>
+      <td><code>{'https://<org>.okta.com/oauth2/default/v1/token'}</code></td>
+      <td><code>$OKTA_EMULATOR_URL/oauth2/default/v1/token</code></td>
+    </tr>
+    <tr>
+      <td><code>{'https://<org>.okta.com/api/v1/users'}</code></td>
+      <td><code>$OKTA_EMULATOR_URL/api/v1/users</code></td>
+    </tr>
+  </tbody>
+</table>
+
+Every `/oauth2/...` route exists both with and without the `:authServerId`
+segment, so `/oauth2/v1/token` and `/oauth2/default/v1/token` both work.
+
+## Default seed
+
+Always created on startup: an authorization server with id `default`, an
+`Everyone` group, a default app, and a default user.
+
+## Seed config
+
+```yaml
+okta:
+  users:
+    - login: testuser@example.com
+      email: testuser@example.com
+      first_name: Test # snake_case, not firstName
+      last_name: User
+  groups:
+    - name: Everyone
+  oauth_clients:
+    - client_id: okta_example_client
+      client_secret: okta_example_secret
+      name: My App
+      redirect_uris: ["http://localhost:3000/api/auth/callback/okta"]
+  authorization_servers:
+    - id: default # required — the primary key used in /oauth2/:id/... paths
+      name: default
+      audiences: ["api://default"]
+```
+
+Seed config is not validated, so two mistakes here fail silently:
+
+- **User name fields are snake_case** (`first_name`, `last_name`). A camelCase key
+  is ignored and the user gets the default name `Test User`.
+- **`authorization_servers[].id` is required.** It becomes the `server_id` the
+  OAuth routes look up, so a server seeded without it is created but unreachable.
+
+Full reference: [Configuration](/docs/configuration).
+
+## Endpoints
+
+### OAuth / OIDC
 
 Default org server and custom authorization server paths (`/oauth2/:authServerId/...`):
 
@@ -16,7 +120,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /oauth2/v1/introspect` — token introspection
 - `GET /oauth2/v1/logout` — end session
 
-## Users
+### Users
 
 - `GET /api/v1/users` — list users
 - `POST /api/v1/users` — create user
@@ -32,7 +136,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /api/v1/users/:userId/lifecycle/unsuspend` — unsuspend
 - `POST /api/v1/users/:userId/lifecycle/reactivate` — reactivate
 
-## Groups
+### Groups
 
 - `GET /api/v1/groups` — list groups
 - `POST /api/v1/groups` — create group
@@ -43,7 +147,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `PUT /api/v1/groups/:groupId/users/:userId` — add user to group
 - `DELETE /api/v1/groups/:groupId/users/:userId` — remove user from group
 
-## Apps
+### Apps
 
 - `GET /api/v1/apps` — list apps
 - `POST /api/v1/apps` — create app
@@ -56,7 +160,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /api/v1/apps/:appId/lifecycle/activate` — activate app
 - `POST /api/v1/apps/:appId/lifecycle/deactivate` — deactivate app
 
-## Authorization Servers
+### Authorization Servers
 
 - `GET /api/v1/authorizationServers` — list
 - `POST /api/v1/authorizationServers` — create

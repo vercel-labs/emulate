@@ -2,13 +2,107 @@
 
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
-## Auth
+## Start
+
+```bash
+# Slack only
+npx emulate --service slack
+
+# Or run all 14 services; Slack is the 4th, so it lands on 4003
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service slack` puts Slack on **4000**, not 4003. Pass `--port` or set
+`slack.port` in the seed config to pin it. See [how ports are assigned](/docs).
+
+## Point your SDK at it
+
+The Slack SDK takes a `slackApiUrl`. Note the **trailing `/api/`** — without it
+every method call 404s:
+
+```typescript
+import { WebClient } from '@slack/web-api'
+
+const client = new WebClient('xoxb-local-test', {
+  slackApiUrl: `${process.env.SLACK_EMULATOR_URL}/api/`,
+})
+
+await client.chat.postMessage({ channel: '#general', text: 'Hello' })
+```
+
+```bash
+SLACK_EMULATOR_URL=http://localhost:4003
+```
+
+Or over plain HTTP:
+
+```bash
+curl -X POST http://localhost:4003/api/chat.postMessage \
+  -H "Authorization: Bearer xoxb-local-test" \
+  -H "Content-Type: application/json" \
+  -d '{"channel":"#general","text":"Hello"}'
+```
+
+For OAuth v2 install flows:
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Slack URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://slack.com/oauth/v2/authorize</code></td>
+      <td><code>$SLACK_EMULATOR_URL/oauth/v2/authorize</code></td>
+    </tr>
+    <tr>
+      <td><code>https://slack.com/api/oauth.v2.access</code></td>
+      <td><code>$SLACK_EMULATOR_URL/api/oauth.v2.access</code></td>
+    </tr>
+  </tbody>
+</table>
+
+Requests without a token return `not_authed`. Any non-empty unknown bearer token
+maps to the first seeded user unless strict scope mode is enabled.
+
+## Seed config
+
+```yaml
+slack:
+  team:
+    name: My Workspace
+    domain: my-workspace
+  users:
+    - name: developer
+      real_name: Developer
+      email: dev@example.com
+      is_admin: true
+  channels:
+    - name: general
+      topic: General discussion
+    - name: engineering
+      is_private: true
+  tokens:
+    - token: xoxb-local-test
+      user: developer
+```
+
+Seed config is not validated, so an unknown key is dropped silently. Full
+reference, including OAuth apps, bots and scopes:
+[Configuration](/docs/configuration).
+
+## Endpoints
+
+### Auth
 
 - `POST /api/auth.test` - test authentication
 
 Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
-## Chat
+### Chat
 
 - `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
@@ -20,7 +114,7 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `POST /api/chat.scheduledMessages.list` - list pending scheduled messages
 - `POST /api/chat.meMessage` - /me message
 
-## Conversations
+### Conversations
 
 - `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` - get channel info
@@ -41,7 +135,7 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `POST /api/conversations.mark` - set read cursor
 - `POST /api/conversations.members` - list members
 
-## Users
+### Users
 
 - `POST /api/users.list` - list users (cursor pagination)
 - `POST /api/users.info` - get user info
@@ -51,13 +145,13 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `GET /api/users.getPresence` / `POST /api/users.getPresence` - get active or away presence
 - `POST /api/users.setPresence` - set the authed user to away or automatic presence
 
-## Reactions
+### Reactions
 
 - `POST /api/reactions.add` - add reaction
 - `POST /api/reactions.remove` - remove reaction
 - `POST /api/reactions.get` - get reactions for a message
 
-## Files
+### Files
 
 - `POST /api/files.getUploadURLExternal` - create a local external upload session
 - `POST /upload/v1/:fileId` - receive raw uploaded file bytes
@@ -67,7 +161,7 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `GET /files-pri/:fileId/:filename` - download file bytes with a bearer token that can access the file
 - `POST /api/files.delete` - delete a completed file
 
-## Pins And Bookmarks
+### Pins And Bookmarks
 
 - `POST /api/pins.add` - pin a message to a channel
 - `GET /api/pins.list` / `POST /api/pins.list` - list pinned message items for a channel
@@ -77,7 +171,7 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `POST /api/bookmarks.list` - list channel bookmarks
 - `POST /api/bookmarks.remove` - remove a bookmark from a channel
 
-## Views
+### Views
 
 - `POST /api/views.publish` - publish or update an App Home view for a user
 - `POST /api/views.open` - open a modal view
@@ -87,25 +181,25 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 
 Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass the returned value as `trigger_id` or `interactivity_pointer`; generate push values with an existing `view_id` and use them within 3 seconds.
 
-## Team
+### Team
 
 - `POST /api/team.info` - get workspace info
 
-## Bots
+### Bots
 
 - `POST /api/bots.info` - get bot info
 
-## Incoming Webhooks
+### Incoming Webhooks
 
 - `POST /services/:teamId/:botId/:webhookId` - post text or rich payload fields via incoming webhook (supports `channel` override and `thread_ts`)
 
-## OAuth
+### OAuth
 
 - `GET /oauth/v2/authorize` - authorization endpoint (shows user picker)
 - `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` - token exchange
 
-## Inspector
+### Inspector
 
 - `GET /` - tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
 

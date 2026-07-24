@@ -20,6 +20,7 @@ From the repository root:
 
 ```bash
 pnpm install
+pnpm build   # builds the workspace emulator packages once; required before first run
 pnpm --filter resend-magic-link dev
 ```
 
@@ -49,13 +50,18 @@ curl http://localhost:3000/emulate/resend/emails/<id> \
 
 ### Extracting the sign-in code programmatically
 
-This is useful in tests or agent workflows where you need to complete the magic link flow without a human reading the email:
+Useful in tests or agent workflows where you need the code without a human
+reading the email.
+
+**Trigger the send from the app first.** In this example the email is sent by a
+Next.js Server Action (`src/app/actions.ts`), not by an HTTP route, so it cannot
+be invoked with a plain `curl -X POST`. Submit the form in the browser, or drive
+it from a browser-automation test. The action is also what sets the
+`pending_signin` cookie the verification step needs.
+
+Once the email has been sent, read it back over the emulator's REST API:
 
 ```bash
-# Send a sign-in request (sets the pending_signin cookie)
-curl -s -c cookies.txt -L -X POST http://localhost:3000 \
-  -d "email=test@example.com"
-
 # List emails and grab the latest one
 EMAIL_ID=$(curl -s http://localhost:3000/emulate/resend/emails \
   -H "Authorization: Bearer re_emulated_key" | jq -r '.data[0].id')

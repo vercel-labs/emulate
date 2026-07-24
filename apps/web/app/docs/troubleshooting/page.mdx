@@ -1,0 +1,133 @@
+# Troubleshooting
+
+Runtime behaviour that surprises people, and how to diagnose it. Most confusion
+here comes from one design choice: **seed config is never validated**, so a bad
+key produces missing data rather than an error.
+
+## Turn on debug logging
+
+```bash
+DEBUG=1 npx emulate
+# or
+EMULATE_DEBUG=1 npx emulate
+```
+
+Accepted values are `DEBUG=1`, `DEBUG=true`, or `EMULATE_DEBUG=1`. The flag is
+read once when the module is first imported, so setting `process.env.DEBUG` from
+inside a test after importing the emulator has no effect — set it in the shell or
+in your test runner's env config.
+
+## I seeded data but the API returns 404 or an empty list
+
+This is almost always a config-shape problem, and it never produces an error
+message. Check, in order:
+
+1. **Using `createEmulator`?** `seed` must be keyed by service name — `seed: { github: { users: [...] } }`, not `seed: { users: [...] }`. See [Programmatic API](/docs/programmatic-api).
+2. **Key spelling.** Unknown keys are dropped silently. The known traps: Stripe wants `product_name` (not `product`), Okta wants `first_name` / `last_name` (not camelCase), Clerk wants `email_addresses` as an array. See [Configuration](/docs/configuration).
+3. **Cross-references.** Some collections are seeded through a parent: a Stripe price is only created if its `product_name` matches a seeded product; a Clerk org member is only added if its `email` matches a seeded user.
+
+The startup banner prints which config file was actually loaded. If it says no
+config, your file wasn't found under any of the auto-detected names.
+
+## Only one service started, not all 14
+
+A seed config file doubles as an implicit `--service`. If the file contains any
+top-level service keys, only those services start — and they are numbered from
+the base port, so the first one lands on 4000.
+
+```bash
+npx emulate init --service stripe # writes a config with only a `stripe:` block
+npx emulate                       # starts Stripe alone, on 4000 — not 4009
+```
+
+Pass `--service` explicitly to override, or delete the config file.
+
+## A request goes to the wrong service
+
+Ports are `--port` (default `4000`) plus each service's index in the **enabled**
+set, not a fixed number per service. `npx emulate --service aws` puts AWS on
+4000; a script pointing at 4007 will either get connection refused or, if you
+also have a full fleet running, silently hit a different emulator.
+
+Set `port` on the service in the seed config to pin it:
+
+```yaml
+aws:
+  port: 4007
+```
+
+## Port already in use
+
+The server does not install an error handler on `listen`, so a busy port surfaces
+as a raw `EADDRINUSE` from Node rather than a friendly message. Pick a different
+base port with `--port`, or stop whatever is holding it:
+
+```bash
+lsof -i :4000
+```
+
+## `--portless` and `--base-url` together
+
+These are mutually exclusive. Passing both prints
+`--portless and --base-url are mutually exclusive.` and exits with code 1.
+
+## `emulate init` won't overwrite my config
+
+By design — it refuses rather than clobbering an existing file. Delete or rename
+the file first.
+
+## Everything returns 403 "API rate limit exceeded"
+
+Every emulator applies a rate limit of **5000 requests per hour**, bucketed by
+bearer token. All unauthenticated traffic shares a single `__anonymous__` bucket,
+so a test suite that sends no `Authorization` header can exhaust the shared quota
+faster than expected.
+
+Two things to know:
+
+- The response status is **403**, not 429. SDK retry logic keyed on 429 will not
+  recognise it.
+- Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+  `X-RateLimit-Reset` and `X-RateLimit-Resource`. Read `X-RateLimit-Remaining` to
+  see how close you are.
+
+The counter resets an hour after the first request in the window, and restarting
+the emulator clears it. Note that GitHub's own `GET /rate_limit` endpoint is
+emulated with static values and does **not** report this limiter's state.
+
+## Auth behaves differently from production
+
+The emulator is deliberately permissive, in a way that can make a passing test
+misleading:
+
+- **No `Authorization` header** → the request is unauthenticated, and protected routes return 401.
+- **Any non-empty bearer token** → accepted. Unknown tokens resolve to the service's fallback user, so `Bearer totally-made-up` succeeds as if it were valid.
+
+A test asserting "an invalid token is rejected with 401" will pass against the
+real API and fail against the emulator, because only a *missing* header is
+rejected. Assert on the missing-header case instead.
+
+Configure real tokens under the top-level `tokens` key to control which user a
+token maps to. With no `tokens` configured, `test_token_admin` is created for the
+user `admin`. See [Authentication](/docs/authentication).
+
+## GitHub App JWT authentication always fails
+
+`private_key` is parsed with `importPKCS8`, so it must be a PKCS#8 key beginning
+`-----BEGIN PRIVATE KEY-----`. GitHub issues App keys in PKCS#1
+(`-----BEGIN RSA PRIVATE KEY-----`), which the emulator cannot read. The failure
+is silent — verification throws, the error is swallowed, and the request is
+treated as unauthenticated.
+
+```bash
+openssl pkcs8 -topk8 -nocrypt -in github-app.private-key.pem -out github-app.pkcs8.pem
+```
+
+## State disappeared
+
+All emulator state is in-memory and is lost when the process exits. `reset()` on
+a programmatic emulator wipes the store and replays the seed data.
+
+Persistence across restarts is available only in the Next.js and Nuxt adapters,
+via their `persistence` option — not in the CLI or in `createEmulator`. See
+[Next.js Integration](/docs/nextjs).

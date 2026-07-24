@@ -1,7 +1,7 @@
 ---
 name: microsoft
 description: Emulated Microsoft Entra ID (Azure AD) OAuth 2.0 / OpenID Connect for local development and testing. Use when the user needs to test Microsoft sign-in locally, emulate Entra ID OIDC discovery, handle Microsoft token exchange, configure Azure AD OAuth clients, work with Microsoft Graph /me, or test PKCE/client credentials flows without hitting real Microsoft APIs. Triggers include "Microsoft OAuth", "Entra ID", "Azure AD", "emulate Microsoft", "mock Microsoft login", "test Microsoft sign-in", "Microsoft OIDC", "local Microsoft auth", or any task requiring a local Microsoft OAuth/OIDC provider.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Microsoft Entra ID Emulator
@@ -11,12 +11,17 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 ## Start
 
 ```bash
-# Microsoft only
-npx emulate --service microsoft
+# Microsoft only, pinned to the port used throughout this guide
+npx emulate --service microsoft --port 4005
 
-# Default port (when run alone)
-# http://localhost:4000
+# Or run all 14 services; Microsoft is the 6th, so it also lands on 4005
+npx emulate
 ```
+
+Ports are `--port` (default 4000) plus the service's index in the **enabled**
+set, so a bare `npx emulate --service microsoft` puts it on 4000, not 4005. The
+`--port 4005` above makes every example on this page valid in both modes. To pin
+the port no matter what else runs, set `microsoft.port` in the seed config.
 
 Or programmatically:
 

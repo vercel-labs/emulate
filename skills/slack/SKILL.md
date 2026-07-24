@@ -11,12 +11,17 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 ## Start
 
 ```bash
-# Slack only
-npx emulate --service slack
+# Slack only, pinned to the port used throughout this guide
+npx emulate --service slack --port 4003
 
-# Default port (when run alone)
-# http://localhost:4000
+# Or run all 14 services; Slack is the 4th, so it also lands on 4003
+npx emulate
 ```
+
+Ports are `--port` (default 4000) plus the service's index in the **enabled**
+set, so a bare `npx emulate --service slack` puts Slack on 4000, not 4003. The
+`--port 4003` above makes every example on this page valid in both modes. To pin
+the port no matter what else runs, set `slack.port` in the seed config.
 
 Or programmatically:
 

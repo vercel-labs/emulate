@@ -2,16 +2,126 @@
 
 MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1. In-memory document storage with CRUD, filtering, and aggregation.
 
-## Admin API
+This emulates the Atlas **HTTP APIs**, not the MongoDB wire protocol. Cluster
+responses do contain a `connectionStrings.standard` value such as
+`mongodb://Cluster0.emulate.mongodb.net:27017`, but that is a realistic-looking
+string only — nothing listens on it, and a `mongodb://` driver cannot connect.
+Use this emulator for control-plane code (projects, clusters, database users) and
+for document access through the Data API.
 
-### Projects
+## Start
+
+```bash
+# MongoDB Atlas only
+npx emulate --service mongoatlas
+
+# Or run all 14 services; Atlas is the 11th, so it lands on 4010
+npx emulate
+```
+
+A service's port is `--port` (default `4000`) plus its index in the **enabled**
+set, so `--service mongoatlas` puts it on **4000**, not 4010. Pass `--port` or set
+`mongoatlas.port` in the seed config to pin it. See
+[how ports are assigned](/docs).
+
+## Point your app at it
+
+There is no SDK switch to flip — replace the Atlas host in your own base URL. Any
+non-empty bearer token is accepted:
+
+```bash
+MONGOATLAS_EMULATOR_URL=http://localhost:4000
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Real Atlas URL</th>
+      <th>Emulator URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>https://cloud.mongodb.com/api/atlas/v2/...</code></td>
+      <td><code>$MONGOATLAS_EMULATOR_URL/api/atlas/v2/...</code></td>
+    </tr>
+    <tr>
+      <td><code>{'https://data.mongodb-api.com/app/<id>/endpoint/data/v1/action/...'}</code></td>
+      <td><code>$MONGOATLAS_EMULATOR_URL/app/data-api/v1/action/...</code></td>
+    </tr>
+  </tbody>
+</table>
+
+```typescript
+const ATLAS = process.env.MONGOATLAS_EMULATOR_URL ?? 'https://cloud.mongodb.com'
+
+const res = await fetch(`${ATLAS}/api/atlas/v2/groups`, {
+  headers: { Authorization: 'Bearer test_token_admin' },
+})
+```
+
+Insert and read a document through the Data API:
+
+```bash
+curl -X POST http://localhost:4000/app/data-api/v1/action/insertOne \
+  -H "Authorization: Bearer test_token_admin" \
+  -H "Content-Type: application/json" \
+  -d '{"dataSource":"my-cluster","database":"appdb","collection":"users","document":{"name":"Ada"}}'
+
+curl -X POST http://localhost:4000/app/data-api/v1/action/find \
+  -H "Authorization: Bearer test_token_admin" \
+  -H "Content-Type: application/json" \
+  -d '{"dataSource":"my-cluster","database":"appdb","collection":"users","filter":{}}'
+```
+
+Every Data API action is a `POST` whose body names `dataSource`, `database` and
+`collection`.
+
+## Default seed
+
+With no configuration: one project `Project0` containing one cluster.
+
+## Seed config
+
+```yaml
+mongoatlas:
+  projects:
+    - name: my-project
+  clusters:
+    - name: my-cluster
+      project: my-project # must match a projects[].name
+      provider: AWS
+      instance_size: M10
+      region: US_EAST_1
+  database_users:
+    - username: app-user
+      project: my-project # must match a projects[].name
+      roles:
+        - database_name: appdb
+          role_name: readWrite
+  databases:
+    - cluster: my-cluster # must match a clusters[].name
+      name: appdb
+      collections: [users, orders]
+```
+
+Seed config is not validated. The cross-references above matter:
+`clusters[].project` and `database_users[].project` must name a seeded project,
+and `databases[].cluster` must name a seeded cluster, or the entry is skipped
+with no warning.
+
+## Endpoints
+
+### Admin API
+
+#### Projects
 
 - `GET /api/atlas/v2/groups` — list projects
 - `GET /api/atlas/v2/groups/:groupId` — get project
 - `POST /api/atlas/v2/groups` — create project
 - `DELETE /api/atlas/v2/groups/:groupId` — delete project (cascades clusters and data)
 
-### Clusters
+#### Clusters
 
 - `GET /api/atlas/v2/groups/:groupId/clusters` — list clusters
 - `GET /api/atlas/v2/groups/:groupId/clusters/:clusterName` — get cluster
@@ -19,19 +129,19 @@ MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1. In-memory
 - `PATCH /api/atlas/v2/groups/:groupId/clusters/:clusterName` — update cluster
 - `DELETE /api/atlas/v2/groups/:groupId/clusters/:clusterName` — delete cluster
 
-### Database Users
+#### Database Users
 
 - `GET /api/atlas/v2/groups/:groupId/databaseUsers` — list database users
 - `GET /api/atlas/v2/groups/:groupId/databaseUsers/admin/:username` — get database user
 - `POST /api/atlas/v2/groups/:groupId/databaseUsers` — create database user
 - `DELETE /api/atlas/v2/groups/:groupId/databaseUsers/admin/:username` — delete database user
 
-### Data Explorer
+#### Data Explorer
 
 - `GET /api/atlas/v2/groups/:groupId/clusters/:clusterName/databases` — list databases
 - `GET /api/atlas/v2/groups/:groupId/clusters/:clusterName/databases/:databaseName/collections` — list collections
 
-## Data API
+### Data API
 
 All operations via `POST` with JSON body specifying `dataSource`, `database`, and `collection`:
 

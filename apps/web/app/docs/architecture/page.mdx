@@ -11,18 +11,22 @@ packages/
     github/         # GitHub API service
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
     slack/          # Slack Web API, OAuth v2, incoming webhooks
-    linear/         # Linear GraphQL API, OAuth, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
-    aws/            # AWS S3, SQS, IAM, STS
     okta/           # Okta identity provider / OIDC
-    mongoatlas/     # MongoDB Atlas Admin API + Data API
+    aws/            # AWS S3, SQS, IAM, STS
     resend/         # Resend email API
     stripe/         # Stripe billing and payments API
+    mongoatlas/     # MongoDB Atlas Admin API + Data API
     clerk/          # Clerk Backend API and OAuth
+    linear/         # Linear GraphQL API, OAuth, webhooks
+    twilio/         # Twilio Messaging, Verify, Voice, webhooks
 apps/
   web/              # Documentation site (Next.js)
 ```
+
+The service plugins are listed in registry order, which is also the port order
+for a bare `npx emulate`.
 
 ## Core
 
@@ -37,7 +41,7 @@ Each service is a plugin that:
 3. Provides a seed function to populate initial state from config
 4. Uses shared middleware for auth, error handling, and pagination
 
-Multiple services can run simultaneously, each on its own port (auto-incremented from the base port).
+Multiple services can run simultaneously, each on its own port: the base port plus the service's index in the **enabled** set. Enabling a subset renumbers from the base port, so `--service github` puts GitHub on 4000. See [how ports are assigned](/docs).
 
 ## In-Memory State
 
@@ -45,8 +49,10 @@ All state is held in memory with no database. This makes the emulator fast, easy
 
 ## Middleware
 
-The core provides shared middleware:
+The core provides shared middleware, applied to every route of every service:
 
-- **Auth**: validates Bearer/token authorization headers against configured tokens
+- **CORS**
+- **Auth**: reads Bearer/token authorization headers. Configured tokens map to their user; **any other non-empty token is accepted** and resolves to the service's fallback user. Only a request with no `Authorization` header is unauthenticated. See [Authentication](/docs/authentication).
+- **Rate limiting**: 5000 requests per hour, bucketed per token, with all anonymous traffic sharing one bucket. Exhausting it returns **403** (not 429) with `X-RateLimit-*` headers on every response. See [Troubleshooting](/docs/troubleshooting).
 - **Error handling**: consistent error responses matching each service's format
 - **Pagination**: GitHub-style `page`/`per_page` with `Link` headers, Vercel-style cursor-based pagination
