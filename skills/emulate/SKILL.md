@@ -109,6 +109,12 @@ await vercel.close()
 | `url` | Base URL of the running server |
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
+| `requests()` | Return an array of logged requests (method, path, status, duration, timestamp) |
+| `clearRequests()` | Clear the request log |
+
+### Request log
+
+Every request is logged. Access via `emulator.requests()` or `GET /_emulate/requests`. Clear with `emulator.clearRequests()` or `DELETE /_emulate/requests`.
 
 ## Vitest / Jest Setup
 
