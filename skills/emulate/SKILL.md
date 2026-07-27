@@ -109,6 +109,12 @@ await vercel.close()
 | `url` | Base URL of the running server |
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
+| `snapshot()` | Capture the current store state |
+| `restore(snapshot)` | Restore a previously captured state |
+
+### State snapshots
+
+Capture and restore store state with `emulator.snapshot()` / `emulator.restore(snap)`, or over HTTP with `POST /_emulate/snapshot` and `PUT /_emulate/snapshot`. `GET /_emulate/health` reports readiness, service name and uptime.
 
 ## Vitest / Jest Setup
 
