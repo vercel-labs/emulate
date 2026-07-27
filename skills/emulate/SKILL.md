@@ -110,6 +110,16 @@ await vercel.close()
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
 
+### Record mode
+
+Record real API traffic and generate a seed config automatically:
+
+```bash
+emulate record --service github --upstream https://api.github.com --port 4000
+```
+
+Point your app at the proxy instead of the real host; on exit the observed traffic is written to `emulate.config.yaml` (override with `--output`).
+
 ## Vitest / Jest Setup
 
 ```typescript
