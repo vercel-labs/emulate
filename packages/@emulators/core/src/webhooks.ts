@@ -105,8 +105,16 @@ export class WebhookDispatcher {
 
       const signatureHeaders: Record<string, string> = {};
       if (sub.secret) {
-        const hmac = createHmac("sha256", sub.secret).update(body).digest("hex");
-        signatureHeaders["X-Hub-Signature-256"] = `sha256=${hmac}`;
+        if (sub.owner === "stripe") {
+          const timestamp = Math.floor(Date.now() / 1000);
+          const hmac = createHmac("sha256", sub.secret).update(`${timestamp}.${body}`).digest("hex");
+          signatureHeaders["Stripe-Signature"] = `t=${timestamp},v1=${hmac}`;
+        } else if (sub.owner === "creem") {
+          signatureHeaders["Creem-Signature"] = createHmac("sha256", sub.secret).update(body).digest("hex");
+        } else {
+          const hmac = createHmac("sha256", sub.secret).update(body).digest("hex");
+          signatureHeaders["X-Hub-Signature-256"] = `sha256=${hmac}`;
+        }
       }
 
       try {

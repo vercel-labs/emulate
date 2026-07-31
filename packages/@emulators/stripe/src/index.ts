@@ -10,6 +10,7 @@ import { productRoutes } from "./routes/products.js";
 import { priceRoutes } from "./routes/prices.js";
 import { checkoutSessionRoutes } from "./routes/checkout-sessions.js";
 import { customerSessionRoutes } from "./routes/customer-sessions.js";
+import { subscriptionRoutes } from "./routes/subscriptions.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
@@ -32,7 +33,14 @@ export interface StripeSeedConfig {
     product_name: string;
     currency: string;
     unit_amount: number;
+    tax_behavior?: "inclusive" | "exclusive" | "unspecified";
+    recurring?: {
+      interval?: "day" | "week" | "month" | "year";
+      interval_count?: number;
+      usage_type?: "licensed" | "metered";
+    };
   }>;
+  api_version?: string;
   webhooks?: Array<{
     url: string;
     events: string[];
@@ -59,6 +67,7 @@ export function seedFromConfig(
   webhooks?: WebhookDispatcher,
 ): void {
   const ss = getStripeStore(store);
+  store.setData("stripe.api_version", config.api_version ?? "2026-06-24.preview");
 
   if (config.customers) {
     for (const c of config.customers) {
@@ -93,7 +102,16 @@ export function seedFromConfig(
           product_id: product.stripe_id,
           currency: pr.currency.toLowerCase(),
           unit_amount: pr.unit_amount,
-          type: "one_time",
+          billing_scheme: "per_unit",
+          tax_behavior: pr.tax_behavior ?? "unspecified",
+          recurring: pr.recurring
+            ? {
+                interval: pr.recurring.interval ?? "month",
+                interval_count: pr.recurring.interval_count ?? 1,
+                usage_type: pr.recurring.usage_type ?? "licensed",
+              }
+            : null,
+          type: pr.recurring ? "recurring" : "one_time",
           active: true,
           metadata: {},
         });
@@ -125,6 +143,7 @@ export const stripePlugin: ServicePlugin = {
     productRoutes(ctx);
     priceRoutes(ctx);
     checkoutSessionRoutes(ctx);
+    subscriptionRoutes(ctx);
     customerSessionRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {

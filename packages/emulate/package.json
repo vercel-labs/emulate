@@ -68,6 +68,7 @@
     "@emulators/slack": "workspace:*",
     "@emulators/vercel": "workspace:*",
     "@emulators/resend": "workspace:*",
+    "@emulators/creem": "workspace:*",
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
     "@emulators/linear": "workspace:*",

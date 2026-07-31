@@ -27,11 +27,12 @@ All services start with sensible defaults:
 | Okta      | 4006        |
 | AWS       | 4007        |
 | Resend    | 4008        |
-| Stripe    | 4009        |
-| MongoDB Atlas | 4010   |
-| Clerk     | 4011        |
-| Linear    | 4012        |
-| Twilio    | 4013        |
+| Creem     | 4009        |
+| Stripe    | 4010        |
+| MongoDB Atlas | 4011   |
+| Clerk     | 4012        |
+| Linear    | 4013        |
+| Twilio    | 4014        |
 
 ## CLI
 
@@ -97,7 +98,7 @@ await vercel.close()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'creem'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |

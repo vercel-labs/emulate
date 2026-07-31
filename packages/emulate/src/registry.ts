@@ -24,6 +24,7 @@ const SERVICE_NAME_LIST = [
   "okta",
   "aws",
   "resend",
+  "creem",
   "stripe",
   "mongoatlas",
   "clerk",
@@ -420,6 +421,30 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       resend: {
         domains: [{ name: "example.com", region: "us-east-1" }],
         contacts: [{ email: "test@example.com", first_name: "Test", last_name: "User" }],
+      },
+    },
+  },
+  creem: {
+    label: "Creem payments emulator",
+    endpoints: "hosted product checkout, signed webhooks, subscriptions, cancellation, inspector",
+    async load() {
+      const mod = await import("@emulators/creem");
+      return { plugin: mod.creemPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "creem_test_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      creem: {
+        products: [
+          {
+            id: "prod_console_dev",
+            name: "YapHaus managed relay",
+            amount: 6900,
+            currency: "USD",
+            return_url: "http://127.0.0.1:4322/welcome",
+          },
+        ],
       },
     },
   },
