@@ -414,7 +414,7 @@ describe("Stripe plugin", () => {
           livemode: false,
         });
         expect(session.customer.email).toBe("buyer@example.com");
-        expect(session.subscription.id).toMatch(/^sub_/);
+        expect(session.subscription.id).toMatch(/^sub_[A-Za-z0-9]+$/);
         expect(session.line_items.data[0].price).toMatchObject({
           id: "price_console_dev",
           type: "recurring",
