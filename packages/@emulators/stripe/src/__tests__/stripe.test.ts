@@ -507,6 +507,80 @@ describe("Stripe plugin", () => {
       expect(expired.url).toBeNull();
     });
 
+    it("completes payment and setup sessions without creating subscriptions", async () => {
+      for (const mode of ["payment", "setup"] as const) {
+        const createRes = await app.request(`${base}/v1/checkout/sessions`, {
+          method: "POST",
+          headers: auth(),
+          body: JSON.stringify({ mode }),
+        });
+        expect(createRes.status).toBe(200);
+        const created = (await createRes.json()) as { id: string };
+
+        const completed = await app.request(`${base}/checkout/${created.id}/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `email=${mode}%40example.com`,
+        });
+        expect(completed.status).toBe(200);
+
+        const authoritative = await app.request(`${base}/v1/checkout/sessions/${created.id}`, {
+          headers: auth(),
+        });
+        const session = (await authoritative.json()) as Record<string, any>;
+        expect(session).toMatchObject({
+          id: created.id,
+          mode,
+          status: "complete",
+          payment_status: mode === "setup" ? "no_payment_required" : "paid",
+          subscription: null,
+        });
+        if (mode === "payment") {
+          expect(session.payment_intent).toMatchObject({ status: "succeeded" });
+          const paymentIntent = await app.request(`${base}/v1/payment_intents/${session.payment_intent.id}`, {
+            headers: auth(),
+          });
+          expect(paymentIntent.status).toBe(200);
+          expect(await paymentIntent.json()).toMatchObject({
+            id: session.payment_intent.id,
+            amount: 0,
+            currency: "usd",
+            status: "succeeded",
+          });
+        } else {
+          expect(session.payment_intent).toBeNull();
+        }
+      }
+    });
+
+    it("rejects a subscription completion without a line item", async () => {
+      const createRes = await app.request(`${base}/v1/checkout/sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ mode: "subscription" }),
+      });
+      expect(createRes.status).toBe(200);
+      const created = (await createRes.json()) as { id: string };
+
+      const completed = await app.request(`${base}/checkout/${created.id}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "email=subscription%40example.com",
+      });
+      expect(completed.status).toBe(422);
+      expect(await completed.text()).toContain("A subscription checkout needs at least one line item.");
+
+      const authoritative = await app.request(`${base}/v1/checkout/sessions/${created.id}`, {
+        headers: auth(),
+      });
+      expect(await authoritative.json()).toMatchObject({
+        id: created.id,
+        status: "open",
+        subscription: null,
+        payment_intent: null,
+      });
+    });
+
     it("lists with status filter", async () => {
       await app.request(`${base}/v1/checkout/sessions`, {
         method: "POST",

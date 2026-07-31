@@ -371,6 +371,18 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
         422,
       );
     }
+    const subscriptionLineItem = session.mode === "subscription" ? session.line_items[0] : null;
+    if (session.mode === "subscription" && !subscriptionLineItem) {
+      return c.html(
+        renderCardPage(
+          "Line Item Required",
+          "A subscription checkout needs at least one line item.",
+          '<p class="empty">Payment was not completed.</p>',
+          SERVICE_LABEL,
+        ),
+        422,
+      );
+    }
     let customer = session.customer_id ? ss.customers.findOneBy("stripe_id", session.customer_id) : undefined;
     if (!customer) {
       customer = ss.customers.insert({
@@ -381,22 +393,41 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
         metadata: {},
       });
     }
-    const paymentIntentId = stripeId("pi");
-    const subscription = ss.subscriptions.insert({
-      stripe_id: stripeId("sub"),
-      customer_id: customer.stripe_id,
-      price_id: session.line_items[0]!.price,
-      quantity: session.line_items[0]!.quantity,
-      status: "active",
-      current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
-      cancel_at_period_end: false,
-      metadata: { offer_intent_id: session.metadata.offer_intent_id ?? "" },
-    });
+    let paymentIntentId: string | null = null;
+    let subscriptionId: string | null = null;
+
+    if (subscriptionLineItem) {
+      paymentIntentId = stripeId("pi");
+      const subscription = ss.subscriptions.insert({
+        stripe_id: stripeId("sub"),
+        customer_id: customer.stripe_id,
+        price_id: subscriptionLineItem.price,
+        quantity: subscriptionLineItem.quantity,
+        status: "active",
+        current_period_end: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+        cancel_at_period_end: false,
+        metadata: { offer_intent_id: session.metadata.offer_intent_id ?? "" },
+      });
+      subscriptionId = subscription.stripe_id;
+    } else if (session.mode === "payment") {
+      const paymentIntent = ss.paymentIntents.insert({
+        stripe_id: stripeId("pi"),
+        amount: sessionAmount(session, ss),
+        currency: sessionCurrency(session, ss),
+        status: "succeeded",
+        customer_id: customer.stripe_id,
+        description: "Checkout session payment",
+        payment_method: null,
+        metadata: session.metadata,
+      });
+      paymentIntentId = paymentIntent.stripe_id;
+    }
+
     const updated = ss.checkoutSessions.update(session.id, {
       status: "complete",
-      payment_status: "paid",
+      payment_status: session.mode === "setup" ? "no_payment_required" : "paid",
       customer_id: customer.stripe_id,
-      subscription_id: subscription.stripe_id,
+      subscription_id: subscriptionId,
       payment_intent_id: paymentIntentId,
     })!;
     const formatted = formatSession(updated, baseUrl, ss);
