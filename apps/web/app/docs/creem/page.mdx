@@ -1,0 +1,32 @@
+# Creem
+
+Creem Test Mode emulation with hosted checkout, signed webhooks, subscriptions, cancellation, and an inspector.
+
+## Hosted checkout
+
+- `GET /test/payment/:productId` — open a Test Mode checkout
+- `GET /payment/:productId` — open a checkout
+- `POST /checkout/:checkoutId/complete` — complete checkout and emit `checkout.completed`
+
+## Lifecycle
+
+- `POST /_creem/subscriptions/:subscriptionId/cancel` — cancel a subscription and emit `subscription.canceled`
+- `GET /` — inspect checkouts and subscriptions
+
+## Seed configuration
+
+```yaml
+creem:
+  products:
+    - id: prod_console_dev
+      name: YapHaus managed relay
+      amount: 6900
+      currency: USD
+      return_url: http://127.0.0.1:4322/welcome
+  webhooks:
+    - url: http://127.0.0.1:8787/webhooks/creem
+      events: ["*"]
+      secret: local-webhook-secret
+```
+
+Webhook bodies are signed with HMAC SHA-256 in the `Creem-Signature` header.

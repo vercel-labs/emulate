@@ -19,11 +19,12 @@ All services start with sensible defaults. No config file needed:
 - **Okta** on `http://localhost:4006`
 - **AWS** on `http://localhost:4007`
 - **Resend** on `http://localhost:4008`
-- **Stripe** on `http://localhost:4009`
-- **MongoDB Atlas** on `http://localhost:4010`
-- **Clerk** on `http://localhost:4011`
-- **Linear** on `http://localhost:4012`
-- **Twilio** on `http://localhost:4013`
+- **Creem** on `http://localhost:4009`
+- **Stripe** on `http://localhost:4010`
+- **MongoDB Atlas** on `http://localhost:4011`
+- **Clerk** on `http://localhost:4012`
+- **Linear** on `http://localhost:4013`
+- **Twilio** on `http://localhost:4014`
 
 ## CLI
 
@@ -148,7 +149,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'creem'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |

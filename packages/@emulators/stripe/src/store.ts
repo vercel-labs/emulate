@@ -6,6 +6,7 @@ import type {
   StripePaymentIntent,
   StripeCharge,
   StripeCheckoutSession,
+  StripeSubscription,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -15,6 +16,7 @@ export interface StripeStore {
   paymentIntents: Collection<StripePaymentIntent>;
   charges: Collection<StripeCharge>;
   checkoutSessions: Collection<StripeCheckoutSession>;
+  subscriptions: Collection<StripeSubscription>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -25,5 +27,6 @@ export function getStripeStore(store: Store): StripeStore {
     paymentIntents: store.collection<StripePaymentIntent>("stripe.payment_intents", ["stripe_id", "customer_id"]),
     charges: store.collection<StripeCharge>("stripe.charges", ["stripe_id", "customer_id", "payment_intent_id"]),
     checkoutSessions: store.collection<StripeCheckoutSession>("stripe.checkout_sessions", ["stripe_id", "customer_id"]),
+    subscriptions: store.collection<StripeSubscription>("stripe.subscriptions", ["stripe_id", "customer_id"]),
   };
 }

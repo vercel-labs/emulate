@@ -14,7 +14,7 @@ const NUMERIC_KEYS = new Set([
 ]);
 
 export function stripeId(prefix: string): string {
-  return `${prefix}_${randomBytes(12).toString("base64url").slice(0, 24)}`;
+  return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
 
 export function toUnixTimestamp(iso: string): number {

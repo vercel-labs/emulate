@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { createHmac } from "node:crypto";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Hono } from "@emulators/core";
 import {
   Store,
@@ -42,11 +43,13 @@ function auth(): Record<string, string> {
 describe("Stripe plugin", () => {
   let app: Hono;
   let webhooks: WebhookDispatcher;
+  let store: Store;
 
   beforeEach(() => {
     const ctx = createTestApp();
     app = ctx.app;
     webhooks = ctx.webhooks;
+    store = ctx.store;
   });
 
   describe("customers", () => {
@@ -325,6 +328,162 @@ describe("Stripe plugin", () => {
   });
 
   describe("checkout sessions", () => {
+    it("supports a packaged YapHaus subscription checkout with signed webhook and authoritative retrieval", async () => {
+      seedFromConfig(
+        store,
+        base,
+        {
+          api_version: "2026-06-24.preview",
+          products: [{ id: "prod_console_dev", name: "YapHaus managed relay" }],
+          prices: [
+            {
+              id: "price_console_dev",
+              product_name: "YapHaus managed relay",
+              currency: "usd",
+              unit_amount: 6900,
+              tax_behavior: "inclusive",
+              recurring: { interval: "month", interval_count: 1, usage_type: "licensed" },
+            },
+          ],
+          webhooks: [
+            {
+              url: "http://127.0.0.1:8787/webhooks/stripe",
+              events: ["*"],
+              secret: "whsec_local_stripe_secret",
+            },
+          ],
+        },
+        webhooks,
+      );
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({ accepted: true }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      try {
+        const createRes = await app.request(`${base}/v1/checkout/sessions`, {
+          method: "POST",
+          headers: auth(),
+          body: JSON.stringify({
+            mode: "subscription",
+            line_items: [{ price: "price_console_dev", quantity: 1 }],
+            client_reference_id: "4cb64de3-bb27-4d99-8a74-f3cc191e3e14",
+            metadata: {
+              offer_intent_id: "4cb64de3-bb27-4d99-8a74-f3cc191e3e14",
+              terms_version: "2026-07-30",
+            },
+            success_url: "http://127.0.0.1:4322/welcome/checkout/{CHECKOUT_SESSION_ID}",
+          }),
+        });
+        expect(createRes.status).toBe(200);
+        const created = (await createRes.json()) as { id: string; url: string };
+        expect(created.id).toMatch(/^cs_test_/);
+        expect(created.url).toBe(`${base}/checkout/${created.id}`);
+
+        const hostedCheckout = await app.request(created.url);
+        const hostedCheckoutHtml = await hostedCheckout.text();
+        expect(hostedCheckoutHtml).toContain('id="checkout-email"');
+        expect(hostedCheckoutHtml).toContain('autocomplete="email" required');
+
+        const missingEmail = await app.request(`${base}/checkout/${created.id}/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "",
+        });
+        expect(missingEmail.status).toBe(422);
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        const completed = await app.request(`${base}/checkout/${created.id}/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "email=buyer%40example.com",
+        });
+        expect(completed.status).toBe(302);
+        expect(completed.headers.get("location")).toBe(`http://127.0.0.1:4322/welcome/checkout/${created.id}`);
+
+        const authoritative = await app.request(`${base}/v1/checkout/sessions/${created.id}`, {
+          headers: auth(),
+        });
+        const session = (await authoritative.json()) as Record<string, any>;
+        expect(session).toMatchObject({
+          id: created.id,
+          mode: "subscription",
+          status: "complete",
+          payment_status: "paid",
+          client_reference_id: "4cb64de3-bb27-4d99-8a74-f3cc191e3e14",
+          amount_subtotal: 6900,
+          currency: "usd",
+          livemode: false,
+        });
+        expect(session.customer.email).toBe("buyer@example.com");
+        expect(session.subscription.id).toMatch(/^sub_[A-Za-z0-9]+$/);
+        expect(session.line_items.data[0].price).toMatchObject({
+          id: "price_console_dev",
+          type: "recurring",
+          billing_scheme: "per_unit",
+          tax_behavior: "inclusive",
+          unit_amount: 6900,
+          recurring: { interval: "month", interval_count: 1, usage_type: "licensed" },
+        });
+        const subscriptionResponse = await app.request(
+          `${base}/v1/subscriptions/${session.subscription.id}?expand[]=items.data.price.product`,
+          { headers: auth() },
+        );
+        const subscription = (await subscriptionResponse.json()) as Record<string, any>;
+        expect(subscription.items.data).toHaveLength(1);
+        expect(subscription.items.data[0]).toMatchObject({
+          quantity: 1,
+          price: {
+            id: "price_console_dev",
+            unit_amount: 6900,
+            currency: "usd",
+            tax_behavior: "inclusive",
+            product: { id: "prod_console_dev", active: true },
+          },
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+        const body = String(init.body);
+        const headers = init.headers as Record<string, string>;
+        const signature = headers["Stripe-Signature"];
+        expect(signature).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+        const timestamp = signature.split(",")[0]!.slice(2);
+        const expected = createHmac("sha256", "whsec_local_stripe_secret").update(`${timestamp}.${body}`).digest("hex");
+        expect(signature).toBe(`t=${timestamp},v1=${expected}`);
+        const event = JSON.parse(body);
+        expect(event).toMatchObject({
+          api_version: "2026-06-24.preview",
+          livemode: false,
+          type: "checkout.session.completed",
+        });
+
+        fetchMock.mockClear();
+        const canceledResponse = await app.request(
+          `${base}/v1/subscriptions/${session.subscription.id}`,
+          { method: "DELETE", headers: auth() },
+        );
+        const canceled = (await canceledResponse.json()) as Record<string, any>;
+        expect(canceled.status).toBe("canceled");
+        expect(canceled.items.data[0].price.product.id).toBe("prod_console_dev");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, cancelInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+        const cancelBody = String(cancelInit.body);
+        const cancelHeaders = cancelInit.headers as Record<string, string>;
+        expect(cancelHeaders["Stripe-Signature"]).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+        expect(JSON.parse(cancelBody)).toMatchObject({
+          type: "customer.subscription.deleted",
+          data: {
+            object: {
+              id: session.subscription.id,
+              status: "canceled",
+              items: { data: [{ price: { id: "price_console_dev" } }] },
+            },
+          },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("creates and expires a checkout session", async () => {
       const createRes = await app.request(`${base}/v1/checkout/sessions`, {
         method: "POST",
@@ -346,6 +505,80 @@ describe("Stripe plugin", () => {
       const expired = (await expireRes.json()) as { status: string; url: string | null };
       expect(expired.status).toBe("expired");
       expect(expired.url).toBeNull();
+    });
+
+    it("completes payment and setup sessions without creating subscriptions", async () => {
+      for (const mode of ["payment", "setup"] as const) {
+        const createRes = await app.request(`${base}/v1/checkout/sessions`, {
+          method: "POST",
+          headers: auth(),
+          body: JSON.stringify({ mode }),
+        });
+        expect(createRes.status).toBe(200);
+        const created = (await createRes.json()) as { id: string };
+
+        const completed = await app.request(`${base}/checkout/${created.id}/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `email=${mode}%40example.com`,
+        });
+        expect(completed.status).toBe(200);
+
+        const authoritative = await app.request(`${base}/v1/checkout/sessions/${created.id}`, {
+          headers: auth(),
+        });
+        const session = (await authoritative.json()) as Record<string, any>;
+        expect(session).toMatchObject({
+          id: created.id,
+          mode,
+          status: "complete",
+          payment_status: mode === "setup" ? "no_payment_required" : "paid",
+          subscription: null,
+        });
+        if (mode === "payment") {
+          expect(session.payment_intent).toMatchObject({ status: "succeeded" });
+          const paymentIntent = await app.request(`${base}/v1/payment_intents/${session.payment_intent.id}`, {
+            headers: auth(),
+          });
+          expect(paymentIntent.status).toBe(200);
+          expect(await paymentIntent.json()).toMatchObject({
+            id: session.payment_intent.id,
+            amount: 0,
+            currency: "usd",
+            status: "succeeded",
+          });
+        } else {
+          expect(session.payment_intent).toBeNull();
+        }
+      }
+    });
+
+    it("rejects a subscription completion without a line item", async () => {
+      const createRes = await app.request(`${base}/v1/checkout/sessions`, {
+        method: "POST",
+        headers: auth(),
+        body: JSON.stringify({ mode: "subscription" }),
+      });
+      expect(createRes.status).toBe(200);
+      const created = (await createRes.json()) as { id: string };
+
+      const completed = await app.request(`${base}/checkout/${created.id}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "email=subscription%40example.com",
+      });
+      expect(completed.status).toBe(422);
+      expect(await completed.text()).toContain("A subscription checkout needs at least one line item.");
+
+      const authoritative = await app.request(`${base}/v1/checkout/sessions/${created.id}`, {
+        headers: auth(),
+      });
+      expect(await authoritative.json()).toMatchObject({
+        id: created.id,
+        status: "open",
+        subscription: null,
+        payment_intent: null,
+      });
     });
 
     it("lists with status filter", async () => {

@@ -19,6 +19,9 @@ function formatPrice(p: StripePrice) {
     currency: p.currency,
     unit_amount: p.unit_amount,
     type: p.type,
+    billing_scheme: p.billing_scheme,
+    tax_behavior: p.tax_behavior,
+    recurring: p.recurring,
     active: p.active,
     metadata: p.metadata,
     created: toUnixTimestamp(p.created_at),
@@ -69,12 +72,26 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
         "product",
       );
     }
+    const recurringInput =
+      body.recurring && typeof body.recurring === "object" ? (body.recurring as Record<string, unknown>) : null;
+    const interval = recurringInput?.interval;
+    const normalizedInterval = interval === "day" || interval === "week" || interval === "year" ? interval : "month";
     const price = ss.prices.insert({
       stripe_id: stripeId("price"),
       product_id: body.product as string,
       currency: (body.currency as string).toLowerCase(),
       unit_amount: (body.unit_amount as number) ?? null,
       type: body.recurring ? "recurring" : "one_time",
+      billing_scheme: "per_unit",
+      tax_behavior:
+        body.tax_behavior === "inclusive" || body.tax_behavior === "exclusive" ? body.tax_behavior : "unspecified",
+      recurring: recurringInput
+        ? {
+            interval: normalizedInterval,
+            interval_count: Number(recurringInput.interval_count ?? 1),
+            usage_type: (recurringInput.usage_type as "licensed" | "metered" | undefined) ?? "licensed",
+          }
+        : null,
       active: (body.active as boolean) ?? true,
       metadata: (body.metadata as Record<string, string>) ?? {},
     });
