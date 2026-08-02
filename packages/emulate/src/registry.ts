@@ -29,6 +29,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "facebook",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -567,6 +568,54 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           },
         ],
         strict_scopes: false,
+      },
+    },
+  },
+
+  facebook: {
+    label: "Facebook Login and Graph API emulator",
+    endpoints: "OAuth authorization, token exchange, token debugging, users, Pages, Page tokens, Page videos",
+    async load() {
+      const mod = await import("@emulators/facebook");
+      return { plugin: mod.facebookPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstUser = (cfg?.users as Array<{ id?: string }> | undefined)?.[0]?.id ?? "100000000000001";
+      return {
+        login: firstUser,
+        id: 1,
+        scopes: ["public_profile", "pages_show_list", "pages_read_engagement", "email"],
+      };
+    },
+    initConfig: {
+      facebook: {
+        users: [{ id: "100000000000001", name: "Test User", email: "testuser@example.com" }],
+        oauth_apps: [
+          {
+            app_id: "123456789012345",
+            app_secret: "example_app_secret",
+            name: "My Facebook App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/facebook"],
+          },
+        ],
+        pages: [
+          {
+            id: "200000000000001",
+            name: "My Page",
+            category: "Digital creator",
+            owner_user_ids: ["100000000000001"],
+          },
+        ],
+        page_videos: [
+          {
+            id: "300000000000001",
+            page_id: "200000000000001",
+            title: "Campaign video",
+            views: 1200,
+            likes: 80,
+            comments: 12,
+          },
+        ],
       },
     },
   },

@@ -1,0 +1,44 @@
+# Facebook Login and Graph API
+
+The Facebook emulator provides a focused foundation for server-side Page integrations. It seeds users, OAuth apps, Pages, and Page videos, then models the authorization code and Page-token flow.
+
+## Endpoints
+
+- GET /dialog/oauth and GET /vXX.X/dialog/oauth render the shared sign-in UI
+- GET or POST /oauth/access_token exchanges a single-use code
+- GET /debug_token validates user and Page tokens with an app access token
+- GET /me returns the token subject
+- GET /me/accounts returns Pages owned by the user and their Page access tokens
+- GET /:pageId returns an owned Page
+- GET /:videoId returns Page video fields including views and likes/comments summary counts
+
+Graph reads support bearer tokens and the access_token query parameter. The same Graph endpoints accept version prefixes such as /v23.0.
+
+## Seed configuration
+
+    facebook:
+      users:
+        - id: "1001"
+          name: Test User
+          email: test@example.com
+      oauth_apps:
+        - app_id: "123456"
+          app_secret: example_secret
+          name: My App
+          redirect_uris:
+            - http://localhost:3000/api/auth/callback/facebook
+      pages:
+        - id: "2001"
+          name: Test Page
+          owner_user_ids: ["1001"]
+      page_videos:
+        - id: "3001"
+          page_id: "2001"
+          title: Campaign video
+          views: 1200
+          likes: 80
+          comments: 12
+
+## Present limitation
+
+This does not claim complete Meta Graph API coverage. Applications need Facebook Page OAuth, a Facebook metrics client, and a configurable Graph API base URL to consume this emulator.

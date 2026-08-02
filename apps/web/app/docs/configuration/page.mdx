@@ -364,6 +364,32 @@ resend:
     - name: default
 ```
 
+## Facebook Seed Config
+
+    facebook:
+      users:
+        - id: "1001"
+          name: Test User
+          email: test@example.com
+      oauth_apps:
+        - app_id: "123456"
+          app_secret: example_secret
+          name: My Facebook App
+          redirect_uris:
+            - http://localhost:3000/api/auth/callback/facebook
+      pages:
+        - id: "2001"
+          name: Test Page
+          owner_user_ids: ["1001"]
+      page_videos:
+        - id: "3001"
+          page_id: "2001"
+          views: 1200
+          likes: 80
+          comments: 12
+
+Applications need a Facebook client and a configurable Graph API base URL to consume this emulator.
+
 ## Stripe Seed Config
 
 ```yaml
