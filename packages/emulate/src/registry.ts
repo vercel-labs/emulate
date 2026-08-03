@@ -507,7 +507,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   linear: {
     label: "Linear GraphQL API emulator",
     endpoints:
-      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agents, inspector",
+      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, Agent Interaction lifecycle with lin_test_agent, inspector",
     async load() {
       const mod = await import("@emulators/linear");
       return { plugin: mod.linearPlugin, seedFromConfig: mod.seedFromConfig };

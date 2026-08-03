@@ -28,6 +28,10 @@ async function gql(app: Hono, query: string, variables?: Record<string, unknown>
   });
 }
 
+async function agentGql(app: Hono, query: string, variables?: Record<string, unknown>) {
+  return gql(app, query, variables, "lin_test_agent");
+}
+
 describe("Linear emulator", () => {
   let app: Hono;
   let store: Store;
@@ -60,6 +64,9 @@ describe("Linear emulator", () => {
     expect(body.data.teams.nodes[0].key).toBe("ENG");
     expect(body.data.issues.nodes[0].identifier).toBe("ENG-1");
     expect(body.data.issues.nodes[0].comments.nodes[0].body).toContain("seeded");
+    const agentToken = getLinearStore(store).tokens.findOneBy("token", "lin_test_agent");
+    expect(agentToken?.actor_type).toBe("app");
+    expect(getLinearStore(store).users.findOneBy("linear_id", agentToken!.user_id!)?.app).toBe(true);
   });
 
   it("creates issues and comments that can be read back", async () => {
@@ -201,34 +208,470 @@ describe("Linear emulator", () => {
     expect(linearStore.webhooks.all()).toHaveLength(webhookCount);
   });
 
-  it("rejects explicit unknown agent user IDs", async () => {
-    const linearStore = getLinearStore(store);
-    const issue = linearStore.issues.findOneBy("identifier", "ENG-1")!;
-    const comment = linearStore.comments.findBy("issue_id", issue.linear_id)[0]!;
-    const sessionCount = linearStore.agentSessions.all().length;
+  it("supports production Agent Interaction activity content and session fields", async () => {
+    const deliveries: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("webhook-agent.test")) {
+        deliveries.push({
+          url,
+          body: JSON.parse(String(init?.body ?? "{}")),
+          headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        });
+        return new Response("ok", { status: 200 });
+      }
+      return originalFetch(input, init);
+    };
 
-    const issueSession = await gql(
+    const team = getLinearStore(store).teams.findOneBy("key", "ENG")!;
+    await gql(
+      app,
+      `mutation CreateWebhook($input: WebhookCreateInput!) {
+        webhookCreate(input: $input) { webhook { id } }
+      }`,
+      {
+        input: {
+          url: "https://webhook-agent.test/hooks",
+          resourceTypes: ["AgentSessionEvent"],
+          teamId: team.linear_id,
+          secret: "agent-secret",
+        },
+      },
+    );
+
+    const issue = getLinearStore(store).issues.findOneBy("identifier", "ENG-1")!;
+    getLinearStore(store).issues.update(issue.id, { title: "Ship <safe> & sound" });
+    const createSession = await agentGql(
+      app,
+      `mutation CreateSession($input: AgentSessionCreateOnIssue!) {
+        agentSessionCreateOnIssue(input: $input) {
+          success
+          agentSession {
+            id
+            status
+            plan
+            externalUrls
+            externalLinks { label url }
+            appUser { id }
+          }
+        }
+      }`,
+      {
+        input: {
+          issueId: issue.linear_id,
+          externalUrls: [{ label: "Dashboard", url: "https://agent.example/session/1" }],
+        },
+      },
+    );
+    expect(createSession.status).toBe(200);
+    const sessionBody = (await createSession.json()) as any;
+    expect(sessionBody.errors).toBeUndefined();
+    const session = sessionBody.data.agentSessionCreateOnIssue.agentSession;
+    expect(session.status).toBe("pending");
+    expect(session.plan).toBeNull();
+    expect(session.externalUrls).toEqual([{ label: "Dashboard", url: "https://agent.example/session/1" }]);
+    expect(session.externalLinks).toEqual(session.externalUrls);
+    expect(session.appUser.id).toBeTruthy();
+
+    const createdEvent = deliveries.find((d) => d.body.action === "created");
+    expect(createdEvent).toBeTruthy();
+    expect(Object.keys(createdEvent!.body).sort()).toEqual([
+      "action",
+      "agentSession",
+      "appUserId",
+      "createdAt",
+      "guidance",
+      "oauthClientId",
+      "organizationId",
+      "promptContext",
+      "type",
+      "webhookId",
+      "webhookTimestamp",
+    ]);
+    expect(Object.keys(createdEvent!.body.agentSession).sort()).toEqual([
+      "appUserId",
+      "archivedAt",
+      "comment",
+      "commentId",
+      "createdAt",
+      "creator",
+      "creatorId",
+      "endedAt",
+      "id",
+      "issue",
+      "issueId",
+      "organizationId",
+      "sourceCommentId",
+      "sourceMetadata",
+      "startedAt",
+      "status",
+      "summary",
+      "type",
+      "updatedAt",
+      "url",
+    ]);
+    expect(createdEvent!.body.type).toBe("AgentSessionEvent");
+    expect(createdEvent!.body.agentSession.id).toBe(session.id);
+    expect(createdEvent!.body.agentSession.status).toBe("pending");
+    expect(createdEvent!.body.appUserId).toBe(session.appUser.id);
+    expect(createdEvent!.body.oauthClientId).toBe("lin_agent_client_id");
+    expect(createdEvent!.body.agentSession.creator).toBeNull();
+    expect(createdEvent!.body.agentSession.issue.team).toMatchObject({ key: "ENG", name: "Engineering" });
+    expect(createdEvent!.body.agentSession.type).toBe("commentThread");
+    expect(createdEvent!.body).not.toHaveProperty("previousComments");
+    expect(createdEvent!.body.agentSession).not.toHaveProperty("plan");
+    expect(createdEvent!.body.agentSession).not.toHaveProperty("externalUrls");
+    expect(typeof createdEvent!.body.promptContext).toBe("string");
+    expect(createdEvent!.body.promptContext).toContain("ENG-1");
+    expect(createdEvent!.body.promptContext).toContain("<title>Ship &lt;safe&gt; &amp; sound</title>");
+    expect(createdEvent!.body.promptContext).toContain("<label>Bug</label>");
+    expect(createdEvent!.body.promptContext).toContain('<project name="Local Project"></project>');
+    expect(createdEvent!.headers["linear-event"]).toBe("AgentSessionEvent");
+    expect(createdEvent!.headers["linear-timestamp"]).toBe(String(createdEvent!.body.webhookTimestamp));
+
+    const thought = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) {
+          success
+          agentActivity {
+            id
+            content { ... on AgentActivityThoughtContent { type body } }
+            signal
+            ephemeral
+            agentSession { id status }
+          }
+        }
+      }`,
+      {
+        input: {
+          agentSessionId: session.id,
+          content: { type: "thought", body: "Reading the issue context." },
+          ephemeral: true,
+        },
+      },
+    );
+    expect(thought.status).toBe(200);
+    const thoughtBody = (await thought.json()) as any;
+    expect(thoughtBody.errors).toBeUndefined();
+    expect(thoughtBody.data.agentActivityCreate.agentActivity.content).toEqual({
+      type: "thought",
+      body: "Reading the issue context.",
+    });
+    expect(thoughtBody.data.agentActivityCreate.agentActivity.agentSession.status).toBe("active");
+
+    const action = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) {
+          agentActivity {
+            content { ... on AgentActivityActionContent { type action parameter result } }
+            agentSession { status }
+          }
+        }
+      }`,
+      {
+        input: {
+          agentSessionId: session.id,
+          content: {
+            type: "action",
+            action: "Searched",
+            parameter: "checkout a11y",
+            result: "Found 2 issues",
+          },
+        },
+      },
+    );
+    const actionBody = (await action.json()) as any;
+    expect(actionBody.errors).toBeUndefined();
+    expect(actionBody.data.agentActivityCreate.agentActivity.content.action).toBe("Searched");
+    expect(actionBody.data.agentActivityCreate.agentActivity.agentSession.status).toBe("active");
+
+    const elicitation = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) {
+          agentActivity {
+            content { ... on AgentActivityElicitationContent { type body } }
+            signal
+            signalMetadata
+            agentSession { status }
+          }
+        }
+      }`,
+      {
+        input: {
+          agentSessionId: session.id,
+          content: { type: "elicitation", body: "Which package?" },
+          signal: "select",
+          signalMetadata: {
+            options: [
+              { label: "frontend", value: "src/packages/frontend" },
+              { label: "backend", value: "src/packages/backend" },
+            ],
+          },
+        },
+      },
+    );
+    const elicitationBody = (await elicitation.json()) as any;
+    expect(elicitationBody.errors).toBeUndefined();
+    expect(elicitationBody.data.agentActivityCreate.agentActivity.signal).toBe("select");
+    expect(elicitationBody.data.agentActivityCreate.agentActivity.signalMetadata.options).toHaveLength(2);
+    expect(elicitationBody.data.agentActivityCreate.agentActivity.agentSession.status).toBe("awaitingInput");
+
+    const prompt = await gql(
+      app,
+      `mutation CreatePrompt($input: AgentActivityCreatePromptInput!) {
+        agentActivityCreatePrompt(input: $input) {
+          agentActivity {
+            id
+            content { ... on AgentActivityPromptContent { type body bodyData } }
+            contextualMetadata
+            queued
+            sentAt
+            agentSession { status }
+          }
+        }
+      }`,
+      {
+        input: {
+          agentSessionId: session.id,
+          id: "a6757a12-9bb1-4935-a24e-9d5f29444d32",
+          content: {
+            bodyData: {
+              type: "doc",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Use the frontend package." }],
+                },
+              ],
+            },
+          },
+          contextualMetadata: { source: "test" },
+          queued: true,
+        },
+      },
+    );
+    const promptBody = (await prompt.json()) as any;
+    expect(promptBody.errors).toBeUndefined();
+    const promptActivity = promptBody.data.agentActivityCreatePrompt.agentActivity;
+    expect(promptActivity.id).toBe("a6757a12-9bb1-4935-a24e-9d5f29444d32");
+    expect(promptActivity.content.body).toBe("Use the frontend package.");
+    expect(promptActivity.content.bodyData).toMatchObject({ type: "doc" });
+    expect(promptActivity.contextualMetadata).toEqual({ source: "test" });
+    expect(promptActivity.queued).toBe(true);
+    expect(promptActivity.sentAt).toBeNull();
+    expect(promptActivity.agentSession.status).toBe("awaitingInput");
+    expect(deliveries.find((d) => d.body.action === "prompted")).toBeUndefined();
+
+    const response = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) {
+          agentActivity {
+            content { ... on AgentActivityResponseContent { type body } }
+            agentSession { status endedAt }
+          }
+        }
+      }`,
+      {
+        input: {
+          agentSessionId: session.id,
+          content: { type: "response", body: "Done. Frontend package updated." },
+        },
+      },
+    );
+    const responseBody = (await response.json()) as any;
+    expect(responseBody.errors).toBeUndefined();
+    expect(responseBody.data.agentActivityCreate.agentActivity.agentSession.status).toBe("active");
+    expect(responseBody.data.agentActivityCreate.agentActivity.agentSession.endedAt).toBeNull();
+
+    const promptedEvent = deliveries.find((d) => d.body.action === "prompted");
+    expect(promptedEvent).toBeTruthy();
+    expect(Object.keys(promptedEvent!.body).sort()).toEqual([
+      "action",
+      "agentActivity",
+      "agentSession",
+      "appUserId",
+      "createdAt",
+      "guidance",
+      "oauthClientId",
+      "organizationId",
+      "type",
+      "webhookId",
+      "webhookTimestamp",
+    ]);
+    expect(Object.keys(promptedEvent!.body.agentActivity).sort()).toEqual([
+      "agentSessionId",
+      "archivedAt",
+      "content",
+      "createdAt",
+      "id",
+      "signal",
+      "signalMetadata",
+      "sourceCommentId",
+      "updatedAt",
+      "user",
+      "userId",
+    ]);
+    expect(promptedEvent!.body.agentActivity.content.type).toBe("prompt");
+    expect(promptedEvent!.body.agentActivity.content.body).toBe("Use the frontend package.");
+    expect(promptedEvent!.body.agentActivity.user).toMatchObject({
+      id: expect.any(String),
+      email: "admin@linear.local",
+    });
+    expect(promptedEvent!.body).not.toHaveProperty("promptContext");
+    expect(promptedEvent!.body).not.toHaveProperty("previousComments");
+
+    const deliveredPrompt = await gql(
+      app,
+      `query PromptDelivery($sessionId: String!, $activityId: String!) {
+        agentSession(id: $sessionId) {
+          activities(includeArchived: true, filter: { id: { eq: $activityId } }) {
+            nodes { queued sentAt }
+          }
+        }
+      }`,
+      { sessionId: session.id, activityId: promptActivity.id },
+    );
+    const deliveredPromptBody = (await deliveredPrompt.json()) as any;
+    expect(deliveredPromptBody.data.agentSession.activities.nodes[0]).toMatchObject({
+      queued: false,
+      sentAt: expect.any(String),
+    });
+
+    const finalResponse = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) {
+          agentActivity { agentSession { status endedAt } }
+        }
+      }`,
+      {
+        input: {
+          agentSessionId: session.id,
+          content: { type: "response", body: "Queued prompt handled." },
+        },
+      },
+    );
+    const finalResponseBody = (await finalResponse.json()) as any;
+    expect(finalResponseBody.data.agentActivityCreate.agentActivity.agentSession.status).toBe("complete");
+    expect(finalResponseBody.data.agentActivityCreate.agentActivity.agentSession.endedAt).toBeTruthy();
+
+    const update = await agentGql(
+      app,
+      `mutation UpdateSession($id: String!, $input: AgentSessionUpdateInput!) {
+        agentSessionUpdate(id: $id, input: $input) {
+          agentSession {
+            plan
+            externalUrls
+            externalLink
+            status
+          }
+        }
+      }`,
+      {
+        id: session.id,
+        input: {
+          plan: [{ content: "All done", status: "completed" }],
+          externalUrls: [
+            { label: "PR", url: "https://github.com/acme/app/pull/1" },
+            { label: "Logs", url: "https://agent.example/logs/1" },
+          ],
+        },
+      },
+    );
+    const updateBody = (await update.json()) as any;
+    expect(updateBody.errors).toBeUndefined();
+    expect(updateBody.data.agentSessionUpdate.agentSession.plan).toEqual([
+      { content: "All done", status: "completed" },
+    ]);
+    expect(updateBody.data.agentSessionUpdate.agentSession.externalUrls).toHaveLength(2);
+    // Status is activity-driven; update must not change it.
+    expect(updateBody.data.agentSessionUpdate.agentSession.status).toBe("complete");
+
+    const mention = await gql(
+      app,
+      `mutation CreateComment($input: CommentCreateInput!) {
+        commentCreate(input: $input) { comment { id } }
+      }`,
+      {
+        input: {
+          issueId: issue.linear_id,
+          body: "Emulate Agent please inspect <frontend> & report back.",
+        },
+      },
+    );
+    expect(mention.status).toBe(200);
+    const commentCreatedEvent = deliveries.filter((delivery) => delivery.body.action === "created")[1];
+    expect(commentCreatedEvent.body.promptContext).toContain("<primary-directive-thread");
+    expect(commentCreatedEvent.body.promptContext).toContain("&lt;frontend&gt; &amp; report back.");
+    expect(commentCreatedEvent.body.previousComments).toHaveLength(1);
+    expect(commentCreatedEvent.body.previousComments[0].body).toContain("seeded by the Linear emulator");
+  });
+
+  it("rejects invalid agent activity content shapes", async () => {
+    const issue = getLinearStore(store).issues.findOneBy("identifier", "ENG-1")!;
+    const humanSession = await gql(
       app,
       `mutation CreateSession($input: AgentSessionCreateOnIssue!) {
         agentSessionCreateOnIssue(input: $input) { agentSession { id } }
       }`,
-      { input: { issueId: issue.linear_id, agentUserId: "missing-user" } },
+      { input: { issueId: issue.linear_id } },
     );
-    expect(issueSession.status).toBe(400);
-    const issueSessionBody = (await issueSession.json()) as any;
-    expect(issueSessionBody.errors[0].message).toContain("User not found: missing-user");
+    expect(humanSession.status).toBe(400);
+    expect(((await humanSession.json()) as any).errors[0].message).toContain("OAuth app actor");
 
-    const commentSession = await gql(
+    const createSession = await agentGql(
       app,
-      `mutation CreateSession($input: AgentSessionCreateOnComment!) {
-        agentSessionCreateOnComment(input: $input) { agentSession { id } }
+      `mutation CreateSession($input: AgentSessionCreateOnIssue!) {
+        agentSessionCreateOnIssue(input: $input) { agentSession { id } }
       }`,
-      { input: { commentId: comment.linear_id, agentUserId: "missing-user" } },
+      { input: { issueId: issue.linear_id } },
     );
-    expect(commentSession.status).toBe(400);
-    const commentSessionBody = (await commentSession.json()) as any;
-    expect(commentSessionBody.errors[0].message).toContain("User not found: missing-user");
-    expect(linearStore.agentSessions.all()).toHaveLength(sessionCount);
+    const sessionId = ((await createSession.json()) as any).data.agentSessionCreateOnIssue.agentSession.id;
+
+    const missingBody = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) { agentActivity { id } }
+      }`,
+      { input: { agentSessionId: sessionId, content: { type: "thought" } } },
+    );
+    expect(missingBody.status).toBe(400);
+    expect(((await missingBody.json()) as any).errors[0].message).toContain("content.body is required");
+
+    const badSignal = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) { agentActivity { id } }
+      }`,
+      {
+        input: {
+          agentSessionId: sessionId,
+          content: { type: "thought", body: "hi" },
+          signal: "select",
+        },
+      },
+    );
+    expect(badSignal.status).toBe(400);
+    expect(((await badSignal.json()) as any).errors[0].message).toContain("select signal is only valid");
+
+    const agentPrompt = await agentGql(
+      app,
+      `mutation CreateActivity($input: AgentActivityCreateInput!) {
+        agentActivityCreate(input: $input) { agentActivity { id } }
+      }`,
+      {
+        input: {
+          agentSessionId: sessionId,
+          content: { type: "prompt", body: "Agents cannot send this." },
+        },
+      },
+    );
+    expect(agentPrompt.status).toBe(400);
+    expect(((await agentPrompt.json()) as any).errors[0].message).toContain("Agents cannot create prompt activities");
   });
 
   it("rejects adding an issue label from another team", async () => {
@@ -274,22 +717,22 @@ describe("Linear emulator", () => {
       }`,
       { input: { issueId, body: "Remove me with the issue." } },
     );
-    const sessionRes = await gql(
+    const sessionRes = await agentGql(
       app,
       `mutation CreateSession($input: AgentSessionCreateOnIssue!) {
         agentSessionCreateOnIssue(input: $input) { agentSession { id } }
       }`,
-      { input: { issueId, plan: "Clean up child records" } },
+      { input: { issueId } },
     );
     const sessionBody = (await sessionRes.json()) as any;
     const sessionId = sessionBody.data.agentSessionCreateOnIssue.agentSession.id;
 
-    await gql(
+    await agentGql(
       app,
       `mutation CreateActivity($input: AgentActivityCreateInput!) {
         agentActivityCreate(input: $input) { agentActivity { id } }
       }`,
-      { input: { sessionId, type: "response", body: "Done." } },
+      { input: { agentSessionId: sessionId, content: { type: "response", body: "Done." } } },
     );
 
     const deleteIssue = await gql(
@@ -321,22 +764,22 @@ describe("Linear emulator", () => {
     const commentBody = (await commentRes.json()) as any;
     const commentId = commentBody.data.commentCreate.comment.id;
 
-    const sessionRes = await gql(
+    const sessionRes = await agentGql(
       app,
       `mutation CreateSession($input: AgentSessionCreateOnComment!) {
         agentSessionCreateOnComment(input: $input) { agentSession { id } }
       }`,
-      { input: { commentId, plan: "Handle the comment." } },
+      { input: { commentId } },
     );
     const sessionBody = (await sessionRes.json()) as any;
     const sessionId = sessionBody.data.agentSessionCreateOnComment.agentSession.id;
 
-    await gql(
+    await agentGql(
       app,
       `mutation CreateActivity($input: AgentActivityCreateInput!) {
         agentActivityCreate(input: $input) { agentActivity { id } }
       }`,
-      { input: { sessionId, type: "response", body: "Done." } },
+      { input: { agentSessionId: sessionId, content: { type: "response", body: "Done." } } },
     );
 
     const deleteComment = await gql(
@@ -1017,6 +1460,10 @@ describe("Linear emulator", () => {
       apiKey: "lin_test_admin",
       apiUrl: `${base}/graphql`,
     });
+    const agentClient = new LinearClient({
+      apiKey: "lin_test_agent",
+      apiUrl: `${base}/graphql`,
+    });
 
     const viewer = await client.viewer;
     expect(viewer.email).toBe("admin@linear.local");
@@ -1045,7 +1492,7 @@ describe("Linear emulator", () => {
     expect(getLinearStore(store).issues.findOneBy("linear_id", issueId)?.title).toBe("Updated from SDK");
     expect(getLinearStore(store).issues.findOneBy("linear_id", issueId)?.priority).toBe(1);
 
-    const createAgentSession = await client.agentSessionCreateOnIssue({ issueId });
+    const createAgentSession = await agentClient.agentSessionCreateOnIssue({ issueId });
     expect(createAgentSession.success).toBe(true);
     expect(createAgentSession.agentSessionId).toBeTruthy();
 

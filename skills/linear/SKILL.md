@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*)
 
 # Linear API Emulator
 
-Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions.
+Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and production-shaped agent sessions (Agent Interaction).
 
 ## Start
 
@@ -38,6 +38,8 @@ curl "$LINEAR_EMULATOR_URL/graphql" \
 ```
 
 Scope checks are relaxed by default. Set `linear.strict_scopes: true` in seed config to require supported operation scopes such as `read`, `write`, `issues:create`, `comments:create`, and `admin`.
+
+Use `lin_test_agent` for agent session, activity, and plan mutations. Use `lin_test_admin` for human operations such as `agentActivityCreatePrompt`.
 
 ## Seed Config
 
@@ -100,6 +102,20 @@ Supported mutations:
 - `webhookCreate`, `webhookDelete`
 - `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`
 - `agentActivityCreate`
+- `agentActivityCreatePrompt` for local human-input simulation
+
+### Agent Interaction
+
+Matches [Linear Agent Interaction](https://linear.app/developers/agent-interaction) essentials:
+
+- `agentActivityCreate`: `agentSessionId` + `content` JSON (`thought` | `action` | `elicitation` | `response` | `error`), optional `signal` / `signalMetadata`
+- `agentSessionUpdate`: `plan` steps, `externalUrls` / `externalLink` (does not set status)
+- Session `status` is driven by activities (`active`, `awaitingInput`, `complete`, `error`, …)
+- Production-shaped `AgentSessionEvent` webhooks (`created` / `prompted`) with `agentSession`, escaped issue/label/project/directive-comment `promptContext`, `agentActivity`, OAuth client identity, and structured child payloads
+- `agentActivityCreatePrompt`: emulator-exposed version of Linear's internal human-input mutation; agents cannot create `prompt` activities through `agentActivityCreate`
+- Ephemeral `thought` and `action` activities are archived when the next agent activity arrives; query with `includeArchived: true` to include them
+- `queued: true` prompts wait for the current turn to complete or error, then reopen the session and emit `prompted`
+- Activity connections honor `filter`, `includeArchived`, `orderBy`, and Relay pagination
 
 Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
 
@@ -122,4 +138,4 @@ Open `GET /` in the Linear emulator to inspect issues, teams, users, projects, a
 
 ## Current Limits
 
-Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and full production agent behavior are not implemented.
+Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, agent guidance configuration storage, and repository suggestions are not implemented. Agent sessions follow production Agent Interaction shapes for activities, plans, external URLs, signals, status lifecycle, and session webhooks.

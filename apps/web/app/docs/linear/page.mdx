@@ -1,6 +1,6 @@
 # Linear API
 
-Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions.
+Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and production-shaped agent sessions (Agent Interaction).
 
 ## Start
 
@@ -48,12 +48,27 @@ Supported mutations:
 - `webhookCreate`, `webhookDelete`
 - `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`
 - `agentActivityCreate`
+- `agentActivityCreatePrompt` for local human-input simulation
+
+### Agent Interaction
+
+Essentials from [Linear Agent Interaction](https://linear.app/developers/agent-interaction):
+
+- `agentActivityCreate`: `agentSessionId` + nested `content` (`thought`, `action`, `elicitation`, `response`, `error`), optional `signal` / `signalMetadata`
+- `agentSessionUpdate`: `plan`, `externalUrls` / `externalLink` (status is activity-driven, not set here)
+- `AgentSessionEvent` webhooks (`created` / `prompted`) with `agentSession`, `agentActivity` on prompts, and escaped `promptContext` containing the modeled issue, labels, project, and primary directive comment
+- `agentActivityCreatePrompt`: emulator-exposed version of Linear's internal human-input mutation; agents cannot create `prompt` activities through `agentActivityCreate`
+- Ephemeral `thought` and `action` activities are archived when the next agent activity arrives and are hidden unless `includeArchived: true` is requested
+- Prompts created with `queued: true` wait for the current agent turn to complete or error, then become visible, reopen the session, and emit the `prompted` webhook
+- Activity connections honor `filter`, `includeArchived`, `orderBy`, and Relay pagination
+
+Use `lin_test_agent` for agent session, activity, and plan mutations. Use the human `lin_test_admin` token to simulate a prompt.
 
 Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
 
 ## Auth
 
-GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. The default seeded token is `lin_test_admin`.
+GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. The default seeds include the human administrator token `lin_test_admin` and the OAuth app-actor token `lin_test_agent`.
 
 Scope checks are relaxed by default. Set `linear.strict_scopes: true` to require supported operation scopes such as `read`, `write`, `issues:create`, `comments:create`, and `admin`.
 
@@ -114,4 +129,4 @@ Create local webhook subscriptions through `webhookCreate` or seed config. Suppo
 
 ## Current Limits
 
-Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and full production agent behavior are not implemented.
+Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, agent guidance storage, and repository suggestions are not implemented. Agent Interaction activity content, plans, external URLs, signals, status lifecycle, and session webhooks are supported.

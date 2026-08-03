@@ -226,6 +226,23 @@ function seedDefaults(store: Store, baseUrl: string): void {
     });
   }
 
+  let agentApp = ls.oauthApps.findOneBy("client_id", "lin_agent_client_id");
+  if (!agentApp) {
+    const agentUser = ensureAppUser(store, "Emulate Agent");
+    agentApp = ls.oauthApps.insert({
+      linear_id: linearId(),
+      client_id: "lin_agent_client_id",
+      client_secret: "agent_client_secret",
+      name: "Emulate Agent",
+      redirect_uris: [],
+      scopes: DEFAULT_SCOPES,
+      actor: "app",
+      assignable: true,
+      mentionable: true,
+      app_user_id: agentUser.linear_id,
+    });
+  }
+
   if (!ls.tokens.findOneBy("token", "lin_test_admin")) {
     ls.tokens.insert({
       token: "lin_test_admin",
@@ -233,6 +250,20 @@ function seedDefaults(store: Store, baseUrl: string): void {
       actor_type: "user",
       user_id: admin.linear_id,
       app_id: null,
+      scopes: DEFAULT_SCOPES,
+      expires_at: null,
+      revoked: false,
+      refresh_token: null,
+    });
+  }
+
+  if (!ls.tokens.findOneBy("token", "lin_test_agent")) {
+    ls.tokens.insert({
+      token: "lin_test_agent",
+      type: "client_credentials",
+      actor_type: "app",
+      user_id: agentApp.app_user_id,
+      app_id: agentApp.linear_id,
       scopes: DEFAULT_SCOPES,
       expires_at: null,
       revoked: false,
