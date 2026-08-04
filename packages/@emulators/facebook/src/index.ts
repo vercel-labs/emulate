@@ -1,5 +1,4 @@
-import type { Hono } from "hono";
-import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
+import type { AppEnv, Hono, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import { facebookRoutes } from "./routes/facebook.js";
 import { getFacebookStore } from "./store.js";
 

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Hono } from "hono";
-import { Store, WebhookDispatcher, type AppEnv, type TokenMap } from "@emulators/core";
+import { Hono, Store, WebhookDispatcher, type AppEnv, type TokenMap } from "@emulators/core";
 import { facebookPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4007";
