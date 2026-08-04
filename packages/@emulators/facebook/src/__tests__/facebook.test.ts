@@ -86,21 +86,33 @@ describe("Facebook emulator", () => {
     ({ app, store, tokenMap } = setup());
   });
 
-  it("accepts a preseeded shared bearer token for the first user", async () => {
-    tokenMap.set("test_token_admin", {
-      login: "unmatched-admin",
+  it("resolves a shared bearer token by configured user ID and preserves its scopes", async () => {
+    tokenMap.set("configured-token", {
+      login: "user-2",
       id: 1,
-      scopes: ["public_profile", "pages_show_list", "pages_read_engagement", "email"],
+      scopes: ["public_profile"],
     });
     const response = await app.request(base + "/me?fields=id,name,email", {
-      headers: { authorization: "Bearer test_token_admin" },
+      headers: { authorization: "Bearer configured-token" },
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      id: "100000000000001",
-      name: "Test User",
-      email: "testuser@example.com",
+      id: "user-2",
+      name: "Other",
     });
+
+    const accounts = await app.request(base + "/me/accounts?access_token=configured-token");
+    expect(accounts.status).toBe(403);
+  });
+
+  it("does not silently authenticate an unmatched shared token as the first user", async () => {
+    tokenMap.set("unmatched-token", {
+      login: "missing-user",
+      id: 1,
+      scopes: ["public_profile", "email"],
+    });
+    const response = await app.request(base + "/me?access_token=unmatched-token");
+    expect(response.status).toBe(401);
   });
 
   it("continues to resolve privately issued tokens", async () => {

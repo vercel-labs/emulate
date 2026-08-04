@@ -139,15 +139,18 @@ export function facebookRoutes({ app, store, tokenMap }: RouteContext): void {
     const sharedToken = tokenMap?.get(value);
     if (!sharedToken) return undefined;
     const users = fs().users.all();
-    const user =
-      users.find((candidate) => candidate.name === sharedToken.login || candidate.email === sharedToken.login) ??
-      users[0];
+    const user = users.find(
+      (candidate) =>
+        candidate.user_id === sharedToken.login ||
+        candidate.name === sharedToken.login ||
+        candidate.email === sharedToken.login,
+    );
     if (!user) return undefined;
     return {
       kind: "user",
       subjectId: user.user_id,
       appId: fs().oauthApps.all()[0]?.app_id ?? "",
-      scopes: GRANTABLE_SCOPES,
+      scopes: sharedToken.scopes,
       issuedAt: Date.now(),
     };
   };
