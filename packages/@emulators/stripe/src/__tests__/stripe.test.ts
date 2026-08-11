@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { createHmac } from "crypto";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "@emulators/core";
 import {
   Store,
@@ -41,12 +42,51 @@ function auth(): Record<string, string> {
 
 describe("Stripe plugin", () => {
   let app: Hono;
-  let webhooks: WebhookDispatcher;
 
   beforeEach(() => {
     const ctx = createTestApp();
     app = ctx.app;
-    webhooks = ctx.webhooks;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  describe("webhooks", () => {
+    it("sends Stripe signatures without GitHub headers from standalone seed config", async () => {
+      const secret = "whsec_test";
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", mockFetch);
+      const standaloneWebhooks = new WebhookDispatcher();
+
+      seedFromConfig(
+        new Store(),
+        base,
+        {
+          webhooks: [{ url: "https://hooks.example/stripe", events: ["customer.created"], secret }],
+        },
+        standaloneWebhooks,
+      );
+
+      const payload = { type: "customer.created", data: { object: { id: "cus_test" } } };
+      await standaloneWebhooks.dispatch("customer.created", undefined, payload, "stripe");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [, init] = mockFetch.mock.calls[0]!;
+      const body = (init as RequestInit).body as string;
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      const signature = headers["Stripe-Signature"];
+      expect(signature).toMatch(/^t=\d+,v1=[a-f0-9]{64}$/);
+      const match = signature.match(/^t=(\d+),v1=([a-f0-9]{64})$/);
+
+      const timestamp = match![1];
+      const expectedSignature = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+      expect(match![2]).toBe(expectedSignature);
+      expect(headers["Content-Type"]).toBe("application/json");
+      expect(headers["X-GitHub-Event"]).toBeUndefined();
+      expect(headers["X-GitHub-Delivery"]).toBeUndefined();
+      expect(headers["X-Hub-Signature-256"]).toBeUndefined();
+    });
   });
 
   describe("customers", () => {

@@ -25,6 +25,8 @@ All services start with sensible defaults. No config file needed:
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
 
+Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
+
 ## CLI
 
 ```bash

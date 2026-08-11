@@ -86,9 +86,13 @@ describe("webhook installation enrichment", () => {
     expect(mockFetch).toHaveBeenCalled();
     const [, init] = mockFetch.mock.calls[0]!;
     const body = JSON.parse((init as RequestInit).body as string);
+    const headers = (init as RequestInit).headers as Record<string, string>;
     expect(body.installation).toBeDefined();
     expect(body.installation.id).toBe(42);
     expect(body.installation.node_id).toBeTruthy();
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-GitHub-Event"]).toBe("issues");
+    expect(headers["X-GitHub-Delivery"]).toBe("1");
   });
 
   it("does not include installation when no app is installed", async () => {

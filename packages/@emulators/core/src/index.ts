@@ -29,7 +29,13 @@ export {
   type ServeOptions,
 } from "./http.js";
 export { type ServicePlugin, type RouteContext } from "./plugin.js";
-export { WebhookDispatcher, type WebhookSubscription, type WebhookDelivery } from "./webhooks.js";
+export {
+  WebhookDispatcher,
+  type WebhookSubscription,
+  type WebhookDelivery,
+  type WebhookHeaderContext,
+  type WebhookHeaderFactory,
+} from "./webhooks.js";
 export {
   errorHandler,
   createErrorHandler,
