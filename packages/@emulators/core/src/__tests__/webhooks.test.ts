@@ -245,6 +245,31 @@ describe("WebhookDispatcher", () => {
       expect(deliveries[0]!.duration).not.toBeNull();
     });
 
+    it("records a failed delivery when the header factory throws", async () => {
+      const d = new WebhookDispatcher();
+      const sub = d.register({
+        url: "https://hooks.example/fail",
+        events: ["push"],
+        active: true,
+        owner: "o",
+      });
+      d.setHeaderFactory(() => {
+        throw new Error("signing failed");
+      });
+
+      await d.dispatch("push", undefined, { x: 1 }, "o");
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(d.getDeliveries()).toEqual([
+        expect.objectContaining({
+          hook_id: sub.id,
+          status_code: null,
+          duration: 0,
+          success: false,
+        }),
+      ]);
+    });
+
     it("sets X-Hub-Signature-256 from HMAC-SHA256 when secret is set", async () => {
       const d = new WebhookDispatcher();
       const secret = "my-secret";

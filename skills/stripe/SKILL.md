@@ -291,6 +291,7 @@ curl http://localhost:4000/v1/payment_methods
 ## Webhooks
 
 The emulator dispatches webhook events when state changes. Register webhooks via seed config or programmatically.
+Webhooks configured with a `secret` include `Stripe-Signature: t=<timestamp>,v1=<signature>`. The signature is an HMAC SHA-256 over `<timestamp>.<raw body>`.
 
 ### Events dispatched
 

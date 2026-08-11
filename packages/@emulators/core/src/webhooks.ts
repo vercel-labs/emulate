@@ -22,13 +22,43 @@ export interface WebhookDelivery {
   success: boolean;
 }
 
+export interface WebhookHeaderContext {
+  event: string;
+  action?: string;
+  body: string;
+  subscription: Readonly<WebhookSubscription>;
+  deliveryId: number;
+}
+
+export type WebhookHeaderFactory = (context: WebhookHeaderContext) => Record<string, string>;
+
 const MAX_DELIVERIES = 1000;
+
+function githubHeaders({ event, body, subscription, deliveryId }: WebhookHeaderContext): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-GitHub-Event": event,
+    "X-GitHub-Delivery": String(deliveryId),
+  };
+
+  if (subscription.secret) {
+    const hmac = createHmac("sha256", subscription.secret).update(body).digest("hex");
+    headers["X-Hub-Signature-256"] = `sha256=${hmac}`;
+  }
+
+  return headers;
+}
 
 export class WebhookDispatcher {
   private subscriptions: WebhookSubscription[] = [];
   private deliveries: WebhookDelivery[] = [];
   private subscriptionIdCounter = 1;
   private deliveryIdCounter = 1;
+  private headerFactory: WebhookHeaderFactory = githubHeaders;
+
+  setHeaderFactory(factory: WebhookHeaderFactory): void {
+    this.headerFactory = factory;
+  }
 
   register(sub: Omit<WebhookSubscription, "id"> & { id?: number }): WebhookSubscription {
     const { id: explicitId, ...rest } = sub;
@@ -103,22 +133,12 @@ export class WebhookDispatcher {
 
       const body = JSON.stringify(payload);
 
-      const signatureHeaders: Record<string, string> = {};
-      if (sub.secret) {
-        const hmac = createHmac("sha256", sub.secret).update(body).digest("hex");
-        signatureHeaders["X-Hub-Signature-256"] = `sha256=${hmac}`;
-      }
-
       try {
+        const headers = this.headerFactory({ event, action, body, subscription: sub, deliveryId: delivery.id });
         const start = Date.now();
         const response = await fetch(sub.url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-GitHub-Event": event,
-            "X-GitHub-Delivery": String(delivery.id),
-            ...signatureHeaders,
-          },
+          headers,
           body,
           signal: AbortSignal.timeout(10000),
         });
