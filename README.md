@@ -124,6 +124,31 @@ await github.close()
 await vercel.close()
 ```
 
+When a GitHub App omits `private_key`, `createEmulator` generates an RSA-2048 PKCS#1 key for that emulator instance:
+
+```typescript
+const github = await createEmulator({
+  service: 'github',
+  seed: {
+    github: {
+      users: [{ login: 'octocat' }],
+      apps: [{
+        app_id: 12345,
+        slug: 'my-github-app',
+        name: 'My GitHub App',
+        installations: [{ installation_id: 100, account: 'octocat' }],
+      }],
+    },
+  },
+})
+
+const privateKey = github.generatedSecrets.find(
+  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
+)?.value
+```
+
+Generated keys remain stable across `reset()` calls and appear only in `generatedSecrets`. Explicitly configured keys are never returned there. A new `createEmulator` call generates a new key.
+
 ### Vitest / Jest setup
 
 ```typescript
@@ -160,6 +185,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | Method | Description |
 |--------|-------------|
 | `url` | Base URL of the running server |
+| `generatedSecrets` | Readonly secrets generated while preparing seed data |
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
 

@@ -2,6 +2,33 @@
 
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.
 
+## GitHub App keys
+
+The programmatic `createEmulator` API can generate a GitHub App key when `private_key` is omitted:
+
+```typescript
+const github = await createEmulator({
+  service: 'github',
+  seed: {
+    github: {
+      users: [{ login: 'octocat' }],
+      apps: [{
+        app_id: 12345,
+        slug: 'my-github-app',
+        name: 'My GitHub App',
+        installations: [{ installation_id: 100, account: 'octocat' }],
+      }],
+    },
+  },
+})
+
+const privateKey = github.generatedSecrets.find(
+  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
+)?.value
+```
+
+The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explicit keys are never included in `generatedSecrets`. CLI seed files and direct `seedFromConfig` calls still require `private_key`.
+
 ## Users
 
 - `GET /user` - authenticated user

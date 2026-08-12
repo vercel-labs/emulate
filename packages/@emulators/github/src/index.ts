@@ -1,4 +1,4 @@
-import { createHmac } from "crypto";
+import { createHmac, generateKeyPairSync } from "crypto";
 import type { Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getGitHubStore } from "./store.js";
@@ -70,7 +70,7 @@ export interface GitHubSeedConfig {
     app_id: number;
     slug: string;
     name: string;
-    private_key: string;
+    private_key?: string;
     permissions?: Record<string, string>;
     events?: string[];
     webhook_url?: string;
@@ -85,6 +85,48 @@ export interface GitHubSeedConfig {
       events?: string[];
     }>;
   }>;
+}
+
+export interface GeneratedGitHubAppPrivateKey {
+  app_id: number;
+  slug: string;
+  name: string;
+  private_key: string;
+}
+
+export interface MaterializedGitHubSeedConfig {
+  config: GitHubSeedConfig;
+  generatedPrivateKeys: GeneratedGitHubAppPrivateKey[];
+}
+
+export function materializeGitHubSeedConfig(config: GitHubSeedConfig): MaterializedGitHubSeedConfig {
+  const generatedPrivateKeys: GeneratedGitHubAppPrivateKey[] = [];
+  const apps = config.apps?.map((app) => {
+    if (app.private_key === "") {
+      throw new Error(`GitHub App "${app.slug}" private_key must not be empty`);
+    }
+    if (app.private_key !== undefined) {
+      return { ...app };
+    }
+
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "pkcs1", format: "pem" },
+    });
+    generatedPrivateKeys.push({
+      app_id: app.app_id,
+      slug: app.slug,
+      name: app.name,
+      private_key: privateKey,
+    });
+    return { ...app, private_key: privateKey };
+  });
+
+  return {
+    config: apps ? { ...config, apps } : { ...config },
+    generatedPrivateKeys,
+  };
 }
 
 function seedDefaults(store: Store, baseUrl: string): void {
@@ -136,6 +178,14 @@ function seedDefaults(store: Store, baseUrl: string): void {
 }
 
 export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  for (const app of config.apps ?? []) {
+    if (!app.private_key) {
+      throw new Error(
+        `GitHub App "${app.slug}" requires private_key when seedFromConfig is called directly; use createEmulator to generate one`,
+      );
+    }
+  }
+
   const gh = getGitHubStore(store);
 
   if (config.users) {
@@ -319,12 +369,16 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     for (const a of config.apps) {
       const existingApp = gh.apps.findOneBy("slug", a.slug);
       if (existingApp) continue;
+      const privateKey = a.private_key;
+      if (!privateKey) {
+        throw new Error(`GitHub App "${a.slug}" requires private_key`);
+      }
 
       gh.apps.insert({
         app_id: a.app_id,
         slug: a.slug,
         name: a.name,
-        private_key: a.private_key,
+        private_key: privateKey,
         permissions: a.permissions ?? {},
         events: a.events ?? [],
         webhook_url: a.webhook_url ?? null,

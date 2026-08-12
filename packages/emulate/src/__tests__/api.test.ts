@@ -1,5 +1,23 @@
+import { generateKeyPairSync, sign } from "crypto";
 import { describe, it, expect } from "vitest";
 import { createEmulator } from "../api.js";
+
+function createAppJwt(appId: string, privateKey: string): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ iat: nowSeconds - 60, exp: nowSeconds + 9 * 60, iss: appId })).toString(
+    "base64url",
+  );
+  const unsigned = `${header}.${payload}`;
+  return `${unsigned}.${sign("RSA-SHA256", Buffer.from(unsigned), privateKey).toString("base64url")}`;
+}
+
+async function createInstallationToken(url: string, appId: string, installationId: number, privateKey: string) {
+  return fetch(`${url}/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${createAppJwt(appId, privateKey)}` },
+  });
+}
 
 describe("createEmulator", () => {
   it("starts github and returns a url", async () => {
@@ -25,6 +43,7 @@ describe("createEmulator", () => {
 
     expect(github.url).toBe("http://localhost:14010");
     expect(vercel.url).toBe("http://localhost:14011");
+    expect(vercel.generatedSecrets).toEqual([]);
 
     await Promise.all([github.close(), vercel.close()]);
   });
@@ -56,6 +75,125 @@ describe("createEmulator", () => {
     expect(repos).toHaveLength(0);
 
     await github.close();
+  });
+
+  it("generates a GitHub App key once and keeps it across reset", async () => {
+    const github = await createEmulator({
+      service: "github",
+      port: 14040,
+      seed: {
+        github: {
+          users: [{ login: "octocat" }],
+          apps: [
+            {
+              app_id: 900,
+              slug: "generated-key-app",
+              name: "Generated Key App",
+              installations: [{ installation_id: 901, account: "octocat" }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(github.generatedSecrets).toHaveLength(1);
+    expect(github.generatedSecrets[0]).toMatchObject({
+      service: "github",
+      kind: "github.app_private_key",
+      id: "900",
+      label: "Generated Key App",
+    });
+    const privateKey = github.generatedSecrets[0]!.value;
+    expect(privateKey).toMatch(/^-----BEGIN RSA PRIVATE KEY-----/);
+
+    const firstToken = await createInstallationToken(github.url, "900", 901, privateKey);
+    expect(firstToken.status).toBe(201);
+    expect(((await firstToken.json()) as { token: string }).token).toMatch(/^ghs_/);
+
+    github.reset();
+
+    const tokenAfterReset = await createInstallationToken(github.url, "900", 901, privateKey);
+    expect(tokenAfterReset.status).toBe(201);
+    expect(((await tokenAfterReset.json()) as { token: string }).token).toMatch(/^ghs_/);
+    expect(github.generatedSecrets[0]!.value).toBe(privateKey);
+
+    await github.close();
+  });
+
+  it("uses an explicit GitHub App key without exposing it", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "pkcs1", format: "pem" },
+    });
+    const github = await createEmulator({
+      service: "github",
+      port: 14041,
+      seed: {
+        github: {
+          users: [{ login: "octocat" }],
+          apps: [
+            {
+              app_id: 910,
+              slug: "explicit-key-app",
+              name: "Explicit Key App",
+              private_key: privateKey,
+              installations: [{ installation_id: 911, account: "octocat" }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(github.generatedSecrets).toEqual([]);
+    const token = await createInstallationToken(github.url, "910", 911, privateKey);
+    expect(token.status).toBe(201);
+
+    await github.close();
+  });
+
+  it("rejects a JWT signed with the wrong GitHub App key", async () => {
+    const github = await createEmulator({
+      service: "github",
+      port: 14042,
+      seed: {
+        github: {
+          users: [{ login: "octocat" }],
+          apps: [
+            {
+              app_id: 920,
+              slug: "wrong-key-app",
+              name: "Wrong Key App",
+              installations: [{ installation_id: 921, account: "octocat" }],
+            },
+          ],
+        },
+      },
+    });
+    const { privateKey: wrongKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "pkcs1", format: "pem" },
+    });
+
+    const response = await createInstallationToken(github.url, "920", 921, wrongKey);
+    expect(response.status).toBe(401);
+
+    await github.close();
+  });
+
+  it("rejects an empty explicit GitHub App key", async () => {
+    await expect(
+      createEmulator({
+        service: "github",
+        port: 14043,
+        seed: {
+          github: {
+            apps: [{ app_id: 930, slug: "empty-key-app", name: "Empty Key App", private_key: "" }],
+          },
+        },
+      }),
+    ).rejects.toThrow('GitHub App "empty-key-app" private_key must not be empty');
   });
 
   it("does not grant Slack fallback scopes in strict mode", async () => {

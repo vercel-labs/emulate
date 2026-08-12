@@ -27,6 +27,32 @@ const github = await createEmulator({ service: 'github', port: 4001 })
 // github.url === 'http://localhost:4001'
 ```
 
+For a programmatic GitHub App, omit `private_key` and read the generated RSA key from the instance:
+
+```typescript
+const github = await createEmulator({
+  service: 'github',
+  port: 4001,
+  seed: {
+    github: {
+      users: [{ login: 'octocat' }],
+      apps: [{
+        app_id: 12345,
+        slug: 'my-github-app',
+        name: 'My GitHub App',
+        installations: [{ installation_id: 100, account: 'octocat' }],
+      }],
+    },
+  },
+})
+
+const privateKey = github.generatedSecrets.find(
+  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
+)?.value
+```
+
+The key remains stable across `github.reset()`. Explicit keys are not included in `generatedSecrets`. CLI seed files still require `private_key`.
+
 ## Auth
 
 Pass tokens as `Authorization: Bearer <token>` or `Authorization: token <token>`.

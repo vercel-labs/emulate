@@ -182,6 +182,21 @@ github:
           repository_selection: all
 ```
 
+The `private_key` field is required when calling `seedFromConfig` directly. To generate omitted keys before seeding, use `materializeGitHubSeedConfig` and retain the returned key material:
+
+```typescript
+import { materializeGitHubSeedConfig, seedFromConfig } from '@emulators/github'
+
+const materialized = materializeGitHubSeedConfig({
+  apps: [{ app_id: 12345, slug: 'my-github-app', name: 'My GitHub App' }],
+})
+
+seedFromConfig(store, baseUrl, materialized.config)
+const privateKey = materialized.generatedPrivateKeys[0]?.private_key
+```
+
+The `emulate` package performs this materialization automatically in `createEmulator` and exposes generated keys through `generatedSecrets`.
+
 ## Links
 
 - [Full documentation](https://emulate.dev/github)

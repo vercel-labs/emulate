@@ -1,9 +1,20 @@
 import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
 
+export interface PreparedServiceSeed {
+  config: Record<string, unknown>;
+  generatedSecrets: Array<{
+    kind: string;
+    id: string;
+    label: string;
+    value: string;
+  }>;
+}
+
 export interface LoadedService {
   plugin: ServicePlugin;
   seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
+  prepareSeed?(config: Record<string, unknown>): PreparedServiceSeed;
 }
 
 export interface ServiceEntry {
@@ -71,6 +82,18 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       return {
         plugin: mod.githubPlugin,
         seedFromConfig: mod.seedFromConfig,
+        prepareSeed(config) {
+          const materialized = mod.materializeGitHubSeedConfig(config);
+          return {
+            config: materialized.config as Record<string, unknown>,
+            generatedSecrets: materialized.generatedPrivateKeys.map((key) => ({
+              kind: "github.app_private_key",
+              id: String(key.app_id),
+              label: key.name,
+              value: key.private_key,
+            })),
+          };
+        },
         createAppKeyResolver(store: Store): AppKeyResolver {
           return (appId: number) => {
             try {
