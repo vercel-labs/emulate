@@ -14,7 +14,7 @@ export interface LoadedService {
   plugin: ServicePlugin;
   seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
-  prepareSeed?(config: Record<string, unknown>): PreparedServiceSeed;
+  prepareSeed?(config: Record<string, unknown>): Promise<PreparedServiceSeed>;
 }
 
 export interface ServiceEntry {
@@ -82,8 +82,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       return {
         plugin: mod.githubPlugin,
         seedFromConfig: mod.seedFromConfig,
-        prepareSeed(config) {
-          const materialized = mod.materializeGitHubSeedConfig(config);
+        async prepareSeed(config) {
+          const materialized = await mod.materializeGitHubSeedConfig(config);
           return {
             config: materialized.config as Record<string, unknown>,
             generatedSecrets: materialized.generatedPrivateKeys.map((key) => ({

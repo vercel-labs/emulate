@@ -1,4 +1,4 @@
-import { createHmac, generateKeyPairSync } from "crypto";
+import { createHmac, generateKeyPair } from "crypto";
 import type { Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getGitHubStore } from "./store.js";
@@ -99,32 +99,60 @@ export interface MaterializedGitHubSeedConfig {
   generatedPrivateKeys: GeneratedGitHubAppPrivateKey[];
 }
 
-export function materializeGitHubSeedConfig(config: GitHubSeedConfig): MaterializedGitHubSeedConfig {
-  const generatedPrivateKeys: GeneratedGitHubAppPrivateKey[] = [];
-  const apps = config.apps?.map((app) => {
+function generateAppPrivateKey(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    generateKeyPair(
+      "rsa",
+      {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: "pkcs1", format: "pem" },
+        publicKeyEncoding: { type: "pkcs1", format: "pem" },
+      },
+      (error, _publicKey, privateKey) => {
+        if (error) reject(error);
+        else resolve(privateKey);
+      },
+    );
+  });
+}
+
+export async function materializeGitHubSeedConfig(config: GitHubSeedConfig): Promise<MaterializedGitHubSeedConfig> {
+  const appIds = new Set<number>();
+  const slugs = new Set<string>();
+  for (const app of config.apps ?? []) {
     if (app.private_key === "") {
       throw new Error(`GitHub App "${app.slug}" private_key must not be empty`);
     }
+    if (appIds.has(app.app_id)) {
+      throw new Error(`Duplicate GitHub App app_id: ${app.app_id}`);
+    }
+    if (slugs.has(app.slug)) {
+      throw new Error(`Duplicate GitHub App slug: "${app.slug}"`);
+    }
+    appIds.add(app.app_id);
+    slugs.add(app.slug);
+  }
+
+  const generatedPrivateKeys: GeneratedGitHubAppPrivateKey[] = [];
+  const apps = [];
+  for (const app of config.apps ?? []) {
     if (app.private_key !== undefined) {
-      return { ...app };
+      apps.push({ ...app });
+      continue;
     }
 
-    const { privateKey } = generateKeyPairSync("rsa", {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: "pkcs1", format: "pem" },
-      publicKeyEncoding: { type: "pkcs1", format: "pem" },
-    });
+    const privateKey = await generateAppPrivateKey();
     generatedPrivateKeys.push({
       app_id: app.app_id,
       slug: app.slug,
       name: app.name,
       private_key: privateKey,
     });
-    return { ...app, private_key: privateKey };
-  });
+    apps.push({ ...app, private_key: privateKey });
+  }
 
   return {
-    config: apps ? { ...config, apps } : { ...config },
+    config: config.apps ? { ...config, apps } : { ...config },
     generatedPrivateKeys,
   };
 }

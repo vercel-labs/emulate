@@ -52,7 +52,8 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   }
 
   const inputSvcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
-  const preparedSeed = inputSvcSeedConfig && loaded.prepareSeed ? loaded.prepareSeed(inputSvcSeedConfig) : undefined;
+  const preparedSeed =
+    inputSvcSeedConfig && loaded.prepareSeed ? await loaded.prepareSeed(inputSvcSeedConfig) : undefined;
   const svcSeedConfig = preparedSeed?.config ?? inputSvcSeedConfig;
   const generatedSecrets: readonly GeneratedSecret[] = Object.freeze(
     (preparedSeed?.generatedSecrets ?? []).map((secret) => Object.freeze({ service, ...secret })),

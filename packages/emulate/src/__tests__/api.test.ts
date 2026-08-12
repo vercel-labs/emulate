@@ -196,6 +196,35 @@ describe("createEmulator", () => {
     ).rejects.toThrow('GitHub App "empty-key-app" private_key must not be empty');
   });
 
+  it.each([
+    {
+      name: "app ID",
+      apps: [
+        { app_id: 940, slug: "first-app", name: "First App" },
+        { app_id: 940, slug: "second-app", name: "Second App" },
+      ],
+      message: "Duplicate GitHub App app_id: 940",
+    },
+    {
+      name: "slug",
+      apps: [
+        { app_id: 950, slug: "duplicate-app", name: "First App" },
+        { app_id: 951, slug: "duplicate-app", name: "Second App" },
+      ],
+      message: 'Duplicate GitHub App slug: "duplicate-app"',
+    },
+  ])("rejects a duplicate GitHub App $name before startup", async ({ apps, message }) => {
+    await expect(
+      createEmulator({
+        service: "github",
+        port: 14044,
+        seed: { github: { apps } },
+      }),
+    ).rejects.toThrow(message);
+
+    await expect(fetch("http://localhost:14044/user")).rejects.toThrow();
+  });
+
   it("does not grant Slack fallback scopes in strict mode", async () => {
     const slack = await createEmulator({
       service: "slack",

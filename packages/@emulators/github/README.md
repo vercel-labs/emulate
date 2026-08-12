@@ -187,7 +187,7 @@ The `private_key` field is required when calling `seedFromConfig` directly. To g
 ```typescript
 import { materializeGitHubSeedConfig, seedFromConfig } from '@emulators/github'
 
-const materialized = materializeGitHubSeedConfig({
+const materialized = await materializeGitHubSeedConfig({
   apps: [{ app_id: 12345, slug: 'my-github-app', name: 'My GitHub App' }],
 })
 
