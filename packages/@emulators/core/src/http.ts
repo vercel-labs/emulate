@@ -5,7 +5,9 @@ type HeadersInit = ConstructorParameters<typeof Headers>[0];
 type FormDataEntryValue = string | File;
 
 export type ContentfulStatusCode = number;
-export type Next = () => Promise<void>;
+// Returns the downstream response so middleware can observe it (status
+// codes for logging, for example). Callers that ignore it are unaffected.
+export type Next = () => Promise<Response | void>;
 
 type VariablesOf<E> = unknown extends E
   ? Record<string, any>
@@ -330,6 +332,7 @@ export class Hono<E = unknown> {
       const next: Next = async () => {
         nextCalled = true;
         nextResponse = await run(nextIndex + 1);
+        return nextResponse;
       };
 
       const response = await matched.handler(context, next);
