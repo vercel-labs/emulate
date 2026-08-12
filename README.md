@@ -24,6 +24,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
+- **Telegram** on `http://localhost:4014`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -112,55 +113,58 @@ npm install emulate
 Each call to `createEmulator` starts a single service:
 
 ```typescript
-import { createEmulator } from 'emulate'
+import { createEmulator } from "emulate";
 
-const github = await createEmulator({ service: 'github', port: 4001 })
-const vercel = await createEmulator({ service: 'vercel', port: 4002 })
+const github = await createEmulator({ service: "github", port: 4001 });
+const vercel = await createEmulator({ service: "vercel", port: 4002 });
 
-github.url   // 'http://localhost:4001'
-vercel.url   // 'http://localhost:4002'
+github.url; // 'http://localhost:4001'
+vercel.url; // 'http://localhost:4002'
 
-await github.close()
-await vercel.close()
+await github.close();
+await vercel.close();
 ```
 
 ### Vitest / Jest setup
 
 ```typescript
 // vitest.setup.ts
-import { createEmulator, type Emulator } from 'emulate'
+import { createEmulator, type Emulator } from "emulate";
 
-let github: Emulator
-let vercel: Emulator
+let github: Emulator;
+let vercel: Emulator;
 
 beforeAll(async () => {
-  ;[github, vercel] = await Promise.all([
-    createEmulator({ service: 'github', port: 4001 }),
-    createEmulator({ service: 'vercel', port: 4002 }),
-  ])
-  process.env.GITHUB_EMULATOR_URL = github.url
-  process.env.VERCEL_EMULATOR_URL = vercel.url
-})
+  [github, vercel] = await Promise.all([
+    createEmulator({ service: "github", port: 4001 }),
+    createEmulator({ service: "vercel", port: 4002 }),
+  ]);
+  process.env.GITHUB_EMULATOR_URL = github.url;
+  process.env.VERCEL_EMULATOR_URL = vercel.url;
+});
 
-afterEach(() => { github.reset(); vercel.reset() })
-afterAll(() => Promise.all([github.close(), vercel.close()]))
+afterEach(() => {
+  github.reset();
+  vercel.reset();
+});
+afterAll(() => Promise.all([github.close(), vercel.close()]));
 ```
 
 ### Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'telegram'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
 
 ### Instance methods
 
-| Method | Description |
-|--------|-------------|
-| `url` | Base URL of the running server |
-| `reset()` | Wipe the store and replay seed data |
+| Method    | Description                                  |
+| --------- | -------------------------------------------- |
+| `url`     | Base URL of the running server               |
+| `reset()` | Wipe the store and replay seed data          |
 | `close()` | Shut down the HTTP server, returns a Promise |
 
 ## Configuration
@@ -425,6 +429,25 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+
+telegram:
+  bots:
+    - username: trip_bot
+      first_name: Trip Bot
+      token: "100001:TRIP_BOT_TOKEN"
+      commands:
+        - command: connect
+          description: Connect this chat to a trip
+  users:
+    - first_name: Alice
+      username: alice_tester
+  chats:
+    - type: private
+      between: [trip_bot, alice_tester]
+    - type: group
+      title: Morocco Planning
+      members: [alice_tester]
+      bots: [trip_bot]
 ```
 
 ## OAuth & Integrations
@@ -486,6 +509,7 @@ github:
 JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's private key (RS256). The emulator verifies the signature and resolves the app.
 
 **App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:
+
 - All webhook payloads (including repo and org hooks) include an `installation` field with `{ id, node_id }`.
 - If the app has a `webhook_url`, the emulator delivers the event there with the `installation` field and (if configured) an `X-Hub-Signature-256` header signed with `webhook_secret`.
 
@@ -544,6 +568,7 @@ microsoft:
 Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination.
 
 ### User & Teams
+
 - `GET /v2/user` - authenticated user
 - `PATCH /v2/user` - update user
 - `GET /v2/teams` - list teams (cursor paginated)
@@ -554,6 +579,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v2/teams/:teamId/members` - add member
 
 ### Projects
+
 - `POST /v11/projects` - create project (with optional env vars and git integration)
 - `GET /v10/projects` - list projects (search, cursor pagination)
 - `GET /v9/projects/:idOrName` - get project (includes env vars)
@@ -563,6 +589,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `PATCH /v1/projects/:idOrName/protection-bypass` - manage bypass secrets
 
 ### Deployments
+
 - `POST /v13/deployments` - create deployment (auto-transitions to READY)
 - `GET /v13/deployments/:idOrUrl` - get deployment (by ID or URL)
 - `GET /v6/deployments` - list deployments (filter by project, target, state)
@@ -574,6 +601,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v2/files` - upload file (by SHA digest)
 
 ### Domains
+
 - `POST /v10/projects/:idOrName/domains` - add domain (with verification challenge)
 - `GET /v9/projects/:idOrName/domains` - list domains
 - `GET /v9/projects/:idOrName/domains/:domain` - get domain
@@ -582,6 +610,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v9/projects/:idOrName/domains/:domain/verify` - verify domain
 
 ### Environment Variables
+
 - `GET /v10/projects/:idOrName/env` - list env vars (with decrypt option)
 - `POST /v10/projects/:idOrName/env` - create env vars (single, batch, upsert)
 - `GET /v10/projects/:idOrName/env/:id` - get env var
@@ -611,6 +640,7 @@ Any token of the form `vercel_blob_rw_<storeId>_<secret>` is accepted; the store
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.
 
 ### Users
+
 - `GET /user` - authenticated user
 - `PATCH /user` - update profile
 - `GET /users/:username` - get user
@@ -621,6 +651,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /users/:username/following` - list following
 
 ### Repositories
+
 - `GET /repos/:owner/:repo` - get repo
 - `GET /repositories/:id` - get repo by numeric ID
 - `POST /user/repos` - create user repo
@@ -647,6 +678,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/compare/:base...:head` - compare two refs
 
 ### Issues
+
 - `GET /repos/:owner/:repo/issues` - list (filter by state, labels, assignee, milestone, creator, since)
 - `POST /repos/:owner/:repo/issues` - create
 - `GET /repos/:owner/:repo/issues/:number` - get
@@ -657,6 +689,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` - manage assignees
 
 ### Pull Requests
+
 - `GET /repos/:owner/:repo/pulls` - list (filter by state, head, base)
 - `POST /repos/:owner/:repo/pulls` - create
 - `GET /repos/:owner/:repo/pulls/:number` - get
@@ -668,12 +701,14 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` - update branch
 
 ### Comments
+
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
 
 ### Reviews
+
 - `GET /repos/:owner/:repo/pulls/:number/reviews` - list
 - `POST /repos/:owner/:repo/pulls/:number/reviews` - create (with inline comments)
 - `GET/PUT /repos/:owner/:repo/pulls/:number/reviews/:id` - get/update
@@ -681,10 +716,12 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` - dismiss
 
 ### Labels & Milestones
+
 - Labels: full CRUD, add/remove from issues, replace all
 - Milestones: full CRUD, state transitions, issue counts
 
 ### Branches & Git Data
+
 - Branches: list, get, protection CRUD (status checks, PR reviews, enforce admins)
 - Refs: get, match, create, update, delete
 - Commits: get, create
@@ -693,21 +730,25 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Tags: get, create
 
 ### Organizations & Teams
+
 - Orgs: get, update, list
 - Org members: list, check, remove, get/set membership
 - Teams: full CRUD, members, repos
 
 ### Releases
+
 - Releases: full CRUD, latest, by tag
 - Release assets: full CRUD, upload
 - Generate release notes
 
 ### Webhooks
+
 - Repo webhooks: full CRUD, ping, test, deliveries
 - Org webhooks: full CRUD, ping
 - Real HTTP delivery to registered URLs on all state changes
 
 ### Search
+
 - `GET /search/repositories` - full query syntax (user, org, language, topic, stars, forks, etc.)
 - `GET /search/issues` - issues + PRs (repo, is, author, label, milestone, state, etc.)
 - `GET /search/users` - users + orgs
@@ -717,6 +758,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /search/labels` - label search
 
 ### Actions
+
 - Workflows: list, get, enable/disable, dispatch
 - Workflow runs: list, get, cancel, rerun, delete, logs
 - Jobs: list, get, logs
@@ -724,11 +766,13 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Secrets: repo + org CRUD
 
 ### Checks
+
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite
 - Check suites: create, get, preferences, rerequest, list by ref
 - Automatic suite status rollup from check run results
 
 ### Misc
+
 - `GET /rate_limit` - rate limit status
 - `GET /meta` - server metadata
 - `GET /octocat` - ASCII art
@@ -769,6 +813,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. Supported write state changes dispatch Slack `event_callback` payloads to configured webhook URLs.
 
 ### Auth & Chat
+
 - `POST /api/auth.test` - test authentication
 - `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
@@ -796,6 +841,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/conversations.members` - list members
 
 ### Users & Reactions
+
 - `POST /api/users.list` - list users (cursor pagination)
 - `POST /api/users.info` - get user info
 - `POST /api/users.lookupByEmail` - lookup by email
@@ -833,11 +879,13 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass the returned value as `trigger_id` or `interactivity_pointer`; generate push values with an existing `view_id` and use them within 3 seconds.
 
 ### Team, Bots & Webhooks
+
 - `POST /api/team.info` - workspace info
 - `POST /api/bots.info` - bot info
 - `POST /services/:teamId/:botId/:webhookId` - incoming webhook with text or rich payload fields
 
 ### OAuth
+
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` - token exchange
@@ -979,20 +1027,100 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `DELETE /:bucket/:key` - delete object
 
 ### SQS
+
 All operations via `POST /sqs/` with `Action` parameter:
+
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
 
 ### IAM
+
 All operations via `POST /iam/` with `Action` parameter:
+
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
 - `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
 - `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
 
 ### STS
+
 All operations via `POST /sts/` with `Action` parameter:
+
 - `GetCallerIdentity`, `AssumeRole`
+
+## Telegram Bot API
+
+End-to-end emulation of the Telegram Bot API so you can test bots without creating a real bot or clicking through Telegram clients. Fully stateful. Real grammY / telegraf / `@chat-adapter/telegram` SDKs connect unmodified.
+
+### Bot API routes (implemented)
+
+All methods are exposed under `/bot<token>/<method>`:
+
+- **Identity**: `getMe`
+- **Delivery**: `getUpdates` (with `offset`, `limit`, `timeout`, 409 on concurrent polls), `setWebhook` (HTTPS-only, with `secret_token`), `deleteWebhook`, `getWebhookInfo`
+- **Messaging**: `sendMessage`, `sendPhoto`, `sendDocument`, `sendVideo`, `sendAudio`, `sendVoice`, `sendAnimation`, `sendSticker`, `editMessageText`, `editMessageReplyMarkup`, `deleteMessage`, `sendChatAction`
+- **Streaming**: `sendMessageDraft` — emulator-only extension for testing animated streamed replies (private chats only; each call appends a snapshot under `(chat_id, draft_id, bot_id)`)
+- **Files**: `getFile`, `GET /file/bot<token>/<file_path>`
+- **Reactions**: `setMessageReaction`
+- **Callbacks**: `answerCallbackQuery`
+- **Chats**: `getChat` (returns `ChatFullInfo`), `getChatMember`, `getChatAdministrators`, `getChatMemberCount`
+- **Forum**: `createForumTopic`, `editForumTopic`, `closeForumTopic`, `reopenForumTopic`, `deleteForumTopic`
+- **Commands**: `setMyCommands`, `getMyCommands`
+
+Update types dispatched to bots: `message`, `edited_message`, `callback_query`, `my_chat_member`, `message_reaction`, `message_reaction_count`, `channel_post`, `edited_channel_post`.
+
+### Update delivery
+
+Both modes supported, per bot:
+
+- **Webhook** — after `setWebhook({url})`, the emulator POSTs Update JSON on every user action. Retries on 5xx up to 3 times with 1s / 2s / 4s backoff. Terminal on 4xx. Sends `X-Telegram-Bot-Api-Secret-Token` header if configured.
+- **Long polling** — `getUpdates(offset?, limit?, timeout?)` drains queued updates. `offset` confirms prior updates; `timeout > 0` opens a long-poll.
+
+### Test control plane
+
+The programmatic test client (`@emulators/telegram/test`) and its HTTP twin under `/_emu/telegram/*` let tests simulate user activity:
+
+```typescript
+import { createEmulator } from "emulate";
+import { createTelegramTestClient } from "@emulators/telegram/test";
+
+const emu = await createEmulator({ service: "telegram", port: 4014 });
+const tg = createTelegramTestClient(emu.url);
+
+const bot = await tg.createBot({ username: "trip_test_bot", first_name: "Trip Test" });
+const user = await tg.createUser({ first_name: "Alice" });
+const dm = await tg.createPrivateChat({ botId: bot.bot_id, userId: user.id });
+
+await tg.sendUserMessage({ chatId: dm.id, userId: user.id, text: "/connect ABC" });
+await tg.sendUserPhoto({ chatId: dm.id, userId: user.id, photoBytes: fs.readFileSync("photo.jpg") });
+await tg.clickInlineButton({ chatId: dm.id, userId: user.id, messageId: 42, callbackData: "confirm:yes" });
+
+const botReplies = await tg.getSentMessages({ chatId: dm.id });
+```
+
+HTTP equivalents:
+
+- `POST /_emu/telegram/bots` — create bot (`{ username, first_name?, token? }`)
+- `POST /_emu/telegram/users` — create user
+- `POST /_emu/telegram/chats/private` — create DM (`{ botId, userId }`)
+- `POST /_emu/telegram/chats/group` — create group (`{ title, memberIds, botIds }`)
+- `POST /_emu/telegram/chats/:chatId/messages` — simulate user message (`{ userId, text }`)
+- `POST /_emu/telegram/chats/:chatId/photos` — simulate user photo (`{ userId, photoBase64, caption? }`)
+- `POST /_emu/telegram/chats/:chatId/callbacks` — simulate button click (`{ userId, messageId, data }`)
+- `POST /_emu/telegram/chats/:chatId/edits` — simulate user message edit
+- `POST /_emu/telegram/chats/:chatId/add-bot` — add bot to chat (`{ botId, byUserId }`, dispatches `my_chat_member`)
+- `POST /_emu/telegram/chats/:chatId/remove-bot` — remove bot from chat
+- `GET /_emu/telegram/chats/:chatId/messages?scope=all|bot` — inspect messages
+- `GET /_emu/telegram/chats/:chatId/drafts/:draftId` — inspect `sendMessageDraft` snapshots
+- `POST /_emu/telegram/reset` — full wipe + seed replay
+
+### Privacy rules in groups
+
+Matches real Telegram: non-privileged bots in groups only see messages that mention them (`@bot_username`) or are addressed bot commands (`/command` or `/command@bot_username`). Set `can_read_all_group_messages: true` on a bot to disable Privacy Mode and see every message.
+
+### Non-goals
+
+Payments, games, Telegram Business API, Telegram Passport, TON wallets, BotFather account management. Out of scope forever.
 
 ## Next.js Integration
 
@@ -1012,27 +1140,27 @@ Create a catch-all route that serves emulator traffic:
 
 ```typescript
 // app/emulate/[...path]/route.ts
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
-import * as google from '@emulators/google'
+import { createEmulateHandler } from "@emulators/adapter-next";
+import * as github from "@emulators/github";
+import * as google from "@emulators/google";
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
   services: {
     github: {
       emulator: github,
       seed: {
-        users: [{ login: 'octocat', name: 'The Octocat' }],
-        repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+        users: [{ login: "octocat", name: "The Octocat" }],
+        repos: [{ owner: "octocat", name: "hello-world", auto_init: true }],
       },
     },
     google: {
       emulator: google,
       seed: {
-        users: [{ email: 'test@example.com', name: 'Test User' }],
+        users: [{ email: "test@example.com", name: "Test User" }],
       },
     },
   },
-})
+});
 ```
 
 ### Auth.js / NextAuth configuration
@@ -1040,19 +1168,17 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 Point your provider at the emulator paths on the same origin:
 
 ```typescript
-import GitHub from 'next-auth/providers/github'
+import GitHub from "next-auth/providers/github";
 
-const baseUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : 'http://localhost:3000'
+const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
 
 GitHub({
-  clientId: 'any-value',
-  clientSecret: 'any-value',
+  clientId: "any-value",
+  clientSecret: "any-value",
   authorization: { url: `${baseUrl}/emulate/github/login/oauth/authorize` },
   token: { url: `${baseUrl}/emulate/github/login/oauth/access_token` },
   userinfo: { url: `${baseUrl}/emulate/github/user` },
-})
+});
 ```
 
 No `oauth_apps` need to be seeded. When none are configured, the emulator skips `client_id`, `client_secret`, and `redirect_uri` validation.
@@ -1063,17 +1189,17 @@ Emulator UI pages use bundled fonts. Wrap your Next.js config to include them in
 
 ```typescript
 // next.config.mjs
-import { withEmulate } from '@emulators/adapter-next'
+import { withEmulate } from "@emulators/adapter-next";
 
 export default withEmulate({
   // your normal Next.js config
-})
+});
 ```
 
 If you mount the catch-all at a custom path, pass the matching prefix:
 
 ```typescript
-export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
+export default withEmulate(nextConfig, { routePrefix: "/api/emulate" });
 ```
 
 ### Persistence
@@ -1081,18 +1207,22 @@ export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
 By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter:
 
 ```typescript
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
+import { createEmulateHandler } from "@emulators/adapter-next";
+import * as github from "@emulators/github";
 
 const kvAdapter = {
-  async load() { return await kv.get('emulate-state') },
-  async save(data: string) { await kv.set('emulate-state', data) },
-}
+  async load() {
+    return await kv.get("emulate-state");
+  },
+  async save(data: string) {
+    await kv.set("emulate-state", data);
+  },
+};
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
   services: { github: { emulator: github } },
   persistence: kvAdapter,
-})
+});
 ```
 
 For local development, `@emulators/core` ships `filePersistence`:
@@ -1217,6 +1347,7 @@ packages/
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
+    telegram/       # Telegram Bot API — messages, groups, photos, callbacks, webhook/polling
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -1244,3 +1375,5 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+**Telegram**: Auth is per-request via the bot token in the URL path (`/bot<token>/<method>`). Bots are declared in the seed config or created dynamically via the test control plane (`/_emu/telegram/bots`). See `packages/@emulators/telegram/README.md` for the test-client API, webhook + long-polling support, and privacy-rule behaviour in groups.
