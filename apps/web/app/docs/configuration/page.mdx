@@ -137,7 +137,16 @@ github:
 
 JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's private key (RS256). The emulator verifies the signature and resolves the app.
 
-When using the programmatic `createEmulator` API, `private_key` may be omitted. The instance generates an RSA-2048 PKCS#1 key, exposes it through `generatedSecrets`, and keeps it stable across `reset()` calls. Seed files used by the CLI still require an explicit private key.
+When using the programmatic `createEmulator` API, `private_key` may be omitted. The instance generates an RSA-2048 PKCS#1 key, exposes it through `generatedSecrets`, and keeps it stable across `reset()` calls.
+
+The CLI can also generate omitted keys when a delivery file is requested:
+
+```bash
+npx emulate start --service github --seed emulate.config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. emulate publishes a complete owner-only JSON artifact before opening listeners or configuring portless. Explicit keys are excluded. The flag is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require an explicit private key.
 
 ## Google Seed Config
 

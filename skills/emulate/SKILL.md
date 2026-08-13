@@ -48,6 +48,9 @@ npx emulate --port 3000
 # Use a seed config file
 npx emulate --seed config.yaml
 
+# Generate omitted service secrets into a private file
+npx emulate start --seed config.yaml --generated-secrets-file .emulate-secrets.json
+
 # Generate a starter config
 npx emulate init
 
@@ -67,8 +70,11 @@ npx emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
+| `--generated-secrets-file` | none | Generate omitted service secrets and write them to a new owner-only JSON file (not supported on Windows) |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+The generated-secrets destination must not exist. emulate publishes complete JSON with `0600` permissions before opening listeners or configuring portless. Only service-generated values appear in the artifact. The flag is not supported on Windows.
 
 The advertised base URL (used in OAuth redirects, webhook URLs, etc.) can be overridden via `--base-url`, the `EMULATE_BASE_URL` env var (supports `{service}` template), or per-service `baseUrl` in the seed config. When running under portless, the `PORTLESS_URL` env var is also detected automatically.
 

@@ -195,7 +195,14 @@ seedFromConfig(store, baseUrl, materialized.config)
 const privateKey = materialized.generatedPrivateKeys[0]?.private_key
 ```
 
-The `emulate` package performs this materialization automatically in `createEmulator` and exposes generated keys through `generatedSecrets`.
+The `emulate` package performs this materialization automatically in `createEmulator` and exposes generated keys through `generatedSecrets`. The CLI can do the same when a private delivery file is requested:
+
+```bash
+npx emulate start --service github --seed emulate.config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. Explicit keys are excluded from the artifact. The flag is not supported on Windows. Without `--generated-secrets-file`, CLI seed files continue requiring `private_key`.
 
 ## Links
 

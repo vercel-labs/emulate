@@ -42,6 +42,9 @@ npx emulate --port 3000
 # Use a seed config file
 npx emulate --seed config.yaml
 
+# Generate omitted service secrets into a private file
+npx emulate start --seed config.yaml --generated-secrets-file .emulate-secrets.json
+
 # Generate a starter config
 npx emulate init
 
@@ -61,6 +64,7 @@ npx emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
+| `--generated-secrets-file` | none | Generate omitted service secrets and write them to a new owner-only JSON file (not supported on Windows) |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -148,6 +152,15 @@ const privateKey = github.generatedSecrets.find(
 ```
 
 Generated keys remain stable across `reset()` calls and appear only in `generatedSecrets`. Explicitly configured keys are never returned there. A new `createEmulator` call generates a new key.
+
+The CLI can also generate omitted GitHub App keys when a delivery file is requested:
+
+```bash
+npx emulate start --service github --seed config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. emulate publishes complete JSON with owner-only `0600` permissions before opening listeners or configuring portless. Only generated secrets are included. Explicitly configured keys are never copied into the artifact. This flag is not supported on Windows. Without `--generated-secrets-file`, CLI seed files keep requiring `private_key`.
 
 ### Vitest / Jest setup
 

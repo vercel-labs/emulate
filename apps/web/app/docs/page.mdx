@@ -39,6 +39,9 @@ npx emulate --port 3000
 # Use a seed config file
 npx emulate --seed config.yaml
 
+# Generate omitted service secrets into a private file
+npx emulate start --seed config.yaml --generated-secrets-file .emulate-secrets.json
+
 # Generate a starter config
 npx emulate init
 
@@ -75,8 +78,15 @@ npx emulate list
       <td>auto-detect</td>
       <td>Path to seed config (YAML or JSON)</td>
     </tr>
+    <tr>
+      <td><code>--generated-secrets-file</code></td>
+      <td>none</td>
+      <td>Generate omitted service secrets and write them to a new owner-only JSON file</td>
+    </tr>
   </tbody>
 </table>
+
+The generated-secrets destination must not exist. The file is published with owner-only permissions before startup. This flag is not supported on Windows.
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 

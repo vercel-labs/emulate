@@ -27,7 +27,16 @@ const privateKey = github.generatedSecrets.find(
 )?.value
 ```
 
-The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explicit keys are never included in `generatedSecrets`. CLI seed files and direct `seedFromConfig` calls still require `private_key`.
+The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explicit keys are never included in `generatedSecrets`.
+
+The CLI can generate omitted keys when you request a private delivery file:
+
+```bash
+npx emulate start --service github --seed emulate.config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. emulate publishes complete JSON with `0600` permissions before opening listeners or configuring portless. Only generated keys appear in the artifact. The flag is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require `private_key`. Direct `seedFromConfig` calls always require it.
 
 ## Users
 

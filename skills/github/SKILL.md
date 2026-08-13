@@ -51,7 +51,16 @@ const privateKey = github.generatedSecrets.find(
 )?.value
 ```
 
-The key remains stable across `github.reset()`. Explicit keys are not included in `generatedSecrets`. CLI seed files still require `private_key`.
+The key remains stable across `github.reset()`. Explicit keys are not included in `generatedSecrets`.
+
+For the CLI, omit `private_key` only when requesting a private delivery file:
+
+```bash
+npx emulate start --service github --seed emulate.config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. It is published as complete JSON with `0600` permissions before any listener or portless alias starts. Read `generatedSecrets` from the artifact, then keep the file out of source control. The flag is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require `private_key`.
 
 ## Auth
 

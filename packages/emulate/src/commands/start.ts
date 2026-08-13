@@ -6,6 +6,12 @@ import { parse as parseYaml } from "yaml";
 import pc from "picocolors";
 import { ensurePortless, registerAliases, removeAliases, portlessBaseUrl, type PortlessAlias } from "../portless.js";
 import { resolveBaseUrl } from "../base-url.js";
+import {
+  preflightGeneratedSecretsFile,
+  publishGeneratedSecretsFile,
+  type GeneratedSecretRecord,
+  type GeneratedSecretsFileTarget,
+} from "../generated-secrets-file.js";
 
 declare const PKG_VERSION: string;
 const pkg = { version: PKG_VERSION };
@@ -16,6 +22,7 @@ export interface StartOptions {
   seed?: string;
   baseUrl?: string;
   portless?: boolean;
+  generatedSecretsFile?: string;
 }
 
 interface SeedConfig {
@@ -26,6 +33,15 @@ interface SeedConfig {
 interface LoadResult {
   config: SeedConfig;
   source: string;
+}
+
+interface PreparedService {
+  svc: ServiceName;
+  entry: (typeof SERVICE_REGISTRY)[ServiceName];
+  loadedSvc: Awaited<ReturnType<(typeof SERVICE_REGISTRY)[ServiceName]["load"]>>;
+  svcSeedConfig: Record<string, unknown> | undefined;
+  port: number;
+  baseUrl: string;
 }
 
 function loadSeedConfig(seedPath?: string): LoadResult | null {
@@ -76,6 +92,53 @@ function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
   return found.length > 0 ? [...found] : null;
 }
 
+export async function prepareStartServices(
+  services: ServiceName[],
+  seedConfig: SeedConfig | null,
+  options: Pick<StartOptions, "port" | "baseUrl" | "portless">,
+  materializeGeneratedSecrets: boolean,
+): Promise<{
+  prepared: PreparedService[];
+  portlessAliases: PortlessAlias[];
+  generatedSecrets: GeneratedSecretRecord[];
+}> {
+  const portlessAliases: PortlessAlias[] = [];
+  const prepared: PreparedService[] = [];
+  const generatedSecrets: GeneratedSecretRecord[] = [];
+
+  for (let i = 0; i < services.length; i++) {
+    const svc = services[i];
+    const entry = SERVICE_REGISTRY[svc];
+    const loadedSvc = await entry.load();
+
+    const inputSvcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
+    const preparedSeed =
+      materializeGeneratedSecrets && inputSvcSeedConfig && loadedSvc.prepareSeed
+        ? await loadedSvc.prepareSeed(inputSvcSeedConfig)
+        : undefined;
+    const svcSeedConfig = preparedSeed?.config ?? inputSvcSeedConfig;
+    if (preparedSeed) {
+      generatedSecrets.push(...preparedSeed.generatedSecrets.map((secret) => ({ service: svc, ...secret })));
+    }
+    const port = (svcSeedConfig?.port as number | undefined) ?? options.port + i;
+
+    if (options.portless) {
+      portlessAliases.push({ name: `${svc}.emulate`, port });
+    }
+
+    const seedBaseUrl =
+      typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
+        ? svcSeedConfig.baseUrl
+        : undefined;
+    const effectiveBaseUrl = options.portless ? portlessBaseUrl(svc) : options.baseUrl;
+    const baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: effectiveBaseUrl, seedBaseUrl });
+
+    prepared.push({ svc, entry, loadedSvc, svcSeedConfig, port, baseUrl });
+  }
+
+  return { prepared, portlessAliases, generatedSecrets };
+}
+
 export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
 
@@ -114,42 +177,31 @@ export async function startCommand(options: StartOptions): Promise<void> {
     tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
   }
 
-  if (options.portless) {
+  let generatedSecretsTarget: GeneratedSecretsFileTarget | undefined;
+  if (options.generatedSecretsFile) {
+    generatedSecretsTarget = await preflightGeneratedSecretsFile(options.generatedSecretsFile);
+  }
+
+  if (options.portless && !generatedSecretsTarget) {
     await ensurePortless();
   }
 
-  interface PreparedService {
-    svc: ServiceName;
-    entry: (typeof SERVICE_REGISTRY)[ServiceName];
-    loadedSvc: Awaited<ReturnType<(typeof SERVICE_REGISTRY)[ServiceName]["load"]>>;
-    svcSeedConfig: Record<string, unknown> | undefined;
-    port: number;
-    baseUrl: string;
+  const { prepared, portlessAliases, generatedSecrets } = await prepareStartServices(
+    services,
+    seedConfig,
+    { port: basePort, baseUrl: options.baseUrl, portless: options.portless },
+    Boolean(generatedSecretsTarget),
+  );
+
+  if (generatedSecretsTarget) {
+    await publishGeneratedSecretsFile(generatedSecretsTarget, {
+      schemaVersion: 1,
+      generatedSecrets,
+    });
   }
 
-  const portlessAliases: PortlessAlias[] = [];
-  const prepared: PreparedService[] = [];
-
-  for (let i = 0; i < services.length; i++) {
-    const svc = services[i];
-    const entry = SERVICE_REGISTRY[svc];
-    const loadedSvc = await entry.load();
-
-    const svcSeedConfig = seedConfig?.[svc] as Record<string, unknown> | undefined;
-    const port = (svcSeedConfig?.port as number | undefined) ?? basePort + i;
-
-    if (options.portless) {
-      portlessAliases.push({ name: `${svc}.emulate`, port });
-    }
-
-    const seedBaseUrl =
-      typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
-        ? svcSeedConfig.baseUrl
-        : undefined;
-    const effectiveBaseUrl = options.portless ? portlessBaseUrl(svc) : options.baseUrl;
-    const baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: effectiveBaseUrl, seedBaseUrl });
-
-    prepared.push({ svc, entry, loadedSvc, svcSeedConfig, port, baseUrl });
+  if (options.portless && generatedSecretsTarget) {
+    await ensurePortless();
   }
 
   if (portlessAliases.length > 0) {
