@@ -1,6 +1,27 @@
 # Changelog
 
 <!-- release:start -->
+## 0.10.0
+
+### New Features
+
+- **Expanded GitHub repository APIs** add stateful contents, README, commits, comparisons, raw file downloads, Git Data shapes, branch isolation, and commit-producing file writes (#191)
+- **Generated GitHub App keys** let `createEmulator` generate RSA private keys for GitHub Apps that omit `private_key`, expose generated material through `generatedSecrets`, and preserve it across resets (#200)
+
+### Bug Fixes
+
+- Fixed **Stripe webhook signatures** to send Stripe-compatible `Stripe-Signature` headers over the raw request body (#198)
+- Fixed **GitHub App JWT verification** for documented PKCS#1 keys and PKCS#8 keys by deriving public key material before verification (#199)
+
+### Contributors
+
+- @ctate
+- @EfeDurmaz16
+- @Railly
+- @sidpalas
+
+<!-- release:end -->
+
 ## 0.9.0
 
 ### New Features
@@ -15,8 +36,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.8.0
 
