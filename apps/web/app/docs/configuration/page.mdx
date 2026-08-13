@@ -391,3 +391,24 @@ stripe:
       recurring:
         interval: month
 ```
+
+## APS Seed Config
+
+```yaml
+aps:
+  users:
+    - email: testuser@autodesk.local
+      name: Test User
+  clients:
+    - client_id: aps-test-client
+      client_secret: aps-test-secret
+      name: My APS App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/aps
+    - client_id: aps-test-app
+      type: public
+      redirect_uris:
+        - http://localhost:3000/callback
+```
+
+Client `type` is inferred when omitted: confidential when a `client_secret` is present, public otherwise.

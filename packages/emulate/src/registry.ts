@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "aps",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -648,6 +649,33 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+
+  aps: {
+    label: "Autodesk Platform Services (APS) OAuth emulator",
+    endpoints:
+      "OAuth authorize, token exchange (authorization code, refresh token, client credentials), token revocation, introspection, JWKS, logout, userinfo, OIDC discovery",
+    async load() {
+      const mod = await import("@emulators/aps");
+      return { plugin: mod.apsPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@autodesk.local";
+      return { login: firstEmail, id: 1, scopes: ["user-profile:read", "data:read", "openid"] };
+    },
+    initConfig: {
+      aps: {
+        users: [{ email: "testuser@autodesk.local", name: "Test User" }],
+        clients: [
+          {
+            client_id: "aps-test-client",
+            client_secret: "aps-test-secret",
+            name: "My APS App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/aps"],
+          },
+        ],
       },
     },
   },
