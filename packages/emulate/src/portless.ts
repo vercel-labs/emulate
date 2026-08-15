@@ -88,6 +88,7 @@ export function removeAliases(aliases: PortlessAlias[]): void {
   }
 }
 
-export function portlessBaseUrl(serviceName: string): string {
-  return `https://${serviceName}.emulate.localhost`;
+export function portlessBaseUrl(serviceName: string, slug?: string): string {
+  const host = slug ? `${serviceName}.${slug}.emulate.localhost` : `${serviceName}.emulate.localhost`;
+  return `https://${host}`;
 }
