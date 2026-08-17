@@ -1008,6 +1008,7 @@ aps:
       name: My APS App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/aps
+        - http://localhost:3000/api/auth/oauth2/callback/aps
     - client_id: aps-test-app
       type: public
       redirect_uris:

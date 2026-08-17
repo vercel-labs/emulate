@@ -673,7 +673,10 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             client_id: "aps-test-client",
             client_secret: "aps-test-secret",
             name: "My APS App",
-            redirect_uris: ["http://localhost:3000/api/auth/callback/aps"],
+            redirect_uris: [
+              "http://localhost:3000/api/auth/callback/aps",
+              "http://localhost:3000/api/auth/oauth2/callback/aps",
+            ],
           },
         ],
       },
