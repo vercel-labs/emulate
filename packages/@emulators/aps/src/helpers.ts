@@ -95,7 +95,11 @@ export function createDefaultConfidentialClient(): Omit<ApsClient, "id" | "creat
     client_secret: DEFAULT_CONFIDENTIAL_CLIENT_SECRET,
     name: "Sample APS Web App",
     type: "confidential",
-    redirect_uris: ["http://localhost:3000/api/auth/callback/aps", "http://localhost:3000/callback"],
+    redirect_uris: [
+      "http://localhost:3000/api/auth/callback/aps",
+      "http://localhost:3000/api/auth/oauth2/callback/aps",
+      "http://localhost:3000/callback",
+    ],
   };
 }
 
