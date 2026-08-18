@@ -86,7 +86,7 @@ npx emulate list
   </tbody>
 </table>
 
-The generated-secrets destination must not exist. The file is published with owner-only permissions before startup. This flag is not supported on Windows.
+The generated-secrets destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes the complete file before startup. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that requires manual recovery. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows.
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 

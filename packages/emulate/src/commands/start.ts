@@ -4,13 +4,22 @@ import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
 import pc from "picocolors";
-import { ensurePortless, registerAliases, removeAliases, portlessBaseUrl, type PortlessAlias } from "../portless.js";
+import {
+  ensurePortless,
+  registerAlias,
+  registerAliases,
+  removeAlias,
+  removeAliases,
+  portlessBaseUrl,
+  type PortlessAlias,
+} from "../portless.js";
 import { resolveBaseUrl } from "../base-url.js";
 import {
   preflightGeneratedSecretsFile,
   publishGeneratedSecretsFile,
   type GeneratedSecretRecord,
   type GeneratedSecretsFileTarget,
+  type PublishedGeneratedSecretsFile,
 } from "../generated-secrets-file.js";
 
 declare const PKG_VERSION: string;
@@ -43,6 +52,8 @@ interface PreparedService {
   port: number;
   baseUrl: string;
 }
+
+type Tokens = Record<string, { login: string; id: number; scopes?: string[] }>;
 
 function loadSeedConfig(seedPath?: string): LoadResult | null {
   if (seedPath) {
@@ -139,6 +150,124 @@ export async function prepareStartServices(
   return { prepared, portlessAliases, generatedSecrets };
 }
 
+type HttpServer = ReturnType<typeof serve>;
+
+function createPreparedServiceServer(preparedService: PreparedService, tokens: Tokens) {
+  const { entry, loadedSvc, svcSeedConfig, port, baseUrl } = preparedService;
+  let cachedResolver: AppKeyResolver | undefined = undefined;
+  const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
+    ? (appId) => cachedResolver!(appId)
+    : undefined;
+  const fallbackUser = entry.defaultFallback(svcSeedConfig);
+  const server = createServer(loadedSvc.plugin, {
+    port,
+    baseUrl,
+    tokens,
+    appKeyResolver,
+    fallbackUser,
+  });
+  cachedResolver = loadedSvc.createAppKeyResolver?.(server.store);
+  return server;
+}
+
+function seedPreparedService(
+  preparedService: PreparedService,
+  store: Store,
+  webhooks: ReturnType<typeof createServer>["webhooks"],
+): void {
+  const { loadedSvc, svcSeedConfig, baseUrl } = preparedService;
+  loadedSvc.plugin.seed?.(store, baseUrl);
+  if (svcSeedConfig && loadedSvc.seedFromConfig) {
+    loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
+  }
+}
+
+function waitForServerListening(server: HttpServer): Promise<void> {
+  if (server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    server.once("listening", onListening);
+    server.once("error", onError);
+  });
+}
+
+function closeServer(server: HttpServer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (!error || (error as NodeJS.ErrnoException).code === "ERR_SERVER_NOT_RUNNING") {
+        resolve();
+        return;
+      }
+      reject(error);
+    });
+    server.closeAllConnections();
+  });
+}
+
+function reportCleanupError(stage: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Warning: startup cleanup failed for ${stage}: ${message}`);
+}
+
+async function rollbackStartup(
+  httpServers: HttpServer[],
+  stores: Store[],
+  registeredAliases: PortlessAlias[],
+  generatedSecretsFile: PublishedGeneratedSecretsFile,
+): Promise<void> {
+  for (const server of [...httpServers].reverse()) {
+    try {
+      await closeServer(server);
+    } catch (error) {
+      reportCleanupError("listener", error);
+    }
+  }
+  for (const store of [...stores].reverse()) {
+    try {
+      store.reset();
+    } catch (error) {
+      reportCleanupError("store", error);
+    }
+  }
+  for (const alias of [...registeredAliases].reverse()) {
+    try {
+      removeAlias(alias);
+    } catch (error) {
+      reportCleanupError("portless alias", error);
+    }
+  }
+  try {
+    await generatedSecretsFile.rollback();
+  } catch (error) {
+    reportCleanupError("generated secrets file", error);
+  }
+}
+
+function installShutdown(portlessAliases: PortlessAlias[], stores: Store[], httpServers: HttpServer[]): void {
+  const shutdown = () => {
+    console.log(`\n${pc.dim("Shutting down...")}`);
+    if (portlessAliases.length > 0) {
+      removeAliases(portlessAliases);
+    }
+    for (const store of stores) {
+      store.reset();
+    }
+    for (const server of httpServers) {
+      server.close();
+    }
+    process.exit(0);
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
+
 export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
 
@@ -167,7 +296,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
     }
   }
 
-  const tokens: Record<string, { login: string; id: number; scopes?: string[] }> = {};
+  const tokens: Tokens = {};
   if (seedConfig?.tokens) {
     let tokenId = 100;
     for (const [token, user] of Object.entries(seedConfig.tokens)) {
@@ -193,73 +322,63 @@ export async function startCommand(options: StartOptions): Promise<void> {
     Boolean(generatedSecretsTarget),
   );
 
-  if (generatedSecretsTarget) {
-    await publishGeneratedSecretsFile(generatedSecretsTarget, {
-      schemaVersion: 1,
-      generatedSecrets,
-    });
-  }
-
-  if (options.portless && generatedSecretsTarget) {
-    await ensurePortless();
-  }
-
-  if (portlessAliases.length > 0) {
-    registerAliases(portlessAliases);
-  }
-
   const serviceUrls: Array<{ name: string; url: string }> = [];
   const stores: Store[] = [];
-  const httpServers: ReturnType<typeof serve>[] = [];
+  const httpServers: HttpServer[] = [];
 
-  for (const { svc, entry, loadedSvc, svcSeedConfig, port, baseUrl } of prepared) {
-    serviceUrls.push({ name: svc, url: baseUrl });
-
-    // eslint-disable-next-line prefer-const -- reassigned after closure captures it
-    let cachedResolver: AppKeyResolver | undefined;
-    const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
-      ? (appId) => cachedResolver!(appId)
-      : undefined;
-
-    const fallbackUser = entry.defaultFallback(svcSeedConfig);
-
-    const { app, store, webhooks } = createServer(loadedSvc.plugin, {
-      port,
-      baseUrl,
-      tokens,
-      appKeyResolver,
-      fallbackUser,
-    });
-    cachedResolver = loadedSvc.createAppKeyResolver?.(store);
-    stores.push(store);
-
-    loadedSvc.plugin.seed?.(store, baseUrl);
-
-    if (svcSeedConfig && loadedSvc.seedFromConfig) {
-      loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
+  if (!generatedSecretsTarget) {
+    if (portlessAliases.length > 0) {
+      registerAliases(portlessAliases);
     }
 
-    const httpServer = serve({ fetch: app.fetch, port });
-    httpServers.push(httpServer);
+    for (const preparedService of prepared) {
+      const { svc, port, baseUrl } = preparedService;
+      serviceUrls.push({ name: svc, url: baseUrl });
+      const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
+      stores.push(store);
+      seedPreparedService(preparedService, store, webhooks);
+      const httpServer = serve({ fetch: app.fetch, port });
+      httpServers.push(httpServer);
+    }
+
+    printBanner(serviceUrls, tokens, configSource);
+    installShutdown(portlessAliases, stores, httpServers);
+    return;
   }
 
-  printBanner(serviceUrls, tokens, configSource);
+  const publishedSecretsFile = await publishGeneratedSecretsFile(generatedSecretsTarget, {
+    schemaVersion: 1,
+    generatedSecrets,
+  });
+  const registeredAliases: PortlessAlias[] = [];
 
-  const shutdown = () => {
-    console.log(`\n${pc.dim("Shutting down...")}`);
-    if (portlessAliases.length > 0) {
-      removeAliases(portlessAliases);
+  try {
+    if (options.portless) {
+      await ensurePortless({ throwOnFailure: true });
     }
-    for (const store of stores) {
-      store.reset();
+    for (const alias of portlessAliases) {
+      registerAlias(alias);
+      registeredAliases.push(alias);
     }
-    for (const srv of httpServers) {
-      srv.close();
+
+    for (const preparedService of prepared) {
+      const { svc, port, baseUrl } = preparedService;
+      serviceUrls.push({ name: svc, url: baseUrl });
+      const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
+      stores.push(store);
+      seedPreparedService(preparedService, store, webhooks);
+      const httpServer = serve({ fetch: app.fetch, port });
+      httpServers.push(httpServer);
+      await waitForServerListening(httpServer);
     }
-    process.exit(0);
-  };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+
+    printBanner(serviceUrls, tokens, configSource);
+  } catch (error) {
+    await rollbackStartup(httpServers, stores, registeredAliases, publishedSecretsFile);
+    throw error;
+  }
+
+  installShutdown(registeredAliases, stores, httpServers);
 }
 
 function printBanner(

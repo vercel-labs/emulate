@@ -60,7 +60,7 @@ npx emulate start --service github --seed emulate.config.yaml \
   --generated-secrets-file .emulate-secrets.json
 ```
 
-The destination must not exist. It is published as complete JSON with `0600` permissions before any listener or portless alias starts. Read `generatedSecrets` from the artifact, then keep the file out of source control. The flag is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require `private_key`.
+The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before any listener or portless alias starts. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Read `generatedSecrets` from the artifact, then keep the file out of source control. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require `private_key`.
 
 ## Auth
 

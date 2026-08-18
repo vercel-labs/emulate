@@ -1,4 +1,5 @@
-import { access, chmod, lstat, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { access, chmod, lstat, mkdtemp, readFile, readdir, rename, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,6 +42,19 @@ describe("generated secrets file", () => {
     expect(JSON.parse(await readFile(destination, "utf8"))).toEqual(payload);
     expect((await lstat(destination)).mode & 0o777).toBe(0o600);
     expect(await readdir(directory)).toEqual(["secrets.json"]);
+  });
+
+  it.runIf(process.platform === "darwin")("removes inherited ACLs before publishing", async () => {
+    const directory = await temporaryDirectory();
+    const destination = join(directory, "secrets.json");
+    execFileSync("/bin/chmod", ["+a", "group:everyone allow read,file_inherit", directory]);
+
+    const target = await preflightGeneratedSecretsFile(destination);
+    await publishGeneratedSecretsFile(target, artifact());
+
+    const acl = execFileSync("/bin/ls", ["-le", destination], { encoding: "utf8" });
+    expect(acl).not.toMatch(/^\s+\d+:/m);
+    expect((await lstat(destination)).mode & 0o777).toBe(0o600);
   });
 
   it("keeps 0600 permissions under a restrictive umask", async () => {
@@ -166,5 +180,35 @@ describe("generated secrets file", () => {
       expect(() => JSON.parse(observation)).not.toThrow();
       expect(JSON.parse(observation)).toEqual(payload);
     }
+  });
+
+  it("rolls back only the exact published inode", async () => {
+    const directory = await temporaryDirectory();
+    const destination = join(directory, "secrets.json");
+    const replacement = join(directory, "replacement.json");
+    const target = await preflightGeneratedSecretsFile(destination);
+    const published = await publishGeneratedSecretsFile(target, artifact());
+
+    await rename(destination, join(directory, "published.json"));
+    await writeFile(replacement, "keep");
+    await rename(replacement, destination);
+    await published.rollback();
+
+    expect(await readFile(destination, "utf8")).toBe("keep");
+    expect(await readFile(join(directory, "published.json"), "utf8")).toContain("secret");
+  });
+
+  it("removes the owned artifact and permits immediate retry", async () => {
+    const directory = await temporaryDirectory();
+    const destination = join(directory, "secrets.json");
+    const target = await preflightGeneratedSecretsFile(destination);
+    const published = await publishGeneratedSecretsFile(target, artifact());
+
+    await published.rollback();
+
+    await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
+    const retryTarget = await preflightGeneratedSecretsFile(destination);
+    await publishGeneratedSecretsFile(retryTarget, artifact("retry"));
+    expect(await readFile(destination, "utf8")).toContain("retry");
   });
 });

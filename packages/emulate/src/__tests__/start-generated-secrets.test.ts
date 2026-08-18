@@ -1,5 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer as createNodeServer } from "node:net";
+import { access, chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -296,5 +297,214 @@ describe("CLI generated secrets", () => {
       "https://github.emulate.localhost",
       "https://vercel.emulate.localhost",
     ]);
+  });
+
+  it("removes a published artifact when Portless fails and permits immediate retry", async () => {
+    const directory = await temporaryDirectory();
+    const seedPath = join(directory, "seed.yaml");
+    const destination = join(directory, "secrets.json");
+    await writeFile(seedPath, "vercel:\n  users:\n    - username: developer\n");
+    const originalPath = process.env.PATH;
+    process.env.PATH = directory;
+    try {
+      await expect(
+        startCommand({
+          port: 15060,
+          service: "vercel",
+          seed: seedPath,
+          generatedSecretsFile: destination,
+          portless: true,
+        }),
+      ).rejects.toThrow("portless is required");
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
+    const beforeSigint = process.listeners("SIGINT");
+    const beforeSigterm = process.listeners("SIGTERM");
+    await startCommand({
+      port: 15060,
+      service: "vercel",
+      seed: seedPath,
+      generatedSecretsFile: destination,
+    });
+    const shutdown = process.listeners("SIGTERM").find((listener) => !beforeSigterm.includes(listener));
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("test shutdown");
+    }) as typeof process.exit);
+    expect(() => shutdown?.("SIGTERM")).toThrow("test shutdown");
+    exit.mockRestore();
+    for (const listener of process.listeners("SIGINT")) {
+      if (!beforeSigint.includes(listener)) process.removeListener("SIGINT", listener);
+    }
+    for (const listener of process.listeners("SIGTERM")) {
+      if (!beforeSigterm.includes(listener)) process.removeListener("SIGTERM", listener);
+    }
+  });
+
+  it("removes registered aliases and the artifact when a later alias fails", async () => {
+    const directory = await temporaryDirectory();
+    const seedPath = join(directory, "seed.yaml");
+    const destination = join(directory, "secrets.json");
+    const portlessPath = join(directory, "portless");
+    const logPath = join(directory, "portless.log");
+    await writeFile(seedPath, "vercel: {}\nresend: {}\n");
+    await writeFile(
+      portlessPath,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ] || [ "$1" = "list" ]; then exit 0; fi',
+        'if [ "$1" = "alias" ] && [ "$2" = "resend.emulate" ]; then exit 1; fi',
+        'printf "%s\\n" "$*" >> "$PORTLESS_TEST_LOG"',
+      ].join("\n"),
+    );
+    await chmod(portlessPath, 0o700);
+    const originalPath = process.env.PATH;
+    const originalLog = process.env.PORTLESS_TEST_LOG;
+    process.env.PATH = `${directory}:${originalPath}`;
+    process.env.PORTLESS_TEST_LOG = logPath;
+    try {
+      await expect(
+        startCommand({
+          port: 15065,
+          service: "vercel,resend",
+          seed: seedPath,
+          generatedSecretsFile: destination,
+          portless: true,
+        }),
+      ).rejects.toThrow("Failed to register portless alias: resend.emulate");
+    } finally {
+      process.env.PATH = originalPath;
+      if (originalLog === undefined) delete process.env.PORTLESS_TEST_LOG;
+      else process.env.PORTLESS_TEST_LOG = originalLog;
+    }
+
+    expect(await readFile(logPath, "utf8")).toBe(
+      ["alias vercel.emulate 15065 --force", "alias --remove vercel.emulate", ""].join("\n"),
+    );
+    await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves the startup error and continues cleanup when alias removal fails", async () => {
+    const directory = await temporaryDirectory();
+    const seedPath = join(directory, "seed.yaml");
+    const destination = join(directory, "secrets.json");
+    const portlessPath = join(directory, "portless");
+    await writeFile(seedPath, "vercel: {}\nresend: {}\n");
+    await writeFile(
+      portlessPath,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ] || [ "$1" = "list" ]; then exit 0; fi',
+        'if [ "$1" = "alias" ] && [ "$2" = "resend.emulate" ]; then exit 1; fi',
+        'if [ "$1" = "alias" ] && [ "$2" = "--remove" ]; then exit 1; fi',
+      ].join("\n"),
+    );
+    await chmod(portlessPath, 0o700);
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${directory}:${originalPath}`;
+    try {
+      await expect(
+        startCommand({
+          port: 15067,
+          service: "vercel,resend",
+          seed: seedPath,
+          generatedSecretsFile: destination,
+          portless: true,
+        }),
+      ).rejects.toThrow("Failed to register portless alias: resend.emulate");
+    } finally {
+      process.env.PATH = originalPath;
+    }
+
+    expect(stderr).toHaveBeenCalledWith(
+      "Warning: startup cleanup failed for portless alias: failed to remove portless alias: vercel.emulate",
+    );
+    await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes the artifact when seeding fails after store creation", async () => {
+    const directory = await temporaryDirectory();
+    const seedPath = join(directory, "seed.yaml");
+    const destination = join(directory, "secrets.json");
+    await writeFile(seedPath, "vercel: {}\n");
+    const originalLoad = SERVICE_REGISTRY.vercel.load;
+    vi.spyOn(SERVICE_REGISTRY.vercel, "load").mockImplementation(async () => {
+      const loaded = await originalLoad();
+      return {
+        ...loaded,
+        seedFromConfig() {
+          throw new Error("forced seed failure");
+        },
+      };
+    });
+
+    await expect(
+      startCommand({
+        port: 15068,
+        service: "vercel",
+        seed: seedPath,
+        generatedSecretsFile: destination,
+      }),
+    ).rejects.toThrow("forced seed failure");
+
+    await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fetch("http://localhost:15068/v2/user")).rejects.toThrow();
+  });
+
+  it("closes an earlier listener and removes the artifact when a later listener cannot bind", async () => {
+    const directory = await temporaryDirectory();
+    const seedPath = join(directory, "seed.yaml");
+    const destination = join(directory, "secrets.json");
+    const basePort = 15070;
+    await writeFile(seedPath, "vercel: {}\nresend: {}\n");
+    const blocker = createNodeServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(basePort + 1, resolve);
+    });
+
+    try {
+      await expect(
+        startCommand({
+          port: basePort,
+          service: "vercel,resend",
+          seed: seedPath,
+          generatedSecretsFile: destination,
+        }),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        blocker.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+
+    await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fetch(`http://localhost:${basePort}/v2/user`)).rejects.toThrow();
+    const beforeSigint = process.listeners("SIGINT");
+    const beforeSigterm = process.listeners("SIGTERM");
+    await startCommand({
+      port: basePort,
+      service: "vercel,resend",
+      seed: seedPath,
+      generatedSecretsFile: destination,
+    });
+    const shutdown = process.listeners("SIGTERM").find((listener) => !beforeSigterm.includes(listener));
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("test shutdown");
+    }) as typeof process.exit);
+    expect(() => shutdown?.("SIGTERM")).toThrow("test shutdown");
+    exit.mockRestore();
+    for (const listener of process.listeners("SIGINT")) {
+      if (!beforeSigint.includes(listener)) process.removeListener("SIGINT", listener);
+    }
+    for (const listener of process.listeners("SIGTERM")) {
+      if (!beforeSigterm.includes(listener)) process.removeListener("SIGTERM", listener);
+    }
   });
 });

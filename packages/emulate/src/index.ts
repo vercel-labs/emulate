@@ -39,7 +39,7 @@ program
   .option("--portless", "Serve over HTTPS via portless (auto-registers aliases)")
   .option(
     "--generated-secrets-file <path>",
-    "Write service-generated secrets to a new owner-only JSON file (not supported on Windows)",
+    "Write service-generated secrets to a new owner-only JSON file (Linux requires setfacl and getfacl)",
   )
   .action(async (opts) => {
     const port = parseInt(opts.port, 10);
