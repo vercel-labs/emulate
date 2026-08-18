@@ -303,9 +303,15 @@ describe("CLI generated secrets", () => {
     const directory = await temporaryDirectory();
     const seedPath = join(directory, "seed.yaml");
     const destination = join(directory, "secrets.json");
+    const portlessPath = join(directory, "portless");
+    const logPath = join(directory, "portless.log");
     await writeFile(seedPath, "vercel:\n  users:\n    - username: developer\n");
+    await writeFile(portlessPath, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PORTLESS_TEST_LOG"\nexit 1\n');
+    await chmod(portlessPath, 0o700);
     const originalPath = process.env.PATH;
-    process.env.PATH = directory;
+    const originalLog = process.env.PORTLESS_TEST_LOG;
+    process.env.PATH = `${directory}:${originalPath}`;
+    process.env.PORTLESS_TEST_LOG = logPath;
     try {
       await expect(
         startCommand({
@@ -318,8 +324,11 @@ describe("CLI generated secrets", () => {
       ).rejects.toThrow("portless is required");
     } finally {
       process.env.PATH = originalPath;
+      if (originalLog === undefined) delete process.env.PORTLESS_TEST_LOG;
+      else process.env.PORTLESS_TEST_LOG = originalLog;
     }
 
+    expect(await readFile(logPath, "utf8")).toBe("--version\n");
     await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
     const beforeSigint = process.listeners("SIGINT");
     const beforeSigterm = process.listeners("SIGTERM");
