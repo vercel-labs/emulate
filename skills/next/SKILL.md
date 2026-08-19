@@ -104,12 +104,6 @@ import * as github from '@emulators/github'
 const kvAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data: string) { await kv.set('emulate-state', data) },
-  async initialize(data: string) {
-    await kv.set('emulate-state', data, { nx: true })
-    const selected = await kv.get('emulate-state')
-    if (selected === null) throw new Error('Failed to initialize emulator state')
-    return selected
-  },
 }
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
@@ -129,18 +123,7 @@ import { filePersistence } from '@emulators/core'
 persistence: filePersistence('.emulate/state.json'),
 ```
 
-### GitHub App private keys
-
-GitHub App seeds may omit `private_key`. Retain the returned server handler to read generated keys in server code:
-
-```typescript
-const emulator = createEmulateHandler(config)
-export const { GET, POST, PUT, PATCH, DELETE } = emulator
-
-const [appKey] = await emulator.generatedSecrets()
-```
-
-Explicit keys are excluded. Persistence restores the same generated identity across cold starts. Its snapshot contains the private key, so use a private backend and never return generated secrets from a route or import the route module into Client Components.
+GitHub App seeds may omit `private_key`. Retain the handler and call server-only `generatedSecrets()`; explicit keys are excluded. Keep persisted snapshots private and implement `initialize` atomically.
 
 ### How Persistence Works
 
@@ -169,8 +152,6 @@ Explicit keys are excluded. Persistence restores the same generated identity acr
 |-------|------|-------------|
 | `services` | `Record<string, EmulatorEntry>` | Map of service name to emulator config |
 | `persistence?` | `PersistenceAdapter` | Optional persistence adapter for state across cold starts |
-
-The returned handler object also provides `generatedSecrets(): Promise<readonly GeneratedSecret[]>` for server-only access to generated material.
 
 Each `EmulatorEntry`:
 

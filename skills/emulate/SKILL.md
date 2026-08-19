@@ -383,12 +383,6 @@ import type { PersistenceAdapter } from '@emulators/core'
 const kvAdapter: PersistenceAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data) { await kv.set('emulate-state', data) },
-  async initialize(data) {
-    await kv.set('emulate-state', data, { nx: true })
-    const selected = await kv.get('emulate-state')
-    if (selected === null) throw new Error('Failed to initialize emulator state')
-    return selected
-  },
 }
 ```
 

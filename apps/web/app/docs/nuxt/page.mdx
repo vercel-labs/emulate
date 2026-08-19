@@ -46,16 +46,7 @@ This creates these routes:
 
 ## GitHub App Private Keys
 
-GitHub App seeds may omit `private_key`. Retain the server handler when application code needs the generated key:
-
-```typescript
-const emulator = createEmulateHandler(config)
-export default defineEventHandler(emulator)
-
-const [appKey] = await emulator.generatedSecrets()
-```
-
-Explicit keys are excluded. Persistence restores the same generated identity across cold starts. The persisted snapshot contains the private key, so use a private backend and never expose generated secrets through an event handler or public runtime config.
+GitHub App seeds may omit `private_key`; retain the handler and call server-only `generatedSecrets()`. Keep persisted generated keys private and implement atomic `initialize`.
 
 ## Nuxt Config
 
@@ -99,14 +90,8 @@ import { createEmulateHandler } from '@emulators/adapter-nuxt'
 import * as github from '@emulators/github'
 
 const storageAdapter = {
-  async load() { return await redis.get('emulate-state') },
-  async save(data: string) { await redis.set('emulate-state', data) },
-  async initialize(data: string) {
-    await redis.set('emulate-state', data, { nx: true })
-    const selected = await redis.get('emulate-state')
-    if (selected === null) throw new Error('Failed to initialize emulator state')
-    return selected
-  },
+  async load() { return await useStorage('emulate').getItem<string>('state') },
+  async save(data: string) { await useStorage('emulate').setItem('state', data) },
 }
 
 export default defineEventHandler(createEmulateHandler({
@@ -125,7 +110,7 @@ import { filePersistence } from '@emulators/core'
 persistence: filePersistence('.emulate/state.json'),
 ```
 
-`initialize` must atomically create the initial value or return the value another instance created first. It is required when generated GitHub App identities may be used. The built-in file adapter implements this contract.
+Generated identities require atomic create-or-read `initialize`; see `@emulators/core`.
 
 ### How It Works
 

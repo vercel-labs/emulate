@@ -1074,16 +1074,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 })
 ```
 
-GitHub App seeds may omit `private_key`. Keep the returned handler object in this server route to read generated keys without adding an HTTP endpoint:
-
-```typescript
-const emulator = createEmulateHandler(config)
-export const { GET, POST, PUT, PATCH, DELETE } = emulator
-
-const [appKey] = await emulator.generatedSecrets()
-```
-
-Explicit keys are excluded. Persistence restores the same generated identity across cold starts. The persistence value contains the private key, so store it in a private backend and never return `generatedSecrets()` from a route or import this module into client code.
+GitHub App seeds may omit `private_key`. Retain the handler to call server-only `generatedSecrets()`; explicit keys are excluded. Persisted snapshots contain generated keys, so keep the backend private.
 
 ### Auth.js / NextAuth configuration
 
@@ -1137,12 +1128,6 @@ import * as github from '@emulators/github'
 const kvAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data: string) { await kv.set('emulate-state', data) },
-  async initialize(data: string) {
-    await kv.set('emulate-state', data, { nx: true })
-    const selected = await kv.get('emulate-state')
-    if (selected === null) throw new Error('Failed to initialize emulator state')
-    return selected
-  },
 }
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
@@ -1160,7 +1145,7 @@ import { filePersistence } from '@emulators/core'
 persistence: filePersistence('.emulate/state.json'),
 ```
 
-The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions. `initialize` must atomically create the initial value or return the value another instance created first; it is required when generated GitHub App identities may be used.
+The persistence adapter loads on cold start and saves after mutations. Generated identities also require atomic create-or-read `initialize`; see `@emulators/core`.
 
 ## Nuxt Integration
 
@@ -1203,16 +1188,7 @@ export default defineEventHandler(createEmulateHandler({
 }))
 ```
 
-GitHub App seeds may omit `private_key`. Retain the server handler when application code needs the generated key:
-
-```typescript
-const emulator = createEmulateHandler(config)
-export default defineEventHandler(emulator)
-
-const [appKey] = await emulator.generatedSecrets()
-```
-
-Explicit keys are excluded. Persistence restores the same generated identity across cold starts. The persistence value contains the private key, so store it in a private backend and never expose `generatedSecrets()` through an event handler or public runtime config.
+GitHub App seeds may omit `private_key`. Retain the handler to call server-only `generatedSecrets()`; explicit keys are excluded. Persisted snapshots contain generated keys, so keep the backend private.
 
 ### Nuxt config
 
@@ -1254,14 +1230,8 @@ import { createEmulateHandler } from '@emulators/adapter-nuxt'
 import * as github from '@emulators/github'
 
 const storageAdapter = {
-  async load() { return await redis.get('emulate-state') },
-  async save(data: string) { await redis.set('emulate-state', data) },
-  async initialize(data: string) {
-    await redis.set('emulate-state', data, { nx: true })
-    const selected = await redis.get('emulate-state')
-    if (selected === null) throw new Error('Failed to initialize emulator state')
-    return selected
-  },
+  async load() { return await useStorage('emulate').getItem<string>('state') },
+  async save(data: string) { await useStorage('emulate').setItem('state', data) },
 }
 
 export default defineEventHandler(createEmulateHandler({
@@ -1270,7 +1240,7 @@ export default defineEventHandler(createEmulateHandler({
 }))
 ```
 
-The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions. `initialize` must atomically create the initial value or return the value another instance created first; it is required when generated GitHub App identities may be used.
+The persistence adapter loads on cold start and saves after mutations. Generated identities also require atomic create-or-read `initialize`; see `@emulators/core`.
 
 ## Architecture
 

@@ -40,18 +40,14 @@ Any object with `load` and `save` methods works. Add `initialize` when a service
 const kvAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data: string) { await kv.set('emulate-state', data) },
-  async initialize(data: string) {
+  async initialize(data: string) { // atomic create-or-read
     await kv.set('emulate-state', data, { nx: true })
-    const selected = await kv.get('emulate-state')
-    if (selected === null) throw new Error('Failed to initialize emulator state')
-    return selected
+    return (await kv.get('emulate-state'))!
   },
 }
 ```
 
 The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
-
-`initialize` must atomically store initial state or return the state another cold start stored first. It is required for generated GitHub App identities, and its return value must never be `null`. The built-in file adapter implements this contract.
 
 ## Links
 
