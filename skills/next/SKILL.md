@@ -104,6 +104,12 @@ import * as github from '@emulators/github'
 const kvAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data: string) { await kv.set('emulate-state', data) },
+  async initialize(data: string) {
+    await kv.set('emulate-state', data, { nx: true })
+    const selected = await kv.get('emulate-state')
+    if (selected === null) throw new Error('Failed to initialize emulator state')
+    return selected
+  },
 }
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
@@ -123,6 +129,19 @@ import { filePersistence } from '@emulators/core'
 persistence: filePersistence('.emulate/state.json'),
 ```
 
+### GitHub App private keys
+
+GitHub App seeds may omit `private_key`. Retain the returned server handler to read generated keys in server code:
+
+```typescript
+const emulator = createEmulateHandler(config)
+export const { GET, POST, PUT, PATCH, DELETE } = emulator
+
+const [appKey] = await emulator.generatedSecrets()
+```
+
+Explicit keys are excluded. Persistence restores the same generated identity across cold starts. Its snapshot contains the private key, so use a private backend and never return generated secrets from a route or import the route module into Client Components.
+
 ### How Persistence Works
 
 - **Cold start**: The adapter loads state from the persistence adapter. If found, it restores the full Store and token map (skipping seed). If not found, it seeds from config and saves the initial state.
@@ -140,7 +159,7 @@ persistence: filePersistence('.emulate/state.json'),
 ## Limitations
 
 - Requires the Node.js runtime (not Edge) since emulators use `crypto.randomBytes`
-- Concurrent serverless instances writing to the same persistence adapter use last-write-wins semantics (acceptable for dev/preview traffic)
+- Concurrent mutations use last-write-wins semantics. Generated identities require `initialize` to select the initial snapshot atomically across cold starts.
 
 ## Config Reference
 
@@ -150,6 +169,8 @@ persistence: filePersistence('.emulate/state.json'),
 |-------|------|-------------|
 | `services` | `Record<string, EmulatorEntry>` | Map of service name to emulator config |
 | `persistence?` | `PersistenceAdapter` | Optional persistence adapter for state across cold starts |
+
+The returned handler object also provides `generatedSecrets(): Promise<readonly GeneratedSecret[]>` for server-only access to generated material.
 
 Each `EmulatorEntry`:
 
@@ -172,7 +193,8 @@ Wraps a Next.js config to include emulator font files in the serverless output t
 interface PersistenceAdapter {
   load(): Promise<string | null>
   save(data: string): Promise<void>
+  initialize?(data: string): Promise<string>
 }
 ```
 
-The built-in `filePersistence(path)` from `@emulators/core` provides a file-based adapter for local development.
+`initialize` must atomically create the initial value or return the value another instance created first. Implement it with compare-and-set semantics such as Redis `SET NX`. The built-in `filePersistence(path)` from `@emulators/core` provides this behavior for local development.

@@ -197,6 +197,8 @@ const privateKey = materialized.generatedPrivateKeys[0]?.private_key
 
 The `emulate` package performs this materialization automatically in `createEmulator` and exposes generated keys through `generatedSecrets`. The CLI can do the same when a private delivery file is requested:
 
+The Next.js and Nuxt adapters also materialize omitted keys. Their returned server handlers expose `generatedSecrets()`, and persistence restores the same identity across cold starts. Keep persisted snapshots private because they contain the signing key. A custom persistence backend must implement atomic `initialize()` semantics when generated identities are used.
+
 ```bash
 npx emulate start --service github --seed emulate.config.yaml \
   --generated-secrets-file .emulate-secrets.json

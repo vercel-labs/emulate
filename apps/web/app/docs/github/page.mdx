@@ -29,6 +29,8 @@ const privateKey = github.generatedSecrets.find(
 
 The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explicit keys are never included in `generatedSecrets`.
 
+The Next.js and Nuxt adapters also generate omitted keys. Their returned server handlers expose `generatedSecrets()`, and persistence restores the same identity across cold starts. Keep persisted snapshots private because they contain the signing key. Custom persistence backends must implement atomic `initialize()` semantics when generated identities are used.
+
 The CLI can generate omitted keys when you request a private delivery file:
 
 ```bash

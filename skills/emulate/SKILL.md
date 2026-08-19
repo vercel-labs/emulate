@@ -383,10 +383,16 @@ import type { PersistenceAdapter } from '@emulators/core'
 const kvAdapter: PersistenceAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data) { await kv.set('emulate-state', data) },
+  async initialize(data) {
+    await kv.set('emulate-state', data, { nx: true })
+    const selected = await kv.get('emulate-state')
+    if (selected === null) throw new Error('Failed to initialize emulator state')
+    return selected
+  },
 }
 ```
 
-State is loaded on cold start and saved after every mutating request (POST, PUT, PATCH, DELETE). Saves are serialized to prevent race conditions.
+State is loaded on cold start and saved after every mutating request (POST, PUT, PATCH, DELETE). Saves are serialized to prevent race conditions. Generated GitHub App identities require `initialize` to atomically create the initial value or return the value another instance created first.
 
 ## Architecture
 

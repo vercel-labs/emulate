@@ -1,6 +1,14 @@
 import { createHmac, generateKeyPair } from "crypto";
 import type { Hono } from "@emulators/core";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
+import type {
+  ServicePlugin,
+  Store,
+  WebhookDispatcher,
+  TokenMap,
+  AppEnv,
+  RouteContext,
+  AppKeyResolver,
+} from "@emulators/core";
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
@@ -99,6 +107,16 @@ export interface MaterializedGitHubSeedConfig {
   generatedPrivateKeys: GeneratedGitHubAppPrivateKey[];
 }
 
+export interface PreparedGitHubSeedConfig {
+  config: Record<string, unknown>;
+  generatedSecrets: Array<{
+    kind: string;
+    id: string;
+    label: string;
+    value: string;
+  }>;
+}
+
 function generateAppPrivateKey(): Promise<string> {
   return new Promise((resolve, reject) => {
     generateKeyPair(
@@ -154,6 +172,62 @@ export async function materializeGitHubSeedConfig(config: GitHubSeedConfig): Pro
   return {
     config: config.apps ? { ...config, apps } : { ...config },
     generatedPrivateKeys,
+  };
+}
+
+export async function prepareSeed(
+  config: Record<string, unknown>,
+  generatedSecrets: PreparedGitHubSeedConfig["generatedSecrets"] = [],
+): Promise<PreparedGitHubSeedConfig> {
+  const restoredKeys = new Map(
+    generatedSecrets
+      .filter((secret) => secret.kind === "github.app_private_key")
+      .map((secret) => [secret.id, secret.value]),
+  );
+  const restoredConfig: GitHubSeedConfig = {
+    ...config,
+    apps: (config.apps as GitHubSeedConfig["apps"] | undefined)?.map((app) => {
+      if (app.private_key !== undefined) return app;
+      const privateKey = restoredKeys.get(String(app.app_id));
+      if (!privateKey) return app;
+      return { ...app, private_key: privateKey };
+    }),
+  };
+  const materialized = await materializeGitHubSeedConfig(restoredConfig);
+  const nextGeneratedSecrets = generatedSecrets.map((secret) => ({ ...secret }));
+  const generatedIds = new Set(
+    nextGeneratedSecrets.filter((secret) => secret.kind === "github.app_private_key").map((secret) => secret.id),
+  );
+  for (const key of materialized.generatedPrivateKeys) {
+    const id = String(key.app_id);
+    if (generatedIds.has(id)) continue;
+    nextGeneratedSecrets.push({
+      kind: "github.app_private_key",
+      id,
+      label: key.name,
+      value: key.private_key,
+    });
+  }
+  return {
+    config: materialized.config as Record<string, unknown>,
+    generatedSecrets: nextGeneratedSecrets,
+  };
+}
+
+export function needsGeneratedSecrets(config: Record<string, unknown>): boolean {
+  return ((config.apps as GitHubSeedConfig["apps"] | undefined) ?? []).some((app) => app.private_key === undefined);
+}
+
+export function createAppKeyResolver(store: Store): AppKeyResolver {
+  return (appId: number) => {
+    try {
+      const gh = getGitHubStore(store);
+      const ghApp = gh.apps.all().find((app) => app.app_id === appId);
+      if (!ghApp) return null;
+      return { privateKey: ghApp.private_key, slug: ghApp.slug, name: ghApp.name };
+    } catch {
+      return null;
+    }
   };
 }
 

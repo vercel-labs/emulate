@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono } from "@emulators/core";
 import { Store, WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
-import { githubPlugin, seedFromConfig, getGitHubStore, materializeGitHubSeedConfig } from "../index.js";
+import { githubPlugin, seedFromConfig, getGitHubStore, materializeGitHubSeedConfig, prepareSeed } from "../index.js";
 
 const base = "http://localhost:4000";
 
@@ -56,6 +56,31 @@ function authHeaders(): Record<string, string> {
 }
 
 describe("GitHub App seed materialization", () => {
+  it("keeps restored keys and reports newly generated App keys", async () => {
+    const restored = await materializeGitHubSeedConfig({ apps: [{ app_id: 9, slug: "restored", name: "Restored" }] });
+    const restoredSecret = {
+      kind: "github.app_private_key" as const,
+      id: "9",
+      label: "Restored",
+      value: restored.config.apps![0]!.private_key!,
+    };
+
+    const prepared = await prepareSeed(
+      {
+        apps: [
+          { app_id: 9, slug: "restored", name: "Restored" },
+          { app_id: 10, slug: "new", name: "New" },
+        ],
+      },
+      [restoredSecret],
+    );
+
+    expect(prepared.generatedSecrets).toEqual([
+      restoredSecret,
+      expect.objectContaining({ kind: "github.app_private_key", id: "10", label: "New" }),
+    ]);
+  });
+
   it("generates omitted keys without changing explicit keys", async () => {
     const explicitKey = "explicit-key-bytes";
     const seed = {

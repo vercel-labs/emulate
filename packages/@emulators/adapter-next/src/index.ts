@@ -20,6 +20,24 @@ export interface EmulatorModule {
   default?: ServicePlugin;
   seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
+  prepareSeed?(
+    config: Record<string, unknown>,
+    generatedSecrets?: Array<Omit<GeneratedSecret, "service">>,
+  ): Promise<PreparedServiceSeed>;
+  needsGeneratedSecrets?(config: Record<string, unknown>): boolean;
+}
+
+export interface PreparedServiceSeed {
+  config: Record<string, unknown>;
+  generatedSecrets: Array<Omit<GeneratedSecret, "service">>;
+}
+
+export interface GeneratedSecret {
+  readonly service: string;
+  readonly kind: string;
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
 }
 
 interface EmulatorEntry {
@@ -47,6 +65,14 @@ interface ServiceApp {
 interface FullSnapshot {
   store: StoreSnapshot;
   tokens: Record<string, TokenEntry[]>;
+  generatedSecrets?: GeneratedSecret[];
+  seeded?: boolean;
+}
+
+interface PreparedState {
+  snapshot: FullSnapshot | null;
+  seeds: Map<string, Record<string, unknown> | undefined>;
+  generatedSecrets: readonly GeneratedSecret[];
 }
 
 type NextRequest = Request;
@@ -63,7 +89,7 @@ function resolvePlugin(mod: EmulatorModule): ServicePlugin {
   return plugin;
 }
 
-function takeSnapshot(apps: Map<string, ServiceApp>): FullSnapshot {
+function takeSnapshot(apps: Map<string, ServiceApp>, generatedSecrets: readonly GeneratedSecret[]): FullSnapshot {
   const mergedStore: StoreSnapshot = { collections: {}, data: {} };
   const tokens: Record<string, TokenEntry[]> = {};
 
@@ -78,7 +104,33 @@ function takeSnapshot(apps: Map<string, ServiceApp>): FullSnapshot {
     tokens[name] = serializeTokenMap(sa.tokenMap);
   }
 
-  return { store: mergedStore, tokens };
+  return { store: mergedStore, tokens, generatedSecrets: [...generatedSecrets], seeded: true };
+}
+
+function isFullSnapshot(value: unknown): value is FullSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<FullSnapshot>;
+  return Boolean(
+    snapshot.store &&
+    typeof snapshot.store === "object" &&
+    snapshot.store.collections &&
+    typeof snapshot.store.collections === "object" &&
+    snapshot.store.data &&
+    typeof snapshot.store.data === "object" &&
+    snapshot.tokens &&
+    typeof snapshot.tokens === "object" &&
+    (snapshot.seeded === undefined || typeof snapshot.seeded === "boolean") &&
+    (snapshot.generatedSecrets === undefined ||
+      (Array.isArray(snapshot.generatedSecrets) && snapshot.generatedSecrets.every(isGeneratedSecret))),
+  );
+}
+
+function isGeneratedSecret(value: unknown): value is GeneratedSecret {
+  if (!value || typeof value !== "object") return false;
+  const secret = value as Partial<GeneratedSecret>;
+  return [secret.service, secret.kind, secret.id, secret.label, secret.value].every(
+    (field) => typeof field === "string",
+  );
 }
 
 function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapshot): void {
@@ -174,21 +226,134 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
   let initPromise: Promise<void> | null = null;
   let pendingSave: Promise<void> = Promise.resolve();
 
-  function enqueueSave(): void {
-    if (!persistence || !apps) return;
-    pendingSave = pendingSave.then(async () => {
-      if (!apps) return;
-      const snapshot = takeSnapshot(apps);
-      const json = JSON.stringify(snapshot);
-      try {
-        await persistence.save(json);
-      } catch (err) {
-        debug("persistence", "save failed: %o", err);
+  const needsDurableGeneratedIdentity = Object.values(serviceEntries).some(
+    (entry) => entry.seed && entry.emulator.needsGeneratedSecrets?.(entry.seed),
+  );
+
+  async function prepareFreshState(restoredSecrets: readonly GeneratedSecret[] = []): Promise<PreparedState> {
+    const seeds = new Map<string, Record<string, unknown> | undefined>();
+    const generatedSecrets: GeneratedSecret[] = [];
+    for (const [name, entry] of Object.entries(serviceEntries)) {
+      if (entry.seed && entry.emulator.prepareSeed) {
+        const serviceSecrets = restoredSecrets
+          .filter((secret) => secret.service === name)
+          .map(({ service: _service, ...secret }) => secret);
+        const prepared = await entry.emulator.prepareSeed(entry.seed, serviceSecrets);
+        seeds.set(name, prepared.config);
+        generatedSecrets.push(...prepared.generatedSecrets.map((secret) => ({ service: name, ...secret })));
+      } else {
+        seeds.set(name, entry.seed);
       }
-    });
+    }
+    return {
+      snapshot: null,
+      seeds,
+      generatedSecrets: Object.freeze(generatedSecrets.map((secret) => Object.freeze(secret))),
+    };
+  }
+
+  let preparationPromise: Promise<PreparedState> | null = null;
+
+  function getPreparation(): Promise<PreparedState> {
+    if (!preparationPromise) {
+      const preparation = (async () => {
+        if (persistence) {
+          const raw = await persistence.load();
+          if (raw) {
+            try {
+              const snapshot = JSON.parse(raw) as unknown;
+              if (!isFullSnapshot(snapshot)) throw new Error("invalid snapshot");
+              const generatedSecrets = Object.freeze(
+                (snapshot.generatedSecrets ?? []).map((secret) => Object.freeze({ ...secret })),
+              );
+              if (snapshot.seeded === false) {
+                const fresh = await prepareFreshState(generatedSecrets);
+                return { ...fresh, snapshot };
+              }
+              return { snapshot, seeds: new Map(), generatedSecrets };
+            } catch {
+              if (needsDurableGeneratedIdentity) {
+                throw new Error("Cannot restore persisted emulator state without replacing generated identities");
+              }
+            }
+          }
+        }
+
+        const fresh = await prepareFreshState();
+        if (fresh.generatedSecrets.length === 0 || !persistence) return fresh;
+        if (!persistence.initialize) {
+          throw new Error("Persistence adapter must implement initialize() for generated identities");
+        }
+        const identitySnapshot: FullSnapshot = {
+          store: { collections: {}, data: {} },
+          tokens: {},
+          generatedSecrets: [...fresh.generatedSecrets],
+          seeded: false,
+        };
+        const canonicalRaw = await persistence.initialize(JSON.stringify(identitySnapshot));
+        const canonical = JSON.parse(canonicalRaw) as unknown;
+        if (!isFullSnapshot(canonical)) throw new Error("Persistence initialize() returned an invalid snapshot");
+        const canonicalSecrets = Object.freeze(
+          (canonical.generatedSecrets ?? []).map((secret) => Object.freeze({ ...secret })),
+        );
+        if (canonical.seeded !== false) {
+          return { snapshot: canonical, seeds: new Map(), generatedSecrets: canonicalSecrets };
+        }
+        const canonicalFresh = await prepareFreshState(canonicalSecrets);
+        return { ...canonicalFresh, snapshot: canonical };
+      })();
+      preparationPromise = preparation;
+      void preparation.catch(() => {
+        if (preparationPromise === preparation) preparationPromise = null;
+      });
+    }
+    return preparationPromise;
+  }
+
+  function enqueueSave(
+    targetApps: Map<string, ServiceApp> | null = apps,
+    generatedSecrets: readonly GeneratedSecret[] = [],
+    failClosed = false,
+  ): Promise<void> {
+    if (!persistence || !targetApps) return pendingSave;
+    pendingSave = pendingSave
+      .catch(() => {})
+      .then(async () => {
+        const snapshot = takeSnapshot(targetApps, generatedSecrets);
+        const json = JSON.stringify(snapshot);
+        try {
+          await persistence.save(json);
+        } catch (err) {
+          if (failClosed) throw err;
+          debug("persistence", "save failed: %o", err);
+        }
+      });
+    return pendingSave;
   }
 
   async function initApps(origin: string, mountPath: string): Promise<Map<string, ServiceApp>> {
+    let prepared = await getPreparation();
+    if (persistence && prepared.snapshot?.seeded === false) {
+      const raw = await persistence.load();
+      if (raw) {
+        try {
+          const snapshot = JSON.parse(raw) as unknown;
+          if (!isFullSnapshot(snapshot)) throw new Error("invalid snapshot");
+          if (snapshot.seeded !== false) {
+            prepared = {
+              snapshot,
+              seeds: new Map(),
+              generatedSecrets: Object.freeze(
+                (snapshot.generatedSecrets ?? []).map((secret) => Object.freeze({ ...secret })),
+              ),
+            };
+            preparationPromise = Promise.resolve(prepared);
+          }
+        } catch {
+          throw new Error("Cannot restore persisted emulator state without replacing generated identities");
+        }
+      }
+    }
     const serviceApps = new Map<string, ServiceApp>();
 
     for (const [name, entry] of Object.entries(serviceEntries)) {
@@ -209,17 +374,16 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       serviceApps.set(name, { app, store, tokenMap, plugin, webhooks });
     }
 
-    let restored = false;
-    if (persistence) {
-      const raw = await persistence.load();
-      if (raw) {
-        try {
-          const snapshot = JSON.parse(raw) as FullSnapshot;
-          restoreFromSnapshot(serviceApps, snapshot);
-          restored = true;
-        } catch {
-          // Corrupted data, fall through to seeding
+    let restored = prepared.snapshot !== null && prepared.snapshot.seeded !== false;
+    if (restored && prepared.snapshot) {
+      try {
+        restoreFromSnapshot(serviceApps, prepared.snapshot);
+      } catch {
+        if (needsDurableGeneratedIdentity || prepared.generatedSecrets.length > 0) {
+          throw new Error("Cannot restore persisted emulator state without replacing generated identities");
         }
+        restored = false;
+        prepared = await prepareFreshState();
       }
     }
 
@@ -229,12 +393,13 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
         const servicePrefix = `${mountPath}/${name}`;
         const baseUrl = `${origin}${servicePrefix}`;
         sa.plugin.seed?.(sa.store, baseUrl);
-        if (entry.seed && entry.emulator.seedFromConfig) {
-          entry.emulator.seedFromConfig(sa.store, baseUrl, entry.seed, sa.webhooks);
+        const seed = prepared.seeds.get(name);
+        if (seed && entry.emulator.seedFromConfig) {
+          entry.emulator.seedFromConfig(sa.store, baseUrl, seed, sa.webhooks);
         }
       }
       if (persistence) {
-        enqueueSave();
+        await enqueueSave(serviceApps, prepared.generatedSecrets, prepared.generatedSecrets.length > 0);
       }
     }
 
@@ -247,9 +412,14 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
       const url = new URL(req.url);
       const origin = url.origin;
       mountPath = detectPrefix(req.url, pathSegments);
-      initPromise = initApps(origin, mountPath).then((result) => {
-        apps = result;
-      });
+      initPromise = initApps(origin, mountPath)
+        .then((result) => {
+          apps = result;
+        })
+        .catch((error) => {
+          initPromise = null;
+          throw error;
+        });
     }
     await initPromise;
     return apps!;
@@ -286,7 +456,8 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
     response = await rewriteResponse(response, servicePrefix);
 
     if (persistence && MUTATING_METHODS.has(req.method)) {
-      enqueueSave();
+      const prepared = await getPreparation();
+      enqueueSave(serviceApps, prepared.generatedSecrets);
     }
 
     return response;
@@ -300,6 +471,9 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
     PUT: handler,
     PATCH: handler,
     DELETE: handler,
+    async generatedSecrets(): Promise<readonly GeneratedSecret[]> {
+      return (await getPreparation()).generatedSecrets;
+    },
   };
 }
 

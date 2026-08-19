@@ -92,8 +92,14 @@ import { createEmulateHandler } from '@emulators/adapter-nuxt'
 import * as github from '@emulators/github'
 
 const storageAdapter = {
-  async load() { return await useStorage('emulate').getItem<string>('state') },
-  async save(data: string) { await useStorage('emulate').setItem('state', data) },
+  async load() { return await redis.get('emulate-state') },
+  async save(data: string) { await redis.set('emulate-state', data) },
+  async initialize(data: string) {
+    await redis.set('emulate-state', data, { nx: true })
+    const selected = await redis.get('emulate-state')
+    if (selected === null) throw new Error('Failed to initialize emulator state')
+    return selected
+  },
 }
 
 export default defineEventHandler(createEmulateHandler({
@@ -112,6 +118,19 @@ import { filePersistence } from '@emulators/core'
 persistence: filePersistence('.emulate/state.json'),
 ```
 
+### GitHub App private keys
+
+GitHub App seeds may omit `private_key`. Retain the returned server handler to read generated keys in server code:
+
+```typescript
+const emulator = createEmulateHandler(config)
+export default defineEventHandler(emulator)
+
+const [appKey] = await emulator.generatedSecrets()
+```
+
+Explicit keys are excluded. Persistence restores the same generated identity across cold starts. Its snapshot contains the private key, so use a private backend and never expose generated secrets through an event handler or public runtime config.
+
 ### How Persistence Works
 
 - **Cold start**: The adapter loads state from the persistence adapter. If found, it restores the full Store and token map. If not found, it seeds from config and saves the initial state.
@@ -129,7 +148,7 @@ persistence: filePersistence('.emulate/state.json'),
 ## Limitations
 
 - Requires a Node-compatible Nuxt server runtime since emulators use Node APIs
-- Concurrent serverless instances writing to the same persistence adapter use last write wins semantics, which is acceptable for dev and preview traffic
+- Concurrent mutations use last-write-wins semantics. Generated identities require `initialize` to select the initial snapshot atomically across cold starts.
 
 ## Config Reference
 
@@ -139,6 +158,8 @@ persistence: filePersistence('.emulate/state.json'),
 |-------|------|-------------|
 | `services` | `Record<string, EmulatorEntry>` | Map of service name to emulator config |
 | `persistence?` | `PersistenceAdapter` | Optional persistence adapter for state across cold starts |
+
+The returned handler function also provides `generatedSecrets(): Promise<readonly GeneratedSecret[]>` for server-only access to generated material.
 
 Each `EmulatorEntry`:
 
@@ -164,5 +185,8 @@ Wraps a Nuxt config to include `@emulators/core` assets in Nitro's production tr
 interface PersistenceAdapter {
   load(): Promise<string | null>
   save(data: string): Promise<void>
+  initialize?(data: string): Promise<string>
 }
 ```
+
+`initialize` must atomically create the initial value or return the value another instance created first. Implement it with compare-and-set semantics such as Redis `SET NX`. The built-in `filePersistence(path)` from `@emulators/core` provides this behavior for local development.

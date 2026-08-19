@@ -34,16 +34,24 @@ persistence: filePersistence('.emulate/state.json')
 
 ### Custom adapter
 
-Any object with `load` and `save` methods works:
+Any object with `load` and `save` methods works. Add `initialize` when a service generates durable identity:
 
 ```typescript
 const kvAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data: string) { await kv.set('emulate-state', data) },
+  async initialize(data: string) {
+    await kv.set('emulate-state', data, { nx: true })
+    const selected = await kv.get('emulate-state')
+    if (selected === null) throw new Error('Failed to initialize emulator state')
+    return selected
+  },
 }
 ```
 
 The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
+
+`initialize` must atomically store initial state or return the state another cold start stored first. It is required for generated GitHub App identities, and its return value must never be `null`. The built-in file adapter implements this contract.
 
 ## Links
 

@@ -82,30 +82,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       return {
         plugin: mod.githubPlugin,
         seedFromConfig: mod.seedFromConfig,
-        async prepareSeed(config) {
-          const materialized = await mod.materializeGitHubSeedConfig(config);
-          return {
-            config: materialized.config as Record<string, unknown>,
-            generatedSecrets: materialized.generatedPrivateKeys.map((key) => ({
-              kind: "github.app_private_key",
-              id: String(key.app_id),
-              label: key.name,
-              value: key.private_key,
-            })),
-          };
-        },
-        createAppKeyResolver(store: Store): AppKeyResolver {
-          return (appId: number) => {
-            try {
-              const gh = mod.getGitHubStore(store);
-              const ghApp = gh.apps.all().find((a) => a.app_id === appId);
-              if (!ghApp) return null;
-              return { privateKey: ghApp.private_key, slug: ghApp.slug, name: ghApp.name };
-            } catch {
-              return null;
-            }
-          };
-        },
+        prepareSeed: mod.prepareSeed,
+        createAppKeyResolver: mod.createAppKeyResolver,
       };
     },
     defaultFallback(cfg) {

@@ -44,6 +44,19 @@ This creates these routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
+## GitHub App Private Keys
+
+GitHub App seeds may omit `private_key`. Retain the server handler when application code needs the generated key:
+
+```typescript
+const emulator = createEmulateHandler(config)
+export default defineEventHandler(emulator)
+
+const [appKey] = await emulator.generatedSecrets()
+```
+
+Explicit keys are excluded. Persistence restores the same generated identity across cold starts. The persisted snapshot contains the private key, so use a private backend and never expose generated secrets through an event handler or public runtime config.
+
 ## Nuxt Config
 
 Emulator UI pages use bundled fonts. Wrap your Nuxt config so Nitro traces the core package assets into production builds:
@@ -86,8 +99,14 @@ import { createEmulateHandler } from '@emulators/adapter-nuxt'
 import * as github from '@emulators/github'
 
 const storageAdapter = {
-  async load() { return await useStorage('emulate').getItem<string>('state') },
-  async save(data: string) { await useStorage('emulate').setItem('state', data) },
+  async load() { return await redis.get('emulate-state') },
+  async save(data: string) { await redis.set('emulate-state', data) },
+  async initialize(data: string) {
+    await redis.set('emulate-state', data, { nx: true })
+    const selected = await redis.get('emulate-state')
+    if (selected === null) throw new Error('Failed to initialize emulator state')
+    return selected
+  },
 }
 
 export default defineEventHandler(createEmulateHandler({
@@ -105,6 +124,8 @@ import { filePersistence } from '@emulators/core'
 
 persistence: filePersistence('.emulate/state.json'),
 ```
+
+`initialize` must atomically create the initial value or return the value another instance created first. It is required when generated GitHub App identities may be used. The built-in file adapter implements this contract.
 
 ### How It Works
 
@@ -137,4 +158,4 @@ export default defineEventHandler(createEmulateHandler(config, { routePrefix: '/
 ## Limitations
 
 - Requires a Node-compatible Nuxt server runtime since emulators use Node APIs
-- Concurrent serverless instances writing to the same persistence adapter use last write wins semantics, which is acceptable for dev and preview traffic
+- Concurrent mutations use last-write-wins semantics. Generated identities use `initialize` to select the initial snapshot atomically across cold starts.

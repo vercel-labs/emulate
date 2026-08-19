@@ -53,6 +53,8 @@ const privateKey = github.generatedSecrets.find(
 
 The key remains stable across `github.reset()`. Explicit keys are not included in `generatedSecrets`.
 
+The Next.js and Nuxt adapters also generate omitted keys. Retain the returned handler and call its server-only `generatedSecrets()` method. With persistence configured, the identity survives cold starts. Keep snapshots private because they contain the signing key, and require custom persistence backends to implement atomic `initialize()` semantics.
+
 For the CLI, omit `private_key` only when requesting a private delivery file:
 
 ```bash

@@ -26,7 +26,7 @@ import { createEmulateHandler } from '@emulators/adapter-next'
 import * as github from '@emulators/github'
 import * as google from '@emulators/google'
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const emulator = createEmulateHandler({
   services: {
     github: {
       emulator: github,
@@ -43,7 +43,19 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
     },
   },
 })
+
+export const { GET, POST, PUT, PATCH, DELETE } = emulator
 ```
+
+## GitHub App private keys
+
+GitHub App seeds may omit `private_key`. The adapter generates the key asynchronously and exposes generated material only through the server-side handler object:
+
+```typescript
+const [appKey] = await emulator.generatedSecrets()
+```
+
+Explicit keys are never returned. With persistence configured, the generated identity is saved with emulator state and restored across cold starts. Keep the persistence backend private because its snapshot contains the App signing key. Do not import the route module from Client Components or return generated secrets from a route.
 
 ## Auth.js / NextAuth configuration
 
@@ -97,6 +109,12 @@ import * as github from '@emulators/github'
 const kvAdapter = {
   async load() { return await kv.get('emulate-state') },
   async save(data: string) { await kv.set('emulate-state', data) },
+  async initialize(data: string) {
+    await kv.set('emulate-state', data, { nx: true })
+    const selected = await kv.get('emulate-state')
+    if (selected === null) throw new Error('Failed to initialize emulator state')
+    return selected
+  },
 }
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
@@ -113,6 +131,8 @@ import { filePersistence } from '@emulators/core'
 // ...
 persistence: filePersistence('.emulate/state.json'),
 ```
+
+`initialize` must atomically create the initial value or return the value another instance created first. It is required when generated GitHub App identities may be used. The built-in file adapter implements this contract.
 
 ## Links
 

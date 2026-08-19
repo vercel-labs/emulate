@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, rmSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, rmSync, readFileSync, statSync, readdirSync, mkdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Collection, Store, type Entity, serializeValue, deserializeValue } from "../store.js";
 import { filePersistence } from "../persistence.js";
@@ -215,11 +215,7 @@ describe("filePersistence", () => {
   const tmpPath = join(tmpdir(), `emulate-test-${Date.now()}.json`);
 
   afterEach(() => {
-    try {
-      rmSync(tmpPath);
-    } catch {
-      /* noop */
-    }
+    rmSync(tmpPath, { recursive: true, force: true });
   });
 
   it("save writes and load reads a JSON file", async () => {
@@ -229,6 +225,7 @@ describe("filePersistence", () => {
     await adapter.save(data);
     expect(existsSync(tmpPath)).toBe(true);
     expect(readFileSync(tmpPath, "utf-8")).toBe(data);
+    expect(statSync(tmpPath).mode & 0o777).toBe(0o600);
 
     const loaded = await adapter.load();
     expect(loaded).toBe(data);
@@ -246,5 +243,30 @@ describe("filePersistence", () => {
     await adapter.save("{}");
     expect(existsSync(nested)).toBe(true);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("initialize atomically selects one value and leaves no temporary files", async () => {
+    const adapter = filePersistence(tmpPath);
+    const [first, second] = await Promise.all([adapter.initialize!("first"), adapter.initialize!("second")]);
+
+    expect(new Set([first, second])).toEqual(new Set([readFileSync(tmpPath, "utf-8")]));
+    expect(statSync(tmpPath).mode & 0o777).toBe(0o600);
+    expect(readdirSync(dirname(tmpPath)).filter((name) => name.startsWith(`${basename(tmpPath)}.`))).toEqual([]);
+  });
+
+  it("initialize removes its temporary file when publication fails", async () => {
+    const adapter = filePersistence(tmpPath);
+    mkdirSync(tmpPath);
+
+    await expect(adapter.initialize!("data")).rejects.toThrow();
+    expect(readdirSync(dirname(tmpPath)).filter((name) => name.startsWith(`${basename(tmpPath)}.`))).toEqual([]);
+  });
+
+  it("save removes its temporary file when publication fails", async () => {
+    const adapter = filePersistence(tmpPath);
+    mkdirSync(tmpPath);
+
+    await expect(adapter.save("data")).rejects.toThrow();
+    expect(readdirSync(dirname(tmpPath)).filter((name) => name.startsWith(`${basename(tmpPath)}.`))).toEqual([]);
   });
 });
