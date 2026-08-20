@@ -29,8 +29,7 @@ function memory(initial = null) {
 export function githubAppIdentityContract(h) {
   const create = (persistence, privateKey) => h.createEmulateHandler(h.config(persistence, privateKey));
   const key = async (handler) => (await handler.generatedSecrets())[0].value;
-  const auth = (handler, privateKey, method) =>
-    h.requestApp(handler, `Bearer ${jwt(privateKey)}`, method);
+  const auth = (handler, privateKey, method) => h.requestApp(handler, `Bearer ${jwt(privateKey)}`, method);
   describe("embedded GitHub App identity", () => {
     it("generates, persists, restores, and authenticates the same identity", async () => {
       const persistence = memory();
@@ -166,17 +165,20 @@ export function githubAppIdentityContract(h) {
       expect((await auth(handler, await key(handler))).status).toBe(200);
     });
     it("rejects a malformed canonical identity snapshot", async () => {
-      await expect(
-        create({
-          async load() {
-            return null;
-          },
-          async save() {},
-          async initialize() {
-            return '{"store":{"collections":[],"data":{}},"tokens":{}}';
-          },
-        }).generatedSecrets(),
-      ).rejects.toThrow();
+      const persistence = memory();
+      persistence.initialize = async () => '{"store":{"collections":[],"data":{}},"tokens":{}}';
+      await expect(create(persistence).generatedSecrets()).rejects.toThrow();
+    });
+    it("refuses a persisted canonical snapshot that omits the configured identity", async () => {
+      const persistence = memory();
+      const initialize = persistence.initialize;
+      persistence.initialize = async (data) => {
+        const canonical = JSON.parse(data);
+        canonical.generatedSecrets[0].service = "other";
+        return initialize(JSON.stringify(canonical));
+      };
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(create(persistence).generatedSecrets()).rejects.toThrow(/generated identities/);
     });
     it("re-reads a seeded snapshot after generatedSecrets prepares identity", async () => {
       const persistence = memory();

@@ -63,15 +63,12 @@ interface PreparedState {
   generatedSecrets: readonly GeneratedSecret[];
 }
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function isGeneratedSecret(value: unknown): value is GeneratedSecret {
-  return (
-    isRecord(value) &&
-    [value.service, value.kind, value.id, value.label, value.value].every((field) => typeof field === "string")
-  );
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+const isGeneratedSecret = (value: unknown): value is GeneratedSecret =>
+  isRecord(value) && [value.service, value.kind, value.id, value.label, value.value].every(isNonEmptyString);
+const secretIdentity = ({ service, kind, id, value }: GeneratedSecret) => JSON.stringify([service, kind, id, value]);
 function isFullSnapshot(value: unknown): value is FullSnapshot {
   if (!isRecord(value) || !isRecord(value.store)) return false;
   return (
@@ -166,7 +163,7 @@ export function createAdapterRuntime(
   const needsDurableGeneratedIdentity = Object.values(serviceEntries).some(
     (entry) => entry.seed && entry.emulator.needsGeneratedSecrets?.(entry.seed),
   );
-  async function prepareFreshState(restoredSecrets: readonly GeneratedSecret[] = []): Promise<PreparedState> {
+  async function prepareFreshState(restoredSecrets: readonly GeneratedSecret[] = [], strict = false) {
     const seeds = new Map<string, Record<string, unknown> | undefined>();
     const generatedSecrets: GeneratedSecret[] = [];
     for (const [name, entry] of Object.entries(serviceEntries)) {
@@ -178,6 +175,10 @@ export function createAdapterRuntime(
         seeds.set(name, prepared.config);
         generatedSecrets.push(...prepared.generatedSecrets.map((secret) => ({ service: name, ...secret })));
       } else seeds.set(name, entry.seed);
+    }
+    const restoredIdentities = new Set(restoredSecrets.map(secretIdentity));
+    if (strict && generatedSecrets.some((secret) => !restoredIdentities.has(secretIdentity(secret)))) {
+      throw new Error("Cannot initialize emulator state without replacing generated identities");
     }
     return {
       snapshot: null,
@@ -194,7 +195,7 @@ export function createAdapterRuntime(
             try {
               const snapshot = parseSnapshot(raw);
               const generatedSecrets = freezeSecrets(snapshot);
-              if (snapshot.seeded === false) return { ...(await prepareFreshState(generatedSecrets)), snapshot };
+              if (snapshot.seeded === false) return { ...(await prepareFreshState(generatedSecrets, true)), snapshot };
               return { snapshot, seeds: new Map(), generatedSecrets };
             } catch {
               if (needsDurableGeneratedIdentity) {
@@ -221,7 +222,7 @@ export function createAdapterRuntime(
         );
         const generatedSecrets = freezeSecrets(canonical);
         if (canonical.seeded !== false) return { snapshot: canonical, seeds: new Map(), generatedSecrets };
-        return { ...(await prepareFreshState(generatedSecrets)), snapshot: canonical };
+        return { ...(await prepareFreshState(generatedSecrets, true)), snapshot: canonical };
       })();
       preparationPromise = preparation;
       void preparation.catch(() => {
