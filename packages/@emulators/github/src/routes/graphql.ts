@@ -111,10 +111,14 @@ type ResponseBody = { errors: Array<{ message: string }> };
 
 export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
   app.post("/graphql", async (c) => {
+    const context = createGitHubGraphQLContext(store, c, baseUrl);
+    if (!context.authUser) {
+      return c.json(graphQLRequestError("Requires authentication"), 401);
+    }
+
     const body = await readGraphQLBody(c);
     if ("error" in body) return c.json(graphQLRequestError(body.error), 400);
 
-    const context = createGitHubGraphQLContext(store, c, baseUrl);
     // Keep the GraphQL bucket independent from the core REST bucket while
     // consuming exactly one cost unit for every accepted GraphQL request.
     consumeGitHubGraphQLRateLimit(store);

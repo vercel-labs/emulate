@@ -31,6 +31,10 @@ export function requireGitHubGraphQLAuth(context: GitHubGraphQLContext): AuthUse
 /** Repository visibility is intentionally shared with the existing REST API. */
 export function canReadRepository(context: GitHubGraphQLContext, repo: GitHubRepo): boolean {
   requireGitHubGraphQLAuth(context);
+  const installation = context.authUser?.installation;
+  if (installation?.repositorySelection === "selected" && !installation.repositoryIds.includes(repo.id)) {
+    return false;
+  }
   return canAccessRepo(context.gh, context.authUser, repo);
 }
 

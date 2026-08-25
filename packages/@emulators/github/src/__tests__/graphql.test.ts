@@ -317,6 +317,9 @@ describe("GitHub GraphQL read compatibility", () => {
             issue(number: $number) {
               id
             }
+            label(name: "graphql") {
+              id
+            }
           }
         }
       `,
@@ -327,7 +330,45 @@ describe("GitHub GraphQL read compatibility", () => {
 
     expect(repo.private).toBe(false);
     expect(response.status).toBe(200);
-    expect((await responseBody(response)).data?.repository).toEqual({ id: repo.node_id, issue: null });
+    expect((await responseBody(response)).data?.repository).toEqual({ id: repo.node_id, issue: null, label: null });
+  });
+
+  it("honors selected installation repositories even when they are public", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const fixture = await createFixture(app);
+    const repo = getGitHubStore(store).repos.findOneBy("full_name", "octocat/hello-world")!;
+    addInstallationToken(store, tokenMap, "app-public-selected", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [repo.id],
+    });
+    addInstallationToken(store, tokenMap, "app-public-excluded", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [],
+    });
+
+    const query = `query PublicSelection($number: Int!) { repository(owner: "octocat", name: "hello-world") { id issue(number: $number) { id } } }`;
+    const selected = await graphql(
+      app,
+      query,
+      { number: fixture.issue.number },
+      "PublicSelection",
+      "app-public-selected",
+    );
+    const excluded = await graphql(
+      app,
+      query,
+      { number: fixture.issue.number },
+      "PublicSelection",
+      "app-public-excluded",
+    );
+
+    expect((await responseBody(selected)).data?.repository).toEqual({
+      id: repo.node_id,
+      issue: { id: fixture.issue.node_id },
+    });
+    expect((await responseBody(excluded)).data?.repository).toBeNull();
   });
 
   it("honors installation repository selection for private GraphQL reads", async () => {
@@ -588,14 +629,20 @@ describe("GitHub GraphQL read compatibility", () => {
     expect(body.data?.rateLimit?.cost).toBe(1);
   });
 
-  it("requires authentication at the GraphQL boundary", async () => {
+  it("requires authentication before executing any GraphQL document", async () => {
     const { app } = createTestApp();
-    const response = await app.request(`${base}/graphql`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: `query { repository(owner: "octocat", name: "hello-world") { id } }` }),
-    });
-    expect(response.status).toBe(401);
-    expect((await responseBody(response)).errors?.[0]?.message).toBe("Requires authentication");
+    for (const query of [
+      `query { repository(owner: "octocat", name: "hello-world") { id } }`,
+      `{ __typename }`,
+      `{ __schema { queryType { name } } }`,
+    ]) {
+      const response = await app.request(`${base}/graphql`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      expect(response.status).toBe(401);
+      expect((await responseBody(response)).errors?.[0]?.message).toBe("Requires authentication");
+    }
   });
 });

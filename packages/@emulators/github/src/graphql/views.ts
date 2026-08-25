@@ -2,7 +2,7 @@ import type { GraphQLConnectionArgs } from "./pagination.js";
 import { connectionFromArray } from "./pagination.js";
 import type { GitHubComment, GitHubIssue, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
 import type { GitHubGraphQLContext, ResolvedGitHubGraphQLNode } from "./context.js";
-import { findVisibleIssue, findVisibleIssueComment } from "./context.js";
+import { canReadIssues, findVisibleIssue, findVisibleIssueComment } from "./context.js";
 
 type GraphQLActorView = {
   __typename: "User" | "Organization" | "Bot";
@@ -70,7 +70,7 @@ export function repositoryView(context: GitHubGraphQLContext, repo: GitHubRepo) 
       return issue ? issueView(context, issue, repo) : null;
     },
     label: ({ name }: { name: string }) => {
-      if (!name || !repo.has_issues) return null;
+      if (!name || !canReadIssues(context, repo)) return null;
       const label = context.gh.labels.findBy("repo_id", repo.id).find((candidate) => candidate.name === name);
       return label ? labelView(context, label, repo) : null;
     },
