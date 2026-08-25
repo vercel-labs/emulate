@@ -1137,3 +1137,26 @@ describe("Google plugin integration", () => {
     expect(doc.resources.freebusy.methods.query.httpMethod).toBe("POST");
   });
 });
+
+describe("Calendar discovery document schemas", () => {
+  it("defines every schema the methods reference (google-api-python-client build() requirement)", async () => {
+    const { app } = createTestApp();
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as { schemas: Record<string, unknown>; resources: Record<string, any> };
+    const refs = new Set<string>();
+    const walk = (node: unknown) => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === "object") {
+        for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+          if (k === "$ref" && typeof v === "string") refs.add(v);
+          else walk(v);
+        }
+      }
+    };
+    walk(doc.resources);
+    walk(doc.schemas);
+    expect(refs.size).toBeGreaterThan(0);
+    for (const ref of refs) expect(Object.keys(doc.schemas)).toContain(ref);
+  });
+});

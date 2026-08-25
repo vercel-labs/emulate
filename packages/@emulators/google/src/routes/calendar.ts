@@ -45,7 +45,73 @@ export function calendarRoutes({ app, store, baseUrl }: RouteContext): void {
       servicePath: "calendar/v3/",
       batchPath: "batch/calendar/v3",
       parameters: {},
-      schemas: {},
+      // Every `$ref` below must resolve here: google-api-python-client's
+      // `build()` walks response/request refs and raises KeyError on a
+      // missing schema, so an empty map made the doc unusable by the client
+      // it exists for. Shapes are minimal (the emulator does not validate).
+      schemas: {
+        CalendarListEntry: {
+          id: "CalendarListEntry",
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            summary: { type: "string" },
+            primary: { type: "boolean" },
+            timeZone: { type: "string" },
+          },
+        },
+        CalendarList: {
+          id: "CalendarList",
+          type: "object",
+          properties: {
+            kind: { type: "string", default: "calendar#calendarList" },
+            items: { type: "array", items: { $ref: "CalendarListEntry" } },
+          },
+        },
+        EventDateTime: {
+          id: "EventDateTime",
+          type: "object",
+          properties: { date: { type: "string" }, dateTime: { type: "string" }, timeZone: { type: "string" } },
+        },
+        Event: {
+          id: "Event",
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            summary: { type: "string" },
+            description: { type: "string" },
+            status: { type: "string" },
+            start: { $ref: "EventDateTime" },
+            end: { $ref: "EventDateTime" },
+          },
+        },
+        Events: {
+          id: "Events",
+          type: "object",
+          properties: {
+            kind: { type: "string", default: "calendar#events" },
+            items: { type: "array", items: { $ref: "Event" } },
+            nextPageToken: { type: "string" },
+          },
+        },
+        FreeBusyRequest: {
+          id: "FreeBusyRequest",
+          type: "object",
+          properties: {
+            timeMin: { type: "string" },
+            timeMax: { type: "string" },
+            items: { type: "array", items: { type: "object", properties: { id: { type: "string" } } } },
+          },
+        },
+        FreeBusyResponse: {
+          id: "FreeBusyResponse",
+          type: "object",
+          properties: {
+            kind: { type: "string", default: "calendar#freeBusy" },
+            calendars: { type: "object", additionalProperties: { type: "object" } },
+          },
+        },
+      },
       resources: {
         calendarList: {
           methods: {
