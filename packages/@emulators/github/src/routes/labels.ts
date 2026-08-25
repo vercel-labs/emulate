@@ -3,14 +3,7 @@ import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
-import type {
-  GitHubIssue,
-  GitHubIssueEvent,
-  GitHubLabel,
-  GitHubMilestone,
-  GitHubRepo,
-  GitHubUser,
-} from "../entities.js";
+import type { GitHubIssue, GitHubLabel, GitHubMilestone } from "../entities.js";
 import {
   formatIssue,
   formatLabel,
@@ -24,6 +17,13 @@ import {
   timestamp,
 } from "../helpers.js";
 import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { insertIssueEvent } from "../operations/common.js";
+import {
+  createRepositoryLabel,
+  deleteRepositoryLabel,
+  ensureIssueLabel,
+  findRepositoryLabel,
+} from "../operations/labels.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -50,40 +50,6 @@ function setIssueLabelIds(gh: GitHubStore, issue: GitHubIssue, labelIds: number[
   }
 }
 
-function insertIssueEvent(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  issueNumber: number,
-  event: string,
-  actorId: number,
-  extra?: Partial<
-    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
-  >,
-): GitHubIssueEvent {
-  const row = gh.issueEvents.insert({
-    node_id: "",
-    repo_id: repo.id,
-    issue_number: issueNumber,
-    event,
-    actor_id: actorId,
-    commit_id: null,
-    commit_url: null,
-    label_name: null,
-    assignee_id: null,
-    milestone_title: null,
-    rename: null,
-    ...extra,
-  } as Omit<GitHubIssueEvent, "id" | "created_at" | "updated_at">);
-  gh.issueEvents.update(row.id, { node_id: generateNodeId("IssueEvent", row.id) });
-  return gh.issueEvents.get(row.id)!;
-}
-
-function randomLabelColor(): string {
-  return Math.floor(Math.random() * 0xffffff)
-    .toString(16)
-    .padStart(6, "0");
-}
-
 function normalizeColor(raw: unknown): string {
   if (typeof raw !== "string" || !raw.trim()) {
     throw new ApiError(422, "Validation failed");
@@ -93,21 +59,6 @@ function normalizeColor(raw: unknown): string {
     throw new ApiError(422, "Validation failed");
   }
   return s.toLowerCase();
-}
-
-function getOrCreateLabel(gh: GitHubStore, repo: GitHubRepo, name: string): GitHubLabel {
-  const existing = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
-  if (existing) return existing;
-  const label = gh.labels.insert({
-    node_id: "",
-    repo_id: repo.id,
-    name,
-    description: null,
-    color: randomLabelColor(),
-    default: false,
-  } as Omit<GitHubLabel, "id" | "created_at" | "updated_at">);
-  gh.labels.update(label.id, { node_id: generateNodeId("Label", label.id) });
-  return gh.labels.get(label.id)!;
 }
 
 async function parseLabelNamesFromBody(c: Context): Promise<string[]> {
@@ -124,15 +75,6 @@ async function parseLabelNamesFromBody(c: Context): Promise<string[]> {
   const names = arr.filter((x): x is string => typeof x === "string" && x.length > 0);
   if (names.length !== arr.length) throw new ApiError(422, "Validation failed");
   return names;
-}
-
-function removeLabelFromAllIssuesAndPrs(gh: GitHubStore, repoId: number, labelId: number) {
-  for (const i of gh.issues.findBy("repo_id", repoId)) {
-    if (i.label_ids.includes(labelId)) {
-      const next = i.label_ids.filter((id) => id !== labelId);
-      setIssueLabelIds(gh, i, next);
-    }
-  }
 }
 
 function recalcMilestoneIssueCounts(gh: GitHubStore, repoId: number, milestoneId: number): GitHubMilestone | undefined {
@@ -204,39 +146,15 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const actor = assertIssueWrite(gh, c.get("authUser"), repo);
 
     const body = await parseJsonBody(c);
-    const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!name) throw new ApiError(422, "Validation failed");
-
-    const dup = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
-    if (dup) throw new ApiError(422, "Validation failed");
-
-    const color = body.color !== undefined && body.color !== null ? normalizeColor(body.color) : randomLabelColor();
-    const description =
-      typeof body.description === "string" || body.description === null ? (body.description as string | null) : null;
-
-    const row = gh.labels.insert({
-      node_id: "",
-      repo_id: repo.id,
-      name,
-      description,
-      color,
-      default: false,
-    } as Omit<GitHubLabel, "id" | "created_at" | "updated_at">);
-    gh.labels.update(row.id, { node_id: generateNodeId("Label", row.id) });
-    const label = gh.labels.get(row.id)!;
-
-    const ownerLogin = ownerLoginOf(gh, repo);
-    webhooks.dispatch(
-      "label",
-      "created",
+    const label = createRepositoryLabel(
+      { gh, webhooks, baseUrl },
       {
-        action: "created",
-        label: formatLabel(label, repo, baseUrl),
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(actor, baseUrl),
+        repo,
+        actor,
+        name: body.name,
+        color: body.color,
+        description: body.description,
       },
-      ownerLogin,
-      repo.name,
     );
 
     return c.json(formatLabel(label, repo, baseUrl), 201);
@@ -250,7 +168,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const name = c.req.param("name")!;
-    const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
+    const label = findRepositoryLabel(gh, repo, name);
     if (!label) throw notFoundResponse();
     return c.json(formatLabel(label, repo, baseUrl));
   });
@@ -312,25 +230,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const actor = assertIssueWrite(gh, c.get("authUser"), repo);
 
     const name = c.req.param("name")!;
-    const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
-    if (!label) throw notFoundResponse();
-
-    removeLabelFromAllIssuesAndPrs(gh, repo.id, label.id);
-    gh.labels.delete(label.id);
-
-    const ownerLogin = ownerLoginOf(gh, repo);
-    webhooks.dispatch(
-      "label",
-      "deleted",
-      {
-        action: "deleted",
-        label: formatLabel(label, repo, baseUrl),
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(actor, baseUrl),
-      },
-      ownerLogin,
-      repo.name,
-    );
+    deleteRepositoryLabel({ gh, webhooks, baseUrl }, { repo, actor, name });
 
     return c.body(null, 204);
   });
@@ -374,7 +274,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const prev = new Set(issue.label_ids);
     const ids = [...prev];
     for (const n of names) {
-      const label = getOrCreateLabel(gh, repo, n);
+      const label = ensureIssueLabel(gh, repo, n, "random");
       if (!ids.includes(label.id)) ids.push(label.id);
     }
     setIssueLabelIds(gh, issue, ids);
@@ -425,7 +325,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!issue) throw notFoundResponse();
 
     const names = await parseLabelNamesFromBody(c);
-    const newIds = [...new Set(names.map((n) => getOrCreateLabel(gh, repo, n).id))];
+    const newIds = [...new Set(names.map((n) => ensureIssueLabel(gh, repo, n, "random").id))];
     const prev = new Set(issue.label_ids);
 
     setIssueLabelIds(gh, issue, newIds);

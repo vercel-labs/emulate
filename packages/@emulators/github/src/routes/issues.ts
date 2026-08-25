@@ -4,102 +4,20 @@ import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulat
 import { getGitHubStore } from "../store.js";
 import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
-import type { GitHubIssue, GitHubIssueEvent, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
-import {
-  formatIssue,
-  formatRepo,
-  formatUser,
-  generateNodeId,
-  getNextIssueNumber,
-  lookupRepo,
-  timestamp,
-} from "../helpers.js";
+import type { GitHubIssue, GitHubIssueEvent, GitHubRepo, GitHubUser } from "../entities.js";
+import { formatIssue, formatRepo, formatUser, lookupRepo } from "../helpers.js";
+import { insertIssueEvent } from "../operations/common.js";
+import { createIssue, transitionIssueLifecycle } from "../operations/issues.js";
+import { applyIssueLabelPlan, planIssueLabelReferences } from "../operations/labels.js";
 
 function findIssueForRepo(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber && !i.is_pull_request);
-}
-
-function adjustRepoOpenIssues(gh: GitHubStore, repoId: number, delta: number) {
-  const repo = gh.repos.get(repoId);
-  if (!repo) return;
-  gh.repos.update(repoId, { open_issues_count: Math.max(0, repo.open_issues_count + delta) });
-}
-
-function getOrCreateLabel(gh: GitHubStore, repo: GitHubRepo, name: string): GitHubLabel {
-  const existing = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
-  if (existing) return existing;
-  const label = gh.labels.insert({
-    node_id: "",
-    repo_id: repo.id,
-    name,
-    description: null,
-    color: "ededed",
-    default: false,
-  } as Omit<GitHubLabel, "id" | "created_at" | "updated_at">);
-  gh.labels.update(label.id, { node_id: generateNodeId("Label", label.id) });
-  return gh.labels.get(label.id)!;
-}
-
-function resolveLabelIds(gh: GitHubStore, repo: GitHubRepo, raw: unknown, createMissing: boolean): number[] {
-  if (raw === undefined) return [];
-  if (!Array.isArray(raw)) {
-    throw new ApiError(422, "Validation failed");
-  }
-  const ids: number[] = [];
-  for (const item of raw) {
-    if (typeof item === "number" && Number.isFinite(item)) {
-      const label = gh.labels.get(item);
-      if (!label || label.repo_id !== repo.id) {
-        throw new ApiError(422, "Validation failed");
-      }
-      ids.push(item);
-    } else if (typeof item === "string") {
-      if (createMissing) {
-        ids.push(getOrCreateLabel(gh, repo, item).id);
-      } else {
-        const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === item);
-        if (!label) throw new ApiError(422, "Validation failed");
-        ids.push(label.id);
-      }
-    } else {
-      throw new ApiError(422, "Validation failed");
-    }
-  }
-  return [...new Set(ids)];
 }
 
 function lookupUserByLogin(gh: GitHubStore, login: string): GitHubUser {
   const u = gh.users.findOneBy("login", login);
   if (!u) throw new ApiError(422, "Validation failed");
   return u;
-}
-
-function insertIssueEvent(
-  gh: GitHubStore,
-  repo: GitHubRepo,
-  issueNumber: number,
-  event: string,
-  actorId: number,
-  extra?: Partial<
-    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
-  >,
-): GitHubIssueEvent {
-  const row = gh.issueEvents.insert({
-    node_id: "",
-    repo_id: repo.id,
-    issue_number: issueNumber,
-    event,
-    actor_id: actorId,
-    commit_id: null,
-    commit_url: null,
-    label_name: null,
-    assignee_id: null,
-    milestone_title: null,
-    rename: null,
-    ...extra,
-  } as Omit<GitHubIssueEvent, "id" | "created_at" | "updated_at">);
-  gh.issueEvents.update(row.id, { node_id: generateNodeId("IssueEvent", row.id) });
-  return gh.issueEvents.get(row.id)!;
 }
 
 function formatIssueEventApi(
@@ -300,8 +218,6 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       : [];
     const assigneeIds = assigneeLogins.map((login) => lookupUserByLogin(gh, login).id);
 
-    const labelIds = body.labels !== undefined ? resolveLabelIds(gh, repo, body.labels, true) : [];
-
     let milestoneId: number | null = null;
     if (body.milestone !== undefined && body.milestone !== null) {
       const mn = typeof body.milestone === "number" ? body.milestone : parseInt(String(body.milestone), 10);
@@ -311,49 +227,20 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       milestoneId = ms.id;
     }
 
-    const num = getNextIssueNumber(gh, repo.id);
-    const row = gh.issues.insert({
-      node_id: "",
-      number: num,
-      repo_id: repo.id,
-      title: title.trim(),
-      body: issueBody,
-      state: "open",
-      state_reason: null,
-      locked: false,
-      active_lock_reason: null,
-      user_id: actor.id,
-      assignee_ids: assigneeIds,
-      label_ids: labelIds,
-      milestone_id: milestoneId,
-      comments: 0,
-      closed_at: null,
-      closed_by_id: null,
-      is_pull_request: false,
-    } as Omit<GitHubIssue, "id" | "created_at" | "updated_at">);
-    gh.issues.update(row.id, { node_id: generateNodeId("Issue", row.id) });
-    const issue = gh.issues.get(row.id)!;
-
-    adjustRepoOpenIssues(gh, repo.id, 1);
-
-    insertIssueEvent(gh, repo, issue.number, "opened", actor.id);
-
-    const ownerLogin = ownerLoginOf(gh, repo);
-    const issueFmt = formatIssue(issue, gh, baseUrl)!;
-    webhooks.dispatch(
-      "issues",
-      "opened",
+    const issue = createIssue(
+      { gh, webhooks, baseUrl },
       {
-        action: "opened",
-        issue: issueFmt,
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(actor, baseUrl),
+        repo,
+        actor,
+        title,
+        body: issueBody,
+        assigneeIds,
+        labels: body.labels,
+        milestoneId,
       },
-      ownerLogin,
-      repo.name,
     );
 
-    return c.json(issueFmt, 201);
+    return c.json(formatIssue(issue, gh, baseUrl), 201);
   });
 
   app.get("/repos/:owner/:repo/issues/:issue_number", (c) => {
@@ -400,25 +287,24 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       patch.body = body.body === null ? null : String(body.body);
     }
 
-    const oldState = issue.state;
-    if (body.state === "open" || body.state === "closed") {
-      patch.state = body.state;
-    }
+    const requestedState = body.state === "open" || body.state === "closed" ? body.state : undefined;
+    let requestedStateReason: GitHubIssue["state_reason"] | undefined;
 
     if ("state_reason" in body) {
       if (body.state_reason === null) {
-        patch.state_reason = null;
+        requestedStateReason = null;
       } else if (
         body.state_reason === "completed" ||
         body.state_reason === "not_planned" ||
         body.state_reason === "reopened"
       ) {
-        patch.state_reason = body.state_reason;
+        requestedStateReason = body.state_reason;
       }
     }
 
+    let labelPlan;
     if (Array.isArray(body.labels)) {
-      patch.label_ids = resolveLabelIds(gh, repo, body.labels, true);
+      labelPlan = planIssueLabelReferences(gh, repo, body.labels);
     }
 
     if (Array.isArray(body.assignees)) {
@@ -438,69 +324,37 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       }
     }
 
+    if (labelPlan) {
+      patch.label_ids = applyIssueLabelPlan(gh, repo, labelPlan);
+    }
+
+    if (requestedState === undefined && requestedStateReason !== undefined) {
+      patch.state_reason = requestedStateReason;
+    }
+
     const prevLabelIds = new Set(issue.label_ids);
     const prevAssigneeIds = new Set(issue.assignee_ids);
     const prevMilestoneId = issue.milestone_id;
 
-    const updated = gh.issues.update(issue.id, patch);
-    if (!updated) throw notFoundResponse();
-    issue = updated;
-
-    let statePatch: Partial<GitHubIssue> = {};
-    if (patch.state === "closed" && oldState === "open") {
-      statePatch = {
-        closed_at: timestamp(),
-        closed_by_id: actor.id,
-        ...(patch.state_reason === undefined ? { state_reason: "completed" as const } : {}),
-      };
-    } else if (patch.state === "open" && oldState === "closed") {
-      statePatch = {
-        closed_at: null,
-        closed_by_id: null,
-        ...(patch.state_reason === undefined ? { state_reason: "reopened" as const } : {}),
-      };
-    } else if (patch.state === "closed" && oldState === "closed") {
-      if (patch.state_reason !== undefined) statePatch.state_reason = patch.state_reason;
-    }
-
-    if (Object.keys(statePatch).length > 0) {
-      const again = gh.issues.update(issue.id, statePatch);
-      if (again) issue = again;
+    if (requestedState !== undefined) {
+      issue = transitionIssueLifecycle(
+        { gh, webhooks, baseUrl },
+        {
+          repo,
+          issue,
+          actor,
+          state: requestedState,
+          stateReason: requestedStateReason,
+          patch,
+        },
+      ).issue;
+    } else {
+      const updated = gh.issues.update(issue.id, patch);
+      if (!updated) throw notFoundResponse();
+      issue = updated;
     }
 
     const ownerLogin = ownerLoginOf(gh, repo);
-
-    if (patch.state === "closed" && oldState === "open") {
-      adjustRepoOpenIssues(gh, repo.id, -1);
-      insertIssueEvent(gh, repo, issue.number, "closed", actor.id);
-      webhooks.dispatch(
-        "issues",
-        "closed",
-        {
-          action: "closed",
-          issue: formatIssue(issue, gh, baseUrl)!,
-          repository: formatRepo(repo, gh, baseUrl),
-          sender: formatUser(actor, baseUrl),
-        },
-        ownerLogin,
-        repo.name,
-      );
-    } else if (patch.state === "open" && oldState === "closed") {
-      adjustRepoOpenIssues(gh, repo.id, 1);
-      insertIssueEvent(gh, repo, issue.number, "reopened", actor.id);
-      webhooks.dispatch(
-        "issues",
-        "reopened",
-        {
-          action: "reopened",
-          issue: formatIssue(issue, gh, baseUrl)!,
-          repository: formatRepo(repo, gh, baseUrl),
-          sender: formatUser(actor, baseUrl),
-        },
-        ownerLogin,
-        repo.name,
-      );
-    }
 
     if (Array.isArray(body.labels)) {
       const newIds = new Set(issue.label_ids);

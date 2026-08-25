@@ -20,6 +20,7 @@ import {
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
+import { createIssueComment } from "../operations/comments.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, number: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === number);
@@ -471,50 +472,17 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!issue) throw notFoundResponse();
 
     const raw = await parseJsonBody(c);
-    if (typeof raw.body !== "string" || !raw.body.trim()) {
-      throw new ApiError(422, "Validation failed");
-    }
-
-    const row = gh.comments.insert({
-      node_id: "",
-      repo_id: repo.id,
-      issue_number: issueNumber,
-      pull_number: null,
-      commit_sha: null,
-      body: raw.body,
-      user_id: actor.id,
-      in_reply_to_id: null,
-      path: null,
-      position: null,
-      line: null,
-      side: null,
-      subject_type: null,
-      comment_type: "issue",
-      review_id: null,
-    } as Omit<GitHubComment, "id" | "created_at" | "updated_at">);
-    gh.comments.update(row.id, { node_id: generateNodeId("IssueComment", row.id) });
-    const comment = gh.comments.get(row.id)!;
-
-    adjustIssueCommentCount(gh, issue, 1);
-
-    const ownerLogin = ownerLoginOf(gh, repo);
-    const commentFmt = formatComment(comment, gh, baseUrl)!;
-
-    webhooks.dispatch(
-      "issue_comment",
-      "created",
+    const result = createIssueComment(
+      { gh, webhooks, baseUrl },
       {
-        action: "created",
-        comment: commentFmt,
-        issue: formatIssue(issue, gh, baseUrl),
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(actor, baseUrl),
+        repo,
+        issue,
+        actor,
+        body: raw.body,
       },
-      ownerLogin,
-      repo.name,
     );
 
-    return c.json(commentFmt, 201);
+    return c.json(formatComment(result.comment, gh, baseUrl), 201);
   });
 
   app.get("/repos/:owner/:repo/pulls/:pull_number/comments", (c) => {
