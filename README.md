@@ -695,6 +695,17 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/issues/:number/events` - events
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` - manage assignees
 
+### Issue relationships
+- `GET /repos/:owner/:repo/issues/:number/parent` - get the parent issue
+- `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` - list or add ordered sub-issues
+- `DELETE /repos/:owner/:repo/issues/:number/sub_issue` - remove a sub-issue with `{ "sub_issue_id": <database id> }`
+- `PATCH /repos/:owner/:repo/issues/:number/sub_issues/priority` - move a child with `{ "sub_issue_id": <database id>, "after_id": <sibling id> }` or `before_id`
+- `GET/POST /repos/:owner/:repo/issues/:number/dependencies/blocked_by` - list or add blocking issues, using `{ "issue_id": <database id> }` for writes
+- `GET /repos/:owner/:repo/issues/:number/dependencies/blocking` - list issues blocked by this issue
+- `DELETE /repos/:owner/:repo/issues/:number/dependencies/blocked_by/:issue_id` - remove a dependency
+
+Relationship lists accept `page` and `per_page` query parameters, cap `per_page` at 100, and return `Link` headers when more pages are available. Sub-issues have one parent and an explicit sibling order; adding a child with `replace_parent: true` moves it atomically. Hierarchy and dependency edges are separate, and self-references, duplicates, and cycles are rejected without changing state. Sub-issues must be in repositories owned by the same account. Dependency targets may be cross-repository when the caller can read both repositories. Relationship writes require issue write access on the route repository and issue read access on every referenced repository.
+
 ### Pull Requests
 - `GET /repos/:owner/:repo/pulls` - list (filter by state, head, base)
 - `POST /repos/:owner/:repo/pulls` - create

@@ -22,7 +22,8 @@ Framework adapters:
   Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
 
 GitHub API coverage:
-  Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
+  Includes repository contents, raw downloads, commit history, commit details, ref comparisons, and ordered issue relationships.
+  Issue parent, sub-issue, and dependency REST routes support pagination, Link headers, permissions, and cycle-safe mutations.
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
