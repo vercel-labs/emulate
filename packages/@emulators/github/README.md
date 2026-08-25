@@ -12,6 +12,13 @@ npm install @emulators/github
 
 ## Endpoints
 
+### GraphQL
+- `POST /graphql` — execute GitHub GraphQL queries with JSON `query`, `variables`, and `operationName` fields.
+- `repository(owner:, name:)` resolves repositories and issue details.
+- `node(id:)` resolves REST node IDs for repositories, issues, labels, and issue comments. Inaccessible records return `null`.
+- `Issue.comments` supports Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
+- Requests require authentication and use the GraphQL rate-limit bucket exposed by `rateLimit` and `/rate_limit`.
+
 ### Users
 - `GET /user` — authenticated user
 - `PATCH /user` — update profile

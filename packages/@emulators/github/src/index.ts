@@ -22,6 +22,7 @@ import { searchRoutes } from "./routes/search.js";
 import { actionsRoutes } from "./routes/actions.js";
 import { checksRoutes } from "./routes/checks.js";
 import { rateLimitRoutes } from "./routes/rate-limit.js";
+import { graphqlRoutes } from "./routes/graphql.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
@@ -568,6 +569,7 @@ export const githubPlugin: ServicePlugin = {
     actionsRoutes(ctx);
     checksRoutes(ctx);
     rateLimitRoutes(ctx);
+    graphqlRoutes(ctx);
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);

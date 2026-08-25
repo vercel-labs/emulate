@@ -23,6 +23,7 @@ Framework adapters:
 
 GitHub API coverage:
   Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
+  Includes authenticated GraphQL reads for repositories, issues, labels, and issue comments at POST /graphql.
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.

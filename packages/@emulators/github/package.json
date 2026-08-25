@@ -35,7 +35,8 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "graphql": "^17.0.2"
   },
   "devDependencies": {
     "tsup": "^8",

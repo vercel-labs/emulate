@@ -637,6 +637,9 @@ importers:
       '@emulators/core':
         specifier: workspace:*
         version: link:../core
+      graphql:
+        specifier: ^17.0.2
+        version: 17.0.2
     devDependencies:
       tsup:
         specifier: ^8
@@ -6619,6 +6622,10 @@ packages:
 
   graphql@17.0.0:
     resolution: {integrity: sha512-RSEgqrRNqHVGa46w2pmL9uTFkYPJiJbD5kksOvOaPLrKvBIidX/ttQVlWsR3+Ee8l+mNroC6darpcPIZeElbNg==}
+    engines: {node: ^22.0.0 || ^24.0.0 || ^25.0.0 || >=26.0.0}
+
+  graphql@17.0.2:
+    resolution: {integrity: sha512-FRWbddMxfkjiB7z+aQDWIR+E34xo9I8c9mtK2RPv8PmMzKRvrdsreHL/Ui/TmwHJfhHChEtsFPyMHKI+xuarQQ==}
     engines: {node: ^22.0.0 || ^24.0.0 || ^25.0.0 || >=26.0.0}
 
   gzip-size@7.0.0:
@@ -16025,6 +16032,8 @@ snapshots:
   graceful-readlink@1.0.1: {}
 
   graphql@17.0.0: {}
+
+  graphql@17.0.2: {}
 
   gzip-size@7.0.0:
     dependencies:
