@@ -133,27 +133,22 @@ describe("shared GitHub mutation behavior", () => {
     expect(((await timelineResponse.json()) as Array<{ event: string }>).at(-1)?.event).toBe("commented");
   });
 
-  it("synchronizes labels when patching a pull request through its issue projection", async () => {
+  it("updates labels when patching an ordinary issue", async () => {
     const { app } = createTestApp();
-    const pullResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+    const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ title: "Labeled pull", head: "label-feature", base: "main" }),
+      body: JSON.stringify({ title: "Labeled issue" }),
     });
-    const pull = (await pullResponse.json()) as { number: number; labels: Array<{ name: string }> };
+    const issue = (await issueResponse.json()) as { number: number };
 
-    const issuePatchResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${pull.number}`, {
+    const issuePatchResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}`, {
       method: "PATCH",
       headers,
       body: JSON.stringify({ labels: ["from-issue"] }),
     });
     expect(issuePatchResponse.status).toBe(200);
     expect(((await issuePatchResponse.json()) as { labels: Array<{ name: string }> }).labels).toEqual([
-      expect.objectContaining({ name: "from-issue" }),
-    ]);
-
-    const pullReadResponse = await app.request(`${base}/repos/octocat/hello-world/pulls/${pull.number}`, { headers });
-    expect(((await pullReadResponse.json()) as { labels: Array<{ name: string }> }).labels).toEqual([
       expect.objectContaining({ name: "from-issue" }),
     ]);
   });

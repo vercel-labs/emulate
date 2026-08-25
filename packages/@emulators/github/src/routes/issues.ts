@@ -276,8 +276,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
-    let issue = gh.issues.findBy("repo_id", repo.id).find((candidate) => candidate.number === issueNumber);
-    if (!issue) throw notFoundResponse();
+    let issue = findIssueForRepo(gh, repo.id, issueNumber);
+    if (!issue || issue.is_pull_request) throw notFoundResponse();
 
     const beforePatch = issue;
 
