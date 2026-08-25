@@ -40,6 +40,10 @@ export function canReadRepository(context: GitHubGraphQLContext, repo: GitHubRep
  */
 export function canReadIssues(context: GitHubGraphQLContext, repo: GitHubRepo): boolean {
   if (!canReadRepository(context, repo) || !repo.has_issues) return false;
+  const installation = context.authUser?.installation;
+  if (installation && installation.permissions.issues !== "read" && installation.permissions.issues !== "write") {
+    return false;
+  }
   try {
     assertRepoPermission(context.gh, context.authUser, repo, "issues");
     return true;

@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "@emulators/core";
 import { Store, WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
-import { githubPlugin, seedFromConfig } from "../index.js";
+import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";
 
@@ -35,6 +35,30 @@ function headers(token = "octocat-token"): Record<string, string> {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
+}
+
+function addInstallationToken(
+  store: Store,
+  tokenMap: TokenMap,
+  token: string,
+  options: { permissions: Record<string, string>; repositorySelection: "all" | "selected"; repositoryIds: number[] },
+) {
+  const gh = getGitHubStore(store);
+  const owner = gh.users.findOneBy("login", "octocat")!;
+  tokenMap.set(token, {
+    login: owner.login,
+    id: owner.id,
+    scopes: Object.entries(options.permissions).map(([name, level]) => `${name}:${level}`),
+    installation: {
+      installationId: 42,
+      appId: 9,
+      accountId: owner.id,
+      accountType: "User",
+      permissions: options.permissions,
+      repositoryIds: options.repositoryIds,
+      repositorySelection: options.repositorySelection,
+    },
+  });
 }
 
 async function graphql(
@@ -274,6 +298,69 @@ describe("GitHub GraphQL read compatibility", () => {
     expect((await responseBody(nodeResponse)).data?.node).toBeNull();
   });
 
+  it("enforces installation issue permission for public GraphQL issue reads", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const fixture = await createFixture(app);
+    const repo = getGitHubStore(store).repos.findOneBy("full_name", "octocat/hello-world")!;
+    addInstallationToken(store, tokenMap, "app-no-issues", {
+      permissions: { contents: "read" },
+      repositorySelection: "all",
+      repositoryIds: [],
+    });
+
+    const response = await graphql(
+      app,
+      `
+        query AppIssue($number: Int!) {
+          repository(owner: "octocat", name: "hello-world") {
+            id
+            issue(number: $number) {
+              id
+            }
+          }
+        }
+      `,
+      { number: fixture.issue.number },
+      "AppIssue",
+      "app-no-issues",
+    );
+
+    expect(repo.private).toBe(false);
+    expect(response.status).toBe(200);
+    expect((await responseBody(response)).data?.repository).toEqual({ id: repo.node_id, issue: null });
+  });
+
+  it("honors installation repository selection for private GraphQL reads", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const issueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Selected issue" }),
+    });
+    const issue = (await issueResponse.json()) as { number: number };
+    const privateRepo = getGitHubStore(store).repos.findOneBy("full_name", "octocat/private-repo")!;
+    addInstallationToken(store, tokenMap, "app-selected", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [privateRepo.id],
+    });
+    addInstallationToken(store, tokenMap, "app-unselected", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [],
+    });
+
+    const query = `query SelectedIssue($number: Int!) { repository(owner: "octocat", name: "private-repo") { issue(number: $number) { id } } }`;
+    const selected = await graphql(app, query, { number: issue.number }, "SelectedIssue", "app-selected");
+    const unselected = await graphql(app, query, { number: issue.number }, "SelectedIssue", "app-unselected");
+
+    const selectedBody = await responseBody(selected);
+    expect((selectedBody.data?.repository as { issue?: unknown } | undefined)?.issue).toEqual({
+      id: expect.any(String),
+    });
+    expect((await responseBody(unselected)).data?.repository).toBeNull();
+  });
+
   it("returns explicit errors for malformed documents, unsupported fields, and malformed cursors", async () => {
     const { app } = createTestApp();
     const fixture = await createFixture(app);
@@ -315,6 +402,134 @@ describe("GitHub GraphQL read compatibility", () => {
     );
     expect(malformedCursor.status).toBe(200);
     expect((await responseBody(malformedCursor)).errors?.[0]?.message).toContain("Invalid cursor");
+  });
+
+  it("rejects malformed JSON, invalid operation selection, and variable coercion", async () => {
+    const { app } = createTestApp();
+    const malformedJson = await app.request(`${base}/graphql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer octocat-token" },
+      body: "{",
+    });
+    expect(malformedJson.status).toBe(400);
+    expect((await responseBody(malformedJson)).errors?.[0]?.message).toBe("Problems parsing JSON");
+
+    const multipleOperations = await graphql(
+      app,
+      `
+        query First {
+          rateLimit {
+            limit
+          }
+        }
+        query Second {
+          rateLimit {
+            limit
+          }
+        }
+      `,
+    );
+    expect(multipleOperations.status).toBe(400);
+    expect((await responseBody(multipleOperations)).errors?.[0]?.message).toContain("Must provide operation name");
+
+    const unknownOperation = await graphql(
+      app,
+      `
+        query Known {
+          rateLimit {
+            limit
+          }
+        }
+      `,
+      undefined,
+      "Missing",
+    );
+    expect(unknownOperation.status).toBe(400);
+    expect((await responseBody(unknownOperation)).errors?.[0]?.message).toContain("Unknown operation named");
+
+    const nullVariable = await graphql(
+      app,
+      `
+        query RequiredOwner($owner: String!) {
+          repository(owner: $owner, name: "hello-world") {
+            id
+          }
+        }
+      `,
+      { owner: null },
+      "RequiredOwner",
+    );
+    expect(nullVariable.status).toBe(400);
+    expect((await responseBody(nullVariable)).errors?.[0]?.message).toContain("not to be null");
+  });
+
+  it("supports forward and backward comment pagination with strict cursors", async () => {
+    const { app } = createTestApp();
+    const fixture = await createFixture(app);
+    const secondCommentResponse = await app.request(
+      `${base}/repos/octocat/hello-world/issues/${fixture.issue.number}/comments`,
+      {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ body: "Second GraphQL comment" }),
+      },
+    );
+    expect(secondCommentResponse.status).toBe(201);
+
+    const query = `query Comments($id: ID!, $first: Int, $after: String, $last: Int, $before: String) {
+      node(id: $id) { ... on Issue { comments(first: $first, after: $after, last: $last, before: $before) {
+        nodes { body } edges { cursor } pageInfo { hasNextPage hasPreviousPage } totalCount
+      } } }
+    }`;
+    const first = await graphql(app, query, { id: fixture.issue.node_id, first: 1 }, "Comments");
+    const firstBody = (await first.json()) as {
+      data: { node: { comments: { nodes: Array<{ body: string }>; edges: Array<{ cursor: string }> } } };
+    };
+    expect(firstBody.data.node.comments.nodes[0]?.body).toBe("GraphQL comment");
+    const firstCursor = firstBody.data.node.comments.edges[0]!.cursor;
+
+    const second = await graphql(app, query, { id: fixture.issue.node_id, first: 1, after: firstCursor }, "Comments");
+    const secondBody = (await second.json()) as {
+      data: { node: { comments: { nodes: Array<{ body: string }>; edges: Array<{ cursor: string }> } } };
+    };
+    expect(secondBody.data.node.comments.nodes[0]?.body).toBe("Second GraphQL comment");
+    const secondCursor = secondBody.data.node.comments.edges[0]!.cursor;
+
+    const last = await graphql(app, query, { id: fixture.issue.node_id, last: 1 }, "Comments");
+    expect(((await last.json()) as typeof secondBody).data.node.comments.nodes[0]?.body).toBe("Second GraphQL comment");
+    const before = await graphql(app, query, { id: fixture.issue.node_id, last: 1, before: secondCursor }, "Comments");
+    expect(((await before.json()) as typeof firstBody).data.node.comments.nodes[0]?.body).toBe("GraphQL comment");
+
+    for (const cursor of [
+      `${firstCursor}=`,
+      `${firstCursor}!`,
+      Buffer.from("github:graphql:v1:wrong:0").toString("base64"),
+    ]) {
+      const invalid = await graphql(app, query, { id: fixture.issue.node_id, first: 1, after: cursor }, "Comments");
+      expect(invalid.status).toBe(200);
+      expect((await responseBody(invalid)).errors?.[0]?.message).toContain("Invalid cursor");
+    }
+  });
+
+  it("does not make outbound requests while serving GraphQL", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const { app } = createTestApp();
+      const response = await graphql(
+        app,
+        `
+          query {
+            rateLimit {
+              limit
+            }
+          }
+        `,
+      );
+      expect(response.status).toBe(200);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("preserves nullable issue fields in the GraphQL projection", async () => {

@@ -56,11 +56,17 @@ function decodeCursor(cursor: string, connection: string, itemCount: number): nu
   if (typeof cursor !== "string" || cursor.length === 0) {
     throw new InvalidGraphQLCursorError(String(cursor));
   }
+  if (!/^[A-Za-z0-9_-]+$/.test(cursor)) {
+    throw new InvalidGraphQLCursorError(cursor);
+  }
 
   let decoded: string;
   try {
     decoded = Buffer.from(cursor, "base64url").toString("utf8");
   } catch {
+    throw new InvalidGraphQLCursorError(cursor);
+  }
+  if (Buffer.from(decoded, "utf8").toString("base64url") !== cursor) {
     throw new InvalidGraphQLCursorError(cursor);
   }
 
