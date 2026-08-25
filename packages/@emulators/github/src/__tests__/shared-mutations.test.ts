@@ -69,6 +69,7 @@ describe("shared GitHub mutation behavior", () => {
       body: JSON.stringify({ body: "A comment" }),
     });
     expect(commentResponse.status).toBe(201);
+    const comment = (await commentResponse.json()) as { id: number };
 
     const issueRead = await app.request(`${base}/repos/octocat/hello-world/issues/1`, {
       headers: { Authorization: headers.Authorization },
@@ -87,6 +88,21 @@ describe("shared GitHub mutation behavior", () => {
     });
     const events = (await eventsResponse.json()) as Array<{ event: string }>;
     expect(events.map((event) => event.event)).toEqual(["opened"]);
+
+    const deleteResponse = await app.request(`${base}/repos/octocat/hello-world/issues/comments/${comment.id}`, {
+      method: "DELETE",
+      headers,
+    });
+    expect(deleteResponse.status).toBe(204);
+    const afterDeleteTimelineResponse = await app.request(`${base}/repos/octocat/hello-world/issues/1/timeline`, {
+      headers: { Authorization: headers.Authorization },
+    });
+    const afterDeleteTimeline = (await afterDeleteTimelineResponse.json()) as Array<{
+      event: string;
+      comment?: unknown;
+    }>;
+    expect(afterDeleteTimeline.at(-1)).toMatchObject({ event: "commented" });
+    expect(afterDeleteTimeline.at(-1)).not.toHaveProperty("comment");
   });
 
   it("keeps the REST issue comment projection working for pull requests", async () => {
@@ -109,13 +125,37 @@ describe("shared GitHub mutation behavior", () => {
     const events = store.collection("github.issue_events").all() as unknown as Array<{
       event: string;
       comment_id?: number | null;
-      comment_body?: string | null;
     }>;
-    expect(events.at(-1)).toMatchObject({ event: "commented", comment_body: "A pull request issue comment" });
+    expect(events.at(-1)).toMatchObject({ event: "commented", comment_id: expect.any(Number) });
     const timelineResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${pull.number}/timeline`, {
       headers: { Authorization: headers.Authorization },
     });
     expect(((await timelineResponse.json()) as Array<{ event: string }>).at(-1)?.event).toBe("commented");
+  });
+
+  it("synchronizes labels when patching a pull request through its issue projection", async () => {
+    const { app } = createTestApp();
+    const pullResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Labeled pull", head: "label-feature", base: "main" }),
+    });
+    const pull = (await pullResponse.json()) as { number: number; labels: Array<{ name: string }> };
+
+    const issuePatchResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${pull.number}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ labels: ["from-issue"] }),
+    });
+    expect(issuePatchResponse.status).toBe(200);
+    expect(((await issuePatchResponse.json()) as { labels: Array<{ name: string }> }).labels).toEqual([
+      expect.objectContaining({ name: "from-issue" }),
+    ]);
+
+    const pullReadResponse = await app.request(`${base}/repos/octocat/hello-world/pulls/${pull.number}`, { headers });
+    expect(((await pullReadResponse.json()) as { labels: Array<{ name: string }> }).labels).toEqual([
+      expect.objectContaining({ name: "from-issue" }),
+    ]);
   });
 
   it("does not mutate a lifecycle issue when state and reason are already current", async () => {

@@ -237,7 +237,6 @@ export interface GitHubIssueEvent extends Entity {
   rename: { from: string; to: string } | null;
   /** Timeline-only comment event payload. */
   comment_id?: number | null;
-  comment_body?: string | null;
   timeline_only?: boolean;
 }
 

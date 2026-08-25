@@ -54,7 +54,6 @@ export function createIssueComment(
   const updatedIssue = context.gh.issues.update(currentIssue.id, { comments: currentIssue.comments + 1 })!;
   insertIssueEvent(context.gh, input.repo, currentIssue.number, "commented", input.actor.id, {
     comment_id: comment.id,
-    comment_body: comment.body,
     timeline_only: true,
   });
 

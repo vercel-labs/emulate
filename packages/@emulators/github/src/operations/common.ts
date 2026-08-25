@@ -31,7 +31,6 @@ export function insertIssueEvent(
       | "milestone_title"
       | "rename"
       | "comment_id"
-      | "comment_body"
       | "timeline_only"
     >
   >,
@@ -49,7 +48,6 @@ export function insertIssueEvent(
     milestone_title: null,
     rename: null,
     comment_id: null,
-    comment_body: null,
     timeline_only: false,
     ...extra,
   } as Omit<GitHubIssueEvent, "id" | "created_at" | "updated_at">);

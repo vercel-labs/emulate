@@ -8,7 +8,7 @@ import type { GitHubIssue, GitHubIssueEvent, GitHubRepo, GitHubUser } from "../e
 import { formatComment, formatIssue, formatRepo, formatUser, lookupRepo } from "../helpers.js";
 import { insertIssueEvent } from "../operations/common.js";
 import { createIssue, transitionIssueLifecycle } from "../operations/issues.js";
-import { applyIssueLabelPlan, planIssueLabelReferences } from "../operations/labels.js";
+import { applyIssueLabelPlan, planIssueLabelReferences, setIssueLabelIds } from "../operations/labels.js";
 
 function findIssueForRepo(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber && !i.is_pull_request);
@@ -276,8 +276,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
-    let issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    let issue = gh.issues.findBy("repo_id", repo.id).find((candidate) => candidate.number === issueNumber);
+    if (!issue) throw notFoundResponse();
 
     const beforePatch = issue;
 
@@ -355,6 +355,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       if (!updated) throw notFoundResponse();
       issue = updated;
     }
+
+    if (labelPlan) setIssueLabelIds(gh, issue, issue.label_ids);
 
     const ownerLogin = ownerLoginOf(gh, repo);
 
@@ -598,7 +600,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     return c.body(null, 204);
   });
 
-  function listIssueEventsForIssue(c: Context) {
+  function listIssueEventsForIssue(c: Context, mode: "timeline" | "events") {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
@@ -614,7 +616,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
 
     const { page, per_page } = parsePagination(c);
     let events = gh.issueEvents.findBy("repo_id", repo.id).filter((e) => e.issue_number === issueNumber);
-    if (!c.req.path.endsWith("/timeline")) events = events.filter((event) => !event.timeline_only);
+    if (mode === "events") events = events.filter((event) => !event.timeline_only);
     events.sort((a, b) => a.created_at.localeCompare(b.created_at));
     const total = events.length;
     setLinkHeader(c, total, page, per_page);
@@ -625,8 +627,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     return c.json(payload);
   }
 
-  app.get("/repos/:owner/:repo/issues/:issue_number/timeline", (c) => listIssueEventsForIssue(c));
-  app.get("/repos/:owner/:repo/issues/:issue_number/events", (c) => listIssueEventsForIssue(c));
+  app.get("/repos/:owner/:repo/issues/:issue_number/timeline", (c) => listIssueEventsForIssue(c, "timeline"));
+  app.get("/repos/:owner/:repo/issues/:issue_number/events", (c) => listIssueEventsForIssue(c, "events"));
 
   app.post("/repos/:owner/:repo/issues/:issue_number/assignees", async (c) => {
     const owner = c.req.param("owner")!;
