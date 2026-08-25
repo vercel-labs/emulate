@@ -800,8 +800,33 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /gmail/v1/users/:userId/history`, `POST /gmail/v1/users/:userId/watch`, `POST /gmail/v1/users/:userId/stop`
 - `GET /gmail/v1/users/:userId/settings/filters`, `POST /gmail/v1/users/:userId/settings/filters`, `DELETE /gmail/v1/users/:userId/settings/filters/:id`
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses`, `GET /gmail/v1/users/:userId/settings/sendAs`
+- `GET /discovery/v1/apis/calendar/v3/rest` - Google API Discovery v1 document for the emulated Calendar methods
 - `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
 - `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
+
+### Google Calendar API Discovery
+
+Discovery-based clients must use the emulator's discovery template explicitly. The document is public and advertises the running emulator's configured base URL. Calendar method calls still require a bearer token.
+
+```python
+import os
+
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+emulator_url = os.environ.get("GOOGLE_EMULATOR_URL", "http://localhost:4002")
+calendar = build(
+    "calendar",
+    "v3",
+    discoveryServiceUrl=f"{emulator_url}/discovery/v1/apis/{{api}}/{{apiVersion}}/rest",
+    credentials=Credentials(token="local-test-token"),
+    cache_discovery=False,
+)
+
+events = calendar.events().list(calendarId="primary", maxResults=10).execute()
+```
+
+Calling `build("calendar", "v3")` without `discoveryServiceUrl` uses Google's default discovery source and does not find the emulator automatically.
 
 ## Slack API
 

@@ -24,6 +24,9 @@ Framework adapters:
 GitHub API coverage:
   Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
 
+Google Calendar discovery:
+  Use /discovery/v1/apis/calendar/v3/rest to configure discovery-based clients against the emulator.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

@@ -61,11 +61,32 @@ npm install @emulators/google
 - `GET /gmail/v1/users/:userId/settings/sendAs` — list send-as aliases
 
 ### Calendar
+- `GET /discovery/v1/apis/calendar/v3/rest` — Google API Discovery v1 document for the emulated Calendar methods
 - `GET /calendar/v3/users/:userId/calendarList` — list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` — list events
 - `POST /calendar/v3/calendars/:calendarId/events` — create event
 - `DELETE /calendar/v3/calendars/:calendarId/events/:eventId` — delete event
 - `POST /calendar/v3/freeBusy` — free/busy query
+
+The discovery endpoint is public and its document advertises the `baseUrl` passed when registering the plugin. Calendar method calls still require a bearer token. Discovery-based clients must use the emulator template explicitly:
+
+```python
+import os
+
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+emulator_url = os.environ.get("GOOGLE_EMULATOR_URL", "http://localhost:4002")
+calendar = build(
+    "calendar",
+    "v3",
+    discoveryServiceUrl=f"{emulator_url}/discovery/v1/apis/{{api}}/{{apiVersion}}/rest",
+    credentials=Credentials(token="local-test-token"),
+    cache_discovery=False,
+)
+```
+
+Plain `build("calendar", "v3")` uses Google's default discovery source and does not find the emulator automatically.
 
 ### Drive
 - `GET /drive/v3/files` — list files

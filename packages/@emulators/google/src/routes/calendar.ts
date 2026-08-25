@@ -1,4 +1,5 @@
 import type { RouteContext } from "@emulators/core";
+import { buildCalendarDiscoveryDocument } from "../calendar-discovery.js";
 import {
   buildFreeBusyResponse,
   createCalendarEventRecord,
@@ -21,8 +22,12 @@ import {
 } from "../route-helpers.js";
 import { getGoogleStore } from "../store.js";
 
-export function calendarRoutes({ app, store }: RouteContext): void {
+export function calendarRoutes({ app, store, baseUrl }: RouteContext): void {
   const gs = getGoogleStore(store);
+
+  app.get("/discovery/v1/apis/calendar/v3/rest", (c) => {
+    return c.json(buildCalendarDiscoveryDocument(baseUrl));
+  });
 
   app.get("/calendar/v3/users/:userId/calendarList", (c) => {
     const authEmail = requireGmailUser(c);

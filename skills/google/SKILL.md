@@ -45,6 +45,7 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 | `https://accounts.google.com/.well-known/openid-configuration` | `$GOOGLE_EMULATOR_URL/.well-known/openid-configuration` |
 | `https://www.googleapis.com/oauth2/v3/certs` | `$GOOGLE_EMULATOR_URL/oauth2/v3/certs` |
 | `https://gmail.googleapis.com/gmail/v1/...` | `$GOOGLE_EMULATOR_URL/gmail/v1/...` |
+| `https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest` | `$GOOGLE_EMULATOR_URL/discovery/v1/apis/calendar/v3/rest` |
 | `https://www.googleapis.com/calendar/v3/...` | `$GOOGLE_EMULATOR_URL/calendar/v3/...` |
 | `https://www.googleapis.com/drive/v3/...` | `$GOOGLE_EMULATOR_URL/drive/v3/...` |
 
@@ -468,6 +469,34 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
 ```
 
 ## Google Calendar API
+
+### Google API Discovery
+
+The Calendar discovery document is public. It advertises the configured emulator base URL, including any adapter mount path. Calendar method calls still require a bearer token.
+
+```bash
+curl "$GOOGLE_EMULATOR_URL/discovery/v1/apis/calendar/v3/rest"
+```
+
+Pass the emulator discovery template explicitly when constructing `google-api-python-client`. Plain `build("calendar", "v3")` uses Google's default discovery source.
+
+```python
+import os
+
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+emulator_url = os.environ.get("GOOGLE_EMULATOR_URL", "http://localhost:4002")
+calendar = build(
+    "calendar",
+    "v3",
+    discoveryServiceUrl=f"{emulator_url}/discovery/v1/apis/{{api}}/{{apiVersion}}/rest",
+    credentials=Credentials(token="local-test-token"),
+    cache_discovery=False,
+)
+
+events = calendar.events().list(calendarId="primary", maxResults=10).execute()
+```
 
 ### Calendar List
 

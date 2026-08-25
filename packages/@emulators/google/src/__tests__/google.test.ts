@@ -14,7 +14,7 @@ import { buildRawMessage } from "../helpers.js";
 
 const base = "http://localhost:4000";
 
-function createTestApp() {
+function createTestApp(advertisedBaseUrl = base) {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
@@ -28,9 +28,9 @@ function createTestApp() {
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
   app.use("*", authMiddleware(tokenMap));
-  googlePlugin.register(app as any, store, webhooks, base, tokenMap);
-  googlePlugin.seed?.(store, base);
-  seedFromConfig(store, base, {
+  googlePlugin.register(app as any, store, webhooks, advertisedBaseUrl, tokenMap);
+  googlePlugin.seed?.(store, advertisedBaseUrl);
+  seedFromConfig(store, advertisedBaseUrl, {
     users: [
       { email: "testuser@example.com", name: "Test User" },
       { email: "consumer@gmail.com", name: "Consumer User" },
@@ -177,6 +177,41 @@ function createTestApp() {
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return { Authorization: "Bearer test-token", ...extra };
+}
+
+function asRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function recordProperty(record: Record<string, unknown>, key: string): Record<string, unknown> {
+  return asRecord(record[key], key);
+}
+
+function discoveryMethod(
+  document: Record<string, unknown>,
+  resourceName: string,
+  methodName: string,
+): Record<string, unknown> {
+  const resources = recordProperty(document, "resources");
+  const resource = recordProperty(resources, resourceName);
+  const methods = recordProperty(resource, "methods");
+  return recordProperty(methods, methodName);
+}
+
+function collectSchemaRefs(value: unknown, refs = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSchemaRefs(item, refs);
+    return refs;
+  }
+  if (typeof value !== "object" || value === null) return refs;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.$ref === "string") refs.add(record.$ref);
+  for (const nested of Object.values(record)) collectSchemaRefs(nested, refs);
+  return refs;
 }
 
 async function jsonRequest(
@@ -931,6 +966,281 @@ describe("Google plugin integration", () => {
     });
     expect(userinfoRes.status).toBe(200);
     expect(((await userinfoRes.json()) as { hd?: string }).hd).toBe("override.io");
+  });
+
+  it("serves the public Calendar discovery document with the implemented method contract", async () => {
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+
+    const document = asRecord(await res.json(), "discovery document");
+    expect({
+      kind: document.kind,
+      discoveryVersion: document.discoveryVersion,
+      id: document.id,
+      name: document.name,
+      version: document.version,
+      title: document.title,
+      protocol: document.protocol,
+    }).toEqual({
+      kind: "discovery#restDescription",
+      discoveryVersion: "v1",
+      id: "calendar:v3",
+      name: "calendar",
+      version: "v3",
+      title: "Calendar API",
+      protocol: "rest",
+    });
+    expect(document.parameters).toEqual({});
+
+    const resources = recordProperty(document, "resources");
+    expect(Object.keys(resources)).toEqual(["calendarList", "events", "freebusy"]);
+    expect(Object.keys(recordProperty(recordProperty(resources, "calendarList"), "methods"))).toEqual(["list"]);
+    expect(Object.keys(recordProperty(recordProperty(resources, "events"), "methods"))).toEqual([
+      "list",
+      "insert",
+      "delete",
+    ]);
+    expect(Object.keys(recordProperty(recordProperty(resources, "freebusy"), "methods"))).toEqual(["query"]);
+
+    const calendarList = discoveryMethod(document, "calendarList", "list");
+    expect({
+      id: calendarList.id,
+      path: calendarList.path,
+      httpMethod: calendarList.httpMethod,
+      parameterOrder: calendarList.parameterOrder,
+      response: calendarList.response,
+    }).toEqual({
+      id: "calendar.calendarList.list",
+      path: "users/me/calendarList",
+      httpMethod: "GET",
+      parameterOrder: [],
+      response: { $ref: "CalendarList" },
+    });
+
+    const eventsList = discoveryMethod(document, "events", "list");
+    expect({
+      id: eventsList.id,
+      path: eventsList.path,
+      httpMethod: eventsList.httpMethod,
+      parameterOrder: eventsList.parameterOrder,
+      response: eventsList.response,
+    }).toEqual({
+      id: "calendar.events.list",
+      path: "calendars/{calendarId}/events",
+      httpMethod: "GET",
+      parameterOrder: ["calendarId"],
+      response: { $ref: "Events" },
+    });
+    const listParameters = recordProperty(eventsList, "parameters");
+    expect(Object.keys(listParameters)).toEqual([
+      "calendarId",
+      "timeMin",
+      "timeMax",
+      "maxResults",
+      "pageToken",
+      "q",
+      "orderBy",
+      "singleEvents",
+    ]);
+    expect(recordProperty(listParameters, "calendarId")).toMatchObject({
+      type: "string",
+      location: "path",
+      required: true,
+    });
+    expect(recordProperty(listParameters, "timeMin")).toMatchObject({
+      type: "string",
+      format: "date-time",
+      location: "query",
+    });
+    expect(recordProperty(listParameters, "timeMax")).toMatchObject({
+      type: "string",
+      format: "date-time",
+      location: "query",
+    });
+    expect(recordProperty(listParameters, "maxResults")).toMatchObject({
+      type: "integer",
+      format: "int32",
+      location: "query",
+    });
+    expect(recordProperty(listParameters, "orderBy").enum).toEqual(["startTime"]);
+    expect(listParameters.showDeleted).toBeUndefined();
+
+    const eventsInsert = discoveryMethod(document, "events", "insert");
+    expect({
+      id: eventsInsert.id,
+      path: eventsInsert.path,
+      httpMethod: eventsInsert.httpMethod,
+      parameterOrder: eventsInsert.parameterOrder,
+      request: eventsInsert.request,
+      response: eventsInsert.response,
+    }).toEqual({
+      id: "calendar.events.insert",
+      path: "calendars/{calendarId}/events",
+      httpMethod: "POST",
+      parameterOrder: ["calendarId"],
+      request: { $ref: "Event" },
+      response: { $ref: "Event" },
+    });
+    expect(recordProperty(recordProperty(eventsInsert, "parameters"), "calendarId")).toMatchObject({
+      location: "path",
+      required: true,
+    });
+
+    const eventsDelete = discoveryMethod(document, "events", "delete");
+    expect({
+      id: eventsDelete.id,
+      path: eventsDelete.path,
+      httpMethod: eventsDelete.httpMethod,
+      parameterOrder: eventsDelete.parameterOrder,
+      response: eventsDelete.response,
+    }).toEqual({
+      id: "calendar.events.delete",
+      path: "calendars/{calendarId}/events/{eventId}",
+      httpMethod: "DELETE",
+      parameterOrder: ["calendarId", "eventId"],
+      response: undefined,
+    });
+    const deleteParameters = recordProperty(eventsDelete, "parameters");
+    for (const parameterName of ["calendarId", "eventId"]) {
+      expect(recordProperty(deleteParameters, parameterName)).toMatchObject({
+        type: "string",
+        location: "path",
+        required: true,
+      });
+    }
+
+    const freebusyQuery = discoveryMethod(document, "freebusy", "query");
+    expect({
+      id: freebusyQuery.id,
+      path: freebusyQuery.path,
+      httpMethod: freebusyQuery.httpMethod,
+      parameterOrder: freebusyQuery.parameterOrder,
+      request: freebusyQuery.request,
+      response: freebusyQuery.response,
+    }).toEqual({
+      id: "calendar.freebusy.query",
+      path: "freeBusy",
+      httpMethod: "POST",
+      parameterOrder: [],
+      request: { $ref: "FreeBusyRequest" },
+      response: { $ref: "FreeBusyResponse" },
+    });
+
+    const unauthenticatedCalendarRes = await app.request(`${base}/calendar/v3/users/me/calendarList`);
+    expect(unauthenticatedCalendarRes.status).toBe(401);
+  });
+
+  it("provides a closed Calendar discovery schema graph matching emulator payloads", async () => {
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    const document = asRecord(await res.json(), "discovery document");
+    const resources = recordProperty(document, "resources");
+    const schemas = recordProperty(document, "schemas");
+    const refs = collectSchemaRefs({ resources, schemas });
+
+    expect([...refs].filter((ref) => schemas[ref] === undefined)).toEqual([]);
+    expect(Object.keys(schemas)).toEqual([
+      "CalendarList",
+      "CalendarListEntry",
+      "Events",
+      "Event",
+      "EventDateTime",
+      "EventAttendee",
+      "ConferenceData",
+      "EntryPoint",
+      "FreeBusyRequest",
+      "FreeBusyRequestItem",
+      "FreeBusyResponse",
+      "FreeBusyCalendar",
+      "TimePeriod",
+    ]);
+
+    const calendarListProperties = recordProperty(recordProperty(schemas, "CalendarList"), "properties");
+    expect(recordProperty(recordProperty(calendarListProperties, "items"), "items").$ref).toBe("CalendarListEntry");
+    const calendarEntryProperties = recordProperty(recordProperty(schemas, "CalendarListEntry"), "properties");
+    expect(Object.keys(calendarEntryProperties)).toEqual([
+      "kind",
+      "etag",
+      "id",
+      "summary",
+      "description",
+      "timeZone",
+      "selected",
+      "primary",
+      "accessRole",
+      "backgroundColor",
+      "foregroundColor",
+    ]);
+
+    const eventsProperties = recordProperty(recordProperty(schemas, "Events"), "properties");
+    expect(recordProperty(recordProperty(eventsProperties, "items"), "items").$ref).toBe("Event");
+    expect(recordProperty(eventsProperties, "nextPageToken").type).toBe("string");
+
+    const eventProperties = recordProperty(recordProperty(schemas, "Event"), "properties");
+    expect(recordProperty(eventProperties, "start").$ref).toBe("EventDateTime");
+    expect(recordProperty(eventProperties, "end").$ref).toBe("EventDateTime");
+    expect(recordProperty(recordProperty(eventProperties, "attendees"), "items").$ref).toBe("EventAttendee");
+    expect(recordProperty(eventProperties, "conferenceData").$ref).toBe("ConferenceData");
+    expect(Object.keys(eventProperties)).toEqual([
+      "kind",
+      "etag",
+      "id",
+      "status",
+      "htmlLink",
+      "hangoutLink",
+      "summary",
+      "description",
+      "location",
+      "created",
+      "updated",
+      "start",
+      "end",
+      "attendees",
+      "conferenceData",
+      "transparency",
+    ]);
+
+    const eventDateTimeProperties = recordProperty(recordProperty(schemas, "EventDateTime"), "properties");
+    expect(recordProperty(eventDateTimeProperties, "date")).toMatchObject({ type: "string", format: "date" });
+    expect(recordProperty(eventDateTimeProperties, "dateTime")).toMatchObject({
+      type: "string",
+      format: "date-time",
+    });
+    expect(recordProperty(eventDateTimeProperties, "timeZone").type).toBe("string");
+
+    const conferenceProperties = recordProperty(recordProperty(schemas, "ConferenceData"), "properties");
+    expect(recordProperty(recordProperty(conferenceProperties, "entryPoints"), "items").$ref).toBe("EntryPoint");
+
+    const requestProperties = recordProperty(recordProperty(schemas, "FreeBusyRequest"), "properties");
+    expect(recordProperty(requestProperties, "timeMin")).toMatchObject({ format: "date-time", required: true });
+    expect(recordProperty(requestProperties, "timeMax")).toMatchObject({ format: "date-time", required: true });
+    expect(recordProperty(recordProperty(requestProperties, "items"), "items").$ref).toBe("FreeBusyRequestItem");
+
+    const responseProperties = recordProperty(recordProperty(schemas, "FreeBusyResponse"), "properties");
+    expect(recordProperty(recordProperty(responseProperties, "calendars"), "additionalProperties").$ref).toBe(
+      "FreeBusyCalendar",
+    );
+    const freeBusyCalendarProperties = recordProperty(recordProperty(schemas, "FreeBusyCalendar"), "properties");
+    expect(recordProperty(recordProperty(freeBusyCalendarProperties, "busy"), "items").$ref).toBe("TimePeriod");
+  });
+
+  it("advertises the configured prefix in Calendar discovery URLs", async () => {
+    const prefixedApp = createTestApp("https://example.test/emulate/google/").app;
+    const res = await prefixedApp.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+
+    const document = asRecord(await res.json(), "discovery document");
+    expect({
+      rootUrl: document.rootUrl,
+      servicePath: document.servicePath,
+      baseUrl: document.baseUrl,
+      basePath: document.basePath,
+    }).toEqual({
+      rootUrl: "https://example.test/emulate/google/",
+      servicePath: "calendar/v3/",
+      baseUrl: "https://example.test/emulate/google/calendar/v3/",
+      basePath: "/emulate/google/calendar/v3/",
+    });
+    expect(String(document.baseUrl)).not.toContain("google//calendar");
   });
 
   it("lists calendar resources, creates events, queries freebusy, and deletes events", async () => {
