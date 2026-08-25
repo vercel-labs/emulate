@@ -111,7 +111,7 @@ type ResponseBody = { errors: Array<{ message: string }> };
 
 export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
   app.post("/graphql", async (c) => {
-    const context = createGitHubGraphQLContext(store, c, baseUrl);
+    const context = createGitHubGraphQLContext(store, c.get("authUser"), baseUrl);
     if (!context.authUser) {
       return c.json(graphQLRequestError("Requires authentication"), 401);
     }

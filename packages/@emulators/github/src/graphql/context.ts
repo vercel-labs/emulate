@@ -1,4 +1,4 @@
-import type { AuthUser, Context, Store, AppEnv } from "@emulators/core";
+import type { AuthUser, Store } from "@emulators/core";
 import { assertRepoPermission, canAccessRepo } from "../route-helpers.js";
 import { getGitHubStore, type GitHubStore } from "../store.js";
 import type { GitHubComment, GitHubIssue, GitHubLabel, GitHubRepo } from "../entities.js";
@@ -8,18 +8,20 @@ import { unauthorized } from "@emulators/core";
 export interface GitHubGraphQLContext {
   store: Store;
   gh: GitHubStore;
-  c: Context<AppEnv>;
   baseUrl: string;
   authUser: AuthUser | undefined;
 }
 
-export function createGitHubGraphQLContext(store: Store, c: Context<AppEnv>, baseUrl: string): GitHubGraphQLContext {
+export function createGitHubGraphQLContext(
+  store: Store,
+  authUser: AuthUser | undefined,
+  baseUrl: string,
+): GitHubGraphQLContext {
   return {
     store,
     gh: getGitHubStore(store),
-    c,
     baseUrl,
-    authUser: c.get("authUser"),
+    authUser,
   };
 }
 
