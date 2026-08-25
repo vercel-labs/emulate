@@ -20,7 +20,7 @@ export function createIssueComment(
   context: GitHubMutationContext,
   input: CreateIssueCommentInput,
 ): CreateIssueCommentResult {
-  if (input.issue.repo_id !== input.repo.id || input.issue.is_pull_request) {
+  if (input.issue.repo_id !== input.repo.id) {
     throw new ApiError(404, "Not Found");
   }
   if (typeof input.body !== "string" || !input.body.trim()) {
@@ -28,7 +28,7 @@ export function createIssueComment(
   }
 
   const currentIssue = context.gh.issues.get(input.issue.id);
-  if (!currentIssue || currentIssue.repo_id !== input.repo.id || currentIssue.is_pull_request) {
+  if (!currentIssue || currentIssue.repo_id !== input.repo.id) {
     throw new ApiError(404, "Not Found");
   }
 

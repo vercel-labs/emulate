@@ -54,7 +54,7 @@ describe("shared GitHub mutation behavior", () => {
   });
 
   it("records issue comment creation in the issue count without changing timeline behavior", async () => {
-    const { app } = createTestApp();
+    const { app, store } = createTestApp();
 
     const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
       method: "POST",
@@ -75,6 +75,53 @@ describe("shared GitHub mutation behavior", () => {
     });
     const issue = (await issueRead.json()) as { comments: number };
     expect(issue.comments).toBe(1);
+    const events = store.collection("github.issue_events").all() as unknown as Array<{ event: string }>;
+    expect(events.map((event) => event.event)).toEqual(["opened"]);
+  });
+
+  it("keeps the REST issue comment projection working for pull requests", async () => {
+    const { app } = createTestApp();
+
+    const pullResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Pull request", head: "feature", base: "main" }),
+    });
+    expect(pullResponse.status).toBe(201);
+    const pull = (await pullResponse.json()) as { number: number };
+
+    const commentResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${pull.number}/comments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ body: "A pull request issue comment" }),
+    });
+    expect(commentResponse.status).toBe(201);
+  });
+
+  it("does not mutate a lifecycle issue when the requested state is already current", async () => {
+    const { app, store } = createTestApp();
+
+    const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "No-op lifecycle" }),
+    });
+    expect(issueResponse.status).toBe(201);
+
+    const before = (store.collection("github.issues").all() as unknown as Array<{ updated_at: string }>)[0]!;
+    const eventCount = store.collection("github.issue_events").all().length;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const response = await app.request(`${base}/repos/octocat/hello-world/issues/1`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ state: "open" }),
+    });
+    expect(response.status).toBe(200);
+
+    const after = (store.collection("github.issues").all() as unknown as Array<{ updated_at: string }>)[0]!;
+    expect(after.updated_at).toBe(before.updated_at);
+    expect(store.collection("github.issue_events").all()).toHaveLength(eventCount);
   });
 
   it("keeps lifecycle counters and events consistent while cleaning deleted labels", async () => {

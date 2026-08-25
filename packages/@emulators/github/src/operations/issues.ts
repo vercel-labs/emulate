@@ -120,6 +120,10 @@ export function transitionIssueLifecycle(
   delete patch.state_reason;
 
   const changed = current.state !== input.state;
+  if (!changed && Object.keys(patch).length === 0 && input.stateReason === undefined) {
+    return { issue: current, changed: false };
+  }
+
   if (changed) {
     patch.state = input.state;
     patch.state_reason =

@@ -308,6 +308,12 @@ export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined,
 }
 
 export function assertRepoWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  if (authUser?.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (!hasInstallationPermission(authUser, ["contents"], "write")) throw forbidden();
+    return installationActor(gh, authUser);
+  }
+
   const user = assertAuthenticatedUser(gh, authUser);
   if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
@@ -315,6 +321,25 @@ export function assertRepoWrite(gh: GitHubStore, authUser: AuthUser | undefined,
 }
 
 export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  if (authUser?.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (!hasInstallationPermission(authUser, ["issues"], "write")) throw forbidden();
+    return installationActor(gh, authUser);
+  }
+
+  const user = assertAuthenticatedUser(gh, authUser);
+  if (!repo.private) return user;
+  if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
+  return user;
+}
+
+export function assertPullRequestWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  if (authUser?.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (!hasInstallationPermission(authUser, ["pull_requests"], "write")) throw forbidden();
+    return installationActor(gh, authUser);
+  }
+
   const user = assertAuthenticatedUser(gh, authUser);
   if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
