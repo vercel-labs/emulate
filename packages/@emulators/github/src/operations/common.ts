@@ -22,7 +22,18 @@ export function insertIssueEvent(
   event: string,
   actorId: number,
   extra?: Partial<
-    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
+    Pick<
+      GitHubIssueEvent,
+      | "commit_id"
+      | "commit_url"
+      | "label_name"
+      | "assignee_id"
+      | "milestone_title"
+      | "rename"
+      | "comment_id"
+      | "comment_body"
+      | "timeline_only"
+    >
   >,
 ): GitHubIssueEvent {
   const row = gh.issueEvents.insert({
@@ -37,6 +48,9 @@ export function insertIssueEvent(
     assignee_id: null,
     milestone_title: null,
     rename: null,
+    comment_id: null,
+    comment_body: null,
+    timeline_only: false,
     ...extra,
   } as Omit<GitHubIssueEvent, "id" | "created_at" | "updated_at">);
   gh.issueEvents.update(row.id, { node_id: generateNodeId("IssueEvent", row.id) });

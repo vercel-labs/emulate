@@ -154,7 +154,7 @@ export interface DeleteRepositoryLabelInput {
   name: string;
 }
 
-function setIssueLabelIds(gh: GitHubStore, issue: GitHubIssue, labelIds: number[]): void {
+export function setIssueLabelIds(gh: GitHubStore, issue: GitHubIssue, labelIds: number[]): void {
   gh.issues.update(issue.id, { label_ids: labelIds });
   if (!issue.is_pull_request) return;
   const pull = gh.pullRequests.findBy("repo_id", issue.repo_id).find((candidate) => candidate.number === issue.number);

@@ -4,7 +4,7 @@ import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
   assertRepoPermission,
-  assertRepoWrite,
+  assertPullRequestWrite,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -352,7 +352,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
 
     const title = body.title;
@@ -487,7 +487,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -598,7 +598,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -788,7 +788,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -846,7 +846,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -885,7 +885,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 

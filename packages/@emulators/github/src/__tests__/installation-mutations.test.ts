@@ -71,6 +71,34 @@ function createInstallationApp() {
       repositorySelection: "selected",
     },
   });
+  tokenMap.set("user-install-pr", {
+    login: user.login,
+    id: user.id,
+    scopes: ["pull_requests:write"],
+    installation: {
+      installationId: 45,
+      appId: 45,
+      accountId: user.id,
+      accountType: "User",
+      permissions: { pull_requests: "write" },
+      repositoryIds: [],
+      repositorySelection: "all",
+    },
+  });
+  tokenMap.set("user-install-contents", {
+    login: user.login,
+    id: user.id,
+    scopes: ["contents:write"],
+    installation: {
+      installationId: 46,
+      appId: 46,
+      accountId: user.id,
+      accountType: "User",
+      permissions: { contents: "write" },
+      repositoryIds: [],
+      repositorySelection: "all",
+    },
+  });
 
   return { app, store };
 }
@@ -130,5 +158,22 @@ describe("GitHub installation mutation permissions", () => {
       body: JSON.stringify({ title: "Excluded" }),
     });
     expect(excludedResponse.status).toBe(403);
+  });
+
+  it("uses pull_requests permission for pull request mutations", async () => {
+    const { app } = createInstallationApp();
+    const allowedResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+      method: "POST",
+      headers: headers("user-install-pr"),
+      body: JSON.stringify({ title: "Allowed pull", head: "feature", base: "main" }),
+    });
+    expect(allowedResponse.status).toBe(201);
+
+    const deniedResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+      method: "POST",
+      headers: headers("user-install-contents"),
+      body: JSON.stringify({ title: "Denied pull", head: "feature-2", base: "main" }),
+    });
+    expect(deniedResponse.status).toBe(403);
   });
 });

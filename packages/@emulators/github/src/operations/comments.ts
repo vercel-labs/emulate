@@ -2,7 +2,7 @@ import { ApiError } from "@emulators/core";
 import type { GitHubComment, GitHubIssue, GitHubRepo, GitHubUser } from "../entities.js";
 import { formatComment, formatIssue, formatRepo, formatUser, generateNodeId } from "../helpers.js";
 import { ownerLoginOf } from "../route-helpers.js";
-import { dispatchGitHubWebhook, type GitHubMutationContext } from "./common.js";
+import { dispatchGitHubWebhook, insertIssueEvent, type GitHubMutationContext } from "./common.js";
 
 export interface CreateIssueCommentInput {
   repo: GitHubRepo;
@@ -52,6 +52,11 @@ export function createIssueComment(
   context.gh.comments.update(row.id, { node_id: generateNodeId("IssueComment", row.id) });
   const comment = context.gh.comments.get(row.id)!;
   const updatedIssue = context.gh.issues.update(currentIssue.id, { comments: currentIssue.comments + 1 })!;
+  insertIssueEvent(context.gh, input.repo, currentIssue.number, "commented", input.actor.id, {
+    comment_id: comment.id,
+    comment_body: comment.body,
+    timeline_only: true,
+  });
 
   const ownerLogin = ownerLoginOf(context.gh, input.repo);
   dispatchGitHubWebhook(

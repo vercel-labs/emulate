@@ -5,7 +5,7 @@ import { getGitHubStore } from "../store.js";
 import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubIssue, GitHubIssueEvent, GitHubRepo, GitHubUser } from "../entities.js";
-import { formatIssue, formatRepo, formatUser, lookupRepo } from "../helpers.js";
+import { formatComment, formatIssue, formatRepo, formatUser, lookupRepo } from "../helpers.js";
 import { insertIssueEvent } from "../operations/common.js";
 import { createIssue, transitionIssueLifecycle } from "../operations/issues.js";
 import { applyIssueLabelPlan, planIssueLabelReferences } from "../operations/labels.js";
@@ -29,6 +29,7 @@ function formatIssueEventApi(
 ) {
   const actor = gh.users.get(ev.actor_id);
   const issueJson = formatIssue(issue, gh, baseUrl);
+  const comment = ev.comment_id != null ? gh.comments.get(ev.comment_id) : undefined;
   return {
     id: ev.id,
     node_id: ev.node_id,
@@ -54,6 +55,7 @@ function formatIssueEventApi(
     milestone: null,
     rename: ev.rename,
     issue: issueJson,
+    ...(comment ? { comment: formatComment(comment, gh, baseUrl) } : {}),
   };
 }
 
@@ -607,11 +609,12 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
-    const issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    const issue = gh.issues.findBy("repo_id", repo.id).find((candidate) => candidate.number === issueNumber);
+    if (!issue) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
     let events = gh.issueEvents.findBy("repo_id", repo.id).filter((e) => e.issue_number === issueNumber);
+    if (!c.req.path.endsWith("/timeline")) events = events.filter((event) => !event.timeline_only);
     events.sort((a, b) => a.created_at.localeCompare(b.created_at));
     const total = events.length;
     setLinkHeader(c, total, page, per_page);

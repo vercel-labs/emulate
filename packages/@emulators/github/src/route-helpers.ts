@@ -345,3 +345,16 @@ export function assertPullRequestWrite(gh: GitHubStore, authUser: AuthUser | und
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
   return user;
 }
+
+export function assertChecksWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  if (authUser?.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (!hasInstallationPermission(authUser, ["checks"], "write")) throw forbidden();
+    return installationActor(gh, authUser);
+  }
+
+  const user = assertAuthenticatedUser(gh, authUser);
+  if (!repo.private) return user;
+  if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
+  return user;
+}

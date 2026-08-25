@@ -23,6 +23,7 @@ import {
   deleteRepositoryLabel,
   ensureIssueLabel,
   findRepositoryLabel,
+  setIssueLabelIds,
 } from "../operations/labels.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
@@ -39,15 +40,6 @@ function formatIssueOrPullPayload(gh: GitHubStore, issue: GitHubIssue, current: 
     return pr ? formatPullRequest(pr, gh, baseUrl) : null;
   }
   return formatIssue(current, gh, baseUrl);
-}
-
-/** Keep issue and pull request rows in sync for label_ids. */
-function setIssueLabelIds(gh: GitHubStore, issue: GitHubIssue, labelIds: number[]) {
-  gh.issues.update(issue.id, { label_ids: labelIds });
-  if (issue.is_pull_request) {
-    const pr = findPullByNumber(gh, issue.repo_id, issue.number);
-    if (pr) gh.pullRequests.update(pr.id, { label_ids: labelIds });
-  }
 }
 
 function normalizeColor(raw: unknown): string {

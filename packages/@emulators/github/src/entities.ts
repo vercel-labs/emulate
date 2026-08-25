@@ -235,6 +235,10 @@ export interface GitHubIssueEvent extends Entity {
   assignee_id: number | null;
   milestone_title: string | null;
   rename: { from: string; to: string } | null;
+  /** Timeline-only comment event payload. */
+  comment_id?: number | null;
+  comment_body?: string | null;
+  timeline_only?: boolean;
 }
 
 export interface GitHubBranch extends Entity {
