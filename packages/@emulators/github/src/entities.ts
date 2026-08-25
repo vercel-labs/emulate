@@ -252,6 +252,9 @@ export interface GitHubIssueEvent extends Entity {
   sub_issue_id?: number | null;
   blocked_issue_id?: number | null;
   blocking_issue_id?: number | null;
+  /** Timeline-only comment event payload. */
+  comment_id?: number | null;
+  timeline_only?: boolean;
 }
 
 export interface GitHubBranch extends Entity {
