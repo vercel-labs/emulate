@@ -313,6 +313,46 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
 # Get / update / lock / unlock / timeline / events / assignees
 ```
 
+### Issue relationships
+
+Sub-issues are ordered parent-child edges stored separately from issues and dependencies. A child has at most one parent. Relationship collection endpoints use the standard `page` and `per_page` parameters, cap `per_page` at 100, and return `Link` headers for available pages.
+
+```bash
+# List a parent's ordered children
+curl "$BASE/repos/octocat/hello-world/issues/1/sub_issues?per_page=100" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Add a child by issue database ID. Use replace_parent to move an existing child.
+curl -X POST "$BASE/repos/octocat/hello-world/issues/1/sub_issues" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sub_issue_id": 2, "replace_parent": false}'
+
+# Reorder a child relative to one sibling, or remove it
+curl -X PATCH "$BASE/repos/octocat/hello-world/issues/1/sub_issues/priority" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sub_issue_id": 2, "before_id": 3}'
+curl -X DELETE "$BASE/repos/octocat/hello-world/issues/1/sub_issue" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sub_issue_id": 2}'
+
+# Read or add dependency edges. The route issue is blocked by issue_id.
+curl "$BASE/repos/octocat/hello-world/issues/1/dependencies/blocked_by" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X POST "$BASE/repos/octocat/hello-world/issues/1/dependencies/blocked_by" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"issue_id": 3}'
+curl "$BASE/repos/octocat/hello-world/issues/3/dependencies/blocking" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X DELETE "$BASE/repos/octocat/hello-world/issues/1/dependencies/blocked_by/3" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Hierarchy and dependency edges reject self-references, duplicates, and cycles without mutating the store. Sub-issue repositories must have the same owner. Dependency targets can be cross-repository when the caller can read both repositories. Relationship writes require issue write access on the route repository and issue read access to referenced repositories. Writes emit `sub_issues` and `issue_dependencies` webhook events for both affected sides.
+
 ### Pull Requests
 
 ```bash

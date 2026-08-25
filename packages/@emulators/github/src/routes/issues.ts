@@ -135,6 +135,10 @@ function formatIssueEventApi(
         : null,
     milestone: null,
     rename: ev.rename,
+    parent_issue_id: ev.parent_issue_id,
+    sub_issue_id: ev.sub_issue_id,
+    blocked_issue_id: ev.blocked_issue_id,
+    blocking_issue_id: ev.blocking_issue_id,
     issue: issueJson,
   };
 }

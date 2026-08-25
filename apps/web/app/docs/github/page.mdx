@@ -92,6 +92,18 @@ The destination must not exist. emulate removes inherited ACLs, verifies effecti
 - `GET /repos/:owner/:repo/issues/:number/events` - events
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` - manage assignees
 
+## Issue relationships
+
+- `GET /repos/:owner/:repo/issues/:number/parent` - get the parent issue
+- `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` - list or add ordered sub-issues
+- `DELETE /repos/:owner/:repo/issues/:number/sub_issue` - remove a sub-issue with `{ "sub_issue_id": <database id> }`
+- `PATCH /repos/:owner/:repo/issues/:number/sub_issues/priority` - move a child with `after_id` or `before_id`
+- `GET/POST /repos/:owner/:repo/issues/:number/dependencies/blocked_by` - list or add blocking issues
+- `GET /repos/:owner/:repo/issues/:number/dependencies/blocking` - list issues blocked by this issue
+- `DELETE /repos/:owner/:repo/issues/:number/dependencies/blocked_by/:issue_id` - remove a dependency
+
+Relationship lists use `page` and `per_page`, cap `per_page` at 100, and return `Link` headers when more pages are available. Sub-issues have one parent and explicit sibling order. The `replace_parent` write option moves an existing child atomically. Hierarchy and dependency edges are independent, and self-references, duplicates, and cycles are rejected without changing state. Sub-issues must be in repositories owned by the same account. Dependency targets may be cross-repository when the caller can read both repositories. Writes require issue write access on the route repository and issue read access to referenced repositories.
+
 ## Pull Requests
 
 - `GET /repos/:owner/:repo/pulls` - list (filter by state, head, base)

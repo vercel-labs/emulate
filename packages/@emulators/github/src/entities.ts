@@ -133,6 +133,19 @@ export interface GitHubIssue extends Entity {
   is_pull_request: boolean;
 }
 
+/** An ordered parent to child issue relationship. Both ends are issue IDs. */
+export interface GitHubIssueSubIssue extends Entity {
+  parent_issue_id: number;
+  child_issue_id: number;
+  position: number;
+}
+
+/** A directed issue dependency. The blocked issue depends on the blocking issue. */
+export interface GitHubIssueDependency extends Entity {
+  blocked_issue_id: number;
+  blocking_issue_id: number;
+}
+
 export interface GitHubPullRequest extends Entity {
   node_id: string;
   number: number;
@@ -235,6 +248,10 @@ export interface GitHubIssueEvent extends Entity {
   assignee_id: number | null;
   milestone_title: string | null;
   rename: { from: string; to: string } | null;
+  parent_issue_id?: number | null;
+  sub_issue_id?: number | null;
+  blocked_issue_id?: number | null;
+  blocking_issue_id?: number | null;
 }
 
 export interface GitHubBranch extends Entity {

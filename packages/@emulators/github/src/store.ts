@@ -8,6 +8,8 @@ import type {
   GitHubRepo,
   GitHubCollaborator,
   GitHubIssue,
+  GitHubIssueSubIssue,
+  GitHubIssueDependency,
   GitHubPullRequest,
   GitHubLabel,
   GitHubMilestone,
@@ -46,6 +48,8 @@ export interface GitHubStore {
   repos: Collection<GitHubRepo>;
   collaborators: Collection<GitHubCollaborator>;
   issues: Collection<GitHubIssue>;
+  issueSubIssues: Collection<GitHubIssueSubIssue>;
+  issueDependencies: Collection<GitHubIssueDependency>;
   pullRequests: Collection<GitHubPullRequest>;
   labels: Collection<GitHubLabel>;
   milestones: Collection<GitHubMilestone>;
@@ -85,6 +89,14 @@ export function getGitHubStore(store: Store): GitHubStore {
     repos: store.collection<GitHubRepo>("github.repos", ["owner_id", "full_name"]),
     collaborators: store.collection<GitHubCollaborator>("github.collaborators", ["repo_id", "user_id"]),
     issues: store.collection<GitHubIssue>("github.issues", ["repo_id", "number"]),
+    issueSubIssues: store.collection<GitHubIssueSubIssue>("github.issue_sub_issues", [
+      "parent_issue_id",
+      "child_issue_id",
+    ]),
+    issueDependencies: store.collection<GitHubIssueDependency>("github.issue_dependencies", [
+      "blocked_issue_id",
+      "blocking_issue_id",
+    ]),
     pullRequests: store.collection<GitHubPullRequest>("github.pull_requests", ["repo_id", "number"]),
     labels: store.collection<GitHubLabel>("github.labels", ["repo_id"]),
     milestones: store.collection<GitHubMilestone>("github.milestones", ["repo_id", "number"]),

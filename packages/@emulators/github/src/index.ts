@@ -8,6 +8,7 @@ import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
+import { issueRelationshipsRoutes } from "./routes/issue-relationships.js";
 import { pullsRoutes } from "./routes/pulls.js";
 import { commentsRoutes } from "./routes/comments.js";
 import { reviewsRoutes } from "./routes/reviews.js";
@@ -30,6 +31,7 @@ import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-he
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
+export * from "./issue-relationships.js";
 
 export interface GitHubSeedConfig {
   port?: number;
@@ -556,6 +558,7 @@ export const githubPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     usersRoutes(ctx);
     reposRoutes(ctx);
+    issueRelationshipsRoutes(ctx);
     issuesRoutes(ctx);
     pullsRoutes(ctx);
     commentsRoutes(ctx);
