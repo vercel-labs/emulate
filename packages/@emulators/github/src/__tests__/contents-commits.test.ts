@@ -2259,3 +2259,28 @@ describe("search result URLs resolve against the contents API", () => {
     expect((await search("feature-search-needle")).total_count).toBe(0);
   });
 });
+
+describe("contents raw media type", () => {
+  it("returns file bytes for Accept: application/vnd.github.raw+json", async () => {
+    const { app } = createTestApp();
+    const put = await app.request(`${base}/repos/octocat/hello-world/contents/docs/raw.md`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "docs: raw", content: Buffer.from("# raw\n").toString("base64") }),
+    });
+    expect(put.status).toBe(201);
+
+    const raw = await app.request(`${base}/repos/octocat/hello-world/contents/docs/raw.md`, {
+      headers: { ...authHeaders(), Accept: "application/vnd.github.raw+json" },
+    });
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("content-type")).toBe("application/vnd.github.raw");
+    expect(await raw.text()).toBe("# raw\n");
+
+    const json = await app.request(`${base}/repos/octocat/hello-world/contents/docs/raw.md`, {
+      headers: authHeaders(),
+    });
+    expect(json.status).toBe(200);
+    expect(((await json.json()) as { encoding: string }).encoding).toBe("base64");
+  });
+});
