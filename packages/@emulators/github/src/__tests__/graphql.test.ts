@@ -279,25 +279,28 @@ describe("GitHub GraphQL read compatibility", () => {
       .then((response) => response.json())) as { updated_at: string };
     const eventCount = store.collection("github.issue_events").all().length;
     vi.useFakeTimers({ now: Date.now() });
-    vi.advanceTimersByTime(5);
-    const completedDuplicate = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
-    });
-    expect(completedDuplicate.status).toBe(200);
-    const afterDuplicate = (await completedDuplicate.json()) as { updated_at: string };
-    expect(afterDuplicate.updated_at).not.toBe(beforeDuplicate.updated_at);
-    expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
-    vi.useRealTimers();
-    const noOp = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
-    });
-    expect(noOp.status).toBe(200);
-    expect(((await noOp.json()) as { updated_at: string }).updated_at).toBe(afterDuplicate.updated_at);
-    expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+    try {
+      vi.advanceTimersByTime(5);
+      const completedDuplicate = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
+      });
+      expect(completedDuplicate.status).toBe(200);
+      const afterDuplicate = (await completedDuplicate.json()) as { updated_at: string };
+      expect(afterDuplicate.updated_at).not.toBe(beforeDuplicate.updated_at);
+      expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+      const noOp = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
+      });
+      expect(noOp.status).toBe(200);
+      expect(((await noOp.json()) as { updated_at: string }).updated_at).toBe(afterDuplicate.updated_at);
+      expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+    } finally {
+      vi.useRealTimers();
+    }
 
     const graphResponse = await graphql(
       app,
@@ -2076,6 +2079,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
       expected: number;
       run: () => Promise<Response>;
       check?: (body: any) => void;
+      denied?: boolean;
     }> = [
       {
         name: "user repository read",
@@ -2692,6 +2696,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         name: "private excluded subissue write",
         token: "matrix-private-excluded",
         expected: 200,
+        denied: true,
         run: () =>
           graphql(
             app,
@@ -2712,6 +2717,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         name: "private excluded dependency write",
         token: "matrix-private-excluded",
         expected: 200,
+        denied: true,
         run: () =>
           graphql(
             app,
@@ -2740,12 +2746,13 @@ describe("GitHub GraphQL mutation compatibility", () => {
       });
     for (const row of rows) {
       testDefaultToken = row.token;
-      const before = row.expected === 403 ? beforeDenied() : "";
+      const before = row.denied || row.expected === 403 ? beforeDenied() : "";
       const response = await row.run();
       expect(response.status, row.name).toBe(row.expected);
       const body = (await responseBody(response)) as any;
       if (row.check) row.check(body);
-      if (row.expected === 403) expect(beforeDenied(), row.name).toBe(before);
+      if (row.denied) expect(body.errors?.length, row.name).toBeGreaterThan(0);
+      if (row.denied || row.expected === 403) expect(beforeDenied(), row.name).toBe(before);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
