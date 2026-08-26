@@ -5,6 +5,7 @@ import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMa
 import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";
+let testDefaultToken = "octocat-token";
 
 function createTestApp() {
   const store = new Store();
@@ -67,7 +68,7 @@ async function graphql(
   query: string,
   variables?: Record<string, unknown>,
   operationName?: string,
-  token?: string,
+  token = testDefaultToken,
 ) {
   return app.request(`${base}/graphql`, {
     method: "POST",
@@ -1997,6 +1998,502 @@ describe("GitHub GraphQL read compatibility", () => {
 });
 
 describe("GitHub GraphQL mutation compatibility", () => {
+  it("runs the explicit user and App permission matrix across every issue-graph family", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const fixture = await createFixture(app);
+    const parent = await createIssue(app, "Permission parent");
+    const child = await createIssue(app, "Permission child");
+    const blocker = await createIssue(app, "Permission blocker");
+    const deletion = await createIssue(app, "Permission deletion");
+    const privateIssueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Private permission issue" }),
+    });
+    const privateIssue = (await privateIssueResponse.json()) as { node_id: string };
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ sub_issue_id: child.id }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/dependencies/blocked_by`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ issue_id: blocker.id }),
+        })
+      ).status,
+    ).toBe(201);
+    addInstallationToken(store, tokenMap, "matrix-read", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [repo.id],
+    });
+    addInstallationToken(store, tokenMap, "matrix-write", {
+      permissions: { issues: "write" },
+      repositorySelection: "selected",
+      repositoryIds: [repo.id],
+    });
+    addInstallationToken(store, tokenMap, "matrix-excluded", {
+      permissions: { issues: "write" },
+      repositorySelection: "selected",
+      repositoryIds: [],
+    });
+    const rows: Array<{
+      name: string;
+      token: string;
+      expected: number;
+      run: () => Promise<Response>;
+      check?: (body: any) => void;
+    }> = [
+      {
+        name: "user repository read",
+        token: "octocat-token",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query UserRepo {
+                repo: repository(owner: "octocat", name: "hello-world") {
+                  id
+                }
+              }
+            `,
+            undefined,
+            "UserRepo",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.repo.id).toBe(repo.node_id),
+      },
+      {
+        name: "App read-only repository read selected",
+        token: "matrix-read",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query AppRepo {
+                repo: repository(owner: "octocat", name: "hello-world") {
+                  id
+                }
+              }
+            `,
+            undefined,
+            "AppRepo",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.repo.id).toBe(repo.node_id),
+      },
+      {
+        name: "App selected excluded public repository",
+        token: "matrix-excluded",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query ExcludedRepo {
+                repo: repository(owner: "octocat", name: "hello-world") {
+                  id
+                }
+              }
+            `,
+            undefined,
+            "ExcludedRepo",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.repo).toBeNull(),
+      },
+      {
+        name: "user private repository inaccessible",
+        token: "outsider-token",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query PrivateRepo {
+                repo: repository(owner: "octocat", name: "private-repo") {
+                  id
+                }
+              }
+            `,
+            undefined,
+            "PrivateRepo",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.repo).toBeNull(),
+      },
+      {
+        name: "issue read selected",
+        token: "matrix-read",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query IssueRead($id: ID!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    id
+                  }
+                }
+              }
+            `,
+            { id: fixture.issue.node_id },
+            "IssueRead",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.value.id).toBe(fixture.issue.node_id),
+      },
+      {
+        name: "node read excluded",
+        token: "matrix-excluded",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query NodeExcluded($id: ID!) {
+                value: node(id: $id) {
+                  id
+                }
+              }
+            `,
+            { id: fixture.issue.node_id },
+            "NodeExcluded",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.value).toBeNull(),
+      },
+      {
+        name: "private node inaccessible",
+        token: "outsider-token",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query PrivateNode($id: ID!) {
+                value: node(id: $id) {
+                  id
+                }
+              }
+            `,
+            { id: privateIssue.node_id },
+            "PrivateNode",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.value).toBeNull(),
+      },
+      {
+        name: "comments read",
+        token: "matrix-read",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query Comments($id: ID!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    comments(first: 1) {
+                      totalCount
+                    }
+                  }
+                }
+              }
+            `,
+            { id: fixture.issue.node_id },
+            "Comments",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.value.comments.totalCount).toBe(1),
+      },
+      {
+        name: "subIssues read",
+        token: "matrix-read",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query Subs($id: ID!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    subIssues(first: 1) {
+                      nodes {
+                        id
+                      }
+                    }
+                  }
+                }
+              }
+            `,
+            { id: parent.node_id },
+            "Subs",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.value.subIssues.nodes[0].id).toBe(child.node_id),
+      },
+      {
+        name: "blockedBy read",
+        token: "matrix-read",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              query Blocks($id: ID!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    blockedBy(first: 1) {
+                      nodes {
+                        id
+                      }
+                    }
+                  }
+                }
+              }
+            `,
+            { id: parent.node_id },
+            "Blocks",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.value.blockedBy.nodes[0].id).toBe(blocker.node_id),
+      },
+      {
+        name: "create issue read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation CreateDenied($input: CreateIssueInput!) {
+                createIssue(input: $input) {
+                  issue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { repositoryId: repo.node_id, title: "denied" } },
+            "CreateDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "create issue write allowed",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation CreateAllowed($input: CreateIssueInput!) {
+                created: createIssue(input: $input) {
+                  issue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { repositoryId: repo.node_id, title: "allowed" } },
+            "CreateAllowed",
+          ) as Promise<Response>,
+      },
+      {
+        name: "delete issue read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation DeleteDenied($input: DeleteIssueInput!) {
+                deleteIssue(input: $input) {
+                  repository {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: deletion.node_id } },
+            "DeleteDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "comment read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation CommentDenied($input: AddCommentInput!) {
+                addComment(input: $input) {
+                  comment {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { subjectId: fixture.issue.node_id, body: "denied" } },
+            "CommentDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "comment App write bot actor",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation CommentAllowed($input: AddCommentInput!) {
+                added: addComment(input: $input) {
+                  comment {
+                    author {
+                      login
+                    }
+                  }
+                }
+              }
+            `,
+            { input: { subjectId: fixture.issue.node_id, body: "bot comment" } },
+            "CommentAllowed",
+          ) as Promise<Response>,
+        check: (body) => expect(body.data.added.comment.author.login).toBe("app-9[bot]"),
+      },
+      {
+        name: "lifecycle read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation CloseDenied($input: CloseIssueInput!) {
+                closeIssue(input: $input) {
+                  issue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: parent.node_id } },
+            "CloseDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "lifecycle App write allowed",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation CloseAllowed($input: CloseIssueInput!) {
+                closeIssue(input: $input) {
+                  issue {
+                    state
+                  }
+                }
+              }
+            `,
+            { input: { issueId: parent.node_id } },
+            "CloseAllowed",
+          ) as Promise<Response>,
+      },
+      {
+        name: "create label read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation LabelDenied($input: CreateLabelInput!) {
+                createLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { repositoryId: repo.node_id, name: "denied-label" } },
+            "LabelDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "create label App write allowed",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation LabelAllowed($input: CreateLabelInput!) {
+                createLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { repositoryId: repo.node_id, name: "allowed-label" } },
+            "LabelAllowed",
+          ) as Promise<Response>,
+      },
+      {
+        name: "relationship read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation RelationshipDenied($input: AddSubIssueInput!) {
+                addSubIssue(input: $input) {
+                  subIssue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { parentIssueId: parent.node_id, childIssueId: child.node_id } },
+            "RelationshipDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "relationship App write allowed",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation RelationshipAllowed($input: AddBlockedByInput!) {
+                addBlockedBy(input: $input) {
+                  blockedBy {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: parent.node_id, blockingIssueId: blocker.node_id } },
+            "RelationshipAllowed",
+          ) as Promise<Response>,
+      },
+    ];
+    for (const row of rows) {
+      testDefaultToken = row.token;
+      const response = await row.run();
+      expect(response.status, row.name).toBe(row.expected);
+      const body = (await responseBody(response)) as any;
+      if (row.check) row.check(body);
+    }
+    testDefaultToken = "octocat-token";
+  });
   it("creates issues, transitions lifecycle, and echoes client mutation IDs", async () => {
     const { app, store } = createTestApp();
     const fixture = await createFixture(app);
