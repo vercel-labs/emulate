@@ -54,7 +54,7 @@ describe("shared GitHub mutation behavior", () => {
   });
 
   it("records issue comment creation in the issue count without changing timeline behavior", async () => {
-    const { app, store } = createTestApp();
+    const { app } = createTestApp();
 
     const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
       method: "POST",
