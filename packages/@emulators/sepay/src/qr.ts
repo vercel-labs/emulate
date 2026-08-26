@@ -120,7 +120,7 @@ export function encodeQrMatrix(text: string): boolean[][] {
 
   for (let i = 0; i < size; i++) {
     if (!isFunction[6][i]) setFunctionModule(i, 6, i % 2 === 0);
-    if (!isFunction[i][6]) setFunctionModule(i, 6, i % 2 === 0);
+    if (!isFunction[i][6]) setFunctionModule(6, i, i % 2 === 0);
   }
 
   const drawFormatBits = (): void => {
