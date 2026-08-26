@@ -130,7 +130,9 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
       review_id: null,
     });
     gh.comments.update(row.id, { node_id: generateNodeId("IssueComment", row.id) });
-    gh.issues.update(issue.id, { comments: issue.comments + 1 });
+    const currentIssue = gh.issues.get(issue.id);
+    if (!currentIssue) throw new Error(`Seed comment references missing issue: ${spec.issue}`);
+    gh.issues.update(issue.id, { comments: currentIssue.comments + 1 });
   }
   for (const edge of plan.subIssues) {
     const parent = issueByKey.get(edge.parent);
@@ -139,7 +141,7 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
       throw new Error(`Invalid seed parent-child edge: ${edge.parent} -> ${edge.child}`);
     if (gh.issueSubIssues.findOneBy("child_issue_id", child.id))
       throw new Error(`Seed child issue already has a parent: ${edge.child}`);
-    gh.issueSubIssues.insert({ parent_issue_id: parent.id, child_issue_id: child.id, position: edge.position ?? 0 });
+    gh.issueSubIssues.insert({ parent_issue_id: parent.id, child_issue_id: child.id, position: edge.position });
   }
   for (const edge of plan.dependencies ?? []) {
     const blocked = issueByKey.get(edge.blocked);
@@ -147,8 +149,7 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
     if (!blocked || !blocking || blocked.id === blocking.id)
       throw new Error(`Invalid seed dependency: ${edge.blocked} -> ${edge.blocking}`);
     if (
-      gh.issueDependencies.findOneBy("blocked_issue_id", blocked.id) &&
-      gh.issueDependencies.findOneBy("blocking_issue_id", blocking.id)
+      gh.issueDependencies.findBy("blocked_issue_id", blocked.id).some((row) => row.blocking_issue_id === blocking.id)
     )
       throw new Error("Duplicate seed dependency");
     gh.issueDependencies.insert({ blocked_issue_id: blocked.id, blocking_issue_id: blocking.id });

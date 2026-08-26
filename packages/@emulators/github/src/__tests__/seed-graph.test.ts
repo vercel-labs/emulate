@@ -8,7 +8,7 @@ import {
   createErrorHandler,
   type TokenMap,
 } from "@emulators/core";
-import { githubPlugin, seedFromConfig } from "../index.js";
+import { githubPlugin, seedFromConfig, type GitHubSeedConfig } from "../index.js";
 
 const base = "http://localhost:4000";
 const seed = {
@@ -31,7 +31,7 @@ const seed = {
   ],
 };
 
-function appFor(config = seed) {
+function appFor(config: GitHubSeedConfig = seed) {
   const store = new Store();
   const tokens: TokenMap = new Map([["token", { login: "octocat", id: 1, scopes: ["repo", "user"] }]]);
   const app = new Hono();
@@ -70,6 +70,56 @@ describe("stable issue graph seeds", () => {
       data: {
         repository: {
           issue: { state: "CLOSED", stateReason: "DUPLICATE", duplicateOf: { number: 7 }, comments: { totalCount: 1 } },
+        },
+      },
+    });
+  });
+
+  it("accumulates comments and keeps dependency pairs distinct", async () => {
+    const config: GitHubSeedConfig = {
+      ...seed,
+      issues: [
+        {
+          key: "a",
+          repo: "octocat/graph",
+          number: 1,
+          title: "A",
+          comments: [
+            { key: "a1", body: "one" },
+            { key: "a2", body: "two" },
+          ],
+        },
+        { key: "b", repo: "octocat/graph", number: 2, title: "B" },
+        { key: "c", repo: "octocat/graph", number: 3, title: "C" },
+      ],
+      dependencies: [
+        { blocked: "a", blocking: "b" },
+        { blocked: "a", blocking: "c" },
+      ],
+    };
+    const { app } = appFor(config);
+    const issue = await app.request(`${base}/repos/octocat/graph/issues/1`, {
+      headers: { Authorization: "Bearer token" },
+    });
+    expect(((await issue.json()) as { comments: number }).comments).toBe(2);
+    const comments = await app.request(`${base}/repos/octocat/graph/issues/1/comments`, {
+      headers: { Authorization: "Bearer token" },
+    });
+    expect(((await comments.json()) as Array<{ body: string }>).map((comment) => comment.body)).toEqual(["one", "two"]);
+    const graph = await app.request(`${base}/graphql`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `{ repository(owner: "octocat", name: "graph") { issue(number: 1) { comments { totalCount nodes { body } } blockedBy { nodes { number } } } } }`,
+      }),
+    });
+    expect(await graph.json()).toMatchObject({
+      data: {
+        repository: {
+          issue: {
+            comments: { totalCount: 2, nodes: [{ body: "one" }, { body: "two" }] },
+            blockedBy: { nodes: [{ number: 2 }, { number: 3 }] },
+          },
         },
       },
     });

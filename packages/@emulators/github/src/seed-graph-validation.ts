@@ -130,7 +130,7 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHu
   }
 
   const parentByChild = new Map<string, string>();
-  for (const [index, edge] of (config.sub_issues ?? []).entries()) {
+  for (const edge of config.sub_issues ?? []) {
     requireReference(issueKeys, edge.parent, "parent issue");
     requireReference(issueKeys, edge.child, "child issue");
     if (edge.parent === edge.child) throw new Error(`Self-referencing seed hierarchy: ${edge.parent}`);
@@ -149,7 +149,6 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHu
       seen.add(cursor);
       cursor = parentByChild.get(cursor);
     }
-    if (index < 0) throw new Error("Invalid seed hierarchy ordering");
   }
   const positionsByParent = new Map<string, number[]>();
   for (const [index, edge] of (config.sub_issues ?? []).entries()) {

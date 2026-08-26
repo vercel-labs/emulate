@@ -19,6 +19,17 @@ async function createInstallationToken(url: string, appId: string, installationI
   });
 }
 
+function stableResponse(value: any): any {
+  if (Array.isArray(value)) return value.map(stableResponse);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => key !== "created_at" && key !== "updated_at")
+        .map(([key, entry]) => [key, stableResponse(entry)]),
+    );
+  return value;
+}
+
 describe("createEmulator", () => {
   it("starts github and returns a url", async () => {
     const github = await createEmulator({ service: "github", port: 14000 });
@@ -111,13 +122,17 @@ describe("createEmulator", () => {
     const beforeParent = await fetch(`${issueUrl}/10`, { headers });
     const beforeChild = await fetch(`${issueUrl}/20`, { headers });
     const beforeDuplicate = await fetch(`${issueUrl}/40`, { headers });
+    const beforeLabels = await fetch(`${github.url}/repos/octocat/graph/labels`, { headers });
+    const beforeComments = await fetch(`${issueUrl}/10/comments`, { headers });
+    const beforeSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
+    const beforeDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
     const duplicateRecord = (await beforeDuplicate.clone().json()) as { id: number };
     const beforeGraph = await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         query:
-          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
+          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } blockedBy { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
       }),
     });
     const stableIssue = (issue: any) => ({
@@ -135,6 +150,10 @@ describe("createEmulator", () => {
       parent: stableIssue(await beforeParent.json()),
       child: stableIssue(await beforeChild.json()),
       duplicate: stableIssue(await beforeDuplicate.json()),
+      labels: stableResponse(await beforeLabels.json()),
+      comments: stableResponse(await beforeComments.json()),
+      subIssues: stableResponse(await beforeSubIssues.json()),
+      dependencies: stableResponse(await beforeDependencies.json()),
       graph: (await beforeGraph.json()) as any,
     };
     expect(beforeParent.status).toBe(200);
@@ -196,18 +215,26 @@ describe("createEmulator", () => {
     const afterParent = await fetch(`${issueUrl}/10`, { headers });
     const afterChild = await fetch(`${issueUrl}/20`, { headers });
     const afterDuplicate = await fetch(`${issueUrl}/40`, { headers });
+    const afterLabels = await fetch(`${github.url}/repos/octocat/graph/labels`, { headers });
+    const afterComments = await fetch(`${issueUrl}/10/comments`, { headers });
+    const afterSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
+    const afterDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
     const afterGraph = await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         query:
-          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
+          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } blockedBy { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
       }),
     });
     expect({
       parent: stableIssue(await afterParent.json()),
       child: stableIssue(await afterChild.json()),
       duplicate: stableIssue(await afterDuplicate.json()),
+      labels: stableResponse(await afterLabels.json()),
+      comments: stableResponse(await afterComments.json()),
+      subIssues: stableResponse(await afterSubIssues.json()),
+      dependencies: stableResponse(await afterDependencies.json()),
       graph: await afterGraph.json(),
     }).toEqual(baseline);
     await github.close();
@@ -267,6 +294,7 @@ describe("createEmulator", () => {
       const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
       const nodeFields = field === "comments" ? "id body" : "id number";
       const values: Array<{ id?: string; number?: number; body?: string }> = [];
+      const cursors = new Set<string>();
       let after: string | null = null;
       let pages = 0;
       do {
@@ -274,14 +302,20 @@ describe("createEmulator", () => {
           method: "POST",
           headers,
           body: JSON.stringify({
-            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 25${after ? `, after: "${after}"` : ""}) { nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } } } } }`,
+            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 25${after ? `, after: "${after}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
           }),
         });
         expect(response.status).toBe(200);
         const body = (await response.json()) as any;
         const connection = body.data.repository.issue[field];
+        expect(connection.totalCount).toBe(size);
         values.push(...connection.nodes);
         expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
+        expect(connection.pageInfo.hasPreviousPage).toBe(pages > 0);
+        if (connection.pageInfo.endCursor) {
+          expect(cursors.has(connection.pageInfo.endCursor)).toBe(false);
+          cursors.add(connection.pageInfo.endCursor);
+        }
         after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
         pages += 1;
       } while (after !== null);
@@ -292,7 +326,7 @@ describe("createEmulator", () => {
         expect(values.map((value) => value.body)).toEqual(items.map((index) => `Body ${index}`));
       else expect(values.map((value) => value.number)).toEqual(items.map((index) => index + 2));
 
-      if (size === 101) {
+      {
         await fetch(`${github.url}/repos/octocat/pagination/issues/1`, {
           method: "PATCH",
           headers,
@@ -307,18 +341,20 @@ describe("createEmulator", () => {
             method: "POST",
             headers,
             body: JSON.stringify({
-              query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${restoredAfter ? `, after: "${restoredAfter}"` : ""}) { nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } } } } }`,
+              query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 25${restoredAfter ? `, after: "${restoredAfter}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
             }),
           });
           expect(restored.status).toBe(200);
           const restoredBody = (await restored.json()) as any;
           const connection = restoredBody.data.repository.issue[field];
+          expect(connection.totalCount).toBe(size);
           restoredValues.push(...connection.nodes);
           expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
+          expect(connection.pageInfo.hasPreviousPage).toBe(restoredPages > 0);
           restoredAfter = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
           restoredPages += 1;
         } while (restoredAfter !== null);
-        expect(restoredPages).toBe(2);
+        expect(restoredPages).toBe(Math.max(1, Math.ceil(size / 25)));
         expect(restoredValues).toEqual(values);
       }
       await github.close();
