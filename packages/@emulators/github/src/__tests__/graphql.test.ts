@@ -923,6 +923,63 @@ describe("GitHub GraphQL read compatibility", () => {
     expect(body.data?.rateLimit?.limit).toBe(5000);
     expect(body.data!.rateLimit!.remaining + body.data!.rateLimit!.used).toBe(body.data!.rateLimit!.limit);
     expect(body.data?.rateLimit?.cost).toBe(1);
+    const second = await graphql(
+      app,
+      `
+        query RateAgain {
+          rateLimit {
+            remaining
+            used
+          }
+        }
+      `,
+      undefined,
+      "RateAgain",
+    );
+    const secondBody = await responseBody(second);
+    expect(secondBody.data!.rateLimit!.used).toBe(body.data!.rateLimit!.used + 1);
+    expect(secondBody.data!.rateLimit!.remaining).toBe(body.data!.rateLimit!.remaining - 1);
+    const rest = await app.request(`${base}/rate_limit`, { headers: headers() });
+    expect(rest.status).toBe(200);
+    const restBody = (await rest.json()) as { resources: { graphql: { used: number; remaining: number } } };
+    expect(restBody.resources.graphql.used).toBe(secondBody.data!.rateLimit!.used);
+    expect(restBody.resources.graphql.remaining).toBe(secondBody.data!.rateLimit!.remaining);
+  });
+
+  it("returns a resolver error with partial sibling data at the public boundary", async () => {
+    const { app } = createTestApp();
+    const issue = await createIssue(app, "Resolver boundary");
+    const response = await graphql(
+      app,
+      `
+        query ResolverBoundary($id: ID!) {
+          repository(owner: "octocat", name: "hello-world") {
+            id
+          }
+          node(id: $id) {
+            ... on Issue {
+              comments(first: 1, after: "bad-cursor") {
+                nodes {
+                  id
+                }
+              }
+            }
+          }
+          rateLimit {
+            limit
+          }
+        }
+      `,
+      { id: issue.node_id },
+      "ResolverBoundary",
+    );
+    expect(response.status).toBe(200);
+    const body = (await responseBody(response)) as any;
+    expect(body.data.repository.id).toEqual(expect.any(String));
+    expect(body.data.rateLimit.limit).toBe(5000);
+    expect(body.data.node).toBeNull();
+    expect(body.errors?.[0]?.path).toEqual(["node", "comments"]);
+    expect(body.errors?.[0]?.message).toContain("Invalid cursor");
   });
 
   it("requires authentication before executing any GraphQL document", async () => {
