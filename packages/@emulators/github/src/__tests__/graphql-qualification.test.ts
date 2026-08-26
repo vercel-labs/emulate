@@ -14,7 +14,7 @@ import {
 } from "./graphql-test-helpers.js";
 
 describe("GitHub GraphQL qualification", () => {
-  it("maintains a consistent GraphQL rate-limit bucket", async () => {
+  it("exposes one GraphQL bucket through GraphQL and REST without counting ordinary REST", async () => {
     const { app } = createTestApp();
     const response = await graphql(
       app,
@@ -58,6 +58,13 @@ describe("GitHub GraphQL qualification", () => {
     const restBody = (await rest.json()) as { resources: { graphql: { used: number; remaining: number } } };
     expect(restBody.resources.graphql.used).toBe(secondBody.data!.rateLimit!.used);
     expect(restBody.resources.graphql.remaining).toBe(secondBody.data!.rateLimit!.remaining);
+    const ordinaryRest = await app.request(`${base}/user`, { headers: headers() });
+    expect(ordinaryRest.status).toBe(200);
+    const afterOrdinaryRest = await app.request(`${base}/rate_limit`, { headers: headers() });
+    const afterOrdinaryRestBody = (await afterOrdinaryRest.json()) as {
+      resources: { graphql: { used: number; remaining: number } };
+    };
+    expect(afterOrdinaryRestBody.resources.graphql).toEqual(restBody.resources.graphql);
   });
 
   it("propagates non-null resolver errors with HTTP 200 and null data", async () => {

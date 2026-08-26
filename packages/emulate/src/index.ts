@@ -26,7 +26,7 @@ GitHub API coverage:
   Includes authenticated GraphQL reads for repositories, issues, labels, and issue comments at POST /graphql.
   Includes GraphQL issue and comment mutations, exact issue deletion returning its repository, and repository label create/delete with clientMutationId echoes. Issue deletion emits no webhook or issue event because provider behavior is not established by emulator evidence.
   GitHub GraphQL qualification covers the documented issue-graph subset with opaque 100-item connections; seeded issue-graph fixtures and reset-specific guarantees are covered by qualification tests.
-  GraphQL and REST share a locally consistent rate-limit bucket; GitHub operation-cost fidelity and remote quota enforcement are not modeled.
+  GraphQL requests consume a local GraphQL rate-limit bucket. Both GraphQL rateLimit and REST /rate_limit expose that bucket; ordinary REST requests do not consume it. GitHub operation-specific cost and quota exhaustion are not modeled.
   Includes ordered issue relationships in GraphQL and REST, with pagination, Link headers, permissions, and cycle-safe mutations.
   GitHub seeds accept keyed labels, issues, comments, parent-child edges, and dependencies. Graph references are validated before startup, and reset restores the seeded graph and node IDs.
 
