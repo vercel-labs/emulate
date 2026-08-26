@@ -5,7 +5,7 @@ import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMa
 import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";
-let testDefaultToken = "octocat-token";
+const DEFAULT_GRAPHQL_TOKEN = "octocat-token";
 
 function createTestApp() {
   const store = new Store();
@@ -68,7 +68,7 @@ async function graphql(
   query: string,
   variables?: Record<string, unknown>,
   operationName?: string,
-  token = testDefaultToken,
+  token = DEFAULT_GRAPHQL_TOKEN,
 ) {
   return app.request(`${base}/graphql`, {
     method: "POST",
@@ -2011,6 +2011,13 @@ describe("GitHub GraphQL mutation compatibility", () => {
     const child = await createIssue(app, "Permission child");
     const blocker = await createIssue(app, "Permission blocker");
     const deletion = await createIssue(app, "Permission deletion");
+    let matrixToken = DEFAULT_GRAPHQL_TOKEN;
+    const runMatrixGraphql = (
+      matrixApp: Hono,
+      query: string,
+      variables?: Record<string, unknown>,
+      operationName?: string,
+    ) => graphql(matrixApp, query, variables, operationName, matrixToken);
     const privateIssueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
       method: "POST",
       headers: headers(),
@@ -2086,7 +2093,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "octocat-token",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query UserRepo {
@@ -2105,7 +2112,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query AppRepo {
@@ -2124,7 +2131,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-excluded",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query ExcludedRepo {
@@ -2143,7 +2150,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "outsider-token",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query PrivateRepo {
@@ -2162,7 +2169,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query IssueRead($id: ID!) {
@@ -2183,7 +2190,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-excluded",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query NodeExcluded($id: ID!) {
@@ -2202,7 +2209,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "outsider-token",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query PrivateNode($id: ID!) {
@@ -2221,7 +2228,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query Comments($id: ID!) {
@@ -2244,7 +2251,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query Subs($id: ID!) {
@@ -2269,7 +2276,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               query Blocks($id: ID!) {
@@ -2294,7 +2301,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation CreateDenied($input: CreateIssueInput!) {
@@ -2314,7 +2321,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation CreateAllowed($input: CreateIssueInput!) {
@@ -2334,7 +2341,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation DeleteDenied($input: DeleteIssueInput!) {
@@ -2354,7 +2361,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation CommentDenied($input: AddCommentInput!) {
@@ -2374,7 +2381,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation CommentAllowed($input: AddCommentInput!) {
@@ -2397,7 +2404,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation CloseDenied($input: CloseIssueInput!) {
@@ -2417,7 +2424,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation CloseAllowed($input: CloseIssueInput!) {
@@ -2437,7 +2444,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation LabelDenied($input: CreateLabelInput!) {
@@ -2457,7 +2464,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation LabelAllowed($input: CreateLabelInput!) {
@@ -2477,7 +2484,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation ReopenAllowed($input: ReopenIssueInput!) {
@@ -2497,7 +2504,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation DeleteLabelDenied($input: DeleteLabelInput!) {
@@ -2517,7 +2524,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation DeleteLabelAllowed($input: DeleteLabelInput!) {
@@ -2537,7 +2544,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-read",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation RelationshipDenied($input: AddSubIssueInput!) {
@@ -2557,7 +2564,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-write",
         expected: 200,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation RelationshipAllowed($input: AddBlockedByInput!) {
@@ -2577,7 +2584,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-private-excluded",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateComment($input: AddCommentInput!) {
@@ -2597,7 +2604,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-private-excluded",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateClose($input: CloseIssueInput!) {
@@ -2617,7 +2624,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-private-excluded",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateReopen($input: ReopenIssueInput!) {
@@ -2637,7 +2644,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-private-excluded",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateLabel($input: CreateLabelInput!) {
@@ -2657,7 +2664,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-private-excluded",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateDeleteLabel($input: DeleteLabelInput!) {
@@ -2677,7 +2684,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         token: "matrix-private-excluded",
         expected: 403,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateDelete($input: DeleteIssueInput!) {
@@ -2698,7 +2705,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         expected: 200,
         denied: true,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateSub($input: AddSubIssueInput!) {
@@ -2719,7 +2726,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         expected: 200,
         denied: true,
         run: () =>
-          graphql(
+          runMatrixGraphql(
             app,
             `
               mutation PrivateDependency($input: AddBlockedByInput!) {
@@ -2745,7 +2752,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
         events: gh.issueEvents.all(),
       });
     for (const row of rows) {
-      testDefaultToken = row.token;
+      matrixToken = row.token;
       const before = row.denied || row.expected === 403 ? beforeDenied() : "";
       const response = await row.run();
       expect(response.status, row.name).toBe(row.expected);
@@ -2756,7 +2763,6 @@ describe("GitHub GraphQL mutation compatibility", () => {
     }
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
-    testDefaultToken = "octocat-token";
   });
   it("creates issues, transitions lifecycle, and echoes client mutation IDs", async () => {
     const { app, store } = createTestApp();
