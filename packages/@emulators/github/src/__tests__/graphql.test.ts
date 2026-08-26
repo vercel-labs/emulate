@@ -1999,6 +1999,7 @@ describe("GitHub GraphQL read compatibility", () => {
 
 describe("GitHub GraphQL mutation compatibility", () => {
   it("runs the explicit user and App permission matrix across every issue-graph family", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
     const { app, store, tokenMap } = createTestApp();
     const fixture = await createFixture(app);
     const parent = await createIssue(app, "Permission parent");
@@ -2445,6 +2446,66 @@ describe("GitHub GraphQL mutation compatibility", () => {
           ) as Promise<Response>,
       },
       {
+        name: "reopen lifecycle App write allowed",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation ReopenAllowed($input: ReopenIssueInput!) {
+                reopenIssue(input: $input) {
+                  issue {
+                    state
+                  }
+                }
+              }
+            `,
+            { input: { issueId: parent.node_id } },
+            "ReopenAllowed",
+          ) as Promise<Response>,
+      },
+      {
+        name: "delete label read-only denied",
+        token: "matrix-read",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation DeleteLabelDenied($input: DeleteLabelInput!) {
+                deleteLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { id: fixture.label.node_id } },
+            "DeleteLabelDenied",
+          ) as Promise<Response>,
+      },
+      {
+        name: "delete label App write allowed",
+        token: "matrix-write",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation DeleteLabelAllowed($input: DeleteLabelInput!) {
+                deleteLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { id: fixture.label.node_id } },
+            "DeleteLabelAllowed",
+          ) as Promise<Response>,
+      },
+      {
         name: "relationship read-only denied",
         token: "matrix-read",
         expected: 403,
@@ -2492,6 +2553,8 @@ describe("GitHub GraphQL mutation compatibility", () => {
       const body = (await responseBody(response)) as any;
       if (row.check) row.check(body);
     }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
     testDefaultToken = "octocat-token";
   });
   it("creates issues, transitions lifecycle, and echoes client mutation IDs", async () => {
