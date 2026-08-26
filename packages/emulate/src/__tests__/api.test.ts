@@ -89,6 +89,16 @@ describe("createEmulator", () => {
           issues: [
             { key: "parent", repo: "octocat/graph", number: 10, title: "Parent", labels: ["bug"] },
             { key: "child", repo: "octocat/graph", number: 20, title: "Child" },
+            { key: "canonical", repo: "octocat/graph", number: 30, title: "Canonical" },
+            {
+              key: "duplicate",
+              repo: "octocat/graph",
+              number: 40,
+              title: "Duplicate",
+              state: "closed",
+              state_reason: "duplicate",
+              duplicate_of: "canonical",
+            },
           ],
           comments: [{ key: "comment", repo: "octocat/graph", issue: "parent", body: "seeded" }],
           sub_issues: [{ parent: "parent", child: "child" }],
@@ -100,12 +110,13 @@ describe("createEmulator", () => {
     const issueUrl = `${github.url}/repos/octocat/graph/issues`;
     const beforeParent = await fetch(`${issueUrl}/10`, { headers });
     const beforeChild = await fetch(`${issueUrl}/20`, { headers });
+    const beforeDuplicate = await fetch(`${issueUrl}/40`, { headers });
     const beforeGraph = await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         query:
-          '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
+          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { number } } } }',
       }),
     });
     const stableIssue = (issue: any) => ({
@@ -114,6 +125,7 @@ describe("createEmulator", () => {
       number: issue.number,
       title: issue.title,
       state: issue.state,
+      state_reason: issue.state_reason,
       labels: issue.labels,
       comments: issue.comments,
       duplicate_issue_id: issue.duplicate_issue_id,
@@ -121,45 +133,82 @@ describe("createEmulator", () => {
     const baseline = {
       parent: stableIssue(await beforeParent.json()),
       child: stableIssue(await beforeChild.json()),
+      duplicate: stableIssue(await beforeDuplicate.json()),
       graph: await beforeGraph.json(),
     };
+    expect(beforeParent.status).toBe(200);
+    expect(beforeChild.status).toBe(200);
+    expect(baseline.graph.data.repository.issue.repository.id).toEqual(expect.any(String));
 
-    await fetch(issueUrl, { method: "POST", headers, body: JSON.stringify({ title: "mutation" }) });
-    await fetch(`${issueUrl}/10/comments`, { method: "POST", headers, body: JSON.stringify({ body: "mutation" }) });
-    await fetch(`${github.url}/repos/octocat/graph/labels`, {
+    const mutationIssueResponse = await fetch(issueUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify({ name: "new" }),
+      body: JSON.stringify({ title: "mutation" }),
     });
-    await fetch(`${issueUrl}/10`, { method: "PATCH", headers, body: JSON.stringify({ state: "closed" }) });
-    await fetch(`${issueUrl}/10/sub_issues`, { method: "POST", headers, body: JSON.stringify({ sub_issue_id: 1 }) });
-    await fetch(`${issueUrl}/10/dependencies/blocked_by`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ issue_id: 2 }),
-    });
-    await fetch(`${github.url}/graphql`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: 'mutation { createIssue(input: { repositoryId: "bad", title: "ignored" }) { issue { number } } }',
-      }),
-    });
+    expect(mutationIssueResponse.status).toBe(201);
+    const mutationIssue = (await mutationIssueResponse.json()) as { id: number };
+    expect(
+      (await fetch(`${issueUrl}/10/comments`, { method: "POST", headers, body: JSON.stringify({ body: "mutation" }) }))
+        .status,
+    ).toBe(201);
+    expect(
+      (
+        await fetch(`${github.url}/repos/octocat/graph/labels`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: "new" }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (await fetch(`${issueUrl}/10`, { method: "PATCH", headers, body: JSON.stringify({ state: "closed" }) })).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${issueUrl}/10/sub_issues`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ sub_issue_id: mutationIssue.id }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await fetch(`${issueUrl}/10/dependencies/blocked_by`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ issue_id: 3 }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await fetch(`${github.url}/graphql`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { number } } }`,
+          }),
+        })
+      ).status,
+    ).toBe(200);
 
     github.reset();
     const afterParent = await fetch(`${issueUrl}/10`, { headers });
     const afterChild = await fetch(`${issueUrl}/20`, { headers });
+    const afterDuplicate = await fetch(`${issueUrl}/40`, { headers });
     const afterGraph = await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         query:
-          '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
+          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { number } } } }',
       }),
     });
     expect({
       parent: stableIssue(await afterParent.json()),
       child: stableIssue(await afterChild.json()),
+      duplicate: stableIssue(await afterDuplicate.json()),
       graph: await afterGraph.json(),
     }).toEqual(baseline);
     await github.close();
