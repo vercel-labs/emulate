@@ -278,7 +278,8 @@ describe("GitHub GraphQL read compatibility", () => {
       })
       .then((response) => response.json())) as { updated_at: string };
     const eventCount = store.collection("github.issue_events").all().length;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    vi.useFakeTimers({ now: Date.now() });
+    vi.advanceTimersByTime(5);
     const completedDuplicate = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
       method: "PATCH",
       headers: headers(),
@@ -288,6 +289,7 @@ describe("GitHub GraphQL read compatibility", () => {
     const afterDuplicate = (await completedDuplicate.json()) as { updated_at: string };
     expect(afterDuplicate.updated_at).not.toBe(beforeDuplicate.updated_at);
     expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+    vi.useRealTimers();
     const noOp = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
       method: "PATCH",
       headers: headers(),
@@ -750,7 +752,7 @@ describe("GitHub GraphQL read compatibility", () => {
     expect((await responseBody(nullVariable)).errors?.[0]?.message).toContain("not to be null");
   });
 
-  it("returns partial data for resolver errors with HTTP 200", async () => {
+  it("propagates non-null resolver errors with HTTP 200 and null data", async () => {
     const { app, store } = createTestApp();
     const repositoryId = getGitHubStore(store).repos.findOneBy("full_name", "octocat/hello-world")!.node_id;
     const response = await graphql(
