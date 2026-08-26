@@ -75,6 +75,41 @@ describe("stable issue graph seeds", () => {
     });
   });
 
+  it("tracks seeded open issues through public REST, lifecycle changes, and reset", async () => {
+    const { app, store } = appFor();
+    const readRepository = () => app.request(`${base}/repos/octocat/graph`);
+
+    const seeded = await readRepository();
+    expect(seeded.status).toBe(200);
+    expect(((await seeded.json()) as { open_issues_count: number }).open_issues_count).toBe(1);
+
+    const close = await app.request(`${base}/repos/octocat/graph/issues/7`, {
+      method: "PATCH",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "closed" }),
+    });
+    expect(close.status).toBe(200);
+    const closed = await readRepository();
+    expect(((await closed.json()) as { open_issues_count: number }).open_issues_count).toBe(0);
+
+    const reopen = await app.request(`${base}/repos/octocat/graph/issues/7`, {
+      method: "PATCH",
+      headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "open" }),
+    });
+    expect(reopen.status).toBe(200);
+    const reopened = await readRepository();
+    expect(((await reopened.json()) as { open_issues_count: number }).open_issues_count).toBe(1);
+
+    store.reset();
+    githubPlugin.seed?.(store, base);
+    seedFromConfig(store, base, seed);
+
+    const reset = await readRepository();
+    expect(reset.status).toBe(200);
+    expect(((await reset.json()) as { open_issues_count: number }).open_issues_count).toBe(1);
+  });
+
   it("accumulates comments and keeps dependency pairs distinct", async () => {
     const config: GitHubSeedConfig = {
       ...seed,
@@ -281,6 +316,8 @@ describe("stable issue graph seeds", () => {
       "open completed",
       { ...seed, issues: [{ ...seed.issues[0], state: "open" as const, state_reason: "completed" as const }] },
     ],
+    ["invalid state", { ...seed, issues: [{ ...seed.issues[0], state: "pending" as never }] }],
+    ["invalid state reason", { ...seed, issues: [{ ...seed.issues[0], state_reason: "wont_fix" as never }] }],
     [
       "closed reopened",
       { ...seed, issues: [{ ...seed.issues[0], state: "closed" as const, state_reason: "reopened" as const }] },

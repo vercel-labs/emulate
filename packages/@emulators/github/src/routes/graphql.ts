@@ -1,5 +1,5 @@
 import { buildSchema, graphql, type ExecutionResult, type GraphQLError } from "graphql";
-import { ApiError, type Context, type RouteContext, type AppEnv, type WebhookDispatcher } from "@emulators/core";
+import { ApiError, type Context, type RouteContext, type AppEnv } from "@emulators/core";
 import {
   createGitHubGraphQLContext,
   findVisibleRepository,

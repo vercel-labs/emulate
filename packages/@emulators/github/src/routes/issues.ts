@@ -360,10 +360,6 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       }
     }
 
-    if (labelPlan) {
-      patch.label_ids = applyIssueLabelPlan(gh, repo, labelPlan);
-    }
-
     if (requestedState === undefined && requestedStateReason !== undefined) {
       patch.state_reason = requestedStateReason;
     }
@@ -391,7 +387,11 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       issue = updated;
     }
 
-    if (labelPlan) setIssueLabelIds(gh, issue, issue.label_ids);
+    if (labelPlan) {
+      const labelIds = applyIssueLabelPlan(gh, repo, labelPlan);
+      setIssueLabelIds(gh, issue, labelIds);
+      issue = gh.issues.get(issue.id)!;
+    }
 
     const ownerLogin = ownerLoginOf(gh, repo);
 

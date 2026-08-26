@@ -272,6 +272,53 @@ describe("GitHub GraphQL qualification", () => {
     ).toBe(101);
   });
 
+  it("normalizes sub-issue positions after deletion before adding a replacement", async () => {
+    const { app, store } = createTestApp();
+    const parent = await createIssue(app, "Delete and re-add parent");
+    const first = await createIssue(app, "Delete and re-add first");
+    const remaining = await createIssue(app, "Delete and re-add remaining");
+    const replacement = await createIssue(app, "Delete and re-add replacement");
+
+    const add = (childId: number) =>
+      app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ sub_issue_id: childId }),
+      });
+    expect((await add(first.id)).status).toBe(201);
+    expect((await add(remaining.id)).status).toBe(201);
+
+    const deleted = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteIssueInput!) {
+          deleteIssue(input: $input) {
+            repository {
+              id
+            }
+          }
+        }
+      `,
+      { input: { issueId: first.node_id } },
+      "Delete",
+    );
+    expect(deleted.status).toBe(200);
+    expect(((await responseBody(deleted)) as any).data.deleteIssue.repository.id).toBeDefined();
+
+    const gh = getGitHubStore(store);
+    expect(gh.issueSubIssues.findBy("parent_issue_id", parent.id).map((relation) => relation.position)).toEqual([0]);
+    expect((await add(replacement.id)).status).toBe(201);
+    expect(
+      gh.issueSubIssues
+        .findBy("parent_issue_id", parent.id)
+        .sort((left, right) => left.position - right.position)
+        .map((relation) => [relation.child_issue_id, relation.position]),
+    ).toEqual([
+      [remaining.id, 0],
+      [replacement.id, 1],
+    ]);
+  });
+
   it("covers the GraphQL projection matrix through public GraphQL", async () => {
     const { app } = createTestApp();
     const fixture = await createFixture(app);
@@ -891,173 +938,174 @@ describe("GitHub GraphQL qualification", () => {
 
   it("runs the explicit user and App permission matrix across every issue-graph family", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const { app, store, tokenMap } = createTestApp();
-    const fixture = await createFixture(app);
-    const parent = await createIssue(app, "Permission parent");
-    const child = await createIssue(app, "Permission child");
-    const blocker = await createIssue(app, "Permission blocker");
-    const deletion = await createIssue(app, "Permission deletion");
-    let matrixToken = DEFAULT_GRAPHQL_TOKEN;
-    const runMatrixGraphql = (
-      matrixApp: Hono,
-      query: string,
-      variables?: Record<string, unknown>,
-      operationName?: string,
-    ) => graphql(matrixApp, query, variables, operationName, matrixToken);
-    const privateIssueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: "Private permission issue" }),
-    });
-    const privateIssue = (await privateIssueResponse.json()) as { node_id: string };
-    const privateLabelResponse = await app.request(`${base}/repos/octocat/private-repo/labels`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ name: "private-label" }),
-    });
-    const privateLabel = (await privateLabelResponse.json()) as { node_id: string };
-    const gh = getGitHubStore(store);
-    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
-    const privateRepo = gh.repos.findOneBy("full_name", "octocat/private-repo")!;
-    expect(
-      (
-        await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ sub_issue_id: child.id }),
-        })
-      ).status,
-    ).toBe(201);
-    expect(
-      (
-        await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/dependencies/blocked_by`, {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({ issue_id: blocker.id }),
-        })
-      ).status,
-    ).toBe(201);
-    addInstallationToken(store, tokenMap, "matrix-read", {
-      permissions: { issues: "read" },
-      repositorySelection: "selected",
-      repositoryIds: [repo.id],
-    });
-    addInstallationToken(store, tokenMap, "matrix-write", {
-      permissions: { issues: "write" },
-      repositorySelection: "selected",
-      repositoryIds: [repo.id],
-    });
-    addInstallationToken(store, tokenMap, "matrix-excluded", {
-      permissions: { issues: "write" },
-      repositorySelection: "selected",
-      repositoryIds: [],
-    });
-    tokenMap.set("matrix-private-excluded", {
-      login: "outsider",
-      id: 2,
-      scopes: ["issues:write"],
-      installation: {
-        installationId: 43,
-        appId: 9,
-        accountId: 2,
-        accountType: "User",
-        permissions: { issues: "write" },
-        repositoryIds: [repo.id],
+    try {
+      const { app, store, tokenMap } = createTestApp();
+      const fixture = await createFixture(app);
+      const parent = await createIssue(app, "Permission parent");
+      const child = await createIssue(app, "Permission child");
+      const blocker = await createIssue(app, "Permission blocker");
+      const deletion = await createIssue(app, "Permission deletion");
+      let matrixToken = DEFAULT_GRAPHQL_TOKEN;
+      const runMatrixGraphql = (
+        matrixApp: Hono,
+        query: string,
+        variables?: Record<string, unknown>,
+        operationName?: string,
+      ) => graphql(matrixApp, query, variables, operationName, matrixToken);
+      const privateIssueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ title: "Private permission issue" }),
+      });
+      const privateIssue = (await privateIssueResponse.json()) as { node_id: string };
+      const privateLabelResponse = await app.request(`${base}/repos/octocat/private-repo/labels`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ name: "private-label" }),
+      });
+      const privateLabel = (await privateLabelResponse.json()) as { node_id: string };
+      const gh = getGitHubStore(store);
+      const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+      const privateRepo = gh.repos.findOneBy("full_name", "octocat/private-repo")!;
+      expect(
+        (
+          await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ sub_issue_id: child.id }),
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (
+          await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/dependencies/blocked_by`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ issue_id: blocker.id }),
+          })
+        ).status,
+      ).toBe(201);
+      addInstallationToken(store, tokenMap, "matrix-read", {
+        permissions: { issues: "read" },
         repositorySelection: "selected",
-      },
-    });
-    const rows: Array<{
-      name: string;
-      token: string;
-      expected: number;
-      run: () => Promise<Response>;
-      check?: (body: any) => void;
-      denied?: boolean;
-    }> = [
-      {
-        name: "user repository read",
-        token: "octocat-token",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+        repositoryIds: [repo.id],
+      });
+      addInstallationToken(store, tokenMap, "matrix-write", {
+        permissions: { issues: "write" },
+        repositorySelection: "selected",
+        repositoryIds: [repo.id],
+      });
+      addInstallationToken(store, tokenMap, "matrix-excluded", {
+        permissions: { issues: "write" },
+        repositorySelection: "selected",
+        repositoryIds: [],
+      });
+      tokenMap.set("matrix-private-excluded", {
+        login: "outsider",
+        id: 2,
+        scopes: ["issues:write"],
+        installation: {
+          installationId: 43,
+          appId: 9,
+          accountId: 2,
+          accountType: "User",
+          permissions: { issues: "write" },
+          repositoryIds: [repo.id],
+          repositorySelection: "selected",
+        },
+      });
+      const rows: Array<{
+        name: string;
+        token: string;
+        expected: number;
+        run: () => Promise<Response>;
+        check?: (body: any) => void;
+        denied?: boolean;
+      }> = [
+        {
+          name: "user repository read",
+          token: "octocat-token",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query UserRepo {
                 repo: repository(owner: "octocat", name: "hello-world") {
                   id
                 }
               }
             `,
-            undefined,
-            "UserRepo",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.repo.id).toBe(repo.node_id),
-      },
-      {
-        name: "App read-only repository read selected",
-        token: "matrix-read",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              undefined,
+              "UserRepo",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.repo.id).toBe(repo.node_id),
+        },
+        {
+          name: "App read-only repository read selected",
+          token: "matrix-read",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query AppRepo {
                 repo: repository(owner: "octocat", name: "hello-world") {
                   id
                 }
               }
             `,
-            undefined,
-            "AppRepo",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.repo.id).toBe(repo.node_id),
-      },
-      {
-        name: "App selected excluded public repository",
-        token: "matrix-excluded",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              undefined,
+              "AppRepo",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.repo.id).toBe(repo.node_id),
+        },
+        {
+          name: "App selected excluded public repository",
+          token: "matrix-excluded",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query ExcludedRepo {
                 repo: repository(owner: "octocat", name: "hello-world") {
                   id
                 }
               }
             `,
-            undefined,
-            "ExcludedRepo",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.repo).toBeNull(),
-      },
-      {
-        name: "user private repository inaccessible",
-        token: "outsider-token",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              undefined,
+              "ExcludedRepo",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.repo).toBeNull(),
+        },
+        {
+          name: "user private repository inaccessible",
+          token: "outsider-token",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query PrivateRepo {
                 repo: repository(owner: "octocat", name: "private-repo") {
                   id
                 }
               }
             `,
-            undefined,
-            "PrivateRepo",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.repo).toBeNull(),
-      },
-      {
-        name: "issue read selected",
-        token: "matrix-read",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              undefined,
+              "PrivateRepo",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.repo).toBeNull(),
+        },
+        {
+          name: "issue read selected",
+          token: "matrix-read",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query IssueRead($id: ID!) {
                 value: node(id: $id) {
                   ... on Issue {
@@ -1066,57 +1114,57 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { id: fixture.issue.node_id },
-            "IssueRead",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.value.id).toBe(fixture.issue.node_id),
-      },
-      {
-        name: "node read excluded",
-        token: "matrix-excluded",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { id: fixture.issue.node_id },
+              "IssueRead",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.value.id).toBe(fixture.issue.node_id),
+        },
+        {
+          name: "node read excluded",
+          token: "matrix-excluded",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query NodeExcluded($id: ID!) {
                 value: node(id: $id) {
                   id
                 }
               }
             `,
-            { id: fixture.issue.node_id },
-            "NodeExcluded",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.value).toBeNull(),
-      },
-      {
-        name: "private node inaccessible",
-        token: "outsider-token",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { id: fixture.issue.node_id },
+              "NodeExcluded",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.value).toBeNull(),
+        },
+        {
+          name: "private node inaccessible",
+          token: "outsider-token",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query PrivateNode($id: ID!) {
                 value: node(id: $id) {
                   id
                 }
               }
             `,
-            { id: privateIssue.node_id },
-            "PrivateNode",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.value).toBeNull(),
-      },
-      {
-        name: "comments read",
-        token: "matrix-read",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { id: privateIssue.node_id },
+              "PrivateNode",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.value).toBeNull(),
+        },
+        {
+          name: "comments read",
+          token: "matrix-read",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query Comments($id: ID!) {
                 value: node(id: $id) {
                   ... on Issue {
@@ -1127,19 +1175,19 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { id: fixture.issue.node_id },
-            "Comments",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.value.comments.totalCount).toBe(1),
-      },
-      {
-        name: "subIssues read",
-        token: "matrix-read",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { id: fixture.issue.node_id },
+              "Comments",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.value.comments.totalCount).toBe(1),
+        },
+        {
+          name: "subIssues read",
+          token: "matrix-read",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query Subs($id: ID!) {
                 value: node(id: $id) {
                   ... on Issue {
@@ -1152,19 +1200,19 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { id: parent.node_id },
-            "Subs",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.value.subIssues.nodes[0].id).toBe(child.node_id),
-      },
-      {
-        name: "blockedBy read",
-        token: "matrix-read",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { id: parent.node_id },
+              "Subs",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.value.subIssues.nodes[0].id).toBe(child.node_id),
+        },
+        {
+          name: "blockedBy read",
+          token: "matrix-read",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               query Blocks($id: ID!) {
                 value: node(id: $id) {
                   ... on Issue {
@@ -1177,19 +1225,19 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { id: parent.node_id },
-            "Blocks",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.value.blockedBy.nodes[0].id).toBe(blocker.node_id),
-      },
-      {
-        name: "create issue read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { id: parent.node_id },
+              "Blocks",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.value.blockedBy.nodes[0].id).toBe(blocker.node_id),
+        },
+        {
+          name: "create issue read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation CreateDenied($input: CreateIssueInput!) {
                 createIssue(input: $input) {
                   issue {
@@ -1198,18 +1246,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { repositoryId: repo.node_id, title: "denied" } },
-            "CreateDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "create issue write allowed",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { repositoryId: repo.node_id, title: "denied" } },
+              "CreateDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "create issue write allowed",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation CreateAllowed($input: CreateIssueInput!) {
                 created: createIssue(input: $input) {
                   issue {
@@ -1218,18 +1266,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { repositoryId: repo.node_id, title: "allowed" } },
-            "CreateAllowed",
-          ) as Promise<Response>,
-      },
-      {
-        name: "delete issue read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { repositoryId: repo.node_id, title: "allowed" } },
+              "CreateAllowed",
+            ) as Promise<Response>,
+        },
+        {
+          name: "delete issue read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation DeleteDenied($input: DeleteIssueInput!) {
                 deleteIssue(input: $input) {
                   repository {
@@ -1238,18 +1286,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: deletion.node_id } },
-            "DeleteDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "comment read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: deletion.node_id } },
+              "DeleteDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "comment read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation CommentDenied($input: AddCommentInput!) {
                 addComment(input: $input) {
                   comment {
@@ -1258,18 +1306,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { subjectId: fixture.issue.node_id, body: "denied" } },
-            "CommentDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "comment App write bot actor",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { subjectId: fixture.issue.node_id, body: "denied" } },
+              "CommentDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "comment App write bot actor",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation CommentAllowed($input: AddCommentInput!) {
                 added: addComment(input: $input) {
                   comment {
@@ -1280,19 +1328,19 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { subjectId: fixture.issue.node_id, body: "bot comment" } },
-            "CommentAllowed",
-          ) as Promise<Response>,
-        check: (body) => expect(body.data.added.comment.author.login).toBe("app-9[bot]"),
-      },
-      {
-        name: "lifecycle read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { subjectId: fixture.issue.node_id, body: "bot comment" } },
+              "CommentAllowed",
+            ) as Promise<Response>,
+          check: (body) => expect(body.data.added.comment.author.login).toBe("app-9[bot]"),
+        },
+        {
+          name: "lifecycle read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation CloseDenied($input: CloseIssueInput!) {
                 closeIssue(input: $input) {
                   issue {
@@ -1301,18 +1349,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: parent.node_id } },
-            "CloseDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "lifecycle App write allowed",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: parent.node_id } },
+              "CloseDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "lifecycle App write allowed",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation CloseAllowed($input: CloseIssueInput!) {
                 closeIssue(input: $input) {
                   issue {
@@ -1321,18 +1369,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: parent.node_id } },
-            "CloseAllowed",
-          ) as Promise<Response>,
-      },
-      {
-        name: "create label read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: parent.node_id } },
+              "CloseAllowed",
+            ) as Promise<Response>,
+        },
+        {
+          name: "create label read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation LabelDenied($input: CreateLabelInput!) {
                 createLabel(input: $input) {
                   label {
@@ -1341,18 +1389,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { repositoryId: repo.node_id, name: "denied-label" } },
-            "LabelDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "create label App write allowed",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { repositoryId: repo.node_id, name: "denied-label" } },
+              "LabelDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "create label App write allowed",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation LabelAllowed($input: CreateLabelInput!) {
                 createLabel(input: $input) {
                   label {
@@ -1361,18 +1409,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { repositoryId: repo.node_id, name: "allowed-label" } },
-            "LabelAllowed",
-          ) as Promise<Response>,
-      },
-      {
-        name: "reopen lifecycle App write allowed",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { repositoryId: repo.node_id, name: "allowed-label" } },
+              "LabelAllowed",
+            ) as Promise<Response>,
+        },
+        {
+          name: "reopen lifecycle App write allowed",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation ReopenAllowed($input: ReopenIssueInput!) {
                 reopenIssue(input: $input) {
                   issue {
@@ -1381,18 +1429,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: parent.node_id } },
-            "ReopenAllowed",
-          ) as Promise<Response>,
-      },
-      {
-        name: "delete label read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: parent.node_id } },
+              "ReopenAllowed",
+            ) as Promise<Response>,
+        },
+        {
+          name: "delete label read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation DeleteLabelDenied($input: DeleteLabelInput!) {
                 deleteLabel(input: $input) {
                   label {
@@ -1401,18 +1449,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { id: fixture.label.node_id } },
-            "DeleteLabelDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "delete label App write allowed",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { id: fixture.label.node_id } },
+              "DeleteLabelDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "delete label App write allowed",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation DeleteLabelAllowed($input: DeleteLabelInput!) {
                 deleteLabel(input: $input) {
                   label {
@@ -1421,18 +1469,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { id: fixture.label.node_id } },
-            "DeleteLabelAllowed",
-          ) as Promise<Response>,
-      },
-      {
-        name: "relationship read-only denied",
-        token: "matrix-read",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { id: fixture.label.node_id } },
+              "DeleteLabelAllowed",
+            ) as Promise<Response>,
+        },
+        {
+          name: "relationship read-only denied",
+          token: "matrix-read",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation RelationshipDenied($input: AddSubIssueInput!) {
                 addSubIssue(input: $input) {
                   subIssue {
@@ -1441,18 +1489,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { parentIssueId: parent.node_id, childIssueId: child.node_id } },
-            "RelationshipDenied",
-          ) as Promise<Response>,
-      },
-      {
-        name: "relationship App write allowed",
-        token: "matrix-write",
-        expected: 200,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { parentIssueId: parent.node_id, childIssueId: child.node_id } },
+              "RelationshipDenied",
+            ) as Promise<Response>,
+        },
+        {
+          name: "relationship App write allowed",
+          token: "matrix-write",
+          expected: 200,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation RelationshipAllowed($input: AddBlockedByInput!) {
                 addBlockedBy(input: $input) {
                   blockedBy {
@@ -1461,18 +1509,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: parent.node_id, blockingIssueId: blocker.node_id } },
-            "RelationshipAllowed",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded comment write",
-        token: "matrix-private-excluded",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: parent.node_id, blockingIssueId: blocker.node_id } },
+              "RelationshipAllowed",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded comment write",
+          token: "matrix-private-excluded",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateComment($input: AddCommentInput!) {
                 addComment(input: $input) {
                   comment {
@@ -1481,18 +1529,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { subjectId: privateIssue.node_id, body: "denied" } },
-            "PrivateComment",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded close write",
-        token: "matrix-private-excluded",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { subjectId: privateIssue.node_id, body: "denied" } },
+              "PrivateComment",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded close write",
+          token: "matrix-private-excluded",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateClose($input: CloseIssueInput!) {
                 closeIssue(input: $input) {
                   issue {
@@ -1501,18 +1549,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: privateIssue.node_id } },
-            "PrivateClose",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded reopen write",
-        token: "matrix-private-excluded",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: privateIssue.node_id } },
+              "PrivateClose",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded reopen write",
+          token: "matrix-private-excluded",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateReopen($input: ReopenIssueInput!) {
                 reopenIssue(input: $input) {
                   issue {
@@ -1521,18 +1569,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: privateIssue.node_id } },
-            "PrivateReopen",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded create label write",
-        token: "matrix-private-excluded",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: privateIssue.node_id } },
+              "PrivateReopen",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded create label write",
+          token: "matrix-private-excluded",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateLabel($input: CreateLabelInput!) {
                 createLabel(input: $input) {
                   label {
@@ -1541,18 +1589,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { repositoryId: privateRepo.node_id, name: "denied" } },
-            "PrivateLabel",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded delete label write",
-        token: "matrix-private-excluded",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { repositoryId: privateRepo.node_id, name: "denied" } },
+              "PrivateLabel",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded delete label write",
+          token: "matrix-private-excluded",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateDeleteLabel($input: DeleteLabelInput!) {
                 deleteLabel(input: $input) {
                   label {
@@ -1561,18 +1609,18 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { id: privateLabel.node_id } },
-            "PrivateDeleteLabel",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded delete issue write",
-        token: "matrix-private-excluded",
-        expected: 403,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { id: privateLabel.node_id } },
+              "PrivateDeleteLabel",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded delete issue write",
+          token: "matrix-private-excluded",
+          expected: 403,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateDelete($input: DeleteIssueInput!) {
                 deleteIssue(input: $input) {
                   repository {
@@ -1581,19 +1629,19 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: privateIssue.node_id } },
-            "PrivateDelete",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded subissue write",
-        token: "matrix-private-excluded",
-        expected: 200,
-        denied: true,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { issueId: privateIssue.node_id } },
+              "PrivateDelete",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded subissue write",
+          token: "matrix-private-excluded",
+          expected: 200,
+          denied: true,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateSub($input: AddSubIssueInput!) {
                 addSubIssue(input: $input) {
                   subIssue {
@@ -1602,19 +1650,19 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { parentIssueId: privateIssue.node_id, childIssueId: child.node_id } },
-            "PrivateSub",
-          ) as Promise<Response>,
-      },
-      {
-        name: "private excluded dependency write",
-        token: "matrix-private-excluded",
-        expected: 200,
-        denied: true,
-        run: () =>
-          runMatrixGraphql(
-            app,
-            `
+              { input: { parentIssueId: privateIssue.node_id, childIssueId: child.node_id } },
+              "PrivateSub",
+            ) as Promise<Response>,
+        },
+        {
+          name: "private excluded dependency write",
+          token: "matrix-private-excluded",
+          expected: 200,
+          denied: true,
+          run: () =>
+            runMatrixGraphql(
+              app,
+              `
               mutation PrivateDependency($input: AddBlockedByInput!) {
                 addBlockedBy(input: $input) {
                   blockedBy {
@@ -1623,32 +1671,34 @@ describe("GitHub GraphQL qualification", () => {
                 }
               }
             `,
-            { input: { issueId: privateIssue.node_id, blockingIssueId: blocker.node_id } },
-            "PrivateDependency",
-          ) as Promise<Response>,
-      },
-    ];
-    const beforeDenied = () =>
-      JSON.stringify({
-        issues: gh.issues.all(),
-        comments: gh.comments.all(),
-        labels: gh.labels.all(),
-        subIssues: gh.issueSubIssues.all(),
-        dependencies: gh.issueDependencies.all(),
-        events: gh.issueEvents.all(),
-      });
-    for (const row of rows) {
-      matrixToken = row.token;
-      const before = row.denied || row.expected === 403 ? beforeDenied() : "";
-      const response = await row.run();
-      expect(response.status, row.name).toBe(row.expected);
-      const body = (await responseBody(response)) as any;
-      if (row.check) row.check(body);
-      if (row.denied) expect(body.errors?.length, row.name).toBeGreaterThan(0);
-      if (row.denied || row.expected === 403) expect(beforeDenied(), row.name).toBe(before);
+              { input: { issueId: privateIssue.node_id, blockingIssueId: blocker.node_id } },
+              "PrivateDependency",
+            ) as Promise<Response>,
+        },
+      ];
+      const beforeDenied = () =>
+        JSON.stringify({
+          issues: gh.issues.all(),
+          comments: gh.comments.all(),
+          labels: gh.labels.all(),
+          subIssues: gh.issueSubIssues.all(),
+          dependencies: gh.issueDependencies.all(),
+          events: gh.issueEvents.all(),
+        });
+      for (const row of rows) {
+        matrixToken = row.token;
+        const before = row.denied || row.expected === 403 ? beforeDenied() : "";
+        const response = await row.run();
+        expect(response.status, row.name).toBe(row.expected);
+        const body = (await responseBody(response)) as any;
+        if (row.check) row.check(body);
+        if (row.denied) expect(body.errors?.length, row.name).toBeGreaterThan(0);
+        if (row.denied || row.expected === 403) expect(beforeDenied(), row.name).toBe(before);
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
     }
-    expect(fetchSpy).not.toHaveBeenCalled();
-    fetchSpy.mockRestore();
   });
 
   it("echoes repeated client IDs without idempotency across every mutation", async () => {

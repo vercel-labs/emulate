@@ -230,7 +230,8 @@ function orderedSubIssueRelations(gh: GitHubStore, parentIssueId: number): GitHu
     .sort((left, right) => left.position - right.position || left.id - right.id);
 }
 
-function normalizeSiblingPositions(gh: GitHubStore, parentIssueId: number): void {
+/** Normalize sibling positions after a relationship is removed outside this module. */
+export function normalizeSubIssuePositions(gh: GitHubStore, parentIssueId: number): void {
   for (const [position, relation] of orderedSubIssueRelations(gh, parentIssueId).entries()) {
     if (relation.position !== position) {
       gh.issueSubIssues.update(relation.id, { position });
@@ -289,7 +290,7 @@ export function addSubIssue(
 
   if (currentParent && currentParent.parent_issue_id !== parent.id) {
     gh.issueSubIssues.delete(currentParent.id);
-    normalizeSiblingPositions(gh, currentParent.parent_issue_id);
+    normalizeSubIssuePositions(gh, currentParent.parent_issue_id);
   }
 
   const relation = gh.issueSubIssues.insert({
@@ -313,7 +314,7 @@ export function removeSubIssue(gh: GitHubStore, parentIssueId: number, childIssu
     .find((candidate) => candidate.child_issue_id === childIssueId);
   if (!relation) throw notFound("Sub-issue relationship");
   gh.issueSubIssues.delete(relation.id);
-  normalizeSiblingPositions(gh, parentIssueId);
+  normalizeSubIssuePositions(gh, parentIssueId);
   return relation;
 }
 

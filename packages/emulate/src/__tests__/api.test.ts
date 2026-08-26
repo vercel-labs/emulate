@@ -33,30 +33,33 @@ function stableResponse(value: any): any {
 describe("createEmulator", () => {
   it("starts github and returns a url", async () => {
     const github = await createEmulator({ service: "github", port: 14000 });
+    try {
+      expect(github.url).toBe("http://localhost:14000");
 
-    expect(github.url).toBe("http://localhost:14000");
-
-    const res = await fetch(`${github.url}/user`, {
-      headers: { Authorization: "token test_token_admin" },
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { login: string };
-    expect(body.login).toBe("admin");
-
-    await github.close();
+      const res = await fetch(`${github.url}/user`, {
+        headers: { Authorization: "token test_token_admin" },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { login: string };
+      expect(body.login).toBe("admin");
+    } finally {
+      await github.close();
+    }
   });
 
   it("starts multiple services independently", async () => {
-    const [github, vercel] = await Promise.all([
-      createEmulator({ service: "github", port: 14010 }),
-      createEmulator({ service: "vercel", port: 14011 }),
-    ]);
+    const github = await createEmulator({ service: "github", port: 14010 });
+    let vercel: Awaited<ReturnType<typeof createEmulator>> | undefined;
+    try {
+      vercel = await createEmulator({ service: "vercel", port: 14011 });
 
-    expect(github.url).toBe("http://localhost:14010");
-    expect(vercel.url).toBe("http://localhost:14011");
-    expect(vercel.generatedSecrets).toEqual([]);
-
-    await Promise.all([github.close(), vercel.close()]);
+      expect(github.url).toBe("http://localhost:14010");
+      expect(vercel.url).toBe("http://localhost:14011");
+      expect(vercel.generatedSecrets).toEqual([]);
+    } finally {
+      await github.close();
+      if (vercel) await vercel.close();
+    }
   });
 
   it("reset wipes and re-seeds stores", async () => {
@@ -65,27 +68,28 @@ describe("createEmulator", () => {
       port: 14020,
       seed: { github: { users: [{ login: "test-user" }] } },
     });
+    try {
+      const createRes = await fetch(`${github.url}/user/repos`, {
+        method: "POST",
+        headers: {
+          Authorization: "token test_token_admin",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: "my-repo", private: false }),
+      });
+      expect(createRes.status).toBe(201);
 
-    const createRes = await fetch(`${github.url}/user/repos`, {
-      method: "POST",
-      headers: {
-        Authorization: "token test_token_admin",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ name: "my-repo", private: false }),
-    });
-    expect(createRes.status).toBe(201);
+      github.reset();
 
-    github.reset();
-
-    const listRes = await fetch(`${github.url}/user/repos`, {
-      headers: { Authorization: "token test_token_admin" },
-    });
-    expect(listRes.status).toBe(200);
-    const repos = (await listRes.json()) as unknown[];
-    expect(repos).toHaveLength(0);
-
-    await github.close();
+      const listRes = await fetch(`${github.url}/user/repos`, {
+        headers: { Authorization: "token test_token_admin" },
+      });
+      expect(listRes.status).toBe(200);
+      const repos = (await listRes.json()) as unknown[];
+      expect(repos).toHaveLength(0);
+    } finally {
+      await github.close();
+    }
   });
 
   it("restores a seeded GitHub issue graph through REST and GraphQL", async () => {
@@ -117,150 +121,158 @@ describe("createEmulator", () => {
         },
       },
     });
-    const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
-    const issueUrl = `${github.url}/repos/octocat/graph/issues`;
-    const beforeIssueList = await fetch(issueUrl, { headers });
-    const beforeParent = await fetch(`${issueUrl}/10`, { headers });
-    const beforeChild = await fetch(`${issueUrl}/20`, { headers });
-    const beforeDuplicate = await fetch(`${issueUrl}/40`, { headers });
-    const beforeLabels = await fetch(`${github.url}/repos/octocat/graph/labels`, { headers });
-    const beforeComments = await fetch(`${issueUrl}/10/comments`, { headers });
-    const beforeSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
-    const beforeDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
-    const duplicateRecord = (await beforeDuplicate.clone().json()) as { id: number };
-    const beforeGraph = await fetch(`${github.url}/graphql`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query:
-          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } blockedBy { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
-      }),
-    });
-    const stableIssue = (issue: any) => ({
-      id: issue.id,
-      node_id: issue.node_id,
-      number: issue.number,
-      title: issue.title,
-      state: issue.state,
-      state_reason: issue.state_reason,
-      labels: issue.labels,
-      comments: issue.comments,
-      duplicate_issue_id: issue.duplicate_issue_id,
-    });
-    const baseline = {
-      parent: stableIssue(await beforeParent.json()),
-      child: stableIssue(await beforeChild.json()),
-      duplicate: stableIssue(await beforeDuplicate.json()),
-      labels: stableResponse(await beforeLabels.json()),
-      comments: stableResponse(await beforeComments.json()),
-      subIssues: stableResponse(await beforeSubIssues.json()),
-      dependencies: stableResponse(await beforeDependencies.json()),
-      issueList: stableResponse(await beforeIssueList.json()),
-      graph: (await beforeGraph.json()) as any,
-    };
-    expect(beforeParent.status).toBe(200);
-    expect(beforeChild.status).toBe(200);
-    expect(baseline.graph.data.repository.issue.repository.id).toEqual(expect.any(String));
+    try {
+      const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
+      const issueUrl = `${github.url}/repos/octocat/graph/issues`;
+      const beforeIssueList = await fetch(issueUrl, { headers });
+      const beforeParent = await fetch(`${issueUrl}/10`, { headers });
+      const beforeChild = await fetch(`${issueUrl}/20`, { headers });
+      const beforeDuplicate = await fetch(`${issueUrl}/40`, { headers });
+      const beforeLabels = await fetch(`${github.url}/repos/octocat/graph/labels`, { headers });
+      const beforeComments = await fetch(`${issueUrl}/10/comments`, { headers });
+      const beforeSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
+      const beforeDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
+      const duplicateRecord = (await beforeDuplicate.clone().json()) as { id: number };
+      const beforeGraph = await fetch(`${github.url}/graphql`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          query:
+            '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } blockedBy { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
+        }),
+      });
+      const stableIssue = (issue: any) => ({
+        id: issue.id,
+        node_id: issue.node_id,
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        state_reason: issue.state_reason,
+        labels: issue.labels,
+        comments: issue.comments,
+        duplicate_issue_id: issue.duplicate_issue_id,
+      });
+      const baseline = {
+        parent: stableIssue(await beforeParent.json()),
+        child: stableIssue(await beforeChild.json()),
+        duplicate: stableIssue(await beforeDuplicate.json()),
+        labels: stableResponse(await beforeLabels.json()),
+        comments: stableResponse(await beforeComments.json()),
+        subIssues: stableResponse(await beforeSubIssues.json()),
+        dependencies: stableResponse(await beforeDependencies.json()),
+        issueList: stableResponse(await beforeIssueList.json()),
+        graph: (await beforeGraph.json()) as any,
+      };
+      expect(beforeParent.status).toBe(200);
+      expect(beforeChild.status).toBe(200);
+      expect(baseline.graph.data.repository.issue.repository.id).toEqual(expect.any(String));
 
-    const mutationIssueResponse = await fetch(issueUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ title: "mutation" }),
-    });
-    expect(mutationIssueResponse.status).toBe(201);
-    const mutationIssue = (await mutationIssueResponse.json()) as { id: number; number: number; node_id: string };
-    expect(mutationIssue).toMatchObject({
-      id: expect.any(Number),
-      number: expect.any(Number),
-      node_id: expect.any(String),
-    });
-    expect(
-      (await fetch(`${issueUrl}/10/comments`, { method: "POST", headers, body: JSON.stringify({ body: "mutation" }) }))
-        .status,
-    ).toBe(201);
-    expect(
-      (
-        await fetch(`${github.url}/repos/octocat/graph/labels`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ name: "new" }),
-        })
-      ).status,
-    ).toBe(201);
-    expect(
-      (await fetch(`${issueUrl}/10`, { method: "PATCH", headers, body: JSON.stringify({ state: "closed" }) })).status,
-    ).toBe(200);
-    expect(
-      (
-        await fetch(`${issueUrl}/10/sub_issues`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ sub_issue_id: mutationIssue.id }),
-        })
-      ).status,
-    ).toBe(201);
-    expect(
-      (
-        await fetch(`${issueUrl}/10/dependencies/blocked_by`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ issue_id: duplicateRecord.id }),
-        })
-      ).status,
-    ).toBe(201);
-    const graphMutation = await fetch(`${github.url}/graphql`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { id number } } }`,
-      }),
-    });
-    expect(graphMutation.status).toBe(200);
-    const graphMutationBody = (await graphMutation.json()) as any;
-    expect(graphMutationBody.data.createIssue.issue).toMatchObject({
-      id: expect.any(String),
-      number: expect.any(Number),
-    });
-    const graphMutationIssue = graphMutationBody.data.createIssue.issue as { id: string; number: number };
+      const mutationIssueResponse = await fetch(issueUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ title: "mutation" }),
+      });
+      expect(mutationIssueResponse.status).toBe(201);
+      const mutationIssue = (await mutationIssueResponse.json()) as { id: number; number: number; node_id: string };
+      expect(mutationIssue).toMatchObject({
+        id: expect.any(Number),
+        number: expect.any(Number),
+        node_id: expect.any(String),
+      });
+      expect(
+        (
+          await fetch(`${issueUrl}/10/comments`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ body: "mutation" }),
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (
+          await fetch(`${github.url}/repos/octocat/graph/labels`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ name: "new" }),
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (await fetch(`${issueUrl}/10`, { method: "PATCH", headers, body: JSON.stringify({ state: "closed" }) })).status,
+      ).toBe(200);
+      expect(
+        (
+          await fetch(`${issueUrl}/10/sub_issues`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ sub_issue_id: mutationIssue.id }),
+          })
+        ).status,
+      ).toBe(201);
+      expect(
+        (
+          await fetch(`${issueUrl}/10/dependencies/blocked_by`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ issue_id: duplicateRecord.id }),
+          })
+        ).status,
+      ).toBe(201);
+      const graphMutation = await fetch(`${github.url}/graphql`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { id number } } }`,
+        }),
+      });
+      expect(graphMutation.status).toBe(200);
+      const graphMutationBody = (await graphMutation.json()) as any;
+      expect(graphMutationBody.data.createIssue.issue).toMatchObject({
+        id: expect.any(String),
+        number: expect.any(Number),
+      });
+      const graphMutationIssue = graphMutationBody.data.createIssue.issue as { id: string; number: number };
 
-    github.reset();
-    const afterParent = await fetch(`${issueUrl}/10`, { headers });
-    const afterChild = await fetch(`${issueUrl}/20`, { headers });
-    const afterDuplicate = await fetch(`${issueUrl}/40`, { headers });
-    const afterLabels = await fetch(`${github.url}/repos/octocat/graph/labels`, { headers });
-    const afterComments = await fetch(`${issueUrl}/10/comments`, { headers });
-    const afterSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
-    const afterDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
-    const afterIssueList = await fetch(issueUrl, { headers });
-    const afterGraph = await fetch(`${github.url}/graphql`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query:
-          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } blockedBy { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
-      }),
-    });
-    expect({
-      parent: stableIssue(await afterParent.json()),
-      child: stableIssue(await afterChild.json()),
-      duplicate: stableIssue(await afterDuplicate.json()),
-      labels: stableResponse(await afterLabels.json()),
-      comments: stableResponse(await afterComments.json()),
-      subIssues: stableResponse(await afterSubIssues.json()),
-      dependencies: stableResponse(await afterDependencies.json()),
-      issueList: stableResponse(await afterIssueList.json()),
-      graph: await afterGraph.json(),
-    }).toEqual(baseline);
-    expect((await fetch(`${issueUrl}/${mutationIssue.number}`, { headers })).status).toBe(404);
-    const missingGraphIssue = await fetch(`${github.url}/graphql`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: `{ repository(owner: "octocat", name: "graph") { issue(number: ${graphMutationIssue.number}) { id } } }`,
-      }),
-    });
-    expect(((await missingGraphIssue.json()) as any).data.repository.issue).toBeNull();
-    await github.close();
+      github.reset();
+      const afterParent = await fetch(`${issueUrl}/10`, { headers });
+      const afterChild = await fetch(`${issueUrl}/20`, { headers });
+      const afterDuplicate = await fetch(`${issueUrl}/40`, { headers });
+      const afterLabels = await fetch(`${github.url}/repos/octocat/graph/labels`, { headers });
+      const afterComments = await fetch(`${issueUrl}/10/comments`, { headers });
+      const afterSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
+      const afterDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
+      const afterIssueList = await fetch(issueUrl, { headers });
+      const afterGraph = await fetch(`${github.url}/graphql`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          query:
+            '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } blockedBy { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
+        }),
+      });
+      expect({
+        parent: stableIssue(await afterParent.json()),
+        child: stableIssue(await afterChild.json()),
+        duplicate: stableIssue(await afterDuplicate.json()),
+        labels: stableResponse(await afterLabels.json()),
+        comments: stableResponse(await afterComments.json()),
+        subIssues: stableResponse(await afterSubIssues.json()),
+        dependencies: stableResponse(await afterDependencies.json()),
+        issueList: stableResponse(await afterIssueList.json()),
+        graph: await afterGraph.json(),
+      }).toEqual(baseline);
+      expect((await fetch(`${issueUrl}/${mutationIssue.number}`, { headers })).status).toBe(404);
+      const missingGraphIssue = await fetch(`${github.url}/graphql`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          query: `{ repository(owner: "octocat", name: "graph") { issue(number: ${graphMutationIssue.number}) { id } } }`,
+        }),
+      });
+      expect(((await missingGraphIssue.json()) as any).data.repository.issue).toBeNull();
+    } finally {
+      await github.close();
+    }
   });
 
   it("rejects invalid GitHub graph seeds before exposing a listener", async () => {
@@ -277,6 +289,26 @@ describe("createEmulator", () => {
       }),
     ).rejects.toThrow();
     await expect(fetch("http://localhost:14026/user")).rejects.toThrow();
+  });
+
+  it.each([
+    ["state", 14027, { state: "pending" as never }, "Invalid GitHub seed issue state"],
+    ["state reason", 14028, { state_reason: "wont_fix" as never }, "Invalid GitHub seed issue state_reason"],
+  ])("rejects invalid GitHub issue %s before exposing a listener", async (_name, port, lifecycle, message) => {
+    await expect(
+      createEmulator({
+        service: "github",
+        port,
+        seed: {
+          github: {
+            users: [{ login: "octocat" }],
+            repos: [{ owner: "octocat", name: "graph" }],
+            issues: [{ key: "issue", repo: "octocat/graph", title: "bad", ...lifecycle }],
+          },
+        },
+      }),
+    ).rejects.toThrow(message);
+    await expect(fetch(`http://localhost:${port}/user`)).rejects.toThrow();
   });
 
   it.each([
@@ -425,29 +457,30 @@ describe("createEmulator", () => {
         },
       },
     });
+    try {
+      expect(github.generatedSecrets).toHaveLength(1);
+      expect(github.generatedSecrets[0]).toMatchObject({
+        service: "github",
+        kind: "github.app_private_key",
+        id: "900",
+        label: "Generated Key App",
+      });
+      const privateKey = github.generatedSecrets[0]!.value;
+      expect(privateKey).toMatch(/^-----BEGIN RSA PRIVATE KEY-----/);
 
-    expect(github.generatedSecrets).toHaveLength(1);
-    expect(github.generatedSecrets[0]).toMatchObject({
-      service: "github",
-      kind: "github.app_private_key",
-      id: "900",
-      label: "Generated Key App",
-    });
-    const privateKey = github.generatedSecrets[0]!.value;
-    expect(privateKey).toMatch(/^-----BEGIN RSA PRIVATE KEY-----/);
+      const firstToken = await createInstallationToken(github.url, "900", 901, privateKey);
+      expect(firstToken.status).toBe(201);
+      expect(((await firstToken.json()) as { token: string }).token).toMatch(/^ghs_/);
 
-    const firstToken = await createInstallationToken(github.url, "900", 901, privateKey);
-    expect(firstToken.status).toBe(201);
-    expect(((await firstToken.json()) as { token: string }).token).toMatch(/^ghs_/);
+      github.reset();
 
-    github.reset();
-
-    const tokenAfterReset = await createInstallationToken(github.url, "900", 901, privateKey);
-    expect(tokenAfterReset.status).toBe(201);
-    expect(((await tokenAfterReset.json()) as { token: string }).token).toMatch(/^ghs_/);
-    expect(github.generatedSecrets[0]!.value).toBe(privateKey);
-
-    await github.close();
+      const tokenAfterReset = await createInstallationToken(github.url, "900", 901, privateKey);
+      expect(tokenAfterReset.status).toBe(201);
+      expect(((await tokenAfterReset.json()) as { token: string }).token).toMatch(/^ghs_/);
+      expect(github.generatedSecrets[0]!.value).toBe(privateKey);
+    } finally {
+      await github.close();
+    }
   });
 
   it("uses an explicit GitHub App key without exposing it", async () => {
@@ -474,12 +507,13 @@ describe("createEmulator", () => {
         },
       },
     });
-
-    expect(github.generatedSecrets).toEqual([]);
-    const token = await createInstallationToken(github.url, "910", 911, privateKey);
-    expect(token.status).toBe(201);
-
-    await github.close();
+    try {
+      expect(github.generatedSecrets).toEqual([]);
+      const token = await createInstallationToken(github.url, "910", 911, privateKey);
+      expect(token.status).toBe(201);
+    } finally {
+      await github.close();
+    }
   });
 
   it("rejects a JWT signed with the wrong GitHub App key", async () => {
@@ -500,16 +534,18 @@ describe("createEmulator", () => {
         },
       },
     });
-    const { privateKey: wrongKey } = generateKeyPairSync("rsa", {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: "pkcs1", format: "pem" },
-      publicKeyEncoding: { type: "pkcs1", format: "pem" },
-    });
+    try {
+      const { privateKey: wrongKey } = generateKeyPairSync("rsa", {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: "pkcs1", format: "pem" },
+        publicKeyEncoding: { type: "pkcs1", format: "pem" },
+      });
 
-    const response = await createInstallationToken(github.url, "920", 921, wrongKey);
-    expect(response.status).toBe(401);
-
-    await github.close();
+      const response = await createInstallationToken(github.url, "920", 921, wrongKey);
+      expect(response.status).toBe(401);
+    } finally {
+      await github.close();
+    }
   });
 
   it("rejects an empty explicit GitHub App key", async () => {
@@ -561,24 +597,25 @@ describe("createEmulator", () => {
       port: 14030,
       seed: { slack: { strict_scopes: true } },
     });
-
-    const res = await fetch(`${slack.url}/api/chat.postMessage`, {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer arbitrary-slack-token",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ channel: "C000000001", text: "strict fallback" }),
-    });
-    const body = (await res.json()) as { ok: boolean; error: string; needed: string; provided: string };
-    expect(body).toMatchObject({
-      ok: false,
-      error: "missing_scope",
-      needed: "chat:write",
-      provided: "",
-    });
-
-    await slack.close();
+    try {
+      const res = await fetch(`${slack.url}/api/chat.postMessage`, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer arbitrary-slack-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ channel: "C000000001", text: "strict fallback" }),
+      });
+      const body = (await res.json()) as { ok: boolean; error: string; needed: string; provided: string };
+      expect(body).toMatchObject({
+        ok: false,
+        error: "missing_scope",
+        needed: "chat:write",
+        provided: "",
+      });
+    } finally {
+      await slack.close();
+    }
   });
 
   it("throws on unknown service", async () => {

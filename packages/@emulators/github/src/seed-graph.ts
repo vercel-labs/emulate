@@ -72,6 +72,10 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
     gh.issues.update(inserted.id, { node_id: generateNodeId("Issue", inserted.id) });
     issueByKey.set(spec.key, inserted);
     issueByRepoNumber.set(`${repo.full_name}:${number}`, inserted);
+    if (state === "open") {
+      const currentRepo = gh.repos.get(repo.id);
+      if (currentRepo) gh.repos.update(repo.id, { open_issues_count: currentRepo.open_issues_count + 1 });
+    }
   }
   for (const spec of issueSpecs) {
     const issue = issueByKey.get(spec.key)!;

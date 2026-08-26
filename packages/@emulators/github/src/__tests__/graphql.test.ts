@@ -98,116 +98,118 @@ describe("GitHub GraphQL read compatibility", () => {
   it("round-trips duplicate lifecycle and canonical issue identity between REST and GraphQL", async () => {
     const { app, store, webhooks } = createTestApp();
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
-    webhooks.register({
-      url: "https://hooks.example/duplicate",
-      events: ["issues"],
-      active: true,
-      owner: "octocat",
-      repo: "hello-world",
-    });
-    const canonicalResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: "Canonical issue" }),
-    });
-    const duplicateResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: "Duplicate issue" }),
-    });
-    const canonical = (await canonicalResponse.json()) as { id: number };
-    const duplicate = (await duplicateResponse.json()) as { id: number; number: number };
-
-    const closeResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${duplicate.number}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
-    });
-    expect(closeResponse.status).toBe(200);
-    expect((await closeResponse.json()) as { state_reason: string; duplicate_issue_id: number }).toMatchObject({
-      state_reason: "duplicate",
-      duplicate_issue_id: canonical.id,
-    });
-    expect((store.collection("github.issue_events").all() as unknown as Array<{ event: string }>).at(-1)?.event).toBe(
-      "marked_as_duplicate",
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fetchSpy).toHaveBeenCalledWith("https://hooks.example/duplicate", expect.anything());
-    expect(JSON.parse(fetchSpy.mock.calls.at(-1)?.[1]?.body as string)).toMatchObject({
-      action: "marked_as_duplicate",
-    });
-    fetchSpy.mockRestore();
-
-    const completedResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: "Completed then duplicate" }),
-    });
-    const completed = (await completedResponse.json()) as { id: number; number: number; updated_at: string };
-    await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ state: "closed" }),
-    });
-    const beforeDuplicate = (await app
-      .request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
-        headers: headers(),
-      })
-      .then((response) => response.json())) as { updated_at: string };
-    const eventCount = store.collection("github.issue_events").all().length;
-    vi.useFakeTimers({ now: Date.now() });
     try {
-      vi.advanceTimersByTime(5);
-      const completedDuplicate = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+      webhooks.register({
+        url: "https://hooks.example/duplicate",
+        events: ["issues"],
+        active: true,
+        owner: "octocat",
+        repo: "hello-world",
+      });
+      const canonicalResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ title: "Canonical issue" }),
+      });
+      const duplicateResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ title: "Duplicate issue" }),
+      });
+      const canonical = (await canonicalResponse.json()) as { id: number };
+      const duplicate = (await duplicateResponse.json()) as { id: number; number: number };
+
+      const closeResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${duplicate.number}`, {
         method: "PATCH",
         headers: headers(),
         body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
       });
-      expect(completedDuplicate.status).toBe(200);
-      const afterDuplicate = (await completedDuplicate.json()) as { updated_at: string };
-      expect(afterDuplicate.updated_at).not.toBe(beforeDuplicate.updated_at);
-      expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
-      const noOp = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+      expect(closeResponse.status).toBe(200);
+      expect((await closeResponse.json()) as { state_reason: string; duplicate_issue_id: number }).toMatchObject({
+        state_reason: "duplicate",
+        duplicate_issue_id: canonical.id,
+      });
+      expect((store.collection("github.issue_events").all() as unknown as Array<{ event: string }>).at(-1)?.event).toBe(
+        "marked_as_duplicate",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(fetchSpy).toHaveBeenCalledWith("https://hooks.example/duplicate", expect.anything());
+      expect(JSON.parse(fetchSpy.mock.calls.at(-1)?.[1]?.body as string)).toMatchObject({
+        action: "marked_as_duplicate",
+      });
+      const completedResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ title: "Completed then duplicate" }),
+      });
+      const completed = (await completedResponse.json()) as { id: number; number: number; updated_at: string };
+      await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
         method: "PATCH",
         headers: headers(),
-        body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
+        body: JSON.stringify({ state: "closed" }),
       });
-      expect(noOp.status).toBe(200);
-      expect(((await noOp.json()) as { updated_at: string }).updated_at).toBe(afterDuplicate.updated_at);
-      expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+      const beforeDuplicate = (await app
+        .request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+          headers: headers(),
+        })
+        .then((response) => response.json())) as { updated_at: string };
+      const eventCount = store.collection("github.issue_events").all().length;
+      vi.useFakeTimers({ now: Date.now() });
+      try {
+        vi.advanceTimersByTime(5);
+        const completedDuplicate = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+          method: "PATCH",
+          headers: headers(),
+          body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
+        });
+        expect(completedDuplicate.status).toBe(200);
+        const afterDuplicate = (await completedDuplicate.json()) as { updated_at: string };
+        expect(afterDuplicate.updated_at).not.toBe(beforeDuplicate.updated_at);
+        expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+        const noOp = await app.request(`${base}/repos/octocat/hello-world/issues/${completed.number}`, {
+          method: "PATCH",
+          headers: headers(),
+          body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
+        });
+        expect(noOp.status).toBe(200);
+        expect(((await noOp.json()) as { updated_at: string }).updated_at).toBe(afterDuplicate.updated_at);
+        expect(store.collection("github.issue_events").all()).toHaveLength(eventCount + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const graphResponse = await graphql(
+        app,
+        `query { repository(owner: "octocat", name: "hello-world") { issue(number: ${duplicate.number}) { state stateReason duplicateOf { id number } } } }`,
+      );
+      expect(graphResponse.status).toBe(200);
+      const graphBody = (await graphResponse.json()) as {
+        data: { repository: { issue: unknown } };
+      };
+      expect(graphBody.data.repository.issue).toMatchObject({
+        state: "CLOSED",
+        stateReason: "DUPLICATE",
+        duplicateOf: { number: expect.any(Number) },
+      });
+
+      const reopenResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${duplicate.number}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ state: "open" }),
+      });
+      expect(reopenResponse.status).toBe(200);
+      expect(
+        (await reopenResponse.json()) as { state_reason: string | null; duplicate_issue_id: number | null },
+      ).toMatchObject({
+        state_reason: "reopened",
+        duplicate_issue_id: null,
+      });
+      expect((store.collection("github.issue_events").all() as unknown as Array<{ event: string }>).at(-1)?.event).toBe(
+        "unmarked_as_duplicate",
+      );
     } finally {
-      vi.useRealTimers();
+      fetchSpy.mockRestore();
     }
-
-    const graphResponse = await graphql(
-      app,
-      `query { repository(owner: "octocat", name: "hello-world") { issue(number: ${duplicate.number}) { state stateReason duplicateOf { id number } } } }`,
-    );
-    expect(graphResponse.status).toBe(200);
-    const graphBody = (await graphResponse.json()) as {
-      data: { repository: { issue: unknown } };
-    };
-    expect(graphBody.data.repository.issue).toMatchObject({
-      state: "CLOSED",
-      stateReason: "DUPLICATE",
-      duplicateOf: { number: expect.any(Number) },
-    });
-
-    const reopenResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${duplicate.number}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ state: "open" }),
-    });
-    expect(reopenResponse.status).toBe(200);
-    expect(
-      (await reopenResponse.json()) as { state_reason: string | null; duplicate_issue_id: number | null },
-    ).toMatchObject({
-      state_reason: "reopened",
-      duplicate_issue_id: null,
-    });
-    expect((store.collection("github.issue_events").all() as unknown as Array<{ event: string }>).at(-1)?.event).toBe(
-      "unmarked_as_duplicate",
-    );
   });
 
   it("preserves existing lifecycle reasons when same-state reason is omitted", async () => {

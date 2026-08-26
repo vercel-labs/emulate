@@ -3,7 +3,7 @@ import { Hono } from "@emulators/core";
 import { Store } from "@emulators/core";
 import { WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
-import { githubPlugin, seedFromConfig } from "../index.js";
+import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";
 
@@ -33,9 +33,12 @@ function authHeaders(): Record<string, string> {
 
 describe("GitHub issues routes", () => {
   let app: Hono;
+  let store: Store;
 
   beforeEach(() => {
-    app = createTestApp().app;
+    const testApp = createTestApp();
+    app = testApp.app;
+    store = testApp.store;
   });
 
   it("creates an issue", async () => {
@@ -103,5 +106,31 @@ describe("GitHub issues routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { title: string };
     expect(body.title).toBe("Updated title");
+  });
+
+  it("does not create labels when a duplicate transition is rejected", async () => {
+    const createResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Issue with rejected transition" }),
+    });
+    expect(createResponse.status).toBe(201);
+    const issue = (await createResponse.json()) as { number: number };
+    const gh = getGitHubStore(store);
+    const before = JSON.stringify(store.snapshot());
+
+    const response = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}`, {
+      method: "PATCH",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "closed", state_reason: "duplicate", labels: ["created-after-validation"] }),
+    });
+
+    expect(response.status).toBe(422);
+    const afterIssue = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}`, {
+      headers: authHeaders(),
+    });
+    expect(await afterIssue.json()).toMatchObject({ state: "open", state_reason: null });
+    expect(gh.labels.count()).toBe(0);
+    expect(JSON.stringify(store.snapshot())).toBe(before);
   });
 });

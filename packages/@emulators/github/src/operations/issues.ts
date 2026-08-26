@@ -4,6 +4,7 @@ import { formatIssue, formatRepo, formatUser, generateNodeId, getNextIssueNumber
 import { ownerLoginOf } from "../route-helpers.js";
 import { adjustRepoOpenIssues, dispatchGitHubWebhook, insertIssueEvent, type GitHubMutationContext } from "./common.js";
 import { applyIssueLabelPlan, planIssueLabelReferences } from "./labels.js";
+import { normalizeSubIssuePositions } from "../issue-relationships.js";
 
 export interface CreateIssueInput {
   repo: GitHubRepo;
@@ -115,11 +116,14 @@ export function deleteIssue(context: GitHubMutationContext, input: DeleteIssueIn
   for (const event of context.gh.issueEvents.findBy("repo_id", input.repo.id)) {
     if (event.issue_number === issueNumber) context.gh.issueEvents.delete(event.id);
   }
+  const parentsToNormalize = new Set<number>();
   for (const relation of context.gh.issueSubIssues.all()) {
     if (relation.parent_issue_id === issueId || relation.child_issue_id === issueId) {
+      if (relation.parent_issue_id !== issueId) parentsToNormalize.add(relation.parent_issue_id);
       context.gh.issueSubIssues.delete(relation.id);
     }
   }
+  for (const parentId of parentsToNormalize) normalizeSubIssuePositions(context.gh, parentId);
   for (const relation of context.gh.issueDependencies.all()) {
     if (relation.blocked_issue_id === issueId || relation.blocking_issue_id === issueId) {
       context.gh.issueDependencies.delete(relation.id);

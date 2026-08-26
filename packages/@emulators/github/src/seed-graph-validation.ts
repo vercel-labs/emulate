@@ -74,6 +74,19 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHu
       numbers.add(issue.number);
       issueNumbers.set(issue.repo, numbers);
     }
+    if (issue.state !== undefined && issue.state !== "open" && issue.state !== "closed") {
+      throw new Error(`Invalid GitHub seed issue state: ${issue.state}`);
+    }
+    if (
+      issue.state_reason !== undefined &&
+      issue.state_reason !== null &&
+      issue.state_reason !== "completed" &&
+      issue.state_reason !== "not_planned" &&
+      issue.state_reason !== "duplicate" &&
+      issue.state_reason !== "reopened"
+    ) {
+      throw new Error(`Invalid GitHub seed issue state_reason: ${issue.state_reason}`);
+    }
     const state = issue.state ?? (issue.state_reason && issue.state_reason !== "reopened" ? "closed" : "open");
     if (issue.state_reason === "duplicate" && state !== "closed")
       throw new Error(`Duplicate seed issue must be closed: ${issue.key}`);

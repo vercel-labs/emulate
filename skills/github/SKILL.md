@@ -327,6 +327,9 @@ Seed stable issue graphs with keyed labels, issues, comments, parent-child edges
 Sub-issues are ordered parent-child edges stored separately from issues and dependencies. A child has at most one parent. Relationship collection endpoints use the standard `page` and `per_page` parameters, cap `per_page` at 100, and return `Link` headers for available pages.
 
 ```bash
+BASE="${BASE:-http://localhost:4001}"
+TOKEN="${TOKEN:-test_token_admin}"
+
 # List a parent's ordered children
 curl "$BASE/repos/octocat/hello-world/issues/1/sub_issues?per_page=100" \
   -H "Authorization: Bearer $TOKEN"
