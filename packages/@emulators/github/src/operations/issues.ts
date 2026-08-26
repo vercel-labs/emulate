@@ -139,10 +139,23 @@ export function transitionIssueLifecycle(
     throw new ApiError(422, "duplicate_issue_id requires state_reason duplicate");
   }
 
-  const desiredStateReason =
-    input.stateReason !== undefined ? input.stateReason : input.state === "closed" ? "completed" : "reopened";
-  const desiredDuplicateIssueId = desiredStateReason === "duplicate" ? input.duplicateIssue!.id : null;
   const stateChanged = current.state !== input.state;
+  const desiredStateReason =
+    input.stateReason !== undefined
+      ? input.stateReason
+      : stateChanged
+        ? input.state === "closed"
+          ? "completed"
+          : "reopened"
+        : current.state_reason;
+  const desiredDuplicateIssueId =
+    input.stateReason !== undefined
+      ? desiredStateReason === "duplicate"
+        ? input.duplicateIssue!.id
+        : null
+      : stateChanged
+        ? null
+        : current.duplicate_issue_id;
   const reasonChanged = current.state_reason !== desiredStateReason;
   const duplicateChanged = current.duplicate_issue_id !== desiredDuplicateIssueId;
   const changed = stateChanged || reasonChanged || duplicateChanged;

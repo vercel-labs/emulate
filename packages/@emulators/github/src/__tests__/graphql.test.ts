@@ -317,6 +317,55 @@ describe("GitHub GraphQL read compatibility", () => {
     );
   });
 
+  it("preserves existing lifecycle reasons when same-state reason is omitted", async () => {
+    const { app, store } = createTestApp();
+    const openResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Open no-op" }),
+    });
+    const openIssue = (await openResponse.json()) as { number: number; updated_at: string };
+    const openEvents = store.collection("github.issue_events").all().length;
+    const openNoOp = await app.request(`${base}/repos/octocat/hello-world/issues/${openIssue.number}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ state: "open" }),
+    });
+    expect(openNoOp.status).toBe(200);
+    expect((await openNoOp.json()) as { state_reason: string | null; duplicate_issue_id: number | null }).toMatchObject(
+      {
+        state_reason: null,
+        duplicate_issue_id: null,
+      },
+    );
+    expect(store.collection("github.issue_events").all()).toHaveLength(openEvents);
+
+    const closeResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Closed no-op" }),
+    });
+    const closeIssue = (await closeResponse.json()) as { number: number };
+    const closed = await app.request(`${base}/repos/octocat/hello-world/issues/${closeIssue.number}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ state: "closed" }),
+    });
+    const closedBody = (await closed.json()) as { updated_at: string; state_reason: string | null };
+    const closeEvents = store.collection("github.issue_events").all().length;
+    const closedNoOp = await app.request(`${base}/repos/octocat/hello-world/issues/${closeIssue.number}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ state: "closed" }),
+    });
+    expect(closedNoOp.status).toBe(200);
+    expect((await closedNoOp.json()) as { updated_at: string; state_reason: string | null }).toMatchObject({
+      updated_at: closedBody.updated_at,
+      state_reason: "completed",
+    });
+    expect(store.collection("github.issue_events").all()).toHaveLength(closeEvents);
+  });
+
   it("rejects invalid and self duplicate targets without changing the issue", async () => {
     const { app, store } = createTestApp();
     const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
