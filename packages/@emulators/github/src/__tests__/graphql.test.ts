@@ -1197,7 +1197,7 @@ describe("GitHub GraphQL read compatibility", () => {
     ).toBe(101);
   });
 
-  it("covers the initial consumer operation matrix through public GraphQL", async () => {
+  it("covers the GraphQL projection matrix through public GraphQL", async () => {
     const { app } = createTestApp();
     const fixture = await createFixture(app);
     const parent = await createIssue(app, "Matrix parent");
@@ -1327,6 +1327,491 @@ describe("GitHub GraphQL read compatibility", () => {
       expect(body.errors, row.name).toBeUndefined();
       row.check(body.data);
     }
+  });
+
+  it("covers the exact initial 16 consumer operations through public GraphQL", async () => {
+    const { app } = createTestApp();
+    const fixture = await createFixture(app);
+    const parent = await createIssue(app, "Exact matrix parent");
+    const child = await createIssue(app, "Exact matrix child");
+    const blocker = await createIssue(app, "Exact matrix blocker");
+    const standalone = await createIssue(app, "Exact matrix standalone");
+    const relation = (path: string, body: object) =>
+      app.request(`${base}${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) });
+    expect(
+      (await relation(`/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, { sub_issue_id: child.id }))
+        .status,
+    ).toBe(201);
+    expect(
+      (
+        await relation(`/repos/octocat/hello-world/issues/${parent.number}/dependencies/blocked_by`, {
+          issue_id: blocker.id,
+        })
+      ).status,
+    ).toBe(201);
+
+    const rows: Array<{ name: string; run: () => Promise<void> }> = [
+      {
+        name: "repository resolution",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query Repository($owner: String!, $name: String!) {
+                repo: repository(owner: $owner, name: $name) {
+                  id
+                }
+              }
+            `,
+            { owner: "octocat", name: "hello-world" },
+            "Repository",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.repo.id).toBe(fixture.repo.node_id);
+        },
+      },
+      {
+        name: "repository issue resolution",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query RepositoryIssue($owner: String!, $name: String!, $number: Int!) {
+                repo: repository(owner: $owner, name: $name) {
+                  issue(number: $number) {
+                    id
+                  }
+                }
+              }
+            `,
+            { owner: "octocat", name: "hello-world", number: fixture.issue.number },
+            "RepositoryIssue",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.repo.issue.id).toBe(fixture.issue.node_id);
+        },
+      },
+      {
+        name: "node issue read",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query NodeIssue($id: ID!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    id
+                    number
+                  }
+                }
+              }
+            `,
+            { id: fixture.issue.node_id },
+            "NodeIssue",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.value.id).toBe(fixture.issue.node_id);
+        },
+      },
+      {
+        name: "issue detail projection",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query IssueDetail($id: ID!) {
+                value: node(id: $id) {
+                  ...IssueDetails
+                }
+              }
+              fragment IssueDetails on Issue {
+                id
+                title
+                state
+                repository {
+                  id
+                }
+              }
+            `,
+            { id: fixture.issue.node_id },
+            "IssueDetail",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.value.repository.id).toBe(fixture.repo.node_id);
+        },
+      },
+      {
+        name: "paginated subIssues",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query SubIssues($id: ID!, $first: Int!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    subIssues(first: $first) {
+                      nodes {
+                        id
+                      }
+                    }
+                  }
+                }
+              }
+            `,
+            { id: parent.node_id, first: 1 },
+            "SubIssues",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.value.subIssues.nodes[0].id).toBe(child.node_id);
+        },
+      },
+      {
+        name: "paginated blockedBy",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query BlockedBy($id: ID!, $first: Int!) {
+                value: node(id: $id) {
+                  ... on Issue {
+                    blockedBy(first: $first) {
+                      nodes {
+                        id
+                      }
+                    }
+                  }
+                }
+              }
+            `,
+            { id: parent.node_id, first: 1 },
+            "BlockedBy",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.value.blockedBy.nodes[0].id).toBe(blocker.node_id);
+        },
+      },
+      {
+        name: "createIssue",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              mutation Create($input: CreateIssueInput!) {
+                created: createIssue(input: $input) {
+                  ...CreatedIssue
+                }
+              }
+              fragment CreatedIssue on CreateIssuePayload {
+                clientMutationId
+                issue {
+                  id
+                }
+              }
+            `,
+            {
+              input: {
+                repositoryId: fixture.repo.node_id,
+                title: "Exact matrix created",
+                clientMutationId: "matrix-create",
+              },
+            },
+            "Create",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.created.clientMutationId).toBe("matrix-create");
+        },
+      },
+      {
+        name: "deleteIssue",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              mutation Delete($input: DeleteIssueInput!) {
+                deleted: deleteIssue(input: $input) {
+                  ...DeletedIssue
+                }
+              }
+              fragment DeletedIssue on DeleteIssuePayload {
+                clientMutationId
+                repository {
+                  id
+                }
+              }
+            `,
+            { input: { issueId: standalone.node_id, clientMutationId: "matrix-delete" } },
+            "Delete",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.deleted.repository.id).toBe(fixture.repo.node_id);
+        },
+      },
+      {
+        name: "addComment",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              mutation Comment($input: AddCommentInput!) {
+                added: addComment(input: $input) {
+                  ...AddedComment
+                }
+              }
+              fragment AddedComment on AddCommentPayload {
+                clientMutationId
+                comment {
+                  body
+                }
+              }
+            `,
+            {
+              input: {
+                subjectId: fixture.issue.node_id,
+                body: "Exact matrix comment",
+                clientMutationId: "matrix-comment",
+              },
+            },
+            "Comment",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.added.comment.body).toBe("Exact matrix comment");
+        },
+      },
+      {
+        name: "addSubIssue",
+        run: async () => {
+          const extra = await createIssue(app, "Exact matrix extra child");
+          const response = await graphql(
+            app,
+            `
+              mutation Sub($input: AddSubIssueInput!) {
+                added: addSubIssue(input: $input) {
+                  ...AddedSub
+                }
+              }
+              fragment AddedSub on AddSubIssuePayload {
+                clientMutationId
+                subIssue {
+                  id
+                }
+              }
+            `,
+            {
+              input: {
+                parentIssueId: fixture.issue.node_id,
+                childIssueId: extra.node_id,
+                clientMutationId: "matrix-sub",
+              },
+            },
+            "Sub",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.added.subIssue.id).toBe(extra.node_id);
+        },
+      },
+      {
+        name: "addBlockedBy",
+        run: async () => {
+          const extra = await createIssue(app, "Exact matrix extra blocker");
+          const response = await graphql(
+            app,
+            `
+              mutation Block($input: AddBlockedByInput!) {
+                added: addBlockedBy(input: $input) {
+                  ...AddedBlock
+                }
+              }
+              fragment AddedBlock on AddBlockedByPayload {
+                clientMutationId
+                blockedBy {
+                  id
+                }
+              }
+            `,
+            {
+              input: {
+                issueId: fixture.issue.node_id,
+                blockingIssueId: extra.node_id,
+                clientMutationId: "matrix-block",
+              },
+            },
+            "Block",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.added.blockedBy.id).toBe(extra.node_id);
+        },
+      },
+      {
+        name: "closeIssue",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              mutation Close($input: CloseIssueInput!) {
+                closed: closeIssue(input: $input) {
+                  ...ClosedIssue
+                }
+              }
+              fragment ClosedIssue on CloseIssuePayload {
+                clientMutationId
+                issue {
+                  state
+                }
+              }
+            `,
+            { input: { issueId: parent.node_id, clientMutationId: "matrix-close" } },
+            "Close",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.closed.issue.state).toBe("CLOSED");
+        },
+      },
+      {
+        name: "reopenIssue",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              mutation Reopen($input: ReopenIssueInput!) {
+                reopened: reopenIssue(input: $input) {
+                  ...ReopenedIssue
+                }
+              }
+              fragment ReopenedIssue on ReopenIssuePayload {
+                clientMutationId
+                issue {
+                  state
+                }
+              }
+            `,
+            { input: { issueId: parent.node_id, clientMutationId: "matrix-reopen" } },
+            "Reopen",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.reopened.issue.state).toBe("OPEN");
+        },
+      },
+      {
+        name: "repository label lookup",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              query LabelLookup($owner: String!, $name: String!, $label: String!) {
+                repo: repository(owner: $owner, name: $name) {
+                  label(name: $label) {
+                    id
+                  }
+                }
+              }
+            `,
+            { owner: "octocat", name: "hello-world", label: "graphql" },
+            "LabelLookup",
+          );
+          expect(response.status).toBe(200);
+          expect(((await responseBody(response)) as any).data.repo.label.id).toBe(fixture.label.node_id);
+        },
+      },
+      {
+        name: "createLabel",
+        run: async () => {
+          const response = await graphql(
+            app,
+            `
+              mutation Label($input: CreateLabelInput!) {
+                created: createLabel(input: $input) {
+                  ...CreatedLabel
+                }
+              }
+              fragment CreatedLabel on CreateLabelPayload {
+                clientMutationId
+                label {
+                  id
+                }
+              }
+            `,
+            {
+              input: {
+                repositoryId: fixture.repo.node_id,
+                name: "exact-matrix-label",
+                clientMutationId: "matrix-label",
+              },
+            },
+            "Label",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.created.label.id).toEqual(expect.any(String));
+        },
+      },
+      {
+        name: "deleteLabel",
+        run: async () => {
+          const created = await graphql(
+            app,
+            `
+              mutation Label($input: CreateLabelInput!) {
+                createLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { repositoryId: fixture.repo.node_id, name: "exact-matrix-delete-label" } },
+            "Label",
+          );
+          const labelId = ((await responseBody(created)) as any).data.createLabel.label.id;
+          const response = await graphql(
+            app,
+            `
+              mutation DeleteLabel($input: DeleteLabelInput!) {
+                deleted: deleteLabel(input: $input) {
+                  ...DeletedLabel
+                }
+              }
+              fragment DeletedLabel on DeleteLabelPayload {
+                clientMutationId
+                label {
+                  id
+                }
+              }
+            `,
+            { input: { id: labelId, clientMutationId: "matrix-delete-label" } },
+            "DeleteLabel",
+          );
+          const body = (await responseBody(response)) as any;
+          expect(response.status).toBe(200);
+          expect(body.data.deleted.label.id).toBe(labelId);
+        },
+      },
+    ];
+    expect(rows.map((row) => row.name)).toEqual([
+      "repository resolution",
+      "repository issue resolution",
+      "node issue read",
+      "issue detail projection",
+      "paginated subIssues",
+      "paginated blockedBy",
+      "createIssue",
+      "deleteIssue",
+      "addComment",
+      "addSubIssue",
+      "addBlockedBy",
+      "closeIssue",
+      "reopenIssue",
+      "repository label lookup",
+      "createLabel",
+      "deleteLabel",
+    ]);
+    for (const row of rows) await row.run();
   });
 
   it("rejects relationship duplicates, self references, conflicts, and inaccessible dependencies without mutation", async () => {
