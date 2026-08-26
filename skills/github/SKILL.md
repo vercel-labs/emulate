@@ -320,6 +320,8 @@ To mark an issue as a duplicate, update it with `state_reason: "duplicate"` and 
 
 ### Issue relationships
 
+Seed stable issue graphs with keyed labels, issues, comments, parent-child edges, and dependencies. Optional repository-scoped issue numbers and symbolic references are validated before startup; reset restores the exact graph and node IDs.
+
 Sub-issues are ordered parent-child edges stored separately from issues and dependencies. A child has at most one parent. Relationship collection endpoints use the standard `page` and `per_page` parameters, cap `per_page` at 100, and return `Link` headers for available pages.
 
 ```bash

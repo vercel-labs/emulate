@@ -705,6 +705,8 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 Issue updates accept `state_reason: duplicate` with `duplicate_issue_id`, a visible issue database ID. GraphQL exposes `DUPLICATE` and `duplicateOf`; reopening clears the canonical reference.
 
+Stable issue graphs can be seeded with keyed labels, issues, comments, parent-child edges, and dependencies. Optional repository-scoped issue numbers and symbolic references are validated before startup; reset restores the exact graph and node IDs.
+
 ### Issue relationships
 - `GET /repos/:owner/:repo/issues/:number/parent` - get the parent issue
 - `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` - list or add ordered sub-issues
