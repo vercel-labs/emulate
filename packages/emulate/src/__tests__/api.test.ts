@@ -77,6 +77,76 @@ describe("createEmulator", () => {
     await github.close();
   });
 
+  it("restores a seeded GitHub issue graph through REST and GraphQL", async () => {
+    const github = await createEmulator({
+      service: "github",
+      port: 14025,
+      seed: {
+        github: {
+          users: [{ login: "octocat" }],
+          repos: [{ owner: "octocat", name: "graph" }],
+          labels: [{ key: "bug", repo: "octocat/graph", name: "bug" }],
+          issues: [
+            { key: "parent", repo: "octocat/graph", number: 10, title: "Parent", labels: ["bug"] },
+            { key: "child", repo: "octocat/graph", number: 20, title: "Child" },
+          ],
+          comments: [{ key: "comment", repo: "octocat/graph", issue: "parent", body: "seeded" }],
+          sub_issues: [{ parent: "parent", child: "child" }],
+          dependencies: [{ blocked: "child", blocking: "parent" }],
+        },
+      },
+    });
+    const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
+    const issueUrl = `${github.url}/repos/octocat/graph/issues`;
+    const beforeParent = await fetch(`${issueUrl}/10`, { headers });
+    const beforeChild = await fetch(`${issueUrl}/20`, { headers });
+    const beforeGraph = await fetch(`${github.url}/graphql`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
+      }),
+    });
+    const stableIssue = (issue: any) => ({ id: issue.id, node_id: issue.node_id, number: issue.number, title: issue.title, state: issue.state, labels: issue.labels, comments: issue.comments, duplicate_issue_id: issue.duplicate_issue_id });
+    const baseline = { parent: stableIssue(await beforeParent.json()), child: stableIssue(await beforeChild.json()), graph: await beforeGraph.json() };
+
+    await fetch(issueUrl, { method: "POST", headers, body: JSON.stringify({ title: "mutation" }) });
+    await fetch(`${issueUrl}/10/comments`, { method: "POST", headers, body: JSON.stringify({ body: "mutation" }) });
+    await fetch(`${github.url}/repos/octocat/graph/labels`, { method: "POST", headers, body: JSON.stringify({ name: "new" }) });
+    await fetch(`${issueUrl}/10`, { method: "PATCH", headers, body: JSON.stringify({ state: "closed" }) });
+    await fetch(`${issueUrl}/10/sub_issues`, { method: "POST", headers, body: JSON.stringify({ sub_issue_id: 1 }) });
+    await fetch(`${issueUrl}/10/dependencies/blocked_by`, { method: "POST", headers, body: JSON.stringify({ issue_id: 2 }) });
+    await fetch(`${github.url}/graphql`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: 'mutation { createIssue(input: { repositoryId: "bad", title: "ignored" }) { issue { number } } }' }),
+    });
+
+    github.reset();
+    const afterParent = await fetch(`${issueUrl}/10`, { headers });
+    const afterChild = await fetch(`${issueUrl}/20`, { headers });
+    const afterGraph = await fetch(`${github.url}/graphql`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
+      }),
+    });
+    expect({ parent: stableIssue(await afterParent.json()), child: stableIssue(await afterChild.json()), graph: await afterGraph.json() }).toEqual(baseline);
+    await github.close();
+  });
+
+  it("rejects invalid GitHub graph seeds before exposing a listener", async () => {
+    await expect(
+      createEmulator({
+        service: "github",
+        port: 14026,
+        seed: { github: { repos: [{ owner: "missing", name: "graph" }], issues: [{ key: "issue", repo: "missing/graph", title: "bad" }] } },
+      }),
+    ).rejects.toThrow();
+    await expect(fetch("http://localhost:14026/user")).rejects.toThrow();
+  });
+
   it("generates a GitHub App key once and keeps it across reset", async () => {
     const github = await createEmulator({
       service: "github",
