@@ -245,8 +245,8 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       const repo = context.gh.repos.get(issue.repo_id);
       if (!repo) throw new ApiError(404, "Not Found");
       assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
-      const deleted = deleteIssueOperation({ gh: context.gh, webhooks, baseUrl: context.baseUrl }, { repo, issue });
-      return { clientMutationId: mutationId(input), issue: issueView(context, deleted, repo) };
+      deleteIssueOperation({ gh: context.gh, webhooks, baseUrl: context.baseUrl }, { repo, issue });
+      return { clientMutationId: mutationId(input), repository: repositoryView(context, repo) };
     },
   };
 }

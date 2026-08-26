@@ -1622,7 +1622,7 @@ describe("GitHub GraphQL mutation compatibility", () => {
   });
 
   it("deletes an issue through GraphQL and cascades only its records", async () => {
-    const { app, store } = createTestApp();
+    const { app, store, webhooks } = createTestApp();
     const target = await createIssue(app, "Delete target");
     const unrelated = await createIssue(app, "Keep issue");
     const parent = await createIssue(app, "Delete parent");
@@ -1670,6 +1670,14 @@ describe("GitHub GraphQL mutation compatibility", () => {
     const targetEvents = gh.issueEvents.findBy("issue_number", target.number).map((event) => event.id);
     const unrelatedEvents = gh.issueEvents.findBy("issue_number", unrelated.number).map((event) => event.id);
     const beforeOpen = repo.open_issues_count;
+    webhooks.register({
+      url: "https://hooks.example/delete",
+      events: ["issues"],
+      active: true,
+      owner: "octocat",
+      repo: "hello-world",
+    });
+    webhooks.clear();
 
     const response = await graphql(
       app,
@@ -1677,9 +1685,9 @@ describe("GitHub GraphQL mutation compatibility", () => {
         mutation Delete($input: DeleteIssueInput!) {
           deleteIssue(input: $input) {
             clientMutationId
-            issue {
+            repository {
               id
-              number
+              nameWithOwner
             }
           }
         }
@@ -1690,8 +1698,9 @@ describe("GitHub GraphQL mutation compatibility", () => {
     expect(response.status).toBe(200);
     expect(((await responseBody(response)) as any).data.deleteIssue).toEqual({
       clientMutationId: "delete-1",
-      issue: { id: target.node_id, number: target.number },
+      repository: { id: repo.node_id, nameWithOwner: "octocat/hello-world" },
     });
+    expect(webhooks.getDeliveries()).toEqual([]);
     expect(gh.issues.get(target.id)).toBeUndefined();
     expect(gh.comments.findBy("issue_number", target.number)).toEqual([]);
     expect(gh.issueEvents.findBy("issue_number", target.number)).toEqual([]);
@@ -1727,6 +1736,39 @@ describe("GitHub GraphQL mutation compatibility", () => {
     expect(((await unrelatedComment.json()) as Array<{ body: string }>).map((comment) => comment.body)).toEqual([
       "keep me",
     ]);
+
+    const second = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteIssueInput!) {
+          deleteIssue(input: $input) {
+            clientMutationId
+            repository {
+              id
+            }
+          }
+        }
+      `,
+      { input: { issueId: parent.node_id, clientMutationId: "delete-1" } },
+      "Delete",
+    );
+    expect(((await responseBody(second)) as any).data.deleteIssue).toEqual({
+      clientMutationId: "delete-1",
+      repository: { id: repo.node_id },
+    });
+    const repeated = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteIssueInput!) {
+          deleteIssue(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { issueId: parent.node_id, clientMutationId: "delete-1" } },
+      "Delete",
+    );
+    expect((await responseBody(repeated)).errors?.[0]?.message).toContain("Not Found");
   });
 
   it("rejects deletion before side effects for inaccessible, wrong-type, and read-only requests", async () => {

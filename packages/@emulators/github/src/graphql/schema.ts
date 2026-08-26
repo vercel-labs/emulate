@@ -235,7 +235,7 @@ export const githubGraphQLSchema = /* GraphQL */ `
 
   type DeleteIssuePayload {
     clientMutationId: String
-    issue: Issue!
+    repository: Repository!
   }
   type Query {
     repository(owner: String!, name: String!): Repository
