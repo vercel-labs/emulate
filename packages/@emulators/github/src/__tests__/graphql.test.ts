@@ -2014,8 +2014,15 @@ describe("GitHub GraphQL mutation compatibility", () => {
       body: JSON.stringify({ title: "Private permission issue" }),
     });
     const privateIssue = (await privateIssueResponse.json()) as { node_id: string };
+    const privateLabelResponse = await app.request(`${base}/repos/octocat/private-repo/labels`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: "private-label" }),
+    });
+    const privateLabel = (await privateLabelResponse.json()) as { node_id: string };
     const gh = getGitHubStore(store);
     const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    const privateRepo = gh.repos.findOneBy("full_name", "octocat/private-repo")!;
     expect(
       (
         await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
@@ -2048,6 +2055,20 @@ describe("GitHub GraphQL mutation compatibility", () => {
       permissions: { issues: "write" },
       repositorySelection: "selected",
       repositoryIds: [],
+    });
+    tokenMap.set("matrix-private-excluded", {
+      login: "outsider",
+      id: 2,
+      scopes: ["issues:write"],
+      installation: {
+        installationId: 43,
+        appId: 9,
+        accountId: 2,
+        accountType: "User",
+        permissions: { issues: "write" },
+        repositoryIds: [repo.id],
+        repositorySelection: "selected",
+      },
     });
     const rows: Array<{
       name: string;
@@ -2547,13 +2568,184 @@ describe("GitHub GraphQL mutation compatibility", () => {
             "RelationshipAllowed",
           ) as Promise<Response>,
       },
+      {
+        name: "private excluded comment write",
+        token: "matrix-private-excluded",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateComment($input: AddCommentInput!) {
+                addComment(input: $input) {
+                  comment {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { subjectId: privateIssue.node_id, body: "denied" } },
+            "PrivateComment",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded close write",
+        token: "matrix-private-excluded",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateClose($input: CloseIssueInput!) {
+                closeIssue(input: $input) {
+                  issue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: privateIssue.node_id } },
+            "PrivateClose",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded reopen write",
+        token: "matrix-private-excluded",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateReopen($input: ReopenIssueInput!) {
+                reopenIssue(input: $input) {
+                  issue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: privateIssue.node_id } },
+            "PrivateReopen",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded create label write",
+        token: "matrix-private-excluded",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateLabel($input: CreateLabelInput!) {
+                createLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { repositoryId: privateRepo.node_id, name: "denied" } },
+            "PrivateLabel",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded delete label write",
+        token: "matrix-private-excluded",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateDeleteLabel($input: DeleteLabelInput!) {
+                deleteLabel(input: $input) {
+                  label {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { id: privateLabel.node_id } },
+            "PrivateDeleteLabel",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded delete issue write",
+        token: "matrix-private-excluded",
+        expected: 403,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateDelete($input: DeleteIssueInput!) {
+                deleteIssue(input: $input) {
+                  repository {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: privateIssue.node_id } },
+            "PrivateDelete",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded subissue write",
+        token: "matrix-private-excluded",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateSub($input: AddSubIssueInput!) {
+                addSubIssue(input: $input) {
+                  subIssue {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { parentIssueId: privateIssue.node_id, childIssueId: child.node_id } },
+            "PrivateSub",
+          ) as Promise<Response>,
+      },
+      {
+        name: "private excluded dependency write",
+        token: "matrix-private-excluded",
+        expected: 200,
+        run: () =>
+          graphql(
+            app,
+            `
+              mutation PrivateDependency($input: AddBlockedByInput!) {
+                addBlockedBy(input: $input) {
+                  blockedBy {
+                    id
+                  }
+                }
+              }
+            `,
+            { input: { issueId: privateIssue.node_id, blockingIssueId: blocker.node_id } },
+            "PrivateDependency",
+          ) as Promise<Response>,
+      },
     ];
+    const beforeDenied = () =>
+      JSON.stringify({
+        issues: gh.issues.all(),
+        comments: gh.comments.all(),
+        labels: gh.labels.all(),
+        subIssues: gh.issueSubIssues.all(),
+        dependencies: gh.issueDependencies.all(),
+        events: gh.issueEvents.all(),
+      });
     for (const row of rows) {
       testDefaultToken = row.token;
+      const before = row.expected === 403 ? beforeDenied() : "";
       const response = await row.run();
       expect(response.status, row.name).toBe(row.expected);
       const body = (await responseBody(response)) as any;
       if (row.check) row.check(body);
+      if (row.expected === 403) expect(beforeDenied(), row.name).toBe(before);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
