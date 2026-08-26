@@ -77,6 +77,8 @@ Public repo endpoints work without auth. Private repos and write operations requ
 
 `POST /graphql` accepts a JSON body with `query`, optional `variables`, and optional `operationName`. Authenticated queries support repository and issue reads, global `node(id:)` reads for repositories, issues, labels, and issue comments, and Relay-style issue comment connections with opaque cursors. Inaccessible records resolve to `null`. The `rateLimit` query and REST `/rate_limit` endpoint share the GraphQL rate-limit bucket.
 
+Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. The `addSubIssue` and `addBlockedBy` mutations use the shared relationship state, enforce REST-equivalent permissions and validation, and echo `clientMutationId` exactly.
+
 ### GitHub App JWT
 
 Configure apps in the seed config with a private key. Sign a JWT with `{ iss: "<app_id>" }` using RS256. The emulator verifies the signature and resolves the app.
