@@ -60,7 +60,6 @@ async function readGraphQLBody(c: Context<AppEnv>): Promise<GraphQLRequestBody |
   };
 }
 
-function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webhooks: RouteContext["webhooks"]) {
 function requireRepository(context: ReturnType<typeof createGitHubGraphQLContext>, id: string): GitHubRepo {
   const repo = context.gh.repos.all().find((candidate) => candidate.node_id === id);
   if (!repo) throw new ApiError(404, "Not Found");
@@ -83,6 +82,7 @@ function mutationId(input: { clientMutationId?: string | null }): string | null 
   return input.clientMutationId ?? null;
 }
 
+function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webhooks: RouteContext["webhooks"]) {
   return {
     repository: ({ owner, name }: { owner: string; name: string }) => {
       requireGitHubGraphQLAuth(context);
