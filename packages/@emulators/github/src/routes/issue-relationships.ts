@@ -1,5 +1,5 @@
 import type { Context, RouteContext } from "@emulators/core";
-import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
+import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import type { GitHubIssue, GitHubRepo } from "../entities.js";
 import {
   addIssueDependencyWithEvents,
@@ -38,7 +38,18 @@ function routeRepo(c: Context, gh: ReturnType<typeof getGitHubStore>) {
   const name = c.req.param("repo");
   const repo = lookupRepo(gh, owner, name);
   if (!repo) throw notFoundResponse("Repository");
+  assertSelectedInstallationRepository(c.get("authUser"), repo);
   return repo;
+}
+
+function assertSelectedInstallationRepository(
+  authUser: Parameters<typeof assertRepoPermission>[1],
+  repo: GitHubRepo,
+): void {
+  const installation = authUser?.installation;
+  if (installation?.repositorySelection === "selected" && !installation.repositoryIds.includes(repo.id)) {
+    throw forbidden();
+  }
 }
 
 function routeIssue(c: Context, gh: ReturnType<typeof getGitHubStore>, repo: GitHubRepo): GitHubIssue {
@@ -58,6 +69,7 @@ function assertIssueRead(
 ): GitHubRepo {
   const repo = gh.repos.get(issue.repo_id);
   if (!repo) throw notFoundResponse("Repository");
+  assertSelectedInstallationRepository(authUser, repo);
   assertRepoPermission(gh, authUser, repo, "issues", "read");
   return repo;
 }

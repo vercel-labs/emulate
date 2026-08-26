@@ -7,7 +7,12 @@ import {
   resolveVisibleNode,
 } from "../graphql/context.js";
 import { addIssueDependencyWithEvents, addSubIssueWithEvents } from "../issue-relationships.js";
-import { assertAuthenticatedActor, assertIssueWrite, assertRepoPermission } from "../route-helpers.js";
+import {
+  assertAuthenticatedActor,
+  assertIssueCommentWrite,
+  assertIssueWrite,
+  assertRepoPermission,
+} from "../route-helpers.js";
 import type { GitHubIssue, GitHubLabel, GitHubRepo } from "../entities.js";
 import { consumeGitHubGraphQLRateLimit, getGitHubGraphQLRateLimit } from "../graphql/rate-limit.js";
 import { githubGraphQLSchema } from "../graphql/schema.js";
@@ -38,23 +43,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function readGraphQLBody(c: Context<AppEnv>): Promise<GraphQLRequestBody | { error: string }> {
-  let raw: unknown;
   try {
-    raw = await c.req.json();
+    return parseGraphQLRequestBody(await c.req.json());
   } catch {
     return { error: "Problems parsing JSON" };
   }
+}
 
+function parseGraphQLVariables(
+  raw: Record<string, unknown>,
+): { variables?: Record<string, unknown> } | { error: string } {
+  const variables = raw.variables === undefined || raw.variables === null ? undefined : raw.variables;
+  return variables === undefined || isRecord(variables)
+    ? { variables }
+    : { error: "GraphQL variables must be a JSON object" };
+}
+
+function parseGraphQLRequestBody(raw: unknown): GraphQLRequestBody | { error: string } {
   if (!isRecord(raw)) return { error: "GraphQL request body must be a JSON object" };
 
-  const variables = raw.variables === undefined || raw.variables === null ? undefined : raw.variables;
-  if (variables !== undefined && !isRecord(variables)) {
-    return { error: "GraphQL variables must be a JSON object" };
-  }
+  const variablesResult = parseGraphQLVariables(raw);
+  if ("error" in variablesResult) return variablesResult;
 
   return {
     query: typeof raw.query === "string" ? raw.query : "",
-    variables,
+    variables: variablesResult.variables,
     operationName:
       typeof raw.operationName === "string" && raw.operationName.length > 0 ? raw.operationName : undefined,
   };
@@ -70,6 +83,10 @@ function requireIssue(context: ReturnType<typeof createGitHubGraphQLContext>, id
   const issue = context.gh.issues.all().find((candidate) => candidate.node_id === id);
   if (!issue || issue.is_pull_request) throw new ApiError(404, "Not Found");
   return issue;
+}
+
+function requireIssuesEnabled(repo: GitHubRepo): void {
+  if (!repo.has_issues) throw new ApiError(404, "Not Found");
 }
 
 function requireLabel(context: ReturnType<typeof createGitHubGraphQLContext>, id: string): GitHubLabel {
@@ -112,6 +129,8 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
     }) => {
       const parent = relationshipIssue(context, input.parentIssueId);
       const child = relationshipIssue(context, input.childIssueId);
+      requireIssuesEnabled(parent.repo);
+      requireIssuesEnabled(child.repo);
       assertRepoPermission(context.gh, context.authUser, parent.repo, "issues", "write");
       assertRepoPermission(context.gh, context.authUser, child.repo, "issues", "read");
       const actor = assertAuthenticatedActor(context.gh, context.authUser);
@@ -145,6 +164,8 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       if (!blockedId) throw new ApiError(400, "issueId is required");
       const blocked = relationshipIssue(context, blockedId);
       const blocking = relationshipIssue(context, input.blockingIssueId);
+      requireIssuesEnabled(blocked.repo);
+      requireIssuesEnabled(blocking.repo);
       assertRepoPermission(context.gh, context.authUser, blocked.repo, "issues", "write");
       assertRepoPermission(context.gh, context.authUser, blocking.repo, "issues", "read");
       const actor = assertAuthenticatedActor(context.gh, context.authUser);
@@ -167,6 +188,7 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       input: { repositoryId: string; title: string; body?: string | null; clientMutationId?: string | null };
     }) => {
       const repo = requireRepository(context, input.repositoryId);
+      requireIssuesEnabled(repo);
       const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       const issue = createIssue(
         { gh: context.gh, webhooks, baseUrl: context.baseUrl },
@@ -178,6 +200,7 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       const issue = requireIssue(context, input.issueId);
       const repo = context.gh.repos.get(issue.repo_id);
       if (!repo) throw new ApiError(404, "Not Found");
+      requireIssuesEnabled(repo);
       const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       const result = transitionIssueLifecycle(
         { gh: context.gh, webhooks, baseUrl: context.baseUrl },
@@ -189,6 +212,7 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       const issue = requireIssue(context, input.issueId);
       const repo = context.gh.repos.get(issue.repo_id);
       if (!repo) throw new ApiError(404, "Not Found");
+      requireIssuesEnabled(repo);
       const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       const result = transitionIssueLifecycle(
         { gh: context.gh, webhooks, baseUrl: context.baseUrl },
@@ -200,7 +224,8 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       const issue = requireIssue(context, input.subjectId);
       const repo = context.gh.repos.get(issue.repo_id);
       if (!repo) throw new ApiError(404, "Not Found");
-      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      requireIssuesEnabled(repo);
+      const actor = assertIssueCommentWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       const result = createIssueComment(
         { gh: context.gh, webhooks, baseUrl: context.baseUrl },
         { repo, issue, actor, body: input.body },
@@ -222,6 +247,7 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       };
     }) => {
       const repo = requireRepository(context, input.repositoryId);
+      requireIssuesEnabled(repo);
       const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       const label = createRepositoryLabel(
         { gh: context.gh, webhooks, baseUrl: context.baseUrl },
@@ -233,6 +259,7 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       const label = requireLabel(context, input.id);
       const repo = context.gh.repos.get(label.repo_id);
       if (!repo) throw new ApiError(404, "Not Found");
+      requireIssuesEnabled(repo);
       const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       const deleted = deleteRepositoryLabel(
         { gh: context.gh, webhooks, baseUrl: context.baseUrl },
@@ -244,6 +271,7 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
       const issue = requireIssue(context, input.issueId);
       const repo = context.gh.repos.get(issue.repo_id);
       if (!repo) throw new ApiError(404, "Not Found");
+      requireIssuesEnabled(repo);
       assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
       deleteIssueOperation({ gh: context.gh, webhooks, baseUrl: context.baseUrl }, { repo, issue });
       return { clientMutationId: mutationId(input), repository: repositoryView(context, repo) };

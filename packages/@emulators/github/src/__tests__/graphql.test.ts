@@ -665,6 +665,10 @@ describe("GitHub GraphQL read compatibility", () => {
     };
     expect(secondBody.data.node.comments.nodes[0]?.body).toBe("Second GraphQL comment");
     const secondCursor = secondBody.data.node.comments.edges[0]!.cursor;
+    const outOfRangeCursor = Buffer.from(
+      Buffer.from(firstCursor, "base64url").toString("utf8").replace(/:\d+$/, ":999"),
+      "utf8",
+    ).toString("base64url");
 
     const last = await graphql(app, query, { id: fixture.issue.node_id, last: 1 }, "Comments");
     expect(((await last.json()) as typeof secondBody).data.node.comments.nodes[0]?.body).toBe("Second GraphQL comment");
@@ -675,10 +679,68 @@ describe("GitHub GraphQL read compatibility", () => {
       `${firstCursor}=`,
       `${firstCursor}!`,
       Buffer.from("github:graphql:v1:wrong:0").toString("base64"),
+      outOfRangeCursor,
     ]) {
       const invalid = await graphql(app, query, { id: fixture.issue.node_id, first: 1, after: cursor }, "Comments");
       expect(invalid.status).toBe(200);
       expect((await responseBody(invalid)).errors?.[0]?.message).toContain("Invalid cursor");
+    }
+  });
+
+  it("rejects GraphQL issue mutations when the repository disables issues", async () => {
+    const { app, store } = createTestApp();
+    const fixture = await createFixture(app);
+    const parent = await createIssue(app, "Disabled parent");
+    const child = await createIssue(app, "Disabled child");
+    const blocker = await createIssue(app, "Disabled blocker");
+    const blocked = await createIssue(app, "Disabled blocked");
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("node_id", fixture.repo.node_id)!;
+    gh.repos.update(repo.id, { has_issues: false });
+
+    const mutations = [
+      {
+        query: `mutation Create($input: CreateIssueInput!) { createIssue(input: $input) { issue { id } } }`,
+        variables: { input: { repositoryId: fixture.repo.node_id, title: "Should fail" } },
+      },
+      {
+        query: `mutation Close($input: CloseIssueInput!) { closeIssue(input: $input) { issue { id } } }`,
+        variables: { input: { issueId: fixture.issue.node_id } },
+      },
+      {
+        query: `mutation Reopen($input: ReopenIssueInput!) { reopenIssue(input: $input) { issue { id } } }`,
+        variables: { input: { issueId: fixture.issue.node_id } },
+      },
+      {
+        query: `mutation Comment($input: AddCommentInput!) { addComment(input: $input) { comment { id } } }`,
+        variables: { input: { subjectId: fixture.issue.node_id, body: "Should fail" } },
+      },
+      {
+        query: `mutation CreateLabel($input: CreateLabelInput!) { createLabel(input: $input) { label { id } } }`,
+        variables: { input: { repositoryId: fixture.repo.node_id, name: "Should fail" } },
+      },
+      {
+        query: `mutation DeleteLabel($input: DeleteLabelInput!) { deleteLabel(input: $input) { label { id } } }`,
+        variables: { input: { id: fixture.label.node_id } },
+      },
+      {
+        query: `mutation DeleteIssue($input: DeleteIssueInput!) { deleteIssue(input: $input) { repository { id } } }`,
+        variables: { input: { issueId: fixture.issue.node_id } },
+      },
+      {
+        query: `mutation AddSubIssue($input: AddSubIssueInput!) { addSubIssue(input: $input) { parentIssue { id } } }`,
+        variables: { input: { parentIssueId: parent.node_id, childIssueId: child.node_id } },
+      },
+      {
+        query: `mutation AddBlockedBy($input: AddBlockedByInput!) { addBlockedBy(input: $input) { issue { id } } }`,
+        variables: { input: { blockedIssueId: blocked.node_id, blockingIssueId: blocker.node_id } },
+      },
+    ];
+
+    for (const mutation of mutations) {
+      const response = await graphql(app, mutation.query, mutation.variables);
+      expect(response.status).toBe(200);
+      expect((await responseBody(response)).errors?.[0]?.message).toMatch(/not found/i);
     }
   });
 

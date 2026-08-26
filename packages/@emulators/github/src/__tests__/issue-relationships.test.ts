@@ -35,15 +35,15 @@ function createTestApp() {
     ],
   });
 
-  return { app, store, webhooks };
+  return { app, store, tokenMap, webhooks };
 }
 
-function authHeaders(): Record<string, string> {
-  return { Authorization: "Bearer test-token" };
+function authHeaders(token = "test-token"): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
 }
 
-function jsonHeaders(): Record<string, string> {
-  return { ...authHeaders(), "Content-Type": "application/json" };
+function jsonHeaders(token = "test-token"): Record<string, string> {
+  return { ...authHeaders(token), "Content-Type": "application/json" };
 }
 
 async function createIssue(app: Hono, repo = repository, title = "Issue") {
@@ -226,6 +226,62 @@ describe("GitHub issue relationship store operations and REST routes", () => {
       body: JSON.stringify({ sub_issue_id: otherOwnerChild.id }),
     });
     expect(otherOwner.status).toBe(422);
+  });
+
+  it("requires selected installations to include both repositories for relationship reads and writes", async () => {
+    const testApp = createTestApp();
+    app = testApp.app;
+    store = testApp.store;
+    const { tokenMap } = testApp;
+    const parent = await createIssue(app, repository, "Selected parent");
+    const child = await createIssue(app, "octocat/second-repo", "Selected child");
+    const gh = getGitHubStore(store);
+    const parentRepo = gh.repos.findOneBy("full_name", repository)!;
+    const childRepo = gh.repos.findOneBy("full_name", "octocat/second-repo")!;
+    const octocat = gh.users.findOneBy("login", "octocat")!;
+
+    const installation = (repositoryIds: number[]) => ({
+      login: octocat.login,
+      id: octocat.id,
+      scopes: ["issues:read", "issues:write"],
+      installation: {
+        installationId: 42,
+        appId: 42,
+        accountId: octocat.id,
+        accountType: "User" as const,
+        permissions: { issues: "write" },
+        repositoryIds,
+        repositorySelection: "selected" as const,
+      },
+    });
+    tokenMap.set("selected-parent-only", installation([parentRepo.id]));
+    tokenMap.set("selected-both", installation([parentRepo.id, childRepo.id]));
+
+    const deniedWrite = await app.request(`${base}/repos/${repository}/issues/${parent.number}/sub_issues`, {
+      method: "POST",
+      headers: jsonHeaders("selected-parent-only"),
+      body: JSON.stringify({ sub_issue_id: child.id }),
+    });
+    expect(deniedWrite.status).toBe(403);
+    expect(gh.issueSubIssues.count()).toBe(0);
+
+    const allowedWrite = await app.request(`${base}/repos/${repository}/issues/${parent.number}/sub_issues`, {
+      method: "POST",
+      headers: jsonHeaders("selected-both"),
+      body: JSON.stringify({ sub_issue_id: child.id }),
+    });
+    expect(allowedWrite.status).toBe(201);
+
+    const deniedRead = await app.request(`${base}/repos/${repository}/issues/${parent.number}/sub_issues`, {
+      headers: authHeaders("selected-parent-only"),
+    });
+    expect(deniedRead.status).toBe(403);
+
+    const allowedRead = await app.request(`${base}/repos/${repository}/issues/${parent.number}/sub_issues`, {
+      headers: authHeaders("selected-both"),
+    });
+    expect(allowedRead.status).toBe(200);
+    expect(((await allowedRead.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([child.id]);
   });
 
   it("lists exactly 100 sub-issues on the first page and one on the next", async () => {

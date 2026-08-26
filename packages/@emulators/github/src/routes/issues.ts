@@ -368,7 +368,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const prevAssigneeIds = new Set(issue.assignee_ids);
     const prevMilestoneId = issue.milestone_id;
 
-    if (requestedState !== undefined || requestedStateReason === "duplicate" || duplicateIssue !== undefined) {
+    if (requestedState !== undefined || requestedStateReason !== undefined || duplicateIssue !== undefined) {
       issue = transitionIssueLifecycle(
         { gh, webhooks, baseUrl },
         {

@@ -333,6 +333,10 @@ export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined
   return assertInstallationOrUserWrite(gh, authUser, repo, ["issues"]);
 }
 
+export function assertIssueCommentWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  return assertInstallationOrUserWrite(gh, authUser, repo, ["issues", "pull_requests"]);
+}
+
 export function assertPullRequestWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
   return assertInstallationOrUserWrite(gh, authUser, repo, ["pull_requests"]);
 }

@@ -52,7 +52,7 @@ function encodeCursor(connection: string, index: number): string {
   return Buffer.from(`${CURSOR_PREFIX}${connectionKey(connection)}:${index}`, "utf8").toString("base64url");
 }
 
-function decodeCursor(cursor: string, connection: string, itemCount: number): number {
+function decodeCursorPayload(cursor: string): string {
   if (typeof cursor !== "string" || cursor.length === 0) {
     throw new InvalidGraphQLCursorError(String(cursor));
   }
@@ -70,6 +70,10 @@ function decodeCursor(cursor: string, connection: string, itemCount: number): nu
     throw new InvalidGraphQLCursorError(cursor);
   }
 
+  return decoded;
+}
+
+function parseCursorIndex(decoded: string, connection: string, cursor: string, itemCount: number): number {
   const prefix = `${CURSOR_PREFIX}${connectionKey(connection)}:`;
   if (!decoded.startsWith(prefix)) {
     throw new InvalidGraphQLCursorError(cursor);
@@ -85,6 +89,10 @@ function decodeCursor(cursor: string, connection: string, itemCount: number): nu
     throw new InvalidGraphQLCursorError(cursor);
   }
   return index;
+}
+
+function decodeCursor(cursor: string, connection: string, itemCount: number): number {
+  return parseCursorIndex(decodeCursorPayload(cursor), connection, cursor, itemCount);
 }
 
 function normalizePageSize(value: number | null | undefined, argument: "first" | "last"): number | undefined {

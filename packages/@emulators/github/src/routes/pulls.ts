@@ -2,7 +2,7 @@ import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import {
-  assertAuthenticatedUser,
+  assertRepoContentsWrite,
   assertRepoPermission,
   assertPullRequestWrite,
   notFoundResponse,
@@ -886,7 +886,8 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertPullRequestWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const actor = assertPullRequestWrite(gh, authUser, repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -905,11 +906,14 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const baseRepo = gh.repos.get(pr.base_repo_id);
     if (!headRepo || !baseRepo) throw notFoundResponse();
 
+    if (authUser?.installation) {
+      assertRepoContentsWrite(gh, authUser, headRepo);
+    }
+
     const headCommit = gh.commits.findBy("repo_id", headRepo.id).find((x) => x.sha === pr.head_sha);
     const baseCommit = gh.commits.findBy("repo_id", baseRepo.id).find((x) => x.sha === pr.base_sha);
     if (!headCommit || !baseCommit) throw new ApiError(422, "Could not resolve commits.");
 
-    const actor = assertAuthenticatedUser(gh, c.get("authUser"));
     const mergeMsg = `Merge branch '${pr.base_ref}' into ${pr.head_ref}`;
     const newCommit = insertCommit(gh, headRepo, {
       treeSha: headCommit.tree_sha,

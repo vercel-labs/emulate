@@ -20,6 +20,7 @@ function createInstallationApp() {
     orgs: [{ login: "acme" }],
     repos: [
       { owner: "octocat", name: "hello-world" },
+      { owner: "octocat", name: "head-repo" },
       { owner: "acme", name: "included" },
       { owner: "acme", name: "excluded" },
     ],
@@ -28,6 +29,9 @@ function createInstallationApp() {
   const gh = getGitHubStore(store);
   const user = gh.users.findOneBy("login", "octocat")!;
   const org = gh.orgs.findOneBy("login", "acme")!;
+  const baseRepo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+  const headRepo = gh.repos.findOneBy("full_name", "octocat/head-repo")!;
+  gh.repos.update(headRepo.id, { fork: true, forked_from_id: baseRepo.id });
   const included = gh.repos.findOneBy("full_name", "acme/included")!;
   tokenMap.set("user-install-write", {
     login: user.login,
@@ -83,6 +87,48 @@ function createInstallationApp() {
       permissions: { pull_requests: "write" },
       repositoryIds: [],
       repositorySelection: "all",
+    },
+  });
+  tokenMap.set("user-install-pr-head", {
+    login: user.login,
+    id: user.id,
+    scopes: ["pull_requests:write", "contents:write"],
+    installation: {
+      installationId: 47,
+      appId: 47,
+      accountId: user.id,
+      accountType: "User",
+      permissions: { pull_requests: "write", contents: "write" },
+      repositoryIds: [baseRepo.id, headRepo.id],
+      repositorySelection: "selected",
+    },
+  });
+  tokenMap.set("user-install-pr-head-no-contents", {
+    login: user.login,
+    id: user.id,
+    scopes: ["pull_requests:write"],
+    installation: {
+      installationId: 48,
+      appId: 48,
+      accountId: user.id,
+      accountType: "User",
+      permissions: { pull_requests: "write" },
+      repositoryIds: [baseRepo.id, headRepo.id],
+      repositorySelection: "selected",
+    },
+  });
+  tokenMap.set("user-install-pr-base-only", {
+    login: user.login,
+    id: user.id,
+    scopes: ["pull_requests:write", "contents:write"],
+    installation: {
+      installationId: 49,
+      appId: 49,
+      accountId: user.id,
+      accountType: "User",
+      permissions: { pull_requests: "write", contents: "write" },
+      repositoryIds: [baseRepo.id],
+      repositorySelection: "selected",
     },
   });
   tokenMap.set("user-install-contents", {
@@ -168,6 +214,27 @@ describe("GitHub installation mutation permissions", () => {
       body: JSON.stringify({ title: "Allowed pull", head: "feature", base: "main" }),
     });
     expect(allowedResponse.status).toBe(201);
+    const pull = (await allowedResponse.json()) as { number: number };
+
+    const updateBranchResponse = await app.request(
+      `${base}/repos/octocat/hello-world/pulls/${pull.number}/update-branch`,
+      {
+        method: "PUT",
+        headers: headers("user-install-pr-head"),
+        body: JSON.stringify({}),
+      },
+    );
+    expect(updateBranchResponse.status).toBe(202);
+
+    const missingContentsResponse = await app.request(
+      `${base}/repos/octocat/hello-world/pulls/${pull.number}/update-branch`,
+      {
+        method: "PUT",
+        headers: headers("user-install-pr-head-no-contents"),
+        body: JSON.stringify({}),
+      },
+    );
+    expect(missingContentsResponse.status).toBe(403);
 
     const deniedResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
       method: "POST",
@@ -175,5 +242,103 @@ describe("GitHub installation mutation permissions", () => {
       body: JSON.stringify({ title: "Denied pull", head: "feature-2", base: "main" }),
     });
     expect(deniedResponse.status).toBe(403);
+  });
+
+  it("requires selected head access and contents write for forked update branches", async () => {
+    const { app, store } = createInstallationApp();
+    const pullResponse = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+      method: "POST",
+      headers: headers("user-install-pr"),
+      body: JSON.stringify({ title: "Forked pull", head: "head-feature", base: "main" }),
+    });
+    expect(pullResponse.status).toBe(201);
+    const pull = (await pullResponse.json()) as { number: number };
+
+    const gh = getGitHubStore(store);
+    const baseRepo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    const headRepo = gh.repos.findOneBy("full_name", "octocat/head-repo")!;
+    const headBranch = gh.branches.findBy("repo_id", headRepo.id).find((branch) => branch.name === "main")!;
+    const pullRow = gh.pullRequests.findBy("repo_id", baseRepo.id).find((row) => row.number === pull.number)!;
+    gh.pullRequests.update(pullRow.id, {
+      head_repo_id: headRepo.id,
+      head_ref: headBranch.name,
+      head_sha: headBranch.sha,
+    });
+
+    const unselectedHeadResponse = await app.request(
+      `${base}/repos/octocat/hello-world/pulls/${pull.number}/update-branch`,
+      {
+        method: "PUT",
+        headers: headers("user-install-pr-base-only"),
+        body: JSON.stringify({}),
+      },
+    );
+    expect(unselectedHeadResponse.status).toBe(403);
+
+    const missingContentsResponse = await app.request(
+      `${base}/repos/octocat/hello-world/pulls/${pull.number}/update-branch`,
+      {
+        method: "PUT",
+        headers: headers("user-install-pr-head-no-contents"),
+        body: JSON.stringify({}),
+      },
+    );
+    expect(missingContentsResponse.status).toBe(403);
+
+    const allowedResponse = await app.request(`${base}/repos/octocat/hello-world/pulls/${pull.number}/update-branch`, {
+      method: "PUT",
+      headers: headers("user-install-pr-head"),
+      body: JSON.stringify({}),
+    });
+    expect(allowedResponse.status).toBe(202);
+  });
+
+  it("accepts pull_requests permission for shared issue comment mutations", async () => {
+    const { app } = createInstallationApp();
+    const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: headers("user-install-write"),
+      body: JSON.stringify({ title: "Shared comment issue" }),
+    });
+    expect(issueResponse.status).toBe(201);
+    const issue = (await issueResponse.json()) as { node_id: string; number: number };
+
+    const commentResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}/comments`, {
+      method: "POST",
+      headers: headers("user-install-pr"),
+      body: JSON.stringify({ body: "Pull request permission comment" }),
+    });
+    expect(commentResponse.status).toBe(201);
+    const comment = (await commentResponse.json()) as { id: number };
+
+    const patchResponse = await app.request(`${base}/repos/octocat/hello-world/issues/comments/${comment.id}`, {
+      method: "PATCH",
+      headers: headers("user-install-pr"),
+      body: JSON.stringify({ body: "Edited with pull request permission" }),
+    });
+    expect(patchResponse.status).toBe(200);
+
+    const deleteResponse = await app.request(`${base}/repos/octocat/hello-world/issues/comments/${comment.id}`, {
+      method: "DELETE",
+      headers: headers("user-install-pr"),
+    });
+    expect(deleteResponse.status).toBe(204);
+
+    const graphqlResponse = await app.request(`${base}/graphql`, {
+      method: "POST",
+      headers: headers("user-install-pr"),
+      body: JSON.stringify({
+        query: `mutation AddComment($input: AddCommentInput!) {
+          addComment(input: $input) { comment { body author { login } } }
+        }`,
+        variables: { input: { subjectId: issue.node_id, body: "GraphQL pull request permission comment" } },
+      }),
+    });
+    expect(graphqlResponse.status).toBe(200);
+    expect(await graphqlResponse.json()).toMatchObject({
+      data: {
+        addComment: { comment: { body: "GraphQL pull request permission comment", author: { login: "app-45[bot]" } } },
+      },
+    });
   });
 });

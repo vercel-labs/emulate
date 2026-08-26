@@ -15,7 +15,7 @@ import {
 } from "../helpers.js";
 import {
   assertRepoContentsRead,
-  assertIssueWrite,
+  assertIssueCommentWrite,
   assertPullRequestWrite,
   assertRepoPermission,
   assertRepoWrite,
@@ -114,7 +114,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertIssueCommentWrite(gh, c.get("authUser"), repo);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
@@ -158,7 +158,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertIssueCommentWrite(gh, c.get("authUser"), repo);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
@@ -465,7 +465,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertIssueCommentWrite(gh, c.get("authUser"), repo);
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
