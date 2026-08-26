@@ -22,12 +22,6 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
     return user;
   };
 
-  for (const spec of plan.labels) {
-    const repo = resolveRepo(spec.repo);
-    const key = `${repo.full_name}:${spec.key}`;
-    if (labelByKey.has(key)) throw new Error(`Duplicate GitHub seed label key: ${spec.key}`);
-    labelByKey.set(key, { id: -1 } as ReturnType<typeof gh.labels.insert>);
-  }
   for (const spec of issueSpecs) issueByKey.set(spec.key, { id: -1 } as GitHubIssue);
   const commentSpecs = plan.comments ?? [];
   for (const spec of plan.labels) {

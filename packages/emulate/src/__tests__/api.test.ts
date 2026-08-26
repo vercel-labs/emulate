@@ -314,93 +314,96 @@ describe("createEmulator", () => {
               : items.map((index) => ({ blocked: "root", blocking: `issue-${index}` })),
       };
       const github = await createEmulator({ service: "github", port, seed: { github: graphSeed } });
-      const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
-      const nodeFields = field === "comments" ? "id body" : "id number";
-      const values: Array<{ id?: string; number?: number; body?: string }> = [];
-      const cursors = new Set<string>();
-      const startCursors = new Set<string>();
-      let after: string | null = null;
-      let pages = 0;
-      do {
-        const response = await fetch(`${github.url}/graphql`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${after ? `, after: "${after}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
-          }),
-        });
-        expect(response.status).toBe(200);
-        const body = (await response.json()) as any;
-        const connection = body.data.repository.issue[field];
-        expect(connection.totalCount).toBe(size);
-        values.push(...connection.nodes);
-        expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
-        expect(connection.pageInfo.hasPreviousPage).toBe(pages > 0);
-        expect(connection.pageInfo.startCursor).toEqual(size === 0 ? null : expect.any(String));
-        expect(connection.pageInfo.endCursor).toEqual(size === 0 ? null : expect.any(String));
-        if (connection.pageInfo.startCursor) {
-          expect(startCursors.has(connection.pageInfo.startCursor)).toBe(false);
-          startCursors.add(connection.pageInfo.startCursor);
-        }
-        if (connection.pageInfo.hasNextPage) expect(connection.pageInfo.endCursor).toEqual(expect.any(String));
-        if (connection.pageInfo.endCursor) {
-          expect(cursors.has(connection.pageInfo.endCursor)).toBe(false);
-          cursors.add(connection.pageInfo.endCursor);
-        }
-        after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
-        pages += 1;
-      } while (after !== null);
-      expect(pages).toBe(Math.max(1, Math.ceil(size / 100)));
-      expect(values).toHaveLength(size);
-      expect(new Set(values.map((value) => value.id)).size).toBe(size);
-      if (field === "comments")
-        expect(values.map((value) => value.body)).toEqual(items.map((index) => `Body ${index}`));
-      else expect(values.map((value) => value.number)).toEqual(items.map((index) => index + 2));
-
-      {
-        await fetch(`${github.url}/repos/octocat/pagination/issues/1`, {
-          method: "PATCH",
-          headers,
-          body: JSON.stringify({ title: "Mutated" }),
-        });
-        github.reset();
-        const restoredValues: typeof values = [];
-        const restoredCursors = new Set<string>();
-        const restoredStartCursors = new Set<string>();
-        let restoredAfter: string | null = null;
-        let restoredPages = 0;
+      try {
+        const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
+        const nodeFields = field === "comments" ? "id body" : "id number";
+        const values: Array<{ id?: string; number?: number; body?: string }> = [];
+        const cursors = new Set<string>();
+        const startCursors = new Set<string>();
+        let after: string | null = null;
+        let pages = 0;
         do {
-          const restored = await fetch(`${github.url}/graphql`, {
+          const response = await fetch(`${github.url}/graphql`, {
             method: "POST",
             headers,
             body: JSON.stringify({
-              query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${restoredAfter ? `, after: "${restoredAfter}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
+              query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${after ? `, after: "${after}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
             }),
           });
-          expect(restored.status).toBe(200);
-          const restoredBody = (await restored.json()) as any;
-          const connection = restoredBody.data.repository.issue[field];
+          expect(response.status).toBe(200);
+          const body = (await response.json()) as any;
+          const connection = body.data.repository.issue[field];
           expect(connection.totalCount).toBe(size);
-          restoredValues.push(...connection.nodes);
+          values.push(...connection.nodes);
           expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
-          expect(connection.pageInfo.hasPreviousPage).toBe(restoredPages > 0);
+          expect(connection.pageInfo.hasPreviousPage).toBe(pages > 0);
           expect(connection.pageInfo.startCursor).toEqual(size === 0 ? null : expect.any(String));
           expect(connection.pageInfo.endCursor).toEqual(size === 0 ? null : expect.any(String));
           if (connection.pageInfo.startCursor) {
-            expect(restoredStartCursors.has(connection.pageInfo.startCursor)).toBe(false);
-            restoredStartCursors.add(connection.pageInfo.startCursor);
+            expect(startCursors.has(connection.pageInfo.startCursor)).toBe(false);
+            startCursors.add(connection.pageInfo.startCursor);
           }
+          if (connection.pageInfo.hasNextPage) expect(connection.pageInfo.endCursor).toEqual(expect.any(String));
           if (connection.pageInfo.endCursor) {
-            expect(restoredCursors.has(connection.pageInfo.endCursor)).toBe(false);
-            restoredCursors.add(connection.pageInfo.endCursor);
+            expect(cursors.has(connection.pageInfo.endCursor)).toBe(false);
+            cursors.add(connection.pageInfo.endCursor);
           }
-          restoredAfter = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
-          restoredPages += 1;
-        } while (restoredAfter !== null);
-        expect(restoredPages).toBe(Math.max(1, Math.ceil(size / 100)));
-        expect(restoredValues).toEqual(values);
+          after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+          pages += 1;
+        } while (after !== null);
+        expect(pages).toBe(Math.max(1, Math.ceil(size / 100)));
+        expect(values).toHaveLength(size);
+        expect(new Set(values.map((value) => value.id)).size).toBe(size);
+        if (field === "comments")
+          expect(values.map((value) => value.body)).toEqual(items.map((index) => `Body ${index}`));
+        else expect(values.map((value) => value.number)).toEqual(items.map((index) => index + 2));
+
+        {
+          await fetch(`${github.url}/repos/octocat/pagination/issues/1`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ title: "Mutated" }),
+          });
+          github.reset();
+          const restoredValues: typeof values = [];
+          const restoredCursors = new Set<string>();
+          const restoredStartCursors = new Set<string>();
+          let restoredAfter: string | null = null;
+          let restoredPages = 0;
+          do {
+            const restored = await fetch(`${github.url}/graphql`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${restoredAfter ? `, after: "${restoredAfter}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
+              }),
+            });
+            expect(restored.status).toBe(200);
+            const restoredBody = (await restored.json()) as any;
+            const connection = restoredBody.data.repository.issue[field];
+            expect(connection.totalCount).toBe(size);
+            restoredValues.push(...connection.nodes);
+            expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
+            expect(connection.pageInfo.hasPreviousPage).toBe(restoredPages > 0);
+            expect(connection.pageInfo.startCursor).toEqual(size === 0 ? null : expect.any(String));
+            expect(connection.pageInfo.endCursor).toEqual(size === 0 ? null : expect.any(String));
+            if (connection.pageInfo.startCursor) {
+              expect(restoredStartCursors.has(connection.pageInfo.startCursor)).toBe(false);
+              restoredStartCursors.add(connection.pageInfo.startCursor);
+            }
+            if (connection.pageInfo.endCursor) {
+              expect(restoredCursors.has(connection.pageInfo.endCursor)).toBe(false);
+              restoredCursors.add(connection.pageInfo.endCursor);
+            }
+            restoredAfter = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+            restoredPages += 1;
+          } while (restoredAfter !== null);
+          expect(restoredPages).toBe(Math.max(1, Math.ceil(size / 100)));
+          expect(restoredValues).toEqual(values);
+        }
+      } finally {
+        await github.close();
       }
-      await github.close();
     }
   });
 

@@ -3,7 +3,6 @@ import type { GitHubSeedConfig } from "./index.js";
 type ValidatedLabel = NonNullable<GitHubSeedConfig["labels"]>[number] & { repo: string };
 
 export interface ValidatedGitHubSeedPlan {
-  config: GitHubSeedConfig;
   labels: ValidatedLabel[];
   issues: Array<NonNullable<GitHubSeedConfig["issues"]>[number] & { repo: string }>;
   comments: GitHubSeedConfig["comments"];
@@ -191,7 +190,6 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHu
   for (const issue of issueKeys) visit(issue);
 
   return {
-    config,
     labels: labelSpecs,
     issues,
     comments,
