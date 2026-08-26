@@ -900,4 +900,45 @@ describe("GitHub GraphQL read compatibility", () => {
     );
     expect(((await responseBody(invalidDependency)) as any).errors[0].message).toContain("Issue not found");
   });
+
+  it("validates blocked-issue aliases while accepting equal or single fields", async () => {
+    const { app } = createTestApp();
+    const blocked = await createIssue(app, "Alias blocked");
+    const other = await createIssue(app, "Alias other");
+    const blocker = await createIssue(app, "Alias blocker");
+    const mutation = `mutation Alias($input: AddBlockedByInput!) { addBlockedBy(input: $input) { issue { id } clientMutationId } }`;
+    const conflicting = await graphql(
+      app,
+      mutation,
+      { input: { issueId: blocked.node_id, blockedIssueId: other.node_id, blockingIssueId: blocker.node_id } },
+      "Alias",
+    );
+    expect(((await responseBody(conflicting)) as any).errors[0].message).toContain("same issue");
+
+    const equal = await graphql(
+      app,
+      mutation,
+      {
+        input: {
+          issueId: blocked.node_id,
+          blockedIssueId: blocked.node_id,
+          blockingIssueId: blocker.node_id,
+          clientMutationId: "equal",
+        },
+      },
+      "Alias",
+    );
+    expect(((await responseBody(equal)) as any).data.addBlockedBy.clientMutationId).toBe("equal");
+
+    const singleBlocked = await createIssue(app, "Alias single");
+    const single = await graphql(
+      app,
+      mutation,
+      {
+        input: { blockedIssueId: singleBlocked.node_id, blockingIssueId: blocker.node_id, clientMutationId: "single" },
+      },
+      "Alias",
+    );
+    expect(((await responseBody(single)) as any).data.addBlockedBy.issue.id).toBe(singleBlocked.node_id);
+  });
 });

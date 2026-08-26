@@ -113,6 +113,9 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
         clientMutationId?: string | null;
       };
     }) => {
+      if (input.issueId && input.blockedIssueId && input.issueId !== input.blockedIssueId) {
+        throw new ApiError(400, "issueId and blockedIssueId must refer to the same issue");
+      }
       const blockedId = input.issueId ?? input.blockedIssueId;
       if (!blockedId) throw new ApiError(400, "issueId is required");
       const blocked = relationshipIssue(context, blockedId);
