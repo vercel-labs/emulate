@@ -1197,6 +1197,138 @@ describe("GitHub GraphQL read compatibility", () => {
     ).toBe(101);
   });
 
+  it("covers the initial consumer operation matrix through public GraphQL", async () => {
+    const { app } = createTestApp();
+    const fixture = await createFixture(app);
+    const parent = await createIssue(app, "Matrix parent");
+    const child = await createIssue(app, "Matrix child");
+    const blocker = await createIssue(app, "Matrix blocker");
+    const relation = (path: string, body: object) =>
+      app.request(`${base}${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) });
+    expect(
+      (await relation(`/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, { sub_issue_id: child.id }))
+        .status,
+    ).toBe(201);
+    expect(
+      (
+        await relation(`/repos/octocat/hello-world/issues/${parent.number}/dependencies/blocked_by`, {
+          issue_id: blocker.id,
+        })
+      ).status,
+    ).toBe(201);
+
+    const rows: Array<{
+      name: string;
+      query: string;
+      variables?: Record<string, unknown>;
+      check: (data: any) => void;
+    }> = [
+      {
+        name: "repository",
+        query: `query Repository($owner: String!, $name: String!) { repo: repository(owner: $owner, name: $name) { id } }`,
+        variables: { owner: "octocat", name: "hello-world" },
+        check: (data) => expect(data.repo.id).toBe(fixture.repo.node_id),
+      },
+      {
+        name: "repositoryIssue",
+        query: `query Issue($owner: String!, $name: String!, $number: Int!) { repo: repository(owner: $owner, name: $name) { issue(number: $number) { ...IssueIdentity } } } fragment IssueIdentity on Issue { id number }`,
+        variables: { owner: "octocat", name: "hello-world", number: fixture.issue.number },
+        check: (data) => expect(data.repo.issue.number).toBe(fixture.issue.number),
+      },
+      {
+        name: "repositoryLabel",
+        query: `query Label($owner: String!, $name: String!, $label: String!) { repo: repository(owner: $owner, name: $name) { label(name: $label) { id } } }`,
+        variables: { owner: "octocat", name: "hello-world", label: "graphql" },
+        check: (data) => expect(data.repo.label.id).toBe(fixture.label.node_id),
+      },
+      {
+        name: "nodeIssueInline",
+        query: `query NodeIssue($id: ID!) { value: node(id: $id) { ... on Issue { id number } } }`,
+        variables: { id: fixture.issue.node_id },
+        check: (data) => expect(data.value.id).toBe(fixture.issue.node_id),
+      },
+      {
+        name: "nodeRepository",
+        query: `query NodeRepo($id: ID!) { value: node(id: $id) { ... on Repository { id nameWithOwner } } }`,
+        variables: { id: fixture.repo.node_id },
+        check: (data) => expect(data.value.nameWithOwner).toBe("octocat/hello-world"),
+      },
+      {
+        name: "nodeLabel",
+        query: `query NodeLabel($id: ID!) { value: node(id: $id) { ... on Label { id name } } }`,
+        variables: { id: fixture.label.node_id },
+        check: (data) => expect(data.value.name).toBe("graphql"),
+      },
+      {
+        name: "nodeComment",
+        query: `query NodeComment($id: ID!) { value: node(id: $id) { ... on IssueComment { id body } } }`,
+        variables: { id: fixture.comment.node_id },
+        check: (data) => expect(data.value.body).toBe("GraphQL comment"),
+      },
+      {
+        name: "issueComments",
+        query: `query Comments($id: ID!) { value: node(id: $id) { ... on Issue { comments(first: 1) { nodes { body } } } } }`,
+        variables: { id: fixture.issue.node_id },
+        check: (data) => expect(data.value.comments.nodes).toHaveLength(1),
+      },
+      {
+        name: "issueParent",
+        query: `query Parent($id: ID!) { value: node(id: $id) { ... on Issue { parent { id } } } }`,
+        variables: { id: child.node_id },
+        check: (data) => expect(data.value.parent.id).toBe(parent.node_id),
+      },
+      {
+        name: "issueSubIssues",
+        query: `query SubIssues($id: ID!) { value: node(id: $id) { ... on Issue { subIssues(first: 1) { nodes { id } } } } }`,
+        variables: { id: parent.node_id },
+        check: (data) => expect(data.value.subIssues.nodes[0].id).toBe(child.node_id),
+      },
+      {
+        name: "issueBlockedBy",
+        query: `query BlockedBy($id: ID!) { value: node(id: $id) { ... on Issue { blockedBy(first: 1) { nodes { id } } } } }`,
+        variables: { id: parent.node_id },
+        check: (data) => expect(data.value.blockedBy.nodes[0].id).toBe(blocker.node_id),
+      },
+      {
+        name: "issueRepository",
+        query: `query IssueRepository($id: ID!) { value: node(id: $id) { ... on Issue { repository { id } } } }`,
+        variables: { id: fixture.issue.node_id },
+        check: (data) => expect(data.value.repository.id).toBe(fixture.repo.node_id),
+      },
+      {
+        name: "issueAuthor",
+        query: `query IssueAuthor($id: ID!) { value: node(id: $id) { ... on Issue { author { login } } } }`,
+        variables: { id: fixture.issue.node_id },
+        check: (data) => expect(data.value.author.login).toBe("octocat"),
+      },
+      {
+        name: "commentIssue",
+        query: `query CommentIssue($id: ID!) { value: node(id: $id) { ... on IssueComment { issue { id } } } }`,
+        variables: { id: fixture.comment.node_id },
+        check: (data) => expect(data.value.issue.id).toBe(fixture.issue.node_id),
+      },
+      {
+        name: "labelRepository",
+        query: `query LabelRepository($id: ID!) { value: node(id: $id) { ... on Label { repository { id } } } }`,
+        variables: { id: fixture.label.node_id },
+        check: (data) => expect(data.value.repository.id).toBe(fixture.repo.node_id),
+      },
+      {
+        name: "rateLimit",
+        query: `query Rate { limits: rateLimit { limit remaining used } }`,
+        check: (data) => expect(data.limits.limit).toBeGreaterThan(0),
+      },
+    ];
+    for (const row of rows) {
+      const operationName = row.query.match(/(?:query|mutation)\s+(\w+)/)?.[1];
+      const response = await graphql(app, row.query, row.variables, operationName);
+      expect(response.status, row.name).toBe(200);
+      const body = (await responseBody(response)) as any;
+      expect(body.errors, row.name).toBeUndefined();
+      row.check(body.data);
+    }
+  });
+
   it("rejects relationship duplicates, self references, conflicts, and inaccessible dependencies without mutation", async () => {
     const { app } = createTestApp();
     const parent = await createIssue(app, "Validation parent");
@@ -1763,6 +1895,179 @@ describe("GitHub GraphQL mutation compatibility", () => {
     );
     expect((await responseBody(invalidBody)).errors?.[0]?.message).toContain("Validation failed");
     expect(gh.comments.all()).toHaveLength(beforeComments);
+  });
+
+  it("echoes repeated client IDs without idempotency across every mutation", async () => {
+    const { app } = createTestApp();
+    const fixture = await createFixture(app);
+    const same = "repeated-client-id";
+    const created = async (title: string) => {
+      const result = await graphql(
+        app,
+        `
+          mutation Create($input: CreateIssueInput!) {
+            createIssue(input: $input) {
+              clientMutationId
+              issue {
+                id
+              }
+            }
+          }
+        `,
+        { input: { repositoryId: fixture.repo.node_id, title, clientMutationId: same } },
+        "Create",
+      );
+      return ((await responseBody(result)) as any).data.createIssue;
+    };
+    const issueOne = await created("Repeated issue one");
+    const issueTwo = await created("Repeated issue two");
+    expect(issueOne.clientMutationId).toBe(same);
+    expect(issueTwo.clientMutationId).toBe(same);
+    expect(issueOne.issue.id).not.toBe(issueTwo.issue.id);
+
+    const addComment = async (issueId: string, body: string) =>
+      (
+        (await responseBody(
+          await graphql(
+            app,
+            `
+              mutation Comment($input: AddCommentInput!) {
+                addComment(input: $input) {
+                  clientMutationId
+                  comment {
+                    body
+                  }
+                }
+              }
+            `,
+            { input: { subjectId: issueId, body, clientMutationId: same } },
+            "Comment",
+          ),
+        )) as any
+      ).data.addComment;
+    expect((await addComment(fixture.issue.node_id, "repeat comment one")).comment.body).toBe("repeat comment one");
+    expect((await addComment(fixture.issue.node_id, "repeat comment two")).comment.body).toBe("repeat comment two");
+
+    const childOne = await created("Repeated child one");
+    const childTwo = await created("Repeated child two");
+    for (const child of [childOne, childTwo]) {
+      const result = (await responseBody(
+        await graphql(
+          app,
+          `
+            mutation Sub($input: AddSubIssueInput!) {
+              addSubIssue(input: $input) {
+                clientMutationId
+                subIssue {
+                  id
+                }
+              }
+            }
+          `,
+          { input: { parentIssueId: fixture.issue.node_id, childIssueId: child.issue.id, clientMutationId: same } },
+          "Sub",
+        ),
+      )) as any;
+      expect(result.data.addSubIssue.clientMutationId).toBe(same);
+    }
+    const blockerOne = await created("Repeated blocker one");
+    const blockerTwo = await created("Repeated blocker two");
+    for (const blocker of [blockerOne, blockerTwo]) {
+      const result = (await responseBody(
+        await graphql(
+          app,
+          `
+            mutation Block($input: AddBlockedByInput!) {
+              addBlockedBy(input: $input) {
+                clientMutationId
+                blockedBy {
+                  id
+                }
+              }
+            }
+          `,
+          { input: { issueId: fixture.issue.node_id, blockingIssueId: blocker.issue.id, clientMutationId: same } },
+          "Block",
+        ),
+      )) as any;
+      expect(result.data.addBlockedBy.clientMutationId).toBe(same);
+    }
+
+    const transition = async (name: "closeIssue" | "reopenIssue", issueId: string) => {
+      const result = await responseBody(
+        await graphql(
+          app,
+          `mutation Transition($input: ${name === "closeIssue" ? "CloseIssueInput" : "ReopenIssueInput"}!) { ${name}(input: $input) { clientMutationId issue { id } } }`,
+          { input: { issueId, clientMutationId: same } },
+          "Transition",
+        ),
+      );
+      return (result as any).data[name];
+    };
+    expect((await transition("closeIssue", issueOne.issue.id)).clientMutationId).toBe(same);
+    expect((await transition("reopenIssue", issueOne.issue.id)).clientMutationId).toBe(same);
+    expect((await transition("closeIssue", issueTwo.issue.id)).clientMutationId).toBe(same);
+    expect((await transition("reopenIssue", issueTwo.issue.id)).clientMutationId).toBe(same);
+
+    const labels: string[] = [];
+    for (const name of ["repeat-label-one", "repeat-label-two"]) {
+      const response = await graphql(
+        app,
+        `
+          mutation Label($input: CreateLabelInput!) {
+            createLabel(input: $input) {
+              clientMutationId
+              label {
+                id
+              }
+            }
+          }
+        `,
+        { input: { repositoryId: fixture.repo.node_id, name, clientMutationId: same } },
+        "Label",
+      );
+      const result = ((await responseBody(response)) as any).data.createLabel;
+      labels.push(result.label.id);
+      expect(result.clientMutationId).toBe(same);
+    }
+    for (const id of labels) {
+      const response = await graphql(
+        app,
+        `
+          mutation Delete($input: DeleteLabelInput!) {
+            deleteLabel(input: $input) {
+              clientMutationId
+              label {
+                id
+              }
+            }
+          }
+        `,
+        { input: { id, clientMutationId: same } },
+        "Delete",
+      );
+      const result = ((await responseBody(response)) as any).data.deleteLabel;
+      expect(result.clientMutationId).toBe(same);
+    }
+    for (const issue of [childOne, childTwo]) {
+      const response = await graphql(
+        app,
+        `
+          mutation Delete($input: DeleteIssueInput!) {
+            deleteIssue(input: $input) {
+              clientMutationId
+              repository {
+                id
+              }
+            }
+          }
+        `,
+        { input: { issueId: issue.issue.id, clientMutationId: same } },
+        "Delete",
+      );
+      const result = ((await responseBody(response)) as any).data.deleteIssue;
+      expect(result.clientMutationId).toBe(same);
+    }
   });
 
   it("deletes an issue through GraphQL and cascades only its records", async () => {
