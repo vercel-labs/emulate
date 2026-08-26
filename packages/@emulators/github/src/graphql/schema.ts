@@ -227,6 +227,16 @@ export const githubGraphQLSchema = /* GraphQL */ `
     clientMutationId: String
     label: Label!
   }
+
+  input DeleteIssueInput {
+    issueId: ID!
+    clientMutationId: String
+  }
+
+  type DeleteIssuePayload {
+    clientMutationId: String
+    repository: Repository!
+  }
   type Query {
     repository(owner: String!, name: String!): Repository
     node(id: ID!): Node
@@ -242,5 +252,6 @@ export const githubGraphQLSchema = /* GraphQL */ `
     addComment(input: AddCommentInput!): AddCommentPayload!
     createLabel(input: CreateLabelInput!): CreateLabelPayload!
     deleteLabel(input: DeleteLabelInput!): DeleteLabelPayload!
+    deleteIssue(input: DeleteIssueInput!): DeleteIssuePayload!
   }
 `;

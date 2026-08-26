@@ -1620,4 +1620,189 @@ describe("GitHub GraphQL mutation compatibility", () => {
     expect((await responseBody(invalidBody)).errors?.[0]?.message).toContain("Validation failed");
     expect(gh.comments.all()).toHaveLength(beforeComments);
   });
+
+  it("deletes an issue through GraphQL and cascades only its records", async () => {
+    const { app, store, webhooks } = createTestApp();
+    const target = await createIssue(app, "Delete target");
+    const unrelated = await createIssue(app, "Keep issue");
+    const parent = await createIssue(app, "Delete parent");
+    const child = await createIssue(app, "Delete child");
+    const blocker = await createIssue(app, "Delete blocker");
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    const label = gh.labels.insert({
+      node_id: "MDU6TGFiZWw5OTk5",
+      repo_id: repo.id,
+      name: "keep-label",
+      color: "ffffff",
+      description: null,
+      default: false,
+    });
+    const targetRow = gh.issues.findOneBy("number", target.number)!;
+    const unrelatedRow = gh.issues.findOneBy("number", unrelated.number)!;
+    gh.issues.update(targetRow.id, { label_ids: [label.id] });
+    gh.issues.update(unrelatedRow.id, { label_ids: [label.id] });
+    gh.issues.update(unrelatedRow.id, { duplicate_issue_id: target.id });
+
+    const relation = (path: string, body: object) =>
+      app.request(`${base}${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) });
+    expect(
+      (await relation(`/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, { sub_issue_id: target.id }))
+        .status,
+    ).toBe(201);
+    expect(
+      (await relation(`/repos/octocat/hello-world/issues/${target.number}/sub_issues`, { sub_issue_id: child.id }))
+        .status,
+    ).toBe(201);
+    expect(
+      (
+        await relation(`/repos/octocat/hello-world/issues/${target.number}/dependencies/blocked_by`, {
+          issue_id: blocker.id,
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (await relation(`/repos/octocat/hello-world/issues/${target.number}/comments`, { body: "remove me" })).status,
+    ).toBe(201);
+    expect(
+      (await relation(`/repos/octocat/hello-world/issues/${unrelated.number}/comments`, { body: "keep me" })).status,
+    ).toBe(201);
+    const targetEvents = gh.issueEvents.findBy("issue_number", target.number).map((event) => event.id);
+    const unrelatedEvents = gh.issueEvents.findBy("issue_number", unrelated.number).map((event) => event.id);
+    const beforeOpen = repo.open_issues_count;
+    webhooks.register({
+      url: "https://hooks.example/delete",
+      events: ["issues"],
+      active: true,
+      owner: "octocat",
+      repo: "hello-world",
+    });
+    webhooks.clear();
+
+    const response = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteIssueInput!) {
+          deleteIssue(input: $input) {
+            clientMutationId
+            repository {
+              id
+              nameWithOwner
+            }
+          }
+        }
+      `,
+      { input: { issueId: target.node_id, clientMutationId: "delete-1" } },
+      "Delete",
+    );
+    expect(response.status).toBe(200);
+    expect(((await responseBody(response)) as any).data.deleteIssue).toEqual({
+      clientMutationId: "delete-1",
+      repository: { id: repo.node_id, nameWithOwner: "octocat/hello-world" },
+    });
+    expect(webhooks.getDeliveries()).toEqual([]);
+    expect(gh.issues.get(target.id)).toBeUndefined();
+    expect(gh.comments.findBy("issue_number", target.number)).toEqual([]);
+    expect(gh.issueEvents.findBy("issue_number", target.number)).toEqual([]);
+    expect(targetEvents.every((id) => !gh.issueEvents.get(id))).toBe(true);
+    expect(unrelatedEvents.every((id) => gh.issueEvents.get(id))).toBe(true);
+    expect(
+      gh.issueSubIssues.all().some((edge) => edge.parent_issue_id === target.id || edge.child_issue_id === target.id),
+    ).toBe(false);
+    expect(
+      gh.issueDependencies
+        .all()
+        .some((edge) => edge.blocked_issue_id === target.id || edge.blocking_issue_id === target.id),
+    ).toBe(false);
+    expect(gh.issues.get(unrelated.id)?.duplicate_issue_id).toBeNull();
+    expect(gh.labels.get(label.id)).toBeDefined();
+    expect(gh.issues.get(unrelated.id)?.label_ids).toEqual([label.id]);
+    expect(gh.repos.get(repo.id)?.open_issues_count).toBe(beforeOpen - 1);
+
+    const missing = await app.request(`${base}/repos/octocat/hello-world/issues/${target.number}`, {
+      headers: headers(),
+    });
+    expect(missing.status).toBe(404);
+    const reads = await graphql(
+      app,
+      `query { repository(owner: "octocat", name: "hello-world") { issue(number: ${target.number}) { id } } }`,
+    );
+    expect(((await responseBody(reads)) as any).data.repository.issue).toBeNull();
+    const unrelatedComment = await app.request(
+      `${base}/repos/octocat/hello-world/issues/${unrelated.number}/comments`,
+      { headers: headers() },
+    );
+    expect(unrelatedComment.status).toBe(200);
+    expect(((await unrelatedComment.json()) as Array<{ body: string }>).map((comment) => comment.body)).toEqual([
+      "keep me",
+    ]);
+
+    const second = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteIssueInput!) {
+          deleteIssue(input: $input) {
+            clientMutationId
+            repository {
+              id
+            }
+          }
+        }
+      `,
+      { input: { issueId: parent.node_id, clientMutationId: "delete-1" } },
+      "Delete",
+    );
+    expect(((await responseBody(second)) as any).data.deleteIssue).toEqual({
+      clientMutationId: "delete-1",
+      repository: { id: repo.node_id },
+    });
+    const repeated = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteIssueInput!) {
+          deleteIssue(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { issueId: parent.node_id, clientMutationId: "delete-1" } },
+      "Delete",
+    );
+    expect((await responseBody(repeated)).errors?.[0]?.message).toContain("Not Found");
+  });
+
+  it("rejects deletion before side effects for inaccessible, wrong-type, and read-only requests", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const target = await createIssue(app, "Atomic delete");
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    addInstallationToken(store, tokenMap, "delete-read", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [repo.id],
+    });
+    addInstallationToken(store, tokenMap, "delete-excluded", {
+      permissions: { issues: "write" },
+      repositorySelection: "selected",
+      repositoryIds: [],
+    });
+    const mutation = `mutation Delete($input: DeleteIssueInput!) { deleteIssue(input: $input) { clientMutationId } }`;
+    const before = gh.issues.all().map((issue) => issue.id);
+    for (const token of ["delete-read", "delete-excluded"]) {
+      const denied = await graphql(
+        app,
+        mutation,
+        { input: { issueId: target.node_id, clientMutationId: token } },
+        "Delete",
+        token,
+      );
+      expect(denied.status).toBe(403);
+      expect(gh.issues.all().map((issue) => issue.id)).toEqual(before);
+    }
+    const wrong = await graphql(app, mutation, { input: { issueId: repo.node_id } }, "Delete");
+    expect((await responseBody(wrong)).errors?.[0]?.message).toContain("Not Found");
+    const missing = await graphql(app, mutation, { input: { issueId: "MDI6SXNzdWU5OTk5" } }, "Delete");
+    expect((await responseBody(missing)).errors?.[0]?.message).toContain("Not Found");
+    expect(gh.issues.get(target.id)).toBeDefined();
+  });
 });

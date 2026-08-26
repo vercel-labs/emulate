@@ -12,7 +12,7 @@ import type { GitHubIssue, GitHubLabel, GitHubRepo } from "../entities.js";
 import { consumeGitHubGraphQLRateLimit, getGitHubGraphQLRateLimit } from "../graphql/rate-limit.js";
 import { githubGraphQLSchema } from "../graphql/schema.js";
 import { issueCommentView, issueView, labelView, repositoryView, resolvedNodeView } from "../graphql/views.js";
-import { createIssue, transitionIssueLifecycle } from "../operations/issues.js";
+import { createIssue, deleteIssue as deleteIssueOperation, transitionIssueLifecycle } from "../operations/issues.js";
 import { createIssueComment } from "../operations/comments.js";
 import { createRepositoryLabel, deleteRepositoryLabel } from "../operations/labels.js";
 
@@ -239,6 +239,14 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
         { repo, actor, name: label.name },
       );
       return { clientMutationId: mutationId(input), label: labelView(context, deleted, repo) };
+    },
+    deleteIssue: ({ input }: { input: { issueId: string; clientMutationId?: string | null } }) => {
+      const issue = requireIssue(context, input.issueId);
+      const repo = context.gh.repos.get(issue.repo_id);
+      if (!repo) throw new ApiError(404, "Not Found");
+      assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      deleteIssueOperation({ gh: context.gh, webhooks, baseUrl: context.baseUrl }, { repo, issue });
+      return { clientMutationId: mutationId(input), repository: repositoryView(context, repo) };
     },
   };
 }

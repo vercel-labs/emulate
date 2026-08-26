@@ -17,7 +17,7 @@ npm install @emulators/github
 - `repository(owner:, name:)` resolves repositories and issue details.
 - `node(id:)` resolves REST node IDs for repositories, issues, labels, and issue comments. Inaccessible records return `null`.
 - `Issue.comments` supports Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
-- Mutations support `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, and `deleteLabel`; each accepts a typed input and echoes `clientMutationId` exactly.
+- Mutations support `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and exact `deleteIssue`; each accepts a typed input and echoes `clientMutationId` exactly. `deleteIssue` returns the owning repository, matching [GitHub's documented payload](https://docs.github.com/en/graphql/reference/issues#deleteissue), and cascades issue-owned comments, timeline records, labels, and relationship edges while preserving repository labels and unrelated records. No deletion webhook or issue event is emitted because this emulator has no evidence-backed provider behavior for one.
 - Requests require authentication and use the GraphQL rate-limit bucket exposed by `rateLimit` and `/rate_limit`.
 - Issue relationships include `parent`, cursor-paginated `subIssues` and `blockedBy`, plus `addSubIssue` and `addBlockedBy` mutations with exact `clientMutationId` echoes.
 
