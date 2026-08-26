@@ -78,7 +78,12 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): void {
   for (const issue of issues) {
     if (issue.duplicate_of) {
       const canonical = issueByKey.get(issue.duplicate_of);
-      if (!canonical || canonical.key === issue.key || canonical.state_reason === "duplicate") {
+      if (
+        !canonical ||
+        canonical.key === issue.key ||
+        canonical.state_reason === "duplicate" ||
+        canonical.repo !== issue.repo
+      ) {
         throw new Error(`Invalid canonical duplicate target for seed issue "${issue.key}"`);
       }
       if (issue.state_reason !== "duplicate") {

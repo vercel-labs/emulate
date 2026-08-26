@@ -253,6 +253,25 @@ describe("stable issue graph seeds", () => {
         ],
       },
     ],
+    [
+      "cross-repository canonical",
+      {
+        ...seed,
+        repos: [...seed.repos, { owner: "octocat", name: "other" }],
+        issues: [
+          ...seed.issues,
+          { key: "foreign", repo: "octocat/other", title: "Foreign" },
+          {
+            key: "cross",
+            repo: "octocat/graph",
+            title: "Cross",
+            state: "closed" as const,
+            state_reason: "duplicate" as const,
+            duplicate_of: "foreign",
+          },
+        ],
+      },
+    ],
   ];
 
   it.each(invalidSeeds)("rejects %s without changing the store", (_name, invalid) => {
