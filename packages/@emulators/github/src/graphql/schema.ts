@@ -161,7 +161,71 @@ export const githubGraphQLSchema = /* GraphQL */ `
     blockingIssue: Issue!
     clientMutationId: String
   }
+  input CreateIssueInput {
+    repositoryId: ID!
+    title: String!
+    body: String
+    clientMutationId: String
+  }
 
+  type CreateIssuePayload {
+    clientMutationId: String
+    issue: Issue!
+  }
+
+  input CloseIssueInput {
+    issueId: ID!
+    clientMutationId: String
+  }
+
+  type CloseIssuePayload {
+    clientMutationId: String
+    issue: Issue!
+  }
+
+  input ReopenIssueInput {
+    issueId: ID!
+    clientMutationId: String
+  }
+
+  type ReopenIssuePayload {
+    clientMutationId: String
+    issue: Issue!
+  }
+
+  input AddCommentInput {
+    subjectId: ID!
+    body: String!
+    clientMutationId: String
+  }
+
+  type AddCommentPayload {
+    clientMutationId: String
+    comment: IssueComment!
+  }
+
+  input CreateLabelInput {
+    repositoryId: ID!
+    name: String!
+    color: String
+    description: String
+    clientMutationId: String
+  }
+
+  type CreateLabelPayload {
+    clientMutationId: String
+    label: Label!
+  }
+
+  input DeleteLabelInput {
+    id: ID!
+    clientMutationId: String
+  }
+
+  type DeleteLabelPayload {
+    clientMutationId: String
+    label: Label!
+  }
   type Query {
     repository(owner: String!, name: String!): Repository
     node(id: ID!): Node
@@ -171,5 +235,11 @@ export const githubGraphQLSchema = /* GraphQL */ `
   type Mutation {
     addSubIssue(input: AddSubIssueInput!): AddSubIssuePayload!
     addBlockedBy(input: AddBlockedByInput!): AddBlockedByPayload!
+    createIssue(input: CreateIssueInput!): CreateIssuePayload!
+    closeIssue(input: CloseIssueInput!): CloseIssuePayload!
+    reopenIssue(input: ReopenIssueInput!): ReopenIssuePayload!
+    addComment(input: AddCommentInput!): AddCommentPayload!
+    createLabel(input: CreateLabelInput!): CreateLabelPayload!
+    deleteLabel(input: DeleteLabelInput!): DeleteLabelPayload!
   }
 `;

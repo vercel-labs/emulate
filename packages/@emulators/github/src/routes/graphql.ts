@@ -1,5 +1,5 @@
 import { buildSchema, graphql, type ExecutionResult, type GraphQLError } from "graphql";
-import { ApiError, type Context, type RouteContext, type AppEnv } from "@emulators/core";
+import { ApiError, type Context, type RouteContext, type AppEnv, type WebhookDispatcher } from "@emulators/core";
 import {
   createGitHubGraphQLContext,
   findVisibleRepository,
@@ -7,11 +7,14 @@ import {
   resolveVisibleNode,
 } from "../graphql/context.js";
 import { addIssueDependencyWithEvents, addSubIssueWithEvents } from "../issue-relationships.js";
-import { assertAuthenticatedActor, assertRepoPermission } from "../route-helpers.js";
-import type { GitHubIssue, GitHubRepo } from "../entities.js";
+import { assertAuthenticatedActor, assertIssueWrite, assertRepoPermission } from "../route-helpers.js";
+import type { GitHubIssue, GitHubLabel, GitHubRepo } from "../entities.js";
 import { consumeGitHubGraphQLRateLimit, getGitHubGraphQLRateLimit } from "../graphql/rate-limit.js";
 import { githubGraphQLSchema } from "../graphql/schema.js";
-import { issueView, repositoryView, resolvedNodeView } from "../graphql/views.js";
+import { issueCommentView, issueView, labelView, repositoryView, resolvedNodeView } from "../graphql/views.js";
+import { createIssue, transitionIssueLifecycle } from "../operations/issues.js";
+import { createIssueComment } from "../operations/comments.js";
+import { createRepositoryLabel, deleteRepositoryLabel } from "../operations/labels.js";
 
 const schema = buildSchema(githubGraphQLSchema);
 
@@ -58,6 +61,28 @@ async function readGraphQLBody(c: Context<AppEnv>): Promise<GraphQLRequestBody |
 }
 
 function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webhooks: RouteContext["webhooks"]) {
+function requireRepository(context: ReturnType<typeof createGitHubGraphQLContext>, id: string): GitHubRepo {
+  const repo = context.gh.repos.all().find((candidate) => candidate.node_id === id);
+  if (!repo) throw new ApiError(404, "Not Found");
+  return repo;
+}
+
+function requireIssue(context: ReturnType<typeof createGitHubGraphQLContext>, id: string): GitHubIssue {
+  const issue = context.gh.issues.all().find((candidate) => candidate.node_id === id);
+  if (!issue || issue.is_pull_request) throw new ApiError(404, "Not Found");
+  return issue;
+}
+
+function requireLabel(context: ReturnType<typeof createGitHubGraphQLContext>, id: string): GitHubLabel {
+  const label = context.gh.labels.all().find((candidate) => candidate.node_id === id);
+  if (!label) throw new ApiError(404, "Not Found");
+  return label;
+}
+
+function mutationId(input: { clientMutationId?: string | null }): string | null {
+  return input.clientMutationId ?? null;
+}
+
   return {
     repository: ({ owner, name }: { owner: string; name: string }) => {
       requireGitHubGraphQLAuth(context);
@@ -135,6 +160,85 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webh
         blockingIssue: issueView(context, blocking.issue, blocking.repo),
         clientMutationId: input.clientMutationId ?? null,
       };
+    },
+    createIssue: ({
+      input,
+    }: {
+      input: { repositoryId: string; title: string; body?: string | null; clientMutationId?: string | null };
+    }) => {
+      const repo = requireRepository(context, input.repositoryId);
+      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      const issue = createIssue(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl },
+        { repo, actor, title: input.title, body: input.body },
+      );
+      return { clientMutationId: mutationId(input), issue: issueView(context, issue, repo) };
+    },
+    closeIssue: ({ input }: { input: { issueId: string; clientMutationId?: string | null } }) => {
+      const issue = requireIssue(context, input.issueId);
+      const repo = context.gh.repos.get(issue.repo_id);
+      if (!repo) throw new ApiError(404, "Not Found");
+      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      const result = transitionIssueLifecycle(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl },
+        { repo, issue, actor, state: "closed" },
+      );
+      return { clientMutationId: mutationId(input), issue: issueView(context, result.issue, repo) };
+    },
+    reopenIssue: ({ input }: { input: { issueId: string; clientMutationId?: string | null } }) => {
+      const issue = requireIssue(context, input.issueId);
+      const repo = context.gh.repos.get(issue.repo_id);
+      if (!repo) throw new ApiError(404, "Not Found");
+      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      const result = transitionIssueLifecycle(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl },
+        { repo, issue, actor, state: "open" },
+      );
+      return { clientMutationId: mutationId(input), issue: issueView(context, result.issue, repo) };
+    },
+    addComment: ({ input }: { input: { subjectId: string; body: string; clientMutationId?: string | null } }) => {
+      const issue = requireIssue(context, input.subjectId);
+      const repo = context.gh.repos.get(issue.repo_id);
+      if (!repo) throw new ApiError(404, "Not Found");
+      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      const result = createIssueComment(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl },
+        { repo, issue, actor, body: input.body },
+      );
+      return {
+        clientMutationId: mutationId(input),
+        comment: issueCommentView(context, result.comment, result.issue, repo),
+      };
+    },
+    createLabel: ({
+      input,
+    }: {
+      input: {
+        repositoryId: string;
+        name: string;
+        color?: string | null;
+        description?: string | null;
+        clientMutationId?: string | null;
+      };
+    }) => {
+      const repo = requireRepository(context, input.repositoryId);
+      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      const label = createRepositoryLabel(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl },
+        { repo, actor, name: input.name, color: input.color, description: input.description },
+      );
+      return { clientMutationId: mutationId(input), label: labelView(context, label, repo) };
+    },
+    deleteLabel: ({ input }: { input: { id: string; clientMutationId?: string | null } }) => {
+      const label = requireLabel(context, input.id);
+      const repo = context.gh.repos.get(label.repo_id);
+      if (!repo) throw new ApiError(404, "Not Found");
+      const actor = assertIssueWrite(context.gh, requireGitHubGraphQLAuth(context), repo);
+      const deleted = deleteRepositoryLabel(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl },
+        { repo, actor, name: label.name },
+      );
+      return { clientMutationId: mutationId(input), label: labelView(context, deleted, repo) };
     },
   };
 }
