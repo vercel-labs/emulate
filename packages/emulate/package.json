@@ -43,7 +43,7 @@
     "emulate": "./dist/index.js"
   },
   "scripts": {
-    "prepack": "cp ../../README.md .",
+    "prepack": "pnpm build && cp ../../README.md .",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
