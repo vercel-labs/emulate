@@ -57,6 +57,7 @@ export function createIssue(context: GitHubMutationContext, input: CreateIssueIn
     body: issueBody,
     state: "open",
     state_reason: null,
+    duplicate_issue_id: null,
     locked: false,
     active_lock_reason: null,
     user_id: input.actor.id,
@@ -98,6 +99,7 @@ export interface TransitionIssueLifecycleInput {
   actor: GitHubUser;
   state: "open" | "closed";
   stateReason?: GitHubIssue["state_reason"];
+  duplicateIssue?: GitHubIssue | null;
   patch?: Partial<GitHubIssue>;
 }
 
@@ -118,6 +120,24 @@ export function transitionIssueLifecycle(
   const patch: Partial<GitHubIssue> = { ...(input.patch ?? {}) };
   delete patch.state;
   delete patch.state_reason;
+  delete patch.duplicate_issue_id;
+
+  const duplicateReason = input.stateReason === "duplicate";
+  if (duplicateReason && input.state !== "closed") {
+    throw new ApiError(422, "Duplicate issues must be closed");
+  }
+  if (
+    duplicateReason &&
+    (!input.duplicateIssue ||
+      input.duplicateIssue.id === current.id ||
+      input.duplicateIssue.is_pull_request ||
+      input.duplicateIssue.duplicate_issue_id != null)
+  ) {
+    throw new ApiError(422, "A valid canonical duplicate issue is required");
+  }
+  if (!duplicateReason && input.duplicateIssue) {
+    throw new ApiError(422, "duplicate_issue_id requires state_reason duplicate");
+  }
 
   const changed = current.state !== input.state;
   if (
@@ -132,6 +152,7 @@ export function transitionIssueLifecycle(
     patch.state = input.state;
     patch.state_reason =
       input.stateReason !== undefined ? input.stateReason : input.state === "closed" ? "completed" : "reopened";
+    patch.duplicate_issue_id = duplicateReason ? input.duplicateIssue!.id : null;
     if (input.state === "closed") {
       patch.closed_at = timestamp();
       patch.closed_by_id = input.actor.id;
@@ -141,6 +162,7 @@ export function transitionIssueLifecycle(
     }
   } else if (input.stateReason !== undefined) {
     patch.state_reason = input.stateReason;
+    patch.duplicate_issue_id = duplicateReason ? input.duplicateIssue!.id : null;
   }
 
   const updated = context.gh.issues.update(current.id, patch);
@@ -148,7 +170,14 @@ export function transitionIssueLifecycle(
   if (!changed) return { issue: updated, changed: false };
 
   const ownerLogin = ownerLoginOf(context.gh, input.repo);
-  const event = input.state === "closed" ? "closed" : "reopened";
+  const event =
+    input.state === "closed"
+      ? duplicateReason
+        ? "marked_as_duplicate"
+        : "closed"
+      : current.state_reason === "duplicate"
+        ? "unmarked_as_duplicate"
+        : "reopened";
   adjustRepoOpenIssues(context.gh, input.repo.id, input.state === "closed" ? -1 : 1);
   insertIssueEvent(context.gh, input.repo, updated.number, event, input.actor.id);
   dispatchGitHubWebhook(

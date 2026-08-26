@@ -78,6 +78,13 @@ export function findVisibleIssue(
     .find((issue) => issue.number === issueNumber && !issue.is_pull_request);
 }
 
+export function findVisibleIssueById(context: GitHubGraphQLContext, issueId: number): GitHubIssue | undefined {
+  const issue = context.gh.issues.get(issueId);
+  if (!issue || issue.is_pull_request) return undefined;
+  const repo = context.gh.repos.get(issue.repo_id);
+  return repo && canReadIssues(context, repo) ? issue : undefined;
+}
+
 export function findVisibleIssueComment(
   context: GitHubGraphQLContext,
   comment: GitHubComment,

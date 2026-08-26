@@ -27,7 +27,7 @@ function createTestApp() {
     ],
   });
 
-  return { app, store, tokenMap };
+  return { app, store, tokenMap, webhooks };
 }
 
 function headers(token = "octocat-token"): Record<string, string> {
@@ -204,6 +204,117 @@ describe("GitHub GraphQL read compatibility", () => {
       body: "GraphQL comment",
     });
     expect(body.data.repositoryAlias.issue.comments.totalCount).toBe(1);
+  });
+
+  it("round-trips duplicate lifecycle and canonical issue identity between REST and GraphQL", async () => {
+    const { app, store, webhooks } = createTestApp();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    webhooks.register({
+      url: "https://hooks.example/duplicate",
+      events: ["issues"],
+      active: true,
+      owner: "octocat",
+      repo: "hello-world",
+    });
+    const canonicalResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Canonical issue" }),
+    });
+    const duplicateResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Duplicate issue" }),
+    });
+    const canonical = (await canonicalResponse.json()) as { id: number };
+    const duplicate = (await duplicateResponse.json()) as { id: number; number: number };
+
+    const closeResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${duplicate.number}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: canonical.id }),
+    });
+    expect(closeResponse.status).toBe(200);
+    expect((await closeResponse.json()) as { state_reason: string; duplicate_issue_id: number }).toMatchObject({
+      state_reason: "duplicate",
+      duplicate_issue_id: canonical.id,
+    });
+    expect((store.collection("github.issue_events").all() as unknown as Array<{ event: string }>).at(-1)?.event).toBe(
+      "marked_as_duplicate",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchSpy).toHaveBeenCalledWith("https://hooks.example/duplicate", expect.anything());
+    expect(JSON.parse(fetchSpy.mock.calls.at(-1)?.[1]?.body as string)).toMatchObject({
+      action: "marked_as_duplicate",
+    });
+    fetchSpy.mockRestore();
+
+    const graphResponse = await graphql(
+      app,
+      `query { repository(owner: "octocat", name: "hello-world") { issue(number: ${duplicate.number}) { state stateReason duplicateOf { id number } } } }`,
+    );
+    expect(graphResponse.status).toBe(200);
+    const graphBody = (await graphResponse.json()) as {
+      data: { repository: { issue: unknown } };
+    };
+    expect(graphBody.data.repository.issue).toMatchObject({
+      state: "CLOSED",
+      stateReason: "DUPLICATE",
+      duplicateOf: { number: expect.any(Number) },
+    });
+
+    const reopenResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${duplicate.number}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ state: "open" }),
+    });
+    expect(reopenResponse.status).toBe(200);
+    expect(
+      (await reopenResponse.json()) as { state_reason: string | null; duplicate_issue_id: number | null },
+    ).toMatchObject({
+      state_reason: "reopened",
+      duplicate_issue_id: null,
+    });
+  });
+
+  it("rejects invalid and self duplicate targets without changing the issue", async () => {
+    const { app, store } = createTestApp();
+    const issueResponse = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Duplicate candidate" }),
+    });
+    const issue = (await issueResponse.json()) as { id: number; number: number };
+    const eventCount = store.collection("github.issue_events").all().length;
+
+    for (const duplicateIssueId of [issue.id, 999999]) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: duplicateIssueId }),
+      });
+      expect(response.status).toBe(422);
+    }
+
+    const unchangedResponse = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}`, {
+      headers: headers(),
+    });
+    const unchanged = (await unchangedResponse.json()) as { state: string; state_reason: string | null };
+    expect(unchanged).toMatchObject({ state: "open", state_reason: null });
+    expect(store.collection("github.issue_events").all()).toHaveLength(eventCount);
+
+    const privateTargetResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Private canonical" }),
+    });
+    const privateTarget = (await privateTargetResponse.json()) as { id: number };
+    const inaccessible = await app.request(`${base}/repos/octocat/hello-world/issues/${issue.number}`, {
+      method: "PATCH",
+      headers: headers("outsider-token"),
+      body: JSON.stringify({ state: "closed", state_reason: "duplicate", duplicate_issue_id: privateTarget.id }),
+    });
+    expect(inaccessible.status).toBe(403);
   });
 
   it("resolves REST node IDs for repositories, issues, labels, and issue comments", async () => {

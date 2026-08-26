@@ -388,6 +388,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       body: prBody,
       state: "open",
       state_reason: null,
+      duplicate_issue_id: null,
       locked: false,
       active_lock_reason: null,
       user_id: actor.id,

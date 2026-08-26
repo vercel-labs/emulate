@@ -64,7 +64,8 @@ export const githubGraphQLSchema = /* GraphQL */ `
     title: String!
     body: String
     state: IssueState!
-    stateReason(enableDuplicate: Boolean = false): IssueStateReason
+    stateReason(enableDuplicate: Boolean = true): IssueStateReason
+    duplicateOf: Issue
     repository: Repository!
     author: Actor
     createdAt: DateTime!
