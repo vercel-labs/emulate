@@ -28,7 +28,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
-import { validateGitHubSeedGraph } from "./seed-graph-validation.js";
+import { normalizeGitHubSeedGraph, validateGitHubSeedGraph } from "./seed-graph-validation.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -254,6 +254,7 @@ function seedDefaults(store: Store, baseUrl: string): void {
 }
 
 function seedIssueGraph(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  config = normalizeGitHubSeedGraph(config);
   const gh = getGitHubStore(store);
   const nestedIssues = (config.repos ?? []).flatMap((repo) =>
     (repo.issues ?? []).map((issue) => ({ ...issue, repo: `${repo.owner}/${repo.name}` })),

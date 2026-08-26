@@ -5,7 +5,27 @@ function requireReference(set: Set<string>, value: string, description: string):
 }
 
 /** Validate the graph portion of a seed before the store is changed. */
-export function validateGitHubSeedGraph(config: GitHubSeedConfig): void {
+export function normalizeGitHubSeedGraph(config: GitHubSeedConfig): GitHubSeedConfig {
+  const edges = (config.sub_issues ?? []).map((edge) => ({ ...edge }));
+  const byParent = new Map<string, typeof edges>();
+  for (const edge of edges) {
+    const group = byParent.get(edge.parent) ?? [];
+    group.push(edge);
+    byParent.set(edge.parent, group);
+  }
+  for (const group of byParent.values()) {
+    const explicit = group.some((edge) => edge.position !== undefined);
+    if (explicit && group.some((edge) => edge.position === undefined)) {
+      throw new Error("Seed hierarchy positions must be specified for every sibling or omitted for every sibling");
+    }
+    if (!explicit) group.forEach((edge, index) => (edge.position = index));
+  }
+  return { ...config, sub_issues: edges };
+}
+
+export function validateGitHubSeedGraph(input: GitHubSeedConfig): void {
+  const config = normalizeGitHubSeedGraph(input);
+  const users = new Set(["ghost", "admin", ...(config.users ?? []).map((user) => user.login)]);
   const repos = new Set((config.repos ?? []).map((repo) => `${repo.owner}/${repo.name}`));
   const labels = new Set<string>();
   for (const label of [
@@ -68,6 +88,8 @@ export function validateGitHubSeedGraph(config: GitHubSeedConfig): void {
     if (issue.state_reason === "duplicate" && !issue.duplicate_of) {
       throw new Error(`Duplicate seed issue "${issue.key}" requires duplicate_of`);
     }
+    if (issue.author && !users.has(issue.author))
+      throw new Error(`GitHub seed references missing user: ${issue.author}`);
   }
 
   const comments = [
@@ -88,6 +110,8 @@ export function validateGitHubSeedGraph(config: GitHubSeedConfig): void {
     } else if (!issueNumbers.get(comment.repo)?.has(comment.issue)) {
       throw new Error(`Seed comment "${comment.key}" references missing issue number: ${comment.issue}`);
     }
+    if (comment.author && !users.has(comment.author))
+      throw new Error(`GitHub seed references missing user: ${comment.author}`);
   }
 
   const parentByChild = new Map<string, string>();
