@@ -1,8 +1,14 @@
 import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
-import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
+import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertIssueWrite,
+  assertRepoPermission,
+  installationCanAccessRepo,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubIssue, GitHubIssueEvent, GitHubRepo, GitHubUser } from "../entities.js";
 import { formatComment, formatIssue, formatRepo, formatUser, lookupRepo } from "../helpers.js";
@@ -327,6 +333,8 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       if (!duplicateRepo || !duplicateRepo.has_issues) {
         throw new ApiError(422, "A valid canonical duplicate issue is required");
       }
+      const installation = c.get("authUser")?.installation;
+      if (installation && !installationCanAccessRepo(c.get("authUser")!, duplicateRepo)) throw forbidden();
       assertRepoPermission(gh, c.get("authUser"), duplicateRepo, "issues");
     }
 

@@ -139,20 +139,21 @@ export function transitionIssueLifecycle(
     throw new ApiError(422, "duplicate_issue_id requires state_reason duplicate");
   }
 
-  const changed = current.state !== input.state;
-  if (
-    !changed &&
-    Object.keys(patch).length === 0 &&
-    (input.stateReason === undefined || input.stateReason === current.state_reason)
-  ) {
+  const desiredStateReason =
+    input.stateReason !== undefined ? input.stateReason : input.state === "closed" ? "completed" : "reopened";
+  const desiredDuplicateIssueId = desiredStateReason === "duplicate" ? input.duplicateIssue!.id : null;
+  const stateChanged = current.state !== input.state;
+  const reasonChanged = current.state_reason !== desiredStateReason;
+  const duplicateChanged = current.duplicate_issue_id !== desiredDuplicateIssueId;
+  const changed = stateChanged || reasonChanged || duplicateChanged;
+  if (!changed && Object.keys(patch).length === 0) {
     return { issue: current, changed: false };
   }
 
-  if (changed) {
+  if (stateChanged) {
     patch.state = input.state;
-    patch.state_reason =
-      input.stateReason !== undefined ? input.stateReason : input.state === "closed" ? "completed" : "reopened";
-    patch.duplicate_issue_id = duplicateReason ? input.duplicateIssue!.id : null;
+    patch.state_reason = desiredStateReason;
+    patch.duplicate_issue_id = desiredDuplicateIssueId;
     if (input.state === "closed") {
       patch.closed_at = timestamp();
       patch.closed_by_id = input.actor.id;
@@ -160,9 +161,9 @@ export function transitionIssueLifecycle(
       patch.closed_at = null;
       patch.closed_by_id = null;
     }
-  } else if (input.stateReason !== undefined) {
-    patch.state_reason = input.stateReason;
-    patch.duplicate_issue_id = duplicateReason ? input.duplicateIssue!.id : null;
+  } else if (reasonChanged || duplicateChanged) {
+    patch.state_reason = desiredStateReason;
+    patch.duplicate_issue_id = desiredDuplicateIssueId;
   }
 
   const updated = context.gh.issues.update(current.id, patch);
@@ -171,14 +172,14 @@ export function transitionIssueLifecycle(
 
   const ownerLogin = ownerLoginOf(context.gh, input.repo);
   const event =
-    input.state === "closed"
-      ? duplicateReason
-        ? "marked_as_duplicate"
-        : "closed"
-      : current.state_reason === "duplicate"
+    desiredStateReason === "duplicate" && current.state_reason !== "duplicate"
+      ? "marked_as_duplicate"
+      : current.state_reason === "duplicate" && desiredStateReason !== "duplicate"
         ? "unmarked_as_duplicate"
-        : "reopened";
-  adjustRepoOpenIssues(context.gh, input.repo.id, input.state === "closed" ? -1 : 1);
+        : input.state === "closed"
+          ? "closed"
+          : "reopened";
+  if (stateChanged) adjustRepoOpenIssues(context.gh, input.repo.id, input.state === "closed" ? -1 : 1);
   insertIssueEvent(context.gh, input.repo, updated.number, event, input.actor.id);
   dispatchGitHubWebhook(
     context,
