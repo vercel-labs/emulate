@@ -14,25 +14,23 @@ The programmatic `createEmulator` API can generate a GitHub App key when `privat
 
 ```typescript
 const github = await createEmulator({
-  service: "github",
+  service: 'github',
   seed: {
     github: {
-      users: [{ login: "octocat" }],
-      apps: [
-        {
-          app_id: 12345,
-          slug: "my-github-app",
-          name: "My GitHub App",
-          installations: [{ installation_id: 100, account: "octocat" }],
-        },
-      ],
+      users: [{ login: 'octocat' }],
+      apps: [{
+        app_id: 12345,
+        slug: 'my-github-app',
+        name: 'My GitHub App',
+        installations: [{ installation_id: 100, account: 'octocat' }],
+      }],
     },
   },
-});
+})
 
 const privateKey = github.generatedSecrets.find(
-  (secret) => secret.kind === "github.app_private_key" && secret.id === "12345",
-)?.value;
+  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
+)?.value
 ```
 
 The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explicit keys are never included in `generatedSecrets`.

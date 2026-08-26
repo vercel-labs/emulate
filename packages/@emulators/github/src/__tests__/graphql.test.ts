@@ -714,6 +714,32 @@ describe("GitHub GraphQL mutation compatibility", () => {
     };
     expect(closed.data.closeIssue.issue.stateReason).toBe("COMPLETED");
 
+    const gh = getGitHubStore(store);
+    const closedRow = gh.issues.findOneBy("number", 2)!;
+    const closedUpdatedAt = closedRow.updated_at;
+    const closedEventCount = gh.issueEvents.all().length;
+    const closedAgain = await graphql(
+      app,
+      `
+        mutation CloseAgain($input: CloseIssueInput!) {
+          closeIssue(input: $input) {
+            issue {
+              state
+              stateReason
+            }
+          }
+        }
+      `,
+      { input: { issueId: created.data.createIssue.issue.id, clientMutationId: "close-1" } },
+      "CloseAgain",
+    );
+    const closedAgainBody = (await closedAgain.json()) as {
+      data: { closeIssue: { issue: { state: string; stateReason: string } } };
+    };
+    expect(closedAgainBody.data.closeIssue.issue.stateReason).toBe("COMPLETED");
+    expect(gh.issues.get(closedRow.id)!.updated_at).toBe(closedUpdatedAt);
+    expect(gh.issueEvents.all()).toHaveLength(closedEventCount);
+
     const restClosed = await app.request(`${base}/repos/octocat/hello-world/issues/2`, { headers: headers() });
     expect((await restClosed.json()) as { state: string; state_reason: string }).toMatchObject({
       state: "closed",
@@ -744,6 +770,29 @@ describe("GitHub GraphQL mutation compatibility", () => {
       clientMutationId: "reopen-1",
       issue: { state: "OPEN", stateReason: "REOPENED" },
     });
+
+    const secondCreate = await graphql(
+      app,
+      `
+        mutation CreateAgain($input: CreateIssueInput!) {
+          createIssue(input: $input) {
+            issue {
+              id
+              number
+            }
+            clientMutationId
+          }
+        }
+      `,
+      { input: { repositoryId: fixture.repo.node_id, title: "GraphQL created again", clientMutationId: "create-1" } },
+      "CreateAgain",
+    );
+    const second = (await secondCreate.json()) as {
+      data: { createIssue: { issue: { id: string; number: number }; clientMutationId: string } };
+    };
+    expect(second.data.createIssue.clientMutationId).toBe("create-1");
+    expect(second.data.createIssue.issue).toMatchObject({ id: expect.any(String), number: 3 });
+    expect(second.data.createIssue.issue.id).not.toBe(created.data.createIssue.issue.id);
   });
 
   it("creates comments and labels with REST-visible identity and cleanup", async () => {
@@ -799,12 +848,36 @@ describe("GitHub GraphQL mutation compatibility", () => {
       data: { node: { comments: { nodes: Array<{ id: string; body: string }> } } };
     };
     expect(connectionBody.data.node.comments.nodes.at(-1)?.id).toBe(comment.data.addComment.comment.id);
+    const repeatedComment = await graphql(
+      app,
+      `
+        mutation CommentAgain($input: AddCommentInput!) {
+          addComment(input: $input) {
+            comment {
+              id
+            }
+          }
+        }
+      `,
+      {
+        input: {
+          subjectId: fixture.issue.node_id,
+          body: "GraphQL mutation comment again",
+          clientMutationId: "comment-1",
+        },
+      },
+      "CommentAgain",
+    );
+    const repeatedCommentBody = (await repeatedComment.json()) as {
+      data: { addComment: { comment: { id: string } } };
+    };
+    expect(repeatedCommentBody.data.addComment.comment.id).not.toBe(comment.data.addComment.comment.id);
     const restComments = await app.request(`${base}/repos/octocat/hello-world/issues/1/comments`, {
       headers: headers(),
     });
     expect(((await restComments.json()) as Array<{ node_id: string; body: string }>).at(-1)).toMatchObject({
-      node_id: comment.data.addComment.comment.id,
-      body: "GraphQL mutation comment",
+      node_id: repeatedCommentBody.data.addComment.comment.id,
+      body: "GraphQL mutation comment again",
     });
 
     const labelResponse = await graphql(
@@ -841,6 +914,22 @@ describe("GitHub GraphQL mutation compatibility", () => {
       label: { name: "graphql-label", description: "GraphQL label" },
     });
 
+    const duplicateLabel = await graphql(
+      app,
+      `
+        mutation Duplicate($input: CreateLabelInput!) {
+          createLabel(input: $input) {
+            label {
+              id
+            }
+          }
+        }
+      `,
+      { input: { repositoryId: fixture.repo.node_id, name: "graphql-label" } },
+      "Duplicate",
+    );
+    expect((await responseBody(duplicateLabel)).errors?.[0]?.message).toContain("Validation failed");
+
     const attach = await app.request(`${base}/repos/octocat/hello-world/issues/1/labels`, {
       method: "POST",
       headers: headers(),
@@ -869,6 +958,21 @@ describe("GitHub GraphQL mutation compatibility", () => {
     expect(deleted.data.deleteLabel.label.name).toBe("graphql-label");
     const remaining = await app.request(`${base}/repos/octocat/hello-world/issues/1/labels`, { headers: headers() });
     expect((await remaining.json()) as Array<unknown>).toEqual([]);
+    const missingDelete = await graphql(
+      app,
+      `
+        mutation MissingDelete($input: DeleteLabelInput!) {
+          deleteLabel(input: $input) {
+            label {
+              id
+            }
+          }
+        }
+      `,
+      { input: { id: label.data.createLabel.label.id, clientMutationId: "label-delete-2" } },
+      "MissingDelete",
+    );
+    expect((await responseBody(missingDelete)).errors?.[0]?.message).toContain("Not Found");
   });
 
   it("enforces installation selection and permissions and rejects invalid creation atomically", async () => {
@@ -911,5 +1015,78 @@ describe("GitHub GraphQL mutation compatibility", () => {
     expect((await responseBody(invalid)).errors?.[0]?.message).toContain("Validation failed");
     expect(gh.issues.all()).toHaveLength(beforeIssues);
     expect(gh.issueEvents.all()).toHaveLength(beforeEvents);
+  });
+
+  it("applies App permissions and selection to comments, lifecycle, and labels", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const fixture = await createFixture(app);
+    const gh = getGitHubStore(store);
+    const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+    addInstallationToken(store, tokenMap, "app-read-only", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [repo.id],
+    });
+    addInstallationToken(store, tokenMap, "app-excluded", {
+      permissions: { issues: "write" },
+      repositorySelection: "selected",
+      repositoryIds: [],
+    });
+    addInstallationToken(store, tokenMap, "app-write", {
+      permissions: { issues: "write" },
+      repositorySelection: "selected",
+      repositoryIds: [repo.id],
+    });
+
+    const commentMutation = `mutation Comment($input: AddCommentInput!) { addComment(input: $input) { comment { author { login } } } }`;
+    const commentInput = { input: { subjectId: fixture.issue.node_id, body: "App comment" } };
+    expect((await graphql(app, commentMutation, commentInput, "Comment", "app-read-only")).status).toBe(403);
+    expect((await graphql(app, commentMutation, commentInput, "Comment", "app-excluded")).status).toBe(403);
+    const appComment = await graphql(app, commentMutation, commentInput, "Comment", "app-write");
+    const appCommentBody = (await appComment.json()) as {
+      data: { addComment: { comment: { author: { login: string } } } };
+    };
+    expect(appCommentBody.data.addComment.comment.author.login).toBe("app-9[bot]");
+
+    const lifecycleMutation = `mutation Close($input: CloseIssueInput!) { closeIssue(input: $input) { issue { state } } }`;
+    const lifecycleInput = { input: { issueId: fixture.issue.node_id } };
+    expect((await graphql(app, lifecycleMutation, lifecycleInput, "Close", "app-read-only")).status).toBe(403);
+    expect((await graphql(app, lifecycleMutation, lifecycleInput, "Close", "app-excluded")).status).toBe(403);
+
+    const labelMutation = `mutation Label($input: CreateLabelInput!) { createLabel(input: $input) { label { id } } }`;
+    const labelInput = { input: { repositoryId: fixture.repo.node_id, name: "app-label" } };
+    expect((await graphql(app, labelMutation, labelInput, "Label", "app-read-only")).status).toBe(403);
+    expect((await graphql(app, labelMutation, labelInput, "Label", "app-excluded")).status).toBe(403);
+    const createdLabel = (await graphql(app, labelMutation, labelInput, "Label", "app-write")).json();
+    const labelId = ((await createdLabel) as { data: { createLabel: { label: { id: string } } } }).data.createLabel
+      .label.id;
+    const deleteMutation = `mutation Delete($input: DeleteLabelInput!) { deleteLabel(input: $input) { label { id } } }`;
+    expect((await graphql(app, deleteMutation, { input: { id: labelId } }, "Delete", "app-read-only")).status).toBe(
+      403,
+    );
+    expect((await graphql(app, deleteMutation, { input: { id: labelId } }, "Delete", "app-write")).status).toBe(200);
+  });
+
+  it("rejects wrong comment subjects and invalid bodies without mutation", async () => {
+    const { app, store } = createTestApp();
+    const fixture = await createFixture(app);
+    const gh = getGitHubStore(store);
+    const beforeComments = gh.comments.all().length;
+    const mutation = `mutation Comment($input: AddCommentInput!) { addComment(input: $input) { comment { id } } }`;
+    const wrongSubject = await graphql(
+      app,
+      mutation,
+      { input: { subjectId: fixture.repo.node_id, body: "wrong" } },
+      "Comment",
+    );
+    expect((await responseBody(wrongSubject)).errors?.[0]?.message).toContain("Not Found");
+    const invalidBody = await graphql(
+      app,
+      mutation,
+      { input: { subjectId: fixture.issue.node_id, body: "" } },
+      "Comment",
+    );
+    expect((await responseBody(invalidBody)).errors?.[0]?.message).toContain("Validation failed");
+    expect(gh.comments.all()).toHaveLength(beforeComments);
   });
 });
