@@ -25,7 +25,7 @@ GitHub API coverage:
   Includes repository contents, raw downloads, commit history, commit details, ref comparisons, and duplicate issue lifecycle state.
   Includes authenticated GraphQL reads for repositories, issues, labels, and issue comments at POST /graphql.
   Includes GraphQL issue relationships and addSubIssue/addBlockedBy mutations with clientMutationId echoes.
-  Includes GraphQL issue and comment mutations plus repository label create/delete with clientMutationId echoes.
+  Includes GraphQL issue and comment mutations, exact issue deletion, and repository label create/delete with clientMutationId echoes.
   Includes ordered issue relationships alongside repository contents, raw downloads, commit history, commit details, and ref comparisons.
   Issue parent, sub-issue, and dependency REST routes support pagination, Link headers, permissions, and cycle-safe mutations.
 

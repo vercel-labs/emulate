@@ -93,6 +93,48 @@ export function createIssue(context: GitHubMutationContext, input: CreateIssueIn
   return issue;
 }
 
+export interface DeleteIssueInput {
+  repo: GitHubRepo;
+  issue: GitHubIssue;
+}
+
+/** Delete an issue and all records that are incident to its identity. */
+export function deleteIssue(context: GitHubMutationContext, input: DeleteIssueInput): GitHubIssue {
+  const current = context.gh.issues.get(input.issue.id);
+  if (!current || current.repo_id !== input.repo.id || current.is_pull_request) {
+    throw new ApiError(404, "Not Found");
+  }
+
+  const issueId = current.id;
+  const issueNumber = current.number;
+  for (const comment of context.gh.comments.findBy("repo_id", input.repo.id)) {
+    if (comment.comment_type === "issue" && comment.issue_number === issueNumber) {
+      context.gh.comments.delete(comment.id);
+    }
+  }
+  for (const event of context.gh.issueEvents.findBy("repo_id", input.repo.id)) {
+    if (event.issue_number === issueNumber) context.gh.issueEvents.delete(event.id);
+  }
+  for (const relation of context.gh.issueSubIssues.all()) {
+    if (relation.parent_issue_id === issueId || relation.child_issue_id === issueId) {
+      context.gh.issueSubIssues.delete(relation.id);
+    }
+  }
+  for (const relation of context.gh.issueDependencies.all()) {
+    if (relation.blocked_issue_id === issueId || relation.blocking_issue_id === issueId) {
+      context.gh.issueDependencies.delete(relation.id);
+    }
+  }
+  for (const other of context.gh.issues.all()) {
+    if (other.id !== issueId && other.duplicate_issue_id === issueId) {
+      context.gh.issues.update(other.id, { duplicate_issue_id: null });
+    }
+  }
+  if (current.state === "open") adjustRepoOpenIssues(context.gh, input.repo.id, -1);
+  if (!context.gh.issues.delete(issueId)) throw new ApiError(404, "Not Found");
+  return current;
+}
+
 export interface TransitionIssueLifecycleInput {
   repo: GitHubRepo;
   issue: GitHubIssue;

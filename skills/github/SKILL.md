@@ -78,7 +78,7 @@ Public repo endpoints work without auth. Private repos and write operations requ
 `POST /graphql` accepts a JSON body with `query`, optional `variables`, and optional `operationName`. Authenticated queries support repository and issue reads, global `node(id:)` reads for repositories, issues, labels, and issue comments, and Relay-style issue comment connections with opaque cursors. Inaccessible records resolve to `null`. The `rateLimit` query and REST `/rate_limit` endpoint share the GraphQL rate-limit bucket.
 
 Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. The `addSubIssue` and `addBlockedBy` mutations use the shared relationship state, enforce REST-equivalent permissions and validation, and echo `clientMutationId` exactly.
-Supported mutations are `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, and `deleteLabel`. They use typed inputs, exact `clientMutationId` echoes, shared REST operations, and the same App installation permissions and repository selection rules.
+Supported mutations are `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue`. They use typed inputs, exact `clientMutationId` echoes, shared REST operations, and the same App installation permissions and repository selection rules. `deleteIssue` removes issue-owned comments, timeline records, and relationship edges while preserving unrelated records and repository labels.
 
 ### GitHub App JWT
 
