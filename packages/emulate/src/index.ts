@@ -28,6 +28,7 @@ GitHub API coverage:
   Includes GraphQL issue and comment mutations plus repository label create/delete with clientMutationId echoes.
   Includes ordered issue relationships alongside repository contents, raw downloads, commit history, commit details, and ref comparisons.
   Issue parent, sub-issue, and dependency REST routes support pagination, Link headers, permissions, and cycle-safe mutations.
+  GitHub seeds accept keyed labels, issues, comments, parent-child edges, and dependencies. Graph references are validated before startup, and reset restores the seeded graph and node IDs.
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.

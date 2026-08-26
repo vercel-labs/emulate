@@ -5,11 +5,12 @@ import { getGitHubStore } from "./store.js";
 import { generateNodeId } from "./helpers.js";
 
 export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPlan): void {
-  const { config } = plan;
   const gh = getGitHubStore(store);
   const issueSpecs = plan.issues;
   const issueByKey = new Map<string, GitHubIssue>();
+  const issueByRepoNumber = new Map<string, GitHubIssue>();
   const labelByKey = new Map<string, ReturnType<typeof gh.labels.insert>>();
+  const numbersByRepo = new Map<number, Set<number>>();
   const resolveRepo = (name: string | undefined) => {
     const repo = name ? gh.repos.findOneBy("full_name", name) : undefined;
     if (!repo) throw new Error(`GitHub seed references missing repository: ${name ?? "<missing>"}`);
@@ -21,12 +22,7 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
     return user;
   };
 
-  for (const spec of [
-    ...(config.labels ?? []),
-    ...(config.repos ?? []).flatMap((r) =>
-      (r.labels ?? []).map((label) => ({ ...label, repo: `${r.owner}/${r.name}` })),
-    ),
-  ]) {
+  for (const spec of plan.labels) {
     const repo = resolveRepo(spec.repo);
     const key = `${repo.full_name}:${spec.key}`;
     if (labelByKey.has(key)) throw new Error(`Duplicate GitHub seed label key: ${spec.key}`);
@@ -34,12 +30,7 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
   }
   for (const spec of issueSpecs) issueByKey.set(spec.key, { id: -1 } as GitHubIssue);
   const commentSpecs = plan.comments ?? [];
-  for (const spec of [
-    ...(config.labels ?? []),
-    ...(config.repos ?? []).flatMap((r) =>
-      (r.labels ?? []).map((label) => ({ ...label, repo: `${r.owner}/${r.name}` })),
-    ),
-  ]) {
+  for (const spec of plan.labels) {
     const repo = resolveRepo(spec.repo);
     const inserted = gh.labels.insert({
       node_id: "",
@@ -54,15 +45,15 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
   }
   for (const spec of issueSpecs) {
     const repo = resolveRepo(spec.repo);
+    const numbers =
+      numbersByRepo.get(repo.id) ?? new Set(gh.issues.findBy("repo_id", repo.id).map((issue) => issue.number));
+    if (spec.number !== undefined && numbers.has(spec.number))
+      throw new Error(`Duplicate GitHub seed issue number: ${repo.full_name}#${spec.number}`);
     const state = spec.state ?? (spec.state_reason && spec.state_reason !== "reopened" ? "closed" : "open");
     const reason = spec.state_reason ?? (state === "closed" ? "completed" : null);
-    const number =
-      spec.number ??
-      Math.max(
-        0,
-        ...gh.issues.findBy("repo_id", repo.id).map((i) => i.number),
-        ...issueSpecs.filter((i) => i.repo === repo.full_name && i.number !== undefined).map((i) => i.number!),
-      ) + 1;
+    const number = spec.number ?? Math.max(0, ...numbers) + 1;
+    numbers.add(number);
+    numbersByRepo.set(repo.id, numbers);
     const created = new Date(0).toISOString();
     const inserted = gh.issues.insert({
       node_id: "",
@@ -86,13 +77,14 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
     });
     gh.issues.update(inserted.id, { node_id: generateNodeId("Issue", inserted.id) });
     issueByKey.set(spec.key, inserted);
+    issueByRepoNumber.set(`${repo.full_name}:${number}`, inserted);
   }
   for (const spec of issueSpecs) {
     const issue = issueByKey.get(spec.key)!;
     const repo = gh.repos.get(issue.repo_id)!;
     const labelIds: number[] = [];
-    if (spec.duplicate_of) {
-      const canonical = issueByKey.get(spec.duplicate_of);
+    if (plan.canonicalRefs.has(spec.key)) {
+      const canonical = issueByKey.get(plan.canonicalRefs.get(spec.key)!);
       if (!canonical || canonical.id === issue.id || canonical.duplicate_issue_id !== null)
         throw new Error(`Invalid canonical duplicate target for seed issue "${spec.key}"`);
       issue.duplicate_issue_id = canonical.id;
@@ -110,7 +102,7 @@ export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPla
     const issue =
       typeof spec.issue === "string"
         ? issueByKey.get(spec.issue)
-        : gh.issues.findBy("repo_id", repo.id).find((candidate) => candidate.number === spec.issue);
+        : issueByRepoNumber.get(`${repo.full_name}:${spec.issue}`);
     if (!issue || issue.repo_id !== repo.id) throw new Error(`Seed comment "${spec.key}" references missing issue`);
     const row = gh.comments.insert({
       node_id: "",

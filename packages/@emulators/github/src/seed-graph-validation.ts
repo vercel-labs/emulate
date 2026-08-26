@@ -1,8 +1,10 @@
 import type { GitHubSeedConfig } from "./index.js";
 
+type ValidatedLabel = NonNullable<GitHubSeedConfig["labels"]>[number] & { repo: string };
+
 export interface ValidatedGitHubSeedPlan {
   config: GitHubSeedConfig;
-  labels: GitHubSeedConfig["labels"];
+  labels: ValidatedLabel[];
   issues: Array<NonNullable<GitHubSeedConfig["issues"]>[number] & { repo: string }>;
   comments: GitHubSeedConfig["comments"];
   subIssues: Array<{ parent: string; child: string; position: number }>;
@@ -37,13 +39,14 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHu
   const config = normalizeGitHubSeedGraph(input);
   const users = new Set(["ghost", "admin", ...(config.users ?? []).map((user) => user.login)]);
   const repos = new Set((config.repos ?? []).map((repo) => `${repo.owner}/${repo.name}`));
-  const labels = new Set<string>();
-  for (const label of [
+  const labelSpecs = [
     ...(config.labels ?? []),
     ...(config.repos ?? []).flatMap((repo) =>
       (repo.labels ?? []).map((entry) => ({ ...entry, repo: `${repo.owner}/${repo.name}` })),
     ),
-  ]) {
+  ].map((label) => ({ ...label, repo: label.repo! }));
+  const labels = new Set<string>();
+  for (const label of labelSpecs) {
     if (!repos.has(label.repo)) throw new Error(`GitHub seed references missing repository: ${label.repo}`);
     const key = `${label.repo}:${label.key}`;
     if (labels.has(key)) throw new Error(`Duplicate GitHub seed label key: ${label.key}`);
@@ -189,7 +192,7 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHu
 
   return {
     config,
-    labels: config.labels,
+    labels: labelSpecs,
     issues,
     comments,
     subIssues: (config.sub_issues ?? []).map((edge) => ({ ...edge, position: edge.position! })),

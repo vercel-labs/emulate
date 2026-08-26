@@ -137,6 +137,20 @@ describe("stable issue graph seeds", () => {
     expect(JSON.stringify(store.snapshot())).toBe(before);
   });
 
+  it("rolls back materialization after a preflight-passing store collision", () => {
+    const { store } = appFor();
+    const before = JSON.stringify(store.snapshot());
+    expect(() =>
+      seedFromConfig(store, base, {
+        users: [{ login: "octocat" }],
+        repos: [{ owner: "octocat", name: "graph" }],
+        labels: [{ key: "partial", repo: "octocat/graph", name: "partial" }],
+        issues: [{ key: "collision", repo: "octocat/graph", number: 7, title: "collision" }],
+      }),
+    ).toThrow("Duplicate GitHub seed issue number");
+    expect(JSON.stringify(store.snapshot())).toBe(before);
+  });
+
   const issuePair = {
     issues: [
       { key: "parent", repo: "octocat/graph", title: "Parent" },
