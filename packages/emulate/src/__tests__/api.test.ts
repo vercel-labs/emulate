@@ -119,6 +119,7 @@ describe("createEmulator", () => {
     });
     const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
     const issueUrl = `${github.url}/repos/octocat/graph/issues`;
+    const beforeIssueList = await fetch(issueUrl, { headers });
     const beforeParent = await fetch(`${issueUrl}/10`, { headers });
     const beforeChild = await fetch(`${issueUrl}/20`, { headers });
     const beforeDuplicate = await fetch(`${issueUrl}/40`, { headers });
@@ -154,6 +155,7 @@ describe("createEmulator", () => {
       comments: stableResponse(await beforeComments.json()),
       subIssues: stableResponse(await beforeSubIssues.json()),
       dependencies: stableResponse(await beforeDependencies.json()),
+      issueList: stableResponse(await beforeIssueList.json()),
       graph: (await beforeGraph.json()) as any,
     };
     expect(beforeParent.status).toBe(200);
@@ -166,7 +168,12 @@ describe("createEmulator", () => {
       body: JSON.stringify({ title: "mutation" }),
     });
     expect(mutationIssueResponse.status).toBe(201);
-    const mutationIssue = (await mutationIssueResponse.json()) as { id: number };
+    const mutationIssue = (await mutationIssueResponse.json()) as { id: number; number: number; node_id: string };
+    expect(mutationIssue).toMatchObject({
+      id: expect.any(Number),
+      number: expect.any(Number),
+      node_id: expect.any(String),
+    });
     expect(
       (await fetch(`${issueUrl}/10/comments`, { method: "POST", headers, body: JSON.stringify({ body: "mutation" }) }))
         .status,
@@ -205,11 +212,16 @@ describe("createEmulator", () => {
       method: "POST",
       headers,
       body: JSON.stringify({
-        query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { number } } }`,
+        query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { id number } } }`,
       }),
     });
     expect(graphMutation.status).toBe(200);
-    expect(((await graphMutation.json()) as any).data.createIssue.issue.number).toEqual(expect.any(Number));
+    const graphMutationBody = (await graphMutation.json()) as any;
+    expect(graphMutationBody.data.createIssue.issue).toMatchObject({
+      id: expect.any(String),
+      number: expect.any(Number),
+    });
+    const graphMutationIssue = graphMutationBody.data.createIssue.issue as { id: string; number: number };
 
     github.reset();
     const afterParent = await fetch(`${issueUrl}/10`, { headers });
@@ -219,6 +231,7 @@ describe("createEmulator", () => {
     const afterComments = await fetch(`${issueUrl}/10/comments`, { headers });
     const afterSubIssues = await fetch(`${issueUrl}/10/sub_issues`, { headers });
     const afterDependencies = await fetch(`${issueUrl}/20/dependencies/blocked_by`, { headers });
+    const afterIssueList = await fetch(issueUrl, { headers });
     const afterGraph = await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
@@ -235,8 +248,18 @@ describe("createEmulator", () => {
       comments: stableResponse(await afterComments.json()),
       subIssues: stableResponse(await afterSubIssues.json()),
       dependencies: stableResponse(await afterDependencies.json()),
+      issueList: stableResponse(await afterIssueList.json()),
       graph: await afterGraph.json(),
     }).toEqual(baseline);
+    expect((await fetch(`${issueUrl}/${mutationIssue.number}`, { headers })).status).toBe(404);
+    const missingGraphIssue = await fetch(`${github.url}/graphql`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: `{ repository(owner: "octocat", name: "graph") { issue(number: ${graphMutationIssue.number}) { id } } }`,
+      }),
+    });
+    expect(((await missingGraphIssue.json()) as any).data.repository.issue).toBeNull();
     await github.close();
   });
 
@@ -295,6 +318,7 @@ describe("createEmulator", () => {
       const nodeFields = field === "comments" ? "id body" : "id number";
       const values: Array<{ id?: string; number?: number; body?: string }> = [];
       const cursors = new Set<string>();
+      const startCursors = new Set<string>();
       let after: string | null = null;
       let pages = 0;
       do {
@@ -302,7 +326,7 @@ describe("createEmulator", () => {
           method: "POST",
           headers,
           body: JSON.stringify({
-            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 25${after ? `, after: "${after}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
+            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${after ? `, after: "${after}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
           }),
         });
         expect(response.status).toBe(200);
@@ -312,6 +336,13 @@ describe("createEmulator", () => {
         values.push(...connection.nodes);
         expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
         expect(connection.pageInfo.hasPreviousPage).toBe(pages > 0);
+        expect(connection.pageInfo.startCursor).toEqual(size === 0 ? null : expect.any(String));
+        expect(connection.pageInfo.endCursor).toEqual(size === 0 ? null : expect.any(String));
+        if (connection.pageInfo.startCursor) {
+          expect(startCursors.has(connection.pageInfo.startCursor)).toBe(false);
+          startCursors.add(connection.pageInfo.startCursor);
+        }
+        if (connection.pageInfo.hasNextPage) expect(connection.pageInfo.endCursor).toEqual(expect.any(String));
         if (connection.pageInfo.endCursor) {
           expect(cursors.has(connection.pageInfo.endCursor)).toBe(false);
           cursors.add(connection.pageInfo.endCursor);
@@ -319,7 +350,7 @@ describe("createEmulator", () => {
         after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
         pages += 1;
       } while (after !== null);
-      expect(pages).toBe(Math.max(1, Math.ceil(size / 25)));
+      expect(pages).toBe(Math.max(1, Math.ceil(size / 100)));
       expect(values).toHaveLength(size);
       expect(new Set(values.map((value) => value.id)).size).toBe(size);
       if (field === "comments")
@@ -334,6 +365,8 @@ describe("createEmulator", () => {
         });
         github.reset();
         const restoredValues: typeof values = [];
+        const restoredCursors = new Set<string>();
+        const restoredStartCursors = new Set<string>();
         let restoredAfter: string | null = null;
         let restoredPages = 0;
         do {
@@ -341,7 +374,7 @@ describe("createEmulator", () => {
             method: "POST",
             headers,
             body: JSON.stringify({
-              query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 25${restoredAfter ? `, after: "${restoredAfter}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
+              query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100${restoredAfter ? `, after: "${restoredAfter}"` : ""}) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } } } } }`,
             }),
           });
           expect(restored.status).toBe(200);
@@ -351,10 +384,20 @@ describe("createEmulator", () => {
           restoredValues.push(...connection.nodes);
           expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
           expect(connection.pageInfo.hasPreviousPage).toBe(restoredPages > 0);
+          expect(connection.pageInfo.startCursor).toEqual(size === 0 ? null : expect.any(String));
+          expect(connection.pageInfo.endCursor).toEqual(size === 0 ? null : expect.any(String));
+          if (connection.pageInfo.startCursor) {
+            expect(restoredStartCursors.has(connection.pageInfo.startCursor)).toBe(false);
+            restoredStartCursors.add(connection.pageInfo.startCursor);
+          }
+          if (connection.pageInfo.endCursor) {
+            expect(restoredCursors.has(connection.pageInfo.endCursor)).toBe(false);
+            restoredCursors.add(connection.pageInfo.endCursor);
+          }
           restoredAfter = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
           restoredPages += 1;
         } while (restoredAfter !== null);
-        expect(restoredPages).toBe(Math.max(1, Math.ceil(size / 25)));
+        expect(restoredPages).toBe(Math.max(1, Math.ceil(size / 100)));
         expect(restoredValues).toEqual(values);
       }
       await github.close();
