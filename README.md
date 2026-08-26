@@ -657,6 +657,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Inaccessible records resolve to `null`; `rateLimit` and REST `/rate_limit` share the GraphQL rate-limit bucket.
 - Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. `addSubIssue` and `addBlockedBy` mutations echo `clientMutationId` exactly and use the same relationship state as REST.
 - GraphQL `deleteIssue` returns the owning repository, echoes `clientMutationId` exactly, and removes the issue and its owned comments, timeline records, and relationship edges while preserving unrelated records and repository labels. No deletion webhook or issue event is emitted because provider behavior is not established by emulator evidence.
+- Qualified subset: `repository`, `node`, and `rateLimit` queries plus `addSubIssue`, `addBlockedBy`, `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue` mutations. Comment, sub-issue, and blocker connections use opaque cursors with a 100-item page cap; malformed transport, parse, validation, authorization, missing-node, wrong-type, and resolver failures retain their tested HTTP and GraphQL envelopes. REST relationship routes are listed below. Seeded issue-graph fixtures and reset-specific guarantees remain pending issue #11 integration. No live GitHub calls are made and the GraphQL rate-limit bucket is shared with REST.
 
 ### Users
 - `GET /user` - authenticated user

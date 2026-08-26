@@ -1053,6 +1053,84 @@ describe("GitHub GraphQL read compatibility", () => {
     expect(((await responseBody(empty)) as any).data.node.subIssues.nodes).toEqual([]);
   });
 
+  it("traverses empty, one, exact-100, and 101-item comment and blocker connections", async () => {
+    const { app } = createTestApp();
+    const empty = await createIssue(app, "Empty connection");
+    const commentTarget = await createIssue(app, "Comment boundary");
+    const commentPath = `/repos/octocat/hello-world/issues/${commentTarget.number}/comments`;
+    for (let index = 0; index < 101; index++) {
+      expect(
+        (
+          await app.request(`${base}${commentPath}`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ body: `comment-${index}` }),
+          })
+        ).status,
+      ).toBe(201);
+    }
+    const commentQuery = `query Boundary($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { comments(first: $first, after: $after) { nodes { body } edges { cursor } totalCount pageInfo { hasNextPage } } } } }`;
+    const emptyBody = (await responseBody(
+      await graphql(app, commentQuery, { id: empty.node_id, first: 1 }, "Boundary"),
+    )) as any;
+    expect(emptyBody.data.node.comments.nodes).toEqual([]);
+    const first = (await responseBody(
+      await graphql(app, commentQuery, { id: commentTarget.node_id, first: 100 }, "Boundary"),
+    )) as any;
+    expect(first.data.node.comments.nodes).toHaveLength(100);
+    expect(first.data.node.comments.totalCount).toBe(101);
+    expect(first.data.node.comments.pageInfo.hasNextPage).toBe(true);
+    const second = (await responseBody(
+      await graphql(
+        app,
+        commentQuery,
+        { id: commentTarget.node_id, first: 100, after: first.data.node.comments.edges.at(-1).cursor },
+        "Boundary",
+      ),
+    )) as any;
+    expect(second.data.node.comments.nodes).toHaveLength(1);
+    expect(
+      new Set([...first.data.node.comments.nodes, ...second.data.node.comments.nodes].map((comment) => comment.body))
+        .size,
+    ).toBe(101);
+
+    const blocked = await createIssue(app, "Blocker boundary");
+    for (let index = 0; index < 101; index++) {
+      const blocker = await createIssue(app, `blocker-${index}`);
+      expect(
+        (
+          await app.request(`${base}/repos/octocat/hello-world/issues/${blocked.number}/dependencies/blocked_by`, {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({ issue_id: blocker.id }),
+          })
+        ).status,
+      ).toBe(201);
+    }
+    const blockerQuery = `query Boundary($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { blockedBy(first: $first, after: $after) { nodes { id } edges { cursor } totalCount pageInfo { hasNextPage } } } } }`;
+    const blockerFirst = (await responseBody(
+      await graphql(app, blockerQuery, { id: blocked.node_id, first: 100 }, "Boundary"),
+    )) as any;
+    expect(blockerFirst.data.node.blockedBy.nodes).toHaveLength(100);
+    expect(blockerFirst.data.node.blockedBy.totalCount).toBe(101);
+    const blockerSecond = (await responseBody(
+      await graphql(
+        app,
+        blockerQuery,
+        { id: blocked.node_id, first: 100, after: blockerFirst.data.node.blockedBy.edges.at(-1).cursor },
+        "Boundary",
+      ),
+    )) as any;
+    expect(blockerSecond.data.node.blockedBy.nodes).toHaveLength(1);
+    expect(
+      new Set(
+        [...blockerFirst.data.node.blockedBy.nodes, ...blockerSecond.data.node.blockedBy.nodes].map(
+          (issue) => issue.id,
+        ),
+      ).size,
+    ).toBe(101);
+  });
+
   it("rejects relationship duplicates, self references, conflicts, and inaccessible dependencies without mutation", async () => {
     const { app } = createTestApp();
     const parent = await createIssue(app, "Validation parent");
