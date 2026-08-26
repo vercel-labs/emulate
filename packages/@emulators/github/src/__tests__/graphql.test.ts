@@ -749,6 +749,57 @@ describe("GitHub GraphQL read compatibility", () => {
     expect((await responseBody(nullVariable)).errors?.[0]?.message).toContain("not to be null");
   });
 
+  it("returns partial data for resolver errors with HTTP 200", async () => {
+    const { app, store } = createTestApp();
+    const repositoryId = getGitHubStore(store).repos.findOneBy("full_name", "octocat/hello-world")!.node_id;
+    const response = await graphql(
+      app,
+      `
+        mutation Partial($bad: CreateIssueInput!, $good: CreateIssueInput!) {
+          bad: createIssue(input: $bad) {
+            issue {
+              id
+            }
+          }
+          good: createIssue(input: $good) {
+            issue {
+              number
+            }
+          }
+        }
+      `,
+      {
+        bad: { repositoryId, title: "" },
+        good: { repositoryId, title: "Partial success" },
+      },
+      "Partial",
+    );
+    expect(response.status).toBe(200);
+    const body = (await responseBody(response)) as any;
+    expect(body.data).toBeNull();
+    expect(body.errors?.[0]?.message).toContain("Validation failed");
+    const partial = await graphql(
+      app,
+      `
+        query Partial {
+          repository(owner: "octocat", name: "hello-world") {
+            id
+          }
+          node(id: "missing") {
+            id
+          }
+        }
+      `,
+      undefined,
+      "Partial",
+    );
+    expect(partial.status).toBe(200);
+    expect(((await responseBody(partial)) as any).data).toEqual({
+      repository: { id: repositoryId },
+      node: null,
+    });
+  });
+
   it("supports forward and backward comment pagination with strict cursors", async () => {
     const { app } = createTestApp();
     const fixture = await createFixture(app);
@@ -1036,10 +1087,12 @@ describe("GitHub GraphQL read compatibility", () => {
     }
     const query = `query Boundaries($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { subIssues(first: $first, after: $after) { nodes { id } edges { cursor } pageInfo { hasNextPage hasPreviousPage } totalCount } } } }`;
     const first = await graphql(app, query, { id: parent.node_id, first: 100 }, "Boundaries");
+    expect(first.status).toBe(200);
     const firstBody = ((await responseBody(first)) as any).data.node.subIssues;
     expect(firstBody.nodes).toHaveLength(100);
     expect(firstBody.totalCount).toBe(101);
     expect(firstBody.pageInfo.hasNextPage).toBe(true);
+    expect(firstBody.pageInfo.hasPreviousPage).toBe(false);
     const next = await graphql(
       app,
       query,
@@ -1047,8 +1100,10 @@ describe("GitHub GraphQL read compatibility", () => {
       "Boundaries",
     );
     const nextBody = ((await responseBody(next)) as any).data.node.subIssues;
+    expect(next.status).toBe(200);
     expect(nextBody.nodes).toHaveLength(1);
     expect(nextBody.pageInfo.hasNextPage).toBe(false);
+    expect(nextBody.pageInfo.hasPreviousPage).toBe(true);
     const empty = await graphql(app, query, { id: parent.node_id, first: 0 }, "Boundaries");
     expect(((await responseBody(empty)) as any).data.node.subIssues.nodes).toEqual([]);
   });
@@ -1069,7 +1124,7 @@ describe("GitHub GraphQL read compatibility", () => {
         ).status,
       ).toBe(201);
     }
-    const commentQuery = `query Boundary($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { comments(first: $first, after: $after) { nodes { body } edges { cursor } totalCount pageInfo { hasNextPage } } } } }`;
+    const commentQuery = `query Boundary($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { comments(first: $first, after: $after) { nodes { body } edges { cursor } totalCount pageInfo { hasNextPage hasPreviousPage } } } } }`;
     const emptyBody = (await responseBody(
       await graphql(app, commentQuery, { id: empty.node_id, first: 1 }, "Boundary"),
     )) as any;
@@ -1080,6 +1135,10 @@ describe("GitHub GraphQL read compatibility", () => {
     expect(first.data.node.comments.nodes).toHaveLength(100);
     expect(first.data.node.comments.totalCount).toBe(101);
     expect(first.data.node.comments.pageInfo.hasNextPage).toBe(true);
+    expect(first.data.node.comments.pageInfo.hasPreviousPage).toBe(false);
+    expect(first.data.node.comments.nodes.map((comment: { body: string }) => comment.body)).toEqual(
+      Array.from({ length: 100 }, (_, index) => `comment-${index}`),
+    );
     const second = (await responseBody(
       await graphql(
         app,
@@ -1089,6 +1148,9 @@ describe("GitHub GraphQL read compatibility", () => {
       ),
     )) as any;
     expect(second.data.node.comments.nodes).toHaveLength(1);
+    expect(second.data.node.comments.pageInfo.hasNextPage).toBe(false);
+    expect(second.data.node.comments.pageInfo.hasPreviousPage).toBe(true);
+    expect(second.data.node.comments.nodes[0].body).toBe("comment-100");
     expect(
       new Set([...first.data.node.comments.nodes, ...second.data.node.comments.nodes].map((comment) => comment.body))
         .size,
@@ -1107,12 +1169,14 @@ describe("GitHub GraphQL read compatibility", () => {
         ).status,
       ).toBe(201);
     }
-    const blockerQuery = `query Boundary($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { blockedBy(first: $first, after: $after) { nodes { id } edges { cursor } totalCount pageInfo { hasNextPage } } } } }`;
+    const blockerQuery = `query Boundary($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { blockedBy(first: $first, after: $after) { nodes { id } edges { cursor } totalCount pageInfo { hasNextPage hasPreviousPage } } } } }`;
     const blockerFirst = (await responseBody(
       await graphql(app, blockerQuery, { id: blocked.node_id, first: 100 }, "Boundary"),
     )) as any;
     expect(blockerFirst.data.node.blockedBy.nodes).toHaveLength(100);
     expect(blockerFirst.data.node.blockedBy.totalCount).toBe(101);
+    expect(blockerFirst.data.node.blockedBy.pageInfo.hasNextPage).toBe(true);
+    expect(blockerFirst.data.node.blockedBy.pageInfo.hasPreviousPage).toBe(false);
     const blockerSecond = (await responseBody(
       await graphql(
         app,
@@ -1122,6 +1186,8 @@ describe("GitHub GraphQL read compatibility", () => {
       ),
     )) as any;
     expect(blockerSecond.data.node.blockedBy.nodes).toHaveLength(1);
+    expect(blockerSecond.data.node.blockedBy.pageInfo.hasNextPage).toBe(false);
+    expect(blockerSecond.data.node.blockedBy.pageInfo.hasPreviousPage).toBe(true);
     expect(
       new Set(
         [...blockerFirst.data.node.blockedBy.nodes, ...blockerSecond.data.node.blockedBy.nodes].map(
