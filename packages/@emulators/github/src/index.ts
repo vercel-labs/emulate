@@ -497,7 +497,7 @@ function seedIssueGraph(store: Store, baseUrl: string, config: GitHubSeedConfig)
   }
 }
 
-export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+function seedFromConfigUnsafe(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
       throw new Error(
@@ -739,6 +739,17 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         }
       }
     }
+  }
+}
+
+/** Apply a seed as one transaction so failed validation cannot leak partial entities. */
+export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  const snapshot = store.snapshot();
+  try {
+    seedFromConfigUnsafe(store, baseUrl, config);
+  } catch (error) {
+    store.restore(snapshot);
+    throw error;
   }
 }
 
