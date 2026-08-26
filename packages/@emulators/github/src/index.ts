@@ -28,6 +28,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
+import { validateGitHubSeedGraph } from "./seed-graph-validation.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -498,6 +499,7 @@ function seedIssueGraph(store: Store, baseUrl: string, config: GitHubSeedConfig)
 }
 
 function seedFromConfigUnsafe(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  validateGitHubSeedGraph(config);
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
       throw new Error(
