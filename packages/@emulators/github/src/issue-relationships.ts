@@ -1,6 +1,16 @@
 import { ApiError, notFound } from "@emulators/core";
-import type { GitHubIssue, GitHubIssueDependency, GitHubIssueSubIssue } from "./entities.js";
+import type { WebhookDispatcher } from "@emulators/core";
+import type {
+  GitHubIssue,
+  GitHubIssueDependency,
+  GitHubIssueEvent,
+  GitHubIssueSubIssue,
+  GitHubRepo,
+  GitHubUser,
+} from "./entities.js";
 import type { GitHubStore } from "./store.js";
+import { formatIssue, formatRepo, formatUser, generateNodeId } from "./helpers.js";
+import { ownerLoginOf } from "./route-helpers.js";
 
 export interface AddSubIssueOptions {
   replaceParent?: boolean;
@@ -9,6 +19,177 @@ export interface AddSubIssueOptions {
 export interface AddedSubIssue {
   relation: GitHubIssueSubIssue;
   replacedParentId: number | null;
+}
+
+export interface RelationshipMutationContext {
+  gh: GitHubStore;
+  webhooks: WebhookDispatcher;
+  baseUrl: string;
+  actor: GitHubUser;
+}
+
+function relationshipEvent(
+  context: RelationshipMutationContext,
+  repo: GitHubRepo,
+  issue: GitHubIssue,
+  event: string,
+  extra: Partial<Pick<GitHubIssueEvent, "parent_issue_id" | "sub_issue_id" | "blocked_issue_id" | "blocking_issue_id">>,
+): void {
+  const row = context.gh.issueEvents.insert({
+    node_id: "",
+    repo_id: repo.id,
+    issue_number: issue.number,
+    event,
+    actor_id: context.actor.id,
+    commit_id: null,
+    commit_url: null,
+    label_name: null,
+    assignee_id: null,
+    milestone_title: null,
+    rename: null,
+    ...extra,
+  } as Omit<GitHubIssueEvent, "id" | "created_at" | "updated_at">);
+  context.gh.issueEvents.update(row.id, { node_id: generateNodeId("IssueEvent", row.id) });
+}
+
+function relationshipPayload(
+  context: RelationshipMutationContext,
+  action: string,
+  repository: GitHubRepo,
+  parent: GitHubIssue,
+  child: GitHubIssue,
+) {
+  return {
+    action,
+    parent_issue_id: parent.id,
+    parent_issue: formatIssue(parent, context.gh, context.baseUrl),
+    sub_issue_id: child.id,
+    sub_issue: formatIssue(child, context.gh, context.baseUrl),
+    repository: formatRepo(repository, context.gh, context.baseUrl),
+    sender: formatUser(context.actor, context.baseUrl),
+  };
+}
+
+function dependencyPayload(
+  context: RelationshipMutationContext,
+  action: string,
+  repository: GitHubRepo,
+  blocked: GitHubIssue,
+  blocking: GitHubIssue,
+) {
+  const blockedRepo = context.gh.repos.get(blocked.repo_id);
+  const blockingRepo = context.gh.repos.get(blocking.repo_id);
+  return {
+    action,
+    blocked_issue_id: blocked.id,
+    blocked_issue: formatIssue(blocked, context.gh, context.baseUrl),
+    blocking_issue_id: blocking.id,
+    blocking_issue: formatIssue(blocking, context.gh, context.baseUrl),
+    repository: formatRepo(repository, context.gh, context.baseUrl),
+    blocked_repository: blockedRepo ? formatRepo(blockedRepo, context.gh, context.baseUrl) : null,
+    blocking_repository: blockingRepo ? formatRepo(blockingRepo, context.gh, context.baseUrl) : null,
+    sender: formatUser(context.actor, context.baseUrl),
+  };
+}
+
+export function dispatchSubIssueRelationship(
+  context: RelationshipMutationContext,
+  parent: GitHubIssue,
+  child: GitHubIssue,
+  action: "added" | "removed",
+): void {
+  const parentRepo = context.gh.repos.get(parent.repo_id);
+  const childRepo = context.gh.repos.get(child.repo_id);
+  if (!parentRepo || !childRepo) return;
+  const parentAction = `sub_issue_${action}`;
+  const childAction = `parent_issue_${action}`;
+  relationshipEvent(context, parentRepo, parent, parentAction, { parent_issue_id: parent.id, sub_issue_id: child.id });
+  relationshipEvent(context, childRepo, child, childAction, { parent_issue_id: parent.id, sub_issue_id: child.id });
+  void context.webhooks.dispatch(
+    "sub_issues",
+    parentAction,
+    relationshipPayload(context, parentAction, parentRepo, parent, child),
+    ownerLoginOf(context.gh, parentRepo),
+    parentRepo.name,
+  );
+  void context.webhooks.dispatch(
+    "sub_issues",
+    childAction,
+    relationshipPayload(context, childAction, childRepo, parent, child),
+    ownerLoginOf(context.gh, childRepo),
+    childRepo.name,
+  );
+}
+
+export function dispatchIssueDependencyRelationship(
+  context: RelationshipMutationContext,
+  blocked: GitHubIssue,
+  blocking: GitHubIssue,
+  action: "added" | "removed",
+): void {
+  const blockedRepo = context.gh.repos.get(blocked.repo_id);
+  const blockingRepo = context.gh.repos.get(blocking.repo_id);
+  if (!blockedRepo || !blockingRepo) return;
+  const blockedAction = `blocked_by_${action}`;
+  const blockingAction = `blocking_${action}`;
+  relationshipEvent(context, blockedRepo, blocked, blockedAction, {
+    blocked_issue_id: blocked.id,
+    blocking_issue_id: blocking.id,
+  });
+  relationshipEvent(context, blockingRepo, blocking, blockingAction, {
+    blocked_issue_id: blocked.id,
+    blocking_issue_id: blocking.id,
+  });
+  void context.webhooks.dispatch(
+    "issue_dependencies",
+    blockedAction,
+    dependencyPayload(context, blockedAction, blockedRepo, blocked, blocking),
+    ownerLoginOf(context.gh, blockedRepo),
+    blockedRepo.name,
+  );
+  void context.webhooks.dispatch(
+    "issue_dependencies",
+    blockingAction,
+    dependencyPayload(context, blockingAction, blockingRepo, blocked, blocking),
+    ownerLoginOf(context.gh, blockingRepo),
+    blockingRepo.name,
+  );
+}
+
+export function addSubIssueWithEvents(
+  context: RelationshipMutationContext,
+  parentIssueId: number,
+  childIssueId: number,
+  options: AddSubIssueOptions = {},
+): AddedSubIssue {
+  const result = addSubIssue(context.gh, parentIssueId, childIssueId, options);
+  if (result.replacedParentId !== null) {
+    const oldParent = getIssueById(context.gh, result.replacedParentId);
+    const child = getIssueById(context.gh, childIssueId);
+    dispatchSubIssueRelationship(context, oldParent, child, "removed");
+  }
+  dispatchSubIssueRelationship(
+    context,
+    getIssueById(context.gh, parentIssueId),
+    getIssueById(context.gh, childIssueId),
+    "added",
+  );
+  return result;
+}
+
+export function addIssueDependencyWithEvents(
+  context: RelationshipMutationContext,
+  blockedIssueId: number,
+  blockingIssueId: number,
+): GitHubIssueDependency {
+  const relation = addIssueDependency(context.gh, blockedIssueId, blockingIssueId);
+  dispatchIssueDependencyRelationship(
+    context,
+    getIssueById(context.gh, blockedIssueId),
+    getIssueById(context.gh, blockingIssueId),
+    "added",
+  );
+  return relation;
 }
 
 function invalid(message: string): never {

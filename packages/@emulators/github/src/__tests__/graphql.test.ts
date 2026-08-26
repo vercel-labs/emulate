@@ -785,4 +785,119 @@ describe("GitHub GraphQL read compatibility", () => {
     });
     expect(((await parentRest.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([second.id]);
   });
+
+  it("preserves exact 100-item and multipage connection boundaries", async () => {
+    const { app } = createTestApp();
+    const parent = await createIssue(app, "Boundary parent");
+    const children = [];
+    for (let index = 0; index < 101; index++) children.push(await createIssue(app, `Boundary child ${index}`));
+    for (const child of children) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ sub_issue_id: child.id }),
+      });
+      expect(response.status).toBe(201);
+    }
+    const query = `query Boundaries($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { subIssues(first: $first, after: $after) { nodes { id } edges { cursor } pageInfo { hasNextPage hasPreviousPage } totalCount } } } }`;
+    const first = await graphql(app, query, { id: parent.node_id, first: 100 }, "Boundaries");
+    const firstBody = ((await responseBody(first)) as any).data.node.subIssues;
+    expect(firstBody.nodes).toHaveLength(100);
+    expect(firstBody.totalCount).toBe(101);
+    expect(firstBody.pageInfo.hasNextPage).toBe(true);
+    const next = await graphql(
+      app,
+      query,
+      { id: parent.node_id, first: 100, after: firstBody.edges[99].cursor },
+      "Boundaries",
+    );
+    const nextBody = ((await responseBody(next)) as any).data.node.subIssues;
+    expect(nextBody.nodes).toHaveLength(1);
+    expect(nextBody.pageInfo.hasNextPage).toBe(false);
+    const empty = await graphql(app, query, { id: parent.node_id, first: 0 }, "Boundaries");
+    expect(((await responseBody(empty)) as any).data.node.subIssues.nodes).toEqual([]);
+  });
+
+  it("rejects relationship duplicates, self references, conflicts, and inaccessible dependencies without mutation", async () => {
+    const { app } = createTestApp();
+    const parent = await createIssue(app, "Validation parent");
+    const child = await createIssue(app, "Validation child");
+    const blocker = await createIssue(app, "Validation blocker");
+    const blocked = await createIssue(app, "Validation blocked");
+    const mutation = `mutation Add($sub: AddSubIssueInput!, $dep: AddBlockedByInput!) { addSubIssue(input: $sub) { clientMutationId } addBlockedBy(input: $dep) { clientMutationId } }`;
+    const variables = {
+      sub: { parentIssueId: parent.node_id, childIssueId: child.node_id, clientMutationId: "same" },
+      dep: { issueId: blocked.node_id, blockingIssueId: blocker.node_id, clientMutationId: "same" },
+    };
+    expect(((await responseBody(await graphql(app, mutation, variables, "Add"))) as any).data).toEqual({
+      addSubIssue: { clientMutationId: "same" },
+      addBlockedBy: { clientMutationId: "same" },
+    });
+    const duplicate = await graphql(app, mutation, variables, "Add");
+    expect(((await responseBody(duplicate)) as any).errors[0].message).toContain("already");
+    const self = await graphql(
+      app,
+      `
+        mutation Self($input: AddBlockedByInput!) {
+          addBlockedBy(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { issueId: blocked.node_id, blockingIssueId: blocked.node_id } },
+      "Self",
+    );
+    expect(((await responseBody(self)) as any).errors[0].message).toContain("itself");
+    const conflict = await graphql(
+      app,
+      `
+        mutation Conflict($input: AddSubIssueInput!) {
+          addSubIssue(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { parentIssueId: blocker.node_id, childIssueId: child.node_id } },
+      "Conflict",
+    );
+    expect(((await responseBody(conflict)) as any).errors[0].message).toContain("parent");
+    const rest = await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+      headers: headers(),
+    });
+    expect(((await rest.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([child.id]);
+
+    const privateIssueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Hidden relationship target" }),
+    });
+    const privateIssue = (await privateIssueResponse.json()) as { node_id: string };
+    const inaccessible = await graphql(
+      app,
+      `
+        mutation Hidden($input: AddSubIssueInput!) {
+          addSubIssue(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { parentIssueId: parent.node_id, childIssueId: privateIssue.node_id } },
+      "Hidden",
+      "outsider-token",
+    );
+    expect(((await responseBody(inaccessible)) as any).errors[0].message).toContain("Issue not found");
+    const invalidDependency = await graphql(
+      app,
+      `
+        mutation Invalid($input: AddBlockedByInput!) {
+          addBlockedBy(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { issueId: blocked.node_id, blockingIssueId: "missing-node" } },
+      "Invalid",
+    );
+    expect(((await responseBody(invalidDependency)) as any).errors[0].message).toContain("Issue not found");
+  });
 });
