@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "sepay",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -648,6 +649,58 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+
+  sepay: {
+    label: "SePay VietQR payment gateway emulator",
+    endpoints: "transactions list/details, webhook deliveries, VietQR image generation, transaction simulator",
+    async load() {
+      const mod = await import("@emulators/sepay");
+      return {
+        plugin: mod.sepayPlugin,
+        seedFromConfig: mod.seedFromConfig,
+        prepareSeed(config) {
+          const materialized = mod.materializeSepaySeedConfig(config);
+          return Promise.resolve({
+            config: materialized.config as Record<string, unknown>,
+            generatedSecrets: materialized.generatedSecrets.map((secret) => ({
+              kind: secret.kind,
+              id: secret.id,
+              label: secret.label,
+              value: secret.value,
+            })),
+          });
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "sepay_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      sepay: {
+        api_keys: [{ token: "sepay_test_api_key", label: "Local API Key" }],
+        webhook_targets: [
+          {
+            url: "http://localhost:3000/api/payments/sepay/webhook",
+            api_key: "sepay_test_webhook_key",
+          },
+        ],
+        bank_accounts: [{ bin: "970436", account_number: "0071000888888", name: "NGUYEN VAN A" }],
+        transactions: [
+          {
+            id: 100001,
+            gateway: "Vietcombank",
+            transactionDate: "2026-01-15 09:30:00",
+            accountNumber: "0071000888888",
+            transferType: "in",
+            amount: 250000,
+            code: "ORD1001",
+            content: "ORD1001 thanh toan don hang",
+            referenceNumber: "FT26011509300001",
+          },
+        ],
       },
     },
   },
