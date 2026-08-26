@@ -111,12 +111,13 @@ describe("createEmulator", () => {
     const beforeParent = await fetch(`${issueUrl}/10`, { headers });
     const beforeChild = await fetch(`${issueUrl}/20`, { headers });
     const beforeDuplicate = await fetch(`${issueUrl}/40`, { headers });
+    const duplicateRecord = (await beforeDuplicate.clone().json()) as { id: number };
     const beforeGraph = await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         query:
-          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { number } } } }',
+          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
       }),
     });
     const stableIssue = (issue: any) => ({
@@ -177,21 +178,19 @@ describe("createEmulator", () => {
         await fetch(`${issueUrl}/10/dependencies/blocked_by`, {
           method: "POST",
           headers,
-          body: JSON.stringify({ issue_id: 3 }),
+          body: JSON.stringify({ issue_id: duplicateRecord.id }),
         })
       ).status,
     ).toBe(201);
-    expect(
-      (
-        await fetch(`${github.url}/graphql`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { number } } }`,
-          }),
-        })
-      ).status,
-    ).toBe(200);
+    const graphMutation = await fetch(`${github.url}/graphql`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: `mutation { createIssue(input: { repositoryId: "${baseline.graph.data.repository.issue.repository.id}", title: "mutation" }) { issue { number } } }`,
+      }),
+    });
+    expect(graphMutation.status).toBe(200);
+    expect(((await graphMutation.json()) as any).data.createIssue.issue.number).toEqual(expect.any(Number));
 
     github.reset();
     const afterParent = await fetch(`${issueUrl}/10`, { headers });
@@ -202,7 +201,7 @@ describe("createEmulator", () => {
       headers,
       body: JSON.stringify({
         query:
-          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { number } } } }',
+          '{ repository(owner: "octocat", name: "graph") { id issue(number: 10) { id number title comments { totalCount nodes { id body } } subIssues { nodes { id number } } repository { id } } duplicate: issue(number: 40) { id number state stateReason duplicateOf { id number } } } }',
       }),
     });
     expect({
