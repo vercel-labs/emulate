@@ -21,9 +21,9 @@ npx emulate --service github
 Or programmatically:
 
 ```typescript
-import { createEmulator } from 'emulate'
+import { createEmulator } from "emulate";
 
-const github = await createEmulator({ service: 'github', port: 4001 })
+const github = await createEmulator({ service: "github", port: 4001 });
 // github.url === 'http://localhost:4001'
 ```
 
@@ -31,24 +31,26 @@ For a programmatic GitHub App, omit `private_key` and read the generated RSA key
 
 ```typescript
 const github = await createEmulator({
-  service: 'github',
+  service: "github",
   port: 4001,
   seed: {
     github: {
-      users: [{ login: 'octocat' }],
-      apps: [{
-        app_id: 12345,
-        slug: 'my-github-app',
-        name: 'My GitHub App',
-        installations: [{ installation_id: 100, account: 'octocat' }],
-      }],
+      users: [{ login: "octocat" }],
+      apps: [
+        {
+          app_id: 12345,
+          slug: "my-github-app",
+          name: "My GitHub App",
+          installations: [{ installation_id: 100, account: "octocat" }],
+        },
+      ],
     },
   },
-})
+});
 
 const privateKey = github.generatedSecrets.find(
-  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
-)?.value
+  (secret) => secret.kind === "github.app_private_key" && secret.id === "12345",
+)?.value;
 ```
 
 The key remains stable across `github.reset()`. Explicit keys are not included in `generatedSecrets`.
@@ -76,6 +78,8 @@ Public repo endpoints work without auth. Private repos and write operations requ
 ## GraphQL
 
 `POST /graphql` accepts a JSON body with `query`, optional `variables`, and optional `operationName`. Authenticated queries support repository and issue reads, global `node(id:)` reads for repositories, issues, labels, and issue comments, and Relay-style issue comment connections with opaque cursors. Inaccessible records resolve to `null`. The `rateLimit` query and REST `/rate_limit` endpoint share the GraphQL rate-limit bucket.
+
+Supported mutations are `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, and `deleteLabel`. They use typed inputs, exact `clientMutationId` echoes, shared REST operations, and the same App installation permissions and repository selection rules.
 
 ### GitHub App JWT
 
@@ -119,26 +123,26 @@ GITHUB_EMULATOR_URL=http://localhost:4001
 ### Octokit
 
 ```typescript
-import { Octokit } from '@octokit/rest'
+import { Octokit } from "@octokit/rest";
 
 const octokit = new Octokit({
-  baseUrl: process.env.GITHUB_EMULATOR_URL ?? 'https://api.github.com',
-  auth: 'test_token_admin',
-})
+  baseUrl: process.env.GITHUB_EMULATOR_URL ?? "https://api.github.com",
+  auth: "test_token_admin",
+});
 ```
 
 ### OAuth URL Mapping
 
-| Real GitHub URL | Emulator URL |
-|-----------------|-------------|
-| `https://github.com/login/oauth/authorize` | `$GITHUB_EMULATOR_URL/login/oauth/authorize` |
+| Real GitHub URL                               | Emulator URL                                    |
+| --------------------------------------------- | ----------------------------------------------- |
+| `https://github.com/login/oauth/authorize`    | `$GITHUB_EMULATOR_URL/login/oauth/authorize`    |
 | `https://github.com/login/oauth/access_token` | `$GITHUB_EMULATOR_URL/login/oauth/access_token` |
-| `https://api.github.com/user` | `$GITHUB_EMULATOR_URL/user` |
+| `https://api.github.com/user`                 | `$GITHUB_EMULATOR_URL/user`                     |
 
 ### Auth.js / NextAuth.js
 
 ```typescript
-import GitHub from '@auth/core/providers/github'
+import GitHub from "@auth/core/providers/github";
 
 GitHub({
   clientId: process.env.GITHUB_CLIENT_ID,
@@ -152,7 +156,7 @@ GitHub({
   userinfo: {
     url: `${process.env.GITHUB_EMULATOR_URL}/user`,
   },
-})
+});
 ```
 
 ## Seed Config

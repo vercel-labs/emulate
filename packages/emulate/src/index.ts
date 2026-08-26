@@ -23,7 +23,7 @@ Framework adapters:
 
 GitHub API coverage:
   Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
-  Includes authenticated GraphQL reads for repositories, issues, labels, and issue comments at POST /graphql.
+  Includes authenticated GraphQL reads and mutations for repositories, issues, labels, and issue comments at POST /graphql.
   Includes ordered issue relationships alongside repository contents, raw downloads, commit history, commit details, and ref comparisons.
   Issue parent, sub-issue, and dependency REST routes support pagination, Link headers, permissions, and cycle-safe mutations.
 

@@ -57,14 +57,14 @@ npx emulate list
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-p, --port` | `4000` | Base port (auto-increments per service) |
-| `-s, --service` | all | Comma-separated services to enable |
-| `--seed` | auto-detect | Path to seed config (YAML or JSON) |
-| `--base-url` | none | Override advertised base URL (supports `{service}` template) |
-| `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
-| `--generated-secrets-file` | none | Generate omitted service secrets and write them to a new owner-only JSON file |
+| Flag                       | Default     | Description                                                                   |
+| -------------------------- | ----------- | ----------------------------------------------------------------------------- |
+| `-p, --port`               | `4000`      | Base port (auto-increments per service)                                       |
+| `-s, --service`            | all         | Comma-separated services to enable                                            |
+| `--seed`                   | auto-detect | Path to seed config (YAML or JSON)                                            |
+| `--base-url`               | none        | Override advertised base URL (supports `{service}` template)                  |
+| `--portless`               | off         | Serve over HTTPS via portless (auto-registers aliases)                        |
+| `--generated-secrets-file` | none        | Generate omitted service secrets and write them to a new owner-only JSON file |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -116,39 +116,41 @@ npm install emulate
 Each call to `createEmulator` starts a single service:
 
 ```typescript
-import { createEmulator } from 'emulate'
+import { createEmulator } from "emulate";
 
-const github = await createEmulator({ service: 'github', port: 4001 })
-const vercel = await createEmulator({ service: 'vercel', port: 4002 })
+const github = await createEmulator({ service: "github", port: 4001 });
+const vercel = await createEmulator({ service: "vercel", port: 4002 });
 
-github.url   // 'http://localhost:4001'
-vercel.url   // 'http://localhost:4002'
+github.url; // 'http://localhost:4001'
+vercel.url; // 'http://localhost:4002'
 
-await github.close()
-await vercel.close()
+await github.close();
+await vercel.close();
 ```
 
 When a GitHub App omits `private_key`, `createEmulator` generates an RSA-2048 PKCS#1 key for that emulator instance:
 
 ```typescript
 const github = await createEmulator({
-  service: 'github',
+  service: "github",
   seed: {
     github: {
-      users: [{ login: 'octocat' }],
-      apps: [{
-        app_id: 12345,
-        slug: 'my-github-app',
-        name: 'My GitHub App',
-        installations: [{ installation_id: 100, account: 'octocat' }],
-      }],
+      users: [{ login: "octocat" }],
+      apps: [
+        {
+          app_id: 12345,
+          slug: "my-github-app",
+          name: "My GitHub App",
+          installations: [{ installation_id: 100, account: "octocat" }],
+        },
+      ],
     },
   },
-})
+});
 
 const privateKey = github.generatedSecrets.find(
-  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
-)?.value
+  (secret) => secret.kind === "github.app_private_key" && secret.id === "12345",
+)?.value;
 ```
 
 Generated keys remain stable across `reset()` calls and appear only in `generatedSecrets`. Explicitly configured keys are never returned there. A new `createEmulator` call generates a new key.
@@ -166,41 +168,44 @@ The destination must not exist. emulate removes inherited ACLs, verifies effecti
 
 ```typescript
 // vitest.setup.ts
-import { createEmulator, type Emulator } from 'emulate'
+import { createEmulator, type Emulator } from "emulate";
 
-let github: Emulator
-let vercel: Emulator
+let github: Emulator;
+let vercel: Emulator;
 
 beforeAll(async () => {
-  ;[github, vercel] = await Promise.all([
-    createEmulator({ service: 'github', port: 4001 }),
-    createEmulator({ service: 'vercel', port: 4002 }),
-  ])
-  process.env.GITHUB_EMULATOR_URL = github.url
-  process.env.VERCEL_EMULATOR_URL = vercel.url
-})
+  [github, vercel] = await Promise.all([
+    createEmulator({ service: "github", port: 4001 }),
+    createEmulator({ service: "vercel", port: 4002 }),
+  ]);
+  process.env.GITHUB_EMULATOR_URL = github.url;
+  process.env.VERCEL_EMULATOR_URL = vercel.url;
+});
 
-afterEach(() => { github.reset(); vercel.reset() })
-afterAll(() => Promise.all([github.close(), vercel.close()]))
+afterEach(() => {
+  github.reset();
+  vercel.reset();
+});
+afterAll(() => Promise.all([github.close(), vercel.close()]));
 ```
 
 ### Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
-| `port` | `4000` | Port for the HTTP server |
-| `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
+| --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'`                                                                                                            |
+| `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
+| `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
+| `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
 
 ### Instance methods
 
-| Method | Description |
-|--------|-------------|
-| `url` | Base URL of the running server |
+| Method             | Description                                          |
+| ------------------ | ---------------------------------------------------- |
+| `url`              | Base URL of the running server                       |
 | `generatedSecrets` | Readonly secrets generated while preparing seed data |
-| `reset()` | Wipe the store and replay seed data |
-| `close()` | Shut down the HTTP server, returns a Promise |
+| `reset()`          | Wipe the store and replay seed data                  |
+| `close()`          | Shut down the HTTP server, returns a Promise         |
 
 ## Configuration
 
@@ -525,6 +530,7 @@ github:
 JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's private key (RS256). The emulator verifies the signature and resolves the app.
 
 **App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:
+
 - All webhook payloads (including repo and org hooks) include an `installation` field with `{ id, node_id }`.
 - If the app has a `webhook_url`, the emulator delivers the event there with the `installation` field and (if configured) an `X-Hub-Signature-256` header signed with `webhook_secret`.
 
@@ -583,6 +589,7 @@ microsoft:
 Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination.
 
 ### User & Teams
+
 - `GET /v2/user` - authenticated user
 - `PATCH /v2/user` - update user
 - `GET /v2/teams` - list teams (cursor paginated)
@@ -593,6 +600,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v2/teams/:teamId/members` - add member
 
 ### Projects
+
 - `POST /v11/projects` - create project (with optional env vars and git integration)
 - `GET /v10/projects` - list projects (search, cursor pagination)
 - `GET /v9/projects/:idOrName` - get project (includes env vars)
@@ -602,6 +610,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `PATCH /v1/projects/:idOrName/protection-bypass` - manage bypass secrets
 
 ### Deployments
+
 - `POST /v13/deployments` - create deployment (auto-transitions to READY)
 - `GET /v13/deployments/:idOrUrl` - get deployment (by ID or URL)
 - `GET /v6/deployments` - list deployments (filter by project, target, state)
@@ -613,6 +622,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v2/files` - upload file (by SHA digest)
 
 ### Domains
+
 - `POST /v10/projects/:idOrName/domains` - add domain (with verification challenge)
 - `GET /v9/projects/:idOrName/domains` - list domains
 - `GET /v9/projects/:idOrName/domains/:domain` - get domain
@@ -621,6 +631,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v9/projects/:idOrName/domains/:domain/verify` - verify domain
 
 ### Environment Variables
+
 - `GET /v10/projects/:idOrName/env` - list env vars (with decrypt option)
 - `POST /v10/projects/:idOrName/env` - create env vars (single, batch, upsert)
 - `GET /v10/projects/:idOrName/env/:id` - get env var
@@ -628,6 +639,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `DELETE /v9/projects/:idOrName/env/:id` - delete env var
 
 ### Blob
+
 Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`).
 
 - `PUT /api/blob?pathname=<path>` - upload a blob (honors `x-add-random-suffix`, `x-allow-overwrite`, `x-content-type`, `x-cache-control-max-age`, `x-if-match` headers)
@@ -650,12 +662,15 @@ Any token of the form `vercel_blob_rw_<storeId>_<secret>` is accepted; the store
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.
 
 ### GraphQL
+
 - `POST /graphql` accepts `query`, optional `variables`, and optional `operationName` JSON fields.
 - Authenticated queries support repository and issue reads plus global `node(id:)` reads for repositories, issues, labels, and issue comments.
+- Mutations support issue creation, close/reopen, issue comments, and repository label create/delete with exact `clientMutationId` echoes.
 - Issue comment connections support Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
 - Inaccessible records resolve to `null`; `rateLimit` and REST `/rate_limit` share the GraphQL rate-limit bucket.
 
 ### Users
+
 - `GET /user` - authenticated user
 - `PATCH /user` - update profile
 - `GET /users/:username` - get user
@@ -666,6 +681,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /users/:username/following` - list following
 
 ### Repositories
+
 - `GET /repos/:owner/:repo` - get repo
 - `GET /repositories/:id` - get repo by numeric ID
 - `POST /user/repos` - create user repo
@@ -683,6 +699,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/tags` - list tags
 
 ### Contents & Commit History
+
 - `GET /repos/:owner/:repo/readme` - get the repository README
 - `GET /repos/:owner/:repo/contents/:path` - get a file or list a directory at a ref
 - `GET /:owner/:repo/raw/:ref/:path` - download file content from advertised raw URLs
@@ -692,6 +709,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/compare/:base...:head` - compare two refs
 
 ### Issues
+
 - `GET /repos/:owner/:repo/issues` - list (filter by state, labels, assignee, milestone, creator, since)
 - `POST /repos/:owner/:repo/issues` - create
 - `GET /repos/:owner/:repo/issues/:number` - get
@@ -702,6 +720,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` - manage assignees
 
 ### Issue relationships
+
 - `GET /repos/:owner/:repo/issues/:number/parent` - get the parent issue
 - `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` - list or add ordered sub-issues
 - `DELETE /repos/:owner/:repo/issues/:number/sub_issue` - remove a sub-issue with `{ "sub_issue_id": <database id> }`
@@ -713,6 +732,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 Relationship lists accept `page` and `per_page` query parameters, cap `per_page` at 100, and return `Link` headers when more pages are available. Sub-issues have one parent and an explicit sibling order; adding a child with `replace_parent: true` moves it atomically. Hierarchy and dependency edges are separate, and self-references, duplicates, and cycles are rejected without changing state. Sub-issues must be in repositories owned by the same account. Dependency targets may be cross-repository when the caller can read both repositories. Relationship writes require issue write access on the route repository and issue read access on every referenced repository.
 
 ### Pull Requests
+
 - `GET /repos/:owner/:repo/pulls` - list (filter by state, head, base)
 - `POST /repos/:owner/:repo/pulls` - create
 - `GET /repos/:owner/:repo/pulls/:number` - get
@@ -724,12 +744,14 @@ Relationship lists accept `page` and `per_page` query parameters, cap `per_page`
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` - update branch
 
 ### Comments
+
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
 
 ### Reviews
+
 - `GET /repos/:owner/:repo/pulls/:number/reviews` - list
 - `POST /repos/:owner/:repo/pulls/:number/reviews` - create (with inline comments)
 - `GET/PUT /repos/:owner/:repo/pulls/:number/reviews/:id` - get/update
@@ -737,10 +759,12 @@ Relationship lists accept `page` and `per_page` query parameters, cap `per_page`
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` - dismiss
 
 ### Labels & Milestones
+
 - Labels: full CRUD, add/remove from issues, replace all
 - Milestones: full CRUD, state transitions, issue counts
 
 ### Branches & Git Data
+
 - Branches: list, get, protection CRUD (status checks, PR reviews, enforce admins)
 - Refs: get, match, create, update, delete
 - Commits: get, create
@@ -749,21 +773,25 @@ Relationship lists accept `page` and `per_page` query parameters, cap `per_page`
 - Tags: get, create
 
 ### Organizations & Teams
+
 - Orgs: get, update, list
 - Org members: list, check, remove, get/set membership
 - Teams: full CRUD, members, repos
 
 ### Releases
+
 - Releases: full CRUD, latest, by tag
 - Release assets: full CRUD, upload
 - Generate release notes
 
 ### Webhooks
+
 - Repo webhooks: full CRUD, ping, test, deliveries
 - Org webhooks: full CRUD, ping
 - Real HTTP delivery to registered URLs on all state changes
 
 ### Search
+
 - `GET /search/repositories` - full query syntax (user, org, language, topic, stars, forks, etc.)
 - `GET /search/issues` - issues + PRs (repo, is, author, label, milestone, state, etc.)
 - `GET /search/users` - users + orgs
@@ -773,6 +801,7 @@ Relationship lists accept `page` and `per_page` query parameters, cap `per_page`
 - `GET /search/labels` - label search
 
 ### Actions
+
 - Workflows: list, get, enable/disable, dispatch
 - Workflow runs: list, get, cancel, rerun, delete, logs
 - Jobs: list, get, logs
@@ -780,11 +809,13 @@ Relationship lists accept `page` and `per_page` query parameters, cap `per_page`
 - Secrets: repo + org CRUD
 
 ### Checks
+
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite
 - Check suites: create, get, preferences, rerequest, list by ref
 - Automatic suite status rollup from check run results
 
 ### Misc
+
 - `GET /rate_limit` - rate limit status
 - `GET /meta` - server metadata
 - `GET /octocat` - ASCII art
@@ -825,6 +856,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. Supported write state changes dispatch Slack `event_callback` payloads to configured webhook URLs.
 
 ### Auth & Chat
+
 - `POST /api/auth.test` - test authentication
 - `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
@@ -837,6 +869,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/chat.meMessage` - /me message
 
 ### Conversations
+
 - `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` - get channel info
 - `POST /api/conversations.create` - create channel
@@ -852,6 +885,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/conversations.members` - list members
 
 ### Users & Reactions
+
 - `POST /api/users.list` - list users (cursor pagination)
 - `POST /api/users.info` - get user info
 - `POST /api/users.lookupByEmail` - lookup by email
@@ -862,6 +896,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/reactions.add` / `reactions.remove` / `reactions.get` - manage reactions
 
 ### Files
+
 - `POST /api/files.getUploadURLExternal` - create a local external upload session
 - `POST /upload/v1/:fileId` - receive raw uploaded file bytes
 - `POST /api/files.completeUploadExternal` - complete uploads and optionally share file messages
@@ -871,6 +906,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/files.delete` - delete a completed file
 
 ### Pins & Bookmarks
+
 - `POST /api/pins.add` - pin a message to a channel
 - `GET /api/pins.list` / `POST /api/pins.list` - list pinned message items for a channel
 - `POST /api/pins.remove` - remove a message pin from a channel
@@ -880,6 +916,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/bookmarks.remove` - remove a bookmark from a channel
 
 ### Views
+
 - `POST /api/views.publish` - publish or update an App Home view for a user
 - `POST /api/views.open` - open a modal view
 - `POST /api/views.update` - update a view by `view_id` or `external_id`
@@ -889,16 +926,19 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass the returned value as `trigger_id` or `interactivity_pointer`; generate push values with an existing `view_id` and use them within 3 seconds.
 
 ### Team, Bots & Webhooks
+
 - `POST /api/team.info` - workspace info
 - `POST /api/bots.info` - bot info
 - `POST /services/:teamId/:botId/:webhookId` - incoming webhook with text or rich payload fields
 
 ### OAuth
+
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
 - `POST /api/oauth.v2.access` - token exchange
 
 ### Inspector
+
 - `GET /` - tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
 
 Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
@@ -1035,19 +1075,25 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `DELETE /:bucket/:key` - delete object
 
 ### SQS
+
 All operations via `POST /sqs/` with `Action` parameter:
+
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
 
 ### IAM
+
 All operations via `POST /iam/` with `Action` parameter:
+
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
 - `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
 - `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
 
 ### STS
+
 All operations via `POST /sts/` with `Action` parameter:
+
 - `GetCallerIdentity`, `AssumeRole`
 
 ## Next.js Integration
@@ -1068,27 +1114,27 @@ Create a catch-all route that serves emulator traffic:
 
 ```typescript
 // app/emulate/[...path]/route.ts
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
-import * as google from '@emulators/google'
+import { createEmulateHandler } from "@emulators/adapter-next";
+import * as github from "@emulators/github";
+import * as google from "@emulators/google";
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
   services: {
     github: {
       emulator: github,
       seed: {
-        users: [{ login: 'octocat', name: 'The Octocat' }],
-        repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+        users: [{ login: "octocat", name: "The Octocat" }],
+        repos: [{ owner: "octocat", name: "hello-world", auto_init: true }],
       },
     },
     google: {
       emulator: google,
       seed: {
-        users: [{ email: 'test@example.com', name: 'Test User' }],
+        users: [{ email: "test@example.com", name: "Test User" }],
       },
     },
   },
-})
+});
 ```
 
 ### Auth.js / NextAuth configuration
@@ -1096,19 +1142,17 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 Point your provider at the emulator paths on the same origin:
 
 ```typescript
-import GitHub from 'next-auth/providers/github'
+import GitHub from "next-auth/providers/github";
 
-const baseUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : 'http://localhost:3000'
+const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000";
 
 GitHub({
-  clientId: 'any-value',
-  clientSecret: 'any-value',
+  clientId: "any-value",
+  clientSecret: "any-value",
   authorization: { url: `${baseUrl}/emulate/github/login/oauth/authorize` },
   token: { url: `${baseUrl}/emulate/github/login/oauth/access_token` },
   userinfo: { url: `${baseUrl}/emulate/github/user` },
-})
+});
 ```
 
 No `oauth_apps` need to be seeded. When none are configured, the emulator skips `client_id`, `client_secret`, and `redirect_uri` validation.
@@ -1119,17 +1163,17 @@ Emulator UI pages use bundled fonts. Wrap your Next.js config to include them in
 
 ```typescript
 // next.config.mjs
-import { withEmulate } from '@emulators/adapter-next'
+import { withEmulate } from "@emulators/adapter-next";
 
 export default withEmulate({
   // your normal Next.js config
-})
+});
 ```
 
 If you mount the catch-all at a custom path, pass the matching prefix:
 
 ```typescript
-export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
+export default withEmulate(nextConfig, { routePrefix: "/api/emulate" });
 ```
 
 ### Persistence
@@ -1137,18 +1181,22 @@ export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
 By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter:
 
 ```typescript
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
+import { createEmulateHandler } from "@emulators/adapter-next";
+import * as github from "@emulators/github";
 
 const kvAdapter = {
-  async load() { return await kv.get('emulate-state') },
-  async save(data: string) { await kv.set('emulate-state', data) },
-}
+  async load() {
+    return await kv.get("emulate-state");
+  },
+  async save(data: string) {
+    await kv.set("emulate-state", data);
+  },
+};
 
 export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
   services: { github: { emulator: github } },
   persistence: kvAdapter,
-})
+});
 ```
 
 For local development, `@emulators/core` ships `filePersistence`:
@@ -1180,27 +1228,29 @@ Create a named catch-all route that serves emulator traffic:
 
 ```typescript
 // server/routes/emulate/[...path].ts
-import { createEmulateHandler } from '@emulators/adapter-nuxt'
-import * as github from '@emulators/github'
-import * as google from '@emulators/google'
+import { createEmulateHandler } from "@emulators/adapter-nuxt";
+import * as github from "@emulators/github";
+import * as google from "@emulators/google";
 
-export default defineEventHandler(createEmulateHandler({
-  services: {
-    github: {
-      emulator: github,
-      seed: {
-        users: [{ login: 'octocat', name: 'The Octocat' }],
-        repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
+export default defineEventHandler(
+  createEmulateHandler({
+    services: {
+      github: {
+        emulator: github,
+        seed: {
+          users: [{ login: "octocat", name: "The Octocat" }],
+          repos: [{ owner: "octocat", name: "hello-world", auto_init: true }],
+        },
+      },
+      google: {
+        emulator: google,
+        seed: {
+          users: [{ email: "test@example.com", name: "Test User" }],
+        },
       },
     },
-    google: {
-      emulator: google,
-      seed: {
-        users: [{ email: 'test@example.com', name: 'Test User' }],
-      },
-    },
-  },
-}))
+  }),
+);
 ```
 
 ### Nuxt config
@@ -1209,11 +1259,13 @@ Emulator UI pages use bundled fonts. Wrap your Nuxt config so Nitro traces the c
 
 ```typescript
 // nuxt.config.ts
-import { withEmulate } from '@emulators/adapter-nuxt'
+import { withEmulate } from "@emulators/adapter-nuxt";
 
-export default defineNuxtConfig(withEmulate({
-  // your normal Nuxt config
-}))
+export default defineNuxtConfig(
+  withEmulate({
+    // your normal Nuxt config
+  }),
+);
 ```
 
 ### OAuth configuration
@@ -1221,15 +1273,15 @@ export default defineNuxtConfig(withEmulate({
 Point your OAuth provider at the emulator paths on the same origin:
 
 ```typescript
-const baseUrl = process.env.NUXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+const baseUrl = process.env.NUXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const githubOAuth = {
-  clientId: 'any-value',
-  clientSecret: 'any-value',
+  clientId: "any-value",
+  clientSecret: "any-value",
   authorizationUrl: `${baseUrl}/emulate/github/login/oauth/authorize`,
   tokenUrl: `${baseUrl}/emulate/github/login/oauth/access_token`,
   userInfoUrl: `${baseUrl}/emulate/github/user`,
-}
+};
 ```
 
 No `oauth_apps` need to be seeded. When none are configured, the emulator skips `client_id`, `client_secret`, and `redirect_uri` validation.
@@ -1239,18 +1291,24 @@ No `oauth_apps` need to be seeded. When none are configured, the emulator skips 
 By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter:
 
 ```typescript
-import { createEmulateHandler } from '@emulators/adapter-nuxt'
-import * as github from '@emulators/github'
+import { createEmulateHandler } from "@emulators/adapter-nuxt";
+import * as github from "@emulators/github";
 
 const storageAdapter = {
-  async load() { return await useStorage('emulate').getItem<string>('state') },
-  async save(data: string) { await useStorage('emulate').setItem('state', data) },
-}
+  async load() {
+    return await useStorage("emulate").getItem<string>("state");
+  },
+  async save(data: string) {
+    await useStorage("emulate").setItem("state", data);
+  },
+};
 
-export default defineEventHandler(createEmulateHandler({
-  services: { github: { emulator: github } },
-  persistence: storageAdapter,
-}))
+export default defineEventHandler(
+  createEmulateHandler({
+    services: { github: { emulator: github } },
+    persistence: storageAdapter,
+  }),
+);
 ```
 
 The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.

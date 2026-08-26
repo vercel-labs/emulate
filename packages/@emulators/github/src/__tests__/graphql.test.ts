@@ -646,3 +646,270 @@ describe("GitHub GraphQL read compatibility", () => {
     }
   });
 });
+
+describe("GitHub GraphQL mutation compatibility", () => {
+  it("creates issues, transitions lifecycle, and echoes client mutation IDs", async () => {
+    const { app, store } = createTestApp();
+    const fixture = await createFixture(app);
+    const createResponse = await graphql(
+      app,
+      `
+        mutation Create($input: CreateIssueInput!) {
+          createIssue(input: $input) {
+            clientMutationId
+            issue {
+              id
+              number
+              state
+              stateReason
+            }
+          }
+        }
+      `,
+      {
+        input: {
+          repositoryId: fixture.repo.node_id,
+          title: "GraphQL created",
+          body: "Created body",
+          clientMutationId: "create-1",
+        },
+      },
+      "Create",
+    );
+    expect(createResponse.status).toBe(200);
+    const created = (await createResponse.json()) as {
+      data: {
+        createIssue: {
+          issue: { id: string; number: number; state: string; stateReason: string | null };
+          clientMutationId: string;
+        };
+      };
+    };
+    expect(created.data.createIssue.clientMutationId).toBe("create-1");
+    expect(created.data.createIssue.issue).toMatchObject({
+      id: expect.any(String),
+      number: 2,
+      state: "OPEN",
+      stateReason: null,
+    });
+
+    const closeResponse = await graphql(
+      app,
+      `
+        mutation Close($input: CloseIssueInput!) {
+          closeIssue(input: $input) {
+            clientMutationId
+            issue {
+              state
+              stateReason
+            }
+          }
+        }
+      `,
+      { input: { issueId: created.data.createIssue.issue.id, clientMutationId: "close-1" } },
+      "Close",
+    );
+    const closed = (await closeResponse.json()) as {
+      data: { closeIssue: { clientMutationId: string; issue: { state: string; stateReason: string } } };
+    };
+    expect(closed.data.closeIssue.issue.stateReason).toBe("COMPLETED");
+
+    const restClosed = await app.request(`${base}/repos/octocat/hello-world/issues/2`, { headers: headers() });
+    expect((await restClosed.json()) as { state: string; state_reason: string }).toMatchObject({
+      state: "closed",
+      state_reason: "completed",
+    });
+    expect(getGitHubStore(store).repos.findOneBy("full_name", "octocat/hello-world")!.open_issues_count).toBe(1);
+
+    const reopenResponse = await graphql(
+      app,
+      `
+        mutation Reopen($input: ReopenIssueInput!) {
+          reopenIssue(input: $input) {
+            clientMutationId
+            issue {
+              state
+              stateReason
+            }
+          }
+        }
+      `,
+      { input: { issueId: created.data.createIssue.issue.id, clientMutationId: "reopen-1" } },
+      "Reopen",
+    );
+    const reopened = (await reopenResponse.json()) as {
+      data: { reopenIssue: { clientMutationId: string; issue: { state: string; stateReason: string } } };
+    };
+    expect(reopened.data.reopenIssue).toMatchObject({
+      clientMutationId: "reopen-1",
+      issue: { state: "OPEN", stateReason: "REOPENED" },
+    });
+  });
+
+  it("creates comments and labels with REST-visible identity and cleanup", async () => {
+    const { app } = createTestApp();
+    const fixture = await createFixture(app);
+    const commentResponse = await graphql(
+      app,
+      `
+        mutation Comment($input: AddCommentInput!) {
+          addComment(input: $input) {
+            clientMutationId
+            comment {
+              id
+              body
+              issue {
+                id
+              }
+            }
+          }
+        }
+      `,
+      { input: { subjectId: fixture.issue.node_id, body: "GraphQL mutation comment", clientMutationId: "comment-1" } },
+      "Comment",
+    );
+    const comment = (await commentResponse.json()) as {
+      data: { addComment: { clientMutationId: string; comment: { id: string; body: string; issue: { id: string } } } };
+    };
+    expect(comment.data.addComment).toMatchObject({
+      clientMutationId: "comment-1",
+      comment: { id: expect.any(String), body: "GraphQL mutation comment", issue: { id: fixture.issue.node_id } },
+    });
+
+    const connection = await graphql(
+      app,
+      `
+        query Comments($id: ID!) {
+          node(id: $id) {
+            ... on Issue {
+              comments(first: 10) {
+                nodes {
+                  id
+                  body
+                }
+              }
+            }
+          }
+        }
+      `,
+      { id: fixture.issue.node_id },
+      "Comments",
+    );
+    const connectionBody = (await connection.json()) as {
+      data: { node: { comments: { nodes: Array<{ id: string; body: string }> } } };
+    };
+    expect(connectionBody.data.node.comments.nodes.at(-1)?.id).toBe(comment.data.addComment.comment.id);
+    const restComments = await app.request(`${base}/repos/octocat/hello-world/issues/1/comments`, {
+      headers: headers(),
+    });
+    expect(((await restComments.json()) as Array<{ node_id: string; body: string }>).at(-1)).toMatchObject({
+      node_id: comment.data.addComment.comment.id,
+      body: "GraphQL mutation comment",
+    });
+
+    const labelResponse = await graphql(
+      app,
+      `
+        mutation Label($input: CreateLabelInput!) {
+          createLabel(input: $input) {
+            clientMutationId
+            label {
+              id
+              name
+              description
+              color
+            }
+          }
+        }
+      `,
+      {
+        input: {
+          repositoryId: fixture.repo.node_id,
+          name: "graphql-label",
+          color: "5319E7",
+          description: "GraphQL label",
+          clientMutationId: "label-1",
+        },
+      },
+      "Label",
+    );
+    const label = (await labelResponse.json()) as {
+      data: { createLabel: { clientMutationId: string; label: { id: string; name: string; description: string } } };
+    };
+    expect(label.data.createLabel).toMatchObject({
+      clientMutationId: "label-1",
+      label: { name: "graphql-label", description: "GraphQL label" },
+    });
+
+    const attach = await app.request(`${base}/repos/octocat/hello-world/issues/1/labels`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ labels: ["graphql-label"] }),
+    });
+    expect(attach.status).toBe(200);
+    const deleteResponse = await graphql(
+      app,
+      `
+        mutation Delete($input: DeleteLabelInput!) {
+          deleteLabel(input: $input) {
+            clientMutationId
+            label {
+              id
+              name
+            }
+          }
+        }
+      `,
+      { input: { id: label.data.createLabel.label.id, clientMutationId: "label-delete-1" } },
+      "Delete",
+    );
+    const deleted = (await deleteResponse.json()) as {
+      data: { deleteLabel: { clientMutationId: string; label: { id: string; name: string } } };
+    };
+    expect(deleted.data.deleteLabel.label.name).toBe("graphql-label");
+    const remaining = await app.request(`${base}/repos/octocat/hello-world/issues/1/labels`, { headers: headers() });
+    expect((await remaining.json()) as Array<unknown>).toEqual([]);
+  });
+
+  it("enforces installation selection and permissions and rejects invalid creation atomically", async () => {
+    const { app, store, tokenMap } = createTestApp();
+    const fixture = await createFixture(app);
+    const gh = getGitHubStore(store);
+    addInstallationToken(store, tokenMap, "app-issue-write", {
+      permissions: { issues: "write" },
+      repositorySelection: "selected",
+      repositoryIds: [gh.repos.findOneBy("full_name", "octocat/hello-world")!.id],
+    });
+    addInstallationToken(store, tokenMap, "app-issue-read", {
+      permissions: { issues: "read" },
+      repositorySelection: "selected",
+      repositoryIds: [gh.repos.findOneBy("full_name", "octocat/hello-world")!.id],
+    });
+    const query = `mutation Create($input: CreateIssueInput!) { createIssue(input: $input) { issue { number author { login } } } }`;
+    const allowed = await graphql(
+      app,
+      query,
+      { input: { repositoryId: fixture.repo.node_id, title: "App issue" } },
+      "Create",
+      "app-issue-write",
+    );
+    expect(((await allowed.json()) as { data: { createIssue: unknown } }).data.createIssue).toMatchObject({
+      issue: { author: { login: "app-9[bot]" } },
+    });
+    const denied = await graphql(
+      app,
+      query,
+      { input: { repositoryId: fixture.repo.node_id, title: "Denied issue" } },
+      "Create",
+      "app-issue-read",
+    );
+    expect(denied.status).toBe(403);
+
+    const beforeIssues = gh.issues.all().length;
+    const beforeEvents = gh.issueEvents.all().length;
+    const invalid = await graphql(app, query, { input: { repositoryId: fixture.repo.node_id, title: "" } }, "Create");
+    expect((await responseBody(invalid)).errors?.[0]?.message).toContain("Validation failed");
+    expect(gh.issues.all()).toHaveLength(beforeIssues);
+    expect(gh.issueEvents.all()).toHaveLength(beforeEvents);
+  });
+});

@@ -6,29 +6,33 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 `POST /graphql` accepts a JSON body with `query`, optional `variables`, and optional `operationName`. Authenticated queries support repository and issue reads, global `node(id:)` reads for repositories, issues, labels, and issue comments, and Relay-style issue comment connections with opaque cursors. Inaccessible records resolve to `null`. The `rateLimit` query and REST `/rate_limit` endpoint share the GraphQL rate-limit bucket.
 
+Supported mutations are `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, and `deleteLabel`. They use typed inputs, exact `clientMutationId` echoes, shared REST operations, and the same App installation permissions and repository selection rules.
+
 ## GitHub App keys
 
 The programmatic `createEmulator` API can generate a GitHub App key when `private_key` is omitted:
 
 ```typescript
 const github = await createEmulator({
-  service: 'github',
+  service: "github",
   seed: {
     github: {
-      users: [{ login: 'octocat' }],
-      apps: [{
-        app_id: 12345,
-        slug: 'my-github-app',
-        name: 'My GitHub App',
-        installations: [{ installation_id: 100, account: 'octocat' }],
-      }],
+      users: [{ login: "octocat" }],
+      apps: [
+        {
+          app_id: 12345,
+          slug: "my-github-app",
+          name: "My GitHub App",
+          installations: [{ installation_id: 100, account: "octocat" }],
+        },
+      ],
     },
   },
-})
+});
 
 const privateKey = github.generatedSecrets.find(
-  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
-)?.value
+  (secret) => secret.kind === "github.app_private_key" && secret.id === "12345",
+)?.value;
 ```
 
 The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explicit keys are never included in `generatedSecrets`.

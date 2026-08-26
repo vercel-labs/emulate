@@ -13,13 +13,16 @@ npm install @emulators/github
 ## Endpoints
 
 ### GraphQL
+
 - `POST /graphql` — execute GitHub GraphQL queries with JSON `query`, `variables`, and `operationName` fields.
 - `repository(owner:, name:)` resolves repositories and issue details.
 - `node(id:)` resolves REST node IDs for repositories, issues, labels, and issue comments. Inaccessible records return `null`.
 - `Issue.comments` supports Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
+- Mutations support `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, and `deleteLabel`; each accepts a typed input and echoes `clientMutationId` exactly.
 - Requests require authentication and use the GraphQL rate-limit bucket exposed by `rateLimit` and `/rate_limit`.
 
 ### Users
+
 - `GET /user` — authenticated user
 - `PATCH /user` — update profile
 - `GET /users/:username` — get user
@@ -30,6 +33,7 @@ npm install @emulators/github
 - `GET /users/:username/following` — list following
 
 ### Repositories
+
 - `GET /repos/:owner/:repo` — get repo
 - `GET /repositories/:id` — get repo by numeric ID
 - `POST /user/repos` — create user repo
@@ -47,6 +51,7 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/tags` — list tags
 
 ### Contents & Commit History
+
 - `GET /repos/:owner/:repo/readme` — get the repository README
 - `GET /repos/:owner/:repo/contents/:path` — get a file or list a directory at a ref
 - `GET /:owner/:repo/raw/:ref/:path` — download file content from advertised raw URLs
@@ -56,6 +61,7 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/compare/:base...:head` — compare two refs
 
 ### Issues
+
 - `GET /repos/:owner/:repo/issues` — list (filter by state, labels, assignee, milestone, creator, since)
 - `POST /repos/:owner/:repo/issues` — create
 - `GET /repos/:owner/:repo/issues/:number` — get
@@ -66,6 +72,7 @@ npm install @emulators/github
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` — manage assignees
 
 ### Issue relationships
+
 - `GET /repos/:owner/:repo/issues/:number/parent` — get the parent issue
 - `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` — list or add ordered sub-issues
 - `DELETE /repos/:owner/:repo/issues/:number/sub_issue` — remove a sub-issue with `{ "sub_issue_id": <database id> }`
@@ -77,6 +84,7 @@ npm install @emulators/github
 Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and return `Link` headers when more pages are available. Sub-issues have one parent and explicit sibling order; `replace_parent: true` moves a child atomically. Hierarchy and dependency edges are separate, and self-references, duplicates, and cycles are rejected without changing state. Sub-issues must be in repositories owned by the same account. Dependency targets may be cross-repository when the caller can read both repositories. Writes require issue write access on the route repository and issue read access on every referenced repository.
 
 ### Pull Requests
+
 - `GET /repos/:owner/:repo/pulls` — list (filter by state, head, base)
 - `POST /repos/:owner/:repo/pulls` — create
 - `GET /repos/:owner/:repo/pulls/:number` — get
@@ -88,12 +96,14 @@ Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and retu
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` — update branch
 
 ### Comments
+
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
 
 ### Reviews
+
 - `GET /repos/:owner/:repo/pulls/:number/reviews` — list
 - `POST /repos/:owner/:repo/pulls/:number/reviews` — create (with inline comments)
 - `GET/PUT /repos/:owner/:repo/pulls/:number/reviews/:id` — get/update
@@ -101,10 +111,12 @@ Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and retu
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` — dismiss
 
 ### Labels & Milestones
+
 - Labels: full CRUD, add/remove from issues, replace all
 - Milestones: full CRUD, state transitions, issue counts
 
 ### Branches & Git Data
+
 - Branches: list, get, protection CRUD (status checks, PR reviews, enforce admins)
 - Refs: get, match, create, update, delete
 - Commits: get, create
@@ -113,21 +125,25 @@ Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and retu
 - Tags: get, create
 
 ### Organizations & Teams
+
 - Orgs: get, update, list
 - Org members: list, check, remove, get/set membership
 - Teams: full CRUD, members, repos
 
 ### Releases
+
 - Releases: full CRUD, latest, by tag
 - Release assets: full CRUD, upload
 - Generate release notes
 
 ### Webhooks
+
 - Repo webhooks: full CRUD, ping, test, deliveries
 - Org webhooks: full CRUD, ping
 - Real HTTP delivery to registered URLs on all state changes
 
 ### Search
+
 - `GET /search/repositories` — full query syntax (user, org, language, topic, stars, forks, etc.)
 - `GET /search/issues` — issues + PRs (repo, is, author, label, milestone, state, etc.)
 - `GET /search/users` — users + orgs
@@ -137,6 +153,7 @@ Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and retu
 - `GET /search/labels` — label search
 
 ### Actions
+
 - Workflows: list, get, enable/disable, dispatch
 - Workflow runs: list, get, cancel, rerun, delete, logs
 - Jobs: list, get, logs
@@ -144,11 +161,13 @@ Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and retu
 - Secrets: repo + org CRUD
 
 ### Checks
+
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite
 - Check suites: create, get, preferences, rerequest, list by ref
 - Automatic suite status rollup from check run results
 
 ### Misc
+
 - `GET /rate_limit` — rate limit status
 - `GET /meta` — server metadata
 - `GET /octocat` — ASCII art
@@ -203,14 +222,14 @@ github:
 The `private_key` field is required when calling `seedFromConfig` directly. To generate omitted keys before seeding, use `materializeGitHubSeedConfig` and retain the returned key material:
 
 ```typescript
-import { materializeGitHubSeedConfig, seedFromConfig } from '@emulators/github'
+import { materializeGitHubSeedConfig, seedFromConfig } from "@emulators/github";
 
 const materialized = await materializeGitHubSeedConfig({
-  apps: [{ app_id: 12345, slug: 'my-github-app', name: 'My GitHub App' }],
-})
+  apps: [{ app_id: 12345, slug: "my-github-app", name: "My GitHub App" }],
+});
 
-seedFromConfig(store, baseUrl, materialized.config)
-const privateKey = materialized.generatedPrivateKeys[0]?.private_key
+seedFromConfig(store, baseUrl, materialized.config);
+const privateKey = materialized.generatedPrivateKeys[0]?.private_key;
 ```
 
 The `emulate` package performs this materialization automatically in `createEmulator` and exposes generated keys through `generatedSecrets`. The CLI can do the same when a private delivery file is requested:
