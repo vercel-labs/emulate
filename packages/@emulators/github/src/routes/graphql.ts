@@ -1,16 +1,28 @@
 import { buildSchema, graphql, type ExecutionResult, type GraphQLError } from "graphql";
-import type { Context, RouteContext, AppEnv } from "@emulators/core";
+import { ApiError, type Context, type RouteContext, type AppEnv } from "@emulators/core";
 import {
   createGitHubGraphQLContext,
   findVisibleRepository,
   requireGitHubGraphQLAuth,
   resolveVisibleNode,
 } from "../graphql/context.js";
+import { addIssueDependencyWithEvents, addSubIssueWithEvents } from "../issue-relationships.js";
+import { assertAuthenticatedActor, assertRepoPermission } from "../route-helpers.js";
+import type { GitHubIssue, GitHubRepo } from "../entities.js";
 import { consumeGitHubGraphQLRateLimit, getGitHubGraphQLRateLimit } from "../graphql/rate-limit.js";
 import { githubGraphQLSchema } from "../graphql/schema.js";
-import { repositoryView, resolvedNodeView } from "../graphql/views.js";
+import { issueView, repositoryView, resolvedNodeView } from "../graphql/views.js";
 
 const schema = buildSchema(githubGraphQLSchema);
+
+function relationshipIssue(
+  context: ReturnType<typeof createGitHubGraphQLContext>,
+  nodeId: string,
+): { issue: GitHubIssue; repo: GitHubRepo } {
+  const node = resolveVisibleNode(context, nodeId);
+  if (!node || node.kind !== "Issue") throw new ApiError(404, "Issue not found");
+  return { issue: node.issue, repo: node.repo };
+}
 
 interface GraphQLRequestBody {
   query: string;
@@ -45,7 +57,7 @@ async function readGraphQLBody(c: Context<AppEnv>): Promise<GraphQLRequestBody |
   };
 }
 
-function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>) {
+function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>, webhooks: RouteContext["webhooks"]) {
   return {
     repository: ({ owner, name }: { owner: string; name: string }) => {
       requireGitHubGraphQLAuth(context);
@@ -68,6 +80,62 @@ function createRoot(context: ReturnType<typeof createGitHubGraphQLContext>) {
         cost: rateLimit.cost,
       };
     },
+    addSubIssue: ({
+      input,
+    }: {
+      input: { parentIssueId: string; childIssueId: string; replaceParent?: boolean; clientMutationId?: string | null };
+    }) => {
+      const parent = relationshipIssue(context, input.parentIssueId);
+      const child = relationshipIssue(context, input.childIssueId);
+      assertRepoPermission(context.gh, context.authUser, parent.repo, "issues", "write");
+      assertRepoPermission(context.gh, context.authUser, child.repo, "issues", "read");
+      const actor = assertAuthenticatedActor(context.gh, context.authUser);
+      addSubIssueWithEvents(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl, actor },
+        parent.issue.id,
+        child.issue.id,
+        { replaceParent: input.replaceParent },
+      );
+      return {
+        parentIssue: issueView(context, parent.issue, parent.repo),
+        subIssue: issueView(context, child.issue, child.repo),
+        childIssue: issueView(context, child.issue, child.repo),
+        clientMutationId: input.clientMutationId ?? null,
+      };
+    },
+    addBlockedBy: ({
+      input,
+    }: {
+      input: {
+        issueId?: string | null;
+        blockedIssueId?: string | null;
+        blockingIssueId: string;
+        clientMutationId?: string | null;
+      };
+    }) => {
+      if (input.issueId && input.blockedIssueId && input.issueId !== input.blockedIssueId) {
+        throw new ApiError(400, "issueId and blockedIssueId must refer to the same issue");
+      }
+      const blockedId = input.issueId ?? input.blockedIssueId;
+      if (!blockedId) throw new ApiError(400, "issueId is required");
+      const blocked = relationshipIssue(context, blockedId);
+      const blocking = relationshipIssue(context, input.blockingIssueId);
+      assertRepoPermission(context.gh, context.authUser, blocked.repo, "issues", "write");
+      assertRepoPermission(context.gh, context.authUser, blocking.repo, "issues", "read");
+      const actor = assertAuthenticatedActor(context.gh, context.authUser);
+      addIssueDependencyWithEvents(
+        { gh: context.gh, webhooks, baseUrl: context.baseUrl, actor },
+        blocked.issue.id,
+        blocking.issue.id,
+      );
+      return {
+        issue: issueView(context, blocked.issue, blocked.repo),
+        blockedIssue: issueView(context, blocked.issue, blocked.repo),
+        blockedBy: issueView(context, blocking.issue, blocking.repo),
+        blockingIssue: issueView(context, blocking.issue, blocking.repo),
+        clientMutationId: input.clientMutationId ?? null,
+      };
+    },
   };
 }
 
@@ -77,6 +145,7 @@ async function runGraphQL(
     variables?: Record<string, unknown>;
     operationName?: string;
     context: ReturnType<typeof createGitHubGraphQLContext>;
+    webhooks: RouteContext["webhooks"];
   },
 ): Promise<ExecutionResult> {
   if (!query.trim()) return { errors: [{ message: "GraphQL query is required" } as GraphQLError] };
@@ -84,7 +153,7 @@ async function runGraphQL(
   return graphql({
     schema,
     source: query,
-    rootValue: createRoot(opts.context),
+    rootValue: createRoot(opts.context, opts.webhooks),
     contextValue: opts.context,
     variableValues: opts.variables,
     operationName: opts.operationName,
@@ -109,7 +178,7 @@ function graphQLRequestError(message: string): ResponseBody {
 
 type ResponseBody = { errors: Array<{ message: string }> };
 
-export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
+export function graphqlRoutes({ app, store, baseUrl, webhooks }: RouteContext): void {
   app.post("/graphql", async (c) => {
     const context = createGitHubGraphQLContext(store, c.get("authUser"), baseUrl);
     if (!context.authUser) {
@@ -127,6 +196,7 @@ export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
       variables: body.variables,
       operationName: body.operationName,
       context,
+      webhooks,
     });
     return c.json(result, statusFromGraphQLResult(result));
   });

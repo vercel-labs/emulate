@@ -18,6 +18,7 @@ npm install @emulators/github
 - `node(id:)` resolves REST node IDs for repositories, issues, labels, and issue comments. Inaccessible records return `null`.
 - `Issue.comments` supports Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
 - Requests require authentication and use the GraphQL rate-limit bucket exposed by `rateLimit` and `/rate_limit`.
+- Issue relationships include `parent`, cursor-paginated `subIssues` and `blockedBy`, plus `addSubIssue` and `addBlockedBy` mutations with exact `clientMutationId` echoes.
 
 ### Users
 - `GET /user` — authenticated user

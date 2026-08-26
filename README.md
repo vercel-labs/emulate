@@ -654,6 +654,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Authenticated queries support repository and issue reads plus global `node(id:)` reads for repositories, issues, labels, and issue comments.
 - Issue comment connections support Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
 - Inaccessible records resolve to `null`; `rateLimit` and REST `/rate_limit` share the GraphQL rate-limit bucket.
+- Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. `addSubIssue` and `addBlockedBy` mutations echo `clientMutationId` exactly and use the same relationship state as REST.
 
 ### Users
 - `GET /user` - authenticated user

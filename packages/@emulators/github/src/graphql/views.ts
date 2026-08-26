@@ -3,6 +3,7 @@ import { connectionFromArray } from "./pagination.js";
 import type { GitHubComment, GitHubIssue, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
 import type { GitHubGraphQLContext, ResolvedGitHubGraphQLNode } from "./context.js";
 import { canReadIssues, findVisibleIssue, findVisibleIssueComment } from "./context.js";
+import { getParentRelation, listBlockedByRelations, listSubIssueRelations } from "../issue-relationships.js";
 
 type GraphQLActorView = {
   __typename: "User" | "Organization" | "Bot";
@@ -54,6 +55,29 @@ function stateReasonValue(
 
 function issueStateValue(issue: GitHubIssue): "OPEN" | "CLOSED" {
   return issue.state === "open" ? "OPEN" : "CLOSED";
+}
+
+function visibleIssue(context: GitHubGraphQLContext, issueId: number): { issue: GitHubIssue; repo: GitHubRepo } | null {
+  const issue = context.gh.issues.get(issueId);
+  if (!issue || issue.is_pull_request) return null;
+  const repo = context.gh.repos.get(issue.repo_id);
+  return repo && canReadIssues(context, repo) ? { issue, repo } : null;
+}
+
+function issueConnection(
+  context: GitHubGraphQLContext,
+  issueIds: number[],
+  args: GraphQLConnectionArgs,
+  connection: string,
+) {
+  const issues = issueIds
+    .map((issueId) => visibleIssue(context, issueId))
+    .filter((value): value is { issue: GitHubIssue; repo: GitHubRepo } => value !== null);
+  return connectionFromArray(
+    issues.map(({ issue, repo }) => issueView(context, issue, repo)),
+    args,
+    connection,
+  );
 }
 
 export function repositoryView(context: GitHubGraphQLContext, repo: GitHubRepo) {
@@ -110,6 +134,25 @@ export function issueView(context: GitHubGraphQLContext, issue: GitHubIssue, rep
       );
       return connection;
     },
+    parent: () => {
+      const relation = getParentRelation(context.gh, issue.id);
+      const parent = relation ? visibleIssue(context, relation.parent_issue_id) : null;
+      return parent ? issueView(context, parent.issue, parent.repo) : null;
+    },
+    subIssues: (args: GraphQLConnectionArgs = {}) =>
+      issueConnection(
+        context,
+        listSubIssueRelations(context.gh, issue.id).map((relation) => relation.child_issue_id),
+        args,
+        `sub-issues:${issue.node_id}`,
+      ),
+    blockedBy: (args: GraphQLConnectionArgs = {}) =>
+      issueConnection(
+        context,
+        listBlockedByRelations(context.gh, issue.id).map((relation) => relation.blocking_issue_id),
+        args,
+        `blocked-by:${issue.node_id}`,
+      ),
   };
 }
 

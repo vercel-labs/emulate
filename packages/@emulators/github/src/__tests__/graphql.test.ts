@@ -122,6 +122,16 @@ async function createFixture(app: Hono) {
   return { issue, comment, label, repo };
 }
 
+async function createIssue(app: Hono, title: string) {
+  const response = await app.request(`${base}/repos/octocat/hello-world/issues`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ title }),
+  });
+  expect(response.status).toBe(201);
+  return (await response.json()) as { id: number; node_id: string; number: number };
+}
+
 describe("GitHub GraphQL read compatibility", () => {
   it("resolves repositories and issues through variables, aliases, named operations, and fragments", async () => {
     const { app } = createTestApp();
@@ -644,5 +654,291 @@ describe("GitHub GraphQL read compatibility", () => {
       expect(response.status).toBe(401);
       expect((await responseBody(response)).errors?.[0]?.message).toBe("Requires authentication");
     }
+  });
+
+  it("reads REST-created parent, sub-issue, and blocked-by relationships with Relay pagination", async () => {
+    const { app } = createTestApp();
+    const parent = await createIssue(app, "GraphQL parent");
+    const childOne = await createIssue(app, "GraphQL child one");
+    const childTwo = await createIssue(app, "GraphQL child two");
+    const blocker = await createIssue(app, "GraphQL blocker");
+    const blocked = await createIssue(app, "GraphQL blocked");
+    const relationship = (path: string, body: object) =>
+      app.request(`${base}${path}`, { method: "POST", headers: headers(), body: JSON.stringify(body) });
+    expect(
+      (
+        await relationship(`/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+          sub_issue_id: childOne.id,
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await relationship(`/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+          sub_issue_id: childTwo.id,
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await relationship(`/repos/octocat/hello-world/issues/${blocked.number}/dependencies/blocked_by`, {
+          issue_id: blocker.id,
+        })
+      ).status,
+    ).toBe(201);
+
+    const query = `query Relationships($id: ID!, $first: Int, $after: String) {
+      node(id: $id) { ... on Issue {
+        parent { id }
+        subIssues(first: $first, after: $after) { nodes { id number } edges { cursor } pageInfo { hasNextPage hasPreviousPage } totalCount }
+        blockedBy(first: $first) { nodes { id number } totalCount }
+      } }
+    }`;
+    const first = await graphql(app, query, { id: childOne.node_id, first: 1 }, "Relationships");
+    const firstBody = (await responseBody(first)) as any;
+    expect(firstBody.data.node.parent.id).toBe(parent.node_id);
+    expect(firstBody.data.node.subIssues.totalCount).toBe(0);
+
+    const parentPage = await graphql(app, query, { id: parent.node_id, first: 1 }, "Relationships");
+    const parentBody = (await responseBody(parentPage)) as any;
+    expect(parentBody.data.node.subIssues.nodes.map((issue: any) => issue.id)).toEqual([childOne.node_id]);
+    expect(parentBody.data.node.subIssues.pageInfo.hasNextPage).toBe(true);
+    const cursor = parentBody.data.node.subIssues.edges[0].cursor;
+    const secondPage = await graphql(app, query, { id: parent.node_id, first: 100, after: cursor }, "Relationships");
+    expect(((await responseBody(secondPage)) as any).data.node.subIssues.nodes.map((issue: any) => issue.id)).toEqual([
+      childTwo.node_id,
+    ]);
+
+    const blockedPage = await graphql(app, query, { id: blocked.node_id, first: 0 }, "Relationships");
+    expect(((await responseBody(blockedPage)) as any).data.node.blockedBy.nodes).toEqual([]);
+    const blockedFull = await graphql(app, query, { id: blocked.node_id, first: 100 }, "Relationships");
+    expect(((await responseBody(blockedFull)) as any).data.node.blockedBy.nodes.map((issue: any) => issue.id)).toEqual([
+      blocker.node_id,
+    ]);
+  });
+
+  it("writes relationships through GraphQL and exposes them through REST with client IDs", async () => {
+    const { app } = createTestApp();
+    const parent = await createIssue(app, "Mutation parent");
+    const child = await createIssue(app, "Mutation child");
+    const blocker = await createIssue(app, "Mutation blocker");
+    const blocked = await createIssue(app, "Mutation blocked");
+    const mutation = `mutation Add($sub: AddSubIssueInput!, $dependency: AddBlockedByInput!) {
+      addSubIssue(input: $sub) { parentIssue { id } subIssue { id } clientMutationId }
+      addBlockedBy(input: $dependency) { issue { id } blockedBy { id } clientMutationId }
+    }`;
+    const response = await graphql(
+      app,
+      mutation,
+      {
+        sub: { parentIssueId: parent.node_id, childIssueId: child.node_id, clientMutationId: "sub-client" },
+        dependency: { issueId: blocked.node_id, blockingIssueId: blocker.node_id, clientMutationId: "dep-client" },
+      },
+      "Add",
+    );
+    expect(response.status).toBe(200);
+    expect(((await responseBody(response)) as any).data).toEqual({
+      addSubIssue: {
+        parentIssue: { id: parent.node_id },
+        subIssue: { id: child.node_id },
+        clientMutationId: "sub-client",
+      },
+      addBlockedBy: {
+        issue: { id: blocked.node_id },
+        blockedBy: { id: blocker.node_id },
+        clientMutationId: "dep-client",
+      },
+    });
+
+    const subRest = await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+      headers: headers(),
+    });
+    expect(((await subRest.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([child.id]);
+    const dependencyRest = await app.request(
+      `${base}/repos/octocat/hello-world/issues/${blocked.number}/dependencies/blocked_by`,
+      { headers: headers() },
+    );
+    expect(((await dependencyRest.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([blocker.id]);
+  });
+
+  it("rejects unauthorized and cyclic GraphQL relationship mutations atomically", async () => {
+    const { app } = createTestApp();
+    const first = await createIssue(app, "Atomic first");
+    const second = await createIssue(app, "Atomic second");
+    const mutation = `mutation Add($input: AddSubIssueInput!) { addSubIssue(input: $input) { subIssue { id } } }`;
+    const created = await graphql(
+      app,
+      mutation,
+      { input: { parentIssueId: first.node_id, childIssueId: second.node_id } },
+      "Add",
+    );
+    expect(((await responseBody(created)) as any).data.addSubIssue.subIssue.id).toBe(second.node_id);
+    const cycle = await graphql(
+      app,
+      mutation,
+      { input: { parentIssueId: second.node_id, childIssueId: first.node_id } },
+      "Add",
+    );
+    expect(((await responseBody(cycle)) as any).errors[0].message).toContain("cycle");
+    const parentRest = await app.request(`${base}/repos/octocat/hello-world/issues/${first.number}/sub_issues`, {
+      headers: headers(),
+    });
+    expect(((await parentRest.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([second.id]);
+  });
+
+  it("preserves exact 100-item and multipage connection boundaries", async () => {
+    const { app } = createTestApp();
+    const parent = await createIssue(app, "Boundary parent");
+    const children = [];
+    for (let index = 0; index < 101; index++) children.push(await createIssue(app, `Boundary child ${index}`));
+    for (const child of children) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ sub_issue_id: child.id }),
+      });
+      expect(response.status).toBe(201);
+    }
+    const query = `query Boundaries($id: ID!, $first: Int, $after: String) { node(id: $id) { ... on Issue { subIssues(first: $first, after: $after) { nodes { id } edges { cursor } pageInfo { hasNextPage hasPreviousPage } totalCount } } } }`;
+    const first = await graphql(app, query, { id: parent.node_id, first: 100 }, "Boundaries");
+    const firstBody = ((await responseBody(first)) as any).data.node.subIssues;
+    expect(firstBody.nodes).toHaveLength(100);
+    expect(firstBody.totalCount).toBe(101);
+    expect(firstBody.pageInfo.hasNextPage).toBe(true);
+    const next = await graphql(
+      app,
+      query,
+      { id: parent.node_id, first: 100, after: firstBody.edges[99].cursor },
+      "Boundaries",
+    );
+    const nextBody = ((await responseBody(next)) as any).data.node.subIssues;
+    expect(nextBody.nodes).toHaveLength(1);
+    expect(nextBody.pageInfo.hasNextPage).toBe(false);
+    const empty = await graphql(app, query, { id: parent.node_id, first: 0 }, "Boundaries");
+    expect(((await responseBody(empty)) as any).data.node.subIssues.nodes).toEqual([]);
+  });
+
+  it("rejects relationship duplicates, self references, conflicts, and inaccessible dependencies without mutation", async () => {
+    const { app } = createTestApp();
+    const parent = await createIssue(app, "Validation parent");
+    const child = await createIssue(app, "Validation child");
+    const blocker = await createIssue(app, "Validation blocker");
+    const blocked = await createIssue(app, "Validation blocked");
+    const mutation = `mutation Add($sub: AddSubIssueInput!, $dep: AddBlockedByInput!) { addSubIssue(input: $sub) { clientMutationId } addBlockedBy(input: $dep) { clientMutationId } }`;
+    const variables = {
+      sub: { parentIssueId: parent.node_id, childIssueId: child.node_id, clientMutationId: "same" },
+      dep: { issueId: blocked.node_id, blockingIssueId: blocker.node_id, clientMutationId: "same" },
+    };
+    expect(((await responseBody(await graphql(app, mutation, variables, "Add"))) as any).data).toEqual({
+      addSubIssue: { clientMutationId: "same" },
+      addBlockedBy: { clientMutationId: "same" },
+    });
+    const duplicate = await graphql(app, mutation, variables, "Add");
+    expect(((await responseBody(duplicate)) as any).errors[0].message).toContain("already");
+    const self = await graphql(
+      app,
+      `
+        mutation Self($input: AddBlockedByInput!) {
+          addBlockedBy(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { issueId: blocked.node_id, blockingIssueId: blocked.node_id } },
+      "Self",
+    );
+    expect(((await responseBody(self)) as any).errors[0].message).toContain("itself");
+    const conflict = await graphql(
+      app,
+      `
+        mutation Conflict($input: AddSubIssueInput!) {
+          addSubIssue(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { parentIssueId: blocker.node_id, childIssueId: child.node_id } },
+      "Conflict",
+    );
+    expect(((await responseBody(conflict)) as any).errors[0].message).toContain("parent");
+    const rest = await app.request(`${base}/repos/octocat/hello-world/issues/${parent.number}/sub_issues`, {
+      headers: headers(),
+    });
+    expect(((await rest.json()) as Array<{ id: number }>).map((issue) => issue.id)).toEqual([child.id]);
+
+    const privateIssueResponse = await app.request(`${base}/repos/octocat/private-repo/issues`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: "Hidden relationship target" }),
+    });
+    const privateIssue = (await privateIssueResponse.json()) as { node_id: string };
+    const inaccessible = await graphql(
+      app,
+      `
+        mutation Hidden($input: AddSubIssueInput!) {
+          addSubIssue(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { parentIssueId: parent.node_id, childIssueId: privateIssue.node_id } },
+      "Hidden",
+      "outsider-token",
+    );
+    expect(((await responseBody(inaccessible)) as any).errors[0].message).toContain("Issue not found");
+    const invalidDependency = await graphql(
+      app,
+      `
+        mutation Invalid($input: AddBlockedByInput!) {
+          addBlockedBy(input: $input) {
+            clientMutationId
+          }
+        }
+      `,
+      { input: { issueId: blocked.node_id, blockingIssueId: "missing-node" } },
+      "Invalid",
+    );
+    expect(((await responseBody(invalidDependency)) as any).errors[0].message).toContain("Issue not found");
+  });
+
+  it("validates blocked-issue aliases while accepting equal or single fields", async () => {
+    const { app } = createTestApp();
+    const blocked = await createIssue(app, "Alias blocked");
+    const other = await createIssue(app, "Alias other");
+    const blocker = await createIssue(app, "Alias blocker");
+    const mutation = `mutation Alias($input: AddBlockedByInput!) { addBlockedBy(input: $input) { issue { id } clientMutationId } }`;
+    const conflicting = await graphql(
+      app,
+      mutation,
+      { input: { issueId: blocked.node_id, blockedIssueId: other.node_id, blockingIssueId: blocker.node_id } },
+      "Alias",
+    );
+    expect(((await responseBody(conflicting)) as any).errors[0].message).toContain("same issue");
+
+    const equal = await graphql(
+      app,
+      mutation,
+      {
+        input: {
+          issueId: blocked.node_id,
+          blockedIssueId: blocked.node_id,
+          blockingIssueId: blocker.node_id,
+          clientMutationId: "equal",
+        },
+      },
+      "Alias",
+    );
+    expect(((await responseBody(equal)) as any).data.addBlockedBy.clientMutationId).toBe("equal");
+
+    const singleBlocked = await createIssue(app, "Alias single");
+    const single = await graphql(
+      app,
+      mutation,
+      {
+        input: { blockedIssueId: singleBlocked.node_id, blockingIssueId: blocker.node_id, clientMutationId: "single" },
+      },
+      "Alias",
+    );
+    expect(((await responseBody(single)) as any).data.addBlockedBy.issue.id).toBe(singleBlocked.node_id);
   });
 });

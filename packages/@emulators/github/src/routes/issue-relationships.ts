@@ -1,9 +1,11 @@
 import type { Context, RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
-import type { GitHubIssue, GitHubIssueEvent, GitHubRepo, GitHubUser } from "../entities.js";
+import type { GitHubIssue, GitHubRepo } from "../entities.js";
 import {
-  addIssueDependency,
-  addSubIssue,
+  addIssueDependencyWithEvents,
+  addSubIssueWithEvents,
+  dispatchIssueDependencyRelationship,
+  dispatchSubIssueRelationship,
   getIssueById,
   getIssueByNumber,
   getParentRelation,
@@ -15,8 +17,8 @@ import {
   reprioritizeSubIssue,
 } from "../issue-relationships.js";
 import { getGitHubStore } from "../store.js";
-import { assertAuthenticatedActor, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
-import { formatIssue, formatRepo, formatUser, generateNodeId, lookupRepo } from "../helpers.js";
+import { assertAuthenticatedActor, assertRepoPermission, notFoundResponse } from "../route-helpers.js";
+import { formatIssue, lookupRepo } from "../helpers.js";
 
 function issueId(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
@@ -58,157 +60,6 @@ function assertIssueRead(
   if (!repo) throw notFoundResponse("Repository");
   assertRepoPermission(gh, authUser, repo, "issues", "read");
   return repo;
-}
-
-function relationshipEvent(
-  gh: ReturnType<typeof getGitHubStore>,
-  repo: GitHubRepo,
-  issue: GitHubIssue,
-  actor: GitHubUser,
-  event: string,
-  extra: Partial<Pick<GitHubIssueEvent, "parent_issue_id" | "sub_issue_id" | "blocked_issue_id" | "blocking_issue_id">>,
-): void {
-  const row = gh.issueEvents.insert({
-    node_id: "",
-    repo_id: repo.id,
-    issue_number: issue.number,
-    event,
-    actor_id: actor.id,
-    commit_id: null,
-    commit_url: null,
-    label_name: null,
-    assignee_id: null,
-    milestone_title: null,
-    rename: null,
-    ...extra,
-  } as Omit<GitHubIssueEvent, "id" | "created_at" | "updated_at">);
-  gh.issueEvents.update(row.id, { node_id: generateNodeId("IssueEvent", row.id) });
-}
-
-function relationshipPayload(
-  gh: ReturnType<typeof getGitHubStore>,
-  baseUrl: string,
-  action: string,
-  repository: GitHubRepo,
-  actor: GitHubUser,
-  values: {
-    parent: GitHubIssue;
-    child: GitHubIssue;
-  },
-) {
-  return {
-    action,
-    parent_issue_id: values.parent.id,
-    parent_issue: issueJson(values.parent, gh, baseUrl),
-    sub_issue_id: values.child.id,
-    sub_issue: issueJson(values.child, gh, baseUrl),
-    repository: formatRepo(repository, gh, baseUrl),
-    sender: formatUser(actor, baseUrl),
-  };
-}
-
-function dispatchSubIssueEvents(
-  gh: ReturnType<typeof getGitHubStore>,
-  webhooks: RouteContext["webhooks"],
-  baseUrl: string,
-  actor: GitHubUser,
-  parent: GitHubIssue,
-  child: GitHubIssue,
-  action: "added" | "removed",
-): void {
-  const parentRepo = gh.repos.get(parent.repo_id);
-  const childRepo = gh.repos.get(child.repo_id);
-  if (!parentRepo || !childRepo) return;
-
-  const parentAction = `sub_issue_${action}`;
-  const childAction = `parent_issue_${action}`;
-  relationshipEvent(gh, parentRepo, parent, actor, parentAction, {
-    parent_issue_id: parent.id,
-    sub_issue_id: child.id,
-  });
-  relationshipEvent(gh, childRepo, child, actor, childAction, {
-    parent_issue_id: parent.id,
-    sub_issue_id: child.id,
-  });
-
-  void webhooks.dispatch(
-    "sub_issues",
-    parentAction,
-    relationshipPayload(gh, baseUrl, parentAction, parentRepo, actor, { parent, child }),
-    ownerLoginOf(gh, parentRepo),
-    parentRepo.name,
-  );
-  void webhooks.dispatch(
-    "sub_issues",
-    childAction,
-    relationshipPayload(gh, baseUrl, childAction, childRepo, actor, { parent, child }),
-    ownerLoginOf(gh, childRepo),
-    childRepo.name,
-  );
-}
-
-function dependencyPayload(
-  gh: ReturnType<typeof getGitHubStore>,
-  baseUrl: string,
-  action: string,
-  repository: GitHubRepo,
-  actor: GitHubUser,
-  blocked: GitHubIssue,
-  blocking: GitHubIssue,
-) {
-  const blockingRepo = gh.repos.get(blocking.repo_id);
-  const blockedRepo = gh.repos.get(blocked.repo_id);
-  return {
-    action,
-    blocked_issue_id: blocked.id,
-    blocked_issue: issueJson(blocked, gh, baseUrl),
-    blocking_issue_id: blocking.id,
-    blocking_issue: issueJson(blocking, gh, baseUrl),
-    blocking_repository: blockingRepo ? formatRepo(blockingRepo, gh, baseUrl) : null,
-    repository: formatRepo(repository, gh, baseUrl),
-    blocked_repository: blockedRepo ? formatRepo(blockedRepo, gh, baseUrl) : null,
-    sender: formatUser(actor, baseUrl),
-  };
-}
-
-function dispatchDependencyEvents(
-  gh: ReturnType<typeof getGitHubStore>,
-  webhooks: RouteContext["webhooks"],
-  baseUrl: string,
-  actor: GitHubUser,
-  blocked: GitHubIssue,
-  blocking: GitHubIssue,
-  action: "added" | "removed",
-): void {
-  const blockedRepo = gh.repos.get(blocked.repo_id);
-  const blockingRepo = gh.repos.get(blocking.repo_id);
-  if (!blockedRepo || !blockingRepo) return;
-
-  const blockedAction = `blocked_by_${action}`;
-  const blockingAction = `blocking_${action}`;
-  relationshipEvent(gh, blockedRepo, blocked, actor, blockedAction, {
-    blocked_issue_id: blocked.id,
-    blocking_issue_id: blocking.id,
-  });
-  relationshipEvent(gh, blockingRepo, blocking, actor, blockingAction, {
-    blocked_issue_id: blocked.id,
-    blocking_issue_id: blocking.id,
-  });
-
-  void webhooks.dispatch(
-    "issue_dependencies",
-    blockedAction,
-    dependencyPayload(gh, baseUrl, blockedAction, blockedRepo, actor, blocked, blocking),
-    ownerLoginOf(gh, blockedRepo),
-    blockedRepo.name,
-  );
-  void webhooks.dispatch(
-    "issue_dependencies",
-    blockingAction,
-    dependencyPayload(gh, baseUrl, blockingAction, blockingRepo, actor, blocked, blocking),
-    ownerLoginOf(gh, blockingRepo),
-    blockingRepo.name,
-  );
 }
 
 function listIssueRelations(
@@ -274,12 +125,7 @@ export function issueRelationshipsRoutes({ app, store, webhooks, baseUrl }: Rout
       throw new ApiError(422, "replace_parent must be a boolean");
     }
     const actor = assertAuthenticatedActor(gh, c.get("authUser"));
-    const result = addSubIssue(gh, parent.id, child.id, { replaceParent });
-    if (result.replacedParentId !== null) {
-      const oldParent = getIssueById(gh, result.replacedParentId);
-      dispatchSubIssueEvents(gh, webhooks, baseUrl, actor, oldParent, child, "removed");
-    }
-    dispatchSubIssueEvents(gh, webhooks, baseUrl, actor, parent, child, "added");
+    addSubIssueWithEvents({ gh, webhooks, baseUrl, actor }, parent.id, child.id, { replaceParent });
     return c.json(issueJson(child, gh, baseUrl), 201);
   });
 
@@ -293,7 +139,7 @@ export function issueRelationshipsRoutes({ app, store, webhooks, baseUrl }: Rout
     assertIssueRead(gh, c.get("authUser"), child);
     const actor = assertAuthenticatedActor(gh, c.get("authUser"));
     removeSubIssue(gh, parent.id, child.id);
-    dispatchSubIssueEvents(gh, webhooks, baseUrl, actor, parent, child, "removed");
+    dispatchSubIssueRelationship({ gh, webhooks, baseUrl, actor }, parent, child, "removed");
     return c.json(issueJson(child, gh, baseUrl));
   });
 
@@ -352,8 +198,7 @@ export function issueRelationshipsRoutes({ app, store, webhooks, baseUrl }: Rout
     const blocking = getIssueById(gh, issueId(body.issue_id, "issue_id"));
     assertIssueRead(gh, c.get("authUser"), blocking);
     const actor = assertAuthenticatedActor(gh, c.get("authUser"));
-    addIssueDependency(gh, blocked.id, blocking.id);
-    dispatchDependencyEvents(gh, webhooks, baseUrl, actor, blocked, blocking, "added");
+    addIssueDependencyWithEvents({ gh, webhooks, baseUrl, actor }, blocked.id, blocking.id);
     return c.json(issueJson(blocking, gh, baseUrl), 201);
   });
 
@@ -366,7 +211,7 @@ export function issueRelationshipsRoutes({ app, store, webhooks, baseUrl }: Rout
     assertIssueRead(gh, c.get("authUser"), blocking);
     const actor = assertAuthenticatedActor(gh, c.get("authUser"));
     removeIssueDependency(gh, blocked.id, blocking.id);
-    dispatchDependencyEvents(gh, webhooks, baseUrl, actor, blocked, blocking, "removed");
+    dispatchIssueDependencyRelationship({ gh, webhooks, baseUrl, actor }, blocked, blocking, "removed");
     return c.body(null, 204);
   });
 }

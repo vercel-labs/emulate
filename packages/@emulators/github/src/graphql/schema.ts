@@ -71,6 +71,9 @@ export const githubGraphQLSchema = /* GraphQL */ `
     updatedAt: DateTime!
     url: String!
     comments(first: Int, after: String, last: Int, before: String): IssueCommentConnection!
+    parent: Issue
+    subIssues(first: Int, after: String, last: Int, before: String): IssueConnection!
+    blockedBy(first: Int, after: String, last: Int, before: String): IssueConnection!
   }
 
   type Label implements Node {
@@ -110,6 +113,18 @@ export const githubGraphQLSchema = /* GraphQL */ `
     totalCount: Int!
   }
 
+  type IssueEdge {
+    cursor: String!
+    node: Issue!
+  }
+
+  type IssueConnection {
+    nodes: [Issue!]!
+    edges: [IssueEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
   type RateLimit {
     limit: Int!
     remaining: Int!
@@ -118,9 +133,43 @@ export const githubGraphQLSchema = /* GraphQL */ `
     cost: Int!
   }
 
+  input AddSubIssueInput {
+    parentIssueId: ID!
+    childIssueId: ID!
+    replaceParent: Boolean = false
+    clientMutationId: String
+  }
+
+  type AddSubIssuePayload {
+    parentIssue: Issue!
+    subIssue: Issue!
+    childIssue: Issue!
+    clientMutationId: String
+  }
+
+  input AddBlockedByInput {
+    issueId: ID
+    blockedIssueId: ID
+    blockingIssueId: ID!
+    clientMutationId: String
+  }
+
+  type AddBlockedByPayload {
+    issue: Issue!
+    blockedIssue: Issue!
+    blockedBy: Issue!
+    blockingIssue: Issue!
+    clientMutationId: String
+  }
+
   type Query {
     repository(owner: String!, name: String!): Repository
     node(id: ID!): Node
     rateLimit: RateLimit!
+  }
+
+  type Mutation {
+    addSubIssue(input: AddSubIssueInput!): AddSubIssuePayload!
+    addBlockedBy(input: AddBlockedByInput!): AddBlockedByPayload!
   }
 `;
