@@ -76,7 +76,7 @@ Public repo endpoints work without auth. Private repos and write operations requ
 ## GraphQL
 
 `POST /graphql` accepts a JSON body with `query`, optional `variables`, and optional `operationName`. Authenticated queries support repository and issue reads, global `node(id:)` reads for repositories, issues, labels, and issue comments, and Relay-style issue comment connections with opaque cursors. Inaccessible records resolve to `null`. The `rateLimit` query and REST `/rate_limit` endpoint share the GraphQL rate-limit bucket.
-- The qualified issue-graph subset is `repository`, `node`, `rateLimit`, `addSubIssue`, `addBlockedBy`, `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue`. Connection pages cap at 100 items and use opaque cursors. Seeded issue-graph fixtures and reset-specific guarantees remain pending issue #11 integration. No live GitHub calls are made.
+- The qualified issue-graph subset is `repository`, `node`, `rateLimit`, `addSubIssue`, `addBlockedBy`, `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue`. Connection pages cap at 100 items and use opaque cursors. Seeded issue-graph fixtures and reset-specific guarantees are covered by qualification tests. No live GitHub calls are made.
 - Rate limits are internally consistent in the local shared GraphQL/REST bucket, but GitHub's operation-specific cost fidelity and remote quota enforcement are not modeled.
 
 Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. The `addSubIssue` and `addBlockedBy` mutations use the shared relationship state, enforce REST-equivalent permissions and validation, and echo `clientMutationId` exactly.
