@@ -28,7 +28,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
-import { normalizeGitHubSeedGraph, validateGitHubSeedGraph } from "./seed-graph-validation.js";
+import { validateGitHubSeedGraph } from "./seed-graph-validation.js";
 import { materializeIssueGraph } from "./seed-graph.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
@@ -255,7 +255,7 @@ function seedDefaults(store: Store, baseUrl: string): void {
 }
 
 function seedFromConfigUnsafe(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
-  validateGitHubSeedGraph(config);
+  const seedPlan = validateGitHubSeedGraph(config);
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
       throw new Error(
@@ -430,7 +430,7 @@ function seedFromConfigUnsafe(store: Store, baseUrl: string, config: GitHubSeedC
     }
   }
 
-  materializeIssueGraph(store, baseUrl, config);
+  materializeIssueGraph(store, seedPlan);
 
   if (config.oauth_apps) {
     for (const oa of config.oauth_apps) {

@@ -135,7 +135,7 @@ describe("createEmulator", () => {
       parent: stableIssue(await beforeParent.json()),
       child: stableIssue(await beforeChild.json()),
       duplicate: stableIssue(await beforeDuplicate.json()),
-      graph: await beforeGraph.json(),
+      graph: (await beforeGraph.json()) as any,
     };
     expect(beforeParent.status).toBe(200);
     expect(beforeChild.status).toBe(200);

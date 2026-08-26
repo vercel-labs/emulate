@@ -1,5 +1,15 @@
 import type { GitHubSeedConfig } from "./index.js";
 
+export interface ValidatedGitHubSeedPlan {
+  config: GitHubSeedConfig;
+  labels: GitHubSeedConfig["labels"];
+  issues: Array<NonNullable<GitHubSeedConfig["issues"]>[number] & { repo: string }>;
+  comments: GitHubSeedConfig["comments"];
+  subIssues: Array<{ parent: string; child: string; position: number }>;
+  dependencies: GitHubSeedConfig["dependencies"];
+  canonicalRefs: Map<string, string>;
+}
+
 function requireReference(set: Set<string>, value: string, description: string): void {
   if (!set.has(value)) throw new Error(`GitHub seed references missing ${description}: ${value}`);
 }
@@ -23,7 +33,7 @@ export function normalizeGitHubSeedGraph(config: GitHubSeedConfig): GitHubSeedCo
   return { ...config, sub_issues: edges };
 }
 
-export function validateGitHubSeedGraph(input: GitHubSeedConfig): void {
+export function validateGitHubSeedGraph(input: GitHubSeedConfig): ValidatedGitHubSeedPlan {
   const config = normalizeGitHubSeedGraph(input);
   const users = new Set(["ghost", "admin", ...(config.users ?? []).map((user) => user.login)]);
   const repos = new Set((config.repos ?? []).map((repo) => `${repo.owner}/${repo.name}`));
@@ -45,7 +55,7 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): void {
     ...(config.repos ?? []).flatMap((repo) =>
       (repo.issues ?? []).map((issue) => ({ ...issue, repo: `${repo.owner}/${repo.name}` })),
     ),
-  ];
+  ].map((issue) => ({ ...issue, repo: issue.repo! }));
   const issueKeys = new Set<string>();
   const issueNumbers = new Map<string, Set<number>>();
   for (const issue of issues) {
@@ -177,4 +187,14 @@ export function validateGitHubSeedGraph(input: GitHubSeedConfig): void {
     visited.add(issue);
   };
   for (const issue of issueKeys) visit(issue);
+
+  return {
+    config,
+    labels: config.labels,
+    issues,
+    comments,
+    subIssues: (config.sub_issues ?? []).map((edge) => ({ ...edge, position: edge.position! })),
+    dependencies: config.dependencies,
+    canonicalRefs: new Map(issues.flatMap((issue) => (issue.duplicate_of ? [[issue.key, issue.duplicate_of]] : []))),
+  };
 }

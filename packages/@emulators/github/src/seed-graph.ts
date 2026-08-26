@@ -1,20 +1,15 @@
 import type { Store } from "@emulators/core";
 import type { GitHubIssue } from "./entities.js";
-import type { GitHubSeedConfig } from "./index.js";
+import type { ValidatedGitHubSeedPlan } from "./seed-graph-validation.js";
 import { getGitHubStore } from "./store.js";
 import { generateNodeId } from "./helpers.js";
-import { normalizeGitHubSeedGraph } from "./seed-graph-validation.js";
 
-export function materializeIssueGraph(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
-  config = normalizeGitHubSeedGraph(config);
+export function materializeIssueGraph(store: Store, plan: ValidatedGitHubSeedPlan): void {
+  const { config } = plan;
   const gh = getGitHubStore(store);
-  const nestedIssues = (config.repos ?? []).flatMap((repo) =>
-    (repo.issues ?? []).map((issue) => ({ ...issue, repo: `${repo.owner}/${repo.name}` })),
-  );
-  const issueSpecs = [...(config.issues ?? []), ...nestedIssues];
+  const issueSpecs = plan.issues;
   const issueByKey = new Map<string, GitHubIssue>();
   const labelByKey = new Map<string, ReturnType<typeof gh.labels.insert>>();
-  const numbersByRepo = new Map<number, Set<number>>();
   const resolveRepo = (name: string | undefined) => {
     const repo = name ? gh.repos.findOneBy("full_name", name) : undefined;
     if (!repo) throw new Error(`GitHub seed references missing repository: ${name ?? "<missing>"}`);
@@ -37,95 +32,8 @@ export function materializeIssueGraph(store: Store, baseUrl: string, config: Git
     if (labelByKey.has(key)) throw new Error(`Duplicate GitHub seed label key: ${spec.key}`);
     labelByKey.set(key, { id: -1 } as ReturnType<typeof gh.labels.insert>);
   }
-  for (const spec of issueSpecs) {
-    if (!spec.repo) throw new Error(`GitHub seed issue "${spec.key}" requires repo`);
-    const repo = resolveRepo(spec.repo);
-    if (issueByKey.has(spec.key)) throw new Error(`Duplicate GitHub seed issue key: ${spec.key}`);
-    if (spec.number !== undefined && gh.issues.findOneBy("repo_id", repo.id)?.number === spec.number) {
-      throw new Error(`Duplicate GitHub seed issue number: ${repo.full_name}#${spec.number}`);
-    }
-    const duplicateNumber =
-      spec.number !== undefined && gh.issues.findBy("repo_id", repo.id).some((i) => i.number === spec.number);
-    if (duplicateNumber) throw new Error(`Duplicate GitHub seed issue number: ${repo.full_name}#${spec.number}`);
-    if (spec.number !== undefined) {
-      const numbers = numbersByRepo.get(repo.id) ?? new Set<number>();
-      if (numbers.has(spec.number))
-        throw new Error(`Duplicate GitHub seed issue number: ${repo.full_name}#${spec.number}`);
-      numbers.add(spec.number);
-      numbersByRepo.set(repo.id, numbers);
-    }
-    issueByKey.set(spec.key, { id: -1 } as GitHubIssue);
-  }
-  const issueSpecByKey = new Map(issueSpecs.map((spec) => [spec.key, spec]));
-  const commentSpecs = [
-    ...(config.comments ?? []),
-    ...issueSpecs.flatMap((issue) =>
-      (issue.comments ?? []).map((comment) => ({ ...comment, repo: issue.repo!, issue: issue.key })),
-    ),
-  ];
-  const commentKeys = new Set<string>();
-  for (const spec of commentSpecs) {
-    if (commentKeys.has(spec.key)) throw new Error(`Duplicate GitHub seed comment key: ${spec.key}`);
-    commentKeys.add(spec.key);
-    resolveRepo(spec.repo);
-    if (typeof spec.issue === "string" && !issueSpecByKey.has(spec.issue)) {
-      throw new Error(`Seed comment "${spec.key}" references missing issue`);
-    }
-    if (spec.author && !gh.users.findOneBy("login", spec.author)) {
-      throw new Error(`GitHub seed references missing user: ${spec.author}`);
-    }
-  }
-  for (const spec of issueSpecs) {
-    if (spec.author && !gh.users.findOneBy("login", spec.author)) {
-      throw new Error(`GitHub seed references missing user: ${spec.author}`);
-    }
-    if (spec.duplicate_of) {
-      const canonical = issueSpecByKey.get(spec.duplicate_of);
-      if (!canonical || canonical.key === spec.key || canonical.state_reason === "duplicate") {
-        throw new Error(`Invalid canonical duplicate target for seed issue "${spec.key}"`);
-      }
-    }
-    if (spec.state_reason === "duplicate" && !spec.duplicate_of) {
-      throw new Error(`Duplicate seed issue "${spec.key}" requires duplicate_of`);
-    }
-    if (spec.state_reason !== "duplicate" && spec.duplicate_of) {
-      throw new Error(`Seed issue "${spec.key}" has duplicate_of without duplicate state_reason`);
-    }
-    for (const labelKey of spec.labels ?? []) {
-      const repo = resolveRepo(spec.repo);
-      if (!labelByKey.has(`${repo.full_name}:${labelKey}`)) {
-        throw new Error(`Seed issue "${spec.key}" references missing label: ${labelKey}`);
-      }
-    }
-  }
-  for (const edge of config.sub_issues ?? []) {
-    if (!issueSpecByKey.has(edge.parent) || !issueSpecByKey.has(edge.child) || edge.parent === edge.child) {
-      throw new Error(`Invalid seed parent-child edge: ${edge.parent} -> ${edge.child}`);
-    }
-  }
-  const parentByChild = new Map<string, string>();
-  for (const edge of config.sub_issues ?? []) {
-    if (parentByChild.has(edge.child)) throw new Error(`Seed child issue already has a parent: ${edge.child}`);
-    parentByChild.set(edge.child, edge.parent);
-    const seen = new Set<string>([edge.child]);
-    let cursor: string | undefined = edge.parent;
-    while (cursor) {
-      if (seen.has(cursor)) throw new Error(`Cyclic seed parent-child graph at issue: ${cursor}`);
-      seen.add(cursor);
-      cursor = parentByChild.get(cursor);
-    }
-  }
-  for (const edge of config.dependencies ?? []) {
-    if (!issueSpecByKey.has(edge.blocked) || !issueSpecByKey.has(edge.blocking) || edge.blocked === edge.blocking) {
-      throw new Error(`Invalid seed dependency: ${edge.blocked} -> ${edge.blocking}`);
-    }
-  }
-  const dependencyKeys = new Set<string>();
-  for (const edge of config.dependencies ?? []) {
-    const key = `${edge.blocked}:${edge.blocking}`;
-    if (dependencyKeys.has(key)) throw new Error(`Duplicate seed dependency: ${key}`);
-    dependencyKeys.add(key);
-  }
+  for (const spec of issueSpecs) issueByKey.set(spec.key, { id: -1 } as GitHubIssue);
+  const commentSpecs = plan.comments ?? [];
   for (const spec of [
     ...(config.labels ?? []),
     ...(config.repos ?? []).flatMap((r) =>
@@ -148,10 +56,6 @@ export function materializeIssueGraph(store: Store, baseUrl: string, config: Git
     const repo = resolveRepo(spec.repo);
     const state = spec.state ?? (spec.state_reason && spec.state_reason !== "reopened" ? "closed" : "open");
     const reason = spec.state_reason ?? (state === "closed" ? "completed" : null);
-    if (reason === "duplicate" && !spec.duplicate_of)
-      throw new Error(`Duplicate seed issue "${spec.key}" requires duplicate_of`);
-    if (reason !== "duplicate" && spec.duplicate_of)
-      throw new Error(`Seed issue "${spec.key}" has duplicate_of without duplicate state_reason`);
     const number =
       spec.number ??
       Math.max(
@@ -228,7 +132,7 @@ export function materializeIssueGraph(store: Store, baseUrl: string, config: Git
     gh.comments.update(row.id, { node_id: generateNodeId("IssueComment", row.id) });
     gh.issues.update(issue.id, { comments: issue.comments + 1 });
   }
-  for (const edge of config.sub_issues ?? []) {
+  for (const edge of plan.subIssues) {
     const parent = issueByKey.get(edge.parent);
     const child = issueByKey.get(edge.child);
     if (!parent || !child || parent.id === child.id)
@@ -237,7 +141,7 @@ export function materializeIssueGraph(store: Store, baseUrl: string, config: Git
       throw new Error(`Seed child issue already has a parent: ${edge.child}`);
     gh.issueSubIssues.insert({ parent_issue_id: parent.id, child_issue_id: child.id, position: edge.position ?? 0 });
   }
-  for (const edge of config.dependencies ?? []) {
+  for (const edge of plan.dependencies ?? []) {
     const blocked = issueByKey.get(edge.blocked);
     const blocking = issueByKey.get(edge.blocking);
     if (!blocked || !blocking || blocked.id === blocking.id)
