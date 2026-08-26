@@ -2,7 +2,7 @@ import type { GraphQLConnectionArgs } from "./pagination.js";
 import { connectionFromArray } from "./pagination.js";
 import type { GitHubComment, GitHubIssue, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
 import type { GitHubGraphQLContext, ResolvedGitHubGraphQLNode } from "./context.js";
-import { canReadIssues, findVisibleIssue, findVisibleIssueComment } from "./context.js";
+import { canReadIssues, findVisibleIssue, findVisibleIssueById, findVisibleIssueComment } from "./context.js";
 import { getParentRelation, listBlockedByRelations, listSubIssueRelations } from "../issue-relationships.js";
 
 type GraphQLActorView = {
@@ -113,7 +113,12 @@ export function issueView(context: GitHubGraphQLContext, issue: GitHubIssue, rep
     body: issue.body,
     state: issueStateValue(issue),
     stateReason: ({ enableDuplicate }: { enableDuplicate?: boolean } = {}) =>
-      stateReasonValue(issue, enableDuplicate ?? false),
+      stateReasonValue(issue, enableDuplicate ?? true),
+    duplicateOf: () => {
+      if (issue.duplicate_issue_id === null) return null;
+      const canonical = findVisibleIssueById(context, issue.duplicate_issue_id);
+      return canonical ? issueView(context, canonical) : null;
+    },
     repository: repositoryView(context, issueRepo),
     author: actorView(context.gh.users.get(issue.user_id)),
     createdAt: issue.created_at,

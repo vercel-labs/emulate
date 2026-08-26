@@ -67,6 +67,8 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/issues/:number/events` — events
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` — manage assignees
 
+Issue updates accept `state_reason: duplicate` with `duplicate_issue_id`, a visible issue database ID. GraphQL exposes `DUPLICATE` and `duplicateOf`; reopening clears the canonical reference.
+
 ### Issue relationships
 - `GET /repos/:owner/:repo/issues/:number/parent` — get the parent issue
 - `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` — list or add ordered sub-issues

@@ -316,6 +316,8 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
 # Get / update / lock / unlock / timeline / events / assignees
 ```
 
+To mark an issue as a duplicate, update it with `state_reason: "duplicate"` and the canonical issue database ID in `duplicate_issue_id`. The target must be visible and not a pull request. GraphQL reads `stateReason(enableDuplicate: true): DUPLICATE` and `duplicateOf`; reopening clears the reference.
+
 ### Issue relationships
 
 Sub-issues are ordered parent-child edges stored separately from issues and dependencies. A child has at most one parent. Relationship collection endpoints use the standard `page` and `per_page` parameters, cap `per_page` at 100, and return `Link` headers for available pages.

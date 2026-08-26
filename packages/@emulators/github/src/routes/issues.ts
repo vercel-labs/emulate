@@ -1,8 +1,14 @@
 import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
-import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
+import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertIssueWrite,
+  assertRepoPermission,
+  installationCanAccessRepo,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubIssue, GitHubIssueEvent, GitHubRepo, GitHubUser } from "../entities.js";
 import { formatComment, formatIssue, formatRepo, formatUser, lookupRepo } from "../helpers.js";
@@ -295,6 +301,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
 
     const requestedState = body.state === "open" || body.state === "closed" ? body.state : undefined;
     let requestedStateReason: GitHubIssue["state_reason"] | undefined;
+    let duplicateIssue: GitHubIssue | null | undefined;
 
     if ("state_reason" in body) {
       if (body.state_reason === null) {
@@ -302,10 +309,33 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       } else if (
         body.state_reason === "completed" ||
         body.state_reason === "not_planned" ||
-        body.state_reason === "reopened"
+        body.state_reason === "reopened" ||
+        body.state_reason === "duplicate"
       ) {
         requestedStateReason = body.state_reason;
       }
+    }
+
+    if (body.duplicate_issue_id !== undefined) {
+      if (typeof body.duplicate_issue_id !== "number" || !Number.isSafeInteger(body.duplicate_issue_id)) {
+        throw new ApiError(422, "Validation failed");
+      }
+      duplicateIssue = gh.issues.get(body.duplicate_issue_id) ?? null;
+      if (
+        !duplicateIssue ||
+        duplicateIssue.is_pull_request ||
+        duplicateIssue.id === issue.id ||
+        duplicateIssue.duplicate_issue_id != null
+      ) {
+        throw new ApiError(422, "A valid canonical duplicate issue is required");
+      }
+      const duplicateRepo = gh.repos.get(duplicateIssue.repo_id);
+      if (!duplicateRepo || !duplicateRepo.has_issues) {
+        throw new ApiError(422, "A valid canonical duplicate issue is required");
+      }
+      const installation = c.get("authUser")?.installation;
+      if (installation && !installationCanAccessRepo(c.get("authUser")!, duplicateRepo)) throw forbidden();
+      assertRepoPermission(gh, c.get("authUser"), duplicateRepo, "issues");
     }
 
     let labelPlan;
@@ -342,15 +372,16 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const prevAssigneeIds = new Set(issue.assignee_ids);
     const prevMilestoneId = issue.milestone_id;
 
-    if (requestedState !== undefined) {
+    if (requestedState !== undefined || requestedStateReason === "duplicate" || duplicateIssue !== undefined) {
       issue = transitionIssueLifecycle(
         { gh, webhooks, baseUrl },
         {
           repo,
           issue,
           actor,
-          state: requestedState,
+          state: requestedState ?? issue.state,
           stateReason: requestedStateReason,
+          duplicateIssue,
           patch,
         },
       ).issue;

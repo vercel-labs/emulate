@@ -22,7 +22,7 @@ Framework adapters:
   Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
 
 GitHub API coverage:
-  Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
+  Includes repository contents, raw downloads, commit history, commit details, ref comparisons, and duplicate issue lifecycle state.
   Includes authenticated GraphQL reads for repositories, issues, labels, and issue comments at POST /graphql.
   Includes GraphQL issue relationships and addSubIssue/addBlockedBy mutations with clientMutationId echoes.
   Includes GraphQL issue and comment mutations plus repository label create/delete with clientMutationId echoes.

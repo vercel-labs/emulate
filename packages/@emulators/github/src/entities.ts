@@ -120,7 +120,8 @@ export interface GitHubIssue extends Entity {
   title: string;
   body: string | null;
   state: "open" | "closed";
-  state_reason: "completed" | "not_planned" | "reopened" | null;
+  state_reason: "completed" | "not_planned" | "duplicate" | "reopened" | null;
+  duplicate_issue_id: number | null;
   locked: boolean;
   active_lock_reason: string | null;
   user_id: number;
