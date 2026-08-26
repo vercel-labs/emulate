@@ -33,6 +33,28 @@ afterEach(async () => {
 });
 
 describe("CLI generated secrets", () => {
+  it("rejects an invalid issue graph seed before publishing a listener", async () => {
+    const directory = await temporaryDirectory();
+    const seedPath = join(directory, "invalid-seed.yaml");
+    await writeFile(
+      seedPath,
+      [
+        "github:",
+        "  repos:",
+        "    - owner: octocat",
+        "      name: graph",
+        "  issues:",
+        "    - key: broken",
+        "      repo: octocat/graph",
+        "      title: Broken",
+        "      state: open",
+        "      state_reason: completed",
+      ].join("\n"),
+    );
+    await expect(startCommand({ port: 15060, service: "github", seed: seedPath })).rejects.toThrow();
+    await expect(fetch("http://localhost:15060/user")).rejects.toThrow();
+  });
+
   it("delivers a usable key before startup without exposing it in output or HTTP", async () => {
     const directory = await temporaryDirectory();
     const seedPath = join(directory, "seed.yaml");

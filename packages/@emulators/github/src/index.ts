@@ -3,7 +3,7 @@ import type { Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
-import type { GitHubAppInstallation } from "./entities.js";
+import type { GitHubAppInstallation, GitHubIssue } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
@@ -28,6 +28,8 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
+import { validateGitHubSeedGraph } from "./seed-graph-validation.js";
+import { materializeIssueGraph } from "./seed-graph.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -62,7 +64,20 @@ export interface GitHubSeedConfig {
     topics?: string[];
     default_branch?: string;
     auto_init?: boolean;
+    labels?: Array<{
+      key: string;
+      name?: string;
+      description?: string;
+      color?: string;
+      default?: boolean;
+    }>;
+    issues?: Array<GitHubSeedIssue>;
   }>;
+  labels?: Array<GitHubSeedLabel>;
+  issues?: Array<GitHubSeedIssue>;
+  comments?: Array<GitHubSeedComment>;
+  sub_issues?: Array<{ parent: string; child: string; position?: number }>;
+  dependencies?: Array<{ blocked: string; blocking: string }>;
   oauth_apps?: Array<{
     client_id: string;
     client_secret: string;
@@ -88,6 +103,37 @@ export interface GitHubSeedConfig {
       events?: string[];
     }>;
   }>;
+}
+
+export interface GitHubSeedLabel {
+  key: string;
+  repo: string;
+  name?: string;
+  description?: string;
+  color?: string;
+  default?: boolean;
+}
+
+export interface GitHubSeedIssue {
+  key: string;
+  repo?: string;
+  number?: number;
+  title: string;
+  body?: string;
+  state?: "open" | "closed";
+  state_reason?: GitHubIssue["state_reason"];
+  duplicate_of?: string;
+  labels?: string[];
+  author?: string;
+  comments?: Array<{ key: string; body: string; author?: string }>;
+}
+
+export interface GitHubSeedComment {
+  key: string;
+  repo: string;
+  issue: string | number;
+  body: string;
+  author?: string;
 }
 
 export interface GeneratedGitHubAppPrivateKey {
@@ -208,7 +254,8 @@ function seedDefaults(store: Store, baseUrl: string): void {
   gh.users.update(admin.id, { node_id: generateNodeId("User", admin.id) });
 }
 
-export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+function seedFromConfigUnsafe(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  const seedPlan = validateGitHubSeedGraph(config);
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
       throw new Error(
@@ -383,6 +430,8 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     }
   }
 
+  materializeIssueGraph(store, seedPlan);
+
   if (config.oauth_apps) {
     for (const oa of config.oauth_apps) {
       const existing = gh.oauthApps.findOneBy("client_id", oa.client_id);
@@ -448,6 +497,17 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         }
       }
     }
+  }
+}
+
+/** Apply a seed as one transaction so failed validation cannot leak partial entities. */
+export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  const snapshot = store.snapshot();
+  try {
+    seedFromConfigUnsafe(store, baseUrl, config);
+  } catch (error) {
+    store.restore(snapshot);
+    throw error;
   }
 }
 

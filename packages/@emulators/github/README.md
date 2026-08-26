@@ -69,6 +69,8 @@ npm install @emulators/github
 
 Issue updates accept `state_reason: duplicate` with `duplicate_issue_id`, a visible issue database ID. GraphQL exposes `DUPLICATE` and `duplicateOf`; reopening clears the canonical reference.
 
+Issue graphs can be seeded with stable keys. Use `github.labels[]`, `github.issues[]`, `github.comments[]`, `github.sub_issues[]`, and `github.dependencies[]`; issue and comment references use keys, while issue `number` is an optional repository-scoped number. Seed validation rejects missing references, duplicate keys or numbers, invalid lifecycle targets, and cyclic relationships before startup. Reset restores the same numbers, node IDs, comments, labels, and relationship ordering.
+
 ### Issue relationships
 - `GET /repos/:owner/:repo/issues/:number/parent` — get the parent issue
 - `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` — list or add ordered sub-issues
