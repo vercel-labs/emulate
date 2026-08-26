@@ -104,22 +104,46 @@ describe("createEmulator", () => {
       method: "POST",
       headers,
       body: JSON.stringify({
-        query: '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
+        query:
+          '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
       }),
     });
-    const stableIssue = (issue: any) => ({ id: issue.id, node_id: issue.node_id, number: issue.number, title: issue.title, state: issue.state, labels: issue.labels, comments: issue.comments, duplicate_issue_id: issue.duplicate_issue_id });
-    const baseline = { parent: stableIssue(await beforeParent.json()), child: stableIssue(await beforeChild.json()), graph: await beforeGraph.json() };
+    const stableIssue = (issue: any) => ({
+      id: issue.id,
+      node_id: issue.node_id,
+      number: issue.number,
+      title: issue.title,
+      state: issue.state,
+      labels: issue.labels,
+      comments: issue.comments,
+      duplicate_issue_id: issue.duplicate_issue_id,
+    });
+    const baseline = {
+      parent: stableIssue(await beforeParent.json()),
+      child: stableIssue(await beforeChild.json()),
+      graph: await beforeGraph.json(),
+    };
 
     await fetch(issueUrl, { method: "POST", headers, body: JSON.stringify({ title: "mutation" }) });
     await fetch(`${issueUrl}/10/comments`, { method: "POST", headers, body: JSON.stringify({ body: "mutation" }) });
-    await fetch(`${github.url}/repos/octocat/graph/labels`, { method: "POST", headers, body: JSON.stringify({ name: "new" }) });
+    await fetch(`${github.url}/repos/octocat/graph/labels`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "new" }),
+    });
     await fetch(`${issueUrl}/10`, { method: "PATCH", headers, body: JSON.stringify({ state: "closed" }) });
     await fetch(`${issueUrl}/10/sub_issues`, { method: "POST", headers, body: JSON.stringify({ sub_issue_id: 1 }) });
-    await fetch(`${issueUrl}/10/dependencies/blocked_by`, { method: "POST", headers, body: JSON.stringify({ issue_id: 2 }) });
+    await fetch(`${issueUrl}/10/dependencies/blocked_by`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ issue_id: 2 }),
+    });
     await fetch(`${github.url}/graphql`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ query: 'mutation { createIssue(input: { repositoryId: "bad", title: "ignored" }) { issue { number } } }' }),
+      body: JSON.stringify({
+        query: 'mutation { createIssue(input: { repositoryId: "bad", title: "ignored" }) { issue { number } } }',
+      }),
     });
 
     github.reset();
@@ -129,10 +153,15 @@ describe("createEmulator", () => {
       method: "POST",
       headers,
       body: JSON.stringify({
-        query: '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
+        query:
+          '{ repository(owner: "octocat", name: "graph") { issue(number: 10) { id number title comments { totalCount } subIssues { nodes { number } } } } }',
       }),
     });
-    expect({ parent: stableIssue(await afterParent.json()), child: stableIssue(await afterChild.json()), graph: await afterGraph.json() }).toEqual(baseline);
+    expect({
+      parent: stableIssue(await afterParent.json()),
+      child: stableIssue(await afterChild.json()),
+      graph: await afterGraph.json(),
+    }).toEqual(baseline);
     await github.close();
   });
 
@@ -141,10 +170,98 @@ describe("createEmulator", () => {
       createEmulator({
         service: "github",
         port: 14026,
-        seed: { github: { repos: [{ owner: "missing", name: "graph" }], issues: [{ key: "issue", repo: "missing/graph", title: "bad" }] } },
+        seed: {
+          github: {
+            repos: [{ owner: "missing", name: "graph" }],
+            issues: [{ key: "issue", repo: "missing/graph", title: "bad" }],
+          },
+        },
       }),
     ).rejects.toThrow();
     await expect(fetch("http://localhost:14026/user")).rejects.toThrow();
+  });
+
+  it.each([
+    ["comments", "comments"],
+    ["subIssues", "sub_issues"],
+    ["blockedBy", "dependencies"],
+  ] as const)("traverses %s seed connections at all boundary sizes", async (field, configField) => {
+    const sizes = [0, 1, 100, 101];
+    for (const [offset, size] of sizes.entries()) {
+      const port = 14100 + offset + (field === "comments" ? 0 : field === "subIssues" ? 10 : 20);
+      const items = Array.from({ length: size }, (_, index) => index + 1);
+      const issues = [
+        { key: "root", repo: "octocat/pagination", number: 1, title: "Root" },
+        ...items.map((index) => ({
+          key: `issue-${index}`,
+          repo: "octocat/pagination",
+          number: index + 2,
+          title: `Issue ${index}`,
+        })),
+      ];
+      const graphSeed = {
+        users: [{ login: "octocat" }],
+        repos: [{ owner: "octocat", name: "pagination" }],
+        issues,
+        [configField]:
+          field === "comments"
+            ? items.map((index) => ({
+                key: `comment-${index}`,
+                repo: "octocat/pagination",
+                issue: "root",
+                body: `Body ${index}`,
+              }))
+            : field === "subIssues"
+              ? items.map((index) => ({ parent: "root", child: `issue-${index}` }))
+              : items.map((index) => ({ blocked: "root", blocking: `issue-${index}` })),
+      };
+      const github = await createEmulator({ service: "github", port, seed: { github: graphSeed } });
+      const headers = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
+      const nodeFields = field === "comments" ? "id body" : "id number";
+      const values: Array<{ id?: string; number?: number; body?: string }> = [];
+      let after: string | null = null;
+      let pages = 0;
+      do {
+        const response = await fetch(`${github.url}/graphql`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 25${after ? `, after: "${after}"` : ""}) { nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } } } } }`,
+          }),
+        });
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as any;
+        const connection = body.data.repository.issue[field];
+        values.push(...connection.nodes);
+        expect(typeof connection.pageInfo.hasNextPage).toBe("boolean");
+        after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+        pages += 1;
+      } while (after !== null);
+      expect(pages).toBe(Math.max(1, Math.ceil(size / 25)));
+      expect(values).toHaveLength(size);
+      expect(new Set(values.map((value) => value.id)).size).toBe(size);
+      if (field === "comments")
+        expect(values.map((value) => value.body)).toEqual(items.map((index) => `Body ${index}`));
+      else expect(values.map((value) => value.number)).toEqual(items.map((index) => index + 2));
+
+      if (size === 101) {
+        await fetch(`${github.url}/repos/octocat/pagination/issues/1`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ title: "Mutated" }),
+        });
+        github.reset();
+        const restored = await fetch(`${github.url}/graphql`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query: `{ repository(owner: "octocat", name: "pagination") { issue(number: 1) { ${field}(first: 100) { nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } } } } }`,
+          }),
+        });
+        expect(restored.status).toBe(200);
+      }
+      await github.close();
+    }
   });
 
   it("generates a GitHub App key once and keeps it across reset", async () => {
