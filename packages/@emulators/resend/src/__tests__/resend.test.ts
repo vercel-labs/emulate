@@ -1,3 +1,5 @@
+import { createHmac, randomBytes } from "crypto";
+import { createServer, type AddressInfo, type IncomingHttpHeaders } from "node:http";
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "@emulators/core";
 import {
@@ -8,13 +10,13 @@ import {
   createErrorHandler,
   type TokenMap,
 } from "@emulators/core";
-import { resendPlugin, seedFromConfig, getResendStore } from "../index.js";
+import { resendPlugin, seedFromConfig, materializeResendSeedConfig, getResendStore } from "../index.js";
 
 const base = "http://localhost:4000";
 
-function createTestApp() {
+function createTestApp(webhooksOverride?: WebhookDispatcher) {
   const store = new Store();
-  const webhooks = new WebhookDispatcher();
+  const webhooks = webhooksOverride ?? new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
   tokenMap.set("re_test_token", {
     login: "testuser@example.com",
@@ -456,5 +458,87 @@ describe("Resend plugin - seedFromConfig", () => {
     const contacts = rs.contacts.all();
     expect(contacts.length).toBe(1);
     expect(contacts[0].email).toBe("user@example.com");
+  });
+});
+
+describe("Resend plugin - webhook delivery", () => {
+  it("delivers email.sent and email.delivered with verifiable Svix signatures", async () => {
+    const received: Array<{ headers: IncomingHttpHeaders; body: string }> = [];
+    const server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (chunk) => (raw += chunk));
+      req.on("end", () => {
+        received.push({ headers: req.headers, body: raw });
+        res.writeHead(200);
+        res.end("ok");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const targetUrl = `http://127.0.0.1:${port}/webhook`;
+
+    try {
+      const signingSecret = `whsec_${randomBytes(32).toString("base64")}`;
+      const webhooks = new WebhookDispatcher();
+      const { app, store } = createTestApp(webhooks);
+      seedFromConfig(store, base, { webhook_targets: [{ url: targetUrl, signing_secret: signingSecret }] }, webhooks);
+
+      const sendRes = await app.request(`${base}/emails`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ from: "noreply@example.com", to: "user@example.com", subject: "Hooked" }),
+      });
+      expect(sendRes.status).toBe(200);
+
+      expect(received.length).toBe(2);
+      const events = received.map((r) => JSON.parse(r.body).type);
+      expect(events).toEqual(["email.sent", "email.delivered"]);
+
+      for (const r of received) {
+        const svixId = r.headers["svix-id"];
+        const timestamp = r.headers["svix-timestamp"];
+        const signature = r.headers["svix-signature"];
+        expect(svixId).toBeDefined();
+        expect(timestamp).toMatch(/^\d+$/);
+        expect(signature).toMatch(/^v1,[A-Za-z0-9+/=]+$/);
+
+        const key = Buffer.from(signingSecret.replace(/^whsec_/, ""), "base64");
+        const expected = createHmac("sha256", key).update(`${svixId}.${timestamp}.${r.body}`).digest("base64");
+        expect(signature).toBe(`v1,${expected}`);
+      }
+
+      const svixIds = new Set(received.map((r) => r.headers["svix-id"]));
+      expect(svixIds.size).toBe(2);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("materializes omitted signing secrets and keeps explicit ones verbatim", () => {
+    const explicitSecret = "whsec_explicit_secret_value";
+    const { config, generatedSecrets } = materializeResendSeedConfig({
+      webhook_targets: [
+        { url: "http://localhost:9001/generated" },
+        { url: "http://localhost:9001/explicit", signing_secret: explicitSecret },
+      ],
+    });
+
+    const targets = config.webhook_targets!;
+    expect(targets[0].signing_secret).toMatch(/^whsec_[A-Za-z0-9+/=]{32,}$/);
+    expect(targets[1].signing_secret).toBe(explicitSecret);
+
+    expect(generatedSecrets).toHaveLength(1);
+    expect(generatedSecrets[0]).toMatchObject({
+      kind: "resend.webhook_signing_secret",
+      id: "http://localhost:9001/generated",
+      value: targets[0].signing_secret,
+    });
+
+    const store = new Store();
+    const webhooks = new WebhookDispatcher();
+    seedFromConfig(store, base, config, webhooks);
+    seedFromConfig(store, base, config, webhooks);
+    expect(webhooks.getSubscriptions("resend")).toHaveLength(2);
+    expect(webhooks.getSubscriptions("resend")[0].events).toEqual(["*"]);
   });
 });

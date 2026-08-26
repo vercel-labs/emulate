@@ -432,10 +432,25 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   resend: {
     label: "Resend email API emulator",
-    endpoints: "emails, domains, contacts, API keys, inbox UI",
+    endpoints: "emails, domains, contacts, API keys, inbox UI, webhook deliveries",
     async load() {
       const mod = await import("@emulators/resend");
-      return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };
+      return {
+        plugin: mod.resendPlugin,
+        seedFromConfig: mod.seedFromConfig,
+        prepareSeed(config) {
+          const materialized = mod.materializeResendSeedConfig(config);
+          return Promise.resolve({
+            config: materialized.config as Record<string, unknown>,
+            generatedSecrets: materialized.generatedSecrets.map((secret) => ({
+              kind: secret.kind,
+              id: secret.id,
+              label: secret.label,
+              value: secret.value,
+            })),
+          });
+        },
+      };
     },
     defaultFallback() {
       return { login: "re_test_admin", id: 1, scopes: [] };

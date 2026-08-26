@@ -28,6 +28,8 @@ All services start with sensible defaults. No config file needed:
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
+Resend webhooks configured via `resend.webhook_targets` deliver `email.*`/`domain.*`/`contact.*` events with Svix-style headers (`svix-id`, `svix-timestamp`, `svix-signature: v1,<base64 HMAC-SHA256>`). Omitted `signing_secret` values auto-generate as Svix-format secrets (`whsec_<base64>`) and surface in `generatedSecrets`.
+
 ## CLI
 
 ```bash
