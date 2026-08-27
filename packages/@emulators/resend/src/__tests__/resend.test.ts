@@ -384,22 +384,41 @@ describe("Resend plugin - Idempotency-Key", () => {
       "Content-Type": "application/json",
       "Idempotency-Key": key,
     });
+    const normalizedFallback = await sendJson(app, "/emails", payload, {
+      Authorization: "token re_adapter_token",
+      "Content-Type": "application/json",
+      "Idempotency-Key": key,
+    });
+    const anonymous = await sendJson(app, "/emails", payload, {
+      "Content-Type": "application/json",
+      "Idempotency-Key": key,
+    });
+    const anonymousReplay = await sendJson(app, "/emails", payload, {
+      "Content-Type": "application/json",
+      "Idempotency-Key": key,
+    });
 
-    expect([first.status, batch.status, otherCredential.status]).toEqual([200, 200, 200]);
+    expect([first.status, batch.status, otherCredential.status, normalizedFallback.status, anonymous.status]).toEqual([
+      200, 200, 200, 200, 200,
+    ]);
+    expect(await normalizedFallback.json()).toEqual(await otherCredential.json());
+    expect(await anonymousReplay.json()).toEqual(await anonymous.json());
     const rs = getResendStore(store);
-    expect(rs.emails.count()).toBe(3);
-    expect(rs.idempotencyRecords.count()).toBe(3);
+    expect(rs.emails.count()).toBe(4);
+    expect(rs.idempotencyRecords.count()).toBe(4);
     expect(JSON.stringify(store.snapshot())).not.toContain("re_test_token");
     expect(JSON.stringify(store.snapshot())).not.toContain("re_adapter_token");
   });
 
   it.each([
-    ["empty", ""],
-    ["too long", "x".repeat(257)],
-  ])("rejects a %s key without side effects", async (_name, key) => {
+    ["single request with an empty", "/emails", payload, ""],
+    ["single request with a too long", "/emails", payload, "x".repeat(257)],
+    ["batch request with an empty", "/emails/batch", [payload], ""],
+    ["batch request with a too long", "/emails/batch", [payload], "x".repeat(257)],
+  ])("rejects a %s key without side effects", async (_name, path, body, key) => {
     const { app, store, webhooks } = createTestApp();
     const dispatch = vi.spyOn(webhooks, "dispatch");
-    const response = await sendJson(app, "/emails", payload, {
+    const response = await sendJson(app, path, body, {
       ...authHeaders(),
       "Idempotency-Key": key,
     });
@@ -432,6 +451,11 @@ describe("Resend plugin - Idempotency-Key", () => {
       headers,
       body: "not json",
     });
+    const malformedSingle = await app.request(`${base}/emails`, {
+      method: "POST",
+      headers,
+      body: "not json",
+    });
     const invalid = await sendJson(app, "/emails", { from: payload.from }, headers);
     const oversized = await sendJson(
       app,
@@ -440,7 +464,7 @@ describe("Resend plugin - Idempotency-Key", () => {
       headers,
     );
 
-    expect([malformed.status, invalid.status, oversized.status]).toEqual([422, 422, 422]);
+    expect([malformed.status, malformedSingle.status, invalid.status, oversized.status]).toEqual([422, 422, 422, 422]);
     expect(getResendStore(store).idempotencyRecords.count()).toBe(0);
     const valid = await sendJson(app, "/emails", payload, headers);
     expect(valid.status).toBe(200);
@@ -470,6 +494,7 @@ describe("Resend plugin - Idempotency-Key", () => {
     const firstPromise = sendJson(app, "/emails", payload, headers);
     await started;
     const concurrent = await sendJson(app, "/emails", payload, headers);
+    const concurrentChanged = await sendJson(app, "/emails", { ...payload, subject: "Changed" }, headers);
 
     expect(concurrent.status).toBe(409);
     expect(await concurrent.json()).toEqual({
@@ -477,6 +502,8 @@ describe("Resend plugin - Idempotency-Key", () => {
       name: "concurrent_idempotent_requests",
       message: "There is another request in progress with the same idempotency key.",
     });
+    expect(concurrentChanged.status).toBe(409);
+    expect(((await concurrentChanged.json()) as { name: string }).name).toBe("concurrent_idempotent_requests");
     expect(getResendStore(store).emails.count()).toBe(1);
 
     releaseDispatch();
@@ -484,27 +511,53 @@ describe("Resend plugin - Idempotency-Key", () => {
     expect(first.status).toBe(200);
     const replay = await sendJson(app, "/emails", payload, headers);
     expect(await replay.json()).toEqual(await first.json());
+    const changedAfterCompletion = await sendJson(app, "/emails", { ...payload, subject: "Changed" }, headers);
+    expect(changedAfterCompletion.status).toBe(409);
+    expect(((await changedAfterCompletion.json()) as { name: string }).name).toBe("invalid_idempotent_request");
     expect(getResendStore(store).emails.count()).toBe(1);
   });
 
-  it("replays immediately before 24 hours and permits a fresh send at expiry", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+  it.each([
+    ["single", "/emails", payload, 2],
+    ["batch", "/emails/batch", [payload, { ...payload, to: "second@example.com" }], 4],
+  ] as const)(
+    "replays a %s send immediately before 24 hours and permits a fresh send at expiry",
+    async (_name, path, body, emailCount) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const { app, store } = createTestApp();
+      const headers = { ...authHeaders(), "Idempotency-Key": `ttl-${_name}` };
+      const first = await sendJson(app, path, body, headers);
+      const firstBody = await first.json();
+
+      vi.setSystemTime(new Date("2026-01-01T23:59:59.999Z"));
+      const beforeExpiry = await sendJson(app, path, body, headers);
+      expect(await beforeExpiry.json()).toEqual(firstBody);
+
+      vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
+      const atExpiry = await sendJson(app, path, body, headers);
+      expect(await atExpiry.json()).not.toEqual(firstBody);
+      expect(getResendStore(store).emails.count()).toBe(emailCount);
+      expect(getResendStore(store).idempotencyRecords.count()).toBe(1);
+    },
+  );
+
+  it("includes prototype-named properties in request fingerprints", async () => {
     const { app, store } = createTestApp();
-    const headers = { ...authHeaders(), "Idempotency-Key": "ttl-key" };
-    const first = await sendJson(app, "/emails", payload, headers);
-    const firstBody = (await first.json()) as { id: string };
+    const headers = { ...authHeaders(), "Idempotency-Key": "prototype-property" };
+    const original = JSON.parse(
+      '{"from":"sender@example.com","to":"recipient@example.com","subject":"Idempotent send","custom":{"__proto__":{"value":"original"}}}',
+    ) as Record<string, unknown>;
+    const changed = JSON.parse(
+      '{"from":"sender@example.com","to":"recipient@example.com","subject":"Idempotent send","custom":{"__proto__":{"value":"changed"}}}',
+    ) as Record<string, unknown>;
 
-    vi.setSystemTime(new Date("2026-01-01T23:59:59.999Z"));
-    const beforeExpiry = await sendJson(app, "/emails", payload, headers);
-    expect(await beforeExpiry.json()).toEqual(firstBody);
+    expect((await sendJson(app, "/emails", original, headers)).status).toBe(200);
+    const conflict = await sendJson(app, "/emails", changed, headers);
 
-    vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
-    const atExpiry = await sendJson(app, "/emails", payload, headers);
-    const atExpiryBody = (await atExpiry.json()) as { id: string };
-    expect(atExpiryBody.id).not.toBe(firstBody.id);
-    expect(getResendStore(store).emails.count()).toBe(2);
-    expect(getResendStore(store).idempotencyRecords.count()).toBe(1);
+    expect(conflict.status).toBe(409);
+    expect(((await conflict.json()) as { name: string }).name).toBe("invalid_idempotent_request");
+    expect(getResendStore(store).emails.count()).toBe(1);
   });
 
   it("restores completed records and replays them within their original TTL", async () => {

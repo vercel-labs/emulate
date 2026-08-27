@@ -143,7 +143,8 @@ function sortRecursively(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortRecursively);
   if (value === null || typeof value !== "object") return value;
 
-  const sorted: Record<string, unknown> = {};
+  // A null prototype keeps JSON keys such as "__proto__" as ordinary data.
+  const sorted: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const key of Object.keys(value).sort()) {
     sorted[key] = sortRecursively((value as Record<string, unknown>)[key]);
   }
