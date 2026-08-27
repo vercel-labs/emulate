@@ -13,13 +13,17 @@ npm install @emulators/resend
 ## Endpoints
 
 ### Emails
-- `POST /emails` — send single email
-- `POST /emails/batch` — send up to 100 emails
+
+- `POST /emails` — send single email, with optional `Idempotency-Key` support
+- `POST /emails/batch` — send up to 100 emails, with optional `Idempotency-Key` support
 - `GET /emails` — list sent emails
 - `GET /emails/:id` — get email
 - `POST /emails/:id/cancel` — cancel scheduled email
 
+An idempotency key must contain 1 to 256 characters. Equivalent retries within 24 hours replay the original response without capturing duplicate emails or dispatching duplicate webhooks. A changed payload returns `409 invalid_idempotent_request`, and an overlapping request returns `409 concurrent_idempotent_requests`. Keys are scoped by API credential and endpoint and are never returned by the email APIs.
+
 ### Domains
+
 - `POST /domains` — create domain
 - `GET /domains` — list domains
 - `GET /domains/:id` — get domain
@@ -27,11 +31,13 @@ npm install @emulators/resend
 - `POST /domains/:id/verify` — trigger domain verification
 
 ### API Keys
+
 - `POST /api-keys` — create API key
 - `GET /api-keys` — list API keys
 - `DELETE /api-keys/:id` — delete API key
 
 ### Audiences & Contacts
+
 - `POST /audiences` — create audience
 - `GET /audiences` — list audiences
 - `DELETE /audiences/:id` — delete audience
@@ -40,6 +46,7 @@ npm install @emulators/resend
 - `DELETE /audiences/:audience_id/contacts/:id` — delete contact
 
 ### Inbox
+
 - `GET /inbox` — list captured emails
 - `GET /inbox/:id` — view captured email
 

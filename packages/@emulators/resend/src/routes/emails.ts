@@ -1,14 +1,33 @@
-import type { RouteContext } from "@emulators/core";
-import { getResendStore } from "../store.js";
+import type { AppEnv, ContentfulStatusCode, Context, RouteContext } from "@emulators/core";
+import { getResendStore, type ResendStore } from "../store.js";
 import { generateUuid, resendError, resendList, parseResendBody } from "../helpers.js";
 import type { ResendEmail } from "../entities.js";
+import {
+  canonicalizeEmailPayload,
+  completeIdempotencyRecord,
+  CONCURRENT_IDEMPOTENT_REQUESTS_MESSAGE,
+  idempotencyLookupDigest,
+  INVALID_IDEMPOTENCY_KEY_MESSAGE,
+  INVALID_IDEMPOTENT_REQUEST_MESSAGE,
+  isValidIdempotencyKey,
+  readIdempotencyKey,
+  releaseIdempotencyRecord,
+  requestFingerprint,
+  reserveIdempotencyRecord,
+} from "../idempotency.js";
+
+type EmailInput = Record<string, unknown>;
+type IdempotencyStart = { kind: "continue"; recordId: number | null } | { kind: "response"; response: Response };
 
 export function emailRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const rs = () => getResendStore(store);
 
   app.post("/emails/batch", async (c) => {
-    let emails: Array<Record<string, unknown>>;
+    const keyError = validateIdempotencyKey(c);
+    if (keyError) return keyError;
+
+    let emails: EmailInput[];
     try {
       const raw = await c.req.json();
       if (!Array.isArray(raw)) {
@@ -23,112 +42,49 @@ export function emailRoutes(ctx: RouteContext): void {
       return resendError(c, 422, "validation_error", "Batch size cannot exceed 100 emails");
     }
 
-    // Validate all emails before inserting any to prevent phantom records
+    // Validate the whole operation before reserving its key or inserting any rows.
     for (const emailData of emails) {
-      if (!emailData.from) return resendError(c, 422, "validation_error", "Missing required field: from");
-      if (!emailData.to) return resendError(c, 422, "validation_error", "Missing required field: to");
-      if (!emailData.subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
+      const validation = validateEmail(c, emailData);
+      if (validation) return validation;
     }
 
-    const results: Array<{ id: string }> = [];
+    const currentStore = rs();
+    const idempotency = beginIdempotency(c, currentStore, "/emails/batch", emails.map(canonicalizeEmailPayload));
+    if (idempotency.kind === "response") return idempotency.response;
 
-    for (const emailData of emails) {
-      const from = emailData.from as string;
-      const to = emailData.to as string | string[];
-      const subject = emailData.subject as string;
-      const toArray = Array.isArray(to) ? to : [to];
-      const uuid = generateUuid();
+    return executeSend(c, currentStore, idempotency.recordId, async (insertedEmailIds) => {
+      const results: Array<{ id: string }> = [];
 
-      const scheduledAt = emailData.scheduled_at as string | undefined;
-      const status = scheduledAt ? ("scheduled" as const) : ("delivered" as const);
-
-      rs().emails.insert({
-        uuid,
-        from,
-        to: toArray,
-        subject,
-        html: (emailData.html as string) ?? null,
-        text: (emailData.text as string) ?? null,
-        cc: normalizeStringArray(emailData.cc),
-        bcc: normalizeStringArray(emailData.bcc),
-        reply_to: normalizeStringArray(emailData.reply_to),
-        headers: (emailData.headers as Record<string, string>) ?? {},
-        tags: (emailData.tags as Array<{ name: string; value: string }>) ?? [],
-        status,
-        scheduled_at: scheduledAt ?? null,
-        last_event: status === "scheduled" ? "email.scheduled" : "email.delivered",
-      });
-
-      if (!scheduledAt) {
-        await webhooks.dispatch(
-          "email.sent",
-          undefined,
-          { type: "email.sent", data: { email_id: uuid, to: toArray, from, subject } },
-          "resend",
-        );
-        await webhooks.dispatch(
-          "email.delivered",
-          undefined,
-          { type: "email.delivered", data: { email_id: uuid, to: toArray, from, subject } },
-          "resend",
-        );
+      for (const emailData of emails) {
+        const email = insertEmail(currentStore, emailData);
+        insertedEmailIds.push(email.id);
+        await dispatchEmailWebhooks(email);
+        results.push({ id: email.uuid });
       }
 
-      results.push({ id: uuid });
-    }
-
-    return c.json({ data: results }, 200);
+      return { data: results };
+    });
   });
 
   app.post("/emails", async (c) => {
+    const keyError = validateIdempotencyKey(c);
+    if (keyError) return keyError;
+
     const body = await parseResendBody(c);
-    const from = body.from as string | undefined;
-    const to = body.to as string | string[] | undefined;
-    const subject = body.subject as string | undefined;
 
-    if (!from) return resendError(c, 422, "validation_error", "Missing required field: from");
-    if (!to) return resendError(c, 422, "validation_error", "Missing required field: to");
-    if (!subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
+    const validation = validateEmail(c, body);
+    if (validation) return validation;
 
-    const toArray = Array.isArray(to) ? to : [to];
-    const uuid = generateUuid();
+    const currentStore = rs();
+    const idempotency = beginIdempotency(c, currentStore, "/emails", canonicalizeEmailPayload(body));
+    if (idempotency.kind === "response") return idempotency.response;
 
-    const scheduledAt = body.scheduled_at as string | undefined;
-    const status = scheduledAt ? ("scheduled" as const) : ("delivered" as const);
-
-    rs().emails.insert({
-      uuid,
-      from,
-      to: toArray,
-      subject,
-      html: (body.html as string) ?? null,
-      text: (body.text as string) ?? null,
-      cc: normalizeStringArray(body.cc),
-      bcc: normalizeStringArray(body.bcc),
-      reply_to: normalizeStringArray(body.reply_to),
-      headers: (body.headers as Record<string, string>) ?? {},
-      tags: (body.tags as Array<{ name: string; value: string }>) ?? [],
-      status,
-      scheduled_at: scheduledAt ?? null,
-      last_event: status === "scheduled" ? "email.scheduled" : "email.delivered",
+    return executeSend(c, currentStore, idempotency.recordId, async (insertedEmailIds) => {
+      const email = insertEmail(currentStore, body);
+      insertedEmailIds.push(email.id);
+      await dispatchEmailWebhooks(email);
+      return { id: email.uuid };
     });
-
-    if (!scheduledAt) {
-      await webhooks.dispatch(
-        "email.sent",
-        undefined,
-        { type: "email.sent", data: { email_id: uuid, to: toArray, from, subject } },
-        "resend",
-      );
-      await webhooks.dispatch(
-        "email.delivered",
-        undefined,
-        { type: "email.delivered", data: { email_id: uuid, to: toArray, from, subject } },
-        "resend",
-      );
-    }
-
-    return c.json({ id: uuid }, 200);
   });
 
   app.get("/emails", (c) => {
@@ -158,6 +114,120 @@ export function emailRoutes(ctx: RouteContext): void {
     });
 
     return c.json({ id: email.uuid, object: "email", canceled: true });
+  });
+
+  async function dispatchEmailWebhooks(email: ResendEmail): Promise<void> {
+    if (email.scheduled_at) return;
+
+    const data = {
+      email_id: email.uuid,
+      to: email.to,
+      from: email.from,
+      subject: email.subject,
+    };
+    await webhooks.dispatch("email.sent", undefined, { type: "email.sent", data }, "resend");
+    await webhooks.dispatch("email.delivered", undefined, { type: "email.delivered", data }, "resend");
+  }
+}
+
+function validateIdempotencyKey(c: Context<AppEnv>): Response | undefined {
+  const header = readIdempotencyKey(c);
+  if (header.present && !isValidIdempotencyKey(header.key)) {
+    return resendError(c, 400, "invalid_idempotency_key", INVALID_IDEMPOTENCY_KEY_MESSAGE);
+  }
+  return undefined;
+}
+
+function validateEmail(c: Context<AppEnv>, emailData: EmailInput): Response | undefined {
+  if (!emailData || typeof emailData !== "object" || Array.isArray(emailData)) {
+    return resendError(c, 422, "validation_error", "Missing required field: from");
+  }
+  if (!emailData.from) return resendError(c, 422, "validation_error", "Missing required field: from");
+  if (!emailData.to) return resendError(c, 422, "validation_error", "Missing required field: to");
+  if (!emailData.subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
+  return undefined;
+}
+
+function beginIdempotency(
+  c: Context<AppEnv>,
+  rs: ResendStore,
+  endpoint: "/emails" | "/emails/batch",
+  canonicalPayload: unknown,
+): IdempotencyStart {
+  const header = readIdempotencyKey(c);
+  if (!header.present) return { kind: "continue", recordId: null };
+
+  const decision = reserveIdempotencyRecord(
+    rs.idempotencyRecords,
+    idempotencyLookupDigest(c, "POST", endpoint, header.key),
+    requestFingerprint(canonicalPayload),
+  );
+
+  if (decision.kind === "replay") {
+    return {
+      kind: "response",
+      response: c.json(decision.body, decision.status as ContentfulStatusCode),
+    };
+  }
+  if (decision.kind === "payload_conflict") {
+    return {
+      kind: "response",
+      response: resendError(c, 409, "invalid_idempotent_request", INVALID_IDEMPOTENT_REQUEST_MESSAGE),
+    };
+  }
+  if (decision.kind === "concurrent") {
+    return {
+      kind: "response",
+      response: resendError(c, 409, "concurrent_idempotent_requests", CONCURRENT_IDEMPOTENT_REQUESTS_MESSAGE),
+    };
+  }
+
+  return { kind: "continue", recordId: decision.record.id };
+}
+
+async function executeSend<T extends Record<string, unknown>>(
+  c: Context<AppEnv>,
+  rs: ResendStore,
+  idempotencyRecordId: number | null,
+  operation: (insertedEmailIds: number[]) => Promise<T>,
+): Promise<Response> {
+  const insertedEmailIds: number[] = [];
+  try {
+    const responseBody = await operation(insertedEmailIds);
+    if (idempotencyRecordId !== null) {
+      completeIdempotencyRecord(rs.idempotencyRecords, idempotencyRecordId, 200, responseBody);
+    }
+    return c.json(responseBody, 200);
+  } catch (error) {
+    for (const emailId of insertedEmailIds.reverse()) rs.emails.delete(emailId);
+    if (idempotencyRecordId !== null) releaseIdempotencyRecord(rs.idempotencyRecords, idempotencyRecordId);
+    throw error;
+  }
+}
+
+function insertEmail(rs: ResendStore, emailData: EmailInput): ResendEmail {
+  const from = emailData.from as string;
+  const to = emailData.to as string | string[];
+  const subject = emailData.subject as string;
+  const toArray = Array.isArray(to) ? to : [to];
+  const scheduledAt = emailData.scheduled_at as string | undefined;
+  const status = scheduledAt ? ("scheduled" as const) : ("delivered" as const);
+
+  return rs.emails.insert({
+    uuid: generateUuid(),
+    from,
+    to: toArray,
+    subject,
+    html: (emailData.html as string) ?? null,
+    text: (emailData.text as string) ?? null,
+    cc: normalizeStringArray(emailData.cc),
+    bcc: normalizeStringArray(emailData.bcc),
+    reply_to: normalizeStringArray(emailData.reply_to),
+    headers: (emailData.headers as Record<string, string>) ?? {},
+    tags: (emailData.tags as Array<{ name: string; value: string }>) ?? [],
+    status,
+    scheduled_at: scheduledAt ?? null,
+    last_event: status === "scheduled" ? "email.scheduled" : "email.delivered",
   });
 }
 

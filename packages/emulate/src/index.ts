@@ -26,6 +26,9 @@ GitHub API coverage:
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
+
+Resend API behavior:
+  Idempotency-Key retries on email send endpoints replay successful responses for 24 hours.
 `,
   );
 

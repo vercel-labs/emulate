@@ -17,6 +17,15 @@ export interface ResendEmail extends Entity {
   last_event: string;
 }
 
+export interface ResendIdempotencyRecord extends Entity {
+  lookup_digest: string;
+  request_fingerprint: string;
+  state: "in_progress" | "completed";
+  response_status: number | null;
+  response_body: unknown | null;
+  expires_at: string;
+}
+
 export interface ResendDomain extends Entity {
   uuid: string;
   name: string;

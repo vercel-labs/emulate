@@ -10,6 +10,20 @@ Resend email API emulation with email sending, domain management, API keys, audi
 - `GET /emails/:id` — get email
 - `POST /emails/:id/cancel` — cancel scheduled email
 
+### Idempotent sends
+
+Add `Idempotency-Key` to `POST /emails` or `POST /emails/batch` to make retries safe:
+
+```bash
+curl -X POST http://localhost:4000/emails \
+  -H "Authorization: Bearer re_test_key" \
+  -H "Idempotency-Key: welcome-user-42" \
+  -H "Content-Type: application/json" \
+  -d '{"from":"hello@example.com","to":"user@example.com","subject":"Hello"}'
+```
+
+Keys must contain 1 to 256 characters and are scoped by API credential and endpoint. For 24 hours, an equivalent retry returns the exact original response without capturing another email or dispatching more webhooks. A changed payload returns `409 invalid_idempotent_request`; a request that overlaps the original returns `409 concurrent_idempotent_requests`. At expiry, the key can create a new send. Idempotency keys and internal records are not returned by email list or detail routes.
+
 ## Domains
 
 - `POST /domains` — create domain

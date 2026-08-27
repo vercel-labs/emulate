@@ -1,14 +1,14 @@
 ---
 name: resend
 description: Emulated Resend email API for local development and testing. Use when the user needs to send emails locally, test transactional email flows, implement magic link or verification code auth, inspect sent emails, manage domains/contacts/API keys, or work with the Resend API without sending real emails. Triggers include "Resend API", "emulate Resend", "send email locally", "test email", "magic link", "verification email", "email inbox", "RESEND_BASE_URL", or any task requiring a local email API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Resend Email API Emulator
 
 Fully stateful Resend API emulation. Emails, domains, API keys, audiences, and contacts persist in memory. Sent emails are captured and viewable through the inbox UI or the REST API.
 
-No real emails are sent. Every call to `POST /emails` stores the message locally so you can inspect it programmatically or in the browser.
+No real emails are sent. Every successful unique send is stored locally so you can inspect it programmatically or in the browser. A keyed retry replays the original response without storing another message.
 
 ## Start
 
@@ -132,7 +132,7 @@ resend:
 
 ## Retrieving Sent Emails
 
-This is the key differentiator of the emulator: every email sent via `POST /emails` is stored and queryable.
+This is the key differentiator of the emulator: every successful unique send via `POST /emails` is stored and queryable. Idempotent retries do not add duplicate records.
 
 ### Inbox UI
 
@@ -201,6 +201,26 @@ curl -X POST http://localhost:4000/emails/<id>/cancel \
 ```
 
 Supported fields: `from`, `to`, `subject`, `html`, `text`, `cc`, `bcc`, `reply_to`, `headers`, `tags`, `scheduled_at`.
+
+### Idempotency
+
+`POST /emails` and `POST /emails/batch` accept an `Idempotency-Key` header. The key is scoped by API credential and endpoint, so the same text can be used independently for single and batch sends or by different credentials.
+
+```bash
+# The first request captures the email. An equivalent retry replays its response.
+curl -X POST http://localhost:4000/emails \
+  -H "Authorization: Bearer re_test_key" \
+  -H "Idempotency-Key: welcome-user-42" \
+  -H "Content-Type: application/json" \
+  -d '{"from":"hello@example.com","to":"user@example.com","subject":"Hello","html":"<p>Welcome</p>"}'
+```
+
+- A present key must contain 1 to 256 characters. Invalid keys return `400 invalid_idempotency_key` and do not reserve the key.
+- An equivalent retry within 24 hours returns the exact original status and JSON body without another captured email or webhook.
+- Reusing a key with a changed payload returns `409 invalid_idempotent_request`.
+- A retry while the original request is running returns `409 concurrent_idempotent_requests`. It is safe to retry after the original completes.
+- At or after 24 hours, the key expires and can create a fresh send.
+- Validation failures and failed executions do not reserve the key. Keys and internal idempotency records are not returned by `GET /emails` or `GET /emails/:id`.
 
 ### Domains
 

@@ -27,6 +27,8 @@ All services start with sensible defaults. No config file needed:
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
+Resend `POST /emails` and `POST /emails/batch` requests accept an `Idempotency-Key` header containing 1 to 256 characters. An equivalent retry within 24 hours replays the original response without capturing another email or dispatching more webhooks. Reusing the key with a changed payload returns `409 invalid_idempotent_request`, while overlapping requests return `409 concurrent_idempotent_requests`. Keys are scoped by API credential and endpoint.
+
 ## CLI
 
 ```bash
