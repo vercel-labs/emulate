@@ -162,7 +162,7 @@ npx emulate start --service github --seed config.yaml \
   --generated-secrets-file .emulate-secrets.json
 ```
 
-The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures remove the invocation-owned artifact so the command can be retried immediately. A hard termination such as `SIGKILL` can leave a complete published artifact that must be removed manually after confirming no invocation is using it. Only generated secrets are included. Explicitly configured keys are never copied into the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files keep requiring `private_key`.
+The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures and `SIGINT` or `SIGTERM` received during startup remove the invocation-owned artifact so the command can be retried immediately. An uncatchable termination such as `SIGKILL` can leave a complete published artifact that must be removed manually after confirming no invocation is using it. Only generated secrets are included. Explicitly configured keys are never copied into the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files keep requiring `private_key`.
 
 ### Vitest / Jest setup
 

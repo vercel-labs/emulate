@@ -194,10 +194,11 @@ async function executeSend<T extends Record<string, unknown>>(
   const insertedEmailIds: number[] = [];
   try {
     const responseBody = await operation(insertedEmailIds);
+    const response = c.json(responseBody, 200);
     if (idempotencyRecordId !== null) {
       completeIdempotencyRecord(rs.idempotencyRecords, idempotencyRecordId, 200, responseBody);
     }
-    return c.json(responseBody, 200);
+    return response;
   } catch (error) {
     for (const emailId of insertedEmailIds.reverse()) rs.emails.delete(emailId);
     if (idempotencyRecordId !== null) releaseIdempotencyRecord(rs.idempotencyRecords, idempotencyRecordId);

@@ -28,7 +28,10 @@ Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 
 Resend API behavior:
-  Idempotency-Key retries on email send endpoints replay successful responses for 24 hours.
+  Idempotency-Key retries on POST /emails and POST /emails/batch replay successes for 24 hours.
+
+Generated secrets:
+  Startup failures and termination signals during startup remove an invocation-owned output file.
 `,
   );
 

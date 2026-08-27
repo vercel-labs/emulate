@@ -619,6 +619,29 @@ describe("Resend plugin - Idempotency-Key", () => {
     expect(getResendStore(store).emails.count()).toBe(2);
     expect(getResendStore(store).idempotencyRecords.findOneBy("state", "completed")?.state).toBe("completed");
   });
+
+  it("releases a reservation when response serialization fails after execution", async () => {
+    const { app, store } = createTestApp();
+    const headers = { ...authHeaders(), "Idempotency-Key": "retry-after-response-failure" };
+    const circular: Record<string, unknown> = { value: payload.from };
+    circular.self = circular;
+    const originalInsert = getResendStore(store).emails.insert.bind(getResendStore(store).emails);
+    const insert = vi.spyOn(getResendStore(store).emails, "insert").mockImplementation((data) => {
+      const email = originalInsert(data);
+      email.uuid = circular as unknown as string;
+      return email;
+    });
+
+    const failed = await sendJson(app, "/emails", payload, headers);
+    expect(failed.status).toBe(500);
+    expect(getResendStore(store).emails.count()).toBe(0);
+    expect(getResendStore(store).idempotencyRecords.count()).toBe(0);
+
+    insert.mockRestore();
+    const retry = await sendJson(app, "/emails", payload, headers);
+    expect(retry.status).toBe(200);
+    expect(getResendStore(store).emails.count()).toBe(1);
+  });
 });
 
 describe("Resend plugin - Domains", () => {

@@ -268,6 +268,56 @@ function installShutdown(portlessAliases: PortlessAlias[], stores: Store[], http
   process.once("SIGTERM", shutdown);
 }
 
+interface StartupShutdownGuard {
+  requested(): boolean;
+  finished(): Promise<void>;
+  rollback(): Promise<void>;
+  uninstall(): void;
+}
+
+function installStartupShutdown(
+  portlessAliases: PortlessAlias[],
+  stores: Store[],
+  httpServers: HttpServer[],
+  generatedSecretsFile: PublishedGeneratedSecretsFile,
+): StartupShutdownGuard {
+  let shutdownRequested = false;
+  let rollbackPromise: Promise<void> | undefined;
+  let shutdownPromise: Promise<void> | undefined;
+
+  const rollback = () => {
+    rollbackPromise ??= rollbackStartup(httpServers, stores, portlessAliases, generatedSecretsFile);
+    return rollbackPromise;
+  };
+  const uninstall = () => {
+    process.removeListener("SIGINT", shutdown);
+    process.removeListener("SIGTERM", shutdown);
+  };
+  const shutdown = () => {
+    if (shutdownPromise) return;
+    shutdownRequested = true;
+    console.log(`\n${pc.dim("Shutting down...")}`);
+    shutdownPromise = (async () => {
+      try {
+        await rollback();
+      } finally {
+        uninstall();
+        process.exit(0);
+      }
+    })();
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  return {
+    requested: () => shutdownRequested,
+    finished: () => shutdownPromise ?? Promise.resolve(),
+    rollback,
+    uninstall,
+  };
+}
+
 export async function startCommand(options: StartOptions): Promise<void> {
   const { port: basePort } = options;
 
@@ -351,10 +401,15 @@ export async function startCommand(options: StartOptions): Promise<void> {
     generatedSecrets,
   });
   const registeredAliases: PortlessAlias[] = [];
+  const startupShutdown = installStartupShutdown(registeredAliases, stores, httpServers, publishedSecretsFile);
 
   try {
     if (options.portless) {
       await ensurePortless({ throwOnFailure: true });
+      if (startupShutdown.requested()) {
+        await startupShutdown.finished();
+        return;
+      }
     }
     for (const alias of portlessAliases) {
       registerAlias(alias);
@@ -370,14 +425,24 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const httpServer = serve({ fetch: app.fetch, port });
       httpServers.push(httpServer);
       await waitForServerListening(httpServer);
+      if (startupShutdown.requested()) {
+        await startupShutdown.finished();
+        return;
+      }
     }
 
     printBanner(serviceUrls, tokens, configSource);
   } catch (error) {
-    await rollbackStartup(httpServers, stores, registeredAliases, publishedSecretsFile);
+    await startupShutdown.rollback();
+    if (startupShutdown.requested()) {
+      await startupShutdown.finished();
+      return;
+    }
+    startupShutdown.uninstall();
     throw error;
   }
 
+  startupShutdown.uninstall();
   installShutdown(registeredAliases, stores, httpServers);
 }
 
