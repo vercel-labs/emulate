@@ -442,8 +442,8 @@ export async function startCommand(options: StartOptions): Promise<void> {
     throw error;
   }
 
-  startupShutdown.uninstall();
   installShutdown(registeredAliases, stores, httpServers);
+  startupShutdown.uninstall();
 }
 
 function printBanner(
