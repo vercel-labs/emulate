@@ -52,6 +52,8 @@ This creates these routes:
 
 GitHub App seeds may omit `private_key`. Read generated keys with the handler's server-only `generatedSecrets()` method. Explicit keys are excluded; persisted snapshots contain generated keys and require a private backend with atomic `initialize`.
 
+Inspect minted installation-token metadata at `/emulate/github/_emulate/installation-tokens`.
+
 ## Nuxt Config
 
 Emulator UI pages use bundled fonts. Wrap your Nuxt config so Nitro traces the core package assets into production builds:

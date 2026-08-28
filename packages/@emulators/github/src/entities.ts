@@ -509,6 +509,21 @@ export interface GitHubAppInstallation extends Entity {
   suspended_at: string | null;
 }
 
+export interface GitHubInstallationTokenMetadata extends Entity {
+  app_id: number;
+  app_slug: string;
+  app_name: string;
+  installation_id: number;
+  account_id: number;
+  account_login: string;
+  account_type: "User" | "Organization";
+  permissions: Record<string, string>;
+  repository_ids: number[];
+  repository_selection: "all" | "selected";
+  issued_at: string;
+  expires_at: string;
+}
+
 export interface GitHubOAuthGrant extends Entity {
   user_id: number;
   oauth_app_id: number;

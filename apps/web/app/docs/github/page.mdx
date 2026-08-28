@@ -31,6 +31,12 @@ The generated RSA-2048 PKCS#1 key remains stable across `reset()` calls. Explici
 
 The Next.js and Nuxt adapters also generate omitted keys. Their returned server handlers expose `generatedSecrets()`, and persistence restores the same identity across cold starts. Keep persisted snapshots private because they contain the signing key. Custom persistence backends must implement atomic `initialize()` semantics when generated identities are used.
 
+## Installation token inspection
+
+`GET /_emulate/installation-tokens` lists metadata for GitHub App installation tokens minted by the current emulator state. It includes App, installation, account, permissions, repository access, issuance, expiry, and lifecycle status without exposing token values or token-derived identifiers.
+
+Expiry is informational and does not change authorization behavior. `createEmulator().reset()` clears minted installation-specific authorization and metadata while preserving seeded tokens, generated App keys, and existing fallback-token behavior. Persisted Next.js and Nuxt adapters restore the metadata with their private snapshot.
+
 The CLI can generate omitted keys when you request a private delivery file:
 
 ```bash

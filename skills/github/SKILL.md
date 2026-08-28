@@ -610,7 +610,12 @@ curl -X POST $BASE/app/installations/100/access_tokens \
 # 3. Use the installation token to call API endpoints
 curl $BASE/repos/my-org/org-repo \
   -H "Authorization: Bearer ghs_..."
+
+# Inspect minted installation-token metadata without token values
+curl $BASE/_emulate/installation-tokens
 ```
+
+The inspection route is emulator-specific. It lists App, installation, account, permissions, repository access, issuance, expiry, and lifecycle status without accepting or returning token values or token-derived identifiers. Expiry is informational and does not change authorization behavior.
 
 ### OAuth Flow
 

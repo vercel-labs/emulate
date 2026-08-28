@@ -191,7 +191,23 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     }
 
     const token = "ghs_" + randomBytes(20).toString("base64url");
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const issuedAt = new Date().toISOString();
+    const expiresAt = new Date(Date.parse(issuedAt) + 60 * 60 * 1000).toISOString();
+
+    getGitHubStore(store).installationTokenMetadata.insert({
+      app_id: authApp.appId,
+      app_slug: authApp.slug,
+      app_name: authApp.name,
+      installation_id: inst.installation_id,
+      account_id: inst.account_id,
+      account_login: inst.account_login,
+      account_type: inst.account_type,
+      permissions: { ...requestedPermissions },
+      repository_ids: [...requestedRepoIds],
+      repository_selection: tokenRepositorySelection,
+      issued_at: issuedAt,
+      expires_at: expiresAt,
+    });
 
     if (tokenMap) {
       tokenMap.set(token, {
@@ -203,8 +219,8 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
           appId: inst.app_id,
           accountId: inst.account_id,
           accountType: inst.account_type,
-          permissions: requestedPermissions,
-          repositoryIds: requestedRepoIds,
+          permissions: { ...requestedPermissions },
+          repositoryIds: [...requestedRepoIds],
           repositorySelection: tokenRepositorySelection,
         },
       });

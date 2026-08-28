@@ -48,6 +48,8 @@ This creates the following routes:
 
 GitHub App seeds may omit `private_key`; retain the handler and call server-only `generatedSecrets()`. Keep persisted generated keys private and implement atomic `initialize`.
 
+Minted GitHub App installation-token metadata is available at `/emulate/github/_emulate/installation-tokens`.
+
 ## Auth.js / NextAuth Configuration
 
 Point your provider at the emulator paths on the same origin:

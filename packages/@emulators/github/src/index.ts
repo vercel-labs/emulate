@@ -33,6 +33,7 @@ import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
+import { installationTokenRoutes } from "./routes/installation-tokens.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
@@ -645,6 +646,7 @@ export const githubPlugin: ServicePlugin = {
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);
+    installationTokenRoutes(ctx);
     contentsRoutes(ctx);
     // Registered last: the catch-all /commits/:ref{.+} route must not shadow
     // /commits/:sha/comments (comments.ts) or /commits/:ref/check-* (checks.ts).

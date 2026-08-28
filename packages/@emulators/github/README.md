@@ -131,6 +131,7 @@ npm install @emulators/github
 - Automatic suite status rollup from check run results
 
 ### Misc
+- `GET /_emulate/installation-tokens` — inspect secret-free GitHub App installation-token metadata
 - `GET /rate_limit` — rate limit status
 - `GET /meta` — server metadata
 - `GET /octocat` — ASCII art

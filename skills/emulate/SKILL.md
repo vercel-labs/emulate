@@ -99,6 +99,8 @@ await github.close()
 await vercel.close()
 ```
 
+For GitHub App tests, inspect secret-free minted installation-token metadata at `GET /_emulate/installation-tokens`.
+
 ### Options
 
 | Option | Default | Description |

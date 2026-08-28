@@ -50,6 +50,8 @@ This creates these routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
+GitHub installation-token metadata is available server-side at `/emulate/github/_emulate/installation-tokens`.
+
 ## Nuxt Config
 
 Emulator UI pages use bundled fonts. Wrap your Nuxt config so Nitro traces the core package assets into production builds:

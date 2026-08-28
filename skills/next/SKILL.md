@@ -50,6 +50,8 @@ This creates the following routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
+GitHub installation-token metadata is available server-side at `/emulate/github/_emulate/installation-tokens`.
+
 ## Auth.js / NextAuth Configuration
 
 Point your provider at the emulator paths on the same origin:

@@ -84,12 +84,14 @@ describe("createEmulator", () => {
       seed: {
         github: {
           users: [{ login: "octocat" }],
+          orgs: [{ login: "acme" }],
+          repos: [{ owner: "acme", name: "private-repo", private: true }],
           apps: [
             {
               app_id: 900,
               slug: "generated-key-app",
               name: "Generated Key App",
-              installations: [{ installation_id: 901, account: "octocat" }],
+              installations: [{ installation_id: 901, account: "acme" }],
             },
           ],
         },
@@ -108,13 +110,55 @@ describe("createEmulator", () => {
 
     const firstToken = await createInstallationToken(github.url, "900", 901, privateKey);
     expect(firstToken.status).toBe(201);
-    expect(((await firstToken.json()) as { token: string }).token).toMatch(/^ghs_/);
+    const firstTokenValue = ((await firstToken.json()) as { token: string }).token;
+    expect(firstTokenValue).toMatch(/^ghs_/);
+    expect(await (await fetch(`${github.url}/_emulate/installation-tokens`)).json()).toMatchObject({
+      installation_tokens: [expect.objectContaining({ installation: { id: 901 }, status: "active" })],
+    });
+    expect(
+      (
+        await fetch(`${github.url}/repos/acme/private-repo`, {
+          headers: { Authorization: `Bearer ${firstTokenValue}` },
+        })
+      ).status,
+    ).toBe(200);
 
     github.reset();
 
+    expect(await (await fetch(`${github.url}/_emulate/installation-tokens`)).json()).toEqual({
+      installation_tokens: [],
+    });
+    const resetTokenUser = await fetch(`${github.url}/user`, {
+      headers: { Authorization: `Bearer ${firstTokenValue}` },
+    });
+    expect(resetTokenUser.status).toBe(200);
+    expect(await resetTokenUser.json()).toMatchObject({ login: "octocat", type: "User" });
+    expect(
+      (
+        await fetch(`${github.url}/repos/acme/private-repo`, {
+          headers: { Authorization: `Bearer ${firstTokenValue}` },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await fetch(`${github.url}/user`, {
+          headers: { Authorization: "Bearer test_token_admin" },
+        })
+      ).status,
+    ).toBe(200);
+
     const tokenAfterReset = await createInstallationToken(github.url, "900", 901, privateKey);
     expect(tokenAfterReset.status).toBe(201);
-    expect(((await tokenAfterReset.json()) as { token: string }).token).toMatch(/^ghs_/);
+    const tokenAfterResetValue = ((await tokenAfterReset.json()) as { token: string }).token;
+    expect(tokenAfterResetValue).toMatch(/^ghs_/);
+    expect(
+      (
+        await fetch(`${github.url}/repos/acme/private-repo`, {
+          headers: { Authorization: `Bearer ${tokenAfterResetValue}` },
+        })
+      ).status,
+    ).toBe(200);
     expect(github.generatedSecrets[0]!.value).toBe(privateKey);
 
     await github.close();

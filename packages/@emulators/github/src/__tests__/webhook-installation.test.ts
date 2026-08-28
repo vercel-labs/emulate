@@ -479,6 +479,176 @@ describe("GitHub App installation token flow", () => {
     expect(body.permissions).toEqual({ contents: "read" });
     expect(body.repositories).toEqual([expect.objectContaining({ full_name: "octocat/hello-world" })]);
   });
+
+  it("inspects minted token metadata without exposing token values", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-28T12:00:00.000Z"));
+      const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      const privateKeyPem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+      const { app } = createTestApp({
+        users: [{ login: "octocat" }],
+        repos: [{ owner: "octocat", name: "hello-world" }],
+        apps: [
+          {
+            app_id: 800,
+            slug: "token-app",
+            name: "Token App",
+            private_key: privateKeyPem,
+            permissions: { contents: "read", issues: "write" },
+            installations: [
+              {
+                installation_id: 99,
+                account: "octocat",
+                repository_selection: "selected",
+                repositories: ["octocat/hello-world"],
+              },
+            ],
+          },
+        ],
+      });
+
+      const mintResponse = await app.request(`${base}/app/installations/99/access_tokens`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createAppJwt("800", privateKeyPem)}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ permissions: { contents: "read" } }),
+      });
+      const minted = (await mintResponse.json()) as { token: string };
+
+      const inspectionResponse = await app.request(`${base}/_emulate/installation-tokens`);
+      const inspection = (await inspectionResponse.json()) as {
+        installation_tokens: Array<{
+          permissions: Record<string, string>;
+          repository_ids: number[];
+        }>;
+      };
+
+      expect(inspectionResponse.status).toBe(200);
+      expect(inspection.installation_tokens).toEqual([
+        {
+          app: { id: 800, slug: "token-app", name: "Token App" },
+          installation: { id: 99 },
+          account: expect.objectContaining({ login: "octocat", type: "User" }),
+          permissions: { contents: "read" },
+          repository_selection: "selected",
+          repository_ids: [expect.any(Number)],
+          issued_at: "2026-08-28T12:00:00.000Z",
+          expires_at: "2026-08-28T13:00:00.000Z",
+          status: "active",
+        },
+      ]);
+      expect(JSON.stringify(inspection)).not.toContain(minted.token);
+      expect(JSON.stringify(inspection)).not.toContain(minted.token.slice(0, 12));
+
+      inspection.installation_tokens[0]!.permissions.contents = "write";
+      inspection.installation_tokens[0]!.repository_ids.push(999);
+      expect(await (await app.request(`${base}/_emulate/installation-tokens`)).json()).toEqual({
+        installation_tokens: [
+          expect.objectContaining({
+            permissions: { contents: "read" },
+            repository_ids: [expect.any(Number)],
+          }),
+        ],
+      });
+
+      vi.setSystemTime(new Date("2026-08-28T13:00:00.000Z"));
+      expect(await (await app.request(`${base}/_emulate/installation-tokens`)).json()).toMatchObject({
+        installation_tokens: [{ status: "expired" }],
+      });
+      expect(
+        (
+          await app.request(`${base}/user`, {
+            headers: { Authorization: `Bearer ${minted.token}` },
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not record rejected mints or seeded user tokens", async () => {
+    const { app } = createTestApp();
+    const response = await app.request(`${base}/app/installations/999/access_tokens`, {
+      method: "POST",
+      headers: { Authorization: "Bearer invalid" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(await (await app.request(`${base}/_emulate/installation-tokens`)).json()).toEqual({
+      installation_tokens: [],
+    });
+  });
+
+  it("records exactly one inspection row for each successful mint", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+    const { app } = createTestApp({
+      users: [{ login: "octocat" }],
+      repos: [{ owner: "octocat", name: "hello-world" }],
+      apps: [
+        {
+          app_id: 800,
+          slug: "token-app",
+          name: "Token App",
+          private_key: privateKeyPem,
+          permissions: { contents: "write" },
+          installations: [{ installation_id: 99, account: "octocat" }],
+        },
+      ],
+    });
+    const authorization = `Bearer ${createAppJwt("800", privateKeyPem)}`;
+
+    for (const permission of ["read", "write"]) {
+      const response = await app.request(`${base}/app/installations/99/access_tokens`, {
+        method: "POST",
+        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({ permissions: { contents: permission } }),
+      });
+      expect(response.status).toBe(201);
+    }
+
+    expect(await (await app.request(`${base}/_emulate/installation-tokens`)).json()).toMatchObject({
+      installation_tokens: [
+        expect.objectContaining({ permissions: { contents: "read" } }),
+        expect.objectContaining({ permissions: { contents: "write" } }),
+      ],
+    });
+  });
+
+  it("does not authorize a token when metadata insertion fails", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+    const { app, store, tokenMap } = createTestApp({
+      users: [{ login: "octocat" }],
+      apps: [
+        {
+          app_id: 800,
+          slug: "token-app",
+          name: "Token App",
+          private_key: privateKeyPem,
+          installations: [{ installation_id: 99, account: "octocat" }],
+        },
+      ],
+    });
+    vi.spyOn(getGitHubStore(store).installationTokenMetadata, "insert").mockImplementationOnce(() => {
+      throw new Error("metadata unavailable");
+    });
+
+    const response = await app.request(`${base}/app/installations/99/access_tokens`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${createAppJwt("800", privateKeyPem)}` },
+    });
+
+    expect(response.status).toBe(500);
+    expect([...tokenMap.keys()].filter((token) => token.startsWith("ghs_"))).toEqual([]);
+    expect(await (await app.request(`${base}/_emulate/installation-tokens`)).json()).toEqual({
+      installation_tokens: [],
+    });
+  });
 });
 
 describe("app webhook_url delivery", () => {

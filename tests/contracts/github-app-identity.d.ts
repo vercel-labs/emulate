@@ -11,6 +11,7 @@ interface Harness<Config, AdapterHandler extends Handler> {
   config(persistence?: TestPersistence, privateKey?: string): Config;
   createExplicitPrivateKey(): Promise<string>;
   requestApp(handler: AdapterHandler, authorization?: string, method?: "GET" | "POST"): Promise<Response>;
+  request(handler: AdapterHandler, path: string, authorization?: string, method?: "GET" | "POST"): Promise<Response>;
 }
 export function githubAppIdentityContract<Config, AdapterHandler extends Handler>(
   harness: Harness<Config, AdapterHandler>,

@@ -23,6 +23,7 @@ Framework adapters:
 
 GitHub API coverage:
   Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
+  Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.

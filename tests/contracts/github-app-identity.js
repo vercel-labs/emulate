@@ -213,5 +213,72 @@ export function githubAppIdentityContract(h) {
       expect(serialized).not.toContain(privateKey);
       expect(serialized).not.toContain(Buffer.from(privateKey).toString("base64"));
     });
+    it("persists and restores installation-token inspection metadata", async () => {
+      const persistence = memory();
+      const first = create(persistence);
+      const privateKey = await key(first);
+      const mint = await h.request(
+        first,
+        "app/installations/124/access_tokens",
+        `Bearer ${jwt(privateKey)}`,
+        "POST",
+      );
+      expect(mint.status).toBe(201);
+      const token = (await mint.json()).token;
+
+      expect(await (await h.request(first, "_emulate/installation-tokens")).json()).toMatchObject({
+        installation_tokens: [
+          expect.objectContaining({
+            app: { id: 123, slug: "embedded", name: "Embedded" },
+            installation: { id: 124 },
+            account: expect.objectContaining({ login: "acme", type: "Organization" }),
+            status: "active",
+          }),
+        ],
+      });
+      await vi.waitFor(() => expect(persistence.read()).toContain("github.installation_token_metadata"));
+
+      const second = create(persistence);
+      expect(await (await h.request(second, "_emulate/installation-tokens")).json()).toEqual(
+        await (await h.request(first, "_emulate/installation-tokens")).json(),
+      );
+      expect((await h.request(second, "repos/acme/private-repo", `Bearer ${token}`)).status).toBe(200);
+    });
+    it("restores legacy installation authorization without fabricating inspection metadata", async () => {
+      const persistence = memory();
+      const first = create(persistence);
+      const privateKey = await key(first);
+      const mint = await h.request(
+        first,
+        "app/installations/124/access_tokens",
+        `Bearer ${jwt(privateKey)}`,
+        "POST",
+      );
+      expect(mint.status).toBe(201);
+      const token = (await mint.json()).token;
+      await vi.waitFor(() => expect(persistence.read()).toContain("github.installation_token_metadata"));
+
+      const snapshot = JSON.parse(persistence.read());
+      delete snapshot.store.collections["github:github.installation_token_metadata"];
+      const legacyPersistence = memory(JSON.stringify(snapshot));
+      const restored = create(legacyPersistence);
+
+      expect(await (await h.request(restored, "_emulate/installation-tokens")).json()).toEqual({
+        installation_tokens: [],
+      });
+      expect((await h.request(restored, "repos/acme/private-repo", `Bearer ${token}`)).status).toBe(200);
+
+      const nextMint = await h.request(
+        restored,
+        "app/installations/124/access_tokens",
+        `Bearer ${jwt(privateKey)}`,
+        "POST",
+      );
+      expect(nextMint.status).toBe(201);
+      expect(await (await h.request(restored, "_emulate/installation-tokens")).json()).toMatchObject({
+        installation_tokens: [expect.objectContaining({ installation: { id: 124 }, status: "active" })],
+      });
+      await vi.waitFor(() => expect(legacyPersistence.read()).toContain("github.installation_token_metadata"));
+    });
   });
 }

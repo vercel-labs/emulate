@@ -6,7 +6,20 @@ function config(persistence?: TestPersistence, privateKey?: string): EmulateHand
     services: {
       github: {
         emulator: github,
-        seed: { apps: [{ app_id: 123, slug: "embedded", name: "Embedded", private_key: privateKey }] },
+        seed: {
+          users: [{ login: "octocat" }],
+          orgs: [{ login: "acme" }],
+          repos: [{ owner: "acme", name: "private-repo", private: true }],
+          apps: [
+            {
+              app_id: 123,
+              slug: "embedded",
+              name: "Embedded",
+              private_key: privateKey,
+              installations: [{ installation_id: 124, account: "acme" }],
+            },
+          ],
+        },
       },
     },
     persistence,
@@ -26,6 +39,15 @@ githubAppIdentityContract<EmulateHandlerConfig, ReturnType<typeof createEmulateH
         headers: authorization ? { Authorization: authorization } : undefined,
       }),
       context: { params: { path: "github/app" } },
+    });
+  },
+  request(handler, path, authorization, method = "GET") {
+    return handler({
+      req: new Request(`http://localhost/emulate/github/${path}`, {
+        method,
+        headers: authorization ? { Authorization: authorization } : undefined,
+      }),
+      context: { params: { path: `github/${path}` } },
     });
   },
 });
