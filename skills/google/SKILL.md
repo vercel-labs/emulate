@@ -104,8 +104,11 @@ new GoogleStrategy({
 
 ## Seed Config
 
+OAuth authority checks are relaxed by default. Set `google.strict_scopes: true` to reject unknown, revoked, expired, and refresh tokens on resource APIs and to enforce the scopes granted by the authorization flow for userinfo, Gmail, Calendar, and Drive. Strict mode returns Google-style `401` `UNAUTHENTICATED` errors for invalid credentials and `403` `insufficientPermissions` errors for scope misses.
+
 ```yaml
 google:
+  strict_scopes: false
   users:
     - email: testuser@gmail.com
       name: Test User

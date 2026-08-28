@@ -14,7 +14,7 @@ import { buildRawMessage } from "../helpers.js";
 
 const base = "http://localhost:4000";
 
-function createTestApp() {
+function createTestApp(options?: { strictScopes?: boolean; useFallback?: boolean }) {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
@@ -27,10 +27,20 @@ function createTestApp() {
   const app = new Hono();
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
-  app.use("*", authMiddleware(tokenMap));
+  app.use(
+    "*",
+    authMiddleware(
+      tokenMap,
+      undefined,
+      options?.useFallback
+        ? { login: "testuser@example.com", id: 1, scopes: ["openid", "email", "profile"] }
+        : undefined,
+    ),
+  );
   googlePlugin.register(app as any, store, webhooks, base, tokenMap);
   googlePlugin.seed?.(store, base);
   seedFromConfig(store, base, {
+    ...(options?.strictScopes === undefined ? {} : { strict_scopes: options.strictScopes }),
     users: [
       { email: "testuser@example.com", name: "Test User" },
       { email: "consumer@gmail.com", name: "Consumer User" },
@@ -209,11 +219,138 @@ async function formRequest(app: Hono, path: string, body: Record<string, string>
   });
 }
 
+async function issueGoogleToken(app: Hono, scope: string) {
+  const authorizeRes = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+    email: "testuser@example.com",
+    redirect_uri: "http://localhost:3000/api/auth/callback/google",
+    scope,
+    client_id: "emu_google_client_id",
+  });
+  const code = new URL(authorizeRes.headers.get("Location")!).searchParams.get("code")!;
+  const tokenRes = await formRequest(app, "/oauth2/token", {
+    code,
+    grant_type: "authorization_code",
+    redirect_uri: "http://localhost:3000/api/auth/callback/google",
+    client_id: "emu_google_client_id",
+    client_secret: "emu_google_client_secret",
+  });
+  expect(tokenRes.status).toBe(200);
+  return (await tokenRes.json()) as { access_token: string; refresh_token: string; scope: string };
+}
+
 describe("Google plugin integration", () => {
   let app: Hono;
 
   beforeEach(() => {
     app = createTestApp().app;
+  });
+
+  describe("strict OAuth authority", () => {
+    const routes = ["/drive/v3/files", "/gmail/v1/users/me/messages", "/calendar/v3/calendars/primary/events"];
+
+    it("rejects bearer tokens that Google did not issue", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+
+      for (const route of routes) {
+        const res = await strictApp.request(`${base}${route}`, {
+          headers: { Authorization: "Bearer totally-bogus-token" },
+        });
+        expect(res.status).toBe(401);
+        expect(await res.json()).toMatchObject({
+          error: { code: 401, status: "UNAUTHENTICATED", errors: [{ reason: "authError" }] },
+        });
+      }
+    });
+
+    it("accepts authorization-code tokens with matching service scopes", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const cases = [
+        ["/drive/v3/files", "https://www.googleapis.com/auth/drive"],
+        ["/gmail/v1/users/me/messages", "https://www.googleapis.com/auth/gmail.readonly"],
+        ["/calendar/v3/calendars/primary/events", "https://www.googleapis.com/auth/calendar.readonly"],
+      ] as const;
+
+      for (const [route, scope] of cases) {
+        const token = await issueGoogleToken(strictApp, scope);
+        const res = await strictApp.request(`${base}${route}`, {
+          headers: { Authorization: `Bearer ${token.access_token}` },
+        });
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it("rejects revoked access tokens", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const token = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/drive");
+
+      const before = await strictApp.request(`${base}/drive/v3/files`, {
+        headers: { Authorization: `Bearer ${token.access_token}` },
+      });
+      expect(before.status).toBe(200);
+
+      const revoke = await formRequest(strictApp, "/oauth2/revoke", { token: token.access_token });
+      expect(revoke.status).toBe(200);
+
+      const after = await strictApp.request(`${base}/drive/v3/files`, {
+        headers: { Authorization: `Bearer ${token.access_token}` },
+      });
+      expect(after.status).toBe(401);
+      expect(await after.json()).toMatchObject({ error: { status: "UNAUTHENTICATED" } });
+    });
+
+    it("rejects access tokens without a scope for the requested service", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const token = await issueGoogleToken(strictApp, "openid");
+
+      for (const route of routes) {
+        const res = await strictApp.request(`${base}${route}`, {
+          headers: { Authorization: `Bearer ${token.access_token}` },
+        });
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({
+          error: {
+            code: 403,
+            status: "PERMISSION_DENIED",
+            errors: [{ reason: "insufficientPermissions" }],
+          },
+        });
+      }
+    });
+
+    it("rejects refresh tokens presented to resource APIs", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const token = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/drive");
+      const res = await strictApp.request(`${base}/drive/v3/files`, {
+        headers: { Authorization: `Bearer ${token.refresh_token}` },
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it.each([undefined, false])("preserves permissive auth when strict_scopes is %s", async (strictScopes) => {
+      const permissiveApp = createTestApp({ strictScopes, useFallback: true }).app;
+
+      for (const route of routes) {
+        const expected = await permissiveApp.request(`${base}${route}`, { headers: authHeaders() });
+        const bogus = await permissiveApp.request(`${base}${route}`, {
+          headers: { Authorization: "Bearer totally-bogus-token" },
+        });
+        expect(bogus.status).toBe(200);
+        expect(await bogus.text()).toBe(await expected.text());
+      }
+
+      const token = await issueGoogleToken(permissiveApp, "openid");
+      const revoke = await formRequest(permissiveApp, "/oauth2/revoke", { token: token.access_token });
+      expect(revoke.status).toBe(200);
+
+      for (const credential of [token.access_token, token.refresh_token]) {
+        const expected = await permissiveApp.request(`${base}/drive/v3/files`, { headers: authHeaders() });
+        const res = await permissiveApp.request(`${base}/drive/v3/files`, {
+          headers: { Authorization: `Bearer ${credential}` },
+        });
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe(await expected.text());
+      }
+    });
   });
 
   it("returns user info for a valid token", async () => {
