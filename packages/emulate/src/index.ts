@@ -24,6 +24,9 @@ Framework adapters:
 GitHub API coverage:
   Includes repository contents, raw downloads, commit history, commit details, and ref comparisons.
 
+Linear API coverage:
+  Issue queries and mutations include numeric priority and derived priorityLabel fields.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

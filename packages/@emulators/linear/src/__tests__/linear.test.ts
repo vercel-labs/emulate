@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { LinearClient } from "@linear/sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono, Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@emulators/core";
-import { getLinearStore, linearPlugin, seedFromConfig } from "../index.js";
+import { getLinearStore, linearPlugin, seedFromConfig, type LinearIssue } from "../index.js";
 
 const base = "http://localhost:4300";
 
@@ -60,6 +60,72 @@ describe("Linear emulator", () => {
     expect(body.data.teams.nodes[0].key).toBe("ENG");
     expect(body.data.issues.nodes[0].identifier).toBe("ENG-1");
     expect(body.data.issues.nodes[0].comments.nodes[0].body).toContain("seeded");
+  });
+
+  it("returns priority labels for issue queries and mutations", async () => {
+    seedFromConfig(store, base, {
+      issues: [
+        { team: "ENG", title: "No priority issue", priority: 0 },
+        { team: "ENG", title: "Urgent issue", priority: 1 },
+        { team: "ENG", title: "High priority issue", priority: 2 },
+        { team: "ENG", title: "Medium priority issue", priority: 3 },
+        { team: "ENG", title: "Low priority issue", priority: 4 },
+      ],
+    });
+
+    const queryRes = await gql(app, `query { issues { nodes { title priority priorityLabel } } }`);
+    expect(queryRes.status).toBe(200);
+    const queryBody = (await queryRes.json()) as any;
+    expect(queryBody.errors).toBeUndefined();
+    expect(
+      Object.fromEntries(
+        queryBody.data.issues.nodes
+          .filter((issue: { title: string }) => issue.title.endsWith("issue"))
+          .map((issue: { title: string; priorityLabel: string }) => [issue.title, issue.priorityLabel]),
+      ),
+    ).toEqual({
+      "No priority issue": "No priority",
+      "Urgent issue": "Urgent",
+      "High priority issue": "High",
+      "Medium priority issue": "Medium",
+      "Low priority issue": "Low",
+    });
+
+    const team = getLinearStore(store).teams.findOneBy("key", "ENG")!;
+    const mutationRes = await gql(
+      app,
+      `mutation CreateIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) {
+          success
+          issue { priority priorityLabel }
+        }
+      }`,
+      { input: { teamId: team.linear_id, title: "Created without priority" } },
+    );
+    expect(mutationRes.status).toBe(200);
+    const mutationBody = (await mutationRes.json()) as any;
+    expect(mutationBody.errors).toBeUndefined();
+    expect(mutationBody.data.issueCreate.issue).toEqual({ priority: 0, priorityLabel: "No priority" });
+
+    const linearStore = getLinearStore(store);
+    const fractionalIssue = linearStore.issues.findOneBy("title", "High priority issue")!;
+    const outOfRangeIssue = linearStore.issues.findOneBy("title", "Low priority issue")!;
+    linearStore.issues.update(fractionalIssue.id, { priority: 2.5 as LinearIssue["priority"] });
+    linearStore.issues.update(outOfRangeIssue.id, { priority: 10 as LinearIssue["priority"] });
+
+    const irregularRes = await gql(
+      app,
+      `query {
+        fractional: issue(id: "${fractionalIssue.linear_id}") { priorityLabel }
+        outOfRange: issue(id: "${outOfRangeIssue.linear_id}") { priorityLabel }
+      }`,
+    );
+    const irregularBody = (await irregularRes.json()) as any;
+    expect(irregularBody.errors).toBeUndefined();
+    expect(irregularBody.data).toEqual({
+      fractional: { priorityLabel: "Medium" },
+      outOfRange: { priorityLabel: "No priority" },
+    });
   });
 
   it("creates issues and comments that can be read back", async () => {
