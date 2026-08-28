@@ -689,8 +689,8 @@ importers:
         version: 17.0.0
     devDependencies:
       '@linear/sdk':
-        specifier: ^86.0.0
-        version: 86.0.0(graphql@17.0.0)
+        specifier: ^89.0.0
+        version: 89.0.0(graphql@17.0.0)
       tsup:
         specifier: ^8
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.16)(typescript@5.9.3)(yaml@2.9.0)
@@ -2029,8 +2029,8 @@ packages:
   '@kwsites/promise-deferred@1.1.1':
     resolution: {integrity: sha512-GaHYm+c0O9MjZRu0ongGBRbinu8gVAMd2UZjji6jVmqKtZluZnptXGWhz1E8j8D2HJ3f/yMxKAUC0b+57wncIw==}
 
-  '@linear/sdk@86.0.0':
-    resolution: {integrity: sha512-Lr47874CGGPCDiPQoKYjcZDWyyu18N8zzEGvss86uzjZaeZrhNsuwKTARswG27VAJ3fPVJAvl/5dPl8QwndSlg==}
+  '@linear/sdk@89.0.0':
+    resolution: {integrity: sha512-LiV2wsIg1Wym4GgaAUMrALo953WEgIAAceyK8qL91q75Ws8+lqwAkPW252MHtwktZCR7exMBd5wCAdct3yLU7w==}
     engines: {node: '>=18.x'}
 
   '@mapbox/node-pre-gyp@2.0.3':
@@ -11110,7 +11110,7 @@ snapshots:
 
   '@kwsites/promise-deferred@1.1.1': {}
 
-  '@linear/sdk@86.0.0(graphql@17.0.0)':
+  '@linear/sdk@89.0.0(graphql@17.0.0)':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@17.0.0)
     transitivePeerDependencies:

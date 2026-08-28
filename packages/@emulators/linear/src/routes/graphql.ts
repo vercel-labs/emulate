@@ -1,5 +1,5 @@
 import { buildSchema, graphql } from "graphql";
-import type { Context, RouteContext, Store } from "@emulators/core";
+import { escapeAttr, escapeHtml, type Context, type RouteContext, type Store } from "@emulators/core";
 import { getLinearStore } from "../store.js";
 import { linearId } from "../ids.js";
 import { connectionFromArray, type ConnectionArgs } from "../pagination.js";
@@ -16,7 +16,7 @@ import {
 } from "../index.js";
 import type {
   LinearAgentActivity,
-  LinearAgentActivityType,
+  LinearAgentPlanStep,
   LinearAgentSession,
   LinearComment,
   LinearCycle,
@@ -29,11 +29,33 @@ import type {
   LinearWebhook,
   LinearWorkflowState,
 } from "../entities.js";
-import { dispatchLinearWebhook } from "../webhooks.js";
+import {
+  activityContentAsGraphQL,
+  activityContentAsJSON,
+  applyExternalUrlUpdates,
+  parseAgentActivityCreateInput,
+  parseAgentPromptActivityCreateInput,
+  parsePlanInput,
+  parseSessionLinksInput,
+  statusFromActivity,
+  type SessionLinks,
+} from "../agents.js";
+import { withJSONObjectScalar } from "../json-object.js";
+import {
+  dispatchLinearWebhook,
+  type LinearAgentActivityWebhookPayload,
+  type LinearCommentWebhookPayload,
+  type LinearIssueWebhookPayload,
+  type LinearAgentSessionWebhookPayload,
+  type LinearUserWebhookPayload,
+} from "../webhooks.js";
 
-const schema = buildSchema(`
+const schema = withJSONObjectScalar(
+  buildSchema(`
   scalar TeamFilter
-  scalar PaginationOrderBy
+  scalar JSONObject
+
+  enum PaginationOrderBy { createdAt updatedAt }
 
   type Query {
     viewer: User!
@@ -86,8 +108,9 @@ const schema = buildSchema(`
     webhookDelete(id: String!): DeletePayload!
     agentSessionCreateOnIssue(input: AgentSessionCreateOnIssue!): AgentSessionPayload!
     agentSessionCreateOnComment(input: AgentSessionCreateOnComment!): AgentSessionPayload!
-    agentSessionUpdate(id: String, input: AgentSessionUpdateInput!): AgentSessionPayload!
+    agentSessionUpdate(id: String!, input: AgentSessionUpdateInput!): AgentSessionPayload!
     agentActivityCreate(input: AgentActivityCreateInput!): AgentActivityPayload!
+    agentActivityCreatePrompt(input: AgentActivityCreatePromptInput!): AgentActivityPayload!
   }
 
   type Organization {
@@ -187,6 +210,7 @@ const schema = buildSchema(`
     retiredAt: String
     timezone: String
     issueCount: Int
+    ledInitiativeCount: Int!
     visibility: String
     mergeWorkflowState: WorkflowState
     draftWorkflowState: WorkflowState
@@ -322,29 +346,101 @@ const schema = buildSchema(`
     team: Team
   }
 
+  type AgentSessionExternalLink {
+    label: String!
+    url: String!
+  }
+
   type AgentSession {
     id: String!
-    state: String!
-    plan: String
-    externalUrl: String
+    status: AgentSessionStatus!
+    plan: JSONObject
+    externalLink: String
+    externalUrls: JSONObject!
+    externalLinks: [AgentSessionExternalLink!]!
+    sourceMetadata: JSONObject
+    context: JSONObject!
+    url: String
+    slugId: String!
+    type: AgentSessionType
+    archivedAt: String
+    dismissedAt: String
+    dismissedBy: User
+    startedAt: String
+    endedAt: String
+    summary: String
     createdAt: String!
     updatedAt: String!
     issue: Issue
+    sourceComment: Comment
     comment: Comment
-    agentUser: User!
-    activities(first: Int, after: String, last: Int, before: String): AgentActivityConnection!
+    appUser: User!
+    creator: User
+    activities(
+      first: Int
+      after: String
+      last: Int
+      before: String
+      filter: AgentActivityFilter
+      includeArchived: Boolean
+      orderBy: PaginationOrderBy
+    ): AgentActivityConnection!
   }
 
   type AgentActivity {
     id: String!
-    type: String!
-    body: String!
+    content: AgentActivityContent!
+    contextualMetadata: JSONObject
     ephemeral: Boolean!
+    pushSummary: AgentActivityPushSummary
+    queued: Boolean!
+    sentAt: String
+    signal: AgentActivitySignal
+    signalMetadata: JSONObject
+    sourceMetadata: JSONObject
+    sourceComment: Comment
+    archivedAt: String
     createdAt: String!
     updatedAt: String!
-    session: AgentSession!
-    user: User
+    agentSession: AgentSession!
+    user: User!
   }
+
+  union AgentActivityContent = AgentActivityActionContent | AgentActivityElicitationContent | AgentActivityErrorContent | AgentActivityPromptContent | AgentActivityResponseContent | AgentActivityThoughtContent
+
+  type AgentActivityActionContent {
+    type: AgentActivityType!
+    action: String!
+    parameter: String!
+    result: String
+    resultData: JSONObject
+  }
+
+  type AgentActivityElicitationContent { type: AgentActivityType! body: String! bodyData: JSONObject! }
+  type AgentActivityErrorContent { type: AgentActivityType! body: String! bodyData: JSONObject! reasonCode: String }
+  type AgentActivityPromptContent { type: AgentActivityType! body: String! bodyData: JSONObject! title: String }
+  type AgentActivityResponseContent { type: AgentActivityType! body: String! bodyData: JSONObject! }
+  type AgentActivityThoughtContent { type: AgentActivityType! body: String! bodyData: JSONObject! }
+
+  type AgentActivityPushSummary {
+    additionalCommitShas: [String!]!
+    baseSha: String!
+    commitCount: Int!
+    commits: [AgentActivityPushCommit!]!
+    headSha: String!
+  }
+
+  type AgentActivityPushCommit {
+    additions: Int!
+    changedFiles: Int!
+    deletions: Int!
+    sha: String!
+  }
+
+  enum AgentActivityType { action elicitation error prompt response thought }
+  enum AgentActivitySignal { auth continue select stop }
+  enum AgentSessionStatus { active awaitingInput complete error pending stale }
+  enum AgentSessionType { commentThread }
 
   type NodeRef {
     id: String!
@@ -492,34 +588,71 @@ const schema = buildSchema(`
     enabled: Boolean
   }
 
+  input AgentSessionExternalUrlInput {
+    label: String!
+    url: String!
+  }
+
   input AgentSessionCreateOnIssue {
     issueId: String!
-    agentUserId: String
-    plan: String
-    externalUrl: String
+    externalLink: String
+    externalUrls: [AgentSessionExternalUrlInput!]
   }
 
   input AgentSessionCreateOnComment {
     commentId: String!
-    agentUserId: String
-    plan: String
-    externalUrl: String
+    externalLink: String
+    externalUrls: [AgentSessionExternalUrlInput!]
   }
 
+  """
+  Production Linear AgentSessionUpdateInput. Session status is driven by
+  activities, not set here.
+  """
   input AgentSessionUpdateInput {
-    id: String
-    state: String
-    plan: String
-    externalUrl: String
+    addedExternalUrls: [AgentSessionExternalUrlInput!]
+    externalLink: String
+    externalUrls: [AgentSessionExternalUrlInput!]
+    plan: JSONObject
+    removedExternalUrls: [String!]
   }
 
   input AgentActivityCreateInput {
-    sessionId: String!
-    type: String!
-    body: String!
+    agentSessionId: String!
+    content: JSONObject!
+    contextualMetadata: JSONObject
     ephemeral: Boolean
+    id: String
+    signal: AgentActivitySignal
+    signalMetadata: JSONObject
   }
-`);
+
+  input AgentActivityPromptCreateInputContent {
+    body: String
+    bodyData: JSONObject
+    type: AgentActivityType = prompt
+  }
+
+  input AgentActivityCreatePromptInput {
+    agentSessionId: String!
+    content: AgentActivityPromptCreateInputContent!
+    contextualMetadata: JSONObject
+    id: String
+    queued: Boolean
+    signal: AgentActivitySignal
+    signalMetadata: JSONObject
+    sourceCommentId: String
+  }
+
+  input AgentActivityFilter {
+    agentSessionId: StringComparator
+    and: [AgentActivityFilter!]
+    id: StringComparator
+    or: [AgentActivityFilter!]
+    type: StringComparator
+  }
+`),
+);
 
 interface LinearGraphQLContext {
   store: Store;
@@ -1053,21 +1186,14 @@ function createRoot(context: LinearGraphQLContext) {
     agentSessionCreateOnIssue: async ({ input }: { input: Record<string, unknown> }) => {
       requireLinearScopes(store, c, ["write"]);
       const issue = requireIssue(store, input.issueId);
-      const actor = requireCurrentUser(context);
-      const agentUserRef = stringInput(input.agentUserId);
-      const agentUser =
-        (agentUserRef ? requireUser(store, agentUserRef) : undefined) ??
-        ls()
-          .users.all()
-          .find((user) => user.app) ??
-        actor;
+      const actor = requireAgentAppActor(context);
       const session = await createAgentSessionForIssue(
         context,
         issue,
-        agentUser.linear_id,
-        actor,
-        nullableString(input.plan),
-        nullableString(input.externalUrl),
+        actor.linear_id,
+        null,
+        null,
+        parseSessionLinksInput(input),
       );
       return mutationPayload({ success: true, agentSession: formatAgentSession(context, session) });
     },
@@ -1075,57 +1201,122 @@ function createRoot(context: LinearGraphQLContext) {
     agentSessionCreateOnComment: async ({ input }: { input: Record<string, unknown> }) => {
       requireLinearScopes(store, c, ["write"]);
       const comment = requireComment(store, input.commentId);
-      const actor = requireCurrentUser(context);
-      const agentUserRef = stringInput(input.agentUserId);
-      const agentUser =
-        (agentUserRef ? requireUser(store, agentUserRef) : undefined) ??
-        ls()
-          .users.all()
-          .find((user) => user.app) ??
-        actor;
+      const actor = requireAgentAppActor(context);
       const session = await createAgentSessionForComment(
         context,
         comment,
-        agentUser.linear_id,
-        actor,
-        nullableString(input.plan),
-        nullableString(input.externalUrl),
+        actor.linear_id,
+        null,
+        null,
+        parseSessionLinksInput(input),
       );
       return mutationPayload({ success: true, agentSession: formatAgentSession(context, session) });
     },
 
-    agentSessionUpdate: ({ id, input }: { id?: string; input: Record<string, unknown> }) => {
+    agentSessionUpdate: ({ id, input }: { id: string; input: Record<string, unknown> }) => {
       requireLinearScopes(store, c, ["write"]);
-      const session = requireAgentSession(store, id ?? input.id);
+      const actor = requireAgentAppActor(context);
+      // Production drives status from activities; update only mutates plan/links.
+      const session = requireAgentSession(store, id);
+      requireAgentSessionOwner(context, session, actor);
+      const plan = "plan" in input ? parsePlanInput(input.plan) : session.plan;
+      const links = applyExternalUrlUpdates(
+        { external_link: session.external_link, external_urls: session.external_urls },
+        input,
+      );
       const updated = ls().agentSessions.update(session.id, {
-        state: normalizeSessionState(stringInput(input.state)) ?? session.state,
-        plan: "plan" in input ? nullableString(input.plan) : session.plan,
-        external_url: "externalUrl" in input ? nullableString(input.externalUrl) : session.external_url,
+        plan,
+        external_link: links.external_link,
+        external_urls: links.external_urls,
       })!;
       return mutationPayload({ success: true, agentSession: formatAgentSession(context, updated) });
     },
 
     agentActivityCreate: async ({ input }: { input: Record<string, unknown> }) => {
       requireLinearScopes(store, c, ["write"]);
-      const session = requireAgentSession(store, input.sessionId);
-      const type = normalizeActivityType(requiredString(input.type, "type"));
+      const parsed = parseAgentActivityCreateInput(input);
+      const session = requireAgentSession(store, parsed.agentSessionId);
+      const actor = requireAgentAppActor(context);
+      requireAgentSessionOwner(context, session, actor);
+      const now = new Date().toISOString();
       const activity = ls().agentActivities.insert({
-        linear_id: linearId(),
+        linear_id: stringInput(input.id) ?? linearId(),
         session_id: session.linear_id,
-        user_id: requireCurrentUser(context).linear_id,
-        type,
-        body: requiredString(input.body, "body"),
-        ephemeral: typeof input.ephemeral === "boolean" ? input.ephemeral : type === "thought" || type === "action",
+        user_id: actor.linear_id,
+        source_comment_id: null,
+        content: parsed.content,
+        contextual_metadata: recordInput(input.contextualMetadata),
+        archived_at: null,
+        ephemeral: parsed.ephemeral,
+        queued: false,
+        sent_at: null,
+        signal: parsed.signal,
+        signal_metadata: parsed.signalMetadata,
       });
-      if (type === "prompt") {
-        await dispatchLinearWebhook(store, {
-          type: "AgentSessionEvent",
-          action: "prompted",
-          data: agentSessionWebhookPayload(context, session),
-          actor: requireCurrentUser(context),
-          teamId: session.issue_id ? requireIssue(store, session.issue_id).team_id : null,
-        });
+      archiveEphemeralAgentActivities(context, session.linear_id, activity.linear_id, now);
+
+      const nextStatus = statusFromActivity(parsed.content.type, parsed.signal);
+      const updatedSession = ls().agentSessions.update(session.id, {
+        status: nextStatus,
+        started_at:
+          nextStatus === "active" || nextStatus === "awaitingInput" ? (session.started_at ?? now) : session.started_at,
+        ended_at:
+          nextStatus === "complete" || nextStatus === "error"
+            ? now
+            : nextStatus === "active" || nextStatus === "awaitingInput" || nextStatus === "pending"
+              ? null
+              : session.ended_at,
+      })!;
+
+      if (nextStatus === "complete" || nextStatus === "error") {
+        await deliverNextQueuedPrompt(context, updatedSession);
       }
+
+      return mutationPayload({ success: true, agentActivity: formatAgentActivity(context, activity) });
+    },
+
+    agentActivityCreatePrompt: async ({ input }: { input: Record<string, unknown> }) => {
+      requireLinearScopes(store, c, ["write"]);
+      const parsed = parseAgentPromptActivityCreateInput(input);
+      const session = requireAgentSession(store, parsed.agentSessionId);
+      const actor = requireCurrentUser(context);
+      if (actor.app) throw new Error("Prompt activities must be created by a human user");
+      const sourceCommentId = stringInput(input.sourceCommentId);
+      if (sourceCommentId) {
+        const sourceComment = requireComment(store, sourceCommentId);
+        if (sourceComment.issue_id !== session.issue_id) {
+          throw new Error("sourceCommentId must belong to the agent session issue");
+        }
+      }
+      const activity = ls().agentActivities.insert({
+        linear_id: stringInput(input.id) ?? linearId(),
+        session_id: session.linear_id,
+        user_id: actor.linear_id,
+        source_comment_id: sourceCommentId ?? null,
+        content: parsed.content,
+        contextual_metadata: recordInput(input.contextualMetadata),
+        archived_at: null,
+        ephemeral: false,
+        queued: input.queued === true && session.status !== "complete" && session.status !== "error",
+        sent_at: null,
+        signal: parsed.signal,
+        signal_metadata: parsed.signalMetadata,
+      });
+      if (activity.queued) {
+        return mutationPayload({ success: true, agentActivity: formatAgentActivity(context, activity) });
+      }
+      const now = new Date().toISOString();
+      const updatedSession = ls().agentSessions.update(session.id, {
+        status: "active",
+        started_at: session.started_at ?? now,
+        ended_at: null,
+      })!;
+      await dispatchAgentSessionEvent(context, {
+        action: "prompted",
+        session: updatedSession,
+        activity,
+        actor,
+      });
       return mutationPayload({ success: true, agentActivity: formatAgentActivity(context, activity) });
     },
   };
@@ -1258,6 +1449,7 @@ function formatTeam(context: LinearGraphQLContext, team: LinearTeam) {
     retiredAt: null,
     timezone: "UTC",
     issueCount: () => ls.issues.count((issue) => issue.team_id === team.linear_id),
+    ledInitiativeCount: 0,
     visibility: team.private ? "private" : "public",
     mergeWorkflowState: () => formatOptionalState(stateByType("completed")),
     draftWorkflowState: () => formatOptionalState(stateByType("backlog")),
@@ -1472,36 +1664,66 @@ function formatWebhook(context: LinearGraphQLContext, webhook: LinearWebhook) {
 }
 
 function formatAgentSession(context: LinearGraphQLContext, session: LinearAgentSession) {
+  const externalLinks = session.external_urls.map((link) => ({ label: link.label, url: link.url }));
+  const appUser = () => formatUser(context, requireUser(context.store, session.agent_user_id));
+  const issue = () => (session.issue_id ? formatIssue(context, requireIssue(context.store, session.issue_id)) : null);
   return {
     id: session.linear_id,
-    state: session.state,
+    status: session.status,
     plan: session.plan,
-    externalUrl: session.external_url,
+    externalLink: session.external_link,
+    externalUrls: externalLinks,
+    externalLinks,
+    sourceMetadata: null,
+    context: {},
+    url: session.issue_id ? requireIssue(context.store, session.issue_id).url : null,
+    slugId: session.linear_id,
+    type: "commentThread",
+    archivedAt: null,
+    dismissedAt: null,
+    dismissedBy: null,
+    startedAt: session.started_at,
+    endedAt: session.ended_at,
+    summary: session.summary,
     createdAt: session.created_at,
     updatedAt: session.updated_at,
-    issue: () => (session.issue_id ? formatIssue(context, requireIssue(context.store, session.issue_id)) : null),
+    issue,
+    sourceComment: null,
     comment: () =>
       session.comment_id ? formatComment(context, requireComment(context.store, session.comment_id)) : null,
-    agentUser: () => formatUser(context, requireUser(context.store, session.agent_user_id)),
-    activities: (args: ConnectionArgs) =>
+    appUser,
+    creator: () => (session.creator_id ? formatUser(context, requireUser(context.store, session.creator_id)) : null),
+    activities: (args: AgentActivityConnectionArgs) =>
       connectAgentActivities(
         context,
-        sortByCreated(getLinearStore(context.store).agentActivities.findBy("session_id", session.linear_id)),
+        getLinearStore(context.store).agentActivities.findBy("session_id", session.linear_id),
         args,
       ),
   };
 }
 
 function formatAgentActivity(context: LinearGraphQLContext, activity: LinearAgentActivity) {
+  const agentSession = () => formatAgentSession(context, requireAgentSession(context.store, activity.session_id));
   return {
     id: activity.linear_id,
-    type: activity.type,
-    body: activity.body,
+    content: activityContentAsGraphQL(activity.content),
+    contextualMetadata: activity.contextual_metadata,
     ephemeral: activity.ephemeral,
+    pushSummary: null,
+    queued: activity.queued,
+    sentAt: activity.sent_at,
+    signal: activity.signal,
+    signalMetadata: activity.signal_metadata,
+    sourceMetadata: null,
+    sourceComment: () =>
+      activity.source_comment_id
+        ? formatComment(context, requireComment(context.store, activity.source_comment_id))
+        : null,
+    archivedAt: activity.archived_at,
     createdAt: activity.created_at,
     updatedAt: activity.updated_at,
-    session: () => formatAgentSession(context, requireAgentSession(context.store, activity.session_id)),
-    user: () => (activity.user_id ? formatUser(context, requireUser(context.store, activity.user_id)) : null),
+    agentSession,
+    user: () => formatUser(context, requireUser(context.store, activity.user_id)),
   };
 }
 
@@ -1545,8 +1767,41 @@ function connectAgentSessions(context: LinearGraphQLContext, items: LinearAgentS
   return mapConnection(items, args, (item) => formatAgentSession(context, item));
 }
 
-function connectAgentActivities(context: LinearGraphQLContext, items: LinearAgentActivity[], args: ConnectionArgs) {
-  return mapConnection(items, args, (item) => formatAgentActivity(context, item));
+type AgentActivityConnectionArgs = ConnectionArgs & {
+  filter?: Record<string, unknown>;
+  includeArchived?: boolean;
+  orderBy?: string;
+};
+
+function connectAgentActivities(
+  context: LinearGraphQLContext,
+  items: LinearAgentActivity[],
+  args: AgentActivityConnectionArgs,
+) {
+  const filtered = filterAgentActivities(items, args);
+  return mapConnection(filtered, args, (item) => formatAgentActivity(context, item));
+}
+
+function filterAgentActivities(items: LinearAgentActivity[], args: AgentActivityConnectionArgs): LinearAgentActivity[] {
+  const activities = args.includeArchived ? [...items] : items.filter((activity) => activity.archived_at === null);
+  activities.sort((a, b) =>
+    args.orderBy === "updatedAt" ? a.updated_at.localeCompare(b.updated_at) : a.created_at.localeCompare(b.created_at),
+  );
+  return args.filter ? activities.filter((activity) => agentActivityMatchesFilter(activity, args.filter!)) : activities;
+}
+
+function agentActivityMatchesFilter(activity: LinearAgentActivity, filter: Record<string, unknown>): boolean {
+  const ownMatch =
+    comparatorMatches(activity.linear_id, filter.id) &&
+    comparatorMatches(activity.session_id, filter.agentSessionId) &&
+    comparatorMatches(activity.content.type, filter.type);
+  const andFilters = Array.isArray(filter.and) ? filter.and.filter(isRecord) : [];
+  const orFilters = Array.isArray(filter.or) ? filter.or.filter(isRecord) : [];
+  return (
+    ownMatch &&
+    andFilters.every((child) => agentActivityMatchesFilter(activity, child)) &&
+    (orFilters.length === 0 || orFilters.some((child) => agentActivityMatchesFilter(activity, child)))
+  );
 }
 
 function mapConnection<T, U>(items: T[], args: ConnectionArgs, mapper: (item: T) => U) {
@@ -1591,28 +1846,11 @@ function filteredTeams(
   orderBy?: unknown,
 ): LinearTeam[] {
   let teams = sortByCreated(getLinearStore(context.store).teams.all());
-  if (isRecord(orderBy)) {
-    const field = typeof orderBy.field === "string" ? orderBy.field : Object.keys(orderBy)[0];
-    const direction =
-      typeof orderBy.direction === "string"
-        ? orderBy.direction
-        : field && typeof orderBy[field] === "string"
-          ? orderBy[field]
-          : undefined;
-    const multiplier = direction?.toLowerCase().startsWith("desc") ? -1 : 1;
-    if (field === "key" || field === "name" || field === "createdAt" || field === "updatedAt") {
-      teams = [...teams].sort((a, b) => teamOrderValue(a, field).localeCompare(teamOrderValue(b, field)) * multiplier);
-    }
+  if (orderBy === "updatedAt") {
+    teams = [...teams].sort((a, b) => a.updated_at.localeCompare(b.updated_at));
   }
   if (!isRecord(filter)) return teams;
   return teams.filter((team) => teamMatchesFilter(team, filter));
-}
-
-function teamOrderValue(team: LinearTeam, field: string): string {
-  if (field === "key") return team.key;
-  if (field === "name") return team.name;
-  if (field === "updatedAt") return team.updated_at;
-  return team.created_at;
 }
 
 function teamMatchesFilter(team: LinearTeam, filter: Record<string, unknown>): boolean {
@@ -1758,6 +1996,19 @@ function requireCurrentUser(context: LinearGraphQLContext): LinearUser {
   return user;
 }
 
+function requireAgentAppActor(context: LinearGraphQLContext): LinearUser {
+  const actor = requireCurrentUser(context);
+  if (!actor.app) throw new Error("Agent mutations require an OAuth app actor");
+  return actor;
+}
+
+function requireAgentSessionOwner(context: LinearGraphQLContext, session: LinearAgentSession, actor: LinearUser): void {
+  const oauthClientId = oauthClientIdForAgent(context, actor.linear_id);
+  if (session.agent_user_id !== actor.linear_id || session.oauth_client_id !== oauthClientId) {
+    throw new Error("Agent session belongs to a different OAuth application");
+  }
+}
+
 function requireUser(store: Store, id: string): LinearUser {
   const user = resolveUser(store, id);
   if (!user) throw new Error(`User not found: ${id}`);
@@ -1865,31 +2116,37 @@ async function createAgentSessionForIssue(
   context: LinearGraphQLContext,
   issue: LinearIssue,
   agentUserId: string,
-  actor: LinearUser,
-  plan?: string | null,
-  externalUrl?: string | null,
+  actor: LinearUser | null,
+  plan: LinearAgentPlanStep[] | null = null,
+  links: SessionLinks = { external_link: null, external_urls: [] },
 ): Promise<LinearAgentSession> {
   const ls = getLinearStore(context.store);
+  const oauthClientId = oauthClientIdForAgent(context, agentUserId);
   const existing = ls.agentSessions
     .findBy("issue_id", issue.linear_id)
-    .find((session) => session.agent_user_id === agentUserId && session.state !== "completed");
+    .find(
+      (session) => session.agent_user_id === agentUserId && session.status !== "complete" && session.status !== "error",
+    );
   if (existing) return existing;
   const session = ls.agentSessions.insert({
     linear_id: linearId(),
     issue_id: issue.linear_id,
     comment_id: null,
     agent_user_id: agentUserId,
-    state: "pending",
-    plan: plan ?? null,
-    external_url: externalUrl ?? null,
+    creator_id: actor?.linear_id ?? null,
+    oauth_client_id: oauthClientId,
+    status: "pending",
+    plan,
+    external_link: links.external_link,
+    external_urls: links.external_urls,
+    started_at: null,
+    ended_at: null,
+    summary: null,
   });
-  await dispatchLinearWebhook(context.store, {
-    type: "AgentSessionEvent",
+  await dispatchAgentSessionEvent(context, {
     action: "created",
-    data: agentSessionWebhookPayload(context, session),
+    session,
     actor,
-    teamId: issue.team_id,
-    url: issue.url,
   });
   return session;
 }
@@ -1898,29 +2155,86 @@ async function createAgentSessionForComment(
   context: LinearGraphQLContext,
   comment: LinearComment,
   agentUserId: string,
-  actor: LinearUser,
-  plan?: string | null,
-  externalUrl?: string | null,
+  actor: LinearUser | null,
+  plan: LinearAgentPlanStep[] | null = null,
+  links: SessionLinks = { external_link: null, external_urls: [] },
 ): Promise<LinearAgentSession> {
   const issue = requireIssue(context.store, comment.issue_id);
+  const oauthClientId = oauthClientIdForAgent(context, agentUserId);
   const session = getLinearStore(context.store).agentSessions.insert({
     linear_id: linearId(),
     issue_id: issue.linear_id,
     comment_id: comment.linear_id,
     agent_user_id: agentUserId,
-    state: "pending",
-    plan: plan ?? null,
-    external_url: externalUrl ?? null,
+    creator_id: actor?.linear_id ?? null,
+    oauth_client_id: oauthClientId,
+    status: "pending",
+    plan,
+    external_link: links.external_link,
+    external_urls: links.external_urls,
+    started_at: null,
+    ended_at: null,
+    summary: null,
   });
-  await dispatchLinearWebhook(context.store, {
-    type: "AgentSessionEvent",
+  await dispatchAgentSessionEvent(context, {
     action: "created",
-    data: agentSessionWebhookPayload(context, session),
+    session,
     actor,
-    teamId: issue.team_id,
-    url: issue.url,
   });
   return session;
+}
+
+function archiveEphemeralAgentActivities(
+  context: LinearGraphQLContext,
+  sessionId: string,
+  currentActivityId: string,
+  archivedAt: string,
+): void {
+  const activities = getLinearStore(context.store).agentActivities.findBy("session_id", sessionId);
+  for (const activity of activities) {
+    if (activity.linear_id !== currentActivityId && activity.ephemeral && activity.archived_at === null) {
+      getLinearStore(context.store).agentActivities.update(activity.id, { archived_at: archivedAt });
+    }
+  }
+}
+
+async function deliverNextQueuedPrompt(
+  context: LinearGraphQLContext,
+  session: LinearAgentSession,
+): Promise<LinearAgentSession> {
+  const ls = getLinearStore(context.store);
+  const queuedPrompt = sortByCreated(ls.agentActivities.findBy("session_id", session.linear_id)).find(
+    (activity) => activity.queued && activity.sent_at === null && activity.archived_at === null,
+  );
+  if (!queuedPrompt) return session;
+
+  const now = new Date().toISOString();
+  const deliveredPrompt = ls.agentActivities.update(queuedPrompt.id, {
+    queued: false,
+    sent_at: now,
+  })!;
+  const activeSession = ls.agentSessions.update(session.id, {
+    status: "active",
+    started_at: session.started_at ?? now,
+    ended_at: null,
+  })!;
+  await dispatchAgentSessionEvent(context, {
+    action: "prompted",
+    session: activeSession,
+    activity: deliveredPrompt,
+    actor: requireUser(context.store, deliveredPrompt.user_id),
+  });
+  return activeSession;
+}
+
+function oauthClientIdForAgent(context: LinearGraphQLContext, agentUserId: string): string {
+  const ls = getLinearStore(context.store);
+  const owningApp = ls.oauthApps.all().find((app) => app.app_user_id === agentUserId);
+  if (owningApp) return owningApp.client_id;
+  const requestToken = context.c.get("authToken");
+  const token = requestToken ? ls.tokens.findOneBy("token", requestToken) : undefined;
+  const authenticatedApp = token?.app_id ? ls.oauthApps.findOneBy("linear_id", token.app_id) : undefined;
+  return authenticatedApp?.client_id ?? ls.oauthApps.all()[0]?.client_id ?? "linear-emulator";
 }
 
 function issueWebhookPayload(context: LinearGraphQLContext, issue: LinearIssue) {
@@ -1968,18 +2282,172 @@ function labelWebhookPayload(_context: LinearGraphQLContext, label: LinearIssueL
   };
 }
 
-function agentSessionWebhookPayload(_context: LinearGraphQLContext, session: LinearAgentSession) {
+function agentSessionWebhookPayload(
+  context: LinearGraphQLContext,
+  session: LinearAgentSession,
+): LinearAgentSessionWebhookPayload {
+  const organization = getLinearStore(context.store).organizations.all()[0];
+  if (!organization) throw new Error("Linear organization has not been seeded");
+  const issue = session.issue_id ? getLinearStore(context.store).issues.findOneBy("linear_id", session.issue_id) : null;
+  const comment = session.comment_id
+    ? getLinearStore(context.store).comments.findOneBy("linear_id", session.comment_id)
+    : null;
+  const creator = session.creator_id
+    ? getLinearStore(context.store).users.findOneBy("linear_id", session.creator_id)
+    : null;
   return {
     id: session.linear_id,
+    appUserId: session.agent_user_id,
+    organizationId: organization.linear_id,
     issueId: session.issue_id,
     commentId: session.comment_id,
-    agentUserId: session.agent_user_id,
-    state: session.state,
-    plan: session.plan,
-    externalUrl: session.external_url,
+    creatorId: session.creator_id,
+    creator: creator ? userWebhookPayload(creator) : null,
+    status: session.status,
+    archivedAt: null,
+    sourceCommentId: null,
+    sourceMetadata: null,
+    startedAt: session.started_at,
+    endedAt: session.ended_at,
+    summary: session.summary,
+    type: "commentThread",
     createdAt: session.created_at,
     updatedAt: session.updated_at,
+    url: issue?.url ?? null,
+    issue: issue ? issueWebhookChildPayload(context, issue) : null,
+    comment: comment ? commentWebhookChildPayload(comment) : null,
   };
+}
+
+function agentActivityWebhookPayload(
+  context: LinearGraphQLContext,
+  activity: LinearAgentActivity,
+): LinearAgentActivityWebhookPayload {
+  const user = requireUser(context.store, activity.user_id);
+  return {
+    id: activity.linear_id,
+    agentSessionId: activity.session_id,
+    content: activityContentAsJSON(activity.content),
+    signal: activity.signal,
+    signalMetadata: activity.signal_metadata ? ({ ...activity.signal_metadata } as Record<string, unknown>) : null,
+    createdAt: activity.created_at,
+    updatedAt: activity.updated_at,
+    archivedAt: activity.archived_at,
+    sourceCommentId: activity.source_comment_id,
+    userId: activity.user_id,
+    user: userWebhookPayload(user),
+  };
+}
+
+function userWebhookPayload(user: LinearUser): LinearUserWebhookPayload {
+  return {
+    id: user.linear_id,
+    url: `https://linear.app/user/${encodeURIComponent(user.email)}`,
+    avatarUrl: user.avatar_url,
+    email: user.email,
+    name: user.name,
+  };
+}
+
+function commentWebhookChildPayload(comment: LinearComment): LinearCommentWebhookPayload {
+  return {
+    id: comment.linear_id,
+    body: comment.body,
+    documentContentId: null,
+    initiativeId: null,
+    initiativeUpdateId: null,
+    issueId: comment.issue_id,
+    projectId: null,
+    projectUpdateId: null,
+    userId: comment.user_id,
+  };
+}
+
+function issueWebhookChildPayload(context: LinearGraphQLContext, issue: LinearIssue): LinearIssueWebhookPayload {
+  const team = requireTeam(context.store, issue.team_id);
+  return {
+    id: issue.linear_id,
+    identifier: issue.identifier,
+    title: issue.title,
+    description: issue.description,
+    url: issue.url,
+    teamId: issue.team_id,
+    team: { id: team.linear_id, key: team.key, name: team.name },
+  };
+}
+
+async function dispatchAgentSessionEvent(
+  context: LinearGraphQLContext,
+  opts: {
+    action: "created" | "prompted";
+    session: LinearAgentSession;
+    activity?: LinearAgentActivity;
+    actor: LinearUser | null;
+  },
+): Promise<void> {
+  const issue = opts.session.issue_id
+    ? getLinearStore(context.store).issues.findOneBy("linear_id", opts.session.issue_id)
+    : null;
+  const teamId = issue?.team_id ?? null;
+
+  await dispatchLinearWebhook(context.store, {
+    type: "AgentSessionEvent",
+    action: opts.action,
+    agentSession: agentSessionWebhookPayload(context, opts.session),
+    agentActivity: opts.activity ? agentActivityWebhookPayload(context, opts.activity) : undefined,
+    appUserId: opts.session.agent_user_id,
+    oauthClientId: opts.session.oauth_client_id,
+    // Essential context for agent loops; full Linear guidance/threads can come later.
+    promptContext: opts.action === "created" ? buildPromptContext(context, opts.session) : null,
+    guidance: [],
+    previousComments:
+      opts.action === "created" && opts.session.comment_id ? previousCommentsForSession(context, opts.session) : null,
+    actor: opts.actor,
+    teamId,
+    url: issue?.url ?? null,
+  });
+}
+
+function previousCommentsForSession(
+  context: LinearGraphQLContext,
+  session: LinearAgentSession,
+): LinearCommentWebhookPayload[] {
+  if (!session.comment_id || !session.issue_id) return [];
+  const comments = sortByCreated(getLinearStore(context.store).comments.findBy("issue_id", session.issue_id));
+  const sessionCommentIndex = comments.findIndex((comment) => comment.linear_id === session.comment_id);
+  return comments.slice(0, sessionCommentIndex < 0 ? 0 : sessionCommentIndex).map(commentWebhookChildPayload);
+}
+
+function buildPromptContext(context: LinearGraphQLContext, session: LinearAgentSession): string {
+  if (!session.issue_id) return "";
+  const issue = requireIssue(context.store, session.issue_id);
+  const team = requireTeam(context.store, issue.team_id);
+  const ls = getLinearStore(context.store);
+  const parts = [`<issue identifier="${escapeAttr(issue.identifier)}">`, `<title>${escapeHtml(issue.title)}</title>`];
+  if (issue.description) parts.push(`<description>${escapeHtml(issue.description)}</description>`);
+  parts.push(`<team name="${escapeAttr(team.name)}"/>`);
+  for (const labelId of issue.label_ids) {
+    const label = ls.issueLabels.findOneBy("linear_id", labelId);
+    if (label) parts.push(`<label>${escapeHtml(label.name)}</label>`);
+  }
+  if (issue.project_id) {
+    const project = ls.projects.findOneBy("linear_id", issue.project_id);
+    if (project) {
+      parts.push(
+        `<project name="${escapeAttr(project.name)}">${project.description ? escapeHtml(project.description) : ""}</project>`,
+      );
+    }
+  }
+  parts.push(`</issue>`);
+  if (session.comment_id) {
+    const comment = requireComment(context.store, session.comment_id);
+    const author = comment.user_id ? ls.users.findOneBy("linear_id", comment.user_id) : undefined;
+    const user = author ? `<user id="${escapeAttr(author.linear_id)}">${escapeHtml(author.display_name)}</user> ` : "";
+    parts.push(
+      `<primary-directive-thread comment-id="${escapeAttr(comment.linear_id)}"><comment author="${escapeAttr(author?.name ?? "Unknown")}" created-at="${escapeAttr(comment.created_at)}">${user}${escapeHtml(comment.body)}</comment></primary-directive-thread>`,
+    );
+  }
+  return parts.join("\n");
 }
 
 function mentionsAppUser(context: LinearGraphQLContext, body: string): boolean {
@@ -1995,33 +2463,6 @@ function normalizePriority(value: unknown): LinearIssuePriority {
   return value as LinearIssuePriority;
 }
 
-function normalizeSessionState(value: string | undefined | null): LinearAgentSession["state"] | undefined {
-  if (
-    value === "pending" ||
-    value === "active" ||
-    value === "completed" ||
-    value === "failed" ||
-    value === "canceled"
-  ) {
-    return value;
-  }
-  return undefined;
-}
-
-function normalizeActivityType(value: string): LinearAgentActivityType {
-  if (
-    value === "thought" ||
-    value === "elicitation" ||
-    value === "action" ||
-    value === "response" ||
-    value === "error" ||
-    value === "prompt"
-  ) {
-    return value;
-  }
-  throw new Error(`Unsupported agent activity type: ${value}`);
-}
-
 function requiredString(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   throw new Error(`${field} is required`);
@@ -2033,6 +2474,10 @@ function nullableString(value: unknown): string | null {
 
 function stringInput(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function recordInput(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
 }
 
 function arrayInput(value: unknown, fallback: string[] = []): string[] {

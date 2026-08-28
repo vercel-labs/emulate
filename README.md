@@ -890,14 +890,20 @@ Current Slack limits: Slack Connect, Enterprise Grid admin APIs, Audit Logs API,
 
 ## Linear API
 
-Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when webhooks are configured.
+Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and production-shaped agent sessions (Agent Interaction). GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when webhooks are configured.
 
 ### GraphQL
 
 - `POST /graphql` - GraphQL endpoint for queries and mutations
 - `GET /graphql` - query-string GraphQL endpoint for tooling
 - Queries: `viewer`, `organization`, `users`, `user`, `teams`, `team`, `workflowStates`, `workflowState`, `issues`, `issue`, `comments`, `comment`, `issueLabels`, `issueLabel`, `projects`, `project`, `cycles`, `cycle`, `webhooks`, `webhook`, `agentSessions`, `agentSession`
-- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentActivityCreate`
+- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentActivityCreate`, `agentActivityCreatePrompt`
+- Agent Interaction: `agentActivityCreate` (`agentSessionId` + nested `content`, optional signals), `agentSessionUpdate` (`plan`, `externalUrls`), activity-driven session status, production-shaped `AgentSessionEvent` webhooks with escaped issue, label, project, and directive-comment context
+- Human prompt simulation: `agentActivityCreatePrompt` mirrors Linear's internal user-input mutation so local tests can trigger `prompted` agent webhooks without allowing agents to create prompt activities
+- Activity lifecycle: ephemeral thoughts/actions are archived when the next agent activity arrives; queued prompts wait for the current turn to finish, then reopen the session and emit `prompted`
+- Activity connections support `filter`, `includeArchived`, `orderBy`, and Relay pagination
+
+Use the seeded `lin_test_agent` app-actor token for agent session, activity, and plan mutations. Use `lin_test_admin` for human operations, including `agentActivityCreatePrompt`.
 
 ### OAuth
 
@@ -913,9 +919,9 @@ OAuth app `actor` config is authoritative. Apps configured with `actor: user` us
 - `webhookCreate` / `webhookDelete` manage local webhook subscriptions
 - `GET /` - tabbed local inspector for issues, teams, users, projects, agents, auth records, webhook subscriptions, and deliveries
 
-Linear scope checks are relaxed by default so local tests can use simple bearer tokens or the seeded `lin_test_admin` token. Set `linear.strict_scopes: true` in seed config to require `read`, `write`, `issues:create`, `comments:create`, or `admin` on supported GraphQL operations.
+Linear scope checks are relaxed by default. The seeded `lin_test_admin` token represents a human administrator, while `lin_test_agent` represents the Emulate Agent OAuth app. Set `linear.strict_scopes: true` in seed config to require `read`, `write`, `issues:create`, `comments:create`, or `admin` on supported GraphQL operations.
 
-Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and production agent behavior are not implemented. Agent support is a focused local-test subset.
+Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, agent guidance storage, and repository suggestions are not implemented. Agent Interaction activity content, plans, external URLs, signals, status lifecycle, and session webhooks are supported.
 
 ## Twilio API
 

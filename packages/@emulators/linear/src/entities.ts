@@ -5,6 +5,45 @@ export type LinearTokenType = "personal" | "oauth_access" | "oauth_refresh" | "c
 export type LinearTokenActorType = "user" | "app";
 export type LinearIssuePriority = 0 | 1 | 2 | 3 | 4;
 export type LinearAgentActivityType = "thought" | "elicitation" | "action" | "response" | "error" | "prompt";
+export type LinearAgentActivitySignal = "auth" | "continue" | "select" | "stop";
+export type LinearAgentSessionStatus = "pending" | "active" | "awaitingInput" | "complete" | "error" | "stale";
+export type LinearAgentPlanStepStatus = "pending" | "inProgress" | "completed" | "canceled";
+
+export interface LinearAgentPlanStep {
+  content: string;
+  status: LinearAgentPlanStepStatus;
+}
+
+export interface LinearAgentExternalUrl {
+  label: string;
+  url: string;
+}
+
+/** Discriminated activity content matching Linear Agent Interaction payloads. */
+export type LinearAgentActivityContent =
+  | { type: "thought"; body: string }
+  | { type: "elicitation"; body: string }
+  | { type: "response"; body: string }
+  | { type: "error"; body: string; reasonCode?: string }
+  | { type: "prompt"; body: string; title?: string }
+  | { type: "action"; action: string; parameter: string; result?: string };
+
+export interface LinearAgentSelectOption {
+  label?: string;
+  value: string;
+}
+
+export interface LinearAgentAuthSignalMetadata {
+  url: string;
+  userId?: string;
+  providerName?: string;
+}
+
+export interface LinearAgentSelectSignalMetadata {
+  options: LinearAgentSelectOption[];
+}
+
+export type LinearAgentActivitySignalMetadata = LinearAgentAuthSignalMetadata | LinearAgentSelectSignalMetadata;
 
 export interface LinearOrganization extends Entity {
   linear_id: string;
@@ -155,16 +194,28 @@ export interface LinearAgentSession extends Entity {
   issue_id: string | null;
   comment_id: string | null;
   agent_user_id: string;
-  state: "pending" | "active" | "completed" | "failed" | "canceled";
-  plan: string | null;
-  external_url: string | null;
+  creator_id: string | null;
+  oauth_client_id: string;
+  status: LinearAgentSessionStatus;
+  plan: LinearAgentPlanStep[] | null;
+  external_link: string | null;
+  external_urls: LinearAgentExternalUrl[];
+  started_at: string | null;
+  ended_at: string | null;
+  summary: string | null;
 }
 
 export interface LinearAgentActivity extends Entity {
   linear_id: string;
   session_id: string;
-  user_id: string | null;
-  type: LinearAgentActivityType;
-  body: string;
+  user_id: string;
+  source_comment_id: string | null;
+  content: LinearAgentActivityContent;
+  contextual_metadata: Record<string, unknown> | null;
+  archived_at: string | null;
   ephemeral: boolean;
+  queued: boolean;
+  sent_at: string | null;
+  signal: LinearAgentActivitySignal | null;
+  signal_metadata: LinearAgentActivitySignalMetadata | null;
 }
