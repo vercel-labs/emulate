@@ -31,6 +31,8 @@ import type {
 } from "../entities.js";
 import { dispatchLinearWebhook } from "../webhooks.js";
 
+const PRIORITY_LABELS = ["No priority", "Urgent", "High", "Medium", "Low"] as const;
+
 const schema = buildSchema(`
   scalar TeamFilter
   scalar PaginationOrderBy
@@ -243,6 +245,7 @@ const schema = buildSchema(`
     title: String!
     description: String
     priority: Int!
+    priorityLabel: String!
     url: String!
     createdAt: String!
     updatedAt: String!
@@ -1354,6 +1357,7 @@ function formatIssue(context: LinearGraphQLContext, issue: LinearIssue) {
     title: issue.title,
     description: issue.description,
     priority: issue.priority,
+    priorityLabel: priorityLabelFor(issue.priority),
     url: issue.url,
     createdAt: issue.created_at,
     updatedAt: issue.updated_at,
@@ -1993,6 +1997,10 @@ function normalizePriority(value: unknown): LinearIssuePriority {
   if (value <= 0) return 0;
   if (value >= 4) return 4;
   return value as LinearIssuePriority;
+}
+
+function priorityLabelFor(priority: number): string {
+  return PRIORITY_LABELS[Math.round(priority)] ?? PRIORITY_LABELS[0];
 }
 
 function normalizeSessionState(value: string | undefined | null): LinearAgentSession["state"] | undefined {

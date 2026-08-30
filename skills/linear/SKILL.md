@@ -103,6 +103,8 @@ Supported mutations:
 
 Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
 
+Issue selections expose both numeric `priority` and Linear's derived `priorityLabel` values: `No priority`, `Urgent`, `High`, `Medium`, and `Low`.
+
 ## OAuth
 
 - `GET /oauth/authorize` - authorization endpoint with local user picker
