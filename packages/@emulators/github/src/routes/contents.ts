@@ -53,6 +53,22 @@ function findBlob(gh: GitHubStore, repoId: number, sha: string) {
   return gh.blobs.findBy("repo_id", repoId).find((blob) => blob.sha === sha);
 }
 
+const rawContentMediaTypes = new Set([
+  "application/vnd.github.raw",
+  "application/vnd.github.raw+json",
+  "application/vnd.github.v3.raw",
+  "application/vnd.github.v3.raw+json",
+]);
+
+function acceptsRawContent(accept: string | undefined): boolean {
+  return (
+    accept?.split(",").some((range) => {
+      const [mediaType] = range.split(";", 1);
+      return rawContentMediaTypes.has(mediaType.trim().toLowerCase());
+    }) ?? false
+  );
+}
+
 function blobBase64(blob: ReturnType<typeof findBlob>): string {
   if (!blob) return "";
   return blob.encoding === "base64" ? blob.content : Buffer.from(blob.content, "utf8").toString("base64");
@@ -87,6 +103,11 @@ function resolveSymlinkEntry(
   if (!targetPath) return undefined;
   const target = flat.blobs.get(targetPath);
   return target?.type === "blob" && (target.mode === "100644" || target.mode === "100755") ? target : undefined;
+}
+
+function resolveRawBlob(gh: GitHubStore, repoId: number, path: string, entry: FileTreeEntry, flat: FlatTree) {
+  const resolved = resolveSymlinkEntry(gh, repoId, path, entry, flat);
+  return findBlob(gh, repoId, resolved?.sha ?? entry.sha);
 }
 
 function submoduleUrls(gh: GitHubStore, repoId: number, flat: FlatTree): Map<string, string> {
@@ -460,6 +481,15 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
     const entry = flat.blobs.get(path);
     if (entry) {
+      if (acceptsRawContent(c.req.header("Accept"))) {
+        const blob = resolveRawBlob(gh, repo.id, path, entry, flat);
+        if (!blob) throw notFoundResponse();
+        const content = blobBytes(blob);
+        return c.body(content, 200, {
+          "Content-Type": "application/vnd.github.raw",
+          "Content-Length": String(content.byteLength),
+        });
+      }
       return c.json(formatFileContent(gh, repo, baseUrl, path, ref, entry, true, flat));
     }
     const prefix = `${path}/`;
@@ -483,8 +513,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const flat = flattenTree(gh, repo.id, commit.tree_sha);
     const entry = flat.blobs.get(path);
     if (!entry) throw notFoundResponse();
-    const resolved = resolveSymlinkEntry(gh, repo.id, path, entry, flat);
-    const blob = findBlob(gh, repo.id, resolved?.sha ?? entry.sha);
+    const blob = resolveRawBlob(gh, repo.id, path, entry, flat);
     if (!blob) throw notFoundResponse();
     const content = blobBytes(blob);
     return c.body(content, 200, {

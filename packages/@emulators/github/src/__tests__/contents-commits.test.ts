@@ -189,6 +189,52 @@ describe("GitHub contents routes", () => {
     expect(await download.text()).toBe("# hello-world\n");
   });
 
+  it("returns raw file bytes for GitHub raw media types and JSON otherwise", async () => {
+    const content = Buffer.from([0, 1, 2, 127, 128, 255, 10]);
+    const created = await app.request(`${base}/repos/octocat/hello-world/contents/binary.dat`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        message: "Add binary file",
+        content: content.toString("base64"),
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const rawMediaTypes = [
+      "application/vnd.github.raw+json",
+      "application/vnd.github.raw",
+      "application/vnd.github.v3.raw",
+      "application/vnd.github.v3.raw+json",
+      "application/json, application/vnd.github.raw+json; q=0.9",
+    ];
+    for (const accept of rawMediaTypes) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/contents/binary.dat`, {
+        headers: { ...authHeaders(), Accept: accept },
+      });
+      expect(response.status, accept).toBe(200);
+      expect(response.headers.get("Content-Type"), accept).toBe("application/vnd.github.raw");
+      expect(response.headers.get("Content-Length"), accept).toBe(String(content.byteLength));
+      expect(Buffer.from(await response.arrayBuffer()), accept).toEqual(content);
+    }
+
+    for (const accept of [
+      undefined,
+      "*/*",
+      "application/json",
+      "application/vnd.github+json",
+      "application/vnd.github.rawfoo",
+    ]) {
+      const response = await app.request(`${base}/repos/octocat/hello-world/contents/binary.dat`, {
+        headers: { ...authHeaders(), ...(accept ? { Accept: accept } : {}) },
+      });
+      expect(response.status, accept).toBe(200);
+      const body = (await response.json()) as { encoding: string; content: string };
+      expect(body.encoding, accept).toBe("base64");
+      expect(Buffer.from(body.content, "base64"), accept).toEqual(content);
+    }
+  });
+
   it("serves the URL shape that code search results advertise (?ref=HEAD)", async () => {
     const res = await app.request(`${base}/repos/octocat/hello-world/contents/README.md?ref=HEAD`, {
       headers: authHeaders(),
@@ -254,8 +300,11 @@ describe("GitHub contents routes", () => {
     const treeBody = (await tree.json()) as { tree: Array<{ path: string; type: string }> };
     expect(treeBody.tree).toContainEqual(expect.objectContaining({ path: "index.ts", type: "blob" }));
 
-    const dir = await app.request(`${base}/repos/octocat/hello-world/contents/src`, { headers: authHeaders() });
+    const dir = await app.request(`${base}/repos/octocat/hello-world/contents/src`, {
+      headers: { ...authHeaders(), Accept: "application/vnd.github.raw+json" },
+    });
     expect(dir.status).toBe(200);
+    expect(dir.headers.get("Content-Type")).toContain("application/json");
     const dirBody = (await dir.json()) as Array<{ path: string; type: string }>;
     expect(dirBody).toHaveLength(1);
     expect(dirBody[0].path).toBe("src/index.ts");
@@ -1240,6 +1289,11 @@ describe("GitHub contents routes", () => {
     const rawLink = await app.request(`${base}/octocat/hello-world/raw/main/link.txt`, { headers: authHeaders() });
     expect(rawLink.status).toBe(200);
     expect(await rawLink.text()).toBe("target\n");
+    const contentsRawLink = await app.request(`${base}/repos/octocat/hello-world/contents/link.txt`, {
+      headers: { ...authHeaders(), Accept: "application/vnd.github.raw+json" },
+    });
+    expect(contentsRawLink.status).toBe(200);
+    expect(await contentsRawLink.text()).toBe("target\n");
 
     const broken = await app.request(`${base}/repos/octocat/hello-world/contents/broken-link`, {
       headers: authHeaders(),
