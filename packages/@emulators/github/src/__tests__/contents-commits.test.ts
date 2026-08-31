@@ -207,6 +207,7 @@ describe("GitHub contents routes", () => {
       "application/vnd.github.v3.raw",
       "application/vnd.github.v3.raw+json",
       "application/json, application/vnd.github.raw+json; q=0.9",
+      'application/json; profile="one,two", application/vnd.github.raw+json',
     ];
     for (const accept of rawMediaTypes) {
       const response = await app.request(`${base}/repos/octocat/hello-world/contents/binary.dat`, {
@@ -225,6 +226,7 @@ describe("GitHub contents routes", () => {
       "application/json",
       "application/vnd.github+json",
       "application/vnd.github.rawfoo",
+      'application/json; profile="one, application/vnd.github.raw+json; q=0.9"',
     ]) {
       const response = await app.request(`${base}/repos/octocat/hello-world/contents/binary.dat`, {
         headers: { ...authHeaders(), ...(accept ? { Accept: accept } : {}) },

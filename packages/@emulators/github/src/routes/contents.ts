@@ -61,12 +61,40 @@ const rawContentMediaTypes = new Set([
 ]);
 
 function acceptsRawContent(accept: string | undefined): boolean {
-  return (
-    accept?.split(",").some((range) => {
-      const [mediaType] = range.split(";", 1);
-      return rawContentMediaTypes.has(mediaType.trim().toLowerCase());
-    }) ?? false
-  );
+  if (!accept) return false;
+
+  let rangeStart = 0;
+  let inQuotes = false;
+  let escaped = false;
+  const isRawRange = (rangeEnd: number) => {
+    const range = accept.slice(rangeStart, rangeEnd);
+    const parameterStart = range.indexOf(";");
+    const mediaType = range
+      .slice(0, parameterStart === -1 ? undefined : parameterStart)
+      .trim()
+      .toLowerCase();
+    return rawContentMediaTypes.has(mediaType);
+  };
+
+  for (let index = 0; index < accept.length; index++) {
+    const character = accept[index];
+    if (inQuotes) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inQuotes = false;
+      }
+    } else if (character === '"') {
+      inQuotes = true;
+    } else if (character === ",") {
+      if (isRawRange(index)) return true;
+      rangeStart = index + 1;
+    }
+  }
+
+  return isRawRange(accept.length);
 }
 
 function blobBase64(blob: ReturnType<typeof findBlob>): string {
