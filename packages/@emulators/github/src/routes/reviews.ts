@@ -15,7 +15,7 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { assertPullRequestWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -138,7 +138,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
@@ -244,7 +244,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertPullRequestWrite(gh, c.get("authUser"), repo);
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
@@ -276,7 +276,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
@@ -320,7 +320,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);

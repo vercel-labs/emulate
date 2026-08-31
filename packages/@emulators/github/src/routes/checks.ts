@@ -11,7 +11,7 @@ import type {
   GitHubCheckAnnotation,
 } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
-import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { assertChecksWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 const CONCLUSION_RANK: Record<string, number> = {
   success: 0,
@@ -297,7 +297,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertChecksWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     const auto =
       Array.isArray(body.auto_trigger_checks) && body.auto_trigger_checks.every((x) => x && typeof x === "object")
@@ -315,7 +315,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertChecksWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (typeof body.head_sha !== "string" || !body.head_sha.trim()) {
       throw new ApiError(422, "head_sha is required");
@@ -370,7 +370,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertChecksWrite(gh, c.get("authUser"), repo);
     const suiteId = parseInt(c.req.param("check_suite_id")!, 10);
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
@@ -417,7 +417,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertChecksWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
 
     if (typeof body.name !== "string" || !body.name.trim()) {
@@ -523,7 +523,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertChecksWrite(gh, c.get("authUser"), repo);
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const prev = gh.checkRuns.get(runId);
     if (!prev || prev.repo_id !== repo.id) throw notFoundResponse();
@@ -687,7 +687,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertChecksWrite(gh, c.get("authUser"), repo);
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const prev = gh.checkRuns.get(runId);
     if (!prev || prev.repo_id !== repo.id) throw notFoundResponse();

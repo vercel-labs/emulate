@@ -12,6 +12,17 @@ npm install @emulators/github
 
 ## Endpoints
 
+### GraphQL
+- `POST /graphql` — execute GitHub GraphQL queries with JSON `query`, `variables`, and `operationName` fields.
+- `repository(owner:, name:)` resolves repositories and issue details.
+- `node(id:)` resolves REST node IDs for repositories, issues, labels, and issue comments. Inaccessible records return `null`.
+- `Issue.comments` supports Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
+- Mutations support `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and exact `deleteIssue`; each accepts a typed input and echoes `clientMutationId` exactly. `deleteIssue` returns the owning repository, matching [GitHub's documented payload](https://docs.github.com/en/graphql/reference/issues#deleteissue), and cascades issue-owned comments, timeline records, labels, and relationship edges while preserving repository labels and unrelated records. No deletion webhook or issue event is emitted because this emulator has no evidence-backed provider behavior for one.
+- GraphQL requests require authentication and consume a local GraphQL rate-limit bucket. Both GraphQL `rateLimit` and REST `/rate_limit` expose that bucket; ordinary REST requests do not consume it.
+- The qualified subset is the three queries `repository`, `node`, and `rateLimit`, plus the nine issue-graph mutations `addSubIssue`, `addBlockedBy`, `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue`. Connections use opaque cursors and 100-item pages. Seeded issue graphs and reset-specific guarantees are covered by qualification tests; no live GitHub calls are made.
+- GitHub operation-specific cost and quota exhaustion are not emulated.
+- Issue relationships include `parent`, cursor-paginated `subIssues` and `blockedBy`, plus `addSubIssue` and `addBlockedBy` mutations with exact `clientMutationId` echoes.
+
 ### Users
 - `GET /user` — authenticated user
 - `PATCH /user` — update profile
@@ -57,6 +68,21 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/issues/:number/timeline` — timeline events
 - `GET /repos/:owner/:repo/issues/:number/events` — events
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` — manage assignees
+
+Issue updates accept `state_reason: duplicate` with `duplicate_issue_id`, a visible issue database ID. GraphQL exposes `DUPLICATE` and `duplicateOf`; reopening clears the canonical reference.
+
+Issue graphs can be seeded with stable keys. Use `github.labels[]`, `github.issues[]`, `github.comments[]`, `github.sub_issues[]`, and `github.dependencies[]`; issue and comment references use keys, while issue `number` is an optional repository-scoped number. Seed validation rejects missing references, duplicate keys or numbers, invalid lifecycle targets, and cyclic relationships before startup. Reset restores the same numbers, node IDs, comments, labels, and relationship ordering.
+
+### Issue relationships
+- `GET /repos/:owner/:repo/issues/:number/parent` — get the parent issue
+- `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` — list or add ordered sub-issues
+- `DELETE /repos/:owner/:repo/issues/:number/sub_issue` — remove a sub-issue with `{ "sub_issue_id": <database id> }`
+- `PATCH /repos/:owner/:repo/issues/:number/sub_issues/priority` — move a child with `{ "sub_issue_id": <database id>, "after_id": <sibling id> }` or `before_id`
+- `GET/POST /repos/:owner/:repo/issues/:number/dependencies/blocked_by` — list or add blocking issues, using `{ "issue_id": <database id> }` for writes
+- `GET /repos/:owner/:repo/issues/:number/dependencies/blocking` — list issues blocked by this issue
+- `DELETE /repos/:owner/:repo/issues/:number/dependencies/blocked_by/:issue_id` — remove a dependency
+
+Relationship lists accept `page` and `per_page`, cap `per_page` at 100, and return `Link` headers when more pages are available. Sub-issues have one parent and explicit sibling order; `replace_parent: true` moves a child atomically. Hierarchy and dependency edges are separate, and self-references, duplicates, and cycles are rejected without changing state. Sub-issues must be in repositories owned by the same account. Dependency targets may be cross-repository when the caller can read both repositories. Writes require issue write access on the route repository and issue read access on every referenced repository.
 
 ### Pull Requests
 - `GET /repos/:owner/:repo/pulls` — list (filter by state, head, base)

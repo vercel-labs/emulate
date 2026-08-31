@@ -26,7 +26,7 @@ export function getActorUser(gh: GitHubStore, authUser: AuthUser): GitHubUser | 
   return gh.users.findOneBy("login", authUser.login);
 }
 
-function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
+export function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
   const installation = authUser.installation;
   if (!installation) return false;
   if (repo.owner_id !== installation.accountId || repo.owner_type !== installation.accountType) return false;
@@ -308,6 +308,21 @@ export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined,
 }
 
 export function assertRepoWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  return assertInstallationOrUserWrite(gh, authUser, repo, ["contents"]);
+}
+
+function assertInstallationOrUserWrite(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  permissions: string[],
+): GitHubUser {
+  if (authUser?.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (!hasInstallationPermission(authUser, permissions, "write")) throw forbidden();
+    return installationActor(gh, authUser);
+  }
+
   const user = assertAuthenticatedUser(gh, authUser);
   if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
@@ -315,8 +330,17 @@ export function assertRepoWrite(gh: GitHubStore, authUser: AuthUser | undefined,
 }
 
 export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  const user = assertAuthenticatedUser(gh, authUser);
-  if (!repo.private) return user;
-  if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
-  return user;
+  return assertInstallationOrUserWrite(gh, authUser, repo, ["issues"]);
+}
+
+export function assertIssueCommentWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  return assertInstallationOrUserWrite(gh, authUser, repo, ["issues", "pull_requests"]);
+}
+
+export function assertPullRequestWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  return assertInstallationOrUserWrite(gh, authUser, repo, ["pull_requests"]);
+}
+
+export function assertChecksWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
+  return assertInstallationOrUserWrite(gh, authUser, repo, ["checks"]);
 }

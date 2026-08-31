@@ -2,9 +2,9 @@ import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import {
-  assertAuthenticatedUser,
+  assertRepoContentsWrite,
   assertRepoPermission,
-  assertRepoWrite,
+  assertPullRequestWrite,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -352,7 +352,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
 
     const title = body.title;
@@ -388,6 +388,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       body: prBody,
       state: "open",
       state_reason: null,
+      duplicate_issue_id: null,
       locked: false,
       active_lock_reason: null,
       user_id: actor.id,
@@ -487,7 +488,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -598,7 +599,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -788,7 +789,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -846,7 +847,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertPullRequestWrite(gh, c.get("authUser"), repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -885,7 +886,8 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const actor = assertPullRequestWrite(gh, authUser, repo);
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -904,11 +906,14 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const baseRepo = gh.repos.get(pr.base_repo_id);
     if (!headRepo || !baseRepo) throw notFoundResponse();
 
+    if (authUser?.installation) {
+      assertRepoContentsWrite(gh, authUser, headRepo);
+    }
+
     const headCommit = gh.commits.findBy("repo_id", headRepo.id).find((x) => x.sha === pr.head_sha);
     const baseCommit = gh.commits.findBy("repo_id", baseRepo.id).find((x) => x.sha === pr.base_sha);
     if (!headCommit || !baseCommit) throw new ApiError(422, "Could not resolve commits.");
 
-    const actor = assertAuthenticatedUser(gh, c.get("authUser"));
     const mergeMsg = `Merge branch '${pr.base_ref}' into ${pr.head_ref}`;
     const newCommit = insertCommit(gh, headRepo, {
       treeSha: headCommit.tree_sha,

@@ -649,6 +649,17 @@ Any token of the form `vercel_blob_rw_<storeId>_<secret>` is accepted; the store
 
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.
 
+### GraphQL
+- `POST /graphql` accepts `query`, optional `variables`, and optional `operationName` JSON fields.
+- Authenticated queries support repository and issue reads plus global `node(id:)` reads for repositories, issues, labels, and issue comments.
+- Mutations support issue creation, close/reopen, issue comments, and repository label create/delete with exact `clientMutationId` echoes.
+- Issue comment connections support Relay-style `first`, `after`, `last`, and `before` arguments with opaque cursors.
+- Inaccessible records resolve to `null`.
+- Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. `addSubIssue` and `addBlockedBy` mutations echo `clientMutationId` exactly and use the same relationship state as REST.
+- GraphQL `deleteIssue` returns the owning repository, echoes `clientMutationId` exactly, and removes the issue and its owned comments, timeline records, and relationship edges while preserving unrelated records and repository labels. No deletion webhook or issue event is emitted because provider behavior is not established by emulator evidence.
+- Qualified subset: `repository`, `node`, and `rateLimit` queries plus `addSubIssue`, `addBlockedBy`, `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue` mutations. Comment, sub-issue, and blocker connections use a 100-item page cap and opaque cursors; malformed transport, parse, validation, authorization, missing-node, wrong-type, and resolver failures retain their tested HTTP and GraphQL envelopes. Seeded issue-graph fixtures and reset-specific guarantees are covered by qualification tests. REST relationship routes are listed below. No live GitHub calls are made.
+- GraphQL requests consume a local GraphQL rate-limit bucket. Both GraphQL `rateLimit` and REST `/rate_limit` expose that bucket; ordinary REST requests do not consume it. GitHub operation-specific cost and quota exhaustion are not modeled.
+
 ### Users
 - `GET /user` - authenticated user
 - `PATCH /user` - update profile
@@ -694,6 +705,21 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/issues/:number/timeline` - timeline events
 - `GET /repos/:owner/:repo/issues/:number/events` - events
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` - manage assignees
+
+Issue updates accept `state_reason: duplicate` with `duplicate_issue_id`, a visible issue database ID. GraphQL exposes `DUPLICATE` and `duplicateOf`; reopening clears the canonical reference.
+
+Stable issue graphs can be seeded with keyed labels, issues, comments, parent-child edges, and dependencies. Optional repository-scoped issue numbers and symbolic references are validated before startup; reset restores the exact graph and node IDs.
+
+### Issue relationships
+- `GET /repos/:owner/:repo/issues/:number/parent` - get the parent issue
+- `GET/POST /repos/:owner/:repo/issues/:number/sub_issues` - list or add ordered sub-issues
+- `DELETE /repos/:owner/:repo/issues/:number/sub_issue` - remove a sub-issue with `{ "sub_issue_id": <database id> }`
+- `PATCH /repos/:owner/:repo/issues/:number/sub_issues/priority` - move a child with `{ "sub_issue_id": <database id>, "after_id": <sibling id> }` or `before_id`
+- `GET/POST /repos/:owner/:repo/issues/:number/dependencies/blocked_by` - list or add blocking issues, using `{ "issue_id": <database id> }` for writes
+- `GET /repos/:owner/:repo/issues/:number/dependencies/blocking` - list issues blocked by this issue
+- `DELETE /repos/:owner/:repo/issues/:number/dependencies/blocked_by/:issue_id` - remove a dependency
+
+Relationship lists accept `page` and `per_page` query parameters, cap `per_page` at 100, and return `Link` headers when more pages are available. Sub-issues have one parent and an explicit sibling order; adding a child with `replace_parent: true` moves it atomically. Hierarchy and dependency edges are separate, and self-references, duplicates, and cycles are rejected without changing state. Sub-issues must be in repositories owned by the same account. Dependency targets may be cross-repository when the caller can read both repositories. Relationship writes require issue write access on the route repository and issue read access on every referenced repository.
 
 ### Pull Requests
 - `GET /repos/:owner/:repo/pulls` - list (filter by state, head, base)

@@ -75,6 +75,15 @@ curl http://localhost:4001/user \
 
 Public repo endpoints work without auth. Private repos and write operations require a valid token. When no token is provided, requests fall back to the first seeded user.
 
+## GraphQL
+
+`POST /graphql` accepts a JSON body with `query`, optional `variables`, and optional `operationName`. Authenticated queries support repository and issue reads, global `node(id:)` reads for repositories, issues, labels, and issue comments, and Relay-style issue comment connections with opaque cursors. Inaccessible records resolve to `null`.
+- The qualified issue-graph subset is `repository`, `node`, `rateLimit`, `addSubIssue`, `addBlockedBy`, `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue`. Connection pages cap at 100 items and use opaque cursors. Seeded issue-graph fixtures and reset-specific guarantees are covered by qualification tests. No live GitHub calls are made.
+- GraphQL requests consume a local GraphQL rate-limit bucket. Both GraphQL `rateLimit` and REST `/rate_limit` expose that bucket; ordinary REST requests do not consume it. GitHub operation-specific cost and quota exhaustion are not modeled.
+
+Issue GraphQL reads expose `Issue.parent`, opaque cursor-paginated `subIssues` and `blockedBy` connections. The `addSubIssue` and `addBlockedBy` mutations use the shared relationship state, enforce REST-equivalent permissions and validation, and echo `clientMutationId` exactly.
+Supported mutations are `createIssue`, `closeIssue`, `reopenIssue`, `addComment`, `createLabel`, `deleteLabel`, and `deleteIssue`. They use typed inputs, exact `clientMutationId` echoes, shared REST operations, and the same App installation permissions and repository selection rules. `deleteIssue` returns the owning repository per [GitHub's documented payload](https://docs.github.com/en/graphql/reference/issues#deleteissue), removes issue-owned comments, timeline records, and relationship edges, and preserves unrelated records and repository labels. Deletion emits no webhook or issue event because provider behavior is not established by emulator evidence.
+
 ### GitHub App JWT
 
 Configure apps in the seed config with a private key. Sign a JWT with `{ iss: "<app_id>" }` using RS256. The emulator verifies the signature and resolves the app.
@@ -310,6 +319,53 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
 
 # Get / update / lock / unlock / timeline / events / assignees
 ```
+
+To mark an issue as a duplicate, update it with `state_reason: "duplicate"` and the canonical issue database ID in `duplicate_issue_id`. The target must be visible and not a pull request. GraphQL reads `stateReason(enableDuplicate: true): DUPLICATE` and `duplicateOf`; reopening clears the reference.
+
+### Issue relationships
+
+Seed stable issue graphs with keyed labels, issues, comments, parent-child edges, and dependencies. Optional repository-scoped issue numbers and symbolic references are validated before startup; reset restores the exact graph and node IDs.
+
+Sub-issues are ordered parent-child edges stored separately from issues and dependencies. A child has at most one parent. Relationship collection endpoints use the standard `page` and `per_page` parameters, cap `per_page` at 100, and return `Link` headers for available pages.
+
+```bash
+BASE="${BASE:-http://localhost:4001}"
+TOKEN="${TOKEN:-test_token_admin}"
+
+# List a parent's ordered children
+curl "$BASE/repos/octocat/hello-world/issues/1/sub_issues?per_page=100" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Add a child by issue database ID. Use replace_parent to move an existing child.
+curl -X POST "$BASE/repos/octocat/hello-world/issues/1/sub_issues" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sub_issue_id": 2, "replace_parent": false}'
+
+# Reorder a child relative to one sibling, or remove it
+curl -X PATCH "$BASE/repos/octocat/hello-world/issues/1/sub_issues/priority" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sub_issue_id": 2, "before_id": 3}'
+curl -X DELETE "$BASE/repos/octocat/hello-world/issues/1/sub_issue" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sub_issue_id": 2}'
+
+# Read or add dependency edges. The route issue is blocked by issue_id.
+curl "$BASE/repos/octocat/hello-world/issues/1/dependencies/blocked_by" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X POST "$BASE/repos/octocat/hello-world/issues/1/dependencies/blocked_by" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"issue_id": 3}'
+curl "$BASE/repos/octocat/hello-world/issues/3/dependencies/blocking" \
+  -H "Authorization: Bearer $TOKEN"
+curl -X DELETE "$BASE/repos/octocat/hello-world/issues/1/dependencies/blocked_by/3" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Hierarchy and dependency edges reject self-references, duplicates, and cycles without mutating the store. Sub-issue repositories must have the same owner. Dependency targets can be cross-repository when the caller can read both repositories. Relationship writes require issue write access on the route repository and issue read access to referenced repositories. Writes emit `sub_issues` and `issue_dependencies` webhook events for both affected sides.
 
 ### Pull Requests
 

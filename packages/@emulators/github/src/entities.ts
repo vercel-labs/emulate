@@ -120,7 +120,8 @@ export interface GitHubIssue extends Entity {
   title: string;
   body: string | null;
   state: "open" | "closed";
-  state_reason: "completed" | "not_planned" | "reopened" | null;
+  state_reason: "completed" | "not_planned" | "duplicate" | "reopened" | null;
+  duplicate_issue_id: number | null;
   locked: boolean;
   active_lock_reason: string | null;
   user_id: number;
@@ -131,6 +132,19 @@ export interface GitHubIssue extends Entity {
   closed_at: string | null;
   closed_by_id: number | null;
   is_pull_request: boolean;
+}
+
+/** An ordered parent to child issue relationship. Both ends are issue IDs. */
+export interface GitHubIssueSubIssue extends Entity {
+  parent_issue_id: number;
+  child_issue_id: number;
+  position: number;
+}
+
+/** A directed issue dependency. The blocked issue depends on the blocking issue. */
+export interface GitHubIssueDependency extends Entity {
+  blocked_issue_id: number;
+  blocking_issue_id: number;
 }
 
 export interface GitHubPullRequest extends Entity {
@@ -235,6 +249,13 @@ export interface GitHubIssueEvent extends Entity {
   assignee_id: number | null;
   milestone_title: string | null;
   rename: { from: string; to: string } | null;
+  parent_issue_id?: number | null;
+  sub_issue_id?: number | null;
+  blocked_issue_id?: number | null;
+  blocking_issue_id?: number | null;
+  /** Timeline-only comment event payload. */
+  comment_id?: number | null;
+  timeline_only?: boolean;
 }
 
 export interface GitHubBranch extends Entity {

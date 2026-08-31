@@ -350,6 +350,7 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     labels,
     state: issue.state,
     state_reason: issue.state_reason,
+    duplicate_issue_id: issue.duplicate_issue_id,
     locked: issue.locked,
     active_lock_reason: issue.active_lock_reason,
     assignee: assignees[0] ?? null,
