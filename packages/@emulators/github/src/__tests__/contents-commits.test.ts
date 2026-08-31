@@ -1304,9 +1304,10 @@ describe("GitHub contents routes", () => {
     );
 
     const submodule = await app.request(`${base}/repos/octocat/hello-world/contents/vendor/mod`, {
-      headers: authHeaders(),
+      headers: { ...authHeaders(), Accept: "application/vnd.github.raw+json" },
     });
     expect(submodule.status).toBe(200);
+    expect(submodule.headers.get("Content-Type")).toContain("application/json");
     expect(await submodule.json()).toEqual(
       expect.objectContaining({
         type: "submodule",
