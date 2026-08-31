@@ -481,6 +481,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
     const entry = flat.blobs.get(path);
     if (entry) {
+      c.header("Vary", "Accept");
       if (entry.type === "blob" && acceptsRawContent(c.req.header("Accept"))) {
         const blob = resolveRawBlob(gh, repo.id, path, entry, flat);
         if (!blob) throw notFoundResponse();

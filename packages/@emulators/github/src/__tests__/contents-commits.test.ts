@@ -215,6 +215,7 @@ describe("GitHub contents routes", () => {
       expect(response.status, accept).toBe(200);
       expect(response.headers.get("Content-Type"), accept).toBe("application/vnd.github.raw");
       expect(response.headers.get("Content-Length"), accept).toBe(String(content.byteLength));
+      expect(response.headers.get("Vary"), accept).toBe("Accept");
       expect(Buffer.from(await response.arrayBuffer()), accept).toEqual(content);
     }
 
@@ -229,6 +230,7 @@ describe("GitHub contents routes", () => {
         headers: { ...authHeaders(), ...(accept ? { Accept: accept } : {}) },
       });
       expect(response.status, accept).toBe(200);
+      expect(response.headers.get("Vary"), accept).toBe("Accept");
       const body = (await response.json()) as { encoding: string; content: string };
       expect(body.encoding, accept).toBe("base64");
       expect(Buffer.from(body.content, "base64"), accept).toEqual(content);
