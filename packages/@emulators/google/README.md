@@ -76,6 +76,34 @@ curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
 
 Its `rootUrl` and `servicePath` reflect the configured advertised base URL, including a mount prefix when Google is embedded through an adapter. Its `baseUrl` is the advertised service base followed by `/calendar/v3/`, so discovery-based clients can use the generated Calendar URLs locally.
 
+The Python discovery client does not infer this endpoint from `GOOGLE_EMULATOR_URL`. Pass the local URI template explicitly, provide local credentials, and disable discovery caching while developing so metadata changes are picked up:
+
+```yaml
+tokens:
+  calendar_local:
+    login: testuser@example.com
+```
+
+```python
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+GOOGLE_EMULATOR_URL = "http://localhost:4002"
+credentials = Credentials(token="calendar_local")
+service = build(
+    "calendar",
+    "v3",
+    credentials=credentials,
+    discoveryServiceUrl=(
+        f"{GOOGLE_EMULATOR_URL}/discovery/v1/apis/{{api}}/{{apiVersion}}/rest"
+    ),
+    cache_discovery=False,
+)
+calendar_list = service.calendarList().list().execute()
+```
+
+Configure `calendar_local` in the top-level `tokens` seed map for the user whose calendars you want to use. If discovery caching is enabled, clear the client cache after changing the advertised URL or discovery document.
+
 ### Drive
 - `GET /drive/v3/files` — list files
 - `GET /drive/v3/files/:fileId` — get file metadata

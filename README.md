@@ -810,6 +810,34 @@ Calendar v3 Discovery is public at `/discovery/v1/apis/calendar/v3/rest`; Calend
 curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
 ```
 
+Discovery-based Python clients need the local URI template explicitly. Configure `calendar_local` in the top-level `tokens` seed map for a seeded Google user, then use local credentials and disable discovery caching while developing:
+
+```yaml
+tokens:
+  calendar_local:
+    login: testuser@example.com
+```
+
+```python
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+GOOGLE_EMULATOR_URL = "http://localhost:4002"
+credentials = Credentials(token="calendar_local")
+service = build(
+    "calendar",
+    "v3",
+    credentials=credentials,
+    discoveryServiceUrl=(
+        f"{GOOGLE_EMULATOR_URL}/discovery/v1/apis/{{api}}/{{apiVersion}}/rest"
+    ),
+    cache_discovery=False,
+)
+calendar_list = service.calendarList().list().execute()
+```
+
+`google-api-python-client` otherwise uses Google's discovery sources and production Calendar URL. If discovery caching is enabled, clear the client cache after changing the advertised URL or discovery document.
+
 ## Slack API
 
 Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. Supported write state changes dispatch Slack `event_callback` payloads to configured webhook URLs.

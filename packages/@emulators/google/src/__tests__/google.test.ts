@@ -256,6 +256,12 @@ describe("Google plugin integration", () => {
       id: "calendar:v3",
       name: "calendar",
       version: "v3",
+      revision: "emulate",
+      title: "Calendar API",
+      description: "Manipulates events and other calendar data.",
+      documentationLink: "https://developers.google.com/workspace/calendar/firstapp",
+      ownerDomain: "google.com",
+      ownerName: "Google",
       protocol: "rest",
       rootUrl: `${base}/`,
       servicePath: "calendar/v3/",
@@ -285,6 +291,11 @@ describe("Google plugin integration", () => {
       parameterOrder: ["calendarId"],
       response: { $ref: "Events" },
     });
+    expect(resources.events.methods.list.parameters.calendarId).toMatchObject({
+      location: "path",
+      type: "string",
+      required: true,
+    });
     expect(resources.events.methods.insert).toMatchObject({
       id: "calendar.events.insert",
       path: "calendars/{calendarId}/events",
@@ -292,11 +303,20 @@ describe("Google plugin integration", () => {
       request: { $ref: "Event" },
       response: { $ref: "Event" },
     });
+    expect(resources.events.methods.insert.parameters.calendarId).toMatchObject({
+      location: "path",
+      type: "string",
+      required: true,
+    });
     expect(resources.events.methods.delete).toMatchObject({
       id: "calendar.events.delete",
       path: "calendars/{calendarId}/events/{eventId}",
       httpMethod: "DELETE",
       parameterOrder: ["calendarId", "eventId"],
+    });
+    expect(resources.events.methods.delete.parameters).toEqual({
+      calendarId: expect.objectContaining({ location: "path", type: "string", required: true }),
+      eventId: expect.objectContaining({ location: "path", type: "string", required: true }),
     });
     expect(resources.freebusy.methods.query).toMatchObject({
       id: "calendar.freebusy.query",
@@ -321,6 +341,19 @@ describe("Google plugin integration", () => {
         Events: expect.any(Object),
         FreeBusyRequest: expect.any(Object),
         FreeBusyResponse: expect.any(Object),
+      }),
+    );
+    expect((document.schemas as Record<string, any>).CalendarListEntry.properties).toHaveProperty("timeZone");
+    expect((document.schemas as Record<string, any>).EventDateTime.properties).toEqual(
+      expect.objectContaining({
+        dateTime: expect.any(Object),
+        timeZone: expect.any(Object),
+      }),
+    );
+    expect((document.schemas as Record<string, any>).Event.properties).toEqual(
+      expect.objectContaining({
+        hangoutLink: expect.any(Object),
+        conferenceData: expect.any(Object),
       }),
     );
     expectDiscoveryReferencesToResolve(document);
@@ -354,10 +387,14 @@ describe("Google plugin integration", () => {
       "/api/emulate",
     );
     expect(mountedResponse.status).toBe(200);
-    await expect(mountedResponse.json()).resolves.toMatchObject({
+    const mountedDocument = (await mountedResponse.json()) as DiscoveryDocument;
+    expect(mountedDocument).toMatchObject({
       rootUrl: "https://app.example.test/api/emulate/google/",
       baseUrl: "https://app.example.test/api/emulate/google/calendar/v3/",
     });
+    expect(new URL("users/me/calendarList", mountedDocument.baseUrl as string).href).toBe(
+      "https://app.example.test/api/emulate/google/calendar/v3/users/me/calendarList",
+    );
 
     const mountedCalendarResponse = await runtime.handle(
       new Request("https://app.example.test/api/emulate/google/calendar/v3/users/me/calendarList"),

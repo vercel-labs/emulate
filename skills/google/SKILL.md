@@ -58,6 +58,34 @@ curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
 
 It describes the supported `calendarList.list`, `events.list`, `events.insert`, `events.delete`, and `freebusy.query` operations. The document's `rootUrl` and `servicePath` reflect the configured advertised base URL, including adapter mount prefixes, and its `baseUrl` points to the local Calendar v3 service path. Calendar data requests still require a bearer token.
 
+Discovery-based clients must be pointed at the local URI template explicitly. `google-api-python-client` otherwise uses Google's discovery sources and production Calendar URL. Use a bearer token mapped to a seeded user and disable discovery caching while developing:
+
+```yaml
+tokens:
+  calendar_local:
+    login: testuser@example.com
+```
+
+```python
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+GOOGLE_EMULATOR_URL = "http://localhost:4002"
+credentials = Credentials(token="calendar_local")
+service = build(
+    "calendar",
+    "v3",
+    credentials=credentials,
+    discoveryServiceUrl=(
+        f"{GOOGLE_EMULATOR_URL}/discovery/v1/apis/{{api}}/{{apiVersion}}/rest"
+    ),
+    cache_discovery=False,
+)
+calendar_list = service.calendarList().list().execute()
+```
+
+Add `calendar_local` to the top-level `tokens` seed map and map it to the seeded Google user's email. If discovery caching is enabled, clear the client cache after changing the advertised URL or discovery document.
+
 ### google-auth-library (Node.js)
 
 ```typescript
