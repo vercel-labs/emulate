@@ -48,6 +48,16 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 | `https://www.googleapis.com/calendar/v3/...` | `$GOOGLE_EMULATOR_URL/calendar/v3/...` |
 | `https://www.googleapis.com/drive/v3/...` | `$GOOGLE_EMULATOR_URL/drive/v3/...` |
 
+### Calendar Discovery
+
+The Calendar v3 service description is available without authentication:
+
+```bash
+curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+```
+
+It describes the supported `calendarList.list`, `events.list`, `events.insert`, `events.delete`, and `freebusy.query` operations. The document's `rootUrl` and `servicePath` reflect the configured advertised base URL, including adapter mount prefixes, and its `baseUrl` points to the local Calendar v3 service path. Calendar data requests still require a bearer token.
+
 ### google-auth-library (Node.js)
 
 ```typescript

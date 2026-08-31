@@ -61,11 +61,20 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 ## Calendar
 
+- `GET /discovery/v1/apis/calendar/v3/rest` - unauthenticated Calendar v3 Discovery document for the supported operations
 - `GET /calendar/v3/users/:userId/calendarList` - list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` - list events
 - `POST /calendar/v3/calendars/:calendarId/events` - create event
 - `DELETE /calendar/v3/calendars/:calendarId/events/:eventId` - delete event
 - `POST /calendar/v3/freeBusy` - query free/busy
+
+The Calendar Discovery route is public, while Calendar data routes require a bearer token. Fetch it locally with:
+
+```bash
+curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+```
+
+The document's `rootUrl` and `servicePath` reflect the configured advertised base URL, including a mount prefix when using an adapter. Its `baseUrl` points to the local `/calendar/v3/` path so discovery-based clients can build requests against the emulator.
 
 ## Drive
 

@@ -784,6 +784,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /oauth2/v2/userinfo` - get user info
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
+- `GET /discovery/v1/apis/calendar/v3/rest` - unauthenticated Calendar v3 Discovery document for the supported operations
 - `GET /gmail/v1/users/:userId/messages` - list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
 - `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full`, `metadata`, `minimal`, or `raw` formats
 - `GET /gmail/v1/users/:userId/messages/:messageId/attachments/:id` - fetch attachment bodies
@@ -802,6 +803,12 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses`, `GET /gmail/v1/users/:userId/settings/sendAs`
 - `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
 - `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
+
+Calendar v3 Discovery is public at `/discovery/v1/apis/calendar/v3/rest`; Calendar data endpoints remain authenticated. Its `rootUrl` and `servicePath` reflect configured and adapter-mounted base URLs, and its `baseUrl` points to the local `/calendar/v3/` service path. For example:
+
+```bash
+curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+```
 
 ## Slack API
 

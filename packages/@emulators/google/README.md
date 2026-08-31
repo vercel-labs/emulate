@@ -61,11 +61,20 @@ npm install @emulators/google
 - `GET /gmail/v1/users/:userId/settings/sendAs` — list send-as aliases
 
 ### Calendar
+- `GET /discovery/v1/apis/calendar/v3/rest` — unauthenticated Calendar v3 Discovery document for the supported operations
 - `GET /calendar/v3/users/:userId/calendarList` — list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` — list events
 - `POST /calendar/v3/calendars/:calendarId/events` — create event
 - `DELETE /calendar/v3/calendars/:calendarId/events/:eventId` — delete event
 - `POST /calendar/v3/freeBusy` — free/busy query
+
+The Calendar Discovery document is public, while Calendar data endpoints require a bearer token. Request it locally with:
+
+```bash
+curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+```
+
+Its `rootUrl` and `servicePath` reflect the configured advertised base URL, including a mount prefix when Google is embedded through an adapter. Its `baseUrl` is the advertised service base followed by `/calendar/v3/`, so discovery-based clients can use the generated Calendar URLs locally.
 
 ### Drive
 - `GET /drive/v3/files` — list files
