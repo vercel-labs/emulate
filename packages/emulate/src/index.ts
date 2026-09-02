@@ -28,6 +28,13 @@ GitHub API coverage:
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.
 
+Google Calendar Discovery:
+  GET /discovery/v1/apis/calendar/v3/rest is public and describes the supported Calendar v3 operations.
+  Its rootUrl, servicePath, and baseUrl preserve configured and adapter-mounted service prefixes.
+  Example: curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+  Discovery clients must use .../discovery/v1/apis/{api}/{apiVersion}/rest explicitly.
+  Provide a local bearer token and disable client discovery caching while changing metadata.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

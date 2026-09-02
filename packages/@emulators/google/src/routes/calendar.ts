@@ -11,6 +11,7 @@ import {
   listCalendarsForUser,
 } from "../calendar-helpers.js";
 import { googleApiError } from "../helpers.js";
+import { calendarDiscoveryRoutes } from "./calendar-discovery.js";
 import {
   getRecord,
   getRecordArray,
@@ -21,8 +22,10 @@ import {
 } from "../route-helpers.js";
 import { getGoogleStore } from "../store.js";
 
-export function calendarRoutes({ app, store }: RouteContext): void {
+export function calendarRoutes({ app, store, baseUrl }: RouteContext): void {
   const gs = getGoogleStore(store);
+
+  calendarDiscoveryRoutes({ app, baseUrl });
 
   app.get("/calendar/v3/users/:userId/calendarList", (c) => {
     const authEmail = requireGmailUser(c);

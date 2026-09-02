@@ -6,6 +6,7 @@ import {
   WebhookDispatcher,
   authMiddleware,
   createApiErrorHandler,
+  createAdapterRuntime,
   createErrorHandler,
   type TokenMap,
 } from "@emulators/core";
@@ -14,7 +15,7 @@ import { buildRawMessage } from "../helpers.js";
 
 const base = "http://localhost:4000";
 
-function createTestApp() {
+function createTestApp(advertisedBaseUrl = base) {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
@@ -28,9 +29,9 @@ function createTestApp() {
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
   app.use("*", authMiddleware(tokenMap));
-  googlePlugin.register(app as any, store, webhooks, base, tokenMap);
-  googlePlugin.seed?.(store, base);
-  seedFromConfig(store, base, {
+  googlePlugin.register(app as any, store, webhooks, advertisedBaseUrl, tokenMap);
+  googlePlugin.seed?.(store, advertisedBaseUrl);
+  seedFromConfig(store, advertisedBaseUrl, {
     users: [
       { email: "testuser@example.com", name: "Test User" },
       { email: "consumer@gmail.com", name: "Consumer User" },
@@ -179,6 +180,34 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return { Authorization: "Bearer test-token", ...extra };
 }
 
+type DiscoveryDocument = {
+  [key: string]: unknown;
+};
+
+function expectDiscoveryReferencesToResolve(document: DiscoveryDocument): void {
+  const schemas = document.schemas as Record<string, unknown>;
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    if (!value || typeof value !== "object") return;
+
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "$ref") {
+        expect(typeof child).toBe("string");
+        expect(schemas).toHaveProperty(child as string);
+      } else {
+        visit(child);
+      }
+    }
+  };
+
+  visit(document.resources);
+  visit(schemas);
+}
+
 async function jsonRequest(
   app: Hono,
   path: string,
@@ -214,6 +243,165 @@ describe("Google plugin integration", () => {
 
   beforeEach(() => {
     app = createTestApp().app;
+  });
+
+  it("serves an unauthenticated Calendar Discovery document for the supported methods", async () => {
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+
+    const document = (await res.json()) as DiscoveryDocument;
+    expect(document).toMatchObject({
+      kind: "discovery#restDescription",
+      discoveryVersion: "v1",
+      id: "calendar:v3",
+      name: "calendar",
+      version: "v3",
+      revision: "emulate",
+      title: "Calendar API",
+      description: "Manipulates events and other calendar data.",
+      documentationLink: "https://developers.google.com/workspace/calendar/firstapp",
+      ownerDomain: "google.com",
+      ownerName: "Google",
+      protocol: "rest",
+      rootUrl: `${base}/`,
+      servicePath: "calendar/v3/",
+      basePath: "/calendar/v3/",
+      baseUrl: `${base}/calendar/v3/`,
+    });
+
+    const unauthenticatedCalendarResponse = await app.request(`${base}/calendar/v3/users/me/calendarList`);
+    expect(unauthenticatedCalendarResponse.status).toBe(401);
+
+    const resources = document.resources as Record<string, any>;
+    expect(Object.keys(resources)).toEqual(["calendarList", "events", "freebusy"]);
+    expect(Object.keys(resources.calendarList.methods)).toEqual(["list"]);
+    expect(Object.keys(resources.events.methods)).toEqual(["list", "insert", "delete"]);
+    expect(Object.keys(resources.freebusy.methods)).toEqual(["query"]);
+
+    expect(resources.calendarList.methods.list).toMatchObject({
+      id: "calendar.calendarList.list",
+      path: "users/me/calendarList",
+      httpMethod: "GET",
+      response: { $ref: "CalendarList" },
+    });
+    expect(resources.events.methods.list).toMatchObject({
+      id: "calendar.events.list",
+      path: "calendars/{calendarId}/events",
+      httpMethod: "GET",
+      parameterOrder: ["calendarId"],
+      response: { $ref: "Events" },
+    });
+    expect(resources.events.methods.list.parameters.calendarId).toMatchObject({
+      location: "path",
+      type: "string",
+      required: true,
+    });
+    expect(resources.events.methods.insert).toMatchObject({
+      id: "calendar.events.insert",
+      path: "calendars/{calendarId}/events",
+      httpMethod: "POST",
+      request: { $ref: "Event" },
+      response: { $ref: "Event" },
+    });
+    expect(resources.events.methods.insert.parameters.calendarId).toMatchObject({
+      location: "path",
+      type: "string",
+      required: true,
+    });
+    expect(resources.events.methods.delete).toMatchObject({
+      id: "calendar.events.delete",
+      path: "calendars/{calendarId}/events/{eventId}",
+      httpMethod: "DELETE",
+      parameterOrder: ["calendarId", "eventId"],
+    });
+    expect(resources.events.methods.delete.parameters).toEqual({
+      calendarId: expect.objectContaining({ location: "path", type: "string", required: true }),
+      eventId: expect.objectContaining({ location: "path", type: "string", required: true }),
+    });
+    expect(resources.freebusy.methods.query).toMatchObject({
+      id: "calendar.freebusy.query",
+      path: "freeBusy",
+      httpMethod: "POST",
+      request: { $ref: "FreeBusyRequest" },
+      response: { $ref: "FreeBusyResponse" },
+    });
+
+    const eventListParameters = resources.events.methods.list.parameters as Record<string, unknown>;
+    expect(Object.keys(eventListParameters).sort()).toEqual(
+      ["calendarId", "maxResults", "orderBy", "pageToken", "q", "timeMax", "timeMin"].sort(),
+    );
+    expect(eventListParameters).not.toHaveProperty("singleEvents");
+    expect(eventListParameters).not.toHaveProperty("showDeleted");
+    expect(document.schemas).toEqual(
+      expect.objectContaining({
+        CalendarListEntry: expect.any(Object),
+        CalendarList: expect.any(Object),
+        EventDateTime: expect.any(Object),
+        Event: expect.any(Object),
+        Events: expect.any(Object),
+        FreeBusyRequest: expect.any(Object),
+        FreeBusyResponse: expect.any(Object),
+      }),
+    );
+    expect((document.schemas as Record<string, any>).CalendarListEntry.properties).toHaveProperty("timeZone");
+    expect((document.schemas as Record<string, any>).EventDateTime.properties).toEqual(
+      expect.objectContaining({
+        dateTime: expect.any(Object),
+        timeZone: expect.any(Object),
+      }),
+    );
+    expect((document.schemas as Record<string, any>).Event.properties).toEqual(
+      expect.objectContaining({
+        hangoutLink: expect.any(Object),
+        conferenceData: expect.any(Object),
+      }),
+    );
+    expectDiscoveryReferencesToResolve(document);
+  });
+
+  it("advertises configured and adapter-mounted Calendar URLs", async () => {
+    const configuredBase = "https://app.example.test/api/emulate/google///";
+    const configuredApp = createTestApp(configuredBase).app;
+    const configuredResponse = await configuredApp.request(
+      "https://app.example.test/discovery/v1/apis/calendar/v3/rest",
+    );
+    expect(configuredResponse.status).toBe(200);
+    await expect(configuredResponse.json()).resolves.toMatchObject({
+      rootUrl: "https://app.example.test/api/emulate/google/",
+      servicePath: "calendar/v3/",
+      basePath: "/calendar/v3/",
+      baseUrl: "https://app.example.test/api/emulate/google/calendar/v3/",
+    });
+
+    const runtime = createAdapterRuntime(
+      {
+        services: {
+          google: { emulator: { plugin: googlePlugin } },
+        },
+      },
+      (mountPath, service) => `${mountPath}/${service}`,
+    );
+    const mountedResponse = await runtime.handle(
+      new Request("https://app.example.test/api/emulate/google/discovery/v1/apis/calendar/v3/rest"),
+      ["google", "discovery", "v1", "apis", "calendar", "v3", "rest"],
+      "/api/emulate",
+    );
+    expect(mountedResponse.status).toBe(200);
+    const mountedDocument = (await mountedResponse.json()) as DiscoveryDocument;
+    expect(mountedDocument).toMatchObject({
+      rootUrl: "https://app.example.test/api/emulate/google/",
+      baseUrl: "https://app.example.test/api/emulate/google/calendar/v3/",
+    });
+    expect(new URL("users/me/calendarList", mountedDocument.baseUrl as string).href).toBe(
+      "https://app.example.test/api/emulate/google/calendar/v3/users/me/calendarList",
+    );
+
+    const mountedCalendarResponse = await runtime.handle(
+      new Request("https://app.example.test/api/emulate/google/calendar/v3/users/me/calendarList"),
+      ["google", "calendar", "v3", "users", "me", "calendarList"],
+      "/api/emulate",
+    );
+    expect(mountedCalendarResponse.status).toBe(401);
   });
 
   it("returns user info for a valid token", async () => {
