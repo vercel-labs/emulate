@@ -1101,4 +1101,62 @@ describe("Google plugin integration", () => {
     expect(uploadedMediaRes.status).toBe(200);
     expect(Buffer.from(await uploadedMediaRes.arrayBuffer()).toString("utf8")).toBe(uploadedContent);
   });
+
+  it("serves Calendar discovery document at the standard path", async () => {
+    // No auth required — matches real Google behavior
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+
+    const doc = (await res.json()) as any;
+    expect(doc.kind).toBe("discovery#restDescription");
+    expect(doc.name).toBe("calendar");
+    expect(doc.version).toBe("v3");
+    expect(doc.id).toBe("calendar:v3");
+
+    // Verify URLs reflect the server origin (baseUrl/basePath required by SDKs)
+    expect(doc.rootUrl).toMatch(/^https?:\/\//);
+    expect(doc.baseUrl).toMatch(/^https?:\/\/.*\/calendar\/v3\/$/);
+    expect(doc.basePath).toBe("/calendar/v3/");
+    expect(doc.servicePath).toBe("calendar/v3/");
+
+    // Verify all implemented resources are described
+    expect(doc.resources.calendarList.methods.list).toBeDefined();
+    expect(doc.resources.calendarList.methods.list.httpMethod).toBe("GET");
+
+    expect(doc.resources.events.methods.list).toBeDefined();
+    expect(doc.resources.events.methods.list.httpMethod).toBe("GET");
+    expect(doc.resources.events.methods.list.parameters.calendarId.required).toBe(true);
+
+    expect(doc.resources.events.methods.insert).toBeDefined();
+    expect(doc.resources.events.methods.insert.httpMethod).toBe("POST");
+
+    expect(doc.resources.events.methods.delete).toBeDefined();
+    expect(doc.resources.events.methods.delete.httpMethod).toBe("DELETE");
+
+    expect(doc.resources.freebusy.methods.query).toBeDefined();
+    expect(doc.resources.freebusy.methods.query.httpMethod).toBe("POST");
+  });
+});
+
+describe("Calendar discovery document schemas", () => {
+  it("defines every schema the methods reference (google-api-python-client build() requirement)", async () => {
+    const { app } = createTestApp();
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as { schemas: Record<string, unknown>; resources: Record<string, any> };
+    const refs = new Set<string>();
+    const walk = (node: unknown) => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === "object") {
+        for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+          if (k === "$ref" && typeof v === "string") refs.add(v);
+          else walk(v);
+        }
+      }
+    };
+    walk(doc.resources);
+    walk(doc.schemas);
+    expect(refs.size).toBeGreaterThan(0);
+    for (const ref of refs) expect(Object.keys(doc.schemas)).toContain(ref);
+  });
 });
