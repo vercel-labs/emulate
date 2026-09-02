@@ -1,6 +1,21 @@
 # Changelog
 
 <!-- release:start -->
+## 0.11.0
+
+### New Features
+
+- **Persistent adapter runtime** shares state handling across the Next.js and Nuxt adapters, including atomic initialization and generated GitHub App key persistence across cold starts
+- **Linear issue priority labels** expose the derived `priorityLabel` alongside numeric issue priority in queries and mutations
+- **GitHub installation-token inspection** exposes secret-free metadata for minted App installation tokens, including permissions, repository access, expiry, and lifecycle status
+
+### Contributors
+
+- @ctate
+- @Railly
+
+<!-- release:end -->
+
 ## 0.10.0
 
 ### New Features
