@@ -35,8 +35,6 @@
 - @Railly
 - @sidpalas
 
-<!-- release:end -->
-
 ## 0.9.0
 
 ### New Features
