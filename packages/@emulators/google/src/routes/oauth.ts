@@ -13,7 +13,7 @@ import {
   type Store,
 } from "@emulators/core";
 import { getGoogleStore } from "../store.js";
-import { registerGoogleAccessToken, revokeGoogleAccessToken } from "../auth.js";
+import { GOOGLE_ACCESS_TOKEN_TTL_MS, registerGoogleAccessToken, revokeGoogleAccessToken } from "../auth.js";
 import type { GoogleUser } from "../entities.js";
 
 const JWT_SECRET = new TextEncoder().encode("emulate-google-jwt-secret");
@@ -289,7 +289,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         userId: user.id,
         scopes,
         clientId: record.clientId,
-        expiresAt: Date.now() + 60 * 60 * 1000,
+        expiresAt: Date.now() + GOOGLE_ACCESS_TOKEN_TTL_MS,
       });
 
       return c.json({
@@ -358,7 +358,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       userId: user.id,
       scopes,
       clientId: pending.clientId,
-      expiresAt: Date.now() + 60 * 60 * 1000,
+      expiresAt: Date.now() + GOOGLE_ACCESS_TOKEN_TTL_MS,
     });
     getRefreshTokens(store).set(refreshToken, {
       email: user.email,

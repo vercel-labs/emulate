@@ -373,6 +373,27 @@ describe("Google plugin integration", () => {
     expect(userinfo.status).toBe(200);
   });
 
+  it("records the issuing user, client, scopes, and one-hour expiry", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const issuedAt = Date.now();
+    const token = await issueOAuthToken(
+      strictApp,
+      "openid https://www.googleapis.com/auth/drive.readonly",
+      "testuser@example.com",
+    );
+    const record = getGoogleAccessTokens(store).get(token.access_token);
+
+    expect(record).toMatchObject({
+      email: "testuser@example.com",
+      userId: expect.any(Number),
+      scopes: ["openid", "https://www.googleapis.com/auth/drive.readonly"],
+      clientId: "emu_google_client_id",
+      revoked: false,
+    });
+    expect(record?.expiresAt).toBeGreaterThanOrEqual(issuedAt + 60 * 60 * 1000 - 1000);
+    expect(record?.expiresAt).toBeLessThanOrEqual(Date.now() + 60 * 60 * 1000);
+  });
+
   it("rejects revoked, expired, and refresh credentials on resources", async () => {
     const { app: strictApp, store } = createTestApp({ strict: true });
     const token = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");

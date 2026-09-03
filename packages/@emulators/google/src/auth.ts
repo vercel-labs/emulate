@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler, Store } from "@emulators/core";
 import { googleApiError } from "./helpers.js";
 
 const ACCESS_TOKENS_KEY = "google.oauth.accessTokens";
+export const GOOGLE_ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 const DRIVE = "https://www.googleapis.com/auth/drive";
 const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
@@ -92,7 +93,7 @@ export function registerGoogleAccessToken(
   token: string,
   record: Omit<GoogleAccessTokenRecord, "revoked">,
 ): void {
-  getGoogleAccessTokens(store).set(token, { ...record, revoked: false });
+  getGoogleAccessTokens(store).set(token, { ...record, scopes: [...record.scopes], revoked: false });
 }
 
 export function revokeGoogleAccessToken(store: Store, token: string): boolean {
