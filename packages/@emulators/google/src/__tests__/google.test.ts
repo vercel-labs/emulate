@@ -509,6 +509,24 @@ describe("Google plugin integration", () => {
       }),
     });
     expect(draft.status).toBe(200);
+
+    const draftId = ((await draft.json()) as { id: string }).id;
+    const readOnlyDraftToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const draftSendWithoutCompose = await strictApp.request(`${base}/gmail/v1/users/me/drafts/send`, {
+      method: "POST",
+      headers: { ...authorization(readOnlyDraftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ id: draftId }),
+    });
+    expect(draftSendWithoutCompose.status).toBe(403);
+    expectGoogleInsufficientPermissions(await draftSendWithoutCompose.json());
+
+    const draftSendWithCompose = await strictApp.request(`${base}/gmail/v1/users/me/drafts/send`, {
+      method: "POST",
+      headers: { ...authorization(draftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ id: draftId }),
+    });
+    expect(draftSendWithCompose.status).toBe(200);
+
     const thread = await strictApp.request(`${base}/gmail/v1/users/me/threads/thread_support`, {
       headers: authorization(draftToken.access_token),
     });
@@ -533,6 +551,13 @@ describe("Google plugin integration", () => {
       body: JSON.stringify({ name: "Upload.txt", mimeType: "text/plain", data: "content" }),
     });
     expect(upload.status).toBe(200);
+
+    const uploadAlias = await strictApp.request(`${base}/upload/gmail/v1/users/me/messages/send`, {
+      method: "POST",
+      headers: { ...authorization(draftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "testuser@example.com", to: "recipient@example.com", subject: "Alias" }),
+    });
+    expect(uploadAlias.status).toBe(200);
   });
 
   it("enforces strict scope alternatives for Gmail operations", async () => {
