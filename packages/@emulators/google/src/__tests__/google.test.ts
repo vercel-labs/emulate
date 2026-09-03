@@ -699,6 +699,14 @@ describe("Google plugin integration", () => {
     });
     expect(contentUpdate.status).toBe(403);
     expectGoogleInsufficientPermissions(await contentUpdate.json());
+
+    const metadataContentUpdate = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      method: "PUT",
+      headers: { ...authorization(metadataWriter.access_token), "Content-Type": "text/plain" },
+      body: "not allowed",
+    });
+    expect(metadataContentUpdate.status).toBe(403);
+    expectGoogleInsufficientPermissions(await metadataContentUpdate.json());
   });
 
   it("keeps unknown credentials permissive when strict_scopes is absent or false", async () => {
