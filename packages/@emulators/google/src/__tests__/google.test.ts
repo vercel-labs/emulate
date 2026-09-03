@@ -309,12 +309,14 @@ describe("Google plugin integration", () => {
 
   it("rejects unknown credentials in strict mode before the fallback identity is used", async () => {
     const strictApp = createTestApp({ strict: true, fallback: true }).app;
-    const res = await strictApp.request(`${base}/drive/v3/files`, {
-      headers: { Authorization: "Bearer unknown-google-token" },
-    });
+    for (const credential of ["unknown-google-token", "test-token"]) {
+      const res = await strictApp.request(`${base}/drive/v3/files`, {
+        headers: { Authorization: `Bearer ${credential}` },
+      });
 
-    expect(res.status).toBe(401);
-    expectGoogleUnauthenticated(await res.json());
+      expect(res.status).toBe(401);
+      expectGoogleUnauthenticated(await res.json());
+    }
   });
 
   it("accepts OAuth access tokens with matching Drive, Gmail, and Calendar scopes", async () => {
@@ -393,6 +395,32 @@ describe("Google plugin integration", () => {
     });
     expect(refresh.status).toBe(401);
     expectGoogleUnauthenticated(await refresh.json());
+  });
+
+  it("registers refreshed access tokens as authoritative credentials", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const initial = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const refreshRes = await formRequest(strictApp, "/oauth2/token", {
+      grant_type: "refresh_token",
+      refresh_token: initial.refresh_token,
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+
+    expect(refreshRes.status).toBe(200);
+    const refreshed = (await refreshRes.json()) as { access_token: string; scope: string };
+    expect(refreshed.scope).toBe("https://www.googleapis.com/auth/drive.readonly");
+    expect(getGoogleAccessTokens(store).get(refreshed.access_token)).toMatchObject({
+      email: "testuser@example.com",
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+      clientId: "emu_google_client_id",
+      revoked: false,
+    });
+
+    const resource = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(refreshed.access_token),
+    });
+    expect(resource.status).toBe(200);
   });
 
   it("returns the Google permission envelope for valid but underscoped tokens", async () => {
@@ -507,6 +535,68 @@ describe("Google plugin integration", () => {
     expect(upload.status).toBe(200);
   });
 
+  it("enforces strict scope alternatives for Gmail operations", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const readonly = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const insert = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.insert");
+    const labels = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.labels");
+
+    const batchModify = await strictApp.request(`${base}/gmail/v1/users/me/messages/batchModify`, {
+      method: "POST",
+      headers: { ...authorization(readonly.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["msg_invoice"], addLabelIds: ["STARRED"] }),
+    });
+    expect(batchModify.status).toBe(403);
+
+    const imported = await strictApp.request(`${base}/upload/gmail/v1/users/me/messages/import`, {
+      method: "POST",
+      headers: { ...authorization(insert.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "sender@example.com", to: "testuser@example.com", subject: "Imported" }),
+    });
+    expect(imported.status).toBe(200);
+
+    const labelCreate = await strictApp.request(`${base}/gmail/v1/users/me/labels`, {
+      method: "POST",
+      headers: { ...authorization(labels.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Strict label" }),
+    });
+    expect(labelCreate.status).toBe(200);
+
+    const deleteMessage = await strictApp.request(`${base}/gmail/v1/users/me/messages/msg_invoice`, {
+      method: "DELETE",
+      headers: authorization(readonly.access_token),
+    });
+    expect(deleteMessage.status).toBe(403);
+  });
+
+  it("enforces strict scope alternatives for calendar and Drive operations", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const calendarList = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.calendarlist");
+    const freebusy = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.freebusy");
+    const driveMetadata = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.metadata.readonly");
+
+    const calendars = await strictApp.request(`${base}/calendar/v3/users/me/calendarList`, {
+      headers: authorization(calendarList.access_token),
+    });
+    expect(calendars.status).toBe(200);
+
+    const freeBusy = await strictApp.request(`${base}/calendar/v3/freeBusy`, {
+      method: "POST",
+      headers: { ...authorization(freebusy.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        timeMin: "2025-01-10T11:00:00.000Z",
+        timeMax: "2025-01-10T14:00:00.000Z",
+        items: [{ id: "primary" }],
+      }),
+    });
+    expect(freeBusy.status).toBe(200);
+
+    const metadata = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      headers: authorization(driveMetadata.access_token),
+    });
+    expect(metadata.status).toBe(200);
+  });
+
   it("keeps unknown credentials permissive when strict_scopes is absent or false", async () => {
     for (const strict of [undefined, false]) {
       const relaxed = createTestApp({ strict, fallback: true }).app;
@@ -540,13 +630,20 @@ describe("Google plugin integration", () => {
   it("persists Google access-token authority records with the store", async () => {
     const { app: strictApp, store } = createTestApp({ strict: true });
     const token = await issueOAuthToken(strictApp, "openid https://www.googleapis.com/auth/drive.readonly");
-    const snapshot = store.snapshot();
+    const activeSnapshot = store.snapshot();
     const restored = new Store();
-    restored.restore(snapshot);
+    restored.restore(activeSnapshot);
 
     expect(getGoogleAccessTokens(restored).get(token.access_token)).toEqual(
       getGoogleAccessTokens(store).get(token.access_token),
     );
+
+    await formRequest(strictApp, "/oauth2/revoke", { token: token.access_token });
+    const revokedSnapshot = store.snapshot();
+    const restoredRevoked = new Store();
+    restoredRevoked.restore(revokedSnapshot);
+
+    expect(getGoogleAccessTokens(restoredRevoked).get(token.access_token)).toMatchObject({ revoked: true });
   });
 
   it("lists paginated messages with Gmail-style filters", async () => {

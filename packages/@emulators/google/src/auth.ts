@@ -29,6 +29,45 @@ const CALENDAR_EVENTS_READONLY = "https://www.googleapis.com/auth/calendar.event
 const CALENDAR_EVENTS_OWNED = "https://www.googleapis.com/auth/calendar.events.owned";
 const CALENDAR_EVENTS_OWNED_READONLY = "https://www.googleapis.com/auth/calendar.events.owned.readonly";
 const CALENDAR_FREEBUSY = "https://www.googleapis.com/auth/calendar.events.freebusy";
+const CALENDAR_FREEBUSY_READONLY = "https://www.googleapis.com/auth/calendar.freebusy";
+
+const OIDC_USERINFO_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
+
+const GMAIL_SCOPE = [GMAIL];
+const GMAIL_READ_SCOPES = [GMAIL, GMAIL_METADATA, GMAIL_MODIFY, GMAIL_READONLY];
+const GMAIL_WRITE_SCOPES = [GMAIL, GMAIL_MODIFY];
+const GMAIL_SEND_SCOPES = [GMAIL, GMAIL_COMPOSE, GMAIL_MODIFY, GMAIL_SEND];
+const GMAIL_IMPORT_SCOPES = [GMAIL, GMAIL_INSERT, GMAIL_MODIFY];
+const GMAIL_DRAFT_READ_SCOPES = [GMAIL, GMAIL_COMPOSE, GMAIL_MODIFY, GMAIL_READONLY];
+const GMAIL_DRAFT_WRITE_SCOPES = [GMAIL, GMAIL_COMPOSE, GMAIL_MODIFY];
+const GMAIL_LABEL_READ_SCOPES = [GMAIL, GMAIL_LABELS, GMAIL_METADATA, GMAIL_MODIFY, GMAIL_READONLY];
+const GMAIL_LABEL_WRITE_SCOPES = [GMAIL, GMAIL_LABELS, GMAIL_MODIFY];
+const GMAIL_SETTINGS_READ_SCOPES = [GMAIL, GMAIL_MODIFY, GMAIL_READONLY, GMAIL_SETTINGS_BASIC];
+const GMAIL_SETTINGS_BASIC_WRITE_SCOPES = [GMAIL, GMAIL_SETTINGS_BASIC];
+const GMAIL_SETTINGS_SHARING_WRITE_SCOPES = [GMAIL, GMAIL_SETTINGS_SHARING];
+
+const DRIVE_READ_SCOPES = [DRIVE, DRIVE_FILE, DRIVE_METADATA, DRIVE_METADATA_READONLY, DRIVE_READONLY];
+const DRIVE_WRITE_SCOPES = [DRIVE, DRIVE_FILE, DRIVE_METADATA];
+const DRIVE_UPLOAD_SCOPES = [DRIVE, DRIVE_FILE];
+
+const CALENDAR_LIST_SCOPES = [CALENDAR, CALENDAR_LIST, CALENDAR_LIST_READONLY, CALENDAR_READONLY];
+const CALENDAR_EVENT_READ_SCOPES = [
+  CALENDAR,
+  CALENDAR_EVENTS,
+  CALENDAR_EVENTS_READONLY,
+  CALENDAR_EVENTS_OWNED,
+  CALENDAR_EVENTS_OWNED_READONLY,
+  CALENDAR_FREEBUSY,
+  CALENDAR_READONLY,
+];
+const CALENDAR_EVENT_WRITE_SCOPES = [CALENDAR, CALENDAR_EVENTS, CALENDAR_EVENTS_OWNED];
+const CALENDAR_FREEBUSY_SCOPES = [CALENDAR, CALENDAR_FREEBUSY, CALENDAR_FREEBUSY_READONLY, CALENDAR_READONLY];
 
 export interface GoogleAccessTokenRecord {
   email: string;
@@ -98,69 +137,73 @@ export function googleStrictAuth(store: Store): MiddlewareHandler {
 
 export function driveScopes(c: Context): string[] {
   if (c.req.method === "GET") {
-    return [DRIVE, DRIVE_FILE, DRIVE_READONLY, DRIVE_METADATA, DRIVE_METADATA_READONLY];
+    return DRIVE_READ_SCOPES;
   }
   if (c.req.method === "PATCH" || c.req.method === "PUT") {
-    return [DRIVE, DRIVE_FILE, DRIVE_METADATA];
+    return DRIVE_WRITE_SCOPES;
   }
-  return [DRIVE, DRIVE_FILE];
+  return DRIVE_UPLOAD_SCOPES;
 }
 
 export function gmailScopes(c: Context): string[] {
   const path = new URL(c.req.url).pathname;
   const method = c.req.method;
 
-  if (path.includes("/settings/filters")) return [GMAIL, GMAIL_SETTINGS_BASIC];
-  if (path.includes("/settings/forwardingAddresses") || path.includes("/settings/sendAs")) {
-    return [GMAIL, GMAIL_SETTINGS_BASIC, GMAIL_SETTINGS_SHARING];
+  if (path.includes("/settings/filters")) {
+    return method === "GET" ? GMAIL_SETTINGS_READ_SCOPES : GMAIL_SETTINGS_BASIC_WRITE_SCOPES;
   }
-  if (path.endsWith("/send") || path.includes("/messages/send")) {
-    return [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE, GMAIL_SEND];
+  if (path.includes("/settings/forwardingAddresses") || path.includes("/settings/sendAs")) {
+    return method === "GET" ? GMAIL_SETTINGS_READ_SCOPES : GMAIL_SETTINGS_SHARING_WRITE_SCOPES;
+  }
+  if (path.includes("/messages/send")) {
+    return GMAIL_SEND_SCOPES;
+  }
+  if (path.includes("/messages/import")) {
+    return GMAIL_IMPORT_SCOPES;
+  }
+  if (path.includes("/messages/batchDelete")) {
+    return GMAIL_SCOPE;
+  }
+  if (path.includes("/messages/batchModify")) {
+    return GMAIL_WRITE_SCOPES;
   }
   if (path.includes("/drafts")) {
-    return method === "GET"
-      ? [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE, GMAIL_READONLY]
-      : [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE];
+    return method === "GET" ? GMAIL_DRAFT_READ_SCOPES : GMAIL_DRAFT_WRITE_SCOPES;
   }
   if (path.includes("/labels")) {
-    return method === "GET"
-      ? [GMAIL, GMAIL_MODIFY, GMAIL_READONLY, GMAIL_METADATA, GMAIL_LABELS]
-      : [GMAIL, GMAIL_MODIFY, GMAIL_LABELS];
+    return method === "GET" ? GMAIL_LABEL_READ_SCOPES : GMAIL_LABEL_WRITE_SCOPES;
   }
-  if (path.includes("/messages/import") || path.includes("/messages/batchDelete")) {
-    return [GMAIL, GMAIL_INSERT];
+  if (path.includes("/threads")) {
+    if (method === "GET") return GMAIL_READ_SCOPES;
+    if (method === "DELETE") return GMAIL_SCOPE;
+    return GMAIL_WRITE_SCOPES;
   }
-  if (method === "GET") return [GMAIL, GMAIL_MODIFY, GMAIL_READONLY, GMAIL_METADATA];
-  return [GMAIL, GMAIL_MODIFY];
+  if (path.includes("/messages/")) {
+    if (method === "GET") return GMAIL_READ_SCOPES;
+    if (method === "DELETE") return GMAIL_SCOPE;
+    return GMAIL_WRITE_SCOPES;
+  }
+  if (path.endsWith("/messages")) {
+    return method === "GET" ? GMAIL_READ_SCOPES : GMAIL_IMPORT_SCOPES;
+  }
+  if (path.endsWith("/watch") || path.endsWith("/stop") || path.includes("/history")) {
+    return GMAIL_READ_SCOPES;
+  }
+  if (method === "GET") return GMAIL_READ_SCOPES;
+  return GMAIL_WRITE_SCOPES;
 }
 
 export function calendarScopes(c: Context): string[] {
   const path = new URL(c.req.url).pathname;
   if (path.includes("/calendarList")) {
-    return [CALENDAR, CALENDAR_READONLY, CALENDAR_LIST, CALENDAR_LIST_READONLY];
+    return CALENDAR_LIST_SCOPES;
   }
-  if (path.endsWith("/freeBusy")) return [CALENDAR, CALENDAR_READONLY, CALENDAR_FREEBUSY];
-  if (c.req.method === "GET") {
-    return [
-      CALENDAR,
-      CALENDAR_READONLY,
-      CALENDAR_EVENTS,
-      CALENDAR_EVENTS_READONLY,
-      CALENDAR_EVENTS_OWNED,
-      CALENDAR_EVENTS_OWNED_READONLY,
-    ];
-  }
-  return [CALENDAR, CALENDAR_EVENTS, CALENDAR_EVENTS_OWNED];
+  if (path.endsWith("/freeBusy")) return CALENDAR_FREEBUSY_SCOPES;
+  return c.req.method === "GET" ? CALENDAR_EVENT_READ_SCOPES : CALENDAR_EVENT_WRITE_SCOPES;
 }
 
 export function userinfoScopes(): string[] {
-  return [
-    "openid",
-    "email",
-    "profile",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-  ];
+  return OIDC_USERINFO_SCOPES;
 }
 
 function requiredScopesForRequest(c: Context): string[] | undefined {
