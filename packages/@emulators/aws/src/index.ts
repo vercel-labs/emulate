@@ -5,6 +5,7 @@ import { getAccountId, getDefaultRegion, generateAwsId } from "./helpers.js";
 import { s3Routes } from "./routes/s3.js";
 import { sqsRoutes } from "./routes/sqs.js";
 import { iamRoutes } from "./routes/iam.js";
+import { stsRoutes } from "./routes/sts.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export { getAwsStore, type AwsStore } from "./store.js";
@@ -183,6 +184,7 @@ export const awsPlugin: ServicePlugin = {
     inspectorRoutes(ctx);
     sqsRoutes(ctx);
     iamRoutes(ctx);
+    stsRoutes(ctx);
     s3Routes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
