@@ -10,11 +10,12 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { googlePlugin, seedFromConfig } from "../index.js";
+import { getGoogleAccessTokens, revokeGoogleAccessToken } from "../auth.js";
 import { buildRawMessage } from "../helpers.js";
 
 const base = "http://localhost:4000";
 
-function createTestApp() {
+function createTestApp(options: { strict?: boolean; fallback?: boolean } = {}) {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
@@ -27,7 +28,14 @@ function createTestApp() {
   const app = new Hono();
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
-  app.use("*", authMiddleware(tokenMap));
+  app.use(
+    "*",
+    authMiddleware(
+      tokenMap,
+      undefined,
+      options.fallback ? { login: "testuser@example.com", id: 1, scopes: ["openid", "email", "profile"] } : undefined,
+    ),
+  );
   googlePlugin.register(app as any, store, webhooks, base, tokenMap);
   googlePlugin.seed?.(store, base);
   seedFromConfig(store, base, {
@@ -44,6 +52,7 @@ function createTestApp() {
         redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
       },
     ],
+    ...(options.strict === undefined ? {} : { strict_scopes: options.strict }),
     labels: [
       {
         id: "Label_ops",
@@ -172,7 +181,7 @@ function createTestApp() {
     ],
   });
 
-  return { app };
+  return { app, store, tokenMap };
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -209,6 +218,71 @@ async function formRequest(app: Hono, path: string, body: Record<string, string>
   });
 }
 
+async function issueOAuthToken(app: Hono, scope: string, email = "testuser@example.com") {
+  const authorizeRes = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+    email,
+    redirect_uri: "http://localhost:3000/api/auth/callback/google",
+    scope,
+    client_id: "emu_google_client_id",
+  });
+  const location = authorizeRes.headers.get("Location");
+  expect(location).toBeTruthy();
+  const code = new URL(location!).searchParams.get("code");
+  expect(code).toBeTruthy();
+
+  const tokenRes = await formRequest(app, "/oauth2/token", {
+    code: code!,
+    grant_type: "authorization_code",
+    redirect_uri: "http://localhost:3000/api/auth/callback/google",
+    client_id: "emu_google_client_id",
+    client_secret: "emu_google_client_secret",
+  });
+  expect(tokenRes.status).toBe(200);
+  return (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token: string;
+    scope: string;
+  };
+}
+
+function authorization(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
+
+function expectGoogleUnauthenticated(body: unknown) {
+  expect(body).toEqual({
+    error: {
+      code: 401,
+      message: "Request had invalid authentication credentials.",
+      errors: [
+        {
+          message: "Request had invalid authentication credentials.",
+          domain: "global",
+          reason: "authError",
+        },
+      ],
+      status: "UNAUTHENTICATED",
+    },
+  });
+}
+
+function expectGoogleInsufficientPermissions(body: unknown) {
+  expect(body).toEqual({
+    error: {
+      code: 403,
+      message: "Request had insufficient authentication scopes.",
+      errors: [
+        {
+          message: "Request had insufficient authentication scopes.",
+          domain: "global",
+          reason: "insufficientPermissions",
+        },
+      ],
+      status: "PERMISSION_DENIED",
+    },
+  });
+}
+
 describe("Google plugin integration", () => {
   let app: Hono;
 
@@ -231,6 +305,579 @@ describe("Google plugin integration", () => {
     expect(body.email).toBe("testuser@example.com");
     expect(body.email_verified).toBe(true);
     expect(body.name).toBe("Test User");
+  });
+
+  it("stores strict_scopes only when the seed explicitly configures it", () => {
+    expect(createTestApp({ fallback: true }).store.getData("google.strict_scopes")).toBeUndefined();
+    expect(createTestApp({ strict: false }).store.getData("google.strict_scopes")).toBe(false);
+    expect(createTestApp({ strict: true }).store.getData("google.strict_scopes")).toBe(true);
+  });
+
+  it("rejects unknown credentials in strict mode before the fallback identity is used", async () => {
+    const strictApp = createTestApp({ strict: true, fallback: true }).app;
+    for (const credential of ["unknown-google-token", "test-token"]) {
+      const res = await strictApp.request(`${base}/drive/v3/files`, {
+        headers: { Authorization: `Bearer ${credential}` },
+      });
+
+      expect(res.status).toBe(401);
+      expectGoogleUnauthenticated(await res.json());
+    }
+  });
+
+  it("applies the strict credential gate to every Google resource route and upload alias", async () => {
+    const strictApp = createTestApp({ strict: true, fallback: true }).app;
+    const protectedRoutes: Array<{ method: string; path: string }> = [
+      { method: "GET", path: "/oauth2/v2/userinfo" },
+      { method: "GET", path: "/gmail/v1/users/me/messages" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/batchModify" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/batchDelete" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/import" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/messages/import" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/send" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/messages/send" },
+      { method: "POST", path: "/gmail/v1/users/me/messages" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/messages" },
+      { method: "GET", path: "/gmail/v1/users/me/messages/msg_invoice/attachments/attachment" },
+      { method: "GET", path: "/gmail/v1/users/me/messages/msg_invoice" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/msg_invoice/modify" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/msg_invoice/trash" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/msg_invoice/untrash" },
+      { method: "DELETE", path: "/gmail/v1/users/me/messages/msg_invoice" },
+      { method: "GET", path: "/gmail/v1/users/me/drafts" },
+      { method: "POST", path: "/gmail/v1/users/me/drafts" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/drafts" },
+      { method: "GET", path: "/gmail/v1/users/me/drafts/draft" },
+      { method: "PUT", path: "/gmail/v1/users/me/drafts/draft" },
+      { method: "POST", path: "/gmail/v1/users/me/drafts/send" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/drafts/send" },
+      { method: "DELETE", path: "/gmail/v1/users/me/drafts/draft" },
+      { method: "GET", path: "/gmail/v1/users/me/history" },
+      { method: "POST", path: "/gmail/v1/users/me/watch" },
+      { method: "POST", path: "/gmail/v1/users/me/stop" },
+      { method: "GET", path: "/gmail/v1/users/me/threads" },
+      { method: "GET", path: "/gmail/v1/users/me/threads/thread_support" },
+      { method: "POST", path: "/gmail/v1/users/me/threads/thread_support/modify" },
+      { method: "POST", path: "/gmail/v1/users/me/threads/thread_support/trash" },
+      { method: "POST", path: "/gmail/v1/users/me/threads/thread_support/untrash" },
+      { method: "DELETE", path: "/gmail/v1/users/me/threads/thread_support" },
+      { method: "GET", path: "/gmail/v1/users/me/labels" },
+      { method: "GET", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "POST", path: "/gmail/v1/users/me/labels" },
+      { method: "PUT", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "PATCH", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "DELETE", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "GET", path: "/gmail/v1/users/me/settings/filters" },
+      { method: "POST", path: "/gmail/v1/users/me/settings/filters" },
+      { method: "DELETE", path: "/gmail/v1/users/me/settings/filters/filter" },
+      { method: "GET", path: "/gmail/v1/users/me/settings/forwardingAddresses" },
+      { method: "GET", path: "/gmail/v1/users/me/settings/sendAs" },
+      { method: "GET", path: "/calendar/v3/users/me/calendarList" },
+      { method: "GET", path: "/calendar/v3/calendars/primary/events" },
+      { method: "POST", path: "/calendar/v3/calendars/primary/events" },
+      { method: "DELETE", path: "/calendar/v3/calendars/primary/events/event" },
+      { method: "POST", path: "/calendar/v3/freeBusy" },
+      { method: "GET", path: "/drive/v3/files" },
+      { method: "POST", path: "/drive/v3/files" },
+      { method: "POST", path: "/upload/drive/v3/files" },
+      { method: "GET", path: "/drive/v3/files/drv_handbook" },
+      { method: "PATCH", path: "/drive/v3/files/drv_handbook" },
+      { method: "PUT", path: "/drive/v3/files/drv_handbook" },
+    ];
+
+    for (const route of protectedRoutes) {
+      const res = await strictApp.request(`${base}${route.path}`, {
+        method: route.method,
+        headers: authorization("unknown-google-token"),
+      });
+
+      expect(res.status, `${route.method} ${route.path}`).toBe(401);
+      expectGoogleUnauthenticated(await res.json());
+    }
+  });
+
+  it("leaves non-resource OAuth endpoints outside the strict resource gate", async () => {
+    const strictApp = createTestApp({ strict: true, fallback: true }).app;
+
+    const discovery = await strictApp.request(`${base}/.well-known/openid-configuration`, {
+      headers: authorization("unknown-google-token"),
+    });
+    expect(discovery.status).toBe(200);
+
+    const revoke = await formRequest(
+      strictApp,
+      "/oauth2/revoke",
+      { token: "unknown-google-token" },
+      { headers: authorization("unknown-google-token") },
+    );
+    expect(revoke.status).toBe(200);
+  });
+
+  it("accepts OAuth access tokens with matching Drive, Gmail, and Calendar scopes", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const token = await issueOAuthToken(
+      strictApp,
+      [
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
+      ].join(" "),
+    );
+
+    const [driveRes, gmailRes, calendarRes] = await Promise.all([
+      strictApp.request(`${base}/drive/v3/files`, { headers: authorization(token.access_token) }),
+      strictApp.request(`${base}/gmail/v1/users/me/messages`, { headers: authorization(token.access_token) }),
+      strictApp.request(`${base}/calendar/v3/users/me/calendarList`, { headers: authorization(token.access_token) }),
+    ]);
+
+    expect(driveRes.status).toBe(200);
+    expect(gmailRes.status).toBe(200);
+    expect(calendarRes.status).toBe(200);
+  });
+
+  it("uses the Google authority record instead of a conflicting shared token identity", async () => {
+    const { app: strictApp, tokenMap } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "openid");
+    tokenMap.set(token.access_token, {
+      login: "consumer@gmail.com",
+      id: 2,
+      scopes: ["openid"],
+    });
+
+    const userinfo = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+      headers: authorization(token.access_token),
+    });
+
+    expect(userinfo.status).toBe(200);
+    expect(((await userinfo.json()) as { email: string }).email).toBe("testuser@example.com");
+  });
+
+  it("requires an OIDC scope for userinfo and preserves OAuth identity", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const driveToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const denied = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+      headers: authorization(driveToken.access_token),
+    });
+    expect(denied.status).toBe(403);
+    expectGoogleInsufficientPermissions(await denied.json());
+
+    const oidcToken = await issueOAuthToken(strictApp, "openid");
+    const accepted = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+      headers: authorization(oidcToken.access_token),
+    });
+    expect(accepted.status).toBe(200);
+    expect(((await accepted.json()) as { email: string }).email).toBe("testuser@example.com");
+  });
+
+  it("records default OIDC scopes when OAuth omits the scope parameter", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "");
+
+    expect(getGoogleAccessTokens(store).get(token.access_token)?.scopes).toEqual(["openid", "email", "profile"]);
+
+    const userinfo = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+      headers: authorization(token.access_token),
+    });
+    expect(userinfo.status).toBe(200);
+  });
+
+  it("records the issuing user, client, scopes, and one-hour expiry", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const issuedAt = Date.now();
+    const token = await issueOAuthToken(
+      strictApp,
+      "openid https://www.googleapis.com/auth/drive.readonly",
+      "testuser@example.com",
+    );
+    const record = getGoogleAccessTokens(store).get(token.access_token);
+
+    expect(record).toMatchObject({
+      email: "testuser@example.com",
+      userId: expect.any(Number),
+      scopes: ["openid", "https://www.googleapis.com/auth/drive.readonly"],
+      clientId: "emu_google_client_id",
+      revoked: false,
+    });
+    expect(record?.expiresAt).toBeGreaterThanOrEqual(issuedAt + 60 * 60 * 1000 - 1000);
+    expect(record?.expiresAt).toBeLessThanOrEqual(Date.now() + 60 * 60 * 1000);
+  });
+
+  it("rejects revoked, expired, and refresh credentials on resources", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+
+    const beforeRevoke = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(token.access_token),
+    });
+    expect(beforeRevoke.status).toBe(200);
+
+    const revokeRes = await formRequest(strictApp, "/oauth2/revoke", { token: token.access_token });
+    expect(revokeRes.status).toBe(200);
+    expect(getGoogleAccessTokens(store).get(token.access_token)?.revoked).toBe(true);
+
+    const afterRevoke = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(token.access_token),
+    });
+    expect(afterRevoke.status).toBe(401);
+    expectGoogleUnauthenticated(await afterRevoke.json());
+
+    const expiredToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const expiredRecord = getGoogleAccessTokens(store).get(expiredToken.access_token);
+    expect(expiredRecord).toBeDefined();
+    expiredRecord!.expiresAt = Date.now() - 1;
+    const expired = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(expiredToken.access_token),
+    });
+    expect(expired.status).toBe(401);
+    expectGoogleUnauthenticated(await expired.json());
+
+    const refresh = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(token.refresh_token),
+    });
+    expect(refresh.status).toBe(401);
+    expectGoogleUnauthenticated(await refresh.json());
+  });
+
+  it("marks the authoritative access-token record revoked without deleting it", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const record = getGoogleAccessTokens(store).get(token.access_token);
+
+    expect(record).toBeDefined();
+    expect(revokeGoogleAccessToken(store, token.access_token)).toBe(true);
+    expect(record?.revoked).toBe(true);
+    expect(getGoogleAccessTokens(store).get(token.access_token)).toBe(record);
+  });
+
+  it("registers refreshed access tokens as authoritative credentials", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const initial = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const refreshRes = await formRequest(strictApp, "/oauth2/token", {
+      grant_type: "refresh_token",
+      refresh_token: initial.refresh_token,
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+
+    expect(refreshRes.status).toBe(200);
+    const refreshed = (await refreshRes.json()) as { access_token: string; scope: string };
+    expect(refreshed.scope).toBe("https://www.googleapis.com/auth/drive.readonly");
+    expect(getGoogleAccessTokens(store).get(refreshed.access_token)).toMatchObject({
+      email: "testuser@example.com",
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+      clientId: "emu_google_client_id",
+      revoked: false,
+    });
+
+    const resource = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(refreshed.access_token),
+    });
+    expect(resource.status).toBe(200);
+  });
+
+  it("returns the Google permission envelope for valid but underscoped tokens", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const token = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.readonly");
+    const res = await strictApp.request(`${base}/drive/v3/files`, {
+      headers: authorization(token.access_token),
+    });
+
+    expect(res.status).toBe(403);
+    expectGoogleInsufficientPermissions(await res.json());
+  });
+
+  it("distinguishes read and mutating permissions across Gmail, Calendar, and Drive", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const gmailReader = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const gmailRead = await strictApp.request(`${base}/gmail/v1/users/me/messages/msg_invoice`, {
+      headers: authorization(gmailReader.access_token),
+    });
+    expect(gmailRead.status).toBe(200);
+    const gmailWrite = await strictApp.request(`${base}/gmail/v1/users/me/messages/msg_invoice/modify`, {
+      method: "POST",
+      headers: { ...authorization(gmailReader.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ addLabelIds: ["STARRED"] }),
+    });
+    expect(gmailWrite.status).toBe(403);
+
+    const gmailSender = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.send");
+    const gmailSend = await strictApp.request(`${base}/gmail/v1/users/me/messages/send`, {
+      method: "POST",
+      headers: { ...authorization(gmailSender.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "testuser@example.com", to: "recipient@example.com", subject: "Hello" }),
+    });
+    expect(gmailSend.status).toBe(200);
+
+    const calendarReader = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.readonly");
+    const calendarRead = await strictApp.request(`${base}/calendar/v3/calendars/primary/events`, {
+      headers: authorization(calendarReader.access_token),
+    });
+    expect(calendarRead.status).toBe(200);
+    const calendarWrite = await strictApp.request(`${base}/calendar/v3/calendars/primary/events`, {
+      method: "POST",
+      headers: { ...authorization(calendarReader.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: "Not allowed",
+        start: { dateTime: "2025-01-10T12:00:00.000Z" },
+        end: { dateTime: "2025-01-10T13:00:00.000Z" },
+      }),
+    });
+    expect(calendarWrite.status).toBe(403);
+
+    const driveReader = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const metadata = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      headers: authorization(driveReader.access_token),
+    });
+    expect(metadata.status).toBe(200);
+    const media = await strictApp.request(`${base}/drive/v3/files/drv_handbook?alt=media`, {
+      headers: authorization(driveReader.access_token),
+    });
+    expect(media.status).toBe(200);
+    const driveWrite = await strictApp.request(`${base}/drive/v3/files`, {
+      method: "POST",
+      headers: { ...authorization(driveReader.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Not allowed", mimeType: "text/plain" }),
+    });
+    expect(driveWrite.status).toBe(403);
+  });
+
+  it("applies strict authorization to settings, drafts, threads, uploads, freebusy, and aliases", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const settingsToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.settings.basic");
+    const settings = await strictApp.request(`${base}/gmail/v1/users/me/settings/filters`, {
+      headers: authorization(settingsToken.access_token),
+    });
+    expect(settings.status).toBe(200);
+
+    const settingsReader = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const settingsDenied = await strictApp.request(`${base}/gmail/v1/users/me/settings/filters`, {
+      headers: authorization(settingsReader.access_token),
+    });
+    expect(settingsDenied.status).toBe(403);
+    expectGoogleInsufficientPermissions(await settingsDenied.json());
+
+    const sharingToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.settings.sharing");
+    const sendAs = await strictApp.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
+      headers: authorization(sharingToken.access_token),
+    });
+    expect(sendAs.status).toBe(200);
+
+    const basicSettingsOnSendAs = await strictApp.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
+      headers: authorization(settingsToken.access_token),
+    });
+    expect(basicSettingsOnSendAs.status).toBe(200);
+
+    const draftToken = await issueOAuthToken(
+      strictApp,
+      "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly",
+    );
+    const draft = await strictApp.request(`${base}/upload/gmail/v1/users/me/drafts`, {
+      method: "POST",
+      headers: { ...authorization(draftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: { from: "testuser@example.com", to: "recipient@example.com", subject: "Draft" },
+      }),
+    });
+    expect(draft.status).toBe(200);
+
+    const draftId = ((await draft.json()) as { id: string }).id;
+    const readOnlyDraftToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const draftSendWithoutCompose = await strictApp.request(`${base}/gmail/v1/users/me/drafts/send`, {
+      method: "POST",
+      headers: { ...authorization(readOnlyDraftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ id: draftId }),
+    });
+    expect(draftSendWithoutCompose.status).toBe(403);
+    expectGoogleInsufficientPermissions(await draftSendWithoutCompose.json());
+
+    const draftSendWithCompose = await strictApp.request(`${base}/gmail/v1/users/me/drafts/send`, {
+      method: "POST",
+      headers: { ...authorization(draftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ id: draftId }),
+    });
+    expect(draftSendWithCompose.status).toBe(200);
+
+    const thread = await strictApp.request(`${base}/gmail/v1/users/me/threads/thread_support`, {
+      headers: authorization(draftToken.access_token),
+    });
+    expect(thread.status).toBe(200);
+
+    const calendarToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.events.freebusy");
+    const freebusy = await strictApp.request(`${base}/calendar/v3/freeBusy`, {
+      method: "POST",
+      headers: { ...authorization(calendarToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        timeMin: "2025-01-10T11:00:00.000Z",
+        timeMax: "2025-01-10T14:00:00.000Z",
+        items: [{ id: "primary" }],
+      }),
+    });
+    expect(freebusy.status).toBe(200);
+
+    const eventWithFreebusyToken = await strictApp.request(`${base}/calendar/v3/calendars/primary/events`, {
+      headers: authorization(calendarToken.access_token),
+    });
+    expect(eventWithFreebusyToken.status).toBe(403);
+    expectGoogleInsufficientPermissions(await eventWithFreebusyToken.json());
+
+    const uploadToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.file");
+    const upload = await strictApp.request(`${base}/upload/drive/v3/files`, {
+      method: "POST",
+      headers: { ...authorization(uploadToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Upload.txt", mimeType: "text/plain", data: "content" }),
+    });
+    expect(upload.status).toBe(200);
+
+    const uploadAlias = await strictApp.request(`${base}/upload/gmail/v1/users/me/messages/send`, {
+      method: "POST",
+      headers: { ...authorization(draftToken.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "testuser@example.com", to: "recipient@example.com", subject: "Alias" }),
+    });
+    expect(uploadAlias.status).toBe(200);
+  });
+
+  it("enforces strict scope alternatives for Gmail operations", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const readonly = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const insert = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.insert");
+    const labels = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.labels");
+
+    const batchModify = await strictApp.request(`${base}/gmail/v1/users/me/messages/batchModify`, {
+      method: "POST",
+      headers: { ...authorization(readonly.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["msg_invoice"], addLabelIds: ["STARRED"] }),
+    });
+    expect(batchModify.status).toBe(403);
+
+    const imported = await strictApp.request(`${base}/upload/gmail/v1/users/me/messages/import`, {
+      method: "POST",
+      headers: { ...authorization(insert.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "sender@example.com", to: "testuser@example.com", subject: "Imported" }),
+    });
+    expect(imported.status).toBe(200);
+
+    const labelCreate = await strictApp.request(`${base}/gmail/v1/users/me/labels`, {
+      method: "POST",
+      headers: { ...authorization(labels.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Strict label" }),
+    });
+    expect(labelCreate.status).toBe(200);
+
+    const deleteMessage = await strictApp.request(`${base}/gmail/v1/users/me/messages/msg_invoice`, {
+      method: "DELETE",
+      headers: authorization(readonly.access_token),
+    });
+    expect(deleteMessage.status).toBe(403);
+  });
+
+  it("enforces strict scope alternatives for calendar and Drive operations", async () => {
+    const strictApp = createTestApp({ strict: true }).app;
+    const calendarList = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.calendarlist");
+    const freebusy = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/calendar.freebusy");
+    const driveMetadata = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.metadata.readonly");
+
+    const calendars = await strictApp.request(`${base}/calendar/v3/users/me/calendarList`, {
+      headers: authorization(calendarList.access_token),
+    });
+    expect(calendars.status).toBe(200);
+
+    const freeBusy = await strictApp.request(`${base}/calendar/v3/freeBusy`, {
+      method: "POST",
+      headers: { ...authorization(freebusy.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        timeMin: "2025-01-10T11:00:00.000Z",
+        timeMax: "2025-01-10T14:00:00.000Z",
+        items: [{ id: "primary" }],
+      }),
+    });
+    expect(freeBusy.status).toBe(200);
+
+    const metadata = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      headers: authorization(driveMetadata.access_token),
+    });
+    expect(metadata.status).toBe(200);
+
+    const metadataWriter = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.metadata");
+    const metadataUpdate = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      method: "PATCH",
+      headers: { ...authorization(metadataWriter.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Handbook metadata" }),
+    });
+    expect(metadataUpdate.status).toBe(200);
+
+    const media = await strictApp.request(`${base}/drive/v3/files/drv_handbook?alt=media`, {
+      headers: authorization(driveMetadata.access_token),
+    });
+    expect(media.status).toBe(403);
+    expectGoogleInsufficientPermissions(await media.json());
+
+    const contentUpdate = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      method: "PUT",
+      headers: { ...authorization(driveMetadata.access_token), "Content-Type": "text/plain" },
+      body: "not allowed",
+    });
+    expect(contentUpdate.status).toBe(403);
+    expectGoogleInsufficientPermissions(await contentUpdate.json());
+
+    const metadataContentUpdate = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      method: "PUT",
+      headers: { ...authorization(metadataWriter.access_token), "Content-Type": "text/plain" },
+      body: "not allowed",
+    });
+    expect(metadataContentUpdate.status).toBe(403);
+    expectGoogleInsufficientPermissions(await metadataContentUpdate.json());
+  });
+
+  it("keeps unknown credentials permissive when strict_scopes is absent or false", async () => {
+    for (const strict of [undefined, false]) {
+      const relaxed = createTestApp({ strict, fallback: true }).app;
+      const baseline = await relaxed.request(`${base}/drive/v3/files`, {
+        headers: authorization("test-token"),
+      });
+      const baselineBody = await baseline.json();
+
+      const unknown = await relaxed.request(`${base}/drive/v3/files`, {
+        headers: { Authorization: "Bearer unknown-google-token" },
+      });
+      expect(unknown.status).toBe(200);
+      expect(await unknown.json()).toEqual(baselineBody);
+
+      const revokeTarget = await issueOAuthToken(relaxed, "https://www.googleapis.com/auth/drive.readonly");
+      await formRequest(relaxed, "/oauth2/revoke", { token: revokeTarget.access_token });
+      const revoked = await relaxed.request(`${base}/drive/v3/files`, {
+        headers: authorization(revokeTarget.access_token),
+      });
+      expect(revoked.status).toBe(200);
+      expect(await revoked.json()).toEqual(baselineBody);
+
+      const refresh = await relaxed.request(`${base}/drive/v3/files`, {
+        headers: authorization(revokeTarget.refresh_token),
+      });
+      expect(refresh.status).toBe(200);
+      expect(await refresh.json()).toEqual(baselineBody);
+    }
+  });
+
+  it("persists Google access-token authority records with the store", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "openid https://www.googleapis.com/auth/drive.readonly");
+    const activeSnapshot = store.snapshot();
+    const restored = new Store();
+    restored.restore(activeSnapshot);
+
+    expect(getGoogleAccessTokens(restored).get(token.access_token)).toEqual(
+      getGoogleAccessTokens(store).get(token.access_token),
+    );
+
+    await formRequest(strictApp, "/oauth2/revoke", { token: token.access_token });
+    const revokedSnapshot = store.snapshot();
+    const restoredRevoked = new Store();
+    restoredRevoked.restore(revokedSnapshot);
+
+    expect(getGoogleAccessTokens(restoredRevoked).get(token.access_token)).toMatchObject({ revoked: true });
   });
 
   it("lists paginated messages with Gmail-style filters", async () => {

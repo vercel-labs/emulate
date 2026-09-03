@@ -9,6 +9,7 @@ import {
   generateUid,
 } from "./helpers.js";
 import { createCalendarEventRecord, createCalendarRecord } from "./calendar-helpers.js";
+import { googleStrictAuth } from "./auth.js";
 import { createDriveItemRecord } from "./drive-helpers.js";
 import { calendarRoutes } from "./routes/calendar.js";
 import { draftRoutes } from "./routes/drafts.js";
@@ -114,6 +115,7 @@ export interface GoogleSeedDriveItem {
 
 export interface GoogleSeedConfig {
   port?: number;
+  strict_scopes?: boolean;
   users?: GoogleSeedUser[];
   oauth_clients?: Array<{
     client_id: string;
@@ -293,6 +295,10 @@ function resolveHd(user: GoogleSeedUser): string | null {
 
 export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSeedConfig): void {
   const gs = getGoogleStore(store);
+
+  if (config.strict_scopes !== undefined) {
+    store.setData("google.strict_scopes", config.strict_scopes);
+  }
 
   if (config.users) {
     for (const user of config.users) {
@@ -493,6 +499,7 @@ export const googlePlugin: ServicePlugin = {
   name: "google",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    app.use("*", googleStrictAuth(store));
     oauthRoutes(ctx);
     calendarRoutes(ctx);
     driveRoutes(ctx);

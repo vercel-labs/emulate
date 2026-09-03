@@ -28,6 +28,11 @@ GitHub API coverage:
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.
 
+Google resource authorization:
+  Set google.strict_scopes: true to require OAuth-issued access tokens and enforce granted scopes on userinfo, Gmail, Calendar, and Drive.
+  Unknown, expired, revoked, and refresh credentials return 401 UNAUTHENTICATED; valid tokens without a required scope
+  return 403 PERMISSION_DENIED with reason insufficientPermissions. Without strict mode, arbitrary bearer tokens retain the permissive fallback behavior.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

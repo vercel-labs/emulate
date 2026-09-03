@@ -198,6 +198,7 @@ github:
         - http://localhost:3000/api/auth/callback/github
 
 google:
+  strict_scopes: false
   users:
     - email: testuser@example.com
       name: Test User

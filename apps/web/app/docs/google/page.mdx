@@ -2,6 +2,12 @@
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
+Google resource authorization is permissive by default. Set `google.strict_scopes: true` to require OAuth-issued access
+tokens and enforce the scopes granted during the emulator's authorization flow for userinfo, Gmail, Calendar, and Drive.
+Unknown, expired, revoked, and refresh credentials return `401 UNAUTHENTICATED`. Valid access tokens without a
+required scope return `403 PERMISSION_DENIED` with reason `insufficientPermissions`. Leave the option absent or set it
+to `false` to preserve arbitrary bearer-token compatibility.
+
 ## OAuth & OpenID Connect
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint

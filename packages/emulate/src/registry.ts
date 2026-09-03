@@ -146,6 +146,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     },
     initConfig: {
       google: {
+        strict_scopes: false,
         users: [
           {
             email: "testuser@example.com",

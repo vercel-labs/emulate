@@ -106,6 +106,7 @@ new GoogleStrategy({
 
 ```yaml
 google:
+  strict_scopes: false
   users:
     - email: testuser@gmail.com
       name: Test User
@@ -178,6 +179,15 @@ google:
 ```
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
+
+### Strict resource authorization
+
+Resource authorization is permissive by default. Set `google.strict_scopes: true` to require access tokens issued by
+the emulator's OAuth flow for Google userinfo, Gmail, Calendar, and Drive requests. Strict mode honors the exact scopes
+granted during authorization: unknown, expired, revoked, and refresh credentials return `401 UNAUTHENTICATED`, while a
+valid access token without the required scope returns `403 PERMISSION_DENIED` with reason `insufficientPermissions`.
+Leave the option absent or set it to `false` when tests depend on arbitrary bearer tokens and the existing fallback
+identity.
 
 ### Hosted domain (hd) claim
 
