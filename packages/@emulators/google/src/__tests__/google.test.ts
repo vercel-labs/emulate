@@ -325,6 +325,77 @@ describe("Google plugin integration", () => {
     }
   });
 
+  it("applies the strict credential gate to every Google resource route and upload alias", async () => {
+    const strictApp = createTestApp({ strict: true, fallback: true }).app;
+    const protectedRoutes: Array<{ method: string; path: string }> = [
+      { method: "GET", path: "/oauth2/v2/userinfo" },
+      { method: "GET", path: "/gmail/v1/users/me/messages" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/batchModify" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/batchDelete" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/import" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/messages/import" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/send" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/messages/send" },
+      { method: "POST", path: "/gmail/v1/users/me/messages" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/messages" },
+      { method: "GET", path: "/gmail/v1/users/me/messages/msg_invoice/attachments/attachment" },
+      { method: "GET", path: "/gmail/v1/users/me/messages/msg_invoice" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/msg_invoice/modify" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/msg_invoice/trash" },
+      { method: "POST", path: "/gmail/v1/users/me/messages/msg_invoice/untrash" },
+      { method: "DELETE", path: "/gmail/v1/users/me/messages/msg_invoice" },
+      { method: "GET", path: "/gmail/v1/users/me/drafts" },
+      { method: "POST", path: "/gmail/v1/users/me/drafts" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/drafts" },
+      { method: "GET", path: "/gmail/v1/users/me/drafts/draft" },
+      { method: "PUT", path: "/gmail/v1/users/me/drafts/draft" },
+      { method: "POST", path: "/gmail/v1/users/me/drafts/send" },
+      { method: "POST", path: "/upload/gmail/v1/users/me/drafts/send" },
+      { method: "DELETE", path: "/gmail/v1/users/me/drafts/draft" },
+      { method: "GET", path: "/gmail/v1/users/me/history" },
+      { method: "POST", path: "/gmail/v1/users/me/watch" },
+      { method: "POST", path: "/gmail/v1/users/me/stop" },
+      { method: "GET", path: "/gmail/v1/users/me/threads" },
+      { method: "GET", path: "/gmail/v1/users/me/threads/thread_support" },
+      { method: "POST", path: "/gmail/v1/users/me/threads/thread_support/modify" },
+      { method: "POST", path: "/gmail/v1/users/me/threads/thread_support/trash" },
+      { method: "POST", path: "/gmail/v1/users/me/threads/thread_support/untrash" },
+      { method: "DELETE", path: "/gmail/v1/users/me/threads/thread_support" },
+      { method: "GET", path: "/gmail/v1/users/me/labels" },
+      { method: "GET", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "POST", path: "/gmail/v1/users/me/labels" },
+      { method: "PUT", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "PATCH", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "DELETE", path: "/gmail/v1/users/me/labels/Label_ops" },
+      { method: "GET", path: "/gmail/v1/users/me/settings/filters" },
+      { method: "POST", path: "/gmail/v1/users/me/settings/filters" },
+      { method: "DELETE", path: "/gmail/v1/users/me/settings/filters/filter" },
+      { method: "GET", path: "/gmail/v1/users/me/settings/forwardingAddresses" },
+      { method: "GET", path: "/gmail/v1/users/me/settings/sendAs" },
+      { method: "GET", path: "/calendar/v3/users/me/calendarList" },
+      { method: "GET", path: "/calendar/v3/calendars/primary/events" },
+      { method: "POST", path: "/calendar/v3/calendars/primary/events" },
+      { method: "DELETE", path: "/calendar/v3/calendars/primary/events/event" },
+      { method: "POST", path: "/calendar/v3/freeBusy" },
+      { method: "GET", path: "/drive/v3/files" },
+      { method: "POST", path: "/drive/v3/files" },
+      { method: "POST", path: "/upload/drive/v3/files" },
+      { method: "GET", path: "/drive/v3/files/drv_handbook" },
+      { method: "PATCH", path: "/drive/v3/files/drv_handbook" },
+      { method: "PUT", path: "/drive/v3/files/drv_handbook" },
+    ];
+
+    for (const route of protectedRoutes) {
+      const res = await strictApp.request(`${base}${route.path}`, {
+        method: route.method,
+        headers: authorization("unknown-google-token"),
+      });
+
+      expect(res.status, `${route.method} ${route.path}`).toBe(401);
+      expectGoogleUnauthenticated(await res.json());
+    }
+  });
+
   it("leaves non-resource OAuth endpoints outside the strict resource gate", async () => {
     const strictApp = createTestApp({ strict: true, fallback: true }).app;
 
