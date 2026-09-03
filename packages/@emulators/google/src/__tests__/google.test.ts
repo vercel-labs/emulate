@@ -307,6 +307,12 @@ describe("Google plugin integration", () => {
     expect(body.name).toBe("Test User");
   });
 
+  it("stores strict_scopes only when the seed explicitly configures it", () => {
+    expect(createTestApp({ fallback: true }).store.getData("google.strict_scopes")).toBeUndefined();
+    expect(createTestApp({ strict: false }).store.getData("google.strict_scopes")).toBe(false);
+    expect(createTestApp({ strict: true }).store.getData("google.strict_scopes")).toBe(true);
+  });
+
   it("rejects unknown credentials in strict mode before the fallback identity is used", async () => {
     const strictApp = createTestApp({ strict: true, fallback: true }).app;
     for (const credential of ["unknown-google-token", "test-token"]) {

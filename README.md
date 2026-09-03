@@ -1079,6 +1079,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
     google: {
       emulator: google,
       seed: {
+        strict_scopes: false,
         users: [{ email: 'test@example.com', name: 'Test User' }],
       },
     },
@@ -1193,6 +1194,7 @@ export default defineEventHandler(createEmulateHandler({
     google: {
       emulator: google,
       seed: {
+        strict_scopes: false,
         users: [{ email: 'test@example.com', name: 'Test User' }],
       },
     },
