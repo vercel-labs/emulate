@@ -30,7 +30,8 @@ Linear API coverage:
 
 Google resource authorization:
   Set google.strict_scopes: true to require OAuth-issued access tokens and enforce granted scopes on userinfo, Gmail, Calendar, and Drive.
-  Without strict mode, arbitrary bearer tokens retain the permissive fallback behavior.
+  Unknown, expired, revoked, and refresh credentials return 401 UNAUTHENTICATED; valid tokens without a required scope
+  return 403 PERMISSION_DENIED. Without strict mode, arbitrary bearer tokens retain the permissive fallback behavior.
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.

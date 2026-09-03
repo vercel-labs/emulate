@@ -30,6 +30,7 @@ type PendingCode = {
 };
 
 const PENDING_CODE_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_GOOGLE_SCOPES = ["openid", "email", "profile"];
 
 type RefreshTokenRecord = {
   email: string;
@@ -278,7 +279,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
 
       const accessToken = "google_" + randomBytes(20).toString("base64url");
-      const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : [];
+      const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : DEFAULT_GOOGLE_SCOPES;
 
       if (tokenMap) {
         tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
@@ -347,7 +348,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const accessToken = "google_" + randomBytes(20).toString("base64url");
     const refreshToken = "google_refresh_" + randomBytes(24).toString("base64url");
-    const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : [];
+    const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : DEFAULT_GOOGLE_SCOPES;
 
     if (tokenMap) {
       tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });

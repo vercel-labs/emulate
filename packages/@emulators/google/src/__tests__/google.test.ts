@@ -361,6 +361,18 @@ describe("Google plugin integration", () => {
     expect(((await accepted.json()) as { email: string }).email).toBe("testuser@example.com");
   });
 
+  it("records default OIDC scopes when OAuth omits the scope parameter", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "");
+
+    expect(getGoogleAccessTokens(store).get(token.access_token)?.scopes).toEqual(["openid", "email", "profile"]);
+
+    const userinfo = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+      headers: authorization(token.access_token),
+    });
+    expect(userinfo.status).toBe(200);
+  });
+
   it("rejects revoked, expired, and refresh credentials on resources", async () => {
     const { app: strictApp, store } = createTestApp({ strict: true });
     const token = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");

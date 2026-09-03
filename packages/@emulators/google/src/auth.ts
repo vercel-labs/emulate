@@ -39,7 +39,7 @@ const OIDC_USERINFO_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
-const GMAIL_SCOPE = [GMAIL];
+const GMAIL_DELETE_SCOPES = [GMAIL];
 const GMAIL_READ_SCOPES = [GMAIL, GMAIL_METADATA, GMAIL_MODIFY, GMAIL_READONLY];
 const GMAIL_WRITE_SCOPES = [GMAIL, GMAIL_MODIFY];
 const GMAIL_SEND_SCOPES = [GMAIL, GMAIL_COMPOSE, GMAIL_MODIFY, GMAIL_SEND];
@@ -165,7 +165,7 @@ export function gmailScopes(c: Context): string[] {
     return GMAIL_IMPORT_SCOPES;
   }
   if (path.includes("/messages/batchDelete")) {
-    return GMAIL_SCOPE;
+    return GMAIL_DELETE_SCOPES;
   }
   if (path.includes("/messages/batchModify")) {
     return GMAIL_WRITE_SCOPES;
@@ -178,18 +178,19 @@ export function gmailScopes(c: Context): string[] {
   }
   if (path.includes("/threads")) {
     if (method === "GET") return GMAIL_READ_SCOPES;
-    if (method === "DELETE") return GMAIL_SCOPE;
+    if (method === "DELETE") return GMAIL_DELETE_SCOPES;
     return GMAIL_WRITE_SCOPES;
   }
   if (path.includes("/messages/")) {
     if (method === "GET") return GMAIL_READ_SCOPES;
-    if (method === "DELETE") return GMAIL_SCOPE;
+    if (method === "DELETE") return GMAIL_DELETE_SCOPES;
     return GMAIL_WRITE_SCOPES;
   }
   if (path.endsWith("/messages")) {
     return method === "GET" ? GMAIL_READ_SCOPES : GMAIL_IMPORT_SCOPES;
   }
-  if (path.endsWith("/watch") || path.endsWith("/stop") || path.includes("/history")) {
+  if (path.endsWith("/watch") || path.endsWith("/stop")) return GMAIL_READ_SCOPES;
+  if (path.includes("/history")) {
     return GMAIL_READ_SCOPES;
   }
   if (method === "GET") return GMAIL_READ_SCOPES;
