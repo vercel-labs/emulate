@@ -240,6 +240,7 @@ github:
       auto_init: true
 
 google:
+  strict_scopes: false
   users:
     - email: testuser@example.com
       name: Test User
@@ -781,6 +782,13 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
+Google resource authorization is permissive by default for compatibility with existing local tests. Set
+`google.strict_scopes: true` to require OAuth-issued access tokens and enforce the scopes granted by the emulator's
+authorization flow across userinfo, Gmail, Calendar, and Drive. Unknown, expired, revoked, and refresh credentials
+return `401 UNAUTHENTICATED`; valid OAuth access tokens without a required scope return `403 PERMISSION_DENIED` with
+reason `insufficientPermissions`. When strict mode is absent or `false`, arbitrary bearer tokens retain the existing
+fallback behavior.
+
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info
@@ -1278,7 +1286,10 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
 
-**Google**: Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
+**Google**: Standard OAuth 2.0 authorization code flow. Configure clients in the seed config. Strict resource
+authorization is opt-in through `google.strict_scopes: true`; strict mode requires emulator-issued OAuth access tokens,
+honors their granted scopes, and distinguishes invalid credentials from insufficient permissions. Without strict mode,
+arbitrary bearer tokens retain the permissive fallback behavior.
 
 **Slack**: All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation records, and OAuth v2 flow with user picker UI creates scoped bot tokens. Optional strict scope mode returns `missing_scope` when a token lacks a required method scope.
 

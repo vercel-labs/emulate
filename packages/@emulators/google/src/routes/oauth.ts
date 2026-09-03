@@ -14,6 +14,7 @@ import {
   type Store,
 } from "@emulators/core";
 import { getGoogleStore } from "../store.js";
+import { registerGoogleAccessToken, revokeGoogleAccessToken } from "../auth.js";
 import type { GoogleUser } from "../entities.js";
 
 const JWT_SECRET = new TextEncoder().encode("emulate-google-jwt-secret");
@@ -284,6 +285,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       if (tokenMap) {
         tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
       }
+      registerGoogleAccessToken(store, accessToken, {
+        email: user.email,
+        userId: user.id,
+        scopes,
+        clientId: record.clientId,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      });
 
       return c.json({
         access_token: accessToken,
@@ -346,6 +354,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     if (tokenMap) {
       tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
     }
+    registerGoogleAccessToken(store, accessToken, {
+      email: user.email,
+      userId: user.id,
+      scopes,
+      clientId: pending.clientId,
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
     getRefreshTokens(store).set(refreshToken, {
       email: user.email,
       scope: pending.scope,
@@ -411,9 +426,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       token = params.get("token") ?? "";
     }
 
-    if (token && tokenMap) {
-      tokenMap.delete(token);
-    }
+    if (token) revokeGoogleAccessToken(store, token);
+    if (token && tokenMap) tokenMap.delete(token);
     if (token) {
       getRefreshTokens(store).delete(token);
     }

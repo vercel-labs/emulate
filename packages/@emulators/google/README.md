@@ -77,12 +77,20 @@ npm install @emulators/google
 
 ## Auth
 
-Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
+Standard OAuth 2.0 authorization code flow. Configure clients in the seed config. Resource requests are permissive by
+default so existing tests can use configured or arbitrary bearer tokens.
+
+Set `google.strict_scopes: true` to require access tokens issued by the emulator's OAuth flow on Google userinfo,
+Gmail, Calendar, and Drive resources. Strict mode records the granted OAuth scopes, rejects unknown, expired, revoked,
+and refresh tokens with `401 UNAUTHENTICATED`, and returns `403 PERMISSION_DENIED` with
+`insufficientPermissions` for a valid token without the required scope. Leave the option absent or set it to `false` to
+retain the permissive behavior.
 
 ## Seed Configuration
 
 ```yaml
 google:
+  strict_scopes: false
   users:
     - email: testuser@example.com
       name: Test User
