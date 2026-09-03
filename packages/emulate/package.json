@@ -69,6 +69,7 @@
     "@emulators/vercel": "workspace:*",
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
+    "@emulators/polar": "workspace:*",
     "@emulators/clerk": "workspace:*",
     "@emulators/linear": "workspace:*",
     "@emulators/twilio": "workspace:*",
