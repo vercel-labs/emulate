@@ -137,6 +137,9 @@ export function googleStrictAuth(store: Store): MiddlewareHandler {
 
 export function driveScopes(c: Context): string[] {
   if (c.req.method === "GET") {
+    if (new URL(c.req.url).searchParams.get("alt") === "media") {
+      return [DRIVE, DRIVE_FILE, DRIVE_READONLY];
+    }
     return DRIVE_READ_SCOPES;
   }
   if (c.req.method === "PATCH" || c.req.method === "PUT") {

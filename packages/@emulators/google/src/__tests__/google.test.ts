@@ -595,6 +595,12 @@ describe("Google plugin integration", () => {
       headers: authorization(driveMetadata.access_token),
     });
     expect(metadata.status).toBe(200);
+
+    const media = await strictApp.request(`${base}/drive/v3/files/drv_handbook?alt=media`, {
+      headers: authorization(driveMetadata.access_token),
+    });
+    expect(media.status).toBe(403);
+    expectGoogleInsufficientPermissions(await media.json());
   });
 
   it("keeps unknown credentials permissive when strict_scopes is absent or false", async () => {
