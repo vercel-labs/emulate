@@ -15,6 +15,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Slack API", href: "/docs/slack" },
   { name: "Linear API", href: "/docs/linear" },
   { name: "Twilio API", href: "/docs/twilio" },
+  { name: "Airtable API", href: "/docs/airtable" },
   { name: "Apple Sign In", href: "/docs/apple" },
   { name: "Microsoft Entra ID", href: "/docs/microsoft" },
   { name: "AWS", href: "/docs/aws" },

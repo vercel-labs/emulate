@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "airtable",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -626,6 +627,55 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+  airtable: {
+    label: "Airtable Data API emulator",
+    endpoints: "records CRUD, filterByFormula, sort, views, batch, upsert, comments, Meta schema, inspector",
+    async load() {
+      const mod = await import("@emulators/airtable");
+      return { plugin: mod.airtablePlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const user = cfg?.user;
+      const email =
+        user && typeof user === "object" && "email" in user && typeof user.email === "string"
+          ? user.email
+          : "dev@example.com";
+      return { login: email, id: 1, scopes: [] };
+    },
+    initConfig: {
+      airtable: {
+        user: { email: "dev@example.com", name: "Local Developer" },
+        bases: [
+          {
+            id: "appLocalDevExample",
+            name: "Product",
+            tables: [
+              {
+                name: "Tasks",
+                fields: [
+                  { name: "Name", type: "singleLineText" },
+                  {
+                    name: "Status",
+                    type: "singleSelect",
+                    options: {
+                      choices: [
+                        { id: "selTodo00000000001", name: "Todo" },
+                        { id: "selDoing0000000001", name: "Doing" },
+                        { id: "selDone00000000001", name: "Done" },
+                      ],
+                    },
+                  },
+                  { name: "Estimate", type: "number" },
+                ],
+                views: [{ name: "All Tasks", type: "grid" }],
+                records: [{ fields: { Name: "Ship the emulator", Status: "Doing", Estimate: 3 } }],
+              },
+            ],
+          },
+        ],
       },
     },
   },
