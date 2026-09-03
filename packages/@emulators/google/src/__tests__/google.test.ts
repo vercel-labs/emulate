@@ -933,6 +933,49 @@ describe("Google plugin integration", () => {
     expect(((await userinfoRes.json()) as { hd?: string }).hd).toBe("override.io");
   });
 
+  describe("seed from config", () => {
+    it("uses the uid from seed config as the sub claim when provided", async () => {
+      const seedStore = new Store();
+      const webhooks = new WebhookDispatcher();
+      const localTokenMap: TokenMap = new Map();
+      const localApp = new Hono();
+      localApp.onError(createApiErrorHandler());
+      localApp.use("*", createErrorHandler());
+      localApp.use("*", authMiddleware(localTokenMap));
+      googlePlugin.register(localApp as any, seedStore, webhooks, base, localTokenMap);
+      seedFromConfig(seedStore, base, {
+        users: [{ email: "pinned@example.com", uid: "goog_fixed_uid_123" }],
+        oauth_clients: [
+          {
+            client_id: "emu_google_client_id",
+            client_secret: "emu_google_client_secret",
+            name: "Test App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/google"],
+          },
+        ],
+      });
+
+      const authorizeRes = await formRequest(localApp, "/o/oauth2/v2/auth/callback", {
+        email: "pinned@example.com",
+        redirect_uri: "http://localhost:3000/api/auth/callback/google",
+        scope: "openid email profile",
+        client_id: "emu_google_client_id",
+      });
+      const code = new URL(authorizeRes.headers.get("Location")!).searchParams.get("code")!;
+
+      const tokenRes = await formRequest(localApp, "/oauth2/token", {
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: "http://localhost:3000/api/auth/callback/google",
+        client_id: "emu_google_client_id",
+        client_secret: "emu_google_client_secret",
+      });
+      const { id_token } = (await tokenRes.json()) as { id_token: string };
+      const claims = decodeJwt(id_token);
+      expect(claims.sub).toBe("goog_fixed_uid_123");
+    });
+  });
+
   it("lists calendar resources, creates events, queries freebusy, and deletes events", async () => {
     const calendarListRes = await app.request(`${base}/calendar/v3/users/me/calendarList`, {
       headers: authHeaders(),
