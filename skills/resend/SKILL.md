@@ -290,6 +290,32 @@ The emulator dispatches webhook events when state changes:
 - `domain.created` and `domain.deleted` on domain operations
 - `contact.created` and `contact.deleted` on contact operations
 
+## Idempotency
+
+`POST /emails` and `POST /emails/batch` honor the `Idempotency-Key` header, matching Resend's production semantics. The emulator stores the original response keyed on the API key plus the idempotency key, then replays it for retries.
+
+- Same key with the **same payload** → returns the original `200` response (no duplicate email).
+- Same key with a **different payload** → `409 Conflict`.
+- Different key, or no key → normal send.
+
+```bash
+# First call — sends and caches the response
+curl -X POST http://localhost:4000/emails \
+  -H "Authorization: Bearer re_test_key" \
+  -H "Idempotency-Key: signup-user-42" \
+  -H "Content-Type: application/json" \
+  -d '{"from":"hello@example.com","to":"user@example.com","subject":"Hi","html":"<p>Welcome</p>"}'
+
+# Retry with the same key and body — returns the cached response
+curl -X POST http://localhost:4000/emails \
+  -H "Authorization: Bearer re_test_key" \
+  -H "Idempotency-Key: signup-user-42" \
+  -H "Content-Type: application/json" \
+  -d '{"from":"hello@example.com","to":"user@example.com","subject":"Hi","html":"<p>Welcome</p>"}'
+```
+
+Stored emails expose the key as `idempotency_key` on the entity returned by `GET /emails` and `GET /emails/<id>`.
+
 ## Common Patterns
 
 ### Magic Link / Verification Code Flow
