@@ -128,3 +128,19 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+
+aps:
+  users:
+    - email: testuser@autodesk.local
+      name: Test User
+  clients:
+    - client_id: emu_aps_client_id
+      client_secret: emu_aps_client_secret
+      name: Code App (APS)
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/aps
+        - http://localhost:3000/api/auth/oauth2/callback/aps
+    - client_id: emu_aps_desktop_client
+      type: public
+      redirect_uris:
+        - http://localhost:3000/callback

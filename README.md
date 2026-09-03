@@ -24,6 +24,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
+- **Autodesk Platform Services (APS)** on `http://localhost:4014`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -188,7 +189,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'aps'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -978,6 +979,50 @@ To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then ca
 
 Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
 
+## Autodesk Platform Services (APS) OAuth
+
+Autodesk Platform Services (formerly Forge) authentication v2 emulation with the 3-legged authorization code flow, PKCE, the 2-legged client credentials flow, rotating single-use refresh tokens, RS256 access tokens, token introspection and revocation, and OIDC discovery.
+
+- `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /authentication/v2/keys` - JSON Web Key Set (JWKS)
+- `GET /authentication/v2/authorize` - authorization endpoint (shows user picker)
+- `POST /authentication/v2/token` - token exchange (authorization code, refresh token, client credentials)
+- `POST /authentication/v2/revoke` - token revocation
+- `POST /authentication/v2/introspect` - token introspection
+- `GET /authentication/v2/logout` - end session / logout
+- `GET /userinfo` - user profile
+
+Real APS paths map 1:1 onto the emulator:
+
+| Real APS URL | Emulator URL |
+|--------------|--------------|
+| `https://developer.api.autodesk.com/authentication/v2/...` | `$APS_EMULATOR_URL/authentication/v2/...` |
+| `https://api.userprofile.autodesk.com/userinfo` | `$APS_EMULATOR_URL/userinfo` |
+
+With no config, the emulator seeds a confidential client `aps-test-client` / `aps-test-secret`, a public client `aps-test-app`, and a user `testuser@autodesk.local`. Access tokens are RS256 JWTs verifiable against the JWKS endpoint and expire after one hour (`expires_in` 3599). Authorization codes are single use and expire after 5 minutes. Refresh tokens live for 15 days and are single use: every refresh returns a new refresh token, and replaying an already-used refresh token invalidates the whole grant family, matching real APS behavior. PKCE supports `S256` only and is required for public clients.
+
+```yaml
+aps:
+  users:
+    - email: testuser@autodesk.local
+      name: Test User
+  clients:
+    - client_id: aps-test-client
+      client_secret: aps-test-secret
+      name: My APS App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/aps
+        - http://localhost:3000/api/auth/oauth2/callback/aps
+    - client_id: aps-test-app
+      type: public
+      redirect_uris:
+        - http://localhost:3000/callback
+```
+
+Client `type` is inferred when omitted: confidential when a `client_secret` is present, public otherwise.
+
+Current APS limits: only authentication v2 and the user profile endpoint are emulated. Data APIs such as Data Management, Model Derivative, ACC/BIM 360, and APS webhooks are not included yet.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1261,6 +1306,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     linear/         # Linear GraphQL API, OAuth, webhooks
     twilio/         # Twilio Messaging, Verify, Voice, webhooks
+    aps/            # Autodesk Platform Services OAuth 2.0 / OIDC
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1285,6 +1331,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
 
 **Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
+
+**APS**: OAuth 2.0 authorization code flow with PKCE and client credentials grants. Access tokens are RS256 JWTs verifiable against the JWKS endpoint; refresh tokens rotate on every use.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

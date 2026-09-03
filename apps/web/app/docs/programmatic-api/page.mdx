@@ -86,7 +86,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>service</code></td>
       <td><em>(required)</em></td>
-      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'okta'</code>, <code>'aws'</code>, <code>'resend'</code>, <code>'stripe'</code>, <code>'mongoatlas'</code>, <code>'clerk'</code>, or <code>'linear'</code></td>
+      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'okta'</code>, <code>'aws'</code>, <code>'resend'</code>, <code>'stripe'</code>, <code>'mongoatlas'</code>, <code>'clerk'</code>, <code>'linear'</code>, <code>'twilio'</code>, or <code>'aps'</code></td>
     </tr>
     <tr>
       <td><code>port</code></td>
@@ -158,6 +158,7 @@ npm install @emulators/github @emulators/google @emulators/linear
     <tr><td><code>@emulators/google</code></td><td>Google OAuth, Gmail, Calendar, Drive</td></tr>
     <tr><td><code>@emulators/slack</code></td><td>Slack Web API, OAuth v2, webhooks</td></tr>
     <tr><td><code>@emulators/linear</code></td><td>Linear GraphQL API, OAuth, webhooks</td></tr>
+    <tr><td><code>@emulators/twilio</code></td><td>Twilio Messaging, Verify, Voice, webhooks</td></tr>
     <tr><td><code>@emulators/apple</code></td><td>Apple Sign In / OIDC</td></tr>
     <tr><td><code>@emulators/microsoft</code></td><td>Microsoft Entra ID, Graph API</td></tr>
     <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, IAM, STS</td></tr>
@@ -166,6 +167,7 @@ npm install @emulators/github @emulators/google @emulators/linear
     <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
     <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
     <tr><td><code>@emulators/clerk</code></td><td>Clerk Backend API and OAuth</td></tr>
+    <tr><td><code>@emulators/aps</code></td><td>Autodesk Platform Services OAuth 2.0 / OIDC</td></tr>
     <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
     <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
     <tr><td><code>@emulators/adapter-nuxt</code></td><td>Nuxt server route integration</td></tr>
