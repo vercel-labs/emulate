@@ -20,6 +20,8 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `POST /api/chat.scheduledMessages.list` - list pending scheduled messages
 - `POST /api/chat.meMessage` - /me message
 
+Slack message limits are enforced on chat writes and incoming webhooks. Top-level `text` longer than 40,000 characters is truncated and Web API responses include `response_metadata.warnings: ["message_truncated"]`. Message payloads with more than 50 blocks, oversized section/context/header/markdown block text, or more than 100 attachments return Slack-style errors such as `msg_blocks_too_long` or `too_many_attachments`.
+
 ## Conversations
 
 - `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
