@@ -11,6 +11,7 @@ export interface S3Bucket extends Entity {
 export interface S3Object extends Entity {
   bucket_name: string;
   key: string;
+  /** Object bytes, base64-encoded (binary-safe — see s3.ts handlePutObject). */
   body: string;
   content_type: string;
   content_length: number;

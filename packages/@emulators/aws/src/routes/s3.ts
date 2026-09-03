@@ -231,11 +231,13 @@ ${prefixesXml}
       }
     }
 
-    // Store the object
-    const fileContent = await file.text();
+    // Store the object. Read as raw bytes and persist base64 so binary
+    // payloads (audio/images/etc.) survive — `.text()` would UTF-8-mangle them.
+    const fileBuf = Buffer.from(await file.arrayBuffer());
+    const fileContent = fileBuf.toString("base64");
     const contentType = (body["Content-Type"] as string) ?? file.type ?? "application/octet-stream";
-    const etag = md5(fileContent);
-    const contentLength = new TextEncoder().encode(fileContent).byteLength;
+    const etag = md5(fileBuf);
+    const contentLength = fileBuf.byteLength;
 
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
@@ -347,9 +349,15 @@ ${prefixesXml}
       });
     }
 
-    const body = await c.req.text();
+    // Read the raw request bytes and store them base64-encoded. Using
+    // `c.req.text()` here would decode the body as UTF-8 and replace every
+    // non-UTF-8 byte with U+FFFD (EF BF BD), corrupting binary uploads
+    // (audio, images, gzip, …). base64 round-trips any byte exactly.
+    const bodyBuf = Buffer.from(await c.req.arrayBuffer());
+    const body = bodyBuf.toString("base64");
+    const contentLength = bodyBuf.byteLength;
     const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
-    const etag = md5(body);
+    const etag = md5(bodyBuf);
 
     // Extract user metadata (x-amz-meta-*)
     const metadata: Record<string, string> = {};
@@ -367,7 +375,7 @@ ${prefixesXml}
       aws().s3Objects.update(existing.id, {
         body,
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: contentLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -378,7 +386,7 @@ ${prefixesXml}
         key,
         body,
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: contentLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -415,7 +423,9 @@ ${prefixesXml}
       headers[`x-amz-meta-${k}`] = v;
     }
 
-    return c.text(obj.body, 200, headers);
+    // obj.body is base64 (see handlePutObject); decode back to raw bytes so
+    // binary objects stream out byte-for-byte. c.body sends a Uint8Array as-is.
+    return c.body(Buffer.from(obj.body, "base64"), 200, headers);
   };
 
   const handleHeadObject = (c: S3ObjectContext) => {
