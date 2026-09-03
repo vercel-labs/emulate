@@ -530,6 +530,24 @@ describe("Google plugin integration", () => {
     });
     expect(settings.status).toBe(200);
 
+    const settingsReader = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.readonly");
+    const settingsDenied = await strictApp.request(`${base}/gmail/v1/users/me/settings/filters`, {
+      headers: authorization(settingsReader.access_token),
+    });
+    expect(settingsDenied.status).toBe(403);
+    expectGoogleInsufficientPermissions(await settingsDenied.json());
+
+    const sharingToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/gmail.settings.sharing");
+    const sendAs = await strictApp.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
+      headers: authorization(sharingToken.access_token),
+    });
+    expect(sendAs.status).toBe(200);
+
+    const basicSettingsOnSendAs = await strictApp.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
+      headers: authorization(settingsToken.access_token),
+    });
+    expect(basicSettingsOnSendAs.status).toBe(200);
+
     const draftToken = await issueOAuthToken(
       strictApp,
       "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly",
@@ -576,6 +594,12 @@ describe("Google plugin integration", () => {
       }),
     });
     expect(freebusy.status).toBe(200);
+
+    const eventWithFreebusyToken = await strictApp.request(`${base}/calendar/v3/calendars/primary/events`, {
+      headers: authorization(calendarToken.access_token),
+    });
+    expect(eventWithFreebusyToken.status).toBe(403);
+    expectGoogleInsufficientPermissions(await eventWithFreebusyToken.json());
 
     const uploadToken = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.file");
     const upload = await strictApp.request(`${base}/upload/drive/v3/files`, {
@@ -654,11 +678,27 @@ describe("Google plugin integration", () => {
     });
     expect(metadata.status).toBe(200);
 
+    const metadataWriter = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.metadata");
+    const metadataUpdate = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      method: "PATCH",
+      headers: { ...authorization(metadataWriter.access_token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Handbook metadata" }),
+    });
+    expect(metadataUpdate.status).toBe(200);
+
     const media = await strictApp.request(`${base}/drive/v3/files/drv_handbook?alt=media`, {
       headers: authorization(driveMetadata.access_token),
     });
     expect(media.status).toBe(403);
     expectGoogleInsufficientPermissions(await media.json());
+
+    const contentUpdate = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+      method: "PUT",
+      headers: { ...authorization(driveMetadata.access_token), "Content-Type": "text/plain" },
+      body: "not allowed",
+    });
+    expect(contentUpdate.status).toBe(403);
+    expectGoogleInsufficientPermissions(await contentUpdate.json());
   });
 
   it("keeps unknown credentials permissive when strict_scopes is absent or false", async () => {
