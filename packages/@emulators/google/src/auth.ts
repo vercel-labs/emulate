@@ -103,7 +103,7 @@ export function revokeGoogleAccessToken(store: Store, token: string): boolean {
   const tokens = getGoogleAccessTokens(store);
   const record = tokens.get(token);
   if (!record) return false;
-  tokens.set(token, { ...record, revoked: true });
+  record.revoked = true;
   return true;
 }
 

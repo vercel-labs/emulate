@@ -10,7 +10,7 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { googlePlugin, seedFromConfig } from "../index.js";
-import { getGoogleAccessTokens } from "../auth.js";
+import { getGoogleAccessTokens, revokeGoogleAccessToken } from "../auth.js";
 import { buildRawMessage } from "../helpers.js";
 
 const base = "http://localhost:4000";
@@ -539,6 +539,17 @@ describe("Google plugin integration", () => {
     });
     expect(refresh.status).toBe(401);
     expectGoogleUnauthenticated(await refresh.json());
+  });
+
+  it("marks the authoritative access-token record revoked without deleting it", async () => {
+    const { app: strictApp, store } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+    const record = getGoogleAccessTokens(store).get(token.access_token);
+
+    expect(record).toBeDefined();
+    expect(revokeGoogleAccessToken(store, token.access_token)).toBe(true);
+    expect(record?.revoked).toBe(true);
+    expect(getGoogleAccessTokens(store).get(token.access_token)).toBe(record);
   });
 
   it("registers refreshed access tokens as authoritative credentials", async () => {
