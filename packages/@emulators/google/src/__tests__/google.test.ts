@@ -325,6 +325,23 @@ describe("Google plugin integration", () => {
     }
   });
 
+  it("leaves non-resource OAuth endpoints outside the strict resource gate", async () => {
+    const strictApp = createTestApp({ strict: true, fallback: true }).app;
+
+    const discovery = await strictApp.request(`${base}/.well-known/openid-configuration`, {
+      headers: authorization("unknown-google-token"),
+    });
+    expect(discovery.status).toBe(200);
+
+    const revoke = await formRequest(
+      strictApp,
+      "/oauth2/revoke",
+      { token: "unknown-google-token" },
+      { headers: authorization("unknown-google-token") },
+    );
+    expect(revoke.status).toBe(200);
+  });
+
   it("accepts OAuth access tokens with matching Drive, Gmail, and Calendar scopes", async () => {
     const strictApp = createTestApp({ strict: true }).app;
     const token = await issueOAuthToken(
