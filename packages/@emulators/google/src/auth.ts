@@ -87,6 +87,10 @@ export function getGoogleAccessTokens(store: Store): Map<string, GoogleAccessTok
   return tokens;
 }
 
+export function getGoogleAccessToken(store: Store, token: string): GoogleAccessTokenRecord | undefined {
+  return getGoogleAccessTokens(store).get(token);
+}
+
 export function registerGoogleAccessToken(
   store: Store,
   token: string,
@@ -112,8 +116,8 @@ export function googleStrictAuth(store: Store): MiddlewareHandler {
     }
 
     const token = bearerToken(c);
-    const record = token ? getGoogleAccessTokens(store).get(token) : undefined;
-    if (!record || record.revoked || record.expiresAt <= Date.now()) {
+    const record = token ? getGoogleAccessToken(store, token) : undefined;
+    if (!isActiveGoogleAccessToken(record)) {
       return googleApiError(c, 401, "Request had invalid authentication credentials.", "authError", "UNAUTHENTICATED");
     }
 
@@ -133,6 +137,20 @@ export function googleStrictAuth(store: Store): MiddlewareHandler {
 
     await next();
   };
+}
+
+function isActiveGoogleAccessToken(record: GoogleAccessTokenRecord | undefined): record is GoogleAccessTokenRecord {
+  return Boolean(
+    record &&
+    typeof record.email === "string" &&
+    Number.isFinite(record.userId) &&
+    Array.isArray(record.scopes) &&
+    record.scopes.every((scope) => typeof scope === "string") &&
+    typeof record.clientId === "string" &&
+    Number.isFinite(record.expiresAt) &&
+    record.revoked === false &&
+    record.expiresAt > Date.now(),
+  );
 }
 
 export function driveScopes(c: Context): string[] {

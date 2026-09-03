@@ -181,7 +181,7 @@ function createTestApp(options: { strict?: boolean; fallback?: boolean } = {}) {
     ],
   });
 
-  return { app, store };
+  return { app, store, tokenMap };
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -365,6 +365,23 @@ describe("Google plugin integration", () => {
     expect(driveRes.status).toBe(200);
     expect(gmailRes.status).toBe(200);
     expect(calendarRes.status).toBe(200);
+  });
+
+  it("uses the Google authority record instead of a conflicting shared token identity", async () => {
+    const { app: strictApp, tokenMap } = createTestApp({ strict: true });
+    const token = await issueOAuthToken(strictApp, "openid");
+    tokenMap.set(token.access_token, {
+      login: "consumer@gmail.com",
+      id: 2,
+      scopes: ["openid"],
+    });
+
+    const userinfo = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+      headers: authorization(token.access_token),
+    });
+
+    expect(userinfo.status).toBe(200);
+    expect(((await userinfo.json()) as { email: string }).email).toBe("testuser@example.com");
   });
 
   it("requires an OIDC scope for userinfo and preserves OAuth identity", async () => {
