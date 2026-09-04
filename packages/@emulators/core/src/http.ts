@@ -183,12 +183,16 @@ export class Context<E = unknown, P extends string = string> {
   }
 
   finalize(response: Response): Response {
-    if (!hasHeaders(this.responseHeaders)) return response;
+    const isHead = this.req.method === "HEAD";
+    if (!isHead && !hasHeaders(this.responseHeaders)) return response;
     const headers = new Headers(response.headers);
     this.responseHeaders.forEach((value, key) => {
       headers.set(key, value);
     });
-    return new Response(response.body, {
+    // HEAD must carry metadata but no body. A streamed empty body makes Bun
+    // replace Content-Length with chunked encoding, breaking S3 download clients.
+    if (isHead) void response.body?.cancel().catch(() => {});
+    return new Response(isHead ? null : response.body, {
       status: response.status,
       statusText: response.statusText,
       headers,
