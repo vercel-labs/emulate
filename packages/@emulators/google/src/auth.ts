@@ -84,7 +84,7 @@ export function googleStrictAuth(store: Store): MiddlewareHandler {
     }
 
     const record = getGoogleAccessTokens(store).get(token);
-    if (!record || record.revoked || record.expiresAt <= Date.now()) {
+    if (!isValidGoogleAccessTokenRecord(record) || record.expiresAt <= Date.now()) {
       return googleApiError(c, 401, "Request had invalid authentication credentials.", "authError", "UNAUTHENTICATED");
     }
 
@@ -113,9 +113,10 @@ export function driveScopes(c: Context): string[] {
     }
     return [DRIVE, DRIVE_FILE, DRIVE_READONLY, DRIVE_METADATA, DRIVE_METADATA_READONLY];
   }
-  if (c.req.method === "PATCH" || c.req.method === "PUT") {
+  if (c.req.method === "PATCH") {
     return [DRIVE, DRIVE_FILE, DRIVE_METADATA];
   }
+  if (c.req.method === "PUT") return [DRIVE, DRIVE_FILE];
   return [DRIVE, DRIVE_FILE];
 }
 
@@ -130,9 +131,10 @@ export function gmailScopes(c: Context): string[] {
     return method === "GET" ? gmailSettingsReadScopes() : [GMAIL, GMAIL_SETTINGS_SHARING];
   }
   if (method === "DELETE" && /\/(messages|threads)\/[^/]+$/.test(path)) return [GMAIL];
-  if (path.endsWith("/send") || path.includes("/messages/send")) {
+  if (path.includes("/messages/send")) {
     return [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE, GMAIL_SEND];
   }
+  if (path.includes("/drafts/send")) return [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE];
   if (path.includes("/drafts")) {
     return method === "GET"
       ? [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE, GMAIL_READONLY]
@@ -194,6 +196,21 @@ function requiredScopesForRequest(c: Context): string[] | undefined {
 function bearerToken(c: Context): string | undefined {
   const match = /^Bearer\s+(\S+)$/i.exec(c.req.header("Authorization") ?? "");
   return match?.[1];
+}
+
+function isValidGoogleAccessTokenRecord(record: unknown): record is GoogleAccessTokenRecord {
+  if (record === null || typeof record !== "object") return false;
+
+  const candidate = record as Record<string, unknown>;
+  return (
+    typeof candidate.email === "string" &&
+    Number.isFinite(candidate.userId) &&
+    Array.isArray(candidate.scopes) &&
+    candidate.scopes.every((scope) => typeof scope === "string") &&
+    typeof candidate.clientId === "string" &&
+    Number.isFinite(candidate.expiresAt) &&
+    candidate.revoked === false
+  );
 }
 
 function gmailSettingsReadScopes(): string[] {

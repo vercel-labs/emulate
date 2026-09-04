@@ -182,7 +182,7 @@ function createTestApp(options?: { strictScopes?: boolean; useFallback?: boolean
     ],
   });
 
-  return { app };
+  return { app, store };
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -328,6 +328,48 @@ describe("Google plugin integration", () => {
       expect(batchDeleteRes.status).toBe(403);
     });
 
+    it("separates message send and draft send scopes", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const sendToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/gmail.send");
+
+      const messageSendRes = await jsonRequest(strictApp, "/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sendToken.access_token}` },
+        body: { from: "testuser@example.com", to: "partner@example.com", subject: "Sent message" },
+      });
+      expect(messageSendRes.status).toBe(200);
+
+      for (const path of ["/gmail/v1/users/me/drafts/send", "/upload/gmail/v1/users/me/drafts/send"]) {
+        const draftSendRes = await jsonRequest(strictApp, path, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${sendToken.access_token}` },
+          body: { id: "msg_draft" },
+        });
+        expect(draftSendRes.status).toBe(403);
+      }
+
+      const draftToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/gmail.compose");
+      const createDraftRes = await jsonRequest(strictApp, "/gmail/v1/users/me/drafts", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${draftToken.access_token}` },
+        body: {
+          message: {
+            from: "testuser@example.com",
+            to: "partner@example.com",
+            subject: "Draft message",
+          },
+        },
+      });
+      expect(createDraftRes.status).toBe(200);
+      const draft = (await createDraftRes.json()) as { id: string };
+      const draftSendRes = await jsonRequest(strictApp, "/gmail/v1/users/me/drafts/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${draftToken.access_token}` },
+        body: { id: draft.id },
+      });
+      expect(draftSendRes.status).toBe(200);
+    });
+
     it("separates Drive metadata and media access", async () => {
       const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
 
@@ -352,6 +394,82 @@ describe("Google plugin integration", () => {
         headers: { Authorization: `Bearer ${contentToken.access_token}` },
       });
       expect(mediaRes.status).toBe(200);
+
+      const metadataToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/drive.metadata");
+      const putRes = await jsonRequest(strictApp, "/drive/v3/files/drv_handbook", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${metadataToken.access_token}` },
+        body: {},
+      });
+      expect(putRes.status).toBe(403);
+
+      const patchRes = await jsonRequest(strictApp, "/drive/v3/files/drv_handbook", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${metadataToken.access_token}` },
+        body: {},
+      });
+      expect(patchRes.status).toBe(200);
+    });
+
+    it("rejects malformed persisted access token records", async () => {
+      const { app: strictApp, store } = createTestApp({ strictScopes: true, useFallback: true });
+      const records: Array<Record<string, unknown>> = [
+        {
+          email: "testuser@example.com",
+          userId: 1,
+          scopes: ["https://www.googleapis.com/auth/drive"],
+          clientId: "emu_google_client_id",
+          expiresAt: Date.now() + 60_000,
+        },
+        {
+          email: "testuser@example.com",
+          userId: 1,
+          scopes: { drive: true },
+          clientId: "emu_google_client_id",
+          expiresAt: Date.now() + 60_000,
+          revoked: false,
+        },
+        {
+          email: "testuser@example.com",
+          userId: Number.POSITIVE_INFINITY,
+          scopes: ["https://www.googleapis.com/auth/drive"],
+          clientId: "emu_google_client_id",
+          expiresAt: Date.now() + 60_000,
+          revoked: false,
+        },
+        {
+          email: "testuser@example.com",
+          userId: 1,
+          scopes: ["https://www.googleapis.com/auth/drive"],
+          clientId: "emu_google_client_id",
+          expiresAt: Number.POSITIVE_INFINITY,
+          revoked: false,
+        },
+        {
+          email: 123,
+          userId: 1,
+          scopes: ["https://www.googleapis.com/auth/drive"],
+          clientId: "emu_google_client_id",
+          expiresAt: Date.now() + 60_000,
+          revoked: false,
+        },
+        {
+          email: "testuser@example.com",
+          userId: 1,
+          scopes: ["https://www.googleapis.com/auth/drive"],
+          clientId: null,
+          expiresAt: Date.now() + 60_000,
+          revoked: false,
+        },
+      ];
+
+      for (const record of records) {
+        store.setData("google.oauth.accessTokens", new Map([["malformed-token", record]]));
+        const res = await strictApp.request(`${base}/drive/v3/files`, {
+          headers: { Authorization: "Bearer malformed-token" },
+        });
+        expect(res.status).toBe(401);
+      }
     });
 
     it("accepts documented Calendar freebusy and Gmail settings read scopes", async () => {
