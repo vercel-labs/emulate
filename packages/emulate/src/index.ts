@@ -30,6 +30,10 @@ Linear API coverage:
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
+
+Google OAuth authority:
+  Set google.strict_scopes to true in seed config to validate issued tokens, revocation, and API scopes.
+  Strict mode follows Google's method-level scope requirements, including content access for Drive media, content-write scopes for Drive PUT updates, and full mail authority for Gmail deletion and draft sends.
 `,
   );
 

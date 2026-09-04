@@ -240,6 +240,7 @@ github:
       auto_init: true
 
 google:
+  strict_scopes: false
   users:
     - email: testuser@example.com
       name: Test User
@@ -780,6 +781,10 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
+
+OAuth authority checks are relaxed by default so local apps can use simple bearer tokens without completing an OAuth flow. Set `google.strict_scopes: true` in seed config to reject unknown, revoked, expired, and refresh tokens on resource APIs and to enforce granted scopes for userinfo, Gmail, Calendar, and Drive. Strict mode returns Google-style `401` `UNAUTHENTICATED` errors for invalid credentials and `403` `insufficientPermissions` errors for scope misses.
+
+Strict mode follows Google's method-level scope requirements. Drive metadata scopes do not permit `alt=media` downloads, Drive content updates with `PUT` require `drive` or `drive.file` while metadata updates with `PATCH` also accept `drive.metadata`, Gmail `messages.send` accepts `gmail.send` while `drafts.send` requires `https://mail.google.com/`, `gmail.compose`, or `gmail.modify`, Gmail message and thread deletion plus `messages.batchDelete` require `https://mail.google.com/`, and Gmail settings reads accept `gmail.readonly`, `gmail.modify`, or `gmail.settings.basic`.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
