@@ -219,13 +219,15 @@ async function formRequest(app: Hono, path: string, body: Record<string, string>
   });
 }
 
-async function issueGoogleToken(app: Hono, scope: string) {
-  const authorizeRes = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+async function issueGoogleToken(app: Hono, scope?: string) {
+  const authorizationBody: Record<string, string> = {
     email: "testuser@example.com",
     redirect_uri: "http://localhost:3000/api/auth/callback/google",
-    scope,
     client_id: "emu_google_client_id",
-  });
+  };
+  if (scope !== undefined) authorizationBody.scope = scope;
+
+  const authorizeRes = await formRequest(app, "/o/oauth2/v2/auth/callback", authorizationBody);
   const code = new URL(authorizeRes.headers.get("Location")!).searchParams.get("code")!;
   const tokenRes = await formRequest(app, "/oauth2/token", {
     code,
@@ -277,6 +279,138 @@ describe("Google plugin integration", () => {
         });
         expect(res.status).toBe(200);
       }
+    });
+
+    it("enforces operation-specific Gmail scopes", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const insertScopes = [
+        "https://www.googleapis.com/auth/gmail.insert",
+        "https://www.googleapis.com/auth/gmail.modify",
+      ];
+
+      for (const scope of insertScopes) {
+        const token = await issueGoogleToken(strictApp, scope);
+        const importRes = await jsonRequest(strictApp, "/gmail/v1/users/me/messages/import", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token.access_token}` },
+          body: { from: "sender@example.com", to: "testuser@example.com" },
+        });
+        expect(importRes.status).toBe(200);
+
+        const insertRes = await jsonRequest(strictApp, "/gmail/v1/users/me/messages", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token.access_token}` },
+          body: { from: "sender@example.com", to: "testuser@example.com" },
+        });
+        expect(insertRes.status).toBe(200);
+      }
+
+      for (const path of [
+        "/gmail/v1/users/me/messages/batchDelete",
+        "/gmail/v1/users/me/messages/msg_invoice",
+        "/gmail/v1/users/me/threads/thread_billing",
+      ]) {
+        const token = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/gmail.modify");
+        const res = await jsonRequest(strictApp, path, {
+          method: path.endsWith("batchDelete") ? "POST" : "DELETE",
+          headers: { Authorization: `Bearer ${token.access_token}` },
+          body: path.endsWith("batchDelete") ? { ids: ["msg_invoice"] } : undefined,
+        });
+        expect(res.status).toBe(403);
+      }
+
+      const insertOnlyToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/gmail.insert");
+      const batchDeleteRes = await jsonRequest(strictApp, "/gmail/v1/users/me/messages/batchDelete", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${insertOnlyToken.access_token}` },
+        body: { ids: ["msg_invoice"] },
+      });
+      expect(batchDeleteRes.status).toBe(403);
+    });
+
+    it("separates Drive metadata and media access", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+
+      for (const scope of [
+        "https://www.googleapis.com/auth/drive.metadata",
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+      ]) {
+        const token = await issueGoogleToken(strictApp, scope);
+        const metadataRes = await strictApp.request(`${base}/drive/v3/files/drv_handbook`, {
+          headers: { Authorization: `Bearer ${token.access_token}` },
+        });
+        expect(metadataRes.status).toBe(200);
+
+        const mediaRes = await strictApp.request(`${base}/drive/v3/files/drv_handbook?alt=media`, {
+          headers: { Authorization: `Bearer ${token.access_token}` },
+        });
+        expect(mediaRes.status).toBe(403);
+      }
+
+      const contentToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/drive.readonly");
+      const mediaRes = await strictApp.request(`${base}/drive/v3/files/drv_handbook?alt=media`, {
+        headers: { Authorization: `Bearer ${contentToken.access_token}` },
+      });
+      expect(mediaRes.status).toBe(200);
+    });
+
+    it("accepts documented Calendar freebusy and Gmail settings read scopes", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const freeBusyToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/calendar.freebusy");
+      const freeBusyRes = await jsonRequest(strictApp, "/calendar/v3/freeBusy", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${freeBusyToken.access_token}` },
+        body: {
+          timeMin: "2025-01-10T11:00:00.000Z",
+          timeMax: "2025-01-10T14:00:00.000Z",
+          items: [{ id: "primary" }],
+        },
+      });
+      expect(freeBusyRes.status).toBe(200);
+
+      for (const scope of [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.settings.basic",
+      ]) {
+        const token = await issueGoogleToken(strictApp, scope);
+        const settingsRes = await strictApp.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
+          headers: { Authorization: `Bearer ${token.access_token}` },
+        });
+        expect(settingsRes.status).toBe(200);
+      }
+
+      const sharingToken = await issueGoogleToken(strictApp, "https://www.googleapis.com/auth/gmail.settings.sharing");
+      const sharingRes = await strictApp.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
+        headers: { Authorization: `Bearer ${sharingToken.access_token}` },
+      });
+      expect(sharingRes.status).toBe(403);
+    });
+
+    it("stores default OAuth scopes when authorization omits scope", async () => {
+      const strictApp = createTestApp({ strictScopes: true, useFallback: true }).app;
+      const token = await issueGoogleToken(strictApp);
+      expect(token.scope).toBe("openid email profile");
+
+      const userinfoRes = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+        headers: { Authorization: `Bearer ${token.access_token}` },
+      });
+      expect(userinfoRes.status).toBe(200);
+
+      const refreshRes = await formRequest(strictApp, "/oauth2/token", {
+        grant_type: "refresh_token",
+        refresh_token: token.refresh_token,
+        client_id: "emu_google_client_id",
+        client_secret: "emu_google_client_secret",
+      });
+      expect(refreshRes.status).toBe(200);
+      const refreshed = (await refreshRes.json()) as { access_token: string; scope: string };
+      expect(refreshed.scope).toBe("openid email profile");
+
+      const refreshedUserinfoRes = await strictApp.request(`${base}/oauth2/v2/userinfo`, {
+        headers: { Authorization: `Bearer ${refreshed.access_token}` },
+      });
+      expect(refreshedUserinfoRes.status).toBe(200);
     });
 
     it("rejects revoked access tokens", async () => {

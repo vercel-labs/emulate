@@ -782,6 +782,8 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 OAuth authority checks are relaxed by default so local apps can use simple bearer tokens without completing an OAuth flow. Set `google.strict_scopes: true` in seed config to reject unknown, revoked, expired, and refresh tokens on resource APIs and to enforce granted scopes for userinfo, Gmail, Calendar, and Drive. Strict mode returns Google-style `401` `UNAUTHENTICATED` errors for invalid credentials and `403` `insufficientPermissions` errors for scope misses.
 
+Strict mode follows Google's method-level scope requirements. Drive metadata scopes do not permit `alt=media` downloads, Gmail message and thread deletion plus `messages.batchDelete` require `https://mail.google.com/`, and Gmail settings reads accept `gmail.readonly`, `gmail.modify`, or `gmail.settings.basic`.
+
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info

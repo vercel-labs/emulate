@@ -106,6 +106,8 @@ new GoogleStrategy({
 
 OAuth authority checks are relaxed by default. Set `google.strict_scopes: true` to reject unknown, revoked, expired, and refresh tokens on resource APIs and to enforce the scopes granted by the authorization flow for userinfo, Gmail, Calendar, and Drive. Strict mode returns Google-style `401` `UNAUTHENTICATED` errors for invalid credentials and `403` `insufficientPermissions` errors for scope misses.
 
+Strict mode follows Google's method-level scope requirements. Drive metadata scopes do not permit `alt=media` downloads, Gmail message and thread deletion plus `messages.batchDelete` require `https://mail.google.com/`, and Gmail settings reads accept `gmail.readonly`, `gmail.modify`, or `gmail.settings.basic`.
+
 ```yaml
 google:
   strict_scopes: false

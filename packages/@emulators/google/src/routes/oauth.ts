@@ -18,6 +18,7 @@ import type { GoogleUser } from "../entities.js";
 import { registerGoogleAccessToken, revokeGoogleAccessToken } from "../auth.js";
 
 const JWT_SECRET = new TextEncoder().encode("emulate-google-jwt-secret");
+const DEFAULT_OAUTH_SCOPE = "openid email profile";
 
 type PendingCode = {
   email: string;
@@ -133,7 +134,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.get("/o/oauth2/v2/auth", (c) => {
     const client_id = c.req.query("client_id") ?? "";
     const redirect_uri = c.req.query("redirect_uri") ?? "";
-    const scope = c.req.query("scope") ?? "";
+    const scope = normalizeOAuthScope(c.req.query("scope"));
     const state = c.req.query("state") ?? "";
     const nonce = c.req.query("nonce") ?? "";
     const code_challenge = c.req.query("code_challenge") ?? "";
@@ -200,7 +201,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const body = await c.req.parseBody();
     const email = bodyStr(body.email);
     const redirect_uri = bodyStr(body.redirect_uri);
-    const scope = bodyStr(body.scope);
+    const scope = normalizeOAuthScope(bodyStr(body.scope));
     const state = bodyStr(body.state);
     const client_id = bodyStr(body.client_id);
     const nonce = bodyStr(body.nonce);
@@ -280,7 +281,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
 
       const accessToken = "google_" + randomBytes(20).toString("base64url");
-      const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : [];
+      const scope = normalizeOAuthScope(record.scope);
+      const scopes = scope.split(/\s+/).filter(Boolean);
 
       if (tokenMap) {
         tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
@@ -297,7 +299,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         access_token: accessToken,
         token_type: "Bearer",
         expires_in: 3600,
-        scope: record.scope || "openid email profile",
+        scope,
       });
     }
 
@@ -349,7 +351,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const accessToken = "google_" + randomBytes(20).toString("base64url");
     const refreshToken = "google_refresh_" + randomBytes(24).toString("base64url");
-    const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : [];
+    const scopes = pending.scope.split(/\s+/).filter(Boolean);
 
     if (tokenMap) {
       tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
@@ -377,7 +379,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       id_token: idToken,
       token_type: "Bearer",
       expires_in: 3600,
-      scope: pending.scope || "openid email profile",
+      scope: pending.scope,
     });
   });
 
@@ -434,4 +436,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     return c.body(null, 200);
   });
+}
+
+function normalizeOAuthScope(scope: string | undefined): string {
+  const normalized = scope?.trim() ?? "";
+  return normalized || DEFAULT_OAUTH_SCOPE;
 }

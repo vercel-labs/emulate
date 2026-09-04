@@ -28,7 +28,8 @@ const CALENDAR_EVENTS = "https://www.googleapis.com/auth/calendar.events";
 const CALENDAR_EVENTS_READONLY = "https://www.googleapis.com/auth/calendar.events.readonly";
 const CALENDAR_EVENTS_OWNED = "https://www.googleapis.com/auth/calendar.events.owned";
 const CALENDAR_EVENTS_OWNED_READONLY = "https://www.googleapis.com/auth/calendar.events.owned.readonly";
-const CALENDAR_FREEBUSY = "https://www.googleapis.com/auth/calendar.events.freebusy";
+const CALENDAR_EVENTS_FREEBUSY = "https://www.googleapis.com/auth/calendar.events.freebusy";
+const CALENDAR_FREEBUSY = "https://www.googleapis.com/auth/calendar.freebusy";
 
 export interface GoogleAccessTokenRecord {
   email: string;
@@ -107,6 +108,9 @@ export function googleStrictAuth(store: Store): MiddlewareHandler {
 
 export function driveScopes(c: Context): string[] {
   if (c.req.method === "GET") {
+    if (new URL(c.req.url).searchParams.get("alt") === "media") {
+      return [DRIVE, DRIVE_FILE, DRIVE_READONLY];
+    }
     return [DRIVE, DRIVE_FILE, DRIVE_READONLY, DRIVE_METADATA, DRIVE_METADATA_READONLY];
   }
   if (c.req.method === "PATCH" || c.req.method === "PUT") {
@@ -119,10 +123,13 @@ export function gmailScopes(c: Context): string[] {
   const path = new URL(c.req.url).pathname;
   const method = c.req.method;
 
-  if (path.includes("/settings/filters")) return [GMAIL, GMAIL_SETTINGS_BASIC];
-  if (path.includes("/settings/forwardingAddresses") || path.includes("/settings/sendAs")) {
-    return [GMAIL, GMAIL_SETTINGS_BASIC, GMAIL_SETTINGS_SHARING];
+  if (path.includes("/settings/filters")) {
+    return method === "GET" ? gmailSettingsReadScopes() : [GMAIL, GMAIL_SETTINGS_BASIC];
   }
+  if (path.includes("/settings/forwardingAddresses") || path.includes("/settings/sendAs")) {
+    return method === "GET" ? gmailSettingsReadScopes() : [GMAIL, GMAIL_SETTINGS_SHARING];
+  }
+  if (method === "DELETE" && /\/(messages|threads)\/[^/]+$/.test(path)) return [GMAIL];
   if (path.endsWith("/send") || path.includes("/messages/send")) {
     return [GMAIL, GMAIL_MODIFY, GMAIL_COMPOSE, GMAIL_SEND];
   }
@@ -136,8 +143,9 @@ export function gmailScopes(c: Context): string[] {
       ? [GMAIL, GMAIL_MODIFY, GMAIL_READONLY, GMAIL_METADATA, GMAIL_LABELS]
       : [GMAIL, GMAIL_MODIFY, GMAIL_LABELS];
   }
-  if (path.includes("/messages/import") || path.includes("/messages/batchDelete")) {
-    return [GMAIL, GMAIL_INSERT];
+  if (path.endsWith("/messages/batchDelete")) return [GMAIL];
+  if (path.endsWith("/messages/import") || (method === "POST" && path.endsWith("/messages"))) {
+    return [GMAIL, GMAIL_INSERT, GMAIL_MODIFY];
   }
   if (method === "GET") return [GMAIL, GMAIL_MODIFY, GMAIL_READONLY, GMAIL_METADATA];
   return [GMAIL, GMAIL_MODIFY];
@@ -148,7 +156,9 @@ export function calendarScopes(c: Context): string[] {
   if (path.includes("/calendarList")) {
     return [CALENDAR, CALENDAR_READONLY, CALENDAR_LIST, CALENDAR_LIST_READONLY];
   }
-  if (path.endsWith("/freeBusy")) return [CALENDAR, CALENDAR_READONLY, CALENDAR_FREEBUSY];
+  if (path.endsWith("/freeBusy")) {
+    return [CALENDAR, CALENDAR_READONLY, CALENDAR_EVENTS_FREEBUSY, CALENDAR_FREEBUSY];
+  }
   if (c.req.method === "GET") {
     return [
       CALENDAR,
@@ -184,4 +194,8 @@ function requiredScopesForRequest(c: Context): string[] | undefined {
 function bearerToken(c: Context): string | undefined {
   const match = /^Bearer\s+(\S+)$/i.exec(c.req.header("Authorization") ?? "");
   return match?.[1];
+}
+
+function gmailSettingsReadScopes(): string[] {
+  return [GMAIL, GMAIL_MODIFY, GMAIL_READONLY, GMAIL_SETTINGS_BASIC];
 }
