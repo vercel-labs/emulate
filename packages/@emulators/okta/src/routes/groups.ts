@@ -10,6 +10,7 @@ import {
   userResponse,
 } from "../route-helpers.js";
 import { getOktaStore } from "../store.js";
+import { InvalidSearchError, filterGroups } from "../search.js";
 
 export function groupRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const oktaStore = getOktaStore(store);
@@ -22,6 +23,21 @@ export function groupRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     let groups = oktaStore.groups.all();
     if (q) {
       groups = groups.filter((group) => `${group.name} ${group.description ?? ""}`.toLowerCase().includes(q));
+    }
+    // Okta's `search` and `filter` take SCIM-style expressions such as
+    // `profile.name eq "Everyone"`. Both are evaluated here so a lookup by
+    // exact name returns that group rather than the first page of all of them.
+    for (const param of ["search", "filter"] as const) {
+      const expression = c.req.query(param);
+      if (!expression) continue;
+      try {
+        groups = filterGroups(groups, expression);
+      } catch (error) {
+        if (error instanceof InvalidSearchError) {
+          return oktaError(c, 400, "E0000031", "The search filter is invalid", [{ errorSummary: error.message }]);
+        }
+        throw error;
+      }
     }
     const { page, per_page } = parsePagination(c);
     const total = groups.length;
