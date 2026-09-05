@@ -10,6 +10,7 @@ import {
   requireSlackScopes,
   slackError,
   slackOk,
+  onGetOrPost,
 } from "../helpers.js";
 
 export function pinsRoutes(ctx: RouteContext): void {
@@ -31,7 +32,7 @@ export function pinsRoutes(ctx: RouteContext): void {
       .pins.all()
       .find((pin) => pin.channel_id === channelId && pin.message_ts === timestamp);
 
-  app.post("/api/pins.add", async (c) => {
+  onGetOrPost(app, "/api/pins.add", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["pins:write"]);
@@ -106,7 +107,7 @@ export function pinsRoutes(ctx: RouteContext): void {
   app.get("/api/pins.list", pinList);
   app.post("/api/pins.list", pinList);
 
-  app.post("/api/pins.remove", async (c) => {
+  onGetOrPost(app, "/api/pins.remove", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["pins:write"]);

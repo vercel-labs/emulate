@@ -186,7 +186,7 @@ export function filesRoutes(ctx: RouteContext): void {
     return c.text("OK");
   });
 
-  app.post("/api/files.completeUploadExternal", async (c) => {
+  onGetOrPost(app, "/api/files.completeUploadExternal", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["files:write"]);
@@ -393,7 +393,7 @@ export function filesRoutes(ctx: RouteContext): void {
     });
   });
 
-  app.post("/api/files.delete", async (c) => {
+  onGetOrPost(app, "/api/files.delete", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["files:write"]);

@@ -114,7 +114,7 @@ export function chatRoutes(ctx: RouteContext): void {
     findChannel(channel) ?? (await findOrCreateDirectMessage(authUser, channel));
 
   // chat.postMessage
-  app.post("/api/chat.postMessage", async (c) => {
+  onGetOrPost(app, "/api/chat.postMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);
@@ -188,7 +188,7 @@ export function chatRoutes(ctx: RouteContext): void {
   });
 
   // chat.postEphemeral
-  app.post("/api/chat.postEphemeral", async (c) => {
+  onGetOrPost(app, "/api/chat.postEphemeral", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);
@@ -235,7 +235,7 @@ export function chatRoutes(ctx: RouteContext): void {
   });
 
   // chat.update
-  app.post("/api/chat.update", async (c) => {
+  onGetOrPost(app, "/api/chat.update", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);
@@ -306,7 +306,7 @@ export function chatRoutes(ctx: RouteContext): void {
   });
 
   // chat.delete
-  app.post("/api/chat.delete", async (c) => {
+  onGetOrPost(app, "/api/chat.delete", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);
@@ -384,7 +384,7 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.getPermalink", getPermalink);
 
   // chat.scheduleMessage
-  app.post("/api/chat.scheduleMessage", async (c) => {
+  onGetOrPost(app, "/api/chat.scheduleMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);
@@ -435,7 +435,7 @@ export function chatRoutes(ctx: RouteContext): void {
   });
 
   // chat.deleteScheduledMessage
-  app.post("/api/chat.deleteScheduledMessage", async (c) => {
+  onGetOrPost(app, "/api/chat.deleteScheduledMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);
@@ -521,7 +521,7 @@ export function chatRoutes(ctx: RouteContext): void {
   });
 
   // chat.meMessage
-  app.post("/api/chat.meMessage", async (c) => {
+  onGetOrPost(app, "/api/chat.meMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);

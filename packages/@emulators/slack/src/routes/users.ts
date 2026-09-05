@@ -209,10 +209,10 @@ export function usersRoutes(ctx: RouteContext): void {
 
   app.get("/api/users.profile.get", profileGet);
   app.post("/api/users.profile.get", profileGet);
-  app.post("/api/users.profile.set", profileSet);
+  onGetOrPost(app, "/api/users.profile.set", profileSet);
   app.get("/api/users.getPresence", getPresence);
   app.post("/api/users.getPresence", getPresence);
-  app.post("/api/users.setPresence", setPresence);
+  onGetOrPost(app, "/api/users.setPresence", setPresence);
 }
 
 function formatUser(u: SlackUser, includeEmail = true) {

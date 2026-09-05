@@ -29,7 +29,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
     !channel.is_private || isAuthChannelMember(channel, authUser);
 
   // reactions.add
-  app.post("/api/reactions.add", async (c) => {
+  onGetOrPost(app, "/api/reactions.add", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["reactions:write"]);
@@ -85,7 +85,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
   });
 
   // reactions.remove
-  app.post("/api/reactions.remove", async (c) => {
+  onGetOrPost(app, "/api/reactions.remove", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["reactions:write"]);

@@ -16,7 +16,7 @@ export function authRoutes(ctx: RouteContext): void {
   });
 
   // auth.test - verify token, return user/team info
-  app.post("/api/auth.test", (c) => {
+  onGetOrPost(app, "/api/auth.test", (c) => {
     const authUser = c.get("authUser");
     if (!authUser) {
       return slackError(c, "not_authed");

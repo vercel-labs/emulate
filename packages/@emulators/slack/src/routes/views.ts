@@ -1,7 +1,15 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackJsonObject, SlackToken, SlackView, SlackViewType } from "../entities.js";
 import { getSlackStore } from "../store.js";
-import { formatSlackView, generateSlackId, generateTs, parseSlackBody, slackError, slackOk } from "../helpers.js";
+import {
+  formatSlackView,
+  generateSlackId,
+  generateTs,
+  parseSlackBody,
+  slackError,
+  slackOk,
+  onGetOrPost,
+} from "../helpers.js";
 
 interface ParsedViewPayload {
   type: SlackViewType;
@@ -31,7 +39,7 @@ export function viewsRoutes(ctx: RouteContext): void {
   const ss = () => getSlackStore(store);
   const teamId = () => ss().teams.all()[0]?.team_id ?? "T000000001";
 
-  app.post("/api/views.publish", async (c) => {
+  onGetOrPost(app, "/api/views.publish", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -78,7 +86,7 @@ export function viewsRoutes(ctx: RouteContext): void {
     return slackOk(c, { view: formatSlackView(updated) });
   });
 
-  app.post("/api/views.open", async (c) => {
+  onGetOrPost(app, "/api/views.open", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -102,7 +110,7 @@ export function viewsRoutes(ctx: RouteContext): void {
     return slackOk(c, { view: formatSlackView(view) });
   });
 
-  app.post("/api/views.update", async (c) => {
+  onGetOrPost(app, "/api/views.update", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -130,7 +138,7 @@ export function viewsRoutes(ctx: RouteContext): void {
     return slackOk(c, { view: formatSlackView(updated) });
   });
 
-  app.post("/api/views.push", async (c) => {
+  onGetOrPost(app, "/api/views.push", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -160,7 +168,7 @@ export function viewsRoutes(ctx: RouteContext): void {
     return slackOk(c, { view: formatSlackView(view) });
   });
 
-  app.post("/api/views.generateTriggerId", async (c) => {
+  onGetOrPost(app, "/api/views.generateTriggerId", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
