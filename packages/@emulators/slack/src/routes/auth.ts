@@ -1,10 +1,19 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { slackOk, slackError } from "../helpers.js";
+import { parseSlackBody, slackOk, slackError, onGetOrPost } from "../helpers.js";
 
 export function authRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
   const ss = () => getSlackStore(store);
+
+  // api.test - no auth; echoes the arguments back, the way Slack's ping does
+  onGetOrPost(app, "/api/api.test", async (c) => {
+    const args = await parseSlackBody(c);
+    if (typeof args.error === "string" && args.error) {
+      return slackError(c, args.error);
+    }
+    return slackOk(c, { args });
+  });
 
   // auth.test - verify token, return user/team info
   app.post("/api/auth.test", (c) => {

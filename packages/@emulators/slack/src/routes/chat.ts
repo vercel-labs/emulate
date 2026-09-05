@@ -16,6 +16,7 @@ import {
   setSlackConversationOpenState,
   slackError,
   slackOk,
+  onGetOrPost,
 } from "../helpers.js";
 
 export function chatRoutes(ctx: RouteContext): void {
@@ -462,7 +463,7 @@ export function chatRoutes(ctx: RouteContext): void {
   });
 
   // chat.scheduledMessages.list
-  app.post("/api/chat.scheduledMessages.list", async (c) => {
+  onGetOrPost(app, "/api/chat.scheduledMessages.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["chat:write"]);

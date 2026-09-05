@@ -1,7 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import type { SlackBookmark, SlackChannel, SlackUser } from "../entities.js";
 import { getSlackStore } from "../store.js";
-import { generateSlackId, parseSlackBody, requireSlackScopes, slackError, slackOk } from "../helpers.js";
+import { generateSlackId, parseSlackBody, requireSlackScopes, slackError, slackOk, onGetOrPost } from "../helpers.js";
 
 export function bookmarksRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -105,7 +105,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
     return slackOk(c, { bookmark: formatBookmark(updated) });
   });
 
-  app.post("/api/bookmarks.list", async (c) => {
+  onGetOrPost(app, "/api/bookmarks.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["bookmarks:read"]);

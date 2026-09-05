@@ -12,6 +12,14 @@ export interface SlackCoverageEntry {
 export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "auth",
+    method: "api.test",
+    route: ["GET /api/api.test", "POST /api/api.test"],
+    status: "supported",
+    testedBy: ["get-methods.test.ts"],
+    notes: "No-auth ping that echoes its arguments; an `error` argument is echoed as the error.",
+  },
+  {
+    family: "auth",
     method: "auth.test",
     route: "POST /api/auth.test",
     status: "supported",
@@ -78,7 +86,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.scheduledMessages.list",
-    route: "POST /api/chat.scheduledMessages.list",
+    route: ["GET /api/chat.scheduledMessages.list", "POST /api/chat.scheduledMessages.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists pending scheduled messages with channel, time range, and simple cursor filters.",
@@ -94,7 +102,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.list",
-    route: "POST /api/conversations.list",
+    route: ["GET /api/conversations.list", "POST /api/conversations.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes:
@@ -103,7 +111,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.info",
-    route: "POST /api/conversations.info",
+    route: ["GET /api/conversations.info", "POST /api/conversations.info"],
     status: "supported",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded channel metadata.",
@@ -164,17 +172,17 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.history",
-    route: "POST /api/conversations.history",
+    route: ["GET /api/conversations.history", "POST /api/conversations.history"],
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Returns top level messages for a channel, including rich message fields. Time filtering is future work.",
   },
   {
     family: "conversations",
     method: "conversations.replies",
-    route: "POST /api/conversations.replies",
+    route: ["GET /api/conversations.replies", "POST /api/conversations.replies"],
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Returns parent and replies for a thread, including rich message fields.",
   },
   {
@@ -196,7 +204,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.members",
-    route: "POST /api/conversations.members",
+    route: ["GET /api/conversations.members", "POST /api/conversations.members"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns channel member ids with empty next cursor.",
@@ -245,7 +253,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "users",
     method: "users.list",
-    route: "POST /api/users.list",
+    route: ["GET /api/users.list", "POST /api/users.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists active users with simple cursor pagination.",
@@ -253,17 +261,17 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "users",
     method: "users.info",
-    route: "POST /api/users.info",
+    route: ["GET /api/users.info", "POST /api/users.info"],
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Returns seeded user profile data.",
   },
   {
     family: "users",
     method: "users.lookupByEmail",
-    route: "POST /api/users.lookupByEmail",
+    route: ["GET /api/users.lookupByEmail", "POST /api/users.lookupByEmail"],
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Looks up seeded users by email.",
   },
   {
@@ -318,7 +326,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "reactions",
     method: "reactions.get",
-    route: "POST /api/reactions.get",
+    route: ["GET /api/reactions.get", "POST /api/reactions.get"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns reactions for message items only.",
@@ -366,7 +374,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bookmarks",
     method: "bookmarks.list",
-    route: "POST /api/bookmarks.list",
+    route: ["GET /api/bookmarks.list", "POST /api/bookmarks.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists local link bookmarks for a channel.",
@@ -422,7 +430,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "team",
     method: "team.info",
-    route: "POST /api/team.info",
+    route: ["GET /api/team.info", "POST /api/team.info"],
     status: "supported",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded workspace metadata.",
@@ -430,7 +438,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bots",
     method: "bots.info",
-    route: "POST /api/bots.info",
+    route: ["GET /api/bots.info", "POST /api/bots.info"],
     status: "partial",
     testedBy: ["slack-sdk.test.ts"],
     notes: "Returns bot metadata when a bot is seeded.",
@@ -480,9 +488,9 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "files",
     method: "files.getUploadURLExternal",
-    route: "POST /api/files.getUploadURLExternal",
+    route: ["GET /api/files.getUploadURLExternal", "POST /api/files.getUploadURLExternal"],
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Creates a local upload session and returns an emulator upload URL plus file id.",
   },
   {

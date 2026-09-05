@@ -18,6 +18,7 @@ import {
   requireSlackScopes,
   slackError,
   slackOk,
+  onGetOrPost,
 } from "../helpers.js";
 
 export function filesRoutes(ctx: RouteContext): void {
@@ -136,7 +137,7 @@ export function filesRoutes(ctx: RouteContext): void {
     return { key: `user:${targetUser.user_id}`, directUserId: targetUser.user_id };
   };
 
-  app.post("/api/files.getUploadURLExternal", async (c) => {
+  onGetOrPost(app, "/api/files.getUploadURLExternal", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["files:write"]);

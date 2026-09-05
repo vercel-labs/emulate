@@ -15,6 +15,7 @@ import {
   slackConversationWriteScope,
   slackError,
   slackOk,
+  onGetOrPost,
 } from "../helpers.js";
 
 export function conversationsRoutes(ctx: RouteContext): void {
@@ -131,7 +132,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   };
 
   // conversations.list
-  app.post("/api/conversations.list", async (c) => {
+  onGetOrPost(app, "/api/conversations.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -168,7 +169,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.info
-  app.post("/api/conversations.info", async (c) => {
+  onGetOrPost(app, "/api/conversations.info", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -428,7 +429,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.history
-  app.post("/api/conversations.history", async (c) => {
+  onGetOrPost(app, "/api/conversations.history", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -471,7 +472,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.replies
-  app.post("/api/conversations.replies", async (c) => {
+  onGetOrPost(app, "/api/conversations.replies", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -807,7 +808,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.members
-  app.post("/api/conversations.members", async (c) => {
+  onGetOrPost(app, "/api/conversations.members", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
