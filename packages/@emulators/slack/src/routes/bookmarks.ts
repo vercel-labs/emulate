@@ -1,7 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import type { SlackBookmark, SlackChannel, SlackUser } from "../entities.js";
 import { getSlackStore } from "../store.js";
-import { generateSlackId, parseSlackBody, requireSlackScopes, slackError, slackOk } from "../helpers.js";
+import { generateSlackId, parseSlackBody, requireSlackScopes, slackError, slackOk, onGetOrPost } from "../helpers.js";
 
 export function bookmarksRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -14,7 +14,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
   const canReadConversation = (channel: SlackChannel, user: SlackUser | undefined, userId: string) =>
     !channel.is_private || isChannelMember(channel, user, userId);
 
-  app.post("/api/bookmarks.add", async (c) => {
+  onGetOrPost(app, "/api/bookmarks.add", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["bookmarks:write"]);
@@ -66,7 +66,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
     return slackOk(c, { bookmark: formatBookmark(bookmark) });
   });
 
-  app.post("/api/bookmarks.edit", async (c) => {
+  onGetOrPost(app, "/api/bookmarks.edit", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["bookmarks:write"]);
@@ -105,7 +105,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
     return slackOk(c, { bookmark: formatBookmark(updated) });
   });
 
-  app.post("/api/bookmarks.list", async (c) => {
+  onGetOrPost(app, "/api/bookmarks.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["bookmarks:read"]);
@@ -128,7 +128,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
     return slackOk(c, { bookmarks });
   });
 
-  app.post("/api/bookmarks.remove", async (c) => {
+  onGetOrPost(app, "/api/bookmarks.remove", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["bookmarks:write"]);

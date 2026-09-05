@@ -1,7 +1,14 @@
 import type { RouteContext } from "@emulators/core";
 import type { SlackChannel } from "../entities.js";
 import { getSlackStore } from "../store.js";
-import { formatSlackMessage, slackOk, slackError, parseSlackBody, requireSlackScopes } from "../helpers.js";
+import {
+  formatSlackMessage,
+  slackOk,
+  slackError,
+  parseSlackBody,
+  requireSlackScopes,
+  onGetOrPost,
+} from "../helpers.js";
 
 export function reactionsRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
@@ -22,7 +29,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
     !channel.is_private || isAuthChannelMember(channel, authUser);
 
   // reactions.add
-  app.post("/api/reactions.add", async (c) => {
+  onGetOrPost(app, "/api/reactions.add", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["reactions:write"]);
@@ -78,7 +85,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
   });
 
   // reactions.remove
-  app.post("/api/reactions.remove", async (c) => {
+  onGetOrPost(app, "/api/reactions.remove", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["reactions:write"]);
@@ -132,7 +139,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
   });
 
   // reactions.get
-  app.post("/api/reactions.get", async (c) => {
+  onGetOrPost(app, "/api/reactions.get", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["reactions:read"]);

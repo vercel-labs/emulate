@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { Context } from "@emulators/core";
+import type { AppEnv, Context, Handler, Hono } from "@emulators/core";
 import type { ContentfulStatusCode } from "@emulators/core";
 import type { Store } from "@emulators/core";
 import type {
@@ -123,7 +123,21 @@ export function slackConversationJoinScope(ch: SlackChannel): SlackScopeRequirem
   return ["channels:join", "channels:write"];
 }
 
+/**
+ * Register a Web API method for both verbs. Slack accepts GET as well as POST,
+ * and its SDKs send the read methods as GET with query parameters.
+ */
+export function onGetOrPost(app: Hono<AppEnv>, path: string, handler: Handler<AppEnv>): void {
+  app.get(path, handler);
+  app.post(path, handler);
+}
+
 export async function parseSlackBody(c: Context): Promise<Record<string, unknown>> {
+  // Slack accepts a method's arguments in the query string as well as the body,
+  // and its SDKs send the read methods (users.info, conversations.history,
+  // files.getUploadURLExternal, ...) as GET with query parameters. Body values
+  // win over query values when both are present.
+  const result: Record<string, unknown> = Object.fromEntries(new URL(c.req.url).searchParams);
   const contentType = c.req.header("Content-Type") ?? "";
   const rawText = await c.req.text();
 
@@ -131,17 +145,16 @@ export async function parseSlackBody(c: Context): Promise<Record<string, unknown
     try {
       const parsed = JSON.parse(rawText) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
+        return { ...result, ...(parsed as Record<string, unknown>) };
       }
-      return {};
+      return result;
     } catch {
-      return {};
+      return result;
     }
   }
 
   // Slack SDKs send application/x-www-form-urlencoded by default
   const params = new URLSearchParams(rawText);
-  const result: Record<string, unknown> = {};
   for (const [key, value] of params) {
     result[key] = value;
   }

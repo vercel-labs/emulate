@@ -15,6 +15,7 @@ import {
   slackConversationWriteScope,
   slackError,
   slackOk,
+  onGetOrPost,
 } from "../helpers.js";
 
 export function conversationsRoutes(ctx: RouteContext): void {
@@ -131,7 +132,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   };
 
   // conversations.list
-  app.post("/api/conversations.list", async (c) => {
+  onGetOrPost(app, "/api/conversations.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -168,7 +169,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.info
-  app.post("/api/conversations.info", async (c) => {
+  onGetOrPost(app, "/api/conversations.info", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -187,7 +188,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.create
-  app.post("/api/conversations.create", async (c) => {
+  onGetOrPost(app, "/api/conversations.create", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -230,7 +231,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.archive
-  app.post("/api/conversations.archive", async (c) => {
+  onGetOrPost(app, "/api/conversations.archive", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -264,7 +265,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.unarchive
-  app.post("/api/conversations.unarchive", async (c) => {
+  onGetOrPost(app, "/api/conversations.unarchive", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -304,7 +305,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.rename
-  app.post("/api/conversations.rename", async (c) => {
+  onGetOrPost(app, "/api/conversations.rename", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -354,7 +355,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.setTopic
-  app.post("/api/conversations.setTopic", async (c) => {
+  onGetOrPost(app, "/api/conversations.setTopic", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -391,7 +392,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.setPurpose
-  app.post("/api/conversations.setPurpose", async (c) => {
+  onGetOrPost(app, "/api/conversations.setPurpose", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -428,7 +429,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.history
-  app.post("/api/conversations.history", async (c) => {
+  onGetOrPost(app, "/api/conversations.history", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -471,7 +472,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.replies
-  app.post("/api/conversations.replies", async (c) => {
+  onGetOrPost(app, "/api/conversations.replies", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -500,7 +501,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.join
-  app.post("/api/conversations.join", async (c) => {
+  onGetOrPost(app, "/api/conversations.join", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -534,7 +535,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.leave
-  app.post("/api/conversations.leave", async (c) => {
+  onGetOrPost(app, "/api/conversations.leave", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -567,7 +568,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.invite
-  app.post("/api/conversations.invite", async (c) => {
+  onGetOrPost(app, "/api/conversations.invite", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -622,7 +623,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.kick
-  app.post("/api/conversations.kick", async (c) => {
+  onGetOrPost(app, "/api/conversations.kick", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -661,7 +662,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.open
-  app.post("/api/conversations.open", async (c) => {
+  onGetOrPost(app, "/api/conversations.open", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -754,7 +755,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.close
-  app.post("/api/conversations.close", async (c) => {
+  onGetOrPost(app, "/api/conversations.close", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -779,7 +780,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.mark
-  app.post("/api/conversations.mark", async (c) => {
+  onGetOrPost(app, "/api/conversations.mark", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 
@@ -807,7 +808,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 
   // conversations.members
-  app.post("/api/conversations.members", async (c) => {
+  onGetOrPost(app, "/api/conversations.members", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
 

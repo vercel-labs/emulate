@@ -1,13 +1,13 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { slackOk, slackError, parseSlackBody, requireSlackScopes } from "../helpers.js";
+import { slackOk, slackError, parseSlackBody, requireSlackScopes, onGetOrPost } from "../helpers.js";
 
 export function teamRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
   const ss = () => getSlackStore(store);
 
   // team.info
-  app.post("/api/team.info", (c) => {
+  onGetOrPost(app, "/api/team.info", (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["team:read"]);
@@ -26,7 +26,7 @@ export function teamRoutes(ctx: RouteContext): void {
   });
 
   // bots.info
-  app.post("/api/bots.info", async (c) => {
+  onGetOrPost(app, "/api/bots.info", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["users:read"]);

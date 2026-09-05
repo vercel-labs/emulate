@@ -8,6 +8,7 @@ import {
   requireSlackScopes,
   isSlackStrictScopes,
   hasSlackScope,
+  onGetOrPost,
 } from "../helpers.js";
 import type { SlackManualPresence, SlackPresence, SlackUser, SlackUserProfile } from "../entities.js";
 
@@ -19,7 +20,7 @@ export function usersRoutes(ctx: RouteContext): void {
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
 
   // users.list
-  app.post("/api/users.list", async (c) => {
+  onGetOrPost(app, "/api/users.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["users:read"]);
@@ -49,7 +50,7 @@ export function usersRoutes(ctx: RouteContext): void {
   });
 
   // users.info
-  app.post("/api/users.info", async (c) => {
+  onGetOrPost(app, "/api/users.info", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["users:read"]);
@@ -65,7 +66,7 @@ export function usersRoutes(ctx: RouteContext): void {
   });
 
   // users.lookupByEmail
-  app.post("/api/users.lookupByEmail", async (c) => {
+  onGetOrPost(app, "/api/users.lookupByEmail", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
     const scopeError = requireSlackScopes(c, store, ["users:read.email"]);
@@ -208,10 +209,10 @@ export function usersRoutes(ctx: RouteContext): void {
 
   app.get("/api/users.profile.get", profileGet);
   app.post("/api/users.profile.get", profileGet);
-  app.post("/api/users.profile.set", profileSet);
+  onGetOrPost(app, "/api/users.profile.set", profileSet);
   app.get("/api/users.getPresence", getPresence);
   app.post("/api/users.getPresence", getPresence);
-  app.post("/api/users.setPresence", setPresence);
+  onGetOrPost(app, "/api/users.setPresence", setPresence);
 }
 
 function formatUser(u: SlackUser, includeEmail = true) {

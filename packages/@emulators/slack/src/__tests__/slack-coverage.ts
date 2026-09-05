@@ -12,8 +12,16 @@ export interface SlackCoverageEntry {
 export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "auth",
+    method: "api.test",
+    route: ["GET /api/api.test", "POST /api/api.test"],
+    status: "supported",
+    testedBy: ["get-methods.test.ts"],
+    notes: "No-auth ping that echoes its arguments; an `error` argument is echoed as the error.",
+  },
+  {
+    family: "auth",
     method: "auth.test",
-    route: "POST /api/auth.test",
+    route: ["GET /api/auth.test", "POST /api/auth.test"],
     status: "supported",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Bearer token auth returns user and team identity.",
@@ -21,7 +29,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.postMessage",
-    route: "POST /api/chat.postMessage",
+    route: ["GET /api/chat.postMessage", "POST /api/chat.postMessage"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -30,7 +38,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.update",
-    route: "POST /api/chat.update",
+    route: ["GET /api/chat.update", "POST /api/chat.update"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Stored text and rich message fields are updated and message_changed events are dispatched.",
@@ -38,7 +46,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.delete",
-    route: "POST /api/chat.delete",
+    route: ["GET /api/chat.delete", "POST /api/chat.delete"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Stored messages are deleted and message_deleted events are dispatched.",
@@ -54,7 +62,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.postEphemeral",
-    route: "POST /api/chat.postEphemeral",
+    route: ["GET /api/chat.postEphemeral", "POST /api/chat.postEphemeral"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Stores ephemeral messages outside channel history and validates target channel membership.",
@@ -62,7 +70,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.scheduleMessage",
-    route: "POST /api/chat.scheduleMessage",
+    route: ["GET /api/chat.scheduleMessage", "POST /api/chat.scheduleMessage"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Stores pending scheduled messages with rich payload fields and validates post_at bounds.",
@@ -70,7 +78,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.deleteScheduledMessage",
-    route: "POST /api/chat.deleteScheduledMessage",
+    route: ["GET /api/chat.deleteScheduledMessage", "POST /api/chat.deleteScheduledMessage"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Deletes pending scheduled messages by channel and scheduled message id.",
@@ -78,7 +86,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.scheduledMessages.list",
-    route: "POST /api/chat.scheduledMessages.list",
+    route: ["GET /api/chat.scheduledMessages.list", "POST /api/chat.scheduledMessages.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists pending scheduled messages with channel, time range, and simple cursor filters.",
@@ -86,7 +94,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "chat",
     method: "chat.meMessage",
-    route: "POST /api/chat.meMessage",
+    route: ["GET /api/chat.meMessage", "POST /api/chat.meMessage"],
     status: "partial",
     testedBy: ["slack.test.ts"],
     notes: "Creates a me_message subtype for channels.",
@@ -94,7 +102,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.list",
-    route: "POST /api/conversations.list",
+    route: ["GET /api/conversations.list", "POST /api/conversations.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes:
@@ -103,7 +111,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.info",
-    route: "POST /api/conversations.info",
+    route: ["GET /api/conversations.info", "POST /api/conversations.info"],
     status: "supported",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded channel metadata.",
@@ -111,7 +119,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.create",
-    route: "POST /api/conversations.create",
+    route: ["GET /api/conversations.create", "POST /api/conversations.create"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Creates public or private channels and rejects duplicate names.",
@@ -119,7 +127,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.archive",
-    route: "POST /api/conversations.archive",
+    route: ["GET /api/conversations.archive", "POST /api/conversations.archive"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -128,7 +136,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.unarchive",
-    route: "POST /api/conversations.unarchive",
+    route: ["GET /api/conversations.unarchive", "POST /api/conversations.unarchive"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -137,7 +145,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.rename",
-    route: "POST /api/conversations.rename",
+    route: ["GET /api/conversations.rename", "POST /api/conversations.rename"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -146,7 +154,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.setTopic",
-    route: "POST /api/conversations.setTopic",
+    route: ["GET /api/conversations.setTopic", "POST /api/conversations.setTopic"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -155,7 +163,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.setPurpose",
-    route: "POST /api/conversations.setPurpose",
+    route: ["GET /api/conversations.setPurpose", "POST /api/conversations.setPurpose"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -164,23 +172,23 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.history",
-    route: "POST /api/conversations.history",
+    route: ["GET /api/conversations.history", "POST /api/conversations.history"],
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Returns top level messages for a channel, including rich message fields. Time filtering is future work.",
   },
   {
     family: "conversations",
     method: "conversations.replies",
-    route: "POST /api/conversations.replies",
+    route: ["GET /api/conversations.replies", "POST /api/conversations.replies"],
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Returns parent and replies for a thread, including rich message fields.",
   },
   {
     family: "conversations",
     method: "conversations.join",
-    route: "POST /api/conversations.join",
+    route: ["GET /api/conversations.join", "POST /api/conversations.join"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Adds the auth user to channel membership.",
@@ -188,7 +196,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.leave",
-    route: "POST /api/conversations.leave",
+    route: ["GET /api/conversations.leave", "POST /api/conversations.leave"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Removes the auth user from channel membership.",
@@ -196,7 +204,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.members",
-    route: "POST /api/conversations.members",
+    route: ["GET /api/conversations.members", "POST /api/conversations.members"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns channel member ids with empty next cursor.",
@@ -204,7 +212,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.invite",
-    route: "POST /api/conversations.invite",
+    route: ["GET /api/conversations.invite", "POST /api/conversations.invite"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -213,7 +221,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.kick",
-    route: "POST /api/conversations.kick",
+    route: ["GET /api/conversations.kick", "POST /api/conversations.kick"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Removes users from public/private channels and MPIMs, with basic errors and member_left_channel events.",
@@ -221,7 +229,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.open",
-    route: "POST /api/conversations.open",
+    route: ["GET /api/conversations.open", "POST /api/conversations.open"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Opens or resumes IM and MPIM conversations by user list or existing conversation id.",
@@ -229,7 +237,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.close",
-    route: "POST /api/conversations.close",
+    route: ["GET /api/conversations.close", "POST /api/conversations.close"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Closes IM and MPIM conversations and reports already_closed no-op responses.",
@@ -237,7 +245,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "conversations",
     method: "conversations.mark",
-    route: "POST /api/conversations.mark",
+    route: ["GET /api/conversations.mark", "POST /api/conversations.mark"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Stores per-user read cursors for conversations and dispatches marked events.",
@@ -245,7 +253,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "users",
     method: "users.list",
-    route: "POST /api/users.list",
+    route: ["GET /api/users.list", "POST /api/users.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists active users with simple cursor pagination.",
@@ -253,17 +261,17 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "users",
     method: "users.info",
-    route: "POST /api/users.info",
+    route: ["GET /api/users.info", "POST /api/users.info"],
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Returns seeded user profile data.",
   },
   {
     family: "users",
     method: "users.lookupByEmail",
-    route: "POST /api/users.lookupByEmail",
+    route: ["GET /api/users.lookupByEmail", "POST /api/users.lookupByEmail"],
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Looks up seeded users by email.",
   },
   {
@@ -277,7 +285,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "users",
     method: "users.profile.set",
-    route: "POST /api/users.profile.set",
+    route: ["GET /api/users.profile.set", "POST /api/users.profile.set"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
@@ -294,7 +302,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "users",
     method: "users.setPresence",
-    route: "POST /api/users.setPresence",
+    route: ["GET /api/users.setPresence", "POST /api/users.setPresence"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Sets the authed user's manual away or automatic active presence and dispatches presence_change.",
@@ -302,7 +310,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "reactions",
     method: "reactions.add",
-    route: "POST /api/reactions.add",
+    route: ["GET /api/reactions.add", "POST /api/reactions.add"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Adds message reactions and rejects duplicates.",
@@ -310,7 +318,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "reactions",
     method: "reactions.remove",
-    route: "POST /api/reactions.remove",
+    route: ["GET /api/reactions.remove", "POST /api/reactions.remove"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Removes message reactions for the auth user.",
@@ -318,7 +326,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "reactions",
     method: "reactions.get",
-    route: "POST /api/reactions.get",
+    route: ["GET /api/reactions.get", "POST /api/reactions.get"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns reactions for message items only.",
@@ -326,7 +334,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "pins",
     method: "pins.add",
-    route: "POST /api/pins.add",
+    route: ["GET /api/pins.add", "POST /api/pins.add"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Pins message items to channels and dispatches pin_added events.",
@@ -342,7 +350,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "pins",
     method: "pins.remove",
-    route: "POST /api/pins.remove",
+    route: ["GET /api/pins.remove", "POST /api/pins.remove"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Removes message pins from channels and dispatches pin_removed events.",
@@ -350,7 +358,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bookmarks",
     method: "bookmarks.add",
-    route: "POST /api/bookmarks.add",
+    route: ["GET /api/bookmarks.add", "POST /api/bookmarks.add"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Adds link bookmarks to channels.",
@@ -358,7 +366,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bookmarks",
     method: "bookmarks.edit",
-    route: "POST /api/bookmarks.edit",
+    route: ["GET /api/bookmarks.edit", "POST /api/bookmarks.edit"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Updates local link bookmark title, link, and emoji fields.",
@@ -366,7 +374,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bookmarks",
     method: "bookmarks.list",
-    route: "POST /api/bookmarks.list",
+    route: ["GET /api/bookmarks.list", "POST /api/bookmarks.list"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists local link bookmarks for a channel.",
@@ -374,7 +382,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bookmarks",
     method: "bookmarks.remove",
-    route: "POST /api/bookmarks.remove",
+    route: ["GET /api/bookmarks.remove", "POST /api/bookmarks.remove"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Removes local link bookmarks from channels.",
@@ -382,7 +390,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.publish",
-    route: "POST /api/views.publish",
+    route: ["GET /api/views.publish", "POST /api/views.publish"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Creates or updates App Home views for users with hash conflict checks.",
@@ -390,7 +398,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.open",
-    route: "POST /api/views.open",
+    route: ["GET /api/views.open", "POST /api/views.open"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Opens modal views and stores Slack-shaped view payloads.",
@@ -398,7 +406,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.update",
-    route: "POST /api/views.update",
+    route: ["GET /api/views.update", "POST /api/views.update"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Updates views by id or external id and enforces optional hash conflict checks.",
@@ -406,7 +414,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.push",
-    route: "POST /api/views.push",
+    route: ["GET /api/views.push", "POST /api/views.push"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Pushes modal views onto the current user's local modal stack.",
@@ -414,7 +422,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.generateTriggerId",
-    route: "POST /api/views.generateTriggerId",
+    route: ["GET /api/views.generateTriggerId", "POST /api/views.generateTriggerId"],
     status: "partial",
     testedBy: ["slack.test.ts"],
     notes: "Local emulator helper for generating trigger ids tied to users or existing views.",
@@ -422,7 +430,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "team",
     method: "team.info",
-    route: "POST /api/team.info",
+    route: ["GET /api/team.info", "POST /api/team.info"],
     status: "supported",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded workspace metadata.",
@@ -430,7 +438,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "bots",
     method: "bots.info",
-    route: "POST /api/bots.info",
+    route: ["GET /api/bots.info", "POST /api/bots.info"],
     status: "partial",
     testedBy: ["slack-sdk.test.ts"],
     notes: "Returns bot metadata when a bot is seeded.",
@@ -480,15 +488,15 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "files",
     method: "files.getUploadURLExternal",
-    route: "POST /api/files.getUploadURLExternal",
+    route: ["GET /api/files.getUploadURLExternal", "POST /api/files.getUploadURLExternal"],
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "get-methods.test.ts"],
     notes: "Creates a local upload session and returns an emulator upload URL plus file id.",
   },
   {
     family: "files",
     method: "files.completeUploadExternal",
-    route: "POST /api/files.completeUploadExternal",
+    route: ["GET /api/files.completeUploadExternal", "POST /api/files.completeUploadExternal"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Completes uploaded bytes into file records, optional file_share messages, and file events.",
@@ -512,7 +520,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "files",
     method: "files.delete",
-    route: "POST /api/files.delete",
+    route: ["GET /api/files.delete", "POST /api/files.delete"],
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes: "Marks local files deleted and dispatches file_deleted events.",
@@ -554,7 +562,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.interaction_simulation",
-    route: "POST /api/views.interactions",
+    route: ["GET /api/views.interactions", "POST /api/views.interactions"],
     status: "not_started",
     testedBy: [],
     notes: "Future local simulation helpers for slash commands, block actions, shortcuts, and submissions.",
