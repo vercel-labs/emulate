@@ -272,6 +272,12 @@ curl -X PATCH http://localhost:4001/repos/octocat/hello-world \
 curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
   -H "Authorization: Bearer $TOKEN"
 
+# Generate a repository from a template (the source needs is_template: true)
+curl -X POST http://localhost:4001/repos/octocat/starter/generate \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"owner": "my-org", "name": "new-service", "include_all_branches": false}'
+
 # Topics, languages, contributors, forks, collaborators, tags, transfer
 ```
 

@@ -125,7 +125,7 @@ type CreateRepoRecordParams = {
   delete_branch_on_merge?: boolean;
 };
 
-function createRepoRecord(gh: GitHubStore, params: CreateRepoRecordParams, actor: GitHubUser): GitHubRepo {
+export function createRepoRecord(gh: GitHubStore, params: CreateRepoRecordParams, actor: GitHubUser): GitHubRepo {
   const name = validateRepoName(params.name);
   const fullName = `${params.owner_login}/${name}`;
   if (gh.repos.findOneBy("full_name", fullName)) {

@@ -27,6 +27,7 @@ npm install @emulators/github
 - `GET /repositories/:id` — get repo by numeric ID
 - `POST /user/repos` — create user repo
 - `POST /orgs/:org/repos` — create org repo
+- `POST /repos/:owner/:repo/generate` — create a repository from a template repo (`is_template`), optionally copying every branch
 - `PATCH /repos/:owner/:repo` — update repo
 - `DELETE /repos/:owner/:repo` — delete repo (cascades)
 - `GET/PUT /repos/:owner/:repo/topics` — get/replace topics
@@ -159,6 +160,9 @@ github:
       name: hello-world
       language: JavaScript
       auto_init: true
+    - owner: octocat
+      name: starter
+      is_template: true
   oauth_apps:
     - client_id: "Iv1.abc123"
       client_secret: "secret_abc123"
