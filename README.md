@@ -665,6 +665,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo` - get repo
 - `GET /repositories/:id` - get repo by numeric ID
 - `POST /user/repos` - create user repo
+- `GET /orgs/:org/repos` - list org repos the caller may see (`type`, `sort`, `direction`)
 - `POST /orgs/:org/repos` - create org repo
 - `PATCH /repos/:owner/:repo` - update repo
 - `DELETE /repos/:owner/:repo` - delete repo (cascades)

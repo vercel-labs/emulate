@@ -23,7 +23,7 @@ function listReposForUser(gh: GitHubStore, user: GitHubUser, type: "all" | "owne
   return Array.from(map.values());
 }
 
-function sortRepos(
+export function sortRepos(
   repos: GitHubRepo[],
   sort: "created" | "updated" | "pushed" | "full_name",
   direction: "asc" | "desc",
