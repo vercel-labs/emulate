@@ -141,7 +141,7 @@ npm install @emulators/github
 
 ## Auth
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. Repository permissions resolve as on GitHub: organization owners hold admin, members start from the org's base permission (which may be `none`), collaborator and team grants raise it, and `GET /repos/:owner/:repo/collaborators/:username/permission` answers `none` for a user without access. A GitHub App installation token administers the account it is installed on through its permission set: `administration: write` creates repositories and manages collaborators, `members: write` manages organization membership. Pagination uses `page`/`per_page` with `Link` headers.
 
 ## Seed Configuration
 
@@ -154,6 +154,12 @@ github:
   orgs:
     - login: my-org
       name: My Organization
+      # Base permission members hold on org repos (GitHub's default is read).
+      default_repository_permission: none
+      # admin makes the user an organization owner.
+      members:
+        - login: octocat
+          role: admin
   repos:
     - owner: octocat
       name: hello-world

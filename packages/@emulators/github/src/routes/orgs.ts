@@ -13,6 +13,7 @@ import {
   lookupOwner,
   lookupRepo,
 } from "../helpers.js";
+import { installationAdministers } from "../route-helpers.js";
 
 const MEMBERS_TEAM_SLUG = "members";
 
@@ -27,6 +28,17 @@ function requireAuthUser(c: { get: (k: "authUser") => AuthUser | undefined }): A
 }
 
 function requireOrgAdmin(gh: GitHubStore, org: GitHubOrg, auth: AuthUser): void {
+  // A GitHub App installed on the org administers it through its permission
+  // set rather than through membership.
+  if (auth.installation) {
+    if (
+      installationAdministers(auth, org.id, "Organization", "members") ||
+      installationAdministers(auth, org.id, "Organization", "administration")
+    ) {
+      return;
+    }
+    throw forbidden();
+  }
   const user = gh.users.findOneBy("login", auth.login);
   if (!user) throw forbidden();
   const role = orgRoleForUser(gh, org.id, user.id);
