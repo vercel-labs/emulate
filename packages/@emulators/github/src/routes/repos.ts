@@ -4,6 +4,8 @@ import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
   assertRepoRead,
+  canAccessRepo,
+  getActorUser,
   hasRepoAdmin,
   isOrgMember,
   notFoundResponse,
@@ -14,6 +16,7 @@ import type { GitHubBranch, GitHubCollaborator, GitHubRef, GitHubRepo, GitHubTag
 import type { Collection, Entity } from "@emulators/core";
 import { formatRepo, formatUser, generateNodeId, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "../git-helpers.js";
+import { sortRepos } from "./users.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
   mit: { key: "mit", name: "MIT License", spdx_id: "MIT" },
@@ -338,6 +341,65 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     );
 
     return c.json(formatRepo(finalRepo, gh, baseUrl), 201);
+  });
+
+  // GET /orgs/:org/repos lists an organization's repositories the caller may
+  // see: public ones for anyone, private ones for members, collaborators and
+  // installations with access, filtered by `type` and sorted like GitHub.
+  app.get("/orgs/:org/repos", (c) => {
+    const org = gh.orgs.findOneBy("login", c.req.param("org")!);
+    if (!org) throw notFoundResponse();
+
+    const typeRaw = (c.req.query("type") ?? "all").toLowerCase();
+    const types = ["all", "public", "private", "forks", "sources", "member"] as const;
+    if (!(types as readonly string[]).includes(typeRaw)) throw new ApiError(422, "Invalid type parameter");
+    const type = typeRaw as (typeof types)[number];
+
+    const sortRaw = (c.req.query("sort") ?? "created").toLowerCase();
+    if (sortRaw !== "created" && sortRaw !== "updated" && sortRaw !== "pushed" && sortRaw !== "full_name") {
+      throw new ApiError(422, "Invalid sort parameter");
+    }
+    const sort = sortRaw as "created" | "updated" | "pushed" | "full_name";
+    const direction =
+      (c.req.query("direction")?.toLowerCase() as "asc" | "desc" | undefined) ??
+      (sort === "full_name" ? "asc" : "desc");
+    if (direction !== "asc" && direction !== "desc") throw new ApiError(422, "Invalid direction parameter");
+
+    const authUser = c.get("authUser");
+    const actor = authUser && !authUser.installation ? getActorUser(gh, authUser) : undefined;
+    let repos = gh.repos
+      .all()
+      .filter((r) => r.owner_type === "Organization" && r.owner_id === org.id)
+      .filter((r) => canAccessRepo(gh, authUser, r));
+    switch (type) {
+      case "public":
+        repos = repos.filter((r) => !r.private);
+        break;
+      case "private":
+        repos = repos.filter((r) => r.private);
+        break;
+      case "forks":
+        repos = repos.filter((r) => r.fork);
+        break;
+      case "sources":
+        repos = repos.filter((r) => !r.fork);
+        break;
+      case "member":
+        repos = actor
+          ? repos.filter((r) => gh.collaborators.findBy("repo_id", r.id).some((col) => col.user_id === actor.id))
+          : [];
+        break;
+      default:
+        break;
+    }
+
+    const { page, per_page } = parsePagination(c);
+    const sorted = sortRepos(repos, sort, direction);
+    const total = sorted.length;
+    const start = (page - 1) * per_page;
+    const items = sorted.slice(start, start + per_page).map((r) => formatRepo(r, gh, baseUrl, actor?.id));
+    setLinkHeader(c, total, page, per_page);
+    return c.json(items);
   });
 
   app.post("/orgs/:org/repos", async (c) => {
