@@ -13,7 +13,7 @@ npm install @emulators/slack
 ## Endpoints
 
 ### Auth & Chat
-- `POST /api/auth.test` — test authentication
+- `POST /api/auth.test` — test authentication (the token's scopes come back in `X-OAuth-Scopes`)
 - `POST /api/chat.postMessage` — post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` — post ephemeral message outside channel history
 - `POST /api/chat.update` — update message text and rich payload fields
@@ -106,6 +106,7 @@ slack:
     domain: my-workspace
   users:
     - name: developer
+      user_id: U000000010
       real_name: Developer
       email: dev@example.com
       profile:
@@ -115,6 +116,7 @@ slack:
       presence: active
   channels:
     - name: general
+      channel_id: C000000010
       topic: General discussion
     - name: random
       topic: Random stuff

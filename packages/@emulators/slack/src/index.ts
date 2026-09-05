@@ -27,6 +27,7 @@ export interface SlackSeedConfig {
     domain?: string;
   };
   users?: Array<{
+    user_id?: string;
     name: string;
     real_name?: string;
     email?: string;
@@ -35,6 +36,7 @@ export interface SlackSeedConfig {
     presence?: SlackPresence;
   }>;
   channels?: Array<{
+    channel_id?: string;
     name: string;
     topic?: string;
     purpose?: string;
@@ -212,7 +214,10 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
       const existing = ss.users.all().find((eu) => eu.name === u.name);
       if (existing) continue;
 
-      const userId = generateSlackId("U");
+      // A pinned id lets fixtures and the app under test agree on a user
+      // without a lookup; generated otherwise, as before.
+      const userId = u.user_id?.trim() || generateSlackId("U");
+      if (ss.users.findOneBy("user_id", userId)) continue;
       const email = u.profile?.email ?? u.email ?? `${u.name}@emulate.dev`;
       const realName = u.real_name ?? u.name;
       const profile = normalizeSeedProfile({
@@ -245,13 +250,15 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
     for (const ch of config.channels) {
       const existing = ss.channels.findOneBy("name", ch.name);
       if (existing) continue;
+      const channelId = ch.channel_id?.trim() || generateSlackId("C");
+      if (ss.channels.findOneBy("channel_id", channelId)) continue;
 
       const creator = ss.users.all()[0]?.user_id ?? "U000000001";
       const now = Math.floor(Date.now() / 1000);
       const isPrivate = ch.is_private ?? false;
 
       ss.channels.insert({
-        channel_id: generateSlackId("C"),
+        channel_id: channelId,
         team_id: teamId,
         name: ch.name,
         is_channel: !isPrivate,

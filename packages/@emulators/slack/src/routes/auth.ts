@@ -38,6 +38,12 @@ export function authRoutes(ctx: RouteContext): void {
       ? ss().installations.findOneBy("installation_id", tokenRecord.installation_id)
       : undefined;
 
+    // Slack reports the token's granted scopes in a response header rather
+    // than the body; SDKs and setup checks read it to decide what they may call.
+    if (tokenRecord?.scopes.length) {
+      c.header("x-oauth-scopes", tokenRecord.scopes.join(","));
+    }
+
     return slackOk(c, {
       url: `https://${team?.domain ?? "emulate"}.slack.com/`,
       team: team?.name ?? "Emulate",
