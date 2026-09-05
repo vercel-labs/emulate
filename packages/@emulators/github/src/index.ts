@@ -15,6 +15,7 @@ import type { GitHubAppInstallation } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
+import { generateRoutes } from "./routes/generate.js";
 import { issuesRoutes } from "./routes/issues.js";
 import { pullsRoutes } from "./routes/pulls.js";
 import { commentsRoutes } from "./routes/comments.js";
@@ -68,6 +69,7 @@ export interface GitHubSeedConfig {
     topics?: string[];
     default_branch?: string;
     auto_init?: boolean;
+    is_template?: boolean;
   }>;
   oauth_apps?: Array<{
     client_id: string;
@@ -397,7 +399,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         allow_auto_merge: false,
         delete_branch_on_merge: false,
         allow_forking: true,
-        is_template: false,
+        is_template: r.is_template ?? false,
         license: null,
       });
       gh.repos.update(repo.id, { node_id: generateNodeId("Repository", repo.id) });
@@ -630,6 +632,7 @@ export const githubPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     usersRoutes(ctx);
     reposRoutes(ctx);
+    generateRoutes(ctx);
     issuesRoutes(ctx);
     pullsRoutes(ctx);
     commentsRoutes(ctx);
