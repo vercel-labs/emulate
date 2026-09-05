@@ -42,7 +42,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /api/v1/users/:userId/lifecycle/reactivate` — reactivate
 
 ### Groups
-- `GET /api/v1/groups` — list groups
+- `GET /api/v1/groups` — list groups (`q`, plus SCIM-style `search` and `filter` such as `profile.name eq "Everyone"`)
 - `POST /api/v1/groups` — create group
 - `GET /api/v1/groups/:groupId` — get group
 - `PUT /api/v1/groups/:groupId` — update group
