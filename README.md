@@ -233,6 +233,12 @@ github:
   orgs:
     - login: my-org
       name: My Organization
+      # Base permission members hold on org repos (GitHub's default is read).
+      default_repository_permission: none
+      # admin makes the user an organization owner.
+      members:
+        - login: octocat
+          role: admin
   repos:
     - owner: octocat
       name: hello-world

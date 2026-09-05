@@ -13,6 +13,7 @@ import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
+import { ensureOrgMembership } from "./route-helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -57,6 +58,10 @@ export interface GitHubSeedConfig {
     name?: string;
     description?: string;
     email?: string;
+    /** Base permission every member holds on the org's repos. GitHub's default is read. */
+    default_repository_permission?: "read" | "write" | "admin" | "none";
+    /** Members to seed; `admin` makes the user an organization owner. */
+    members?: Array<{ login: string; role?: "admin" | "member" }>;
   }>;
   tokens?: Record<string, { login: string; scopes?: string[] }>;
   repos?: Array<{
@@ -68,6 +73,8 @@ export interface GitHubSeedConfig {
     topics?: string[];
     default_branch?: string;
     auto_init?: boolean;
+    /** Direct collaborators to seed; `permission` defaults to push. */
+    collaborators?: Array<{ login: string; permission?: "pull" | "triage" | "push" | "maintain" | "admin" }>;
   }>;
   oauth_apps?: Array<{
     client_id: string;
@@ -341,10 +348,15 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         followers: 0,
         following: 0,
         members_can_create_repositories: true,
-        default_repository_permission: "read",
+        default_repository_permission: o.default_repository_permission ?? "read",
         billing_email: null,
       });
       gh.orgs.update(org.id, { node_id: generateNodeId("Org", org.id) });
+      for (const member of o.members ?? []) {
+        const user = gh.users.findOneBy("login", member.login);
+        if (!user) continue;
+        ensureOrgMembership(gh, gh.orgs.get(org.id)!, user, member.role ?? "member");
+      }
     }
   }
 
@@ -441,6 +453,11 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         gh.repos.update(repo.id, { pushed_at: repo.created_at, size: 1 });
       }
 
+      for (const collaborator of r.collaborators ?? []) {
+        const user = gh.users.findOneBy("login", collaborator.login);
+        if (!user) continue;
+        gh.collaborators.insert({ repo_id: repo.id, user_id: user.id, permission: collaborator.permission ?? "push" });
+      }
       if (ownerType === "User") {
         const user = gh.users.findOneBy("login", r.owner);
         if (user && !r.private) {

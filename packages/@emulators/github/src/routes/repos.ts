@@ -3,11 +3,15 @@ import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } fr
 import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
+  assertCanCreateRepoIn,
+  assertRepoAdmin,
   assertRepoRead,
   hasRepoAdmin,
   isOrgMember,
+  legacyPermission,
   notFoundResponse,
   ownerLoginOf,
+  repoRoleFor,
 } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubBranch, GitHubCollaborator, GitHubRef, GitHubRepo, GitHubTag, GitHubUser } from "../entities.js";
@@ -342,14 +346,12 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
   app.post("/orgs/:org/repos", async (c) => {
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
     const orgLogin = c.req.param("org")!;
     const org = gh.orgs.findOneBy("login", orgLogin);
     if (!org) throw notFoundResponse();
 
-    if (!isOrgMember(gh, user.id, org.id)) {
-      throw forbidden();
-    }
+    // A member, or a GitHub App installed on the org with administration: write.
+    const user = assertCanCreateRepoIn(gh, authUser, { type: "Organization", id: org.id });
 
     const body = await parseJsonBody(c);
 
@@ -729,9 +731,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const username = c.req.param("username")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
+    assertRepoAdmin(gh, c.get("authUser"), repo);
 
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
@@ -759,9 +759,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const username = c.req.param("username")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
+    assertRepoAdmin(gh, c.get("authUser"), repo);
 
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
@@ -785,39 +783,13 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
 
-    if (repo.owner_type === "User" && repo.owner_id === target.id) {
-      return c.json({
-        permission: "admin",
-        role_name: "admin",
-        user: formatUser(target, baseUrl),
-      });
-    }
-
-    if (repo.owner_type === "Organization" && isOrgMember(gh, target.id, repo.owner_id)) {
-      return c.json({
-        permission: "admin",
-        role_name: "admin",
-        user: formatUser(target, baseUrl),
-      });
-    }
-
-    const collab = gh.collaborators.findBy("repo_id", repo.id).find((col) => col.user_id === target.id);
-    if (!collab) throw notFoundResponse();
-
-    const roleName =
-      collab.permission === "admin"
-        ? "admin"
-        : collab.permission === "maintain"
-          ? "maintain"
-          : collab.permission === "push"
-            ? "write"
-            : collab.permission === "triage"
-              ? "triage"
-              : "read";
-
+    // GitHub answers for any user, collaborator or not: `permission` is the
+    // legacy admin/write/read/none scale and `role_name` the precise role. An
+    // org member below the base permission and a stranger both read `none`.
+    const role = repoRoleFor(gh, target, repo);
     return c.json({
-      permission: collab.permission,
-      role_name: roleName,
+      permission: legacyPermission(role),
+      role_name: role,
       user: formatUser(target, baseUrl),
     });
   });

@@ -1,10 +1,49 @@
 import type { AuthUser } from "@emulators/core";
 import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
-import type { GitHubRepo, GitHubUser } from "./entities.js";
+import type { GitHubOrg, GitHubRepo, GitHubTeam, GitHubUser } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
 
 export { notFound as notFoundResponse };
+
+const MEMBERS_TEAM_SLUG = "members";
+
+/** Effective repository role, in GitHub's `role_name` vocabulary. */
+export type RepoRole = "admin" | "maintain" | "write" | "triage" | "read" | "none";
+
+const ROLE_RANK: Record<RepoRole, number> = { none: 0, read: 1, triage: 2, write: 3, maintain: 4, admin: 5 };
+
+/** Map the permission spellings GitHub uses (collaborator, team, org base) onto a role. */
+export function roleFromPermission(permission: string | null | undefined): RepoRole {
+  switch (permission) {
+    case "admin":
+      return "admin";
+    case "maintain":
+      return "maintain";
+    case "push":
+    case "write":
+      return "write";
+    case "triage":
+      return "triage";
+    case "pull":
+    case "read":
+      return "read";
+    default:
+      return "none";
+  }
+}
+
+/** The legacy `permission` field: admin, write, read or none. */
+export function legacyPermission(role: RepoRole): "admin" | "write" | "read" | "none" {
+  if (role === "admin") return "admin";
+  if (role === "maintain" || role === "write") return "write";
+  if (role === "triage" || role === "read") return "read";
+  return "none";
+}
+
+function higherRole(a: RepoRole, b: RepoRole): RepoRole {
+  return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
+}
 
 export function ownerLoginOf(gh: GitHubStore, repo: GitHubRepo): string {
   if (repo.owner_type === "User") {
@@ -22,15 +61,121 @@ export function isOrgMember(gh: GitHubStore, userId: number, orgId: number): boo
   return false;
 }
 
+/**
+ * Organization role of a user: `admin` when they maintain any of the org's
+ * teams (the emulator represents owners as maintainers), `member` when they
+ * belong to one, null when they are not a member. The same reading orgs.ts
+ * gives `GET /orgs/:org/memberships/:username`.
+ */
+export function orgRoleFor(gh: GitHubStore, orgId: number, userId: number): "admin" | "member" | null {
+  let role: "admin" | "member" | null = null;
+  for (const team of gh.teams.findBy("org_id", orgId)) {
+    const membership = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === userId);
+    if (!membership) continue;
+    if (membership.role === "maintainer") return "admin";
+    role = "member";
+  }
+  return role;
+}
+
+/** The implicit `members` team every org membership is recorded in. */
+export function ensureMembersTeam(gh: GitHubStore, org: GitHubOrg): GitHubTeam {
+  const existing = gh.teams.findBy("org_id", org.id).find((t) => t.slug === MEMBERS_TEAM_SLUG);
+  if (existing) return existing;
+  const team = gh.teams.insert({
+    node_id: "pending",
+    name: "Members",
+    slug: MEMBERS_TEAM_SLUG,
+    description: null,
+    privacy: "closed",
+    permission: "pull",
+    org_id: org.id,
+    parent_id: null,
+    members_count: 0,
+    repos_count: 0,
+  });
+  return gh.teams.update(team.id, { node_id: generateNodeId("Team", team.id) }) ?? team;
+}
+
+/** Make `user` an org member, or an owner as maintainer of the members team. Idempotent. */
+export function ensureOrgMembership(gh: GitHubStore, org: GitHubOrg, user: GitHubUser, role: "admin" | "member"): void {
+  const team = ensureMembersTeam(gh, org);
+  const teamRole: "member" | "maintainer" = role === "admin" ? "maintainer" : "member";
+  const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
+  if (existing) {
+    if (existing.role !== teamRole) gh.teamMembers.update(existing.id, { role: teamRole });
+  } else {
+    gh.teamMembers.insert({ team_id: team.id, user_id: user.id, role: teamRole });
+  }
+  gh.teams.update(team.id, { members_count: gh.teamMembers.findBy("team_id", team.id).length });
+}
+
+/**
+ * What `user` may do on `repo`, resolved the way GitHub does: the owner of a
+ * user repo and the owners of an organization hold admin; an organization
+ * member starts from the org's base permission (`default_repository_permission`,
+ * which may be `none`); direct collaborator and team grants raise it; anyone
+ * else has no access to a private repo and read on a public one.
+ */
+export function repoRoleFor(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): RepoRole {
+  if (repo.owner_type === "User") {
+    if (repo.owner_id === user.id) return "admin";
+    const collab = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
+    if (collab) return roleFromPermission(collab.permission);
+    return repo.private ? "none" : "read";
+  }
+
+  const orgRole = orgRoleFor(gh, repo.owner_id, user.id);
+  if (orgRole === "admin") return "admin";
+
+  let role: RepoRole = "none";
+  if (orgRole === "member") {
+    role = roleFromPermission(gh.orgs.get(repo.owner_id)?.default_repository_permission);
+  }
+  const collab = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
+  if (collab) role = higherRole(role, roleFromPermission(collab.permission));
+  for (const membership of gh.teamMembers.findBy("user_id", user.id)) {
+    const team = gh.teams.get(membership.team_id);
+    if (!team || team.org_id !== repo.owner_id || team.slug === MEMBERS_TEAM_SLUG) continue;
+    if (gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id)) {
+      role = higherRole(role, roleFromPermission(team.permission));
+    }
+  }
+  if (role === "none" && !repo.private) return "read";
+  return role;
+}
+
 export function getActorUser(gh: GitHubStore, authUser: AuthUser): GitHubUser | undefined {
   return gh.users.findOneBy("login", authUser.login);
 }
 
-function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
+export function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
   const installation = authUser.installation;
   if (!installation) return false;
   if (repo.owner_id !== installation.accountId || repo.owner_type !== installation.accountType) return false;
   return installation.repositorySelection === "all" || installation.repositoryIds.includes(repo.id);
+}
+
+/**
+ * Whether an installation token acts for `owner` with `permission` granted at
+ * write. A GitHub App manages the account it is installed on through its
+ * permission set, not through membership: `administration: write` creates
+ * repositories and manages collaborators there, `members: write` manages
+ * organization membership.
+ */
+export function installationAdministers(
+  authUser: AuthUser | undefined,
+  ownerId: number,
+  ownerType: "User" | "Organization",
+  permission = "administration",
+): boolean {
+  const installation = authUser?.installation;
+  if (!installation) return false;
+  return (
+    installation.accountId === ownerId &&
+    installation.accountType === ownerType &&
+    installation.permissions[permission] === "write"
+  );
 }
 
 function installationActor(gh: GitHubStore, authUser: AuthUser): GitHubUser {
@@ -70,9 +215,7 @@ export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, r
   if (authUser.installation) return installationCanAccessRepo(authUser, repo);
   const user = getActorUser(gh, authUser);
   if (!user) return false;
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-  if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  return Boolean(gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id));
+  return repoRoleFor(gh, user, repo) !== "none";
 }
 
 export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
@@ -139,11 +282,10 @@ export function assertAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | u
   return assertAuthenticatedUser(gh, authUser);
 }
 
+/** Admin or maintain on the repo: organization owners, not every member. */
 export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-  if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  const collab = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
-  return collab?.permission === "admin" || collab?.permission === "maintain";
+  const role = repoRoleFor(gh, user, repo);
+  return role === "admin" || role === "maintain";
 }
 
 function grantsRepoWrite(permission: string): boolean {
@@ -299,12 +441,46 @@ export function assertBranchUpdateAllowed(
   }
 }
 
+/**
+ * Resolve the actor allowed to administer `repo` (collaborators, protection,
+ * settings): an installation on the owner with `administration: write` and
+ * access to the repo, or a user holding admin or maintain on it.
+ */
 export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
   if (!authUser) throw unauthorized();
+  if (authUser.installation) {
+    if (!installationCanAccessRepo(authUser, repo)) throw forbidden();
+    if (!installationAdministers(authUser, repo.owner_id, repo.owner_type)) throw forbidden();
+    return installationActor(gh, authUser);
+  }
   const user = getActorUser(gh, authUser);
   if (!user) throw unauthorized();
   if (hasRepoAdmin(gh, user, repo)) return user;
   throw forbidden();
+}
+
+/**
+ * Resolve the actor allowed to create a repository owned by `owner`: an
+ * installation on that account with `administration: write`, the user for
+ * their own account, or an organization member for the org.
+ */
+export function assertCanCreateRepoIn(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  owner: { type: "User" | "Organization"; id: number },
+): GitHubUser {
+  if (!authUser) throw unauthorized();
+  if (authUser.installation) {
+    if (!installationAdministers(authUser, owner.id, owner.type)) throw forbidden();
+    return installationActor(gh, authUser);
+  }
+  const user = assertAuthenticatedUser(gh, authUser);
+  if (owner.type === "User") {
+    if (owner.id !== user.id) throw forbidden();
+    return user;
+  }
+  if (!isOrgMember(gh, user.id, owner.id)) throw forbidden();
+  return user;
 }
 
 export function assertRepoWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
