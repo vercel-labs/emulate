@@ -292,6 +292,7 @@ slack:
     domain: my-workspace
   users:
     - name: developer
+      user_id: U000000010
       real_name: Developer
       email: dev@example.com
       profile:
@@ -301,6 +302,7 @@ slack:
       presence: active
   channels:
     - name: general
+      channel_id: C000000010
       topic: General discussion
     - name: random
       topic: Random stuff
