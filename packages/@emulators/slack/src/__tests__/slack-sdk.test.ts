@@ -137,6 +137,19 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(deleted.ok).toBe(true);
   });
 
+  it("truncates a 10 MB chat message through the Slack SDK", async () => {
+    expect(emulator).toBeDefined();
+    const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;
+    const text = "x".repeat(10 * 1024 * 1024);
+
+    const posted = await client.chat.postMessage({ channel, text });
+
+    expect(posted.ok).toBe(true);
+    expect(posted.message?.text).toHaveLength(40_000);
+    expect(posted.response_metadata?.warnings).toEqual(["message_truncated"]);
+    expect(getSlackStore(emulator!.store).messages.findOneBy("ts", posted.ts!)?.text).toHaveLength(40_000);
+  });
+
   it("round trips rich chat messages through the Slack SDK", async () => {
     expect(emulator).toBeDefined();
     const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;

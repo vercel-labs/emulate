@@ -253,6 +253,37 @@ describe("Slack plugin - chat.postMessage", () => {
     expect(body.ok).toBe(false);
     expect(body.error).toBe("invalid_blocks");
   });
+
+  it("rejects message block payloads over Slack limits", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    const tooManyBlocks = Array.from({ length: 51 }, (_, index) => ({
+      type: "section",
+      text: { type: "plain_text", text: `block ${index}` },
+    }));
+    const tooManyBlocksRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, text: "too many blocks", blocks: tooManyBlocks }),
+    });
+    const tooManyBlocksBody = (await tooManyBlocksRes.json()) as any;
+    expect(tooManyBlocksBody.ok).toBe(false);
+    expect(tooManyBlocksBody.error).toBe("msg_blocks_too_long");
+
+    const oversizedSectionRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        channel: ch.channel_id,
+        text: "oversized section",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "x".repeat(3_001) } }],
+      }),
+    });
+    const oversizedSectionBody = (await oversizedSectionRes.json()) as any;
+    expect(oversizedSectionBody.ok).toBe(false);
+    expect(oversizedSectionBody.error).toBe("msg_blocks_too_long");
+  });
 });
 
 describe("Slack plugin - chat.update", () => {

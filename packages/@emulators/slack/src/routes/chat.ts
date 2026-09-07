@@ -10,12 +10,14 @@ import {
   generateTs,
   getSlackConversationOpenState,
   hasSlackMessageContent,
+  applySlackTextLimit,
   parseSlackBody,
   parseSlackRichMessageFields,
   requireSlackScopes,
   setSlackConversationOpenState,
   slackError,
   slackOk,
+  validateSlackRichMessageLimits,
 } from "../helpers.js";
 
 export function chatRoutes(ctx: RouteContext): void {
@@ -121,10 +123,13 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
-    const text = typeof body.text === "string" ? body.text : "";
+    const textLimit = applySlackTextLimit(typeof body.text === "string" ? body.text : "");
+    const text = textLimit.text;
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const limitError = validateSlackRichMessageLimits(richMessage.fields);
+    if (limitError) return slackError(c, limitError);
 
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");
@@ -183,6 +188,7 @@ export function chatRoutes(ctx: RouteContext): void {
       channel: ch.channel_id,
       ts,
       message: formatSlackMessage(msg),
+      ...(textLimit.responseMetadata ? { response_metadata: textLimit.responseMetadata } : {}),
     });
   });
 
@@ -196,10 +202,13 @@ export function chatRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
     const user = typeof body.user === "string" ? body.user : "";
-    const text = typeof body.text === "string" ? body.text : "";
+    const textLimit = applySlackTextLimit(typeof body.text === "string" ? body.text : "");
+    const text = textLimit.text;
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const limitError = validateSlackRichMessageLimits(richMessage.fields);
+    if (limitError) return slackError(c, limitError);
 
     if (!channel) return slackError(c, "channel_not_found");
     if (!user) return slackError(c, "user_not_found");
@@ -230,7 +239,10 @@ export function chatRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    return slackOk(c, { message_ts: ts });
+    return slackOk(c, {
+      message_ts: ts,
+      ...(textLimit.responseMetadata ? { response_metadata: textLimit.responseMetadata } : {}),
+    });
   });
 
   // chat.update
@@ -244,9 +256,12 @@ export function chatRoutes(ctx: RouteContext): void {
     const channel = typeof body.channel === "string" ? body.channel : "";
     const ts = typeof body.ts === "string" ? body.ts : "";
     const hasText = typeof body.text === "string";
-    const text = hasText ? (body.text as string) : "";
+    const textLimit = applySlackTextLimit(hasText ? (body.text as string) : "");
+    const text = textLimit.text;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const limitError = validateSlackRichMessageLimits(richMessage.fields);
+    if (limitError) return slackError(c, limitError);
 
     if (!channel || !ts) return slackError(c, "message_not_found");
 
@@ -301,6 +316,7 @@ export function chatRoutes(ctx: RouteContext): void {
       ts,
       text: updated.text,
       message: formatSlackMessage(updated),
+      ...(textLimit.responseMetadata ? { response_metadata: textLimit.responseMetadata } : {}),
     });
   });
 
@@ -391,11 +407,14 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
-    const text = typeof body.text === "string" ? body.text : "";
+    const textLimit = applySlackTextLimit(typeof body.text === "string" ? body.text : "");
+    const text = textLimit.text;
     const postAt = Number(body.post_at);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const limitError = validateSlackRichMessageLimits(richMessage.fields);
+    if (limitError) return slackError(c, limitError);
 
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");
@@ -430,6 +449,7 @@ export function chatRoutes(ctx: RouteContext): void {
       scheduled_message_id: scheduled.scheduled_message_id,
       post_at: scheduled.post_at,
       message: formatSlackScheduledMessage(scheduled),
+      ...(textLimit.responseMetadata ? { response_metadata: textLimit.responseMetadata } : {}),
     });
   });
 
@@ -528,7 +548,8 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
-    const text = typeof body.text === "string" ? body.text : "";
+    const textLimit = applySlackTextLimit(typeof body.text === "string" ? body.text : "");
+    const text = textLimit.text;
 
     if (!channel) return slackError(c, "channel_not_found");
 
@@ -551,7 +572,11 @@ export function chatRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    return slackOk(c, { channel: ch.channel_id, ts });
+    return slackOk(c, {
+      channel: ch.channel_id,
+      ts,
+      ...(textLimit.responseMetadata ? { response_metadata: textLimit.responseMetadata } : {}),
+    });
   });
 }
 
