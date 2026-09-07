@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { Hono, cors } from "../http.js";
 
 describe("internal http layer", () => {
+  it.each([false, true])("preserves HEAD metadata with middleware=%s and no response body", async (middleware) => {
+    const app = new Hono();
+    if (middleware) app.use("*", cors());
+    app.on("HEAD", "/object", (c) => c.text("", 200, { "Content-Length": "123" }));
+    const res = await app.request("/object?partNumber=1", { method: "HEAD" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Length")).toBe("123");
+    expect(res.body).toBeNull();
+  });
+
   it("dispatches middleware and route handlers with params", async () => {
     const app = new Hono();
     const calls: string[] = [];

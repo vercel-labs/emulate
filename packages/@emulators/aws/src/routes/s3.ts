@@ -232,10 +232,10 @@ ${prefixesXml}
     }
 
     // Store the object
-    const fileContent = await file.text();
+    const fileContent = Buffer.from(await file.arrayBuffer());
     const contentType = (body["Content-Type"] as string) ?? file.type ?? "application/octet-stream";
     const etag = md5(fileContent);
-    const contentLength = new TextEncoder().encode(fileContent).byteLength;
+    const contentLength = fileContent.byteLength;
 
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
@@ -243,7 +243,7 @@ ${prefixesXml}
 
     if (existing) {
       aws().s3Objects.update(existing.id, {
-        body: fileContent,
+        body_base64: fileContent.toString("base64"),
         content_type: contentType,
         content_length: contentLength,
         etag,
@@ -254,7 +254,7 @@ ${prefixesXml}
       aws().s3Objects.insert({
         bucket_name: bucketName,
         key,
-        body: fileContent,
+        body_base64: fileContent.toString("base64"),
         content_type: contentType,
         content_length: contentLength,
         etag,
@@ -316,7 +316,7 @@ ${prefixesXml}
 
       if (existing) {
         aws().s3Objects.update(existing.id, {
-          body: srcObj.body,
+          body_base64: srcObj.body_base64,
           content_type: srcObj.content_type,
           content_length: srcObj.content_length,
           etag,
@@ -327,7 +327,7 @@ ${prefixesXml}
         aws().s3Objects.insert({
           bucket_name: bucketName,
           key,
-          body: srcObj.body,
+          body_base64: srcObj.body_base64,
           content_type: srcObj.content_type,
           content_length: srcObj.content_length,
           etag,
@@ -347,7 +347,7 @@ ${prefixesXml}
       });
     }
 
-    const body = await c.req.text();
+    const body = Buffer.from(await c.req.arrayBuffer());
     const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
     const etag = md5(body);
 
@@ -365,9 +365,9 @@ ${prefixesXml}
 
     if (existing) {
       aws().s3Objects.update(existing.id, {
-        body,
+        body_base64: body.toString("base64"),
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: body.byteLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -376,9 +376,9 @@ ${prefixesXml}
       aws().s3Objects.insert({
         bucket_name: bucketName,
         key,
-        body,
+        body_base64: body.toString("base64"),
         content_type: contentType,
-        content_length: new TextEncoder().encode(body).byteLength,
+        content_length: body.byteLength,
         etag,
         last_modified: new Date().toISOString(),
         metadata,
@@ -415,7 +415,7 @@ ${prefixesXml}
       headers[`x-amz-meta-${k}`] = v;
     }
 
-    return c.text(obj.body, 200, headers);
+    return c.body(Buffer.from(obj.body_base64, "base64"), 200, headers);
   };
 
   const handleHeadObject = (c: S3ObjectContext) => {

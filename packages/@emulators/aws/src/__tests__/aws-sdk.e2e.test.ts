@@ -49,6 +49,14 @@ async function streamToString(stream: unknown): Promise<string> {
   return Buffer.concat(chunks).toString();
 }
 
+async function streamToBuffer(stream: unknown): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
   let s3: S3Client;
@@ -105,6 +113,22 @@ describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
     const head = await s3.send(new HeadObjectCommand({ Bucket: "emulate-default", Key: "e2e/put-get.txt" }));
     expect(head.ContentType).toBe("text/plain");
     expect(head.LastModified).toBeInstanceOf(Date);
+  });
+
+  it("PutObject / GetObject roundtrips binary content byte-for-byte", async () => {
+    const body = Buffer.from([0x00, 0xff, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: "emulate-default",
+        Key: "e2e/binary.png",
+        Body: body,
+        ContentType: "image/png",
+        ServerSideEncryption: "AES256",
+      }),
+    );
+
+    const get = await s3.send(new GetObjectCommand({ Bucket: "emulate-default", Key: "e2e/binary.png" }));
+    expect(await streamToBuffer(get.Body)).toEqual(body);
   });
 
   it("CopyObject preserves body and returns a parseable response", async () => {
