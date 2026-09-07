@@ -72,6 +72,7 @@
     "@emulators/clerk": "workspace:*",
     "@emulators/linear": "workspace:*",
     "@emulators/twilio": "workspace:*",
+    "@emulators/sepay": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

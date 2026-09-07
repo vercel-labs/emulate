@@ -1,0 +1,97 @@
+# SePay
+
+SePay VietQR payment gateway emulation: the v1 transaction query API, inbound-to-merchant webhook delivery, VietQR image generation, and a local transaction simulator.
+
+## Auth
+
+All `/userapi/*` routes require `Authorization: Bearer <API_KEY>` matching a seeded API key. Missing or invalid keys return 401.
+
+Default credentials:
+
+- API key: `sepay_test_api_key`
+- Webhook API key (fallback for targets without an explicit key): `sepay_test_webhook_key`
+
+## Transactions
+
+- `GET /userapi/transactions/list` — list transactions (newest first)
+  - Filters: `account_number`, `reference_number`, `since_id`, `amount_in`, `amount_out`, `limit` (max 5000), `offset`
+- `GET /userapi/transactions/details/:id` — get transaction details
+- `GET /userapi/transactions/:id` — alias of details
+
+Response shape matches the real v1 API:
+
+```json
+{
+  "status": 200,
+  "error": null,
+  "messages": { "success": true },
+  "transactions": [
+    {
+      "id": "100001",
+      "gateway": "Vietcombank",
+      "bank_brand_name": "Vietcombank",
+      "account_number": "0071000888888",
+      "sub_account": null,
+      "transaction_date": "2026-01-15 09:30:00",
+      "transfer_type": "in",
+      "amount_in": "250000.00",
+      "amount_out": "0.00",
+      "accumulated": "0.00",
+      "code": "ORD1001",
+      "transaction_content": "ORD1001 thanh toan don hang",
+      "reference_number": "FT26011509300001"
+    }
+  ]
+}
+```
+
+## Transaction Simulator
+
+`POST /userapi/simulate/transaction` creates a transaction in the store and fires the SePay webhook payload to every seeded webhook target. Body fields are camelCase:
+
+```json
+{
+  "id": "optional-id",
+  "gateway": "Vietcombank",
+  "accountNumber": "0071000888888",
+  "amountIn": 250000,
+  "code": "ORDER123",
+  "content": "payment content",
+  "referenceNumber": "FT260115..."
+}
+```
+
+Webhook deliveries POST JSON with header `Authorization: Bearer <target webhook api key>` and payload `{ id, gateway, transactionDate, accountNumber, subAccount, amountIn, amountOut, accumulated, code, transactionContent, referenceNumber, body }`. Each attempt is recorded in the store with target URL, request body, status code, success flag, error, and timestamp.
+
+## VietQR Image
+
+- `GET /img?acc=<account>&bank=<bin>&amount=<vnd>&des=<description>` — PNG QR encoding an EMVCo VietQR payload with CRC16 checksum (also available at `/qr/img`)
+
+## Seed Config
+
+```yaml
+sepay:
+  api_keys:
+    - token: sepay_test_api_key
+      label: Local API Key
+  webhook_targets:
+    - url: http://localhost:3000/api/payments/sepay/webhook
+      api_key: sepay_test_webhook_key
+  bank_accounts:
+    - bin: "970436"
+      account_number: "0071000888888"
+      name: NGUYEN VAN A
+  transactions:
+    - id: 100001
+      transferType: in
+      amount: 250000
+      code: ORD1001
+      content: "ORD1001 thanh toan don hang"
+      referenceNumber: FT26011509300001
+```
+
+Omitted API keys and target keys are generated automatically and reported through `generatedSecrets` when using the programmatic API or `--generated-secrets-file`.
+
+## Current Limits
+
+No real bank connections, API v2 endpoints, virtual accounts, bank account listing endpoints, transaction count endpoint, rate limiting, or webhook retries.
