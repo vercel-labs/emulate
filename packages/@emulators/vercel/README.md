@@ -35,6 +35,7 @@ npm install @emulators/vercel
 - `POST /v13/deployments` — create deployment (auto-transitions to READY)
 - `GET /v13/deployments/:idOrUrl` — get deployment (by ID or URL)
 - `GET /v6/deployments` — list deployments (filter by project, target, state)
+- `GET /v7/deployments` — list deployments (filter by project, target, state, commit SHA)
 - `DELETE /v13/deployments/:id` — delete deployment (cascades)
 - `PATCH /v12/deployments/:id/cancel` — cancel building deployment
 - `GET /v2/deployments/:id/aliases` — list deployment aliases
