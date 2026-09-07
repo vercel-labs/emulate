@@ -469,6 +469,16 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
 
 ## Google Calendar API
 
+### Discovery Document
+
+The emulator serves the Calendar v3 [Google API discovery document](https://developers.google.com/discovery/v1/reference/apis) so SDKs that bootstrap from discovery (`google-api-python-client`, `googleapis-discovery`, generated clients) work against the local URL with no code changes:
+
+```bash
+curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+```
+
+`rootUrl` and `baseUrl` in the response point at the running emulator (resolved from the request origin, or from `--base-url` if set), so any SDK that follows discovery will route subsequent calls through the emulator.
+
 ### Calendar List
 
 ```bash
