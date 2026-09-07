@@ -607,7 +607,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `POST /v13/deployments` - create deployment (auto-transitions to READY)
 - `GET /v13/deployments/:idOrUrl` - get deployment (by ID or URL)
 - `GET /v6/deployments` - list deployments (filter by project, target, state)
-- `GET /v7/deployments` - list deployments with commit SHA filtering before pagination, including previews across projects in a team
+- `GET /v7/deployments` - list deployments (filter by project, target, state, commit SHA)
 - `DELETE /v13/deployments/:id` - delete deployment (cascades)
 - `PATCH /v12/deployments/:id/cancel` - cancel building deployment
 - `GET /v2/deployments/:id/aliases` - list deployment aliases
