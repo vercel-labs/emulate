@@ -243,7 +243,7 @@ export function googleApiError(c: Context, code: number, message: string, reason
         status,
       },
     },
-    code as 400 | 401 | 404,
+    code as 400 | 401 | 403 | 404,
   );
 }
 

@@ -79,10 +79,15 @@ npm install @emulators/google
 
 Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
 
+OAuth authority checks are relaxed by default so local apps can use simple bearer tokens without completing an OAuth flow. Set `strict_scopes: true` in the Google seed config to reject unknown, revoked, expired, and refresh tokens on resource APIs and to enforce granted scopes for Google userinfo, Gmail, Calendar, and Drive. Scope failures use Google's `403` `insufficientPermissions` error envelope. Invalid credentials use `401` `UNAUTHENTICATED`.
+
+Strict mode follows Google's method-level scope requirements. Drive metadata scopes do not permit `alt=media` downloads, Drive content updates with `PUT` require `drive` or `drive.file` while metadata updates with `PATCH` also accept `drive.metadata`, Gmail `messages.send` accepts `gmail.send` while `drafts.send` requires `https://mail.google.com/`, `gmail.compose`, or `gmail.modify`, Gmail message and thread deletion plus `messages.batchDelete` require `https://mail.google.com/`, and Gmail settings reads accept `gmail.readonly`, `gmail.modify`, or `gmail.settings.basic`.
+
 ## Seed Configuration
 
 ```yaml
 google:
+  strict_scopes: false
   users:
     - email: testuser@example.com
       name: Test User
