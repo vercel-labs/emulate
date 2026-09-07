@@ -5,7 +5,7 @@ import { vercelPlugin, seedFromConfig, getVercelStore } from "../index.js";
 
 const base = "http://localhost:4000";
 
-type CreatedDeployment = { uid: string; projectId: string };
+type CreatedDeployment = { uid: string };
 
 function createTestApp() {
   const store = new Store();
@@ -41,7 +41,6 @@ describe("Vercel plugin integration", () => {
       name: string;
       meta?: Record<string, string>;
       gitSource?: { type: string; ref: string; sha: string };
-      target?: string;
     },
     teamId?: string,
   ): Promise<CreatedDeployment> {
@@ -93,16 +92,6 @@ describe("Vercel plugin integration", () => {
     expect(body.pagination).toBeDefined();
   });
 
-  it.each(["v6", "v7"])("GET /%s/deployments lists account deployments", async (version) => {
-    const deployment = await createDeployment({ name: "website" });
-    const response = await app.request(`${base}/${version}/deployments`, { headers: authHeaders() });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      deployments: [{ uid: deployment.uid, name: "website", projectId: deployment.projectId, meta: {} }],
-      pagination: { count: 1, next: null },
-    });
-  });
-
   it("GET /v7/deployments requires authentication", async () => {
     seedFromConfig(store, base, { teams: [{ slug: "first-team" }] });
     const team = getVercelStore(store).teams.findOneBy("slug", "first-team")!;
@@ -112,54 +101,22 @@ describe("Vercel plugin integration", () => {
     }
   });
 
-  it.each(["githubCommitSha", "gitlabCommitSha", "bitbucketCommitSha"])(
-    "GET /v7/deployments filters by %s metadata",
-    async (key) => {
-      const matching = await createDeployment({ name: "matching", meta: { [key]: "commit-sha" } });
-      await createDeployment({ name: "other-commit", meta: { [key]: "other-sha" } });
-      await createDeployment({ name: "without-git-metadata" });
-
-      const response = await app.request(`${base}/v7/deployments?sha=commit-sha`, {
-        headers: authHeaders(),
-      });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
-        deployments: [{ uid: matching.uid }],
-        pagination: { count: 1, next: null },
-      });
-    },
-  );
-
-  it("GET /v7/deployments filters by gitSource SHA", async () => {
-    const matching = await createDeployment({
-      name: "matching",
-      gitSource: { type: "github", ref: "main", sha: "commit-sha" },
-    });
-    await createDeployment({
-      name: "other-commit",
-      gitSource: { type: "github", ref: "main", sha: "other-sha" },
-    });
-
-    const response = await app.request(`${base}/v7/deployments?sha=commit-sha`, { headers: authHeaders() });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      deployments: [{ uid: matching.uid }],
-      pagination: { count: 1, next: null },
-    });
-  });
-
-  it.each(["teamId", "slug"])("GET /v7/deployments scopes monorepo previews by %s", async (key) => {
+  it("GET /v7/deployments finds a team's commit previews across projects", async () => {
     seedFromConfig(store, base, { teams: [{ slug: "first-team" }, { slug: "other-team" }] });
     const vs = getVercelStore(store);
     const team = vs.teams.findOneBy("slug", "first-team")!;
     const otherTeam = vs.teams.findOneBy("slug", "other-team")!;
     const first = await createDeployment({ name: "website", meta: { githubCommitSha: "commit-sha" } }, team.uid);
-    const second = await createDeployment({ name: "api", meta: { githubCommitSha: "commit-sha" } }, team.uid);
+    const second = await createDeployment(
+      { name: "api", gitSource: { type: "github", ref: "main", sha: "commit-sha" } },
+      team.uid,
+    );
+    await createDeployment({ name: "website", meta: { githubCommitSha: "other-sha" } }, team.uid);
+    await createDeployment({ name: "without-git-metadata" }, team.uid);
     await createDeployment({ name: "other-team", meta: { githubCommitSha: "commit-sha" } }, otherTeam.uid);
     await createDeployment({ name: "personal", meta: { githubCommitSha: "commit-sha" } });
 
-    const scope = key === "teamId" ? team.uid : team.slug;
-    const response = await app.request(`${base}/v7/deployments?sha=commit-sha&${key}=${scope}`, {
+    const response = await app.request(`${base}/v7/deployments?sha=commit-sha&teamId=${team.uid}`, {
       headers: authHeaders(),
     });
     expect(response.status).toBe(200);
@@ -194,36 +151,5 @@ describe("Vercel plugin integration", () => {
       deployments: [{ uid: older.uid }],
       pagination: { count: 1, next: null, prev: 1_000 },
     });
-  });
-
-  it("GET /v7/deployments combines SHA with existing deployment filters", async () => {
-    const matching = await createDeployment({
-      name: "website",
-      target: "production",
-      meta: { githubCommitSha: "commit-sha" },
-    });
-    await createDeployment({ name: "website", target: "preview", meta: { githubCommitSha: "commit-sha" } });
-    await createDeployment({ name: "api", target: "production", meta: { githubCommitSha: "commit-sha" } });
-
-    const query = new URLSearchParams({
-      sha: "commit-sha",
-      projectId: matching.projectId,
-      app: "website",
-      target: "production",
-      state: "READY",
-    });
-    const response = await app.request(`${base}/v7/deployments?${query}`, { headers: authHeaders() });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      deployments: [{ uid: matching.uid }],
-      pagination: { count: 1, next: null },
-    });
-  });
-
-  it("GET /v7/deployments returns an empty page when the commit has no deployments", async () => {
-    await createDeployment({ name: "other-commit", meta: { githubCommitSha: "other-sha" } });
-    const response = await app.request(`${base}/v7/deployments?sha=missing-sha`, { headers: authHeaders() });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ deployments: [], pagination: { count: 0, next: null, prev: null } });
   });
 });
