@@ -1,6 +1,14 @@
 # Changelog
 
 <!-- release:start -->
+## 0.11.1
+
+### Improvements
+
+- **Vercel v7 deployment listing** adds authenticated `GET /v7/deployments` with commit-SHA filtering across projects, team scoping, and pagination (#234)
+
+<!-- release:end -->
+
 ## 0.11.0
 
 ### New Features
@@ -13,8 +21,6 @@
 
 - @ctate
 - @Railly
-
-<!-- release:end -->
 
 ## 0.10.0
 
