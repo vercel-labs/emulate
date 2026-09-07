@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "@emulators/core";
 import { Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@emulators/core";
-import { vercelPlugin, seedFromConfig } from "../index.js";
+import { vercelPlugin, seedFromConfig, getVercelStore } from "../index.js";
 
 const base = "http://localhost:4000";
+
+type CreatedDeployment = { uid: string; projectId: string };
 
 function createTestApp() {
   const store = new Store();
@@ -28,10 +30,30 @@ function authHeaders(): Record<string, string> {
 
 describe("Vercel plugin integration", () => {
   let app: Hono;
+  let store: Store;
 
   beforeEach(() => {
-    app = createTestApp().app;
+    ({ app, store } = createTestApp());
   });
+
+  async function createDeployment(
+    body: {
+      name: string;
+      meta?: Record<string, string>;
+      gitSource?: { type: string; ref: string; sha: string };
+      target?: string;
+    },
+    teamId?: string,
+  ): Promise<CreatedDeployment> {
+    const query = teamId ? `?teamId=${teamId}` : "";
+    const response = await app.request(`${base}/v13/deployments${query}`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as CreatedDeployment;
+  }
 
   it("GET /v2/user returns the current user", async () => {
     const res = await app.request(`${base}/v2/user`, { headers: authHeaders() });
@@ -69,5 +91,139 @@ describe("Vercel plugin integration", () => {
     const body = (await res.json()) as { deployments: unknown[]; pagination: unknown };
     expect(Array.isArray(body.deployments)).toBe(true);
     expect(body.pagination).toBeDefined();
+  });
+
+  it.each(["v6", "v7"])("GET /%s/deployments lists account deployments", async (version) => {
+    const deployment = await createDeployment({ name: "website" });
+    const response = await app.request(`${base}/${version}/deployments`, { headers: authHeaders() });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      deployments: [{ uid: deployment.uid, name: "website", projectId: deployment.projectId, meta: {} }],
+      pagination: { count: 1, next: null },
+    });
+  });
+
+  it("GET /v7/deployments requires authentication", async () => {
+    seedFromConfig(store, base, { teams: [{ slug: "first-team" }] });
+    const team = getVercelStore(store).teams.findOneBy("slug", "first-team")!;
+    for (const query of ["", `?teamId=${team.uid}`, `?slug=${team.slug}`]) {
+      const response = await app.request(`${base}/v7/deployments${query}`);
+      expect(response.status).toBe(401);
+    }
+  });
+
+  it.each(["githubCommitSha", "gitlabCommitSha", "bitbucketCommitSha"])(
+    "GET /v7/deployments filters by %s metadata",
+    async (key) => {
+      const matching = await createDeployment({ name: "matching", meta: { [key]: "commit-sha" } });
+      await createDeployment({ name: "other-commit", meta: { [key]: "other-sha" } });
+      await createDeployment({ name: "without-git-metadata" });
+
+      const response = await app.request(`${base}/v7/deployments?sha=commit-sha`, {
+        headers: authHeaders(),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        deployments: [{ uid: matching.uid }],
+        pagination: { count: 1, next: null },
+      });
+    },
+  );
+
+  it("GET /v7/deployments filters by gitSource SHA", async () => {
+    const matching = await createDeployment({
+      name: "matching",
+      gitSource: { type: "github", ref: "main", sha: "commit-sha" },
+    });
+    await createDeployment({
+      name: "other-commit",
+      gitSource: { type: "github", ref: "main", sha: "other-sha" },
+    });
+
+    const response = await app.request(`${base}/v7/deployments?sha=commit-sha`, { headers: authHeaders() });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      deployments: [{ uid: matching.uid }],
+      pagination: { count: 1, next: null },
+    });
+  });
+
+  it.each(["teamId", "slug"])("GET /v7/deployments scopes monorepo previews by %s", async (key) => {
+    seedFromConfig(store, base, { teams: [{ slug: "first-team" }, { slug: "other-team" }] });
+    const vs = getVercelStore(store);
+    const team = vs.teams.findOneBy("slug", "first-team")!;
+    const otherTeam = vs.teams.findOneBy("slug", "other-team")!;
+    const first = await createDeployment({ name: "website", meta: { githubCommitSha: "commit-sha" } }, team.uid);
+    const second = await createDeployment({ name: "api", meta: { githubCommitSha: "commit-sha" } }, team.uid);
+    await createDeployment({ name: "other-team", meta: { githubCommitSha: "commit-sha" } }, otherTeam.uid);
+    await createDeployment({ name: "personal", meta: { githubCommitSha: "commit-sha" } });
+
+    const scope = key === "teamId" ? team.uid : team.slug;
+    const response = await app.request(`${base}/v7/deployments?sha=commit-sha&${key}=${scope}`, {
+      headers: authHeaders(),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { deployments: { uid: string }[] };
+    expect(body.deployments.map((deployment) => deployment.uid).sort()).toEqual([first.uid, second.uid].sort());
+  });
+
+  it("GET /v7/deployments filters SHA before sorting and pagination", async () => {
+    const older = await createDeployment({ name: "older", meta: { githubCommitSha: "commit-sha" } });
+    const newer = await createDeployment({ name: "newer", meta: { githubCommitSha: "commit-sha" } });
+    const unrelated = await createDeployment({ name: "unrelated", meta: { githubCommitSha: "other-sha" } });
+    const vs = getVercelStore(store);
+    for (const [index, deployment] of [older, newer, unrelated].entries()) {
+      const row = vs.deployments.findOneBy("uid", deployment.uid)!;
+      vs.deployments.update(row.id, { created_at: new Date((index + 1) * 1_000).toISOString() });
+    }
+
+    const response = await app.request(`${base}/v7/deployments?sha=commit-sha&limit=1`, {
+      headers: authHeaders(),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      deployments: [{ uid: newer.uid }],
+      pagination: { count: 1, next: 2_000, prev: 2_000 },
+    });
+
+    const earlier = await app.request(`${base}/v7/deployments?sha=commit-sha&since=0&until=1999&limit=1`, {
+      headers: authHeaders(),
+    });
+    expect(earlier.status).toBe(200);
+    expect(await earlier.json()).toMatchObject({
+      deployments: [{ uid: older.uid }],
+      pagination: { count: 1, next: null, prev: 1_000 },
+    });
+  });
+
+  it("GET /v7/deployments combines SHA with existing deployment filters", async () => {
+    const matching = await createDeployment({
+      name: "website",
+      target: "production",
+      meta: { githubCommitSha: "commit-sha" },
+    });
+    await createDeployment({ name: "website", target: "preview", meta: { githubCommitSha: "commit-sha" } });
+    await createDeployment({ name: "api", target: "production", meta: { githubCommitSha: "commit-sha" } });
+
+    const query = new URLSearchParams({
+      sha: "commit-sha",
+      projectId: matching.projectId,
+      app: "website",
+      target: "production",
+      state: "READY",
+    });
+    const response = await app.request(`${base}/v7/deployments?${query}`, { headers: authHeaders() });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      deployments: [{ uid: matching.uid }],
+      pagination: { count: 1, next: null },
+    });
+  });
+
+  it("GET /v7/deployments returns an empty page when the commit has no deployments", async () => {
+    await createDeployment({ name: "other-commit", meta: { githubCommitSha: "other-sha" } });
+    const response = await app.request(`${base}/v7/deployments?sha=missing-sha`, { headers: authHeaders() });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deployments: [], pagination: { count: 0, next: null, prev: null } });
   });
 });

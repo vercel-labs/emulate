@@ -28,6 +28,9 @@ GitHub API coverage:
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.
 
+Vercel API coverage:
+  GET /v7/deployments lists deployments by commit SHA across a team's projects, with cursor pagination.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,
