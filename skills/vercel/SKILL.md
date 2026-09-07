@@ -259,12 +259,9 @@ curl http://localhost:4000/v13/deployments/dpl_abc123 \
 curl "http://localhost:4000/v6/deployments?projectId=my-app&target=production&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 
-# List deployments for a commit across a team's projects
-curl "http://localhost:4000/v7/deployments?sha=abc123&teamId=team_abc123&limit=100" \
+# List deployments (filter by commit SHA)
+curl "http://localhost:4000/v7/deployments?sha=abc123" \
   -H "Authorization: Bearer $TOKEN"
-
-# V7 also supports the v6 filters. SHA matches gitSource.sha or GitHub, GitLab,
-# and Bitbucket commit metadata before cursor pagination is applied.
 
 # Delete deployment
 curl -X DELETE http://localhost:4000/v13/deployments/dpl_abc123 \
