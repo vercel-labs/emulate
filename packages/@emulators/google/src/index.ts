@@ -26,6 +26,7 @@ export * from "./entities.js";
 
 export interface GoogleSeedUser {
   email: string;
+  uid?: string;
   name?: string;
   given_name?: string;
   family_name?: string;
@@ -300,7 +301,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
       if (!existing) {
         const nameParts = (user.name ?? "").split(/\s+/).filter(Boolean);
         gs.users.insert({
-          uid: generateUid("goog"),
+          uid: user.uid ?? generateUid("goog"),
           email: user.email,
           name: user.name ?? user.email.split("@")[0],
           given_name: user.given_name ?? nameParts[0] ?? "",
