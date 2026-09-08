@@ -307,16 +307,24 @@ export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined,
   throw forbidden();
 }
 
+// Write helpers resolve the ACTOR, not a user: an installation token's
+// `login` is the installation account (a user or an org), and an org is not a
+// row in `users`, so the user-only assert answered 401 for every write made
+// with an org-installed App. The actor for an installation is `<slug>[bot]`
+// (installationActor), exactly what GitHub attributes such writes to.
 export function assertRepoWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  const user = assertAuthenticatedUser(gh, authUser);
+  const user = assertAuthenticatedActor(gh, authUser);
   if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
   return user;
 }
 
 export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  const user = assertAuthenticatedUser(gh, authUser);
+  const user = assertAuthenticatedActor(gh, authUser);
   if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
+  if (authUser?.installation && !hasInstallationPermission(authUser, ["issues", "pull_requests"], "write")) {
+    throw forbidden();
+  }
   return user;
 }
