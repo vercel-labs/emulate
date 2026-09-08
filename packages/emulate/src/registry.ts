@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "openai",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -626,6 +627,26 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+  openai: {
+    label: "OpenAI API emulator",
+    endpoints: "chat completions, embeddings, models, playground UI",
+    async load() {
+      const mod = await import("@emulators/openai");
+      return { plugin: mod.openaiPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "sk-test-admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      openai: {
+        models: [
+          { id: "gpt-4o", owned_by: "openai" },
+          { id: "gpt-4o-mini", owned_by: "openai" },
+        ],
+        completions: [{ pattern: ".*", content: "This is a mock response from the OpenAI emulator." }],
       },
     },
   },
