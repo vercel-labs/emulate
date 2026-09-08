@@ -128,3 +128,27 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+
+airtable:
+  user:
+    email: dev@example.com
+    name: Local Developer
+  bases:
+    - id: appLocalDevExample
+      name: Product
+      tables:
+        - name: Tasks
+          fields:
+            - { name: Name, type: singleLineText }
+            - name: Status
+              type: singleSelect
+              options:
+                choices:
+                  - { name: Todo }
+                  - { name: Doing }
+                  - { name: Done }
+            - { name: Estimate, type: number }
+          views:
+            - { name: All Tasks, type: grid }
+          records:
+            - { Name: Ship the emulator, Status: Doing, Estimate: 3 }
