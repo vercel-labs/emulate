@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "@emulators/core";
-import { decodeJwt } from "jose";
+import { decodeJwt, createLocalJWKSet, jwtVerify } from "jose";
 import {
   Store,
   WebhookDispatcher,
@@ -875,10 +875,20 @@ describe("Google plugin integration", () => {
     const tokenBody = (await tokenRes.json()) as {
       access_token: string;
       refresh_token: string;
+      id_token: string;
       scope: string;
     };
     expect(tokenBody.access_token).toMatch(/^google_/);
     expect(tokenBody.refresh_token).toMatch(/^google_refresh_/);
+    expect(tokenBody.id_token).toBeDefined();
+
+    const claims = decodeJwt(tokenBody.id_token);
+    expect(claims.iss).toBe(base);
+    expect(claims.aud).toBe("emu_google_client_id");
+    expect(claims.sub).toBeDefined();
+    expect(claims.email).toBe("testuser@example.com");
+    expect(claims.email_verified).toBe(true);
+    expect(claims.name).toBe("Test User");
 
     const refreshRes = await formRequest(app, "/oauth2/token", {
       grant_type: "refresh_token",
@@ -895,6 +905,47 @@ describe("Google plugin integration", () => {
     expect(refreshBody.access_token).toMatch(/^google_/);
     expect(refreshBody.access_token).not.toBe(tokenBody.access_token);
     expect(refreshBody.scope).toBe(tokenBody.scope);
+  });
+
+  it("GET /oauth2/v3/certs returns JWKS with RSA public key", async () => {
+    const res = await app.request(`${base}/oauth2/v3/certs`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
+    expect(body.keys).toHaveLength(1);
+    const key = body.keys[0];
+    expect(key.kty).toBe("RSA");
+    expect(key.kid).toBe("emulate-google-1");
+    expect(key.use).toBe("sig");
+    expect(key.alg).toBe("RS256");
+  });
+
+  it("id_token signature can be verified against the JWKS endpoint", async () => {
+    const authorizeRes = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      scope: "openid email profile",
+      client_id: "emu_google_client_id",
+    });
+    const code = new URL(authorizeRes.headers.get("Location")!).searchParams.get("code")!;
+
+    const tokenRes = await formRequest(app, "/oauth2/token", {
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+    const { id_token } = (await tokenRes.json()) as { id_token: string };
+
+    const certsRes = await app.request(`${base}/oauth2/v3/certs`);
+    const jwksJson = (await certsRes.json()) as { keys: object[] };
+    const JWKS = createLocalJWKSet(jwksJson);
+
+    const { payload } = await jwtVerify(id_token, JWKS, {
+      issuer: base,
+      audience: "emu_google_client_id",
+    });
+    expect(payload.email).toBe("testuser@example.com");
   });
 
   it("derives, overrides, and omits the hd claim based on user config", async () => {
