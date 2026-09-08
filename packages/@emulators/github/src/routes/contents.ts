@@ -460,6 +460,19 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
     const entry = flat.blobs.get(path);
     if (entry) {
+      // Raw media type (`application/vnd.github.raw` / `.raw+json`): return the
+      // file bytes, as GitHub does, instead of the JSON envelope.
+      const accept = c.req.header("Accept") ?? "";
+      if (/application\/vnd\.github\.raw(\+json)?/i.test(accept)) {
+        const resolved = resolveSymlinkEntry(gh, repo.id, path, entry, flat);
+        const blob = findBlob(gh, repo.id, resolved?.sha ?? entry.sha);
+        if (!blob) throw notFoundResponse();
+        const content = blobBytes(blob);
+        return c.body(content, 200, {
+          "Content-Type": "application/vnd.github.raw",
+          "Content-Length": String(content.byteLength),
+        });
+      }
       return c.json(formatFileContent(gh, repo, baseUrl, path, ref, entry, true, flat));
     }
     const prefix = `${path}/`;
