@@ -13,6 +13,7 @@ export const PAGE_TITLES: Record<string, string> = {
   apple: "Apple Sign In",
   microsoft: "Microsoft Entra ID",
   aws: "AWS",
+  facebook: "Facebook and Meta",
   okta: "Okta",
   mongoatlas: "MongoDB Atlas",
   resend: "Resend",

@@ -128,3 +128,30 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+facebook:
+  users:
+    - id: "100000000000001"
+      name: Test User
+      email: testuser@example.com
+  oauth_apps:
+    - app_id: "123456789012345"
+      app_secret: example_app_secret
+      name: Emulate Facebook App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/facebook
+  pages:
+    - id: "200000000000001"
+      name: Emulate Page
+      category: Digital creator
+      owner_user_ids:
+        - "100000000000001"
+  page_videos:
+    - id: "300000000000001"
+      page_id: "200000000000001"
+      title: Welcome video
+      description: A seeded Facebook Page video
+      permalink_url: https://www.facebook.com/200000000000001/videos/300000000000001
+      created_time: 2025-01-01T00:00:00+0000
+      views: 1200
+      likes: 80
+      comments: 12

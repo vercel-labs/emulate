@@ -63,6 +63,7 @@
     "@emulators/microsoft": "workspace:*",
     "@emulators/okta": "workspace:*",
     "@emulators/aws": "workspace:*",
+    "@emulators/facebook": "workspace:*",
     "@emulators/google": "workspace:*",
     "@emulators/mongoatlas": "workspace:*",
     "@emulators/slack": "workspace:*",
