@@ -36,6 +36,7 @@ const SERVICE_NAME_LIST = [
   "aws",
   "resend",
   "stripe",
+  "polar",
   "mongoatlas",
   "clerk",
   "linear",
@@ -440,6 +441,23 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         customers: [{ email: "test@example.com", name: "Test Customer" }],
         products: [{ name: "Pro Plan", description: "Monthly pro subscription" }],
         prices: [{ product_name: "Pro Plan", currency: "usd", unit_amount: 2000 }],
+      },
+    },
+  },
+  polar: {
+    label: "Polar.sh Merchant of Record emulator",
+    endpoints: "organizations, products, checkouts, subscriptions",
+    async load() {
+      const mod = await import("@emulators/polar");
+      return { plugin: mod.polarPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      polar: {
+        organizations: [{ name: "My Org", slug: "my-org" }],
+        products: [{ name: "Pro Plan", price: 2000, organization_slug: "my-org" }],
       },
     },
   },
