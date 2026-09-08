@@ -177,6 +177,14 @@ github:
       name: My Organization
       description: A test organization
       email: org@example.com
+      # Optional membership (logins must be seeded users). `admin` maps to a
+      # maintainer of the synthetic "members" team, exactly what
+      # PUT /orgs/:org/memberships/:username writes. Seed one admin when the
+      # org owns private repos: no seeded user can read them otherwise, and
+      # the membership endpoint itself requires an org admin.
+      members:
+        - login: octocat
+          role: admin
   repos:
     - owner: octocat
       name: hello-world

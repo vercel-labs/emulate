@@ -233,6 +233,11 @@ github:
   orgs:
     - login: my-org
       name: My Organization
+      # Optional. Team-backed membership; seed at least one admin or a
+      # private org repo is unreachable by every seeded user token.
+      members:
+        - login: octocat
+          role: admin
   repos:
     - owner: octocat
       name: hello-world

@@ -11,7 +11,7 @@ import type {
 } from "@emulators/core";
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
-import type { GitHubAppInstallation } from "./entities.js";
+import type { GitHubAppInstallation, GitHubOrg } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
@@ -57,6 +57,14 @@ export interface GitHubSeedConfig {
     name?: string;
     description?: string;
     email?: string;
+    /**
+     * Seed org membership. Team-backed, the same representation
+     * `PUT /orgs/:org/memberships/:username` writes at runtime. Logins must be
+     * seeded in `users`. Without at least one `admin`, a private org repo is
+     * unreachable by every seeded user token and nothing at runtime can grant
+     * membership (the membership endpoint itself requires an org admin).
+     */
+    members?: Array<{ login: string; role?: "admin" | "member" }>;
   }>;
   tokens?: Record<string, { login: string; scopes?: string[] }>;
   repos?: Array<{
@@ -280,6 +288,42 @@ function seedDefaults(store: Store, baseUrl: string): void {
   gh.users.update(admin.id, { node_id: generateNodeId("User", admin.id) });
 }
 
+type SeededOrgMember = { login: string; role?: "admin" | "member" };
+
+// Same slug as routes/orgs.ts getOrCreateMembersTeam: org membership is a
+// synthetic "members" team, and an `admin` is a `maintainer` of that team.
+const SEED_MEMBERS_TEAM_SLUG = "members";
+
+function seedOrgMembers(gh: GitHubStore, org: GitHubOrg, members: SeededOrgMember[]): void {
+  let team = gh.teams.findBy("org_id", org.id).find((t) => t.slug === SEED_MEMBERS_TEAM_SLUG);
+  if (!team) {
+    const inserted = gh.teams.insert({
+      node_id: "",
+      name: "Members",
+      slug: SEED_MEMBERS_TEAM_SLUG,
+      description: null,
+      privacy: "closed",
+      permission: "pull",
+      org_id: org.id,
+      parent_id: null,
+      members_count: 0,
+      repos_count: 0,
+    });
+    team = gh.teams.update(inserted.id, { node_id: generateNodeId("Team", inserted.id) }) ?? inserted;
+  }
+  for (const m of members) {
+    const user = gh.users.findOneBy("login", m.login);
+    if (!user) {
+      throw new Error(`GitHub org "${org.login}" member "${m.login}" is not a seeded user`);
+    }
+    const role = m.role === "admin" ? "maintainer" : "member";
+    const existing = gh.teamMembers.findBy("team_id", team.id).find((x) => x.user_id === user.id);
+    if (existing) gh.teamMembers.update(existing.id, { role });
+    else gh.teamMembers.insert({ team_id: team.id, user_id: user.id, role });
+  }
+  gh.teams.update(team.id, { members_count: gh.teamMembers.findBy("team_id", team.id).length });
+}
+
 export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
@@ -345,6 +389,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         billing_email: null,
       });
       gh.orgs.update(org.id, { node_id: generateNodeId("Org", org.id) });
+      if (o.members?.length) seedOrgMembers(gh, org, o.members);
     }
   }
 
