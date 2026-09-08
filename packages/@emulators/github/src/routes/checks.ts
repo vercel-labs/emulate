@@ -37,6 +37,8 @@ function resolveRefToHeadSha(gh: GitHubStore, repo: GitHubRepo, refParam: string
   const fullRef = refParam.startsWith("refs/") ? refParam : `refs/heads/${refParam}`;
   const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
   if (r) return r.sha;
+  const checkSuite = gh.checkSuites.findBy("repo_id", repo.id).find((suite) => suite.head_sha === refParam);
+  if (checkSuite) return checkSuite.head_sha;
   return undefined;
 }
 
