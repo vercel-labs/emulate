@@ -30,6 +30,25 @@ export function emailRoutes(ctx: RouteContext): void {
       if (!emailData.subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
     }
 
+    // Idempotency: deduplicate the entire batch if the same key was used before.
+    // Real Resend returns 409 if the key exists but the payload differs.
+    // Note: real Resend expires keys after 24h; the emulator keeps them for the session lifetime.
+    const idempotencyKey = c.req.header("Idempotency-Key") ?? null;
+    if (idempotencyKey) {
+      const incomingFingerprint = batchFingerprint(emails);
+      const existing = rs().emails.findOneBy("idempotency_key", idempotencyKey);
+      if (existing) {
+        const storedFingerprint = store.getData<string>(`resend.idem.${idempotencyKey}`);
+        if (storedFingerprint && storedFingerprint !== incomingFingerprint) {
+          return resendError(c, 409, "invalid_idempotent_request",
+            "This idempotency key has already been used with a different payload");
+        }
+        const cached = rs().emails.findBy("idempotency_key", idempotencyKey);
+        return c.json({ data: cached.map((e) => ({ id: e.uuid })) }, 200);
+      }
+      store.setData(`resend.idem.${idempotencyKey}`, incomingFingerprint);
+    }
+
     const results: Array<{ id: string }> = [];
 
     for (const emailData of emails) {
@@ -57,6 +76,7 @@ export function emailRoutes(ctx: RouteContext): void {
         status,
         scheduled_at: scheduledAt ?? null,
         last_event: status === "scheduled" ? "email.scheduled" : "email.delivered",
+        idempotency_key: idempotencyKey,
       });
 
       if (!scheduledAt) {
@@ -91,6 +111,26 @@ export function emailRoutes(ctx: RouteContext): void {
     if (!subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
 
     const toArray = Array.isArray(to) ? to : [to];
+
+    // Idempotency: Resend supports Idempotency-Key header to prevent duplicate sends.
+    // If the same key was used before with the same payload, return the original email.
+    // If the payload differs, return 409 per real Resend API behavior.
+    // Note: real Resend expires keys after 24h; the emulator keeps them for the session lifetime.
+    const idempotencyKey = c.req.header("Idempotency-Key") ?? null;
+    if (idempotencyKey) {
+      const existing = rs().emails.findOneBy("idempotency_key", idempotencyKey);
+      if (existing) {
+        const incomingFingerprint = emailFingerprint(body);
+        const storedFingerprint = store.getData<string>(`resend.idem.${idempotencyKey}`);
+        if (storedFingerprint && storedFingerprint !== incomingFingerprint) {
+          return resendError(c, 409, "invalid_idempotent_request",
+            "This idempotency key has already been used with a different payload");
+        }
+        return c.json({ id: existing.uuid }, 200);
+      }
+      store.setData(`resend.idem.${idempotencyKey}`, emailFingerprint(body));
+    }
+
     const uuid = generateUuid();
 
     const scheduledAt = body.scheduled_at as string | undefined;
@@ -111,6 +151,7 @@ export function emailRoutes(ctx: RouteContext): void {
       status,
       scheduled_at: scheduledAt ?? null,
       last_event: status === "scheduled" ? "email.scheduled" : "email.delivered",
+      idempotency_key: idempotencyKey,
     });
 
     if (!scheduledAt) {
@@ -166,6 +207,21 @@ function normalizeStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") return [value];
   return [];
+}
+
+/** Deterministic fingerprint for a single email payload, used for idempotency mismatch detection. */
+function emailFingerprint(body: Record<string, unknown>): string {
+  return JSON.stringify([
+    body.from, body.to, body.subject,
+    body.html ?? null, body.text ?? null,
+    body.cc ?? null, body.bcc ?? null, body.reply_to ?? null,
+    body.headers ?? null, body.tags ?? null, body.scheduled_at ?? null,
+  ]);
+}
+
+/** Deterministic fingerprint for a batch payload, used for idempotency mismatch detection. */
+function batchFingerprint(emails: Array<Record<string, unknown>>): string {
+  return JSON.stringify(emails.map((e) => emailFingerprint(e)));
 }
 
 function formatEmail(email: ResendEmail) {
