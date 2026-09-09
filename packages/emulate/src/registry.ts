@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "chargebee",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -626,6 +627,86 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+
+  chargebee: {
+    label: "Chargebee billing emulator",
+    endpoints:
+      "customers, hierarchy, items, item prices, coupons, subscriptions, invoices, credit notes, transactions, payment sources, hosted pages, portal sessions, estimates, events, time machine, webhooks, inspector",
+    async load() {
+      const mod = await import("@emulators/chargebee");
+      return { plugin: mod.chargebeePlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const keys = cfg?.api_keys as Array<{ key?: string }> | undefined;
+      return { login: keys?.[0]?.key ?? "test_emulate_chargebee_api_key", id: 1, scopes: [] };
+    },
+    initConfig: {
+      chargebee: {
+        site: "emulate-test",
+        api_keys: [{ key: "test_emulate_chargebee_api_key", name: "Local API Key" }],
+        item_families: [{ id: "local-products", name: "Local Products" }],
+        items: [
+          { id: "pro-plan", name: "Pro Plan", type: "plan", item_family: "local-products" },
+          { id: "extra-seats", name: "Extra Seats", type: "addon", item_family: "local-products" },
+          { id: "setup-fee", name: "Setup Fee", type: "charge", item_family: "local-products" },
+        ],
+        item_prices: [
+          {
+            id: "pro-plan-USD-Monthly",
+            item: "pro-plan",
+            pricing_model: "flat_fee",
+            price: 2000,
+            currency_code: "USD",
+            period: 1,
+            period_unit: "month",
+          },
+          {
+            id: "extra-seats-USD-Monthly",
+            item: "extra-seats",
+            pricing_model: "per_unit",
+            price: 500,
+            currency_code: "USD",
+            period: 1,
+            period_unit: "month",
+          },
+          { id: "setup-fee-USD", item: "setup-fee", pricing_model: "flat_fee", price: 4900, currency_code: "USD" },
+        ],
+        coupons: [
+          {
+            id: "WELCOME10",
+            name: "Welcome 10%",
+            discount_type: "percentage",
+            discount_percentage: 10,
+            duration_type: "one_time",
+          },
+        ],
+        customers: [
+          {
+            id: "local-customer",
+            first_name: "Test",
+            last_name: "Customer",
+            email: "test@example.com",
+            company: "Example Inc",
+            card: { number: "4111111111111111" },
+          },
+        ],
+        subscriptions: [
+          {
+            id: "local-subscription",
+            customer: "local-customer",
+            items: [{ item_price: "pro-plan-USD-Monthly" }],
+          },
+        ],
+        webhooks: [
+          {
+            url: "http://localhost:3000/api/webhooks/chargebee",
+            username: "chargebee",
+            password: "webhook_secret",
+          },
+        ],
       },
     },
   },

@@ -31,6 +31,10 @@ Linear API coverage:
 Vercel API coverage:
   GET /v7/deployments lists deployments by commit SHA across a team's projects, with cursor pagination.
 
+Chargebee API coverage:
+  Product Catalog 2.0 billing at /api/v2 with subscriptions, invoices, hosted pages, and the delorean time machine.
+  Webhooks configured with a username and password send Chargebee-style Basic auth.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

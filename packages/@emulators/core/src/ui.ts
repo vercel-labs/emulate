@@ -416,6 +416,7 @@ export interface CheckoutPageOptions {
   currency: string;
   sessionId: string;
   cancelUrl?: string | null;
+  completeAction?: string;
 }
 
 export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string): string {
@@ -473,7 +474,7 @@ ${emuBar(service)}
     ${totalsHtml}
   </div>
   <div class="checkout-form-side">
-    <form method="post" action="/checkout/${escapeAttr(opts.sessionId)}/complete">
+    <form method="post" action="${escapeAttr(opts.completeAction ?? `/checkout/${opts.sessionId}/complete`)}">
       <div class="checkout-form-section">
         <label class="checkout-form-label">Email</label>
         <input type="email" name="email" class="checkout-input" placeholder="you@example.com"/>

@@ -1,0 +1,186 @@
+# Chargebee
+
+Stateful Chargebee API v2 emulation for Product Catalog 2.0 sites: customers with account hierarchy, item families, items, item prices, coupons, subscriptions, invoices, credit notes, transactions, payment sources, hosted pages, portal sessions, estimates, events, the delorean time machine, and webhooks. Includes hosted checkout and customer portal pages plus an inspector.
+
+## Start
+
+```bash
+npx emulate --service chargebee
+```
+
+When Chargebee is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4014`.
+
+## Defaults
+
+```text
+CHARGEBEE_SITE=emulate-test
+CHARGEBEE_API_KEY=test_emulate_chargebee_api_key
+```
+
+The default seed includes item family `local-products`, plan `pro-plan` (`pro-plan-USD-Monthly`, `pro-plan-USD-Yearly`), addon `extra-seats-USD-Monthly`, charge `setup-fee-USD`, coupon `WELCOME10`, customer `local-customer` with a valid test card, and active subscription `local-subscription` with a paid invoice.
+
+## Authentication And URL Mapping
+
+Requests use HTTP Basic auth with the API key as the username and an empty password, exactly like Chargebee.
+
+| Real Chargebee URL | Emulator URL |
+|--------------------|--------------|
+| `https://{site}.chargebee.com/api/v2/...` | `$CHARGEBEE_EMULATOR_URL/api/v2/...` |
+| `https://{site}.chargebee.com/pages/v3/{id}/` | `$CHARGEBEE_EMULATOR_URL/pages/v3/{id}/` |
+| `https://{site}.chargebeeportal.com/portal/v2/authenticate` | `$CHARGEBEE_EMULATOR_URL/portal/v2/authenticate` |
+
+The Chargebee Node SDK builds URLs from `site` and `hostSuffix`:
+
+```typescript
+import Chargebee from "chargebee";
+
+const chargebee = new Chargebee({
+  site: "localhost",
+  apiKey: process.env.CHARGEBEE_API_KEY!,
+  protocol: "http",
+  hostSuffix: "",
+  port: 4000,
+});
+```
+
+## Customers
+
+- `POST /api/v2/customers` - create customer (supports `card[...]`, `billing_address[...]`, `meta_data`, `cf_*` custom fields)
+- `GET /api/v2/customers` - list customers with Chargebee filter operators, `sort_by`, `limit`, and `offset`
+- `GET /api/v2/customers/:id` - retrieve customer
+- `POST /api/v2/customers/:id` - update customer
+- `POST /api/v2/customers/:id/update_billing_info`
+- `POST /api/v2/customers/:id/update_payment_method`
+- `POST /api/v2/customers/:id/assign_payment_role`
+- `POST /api/v2/customers/:id/add_promotional_credits`, `deduct_promotional_credits`, `set_promotional_credits`
+- `POST /api/v2/customers/:id/collect_payment`
+- `POST /api/v2/customers/:id/delete`
+- `POST /api/v2/customers/:id/clear_personal_data`
+- `POST /api/v2/customers/:id/relationships`, `delete_relationship`, `update_hierarchy_settings`
+- `GET /api/v2/customers/:id/hierarchy`
+
+## Catalog
+
+- `POST /api/v2/item_families`, `GET /api/v2/item_families`, `GET /api/v2/item_families/:id`, `POST /api/v2/item_families/:id`, `POST /api/v2/item_families/:id/delete`
+- `POST /api/v2/items`, `GET /api/v2/items`, `GET /api/v2/items/:id`, `POST /api/v2/items/:id`, `POST /api/v2/items/:id/delete`
+- `POST /api/v2/item_prices`, `GET /api/v2/item_prices`, `GET /api/v2/item_prices/:id`, `POST /api/v2/item_prices/:id`, `POST /api/v2/item_prices/:id/delete`
+- `GET /api/v2/item_prices/:id/applicable_items`, `GET /api/v2/item_prices/:id/applicable_item_prices`
+- `POST /api/v2/coupons/create_for_items`, `GET /api/v2/coupons`, `GET /api/v2/coupons/:id`, `POST /api/v2/coupons/:id/update_for_items`, `POST /api/v2/coupons/:id/delete`, `POST /api/v2/coupons/:id/unarchive`
+
+Item price ids default to Chargebee's `{item}-{currency}-{period}` convention, for example `pro-plan-USD-Monthly`. Pricing models `flat_fee`, `per_unit`, `tiered`, `volume`, and `stairstep` are supported.
+
+## Subscriptions
+
+- `POST /api/v2/customers/:id/subscription_for_items` - create subscription
+- `POST /api/v2/subscriptions/create_with_items` - create customer and subscription together
+- `POST /api/v2/customers/:id/import_for_items` - import without invoicing or events
+- `GET /api/v2/subscriptions`, `GET /api/v2/customers/:id/subscriptions` - list (filters include `item_price_id`, `plan_id`, `status`, `customer_id`)
+- `GET /api/v2/subscriptions/:id`, `GET /api/v2/subscriptions/:id/retrieve_with_scheduled_changes`
+- `POST /api/v2/subscriptions/:id/update_for_items` - change items with proration, or `end_of_term` scheduling
+- `POST /api/v2/subscriptions/:id/change_term_end`
+- `POST /api/v2/subscriptions/:id/cancel_for_items` - immediate or `end_of_term`, with `credit_option_for_current_term_charges`
+- `POST /api/v2/subscriptions/:id/remove_scheduled_cancellation`, `remove_scheduled_changes`, `remove_coupons`
+- `POST /api/v2/subscriptions/:id/reactivate`, `pause`, `resume`, `remove_scheduled_pause`, `remove_scheduled_resumption`
+- `POST /api/v2/subscriptions/:id/delete`
+- `GET /api/v2/subscriptions/:id/discounts`
+
+Active subscriptions generate a term invoice on creation and renewal. Customers with `auto_collection` on are charged against their primary payment source; customers without one receive `payment_method_not_present`, like Chargebee. Customers with `auto_collection` off receive `payment_due` invoices.
+
+## Invoices, Credit Notes, Transactions
+
+- `POST /api/v2/invoices/create_for_charge_items_and_charges`, `POST /api/v2/invoices/charge`
+- `GET /api/v2/invoices`, `GET /api/v2/customers/:id/invoices`, `GET /api/v2/subscriptions/:id/invoices`, `GET /api/v2/invoices/:id`
+- `POST /api/v2/invoices/:id/pdf` - returns a `download_url` served by the emulator
+- `POST /api/v2/invoices/:id/record_payment`, `collect_payment`, `void`, `write_off`, `delete`, `remove_payment`, `remove_credit_note`, `apply_credits`, `update_details`, `refund`, `record_refund`, `stop_dunning`
+- `GET /api/v2/invoices/:id/payments`
+- `POST /api/v2/credit_notes`, `GET /api/v2/credit_notes`, `GET /api/v2/customers/:id/credit_notes`, `GET /api/v2/credit_notes/:id`, `POST /api/v2/credit_notes/:id/pdf`, `void`, `delete`, `refund`, `record_refund`, `update`
+- `GET /api/v2/transactions`, `GET /api/v2/customers/:id/transactions`, `GET /api/v2/subscriptions/:id/transactions`, `GET /api/v2/transactions/:id`, `POST /api/v2/transactions/:id/refund`
+
+## Payment Sources
+
+- `POST /api/v2/payment_sources/create_card`, `create_using_token`, `create_using_temp_token`, `create_using_permanent_token`, `create_using_payment_intent`
+- `GET /api/v2/payment_sources`, `GET /api/v2/payment_sources/:id`
+- `POST /api/v2/payment_sources/:id/update_card`, `delete`, `delete_local`
+
+Test cards: `4111111111111111` always succeeds. `4000000000000002` is stored as a valid card whose charges fail, producing `payment_failed` events and `payment_due` invoices.
+
+## Hosted Pages And Portal
+
+- `POST /api/v2/hosted_pages/checkout_new_for_items`, `checkout_existing_for_items`, `checkout_one_time_for_items`, `manage_payment_sources`, `update_payment_method`, `collect_now`
+- `GET /api/v2/hosted_pages`, `GET /api/v2/hosted_pages/:id`, `POST /api/v2/hosted_pages/:id/acknowledge`
+- `GET /pages/v3/:id/` - hosted checkout UI; completing it performs the operation, marks the page `succeeded`, and redirects to `redirect_url` with `id` and `state=succeeded`
+- `POST /api/v2/portal_sessions`, `GET /api/v2/portal_sessions/:id`, `POST /api/v2/portal_sessions/:id/activate`, `POST /api/v2/portal_sessions/:id/logout`
+- `GET /portal/v2/authenticate?token=...` - local customer portal UI
+
+## Estimates
+
+- `POST /api/v2/estimates/create_subscription_for_items`, `POST /api/v2/customers/:id/create_subscription_for_items_estimate`
+- `POST /api/v2/estimates/update_subscription_for_items`
+- `GET /api/v2/subscriptions/:id/renewal_estimate`
+- `POST /api/v2/subscriptions/:id/cancel_subscription_for_items_estimate`
+- `POST /api/v2/estimates/create_invoice_for_items`
+
+## Events And Time Machine
+
+- `GET /api/v2/events`, `GET /api/v2/events/:id`
+- `GET /api/v2/time_machines/delorean`
+- `POST /api/v2/time_machines/delorean/travel_forward` - moves the clock and processes trial ends, renewals, scheduled changes, cancellations, pauses, and resumptions
+- `POST /api/v2/time_machines/delorean/start_afresh` - clears site data and resets the clock (API keys are kept)
+
+## Webhooks
+
+Events are POSTed as Chargebee event payloads (`id`, `occurred_at`, `source`, `object: "event"`, `api_version: "v2"`, `event_type`, `content`, `webhook_status`). Webhooks configured with `username` and `password` include `Authorization: Basic base64(username:password)`.
+
+## Seed Config
+
+```yaml
+chargebee:
+  site: emulate-test
+  api_keys:
+    - key: test_emulate_chargebee_api_key
+  item_families:
+    - id: local-products
+      name: Local Products
+  items:
+    - id: pro-plan
+      name: Pro Plan
+      type: plan
+      item_family: local-products
+  item_prices:
+    - id: pro-plan-USD-Monthly
+      item: pro-plan
+      pricing_model: flat_fee
+      price: 2000
+      currency_code: USD
+      period: 1
+      period_unit: month
+  coupons:
+    - id: WELCOME10
+      name: Welcome 10%
+      discount_type: percentage
+      discount_percentage: 10
+      duration_type: one_time
+  customers:
+    - id: local-customer
+      email: test@example.com
+      cf_company: cmp_123
+      card:
+        number: "4111111111111111"
+  subscriptions:
+    - id: local-subscription
+      customer: local-customer
+      items:
+        - item_price: pro-plan-USD-Monthly
+  webhooks:
+    - url: http://localhost:3000/api/webhooks/chargebee
+      username: chargebee
+      password: webhook_secret
+```
+
+## Inspector
+
+Open `GET /` in the Chargebee emulator to inspect customers, subscriptions, invoices and credit notes, the catalog, transactions and payment sources, hosted pages and portal sessions, events, credentials, and webhook deliveries.
+
+## Current Limits
+
+Product Catalog 1.0 endpoints, taxes, exchange rates, usage-based billing, quotes, orders, gifts, contract terms, dunning retries, advance invoices, Chargebee.js tokenization, and the JS checkout drop-in are not implemented.

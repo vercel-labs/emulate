@@ -24,6 +24,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
+- **Chargebee** on `http://localhost:4014`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -188,7 +189,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'chargebee'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -979,6 +980,49 @@ To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then ca
 
 Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
 
+## Chargebee API
+
+Stateful Chargebee API v2 emulation for Product Catalog 2.0 sites with customers and account hierarchy, item families, items, item prices, coupons, subscriptions, invoices, credit notes, transactions, payment sources, hosted pages, portal sessions, estimates, events, the delorean time machine, Basic-auth webhooks, and an inspector. No real payments are processed.
+
+Default local credentials:
+
+```text
+CHARGEBEE_SITE=emulate-test
+CHARGEBEE_API_KEY=test_emulate_chargebee_api_key
+```
+
+The default seed includes item family `local-products`, plan `pro-plan` with prices `pro-plan-USD-Monthly` and `pro-plan-USD-Yearly`, addon `extra-seats-USD-Monthly`, charge `setup-fee-USD`, coupon `WELCOME10`, customer `local-customer` with a valid test card, and active subscription `local-subscription`.
+
+### REST Routes
+
+All API routes live under `/api/v2` and use HTTP Basic auth with the API key as the username.
+
+- `POST /api/v2/customers`, `GET /api/v2/customers`, `GET /api/v2/customers/{id}`, `POST /api/v2/customers/{id}`, `POST /api/v2/customers/{id}/delete` - customers with `cf_*` custom fields and Chargebee list filters
+- `POST /api/v2/customers/{id}/relationships`, `GET /api/v2/customers/{id}/hierarchy` - account hierarchy
+- `POST /api/v2/item_families`, `POST /api/v2/items`, `POST /api/v2/item_prices`, `GET /api/v2/item_prices` - Product Catalog 2.0
+- `POST /api/v2/coupons/create_for_items`, `GET /api/v2/coupons` - coupons
+- `POST /api/v2/customers/{id}/subscription_for_items`, `POST /api/v2/subscriptions/create_with_items`, `POST /api/v2/customers/{id}/import_for_items` - create subscriptions
+- `GET /api/v2/subscriptions`, `GET /api/v2/subscriptions/{id}`, `POST /api/v2/subscriptions/{id}/update_for_items`, `cancel_for_items`, `remove_scheduled_cancellation`, `reactivate`, `pause`, `resume`, `change_term_end`, `delete` - subscription lifecycle with proration
+- `GET /api/v2/invoices`, `GET /api/v2/invoices/{id}`, `POST /api/v2/invoices/{id}/pdf`, `record_payment`, `collect_payment`, `void`, `write_off`, `refund`, `apply_credits`, `POST /api/v2/invoices/create_for_charge_items_and_charges` - invoices
+- `POST /api/v2/credit_notes`, `GET /api/v2/credit_notes`, `GET /api/v2/transactions` - credit notes and transactions
+- `POST /api/v2/payment_sources/create_card`, `create_using_token`, `GET /api/v2/payment_sources`, `POST /api/v2/payment_sources/{id}/delete` - payment sources
+- `POST /api/v2/hosted_pages/checkout_new_for_items`, `checkout_existing_for_items`, `checkout_one_time_for_items`, `manage_payment_sources`, `collect_now`, `GET /api/v2/hosted_pages/{id}` - hosted pages, with the checkout UI at `GET /pages/v3/{id}/`
+- `POST /api/v2/portal_sessions`, `POST /api/v2/portal_sessions/{id}/activate` - portal sessions, with the portal UI at `GET /portal/v2/authenticate`
+- `POST /api/v2/estimates/create_subscription_for_items`, `update_subscription_for_items`, `GET /api/v2/subscriptions/{id}/renewal_estimate` - estimates
+- `GET /api/v2/events` - event log
+- `GET /api/v2/time_machines/delorean`, `POST /api/v2/time_machines/delorean/travel_forward`, `start_afresh` - time machine
+- `GET /` - tabbed inspector for customers, subscriptions, invoices, catalog, payments, hosted pages, events, auth, and webhook deliveries
+
+### Billing Behavior
+
+Active subscriptions generate a term invoice on creation and on each renewal. Customers with `auto_collection` on are charged against their primary payment source; creating a paid subscription without a payment source fails with `payment_method_not_present`, like Chargebee. Customers with `auto_collection` off get `payment_due` invoices that `record_payment` settles. Test card `4111111111111111` always succeeds and `4000000000000002` always declines, producing `payment_failed` events. Travelling forward with the time machine ends trials, renews terms, applies scheduled changes, and executes scheduled cancellations, pauses, and resumptions.
+
+Chargebee webhooks POST the standard event payload (`id`, `occurred_at`, `source`, `object: "event"`, `api_version: "v2"`, `event_type`, `content`, `webhook_status`). Webhooks configured with `username` and `password` include an `Authorization: Basic` header.
+
+The Chargebee Node SDK works against the emulator with `site: "localhost"`, `hostSuffix: ""`, `protocol: "http"`, and the emulator port.
+
+Current Chargebee limits: Product Catalog 1.0 endpoints (plans, addons, `POST /subscriptions`), taxes, exchange rates, usage-based billing, quotes, orders, gifts, contract terms, dunning retries, advance invoices, Chargebee.js tokenization, and the JS checkout drop-in are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1262,6 +1306,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     linear/         # Linear GraphQL API, OAuth, webhooks
     twilio/         # Twilio Messaging, Verify, Voice, webhooks
+    chargebee/      # Chargebee billing API, hosted pages, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1286,6 +1331,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
 
 **Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
+
+**Chargebee**: HTTP Basic auth with a seeded API key as the username and an empty password. All API routes live under `/api/v2`; the hosted checkout lives at `/pages/v3/{id}/` and the customer portal at `/portal/v2/authenticate`.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
