@@ -41,6 +41,7 @@ const SERVICE_NAME_LIST = [
   "linear",
   "twilio",
   "chargebee",
+  "zendesk",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -705,6 +706,82 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             url: "http://localhost:3000/api/webhooks/chargebee",
             username: "chargebee",
             password: "webhook_secret",
+          },
+        ],
+      },
+    },
+  },
+
+  zendesk: {
+    label: "Zendesk Support API emulator",
+    endpoints:
+      "tickets, comments, audits, metrics, requests, users, organizations, memberships, groups, ticket fields, custom fields, tags, search, views, macros, triggers, webhooks, uploads, job statuses, incremental exports, inspector",
+    async load() {
+      const mod = await import("@emulators/zendesk");
+      return { plugin: mod.zendeskPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const tokens = cfg?.api_tokens as Array<{ email?: string }> | undefined;
+      return { login: tokens?.[0]?.email ?? "admin@example.com", id: 1, scopes: [] };
+    },
+    initConfig: {
+      zendesk: {
+        subdomain: "emulate-support",
+        api_tokens: [{ token: "test_emulate_zendesk_api_token", email: "admin@example.com" }],
+        groups: [{ name: "Support", default: true }],
+        organizations: [{ name: "Example Inc", domain_names: ["example.com"], organization_fields: { english: true } }],
+        users: [
+          { name: "Support Admin", email: "admin@example.com", role: "admin" },
+          { name: "Alex Agent", email: "agent@example.com", role: "agent" },
+          { name: "Test Customer", email: "test@example.com", role: "end-user", organization: "Example Inc" },
+        ],
+        ticket_fields: [
+          { type: "text", title: "Case reference" },
+          {
+            type: "tagger",
+            title: "Category",
+            options: [
+              { name: "Billing", value: "category_billing" },
+              { name: "Technical", value: "category_technical" },
+            ],
+          },
+        ],
+        organization_fields: [
+          { key: "english", title: "English", type: "checkbox" },
+          { key: "client_id", title: "Client ID", type: "text" },
+        ],
+        tickets: [
+          {
+            subject: "Welcome to the Zendesk emulator",
+            description: "How do I test my support integration locally?",
+            requester: "test@example.com",
+            assignee: "agent@example.com",
+            status: "open",
+            priority: "normal",
+            tags: ["welcome"],
+          },
+        ],
+        webhooks: [
+          {
+            name: "Local ticket notifier",
+            endpoint: "http://localhost:3000/api/webhooks/zendesk",
+            subscriptions: ["conditional_ticket_events", "zen:event-type:user.created"],
+            signing_secret: "zendesk_webhook_secret",
+          },
+        ],
+        triggers: [
+          {
+            title: "Notify app on new tickets",
+            conditions: { all: [{ field: "update_type", operator: "is", value: "Create" }], any: [] },
+            actions: [
+              {
+                field: "notification_webhook",
+                value: [
+                  "Local ticket notifier",
+                  '{"ticket_id": {{ticket.id}}, "subject": "{{ticket.title}}", "requester": "{{ticket.requester.email}}"}',
+                ],
+              },
+            ],
           },
         ],
       },

@@ -35,6 +35,10 @@ Chargebee API coverage:
   Product Catalog 2.0 billing at /api/v2 with subscriptions, invoices, hosted pages, and the delorean time machine.
   Webhooks configured with a username and password send Chargebee-style Basic auth.
 
+Zendesk API coverage:
+  Support API v2 at /api/v2 with tickets, users, organizations, search, triggers, and views.
+  Webhooks are signed with X-Zendesk-Webhook-Signature over the timestamp and raw body.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

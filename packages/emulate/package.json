@@ -73,6 +73,7 @@
     "@emulators/linear": "workspace:*",
     "@emulators/twilio": "workspace:*",
     "@emulators/chargebee": "workspace:*",
+    "@emulators/zendesk": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

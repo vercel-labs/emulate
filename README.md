@@ -25,6 +25,7 @@ All services start with sensible defaults. No config file needed:
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
 - **Chargebee** on `http://localhost:4014`
+- **Zendesk** on `http://localhost:4015`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -189,7 +190,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'chargebee'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, or `'zendesk'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1023,6 +1024,45 @@ The Chargebee Node SDK works against the emulator with `site: "localhost"`, `hos
 
 Current Chargebee limits: Product Catalog 1.0 endpoints (plans, addons, `POST /subscriptions`), taxes, exchange rates, usage-based billing, quotes, orders, gifts, contract terms, dunning retries, advance invoices, Chargebee.js tokenization, and the JS checkout drop-in are not implemented.
 
+## Zendesk API
+
+Stateful Zendesk Support API v2 emulation with tickets, comments, audits, and metrics, requests, users, organizations and memberships, groups, ticket fields and custom fields, tags, search, views, macros, triggers, signed webhooks, uploads, job statuses, incremental exports, an inbound-email simulator, and an inspector. No emails are sent.
+
+Default local credentials:
+
+```text
+ZENDESK_SUBDOMAIN=emulate-support
+ZENDESK_EMAIL=admin@example.com
+ZENDESK_API_TOKEN=test_emulate_zendesk_api_token
+```
+
+The default seed includes an admin, an agent, an end user in organization Example Inc, the Support group, system ticket fields plus a "Case reference" text field and a "Category" dropdown, `english` and `client_id` organization fields, one open ticket, a "Mark as solved" macro, and the six standard views.
+
+### REST Routes
+
+All routes live under `/api/v2` and accept an optional `.json` suffix. Authenticate with `Authorization: Basic base64(email/token:API_TOKEN)`.
+
+- `POST /api/v2/tickets`, `GET /api/v2/tickets`, `GET /api/v2/tickets/{id}`, `PUT /api/v2/tickets/{id}`, `DELETE /api/v2/tickets/{id}`, `GET /api/v2/tickets/show_many`, `POST /api/v2/tickets/create_many`, `PUT /api/v2/tickets/update_many`, `DELETE /api/v2/tickets/destroy_many` - tickets with audits and metrics
+- `POST /api/v2/imports/tickets`, `POST /api/v2/imports/tickets/create_many` - imports with historical timestamps and comments
+- `GET /api/v2/tickets/{id}/comments`, `audits`, `metrics`, `tags`, `incidents`, `satisfaction_rating`, `GET /api/v2/deleted_tickets` - ticket sub-resources
+- `GET /api/v2/requests`, `POST /api/v2/requests`, `GET /api/v2/requests/{id}`, `PUT /api/v2/requests/{id}`, `GET /api/v2/organizations/{id}/requests` - end-user requests with cursor pagination
+- `POST /api/v2/users`, `GET /api/v2/users/search`, `GET /api/v2/users/me`, `POST /api/v2/users/create_or_update`, `DELETE /api/v2/users/destroy_many` - users
+- `POST /api/v2/organizations`, `GET /api/v2/organizations/search`, `PUT /api/v2/organizations/{id}`, `DELETE /api/v2/organizations/destroy_many`, `POST /api/v2/organization_memberships` - organizations and memberships (duplicate memberships return `422`)
+- `GET /api/v2/groups`, `POST /api/v2/group_memberships` - groups
+- `GET /api/v2/ticket_fields`, `POST /api/v2/ticket_fields`, `GET /api/v2/user_fields`, `GET /api/v2/organization_fields`, `GET /api/v2/tags`, `GET /api/v2/custom_statuses` - fields and tags
+- `GET /api/v2/search`, `GET /api/v2/search/count`, `GET /api/v2/search/export` - Zendesk search syntax
+- `GET /api/v2/views`, `GET /api/v2/views/{id}/tickets`, `GET /api/v2/macros`, `GET /api/v2/tickets/{id}/macros/{id}/apply`, `POST /api/v2/triggers` - business rules
+- `POST /api/v2/webhooks`, `GET /api/v2/webhooks/{id}/signing_secret`, `GET /api/v2/webhooks/{id}/invocations` - webhooks
+- `POST /api/v2/uploads`, `GET /api/v2/job_statuses/{id}`, `GET /api/v2/incremental/tickets` - uploads, jobs, exports
+- `POST /_zendesk/simulate/inbound-email` - create a ticket or reply as if an email arrived
+- `GET /` - tabbed inspector for tickets, users, organizations, fields, rules, webhooks, events, and credentials
+
+### Triggers And Webhooks
+
+Triggers evaluate on every ticket create and update. Field and tag actions are applied in a separate audit with `via.channel = "rule"`, and `notification_webhook` actions render placeholders such as `{{ticket.id}}`, `{{ticket.title}}`, `{{ticket.requester.email}}`, and `{{ticket.latest_comment}}` into the request body. Webhooks subscribed to `zen:event-type:user.*`, `zen:event-type:organization.*`, or `zen:event-type:ticket.*` receive the Zendesk event envelope. Every delivery is signed with `X-Zendesk-Webhook-Signature` (base64 HMAC-SHA256 over `timestamp + body`) and `X-Zendesk-Webhook-Signature-Timestamp`, and includes the configured Basic, Bearer, or API key header.
+
+Current Zendesk limits: Help Center articles, Talk, Chat, Sunshine Conversations, side conversations, SLA policies, schedules, automations, skills-based routing, multiple ticket forms and brands, sharing agreements, the suspended ticket queue, OAuth authorization flows, rate limiting, and outbound email notifications are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1307,6 +1347,7 @@ packages/
     linear/         # Linear GraphQL API, OAuth, webhooks
     twilio/         # Twilio Messaging, Verify, Voice, webhooks
     chargebee/      # Chargebee billing API, hosted pages, webhooks
+    zendesk/        # Zendesk Support API, triggers, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1333,6 +1374,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
 
 **Chargebee**: HTTP Basic auth with a seeded API key as the username and an empty password. All API routes live under `/api/v2`; the hosted checkout lives at `/pages/v3/{id}/` and the customer portal at `/portal/v2/authenticate`.
+
+**Zendesk**: HTTP Basic auth with `email/token:API_TOKEN` (seeded API tokens), `email:password` for seeded passwords, or `Bearer` OAuth tokens. `X-On-Behalf-Of` acts as an end user. All routes live under `/api/v2` with an optional `.json` suffix.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

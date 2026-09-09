@@ -1,0 +1,167 @@
+# Zendesk
+
+Stateful Zendesk Support API v2 emulation: tickets with comments, audits, and metrics, requests, users, organizations and memberships, groups, ticket fields and custom fields, tags, search, views, macros, triggers, signed webhooks, uploads, job statuses, incremental exports, an inbound-email simulator, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service zendesk
+```
+
+When Zendesk is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4015`.
+
+## Defaults
+
+```text
+ZENDESK_SUBDOMAIN=emulate-support
+ZENDESK_EMAIL=admin@example.com
+ZENDESK_API_TOKEN=test_emulate_zendesk_api_token
+```
+
+Seeded data includes an admin, an agent, an end user in organization Example Inc, the Support group, system ticket fields plus a "Case reference" text field and a "Category" dropdown, `english` and `client_id` organization fields, one open ticket with an agent reply, a "Mark as solved" macro, and the six standard views.
+
+## Authentication And URL Mapping
+
+| Real Zendesk URL | Emulator URL |
+|------------------|--------------|
+| `https://{subdomain}.zendesk.com/api/v2/...` | `$ZENDESK_EMULATOR_URL/api/v2/...` |
+
+Both `/api/v2/tickets` and `/api/v2/tickets.json` are accepted. Authenticate with `Authorization: Basic base64(email/token:API_TOKEN)`, `Basic base64(email:password)` for seeded passwords, or `Bearer` with a seeded OAuth token. `X-On-Behalf-Of` makes agent requests act as an end user.
+
+## Tickets
+
+- `POST /api/v2/tickets` - create (supports `comment`, `requester`, `custom_fields`, `tags`, `email_ccs`)
+- `GET /api/v2/tickets`, `GET /api/v2/tickets/:id`, `PUT /api/v2/tickets/:id`, `DELETE /api/v2/tickets/:id`
+- `GET /api/v2/tickets/show_many?ids=`, `GET /api/v2/tickets/recent`, `GET /api/v2/tickets/count`
+- `POST /api/v2/tickets/create_many`, `PUT /api/v2/tickets/update_many`, `DELETE /api/v2/tickets/destroy_many`
+- `POST /api/v2/imports/tickets`, `POST /api/v2/imports/tickets/create_many` - imports with historical timestamps and comments
+- `PUT /api/v2/tickets/:id/mark_as_spam`, `POST /api/v2/tickets/:id/merge`
+- `GET /api/v2/tickets/:id/comments`, `PUT .../comments/:id/make_private`, `PUT .../comments/:id/redact`
+- `GET /api/v2/tickets/:id/audits`, `GET /api/v2/tickets/:id/audits/:id`, `GET /api/v2/ticket_audits`
+- `GET /api/v2/tickets/:id/metrics`, `GET /api/v2/ticket_metrics`
+- `GET|POST|PUT|DELETE /api/v2/tickets/:id/tags`
+- `GET /api/v2/tickets/:id/incidents`, `GET /api/v2/problems`, `collaborators`, `followers`, `email_ccs`, `related`
+- `GET|POST /api/v2/tickets/:id/satisfaction_rating`, `GET /api/v2/satisfaction_ratings`
+- `GET /api/v2/tickets/:id/macros/:id/apply`
+- `GET /api/v2/deleted_tickets`, `PUT /api/v2/deleted_tickets/:id/restore`, `DELETE /api/v2/deleted_tickets/:id`
+
+Every create and update records an audit with `Comment`, `Create`, and `Change` events, updates metrics, and evaluates triggers. New tickets start `new` (or `open` when assigned), `closed` cannot be set through the update endpoint, closed tickets reject updates, and an end-user comment on a solved ticket reopens it.
+
+## Requests
+
+- `GET /api/v2/requests`, `/requests/open`, `/requests/solved`, `/requests/ccd`, `/requests/search`
+- `POST /api/v2/requests`, `GET /api/v2/requests/:id`, `PUT /api/v2/requests/:id`
+- `GET /api/v2/requests/:id/comments`, `GET /api/v2/requests/:id/comments/:id`
+- `GET /api/v2/organizations/:id/requests`, `GET /api/v2/users/:id/requests`
+
+End users only see their own tickets, tickets they are CCed on, and shared organization tickets.
+
+## Users, Organizations, Groups
+
+- `POST /api/v2/users`, `GET /api/v2/users`, `GET /api/v2/users/me`, `GET /api/v2/users/:id`, `PUT /api/v2/users/:id`, `DELETE /api/v2/users/:id`
+- `GET /api/v2/users/search?query=`, `GET /api/v2/users/autocomplete`, `GET /api/v2/users/show_many`, `GET /api/v2/users/count`
+- `POST /api/v2/users/create_or_update`, `create_many`, `create_or_update_many`, `PUT /api/v2/users/update_many`, `DELETE /api/v2/users/destroy_many`
+- `GET /api/v2/users/:id/related`, `identities`, `organizations`, `organization_memberships`, `group_memberships`, `groups`, `tickets/requested`, `tickets/ccd`, `tickets/assigned`, `tags`
+- `POST /api/v2/organizations`, `GET /api/v2/organizations`, `GET /api/v2/organizations/:id`, `PUT /api/v2/organizations/:id`, `DELETE /api/v2/organizations/:id`
+- `GET /api/v2/organizations/search?name=|external_id=`, `autocomplete`, `show_many`, `count`
+- `POST /api/v2/organizations/create_or_update`, `create_many`, `PUT /api/v2/organizations/update_many`, `DELETE /api/v2/organizations/destroy_many`
+- `GET /api/v2/organizations/:id/tickets`, `users`, `organization_memberships`, `related`, `tags`
+- `POST /api/v2/organization_memberships` (duplicates return `422`), `GET`, `DELETE`, `create_many`, `destroy_many`, `PUT /api/v2/users/:id/organization_memberships/:id/make_default`
+- `GET|POST /api/v2/groups`, `GET|PUT|DELETE /api/v2/groups/:id`, `GET /api/v2/groups/assignable`, `GET /api/v2/groups/:id/users`, `GET /api/v2/groups/:id/memberships`
+- `GET|POST /api/v2/group_memberships`, `DELETE /api/v2/group_memberships/:id`, `create_many`, `destroy_many`
+
+Bulk endpoints return a completed `job_status` that can also be read from `GET /api/v2/job_statuses/:id`.
+
+## Fields, Tags, Search
+
+- `GET|POST /api/v2/ticket_fields`, `GET|PUT|DELETE /api/v2/ticket_fields/:id`, `GET|POST /api/v2/ticket_fields/:id/options`
+- `GET|POST /api/v2/user_fields`, `GET|POST /api/v2/organization_fields`, plus `GET|PUT|DELETE` by id
+- `GET /api/v2/tags`, `GET /api/v2/autocomplete/tags`
+- `GET|POST /api/v2/custom_statuses`, `GET /api/v2/ticket_forms`, `GET /api/v2/brands`
+- `GET /api/v2/search?query=`, `GET /api/v2/search/count`, `GET /api/v2/search/export?filter[type]=`
+
+Search supports `type:`, `status:`, `priority:`, `tags:`, `requester:`, `assignee:` (`me`, `none`), `organization:`, `group:`, `subject:`, `external_id:`, date comparisons on `created`, `updated`, and `solved`, user and organization fields, negation, quoted phrases, and free text.
+
+## Views, Macros, Triggers, Webhooks
+
+- `GET|POST /api/v2/views`, `GET|PUT|DELETE /api/v2/views/:id`, `GET /api/v2/views/:id/tickets`, `count`, `execute`, `GET /api/v2/views/count_many`
+- `GET|POST /api/v2/macros`, `GET|PUT|DELETE /api/v2/macros/:id`, `GET /api/v2/macros/:id/apply`
+- `GET|POST /api/v2/triggers`, `GET|PUT|DELETE /api/v2/triggers/:id`, `GET /api/v2/triggers/active`
+- `GET|POST /api/v2/webhooks`, `GET|PUT|PATCH|DELETE /api/v2/webhooks/:id`, `POST /api/v2/webhooks/:id/test`, `GET|POST /api/v2/webhooks/:id/signing_secret`, `GET /api/v2/webhooks/:id/invocations`, `GET .../invocations/:id/attempts`
+
+Triggers evaluate `all` and `any` conditions on every ticket create and update, apply field and tag actions in a separate audit with `via.channel = "rule"`, and call `notification_webhook` targets with Liquid-style placeholders rendered. Webhooks subscribed to `zen:event-type:user.*`, `zen:event-type:organization.*`, or `zen:event-type:ticket.*` receive the Zendesk event envelope. Every delivery carries `X-Zendesk-Webhook-Signature` (base64 HMAC-SHA256 of timestamp plus body), `X-Zendesk-Webhook-Signature-Timestamp`, `X-Zendesk-Webhook-Id`, `X-Zendesk-Webhook-Invocation-Id`, and the configured Basic, Bearer, or API key header.
+
+## Uploads, Exports, Simulator
+
+- `POST /api/v2/uploads?filename=`, `DELETE /api/v2/uploads/:token`, `GET /api/v2/attachments/:id` - attach with `comment.uploads`
+- `GET /api/v2/incremental/tickets`, `/tickets/cursor`, `/users`, `/organizations`, `/ticket_events`
+- `GET /api/v2/job_statuses`, `GET /api/v2/job_statuses/:id`, `GET /api/v2/job_statuses/show_many`
+- `GET /api/v2/account/settings`, `GET /api/v2/locales`, `GET /api/v2/locales/current`, `GET /api/v2/activities`
+- `POST /_zendesk/simulate/inbound-email` - create a ticket or reply as if an email arrived
+- `GET /` - tabbed inspector for tickets, users, organizations, fields, rules, webhooks, events, and credentials
+
+## Seed Config
+
+```yaml
+zendesk:
+  subdomain: emulate-support
+  api_tokens:
+    - token: test_emulate_zendesk_api_token
+      email: admin@example.com
+  groups:
+    - name: Support
+      default: true
+  organizations:
+    - name: Example Inc
+      domain_names: [example.com]
+      organization_fields:
+        english: true
+  users:
+    - name: Support Admin
+      email: admin@example.com
+      role: admin
+    - name: Alex Agent
+      email: agent@example.com
+      role: agent
+    - name: Test Customer
+      email: test@example.com
+      role: end-user
+      organization: Example Inc
+  ticket_fields:
+    - type: text
+      title: Case reference
+    - type: tagger
+      title: Category
+      options:
+        - name: Billing
+          value: category_billing
+  organization_fields:
+    - key: english
+      type: checkbox
+  tickets:
+    - subject: Welcome to the Zendesk emulator
+      description: How do I test my support integration locally?
+      requester: test@example.com
+      assignee: agent@example.com
+      status: open
+      tags: [welcome]
+  webhooks:
+    - name: Local ticket notifier
+      endpoint: http://localhost:3000/api/webhooks/zendesk
+      signing_secret: zendesk_webhook_secret
+      subscriptions: [conditional_ticket_events, "zen:event-type:user.created"]
+  triggers:
+    - title: Notify app on new tickets
+      conditions:
+        all:
+          - field: update_type
+            operator: is
+            value: Create
+      actions:
+        - field: notification_webhook
+          value: ["Local ticket notifier", '{"ticket_id": {{ticket.id}}, "subject": "{{ticket.title}}"}']
+```
+
+## Current Limits
+
+Help Center articles, Talk, Chat, Sunshine Conversations, side conversations, SLA policies, schedules, automations, skills-based routing, multiple ticket forms and brands, sharing agreements, the suspended ticket queue, OAuth authorization flows, rate limiting, and outbound email notifications are not implemented.
