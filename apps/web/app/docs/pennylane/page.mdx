@@ -66,7 +66,7 @@ Invoice objects carry `id`, `label`, `invoice_number`, `currency`, `amount`, `am
 - `DELETE /customer_invoices/{id}/appendices/{appendixId}`
 - Same routes under `/supplier_invoices/{id}/appendices`
 
-Only `image/png`, `image/jpeg`, `image/tiff`, `image/bmp`, `image/gif`, and `application/pdf` are accepted, matching Pennylane; anything else returns 422 with `errors[0].field === "file"`. Widen the list for local runs with the `appendix_content_types` seed key or `POST /_pennylane/simulate/appendix-content-types`.
+Accepted content types are PDF, XLSX (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` and `application/vnd.ms-excel`), and PNG, JPEG, TIFF, BMP, and GIF images; anything else returns 422 with `errors[0].field === "file"`. Change the list with the `appendix_content_types` seed key or `POST /_pennylane/simulate/appendix-content-types`.
 
 ## Supplier Invoices
 
@@ -100,7 +100,7 @@ Only `image/png`, `image/jpeg`, `image/tiff`, `image/bmp`, `image/gif`, and `app
   "pennylane": {
     "api_keys": [{ "key": "test_emulate_pennylane_api_key" }],
     "company": { "name": "Emulate SAS", "invoice_number_prefix": "F-" },
-    "appendix_content_types": ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    "appendix_content_types": ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"],
     "customers": [{ "name": "Acme SAS", "emails": ["billing@acme.example"], "external_reference": "cb_acme", "payment_conditions": "30_days" }],
     "products": [{ "label": "Managed EDR - per endpoint", "price_before_tax": 8, "vat_rate": "FR_200", "unit": "endpoint" }],
     "categories": [{ "label": "Managed services", "direction": "revenue" }],

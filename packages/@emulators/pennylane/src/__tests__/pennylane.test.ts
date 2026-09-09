@@ -133,25 +133,32 @@ describe("Pennylane plugin", () => {
       expect((await api(ctx.app, "GET", "/customer_invoices/999999/appendices")).status).toBe(404);
     });
 
-    it("rejects appendix content types Pennylane does not accept unless the seed allows them", async () => {
-      const rejected = await api(
+    it("accepts XLSX and PDF appendices and rejects other types unless the seed allows them", async () => {
+      const xlsx = await api(
         ctx.app,
         "POST",
         `/customer_invoices/${DEFAULT_OPEN_INVOICE_ID}/appendices`,
         fileForm("detail.xlsx", XLSX, "PK..."),
       );
+      expect(xlsx.status).toBe(201);
+      expect(xlsx.body.content_type).toBe(XLSX);
+      const rejected = await api(
+        ctx.app,
+        "POST",
+        `/customer_invoices/${DEFAULT_OPEN_INVOICE_ID}/appendices`,
+        fileForm("archive.zip", "application/zip", "PK..."),
+      );
       expect(rejected.status).toBe(422);
       expect(rejected.body.errors[0]).toMatchObject({ field: "file" });
       expect(rejected.body.errors[0].message).toContain("not allowed");
-      const permissive = createPennylaneTestApp({ appendix_content_types: ["application/pdf", XLSX] });
+      const permissive = createPennylaneTestApp({ appendix_content_types: ["application/zip"] });
       const accepted = await api(
         permissive.app,
         "POST",
         `/customer_invoices/${DEFAULT_OPEN_INVOICE_ID}/appendices`,
-        fileForm("detail.xlsx", XLSX, "PK..."),
+        fileForm("archive.zip", "application/zip", "PK..."),
       );
       expect(accepted.status).toBe(201);
-      expect(accepted.body.content_type).toBe(XLSX);
       const json = await api(ctx.app, "POST", `/customer_invoices/${DEFAULT_OPEN_INVOICE_ID}/appendices`, {
         filename: "note.png",
         content_type: "image/png",

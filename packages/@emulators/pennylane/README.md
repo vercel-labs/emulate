@@ -6,7 +6,7 @@ Stateful Pennylane external API v2 emulator plugin for [emulate](https://github.
 
 - Bearer API keys, routes under `/api/external/v2` (also `/v2` and bare), `{ items, has_more, next_cursor }` lists with cursor paging, sorting, and the JSON `filter` parameter with per-field operator restrictions
 - Customer invoices: drafts, finalization with sequential numbers, imports, partial and full payments, email sending, cancellation with credit notes, invoice lines, categories, matched transactions, files
-- Appendices on customer and supplier invoices with Pennylane's accepted content types (PDF and images), configurable for local runs
+- Appendices on customer and supplier invoices accepting PDF, XLSX, and images by default, with a configurable content type list
 - Company and individual customers, suppliers, products, categories and category groups
 - Supplier invoices, bank accounts, transactions with matching and categorization
 - Journals, ledger accounts, fiscal years, balanced ledger entries and lines

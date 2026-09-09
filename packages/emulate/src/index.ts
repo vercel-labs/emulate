@@ -53,7 +53,7 @@ Defender for Endpoint API coverage:
 
 Pennylane API coverage:
   External API v2 at /api/external/v2 with customers, suppliers, products, categories, customer and supplier invoices, appendices, transactions, and accounting.
-  Lists return { items, has_more, next_cursor } with the JSON filter parameter; appendices enforce Pennylane's accepted content types.
+  Lists return { items, has_more, next_cursor } with the JSON filter parameter; appendices accept PDF, XLSX, and image uploads.
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.

@@ -100,12 +100,14 @@ export const DEFAULT_COMPANY: PlCompany = {
 };
 
 export const DEFAULT_APPENDIX_CONTENT_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
   "image/png",
   "image/jpeg",
   "image/tiff",
   "image/bmp",
   "image/gif",
-  "application/pdf",
 ];
 
 export function company(ps: PlStore): PlCompany {

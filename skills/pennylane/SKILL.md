@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # Pennylane API Emulator
 
-Fully stateful Pennylane external API v2 emulation. Customer invoices move from draft to finalized with sequential `F-YYYY-NNNN` numbers, imports keep their own numbers, payments and matched bank transactions settle them, cancellations produce `AV-` credit notes, and appendices enforce Pennylane's accepted file types. Suppliers, products, categories, bank transactions, journals, ledger accounts, and balanced ledger entries round out the ledger.
+Fully stateful Pennylane external API v2 emulation. Customer invoices move from draft to finalized with sequential `F-YYYY-NNNN` numbers, imports keep their own numbers, payments and matched bank transactions settle them, cancellations produce `AV-` credit notes, and appendices accept PDF, XLSX, and image files. Suppliers, products, categories, bank transactions, journals, ledger accounts, and balanced ledger entries round out the ledger.
 
 Nothing leaves the machine. Every Pennylane API call hits the emulator and produces Pennylane-shaped `{ items, has_more, next_cursor }` responses.
 
@@ -95,7 +95,7 @@ curl -X POST -H "Authorization: Bearer test_emulate_pennylane_api_key" \
   -F "file=@detail.pdf;type=application/pdf"
 ```
 
-Items look like `{ id, filename, content_type, size, url, created_at, updated_at }`. Only `image/png`, `image/jpeg`, `image/tiff`, `image/bmp`, `image/gif`, and `application/pdf` are accepted (422 otherwise), matching Pennylane. For local runs that need other types, seed `appendix_content_types` or call `POST /_pennylane/simulate/appendix-content-types` with `{ "content_types": [...] }`. `DELETE /customer_invoices/{id}/appendices/{appendixId}` removes one. Supplier invoices have the same routes.
+Items look like `{ id, filename, content_type, size, url, created_at, updated_at }`. Accepted content types are PDF, XLSX (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` and `application/vnd.ms-excel`), and PNG, JPEG, TIFF, BMP, and GIF images (422 otherwise). To change the list, seed `appendix_content_types` or call `POST /_pennylane/simulate/appendix-content-types` with `{ "content_types": [...] }`. `DELETE /customer_invoices/{id}/appendices/{appendixId}` removes one. Supplier invoices have the same routes.
 
 ## Contacts and Catalog
 
@@ -134,7 +134,7 @@ Unknown customers are created (use `chargebee_customer_id` to set their external
   "pennylane": {
     "api_keys": [{ "key": "test_emulate_pennylane_api_key" }],
     "company": { "name": "Emulate SAS", "invoice_number_prefix": "F-" },
-    "appendix_content_types": ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    "appendix_content_types": ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"],
     "customers": [{ "name": "Acme SAS", "emails": ["billing@acme.example"], "external_reference": "cb_acme" }],
     "products": [{ "label": "Managed EDR - per endpoint", "price_before_tax": 8, "vat_rate": "FR_200", "unit": "endpoint" }],
     "customer_invoices": [
