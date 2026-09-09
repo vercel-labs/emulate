@@ -24,6 +24,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Stripe", href: "/docs/stripe" },
   { name: "Chargebee", href: "/docs/chargebee" },
   { name: "Zendesk", href: "/docs/zendesk" },
+  { name: "Mailgun", href: "/docs/mailgun" },
   { name: "Authentication", href: "/docs/authentication" },
   { name: "Architecture", href: "/docs/architecture" },
 ];

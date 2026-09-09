@@ -42,6 +42,7 @@ const SERVICE_NAME_LIST = [
   "twilio",
   "chargebee",
   "zendesk",
+  "mailgun",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -782,6 +783,68 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
                 ],
               },
             ],
+          },
+        ],
+      },
+    },
+  },
+
+  mailgun: {
+    label: "Mailgun email API emulator",
+    endpoints:
+      "messages, stored messages, events, logs, domains, mailing lists, members, suppressions, templates, tags, stats, webhooks, address validation, inbound routes, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/mailgun");
+      return { plugin: mod.mailgunPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const keys = cfg?.api_keys as Array<{ key?: string }> | undefined;
+      return { login: keys?.[0]?.key ?? "key-emulate-mailgun-test", id: 1, scopes: [] };
+    },
+    initConfig: {
+      mailgun: {
+        api_keys: [{ key: "key-emulate-mailgun-test" }],
+        webhook_signing_key: "emulate-mailgun-webhook-key",
+        domains: [
+          { name: "mail.example.com", tracking: { open: true, click: true } },
+          {
+            name: "sandbox0000000000000000000000000000.mailgun.org",
+            type: "sandbox",
+            authorized_recipients: ["test@example.com"],
+          },
+        ],
+        lists: [
+          {
+            address: "team@mail.example.com",
+            name: "Team",
+            access_level: "everyone",
+            members: [
+              { address: "alice@example.com", name: "Alice" },
+              { address: "bob@example.com", name: "Bob" },
+            ],
+          },
+        ],
+        templates: [
+          {
+            domain: "mail.example.com",
+            name: "welcome",
+            template: "<p>Hello {{name}}, welcome to {{company}}.</p>",
+            subject: "Welcome to {{company}}",
+          },
+        ],
+        webhooks: [
+          {
+            domain: "mail.example.com",
+            types: ["delivered", "permanent_fail"],
+            url: "http://localhost:3000/api/webhooks/mailgun",
+          },
+        ],
+        routes: [
+          {
+            priority: 0,
+            description: "Forward inbound support mail to the app",
+            expression: 'match_recipient("support@mail.example.com")',
+            actions: ['forward("http://localhost:3000/api/webhooks/mailgun/inbound")', "stop()"],
           },
         ],
       },

@@ -19,6 +19,7 @@ export const PAGE_TITLES: Record<string, string> = {
   stripe: "Stripe",
   chargebee: "Chargebee",
   zendesk: "Zendesk",
+  mailgun: "Mailgun",
   authentication: "Authentication",
   architecture: "Architecture",
 };

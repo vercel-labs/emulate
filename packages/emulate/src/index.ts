@@ -39,6 +39,10 @@ Zendesk API coverage:
   Support API v2 at /api/v2 with tickets, users, organizations, search, triggers, and views.
   Webhooks are signed with X-Zendesk-Webhook-Signature over the timestamp and raw body.
 
+Mailgun API coverage:
+  Messages at /v3/{domain}/messages with stored copies, events, mailing lists, suppressions, templates, and routes.
+  Webhooks and inbound routes carry Mailgun timestamp, token, and HMAC-SHA256 signature fields.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

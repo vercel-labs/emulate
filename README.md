@@ -26,6 +26,7 @@ All services start with sensible defaults. No config file needed:
 - **Twilio** on `http://localhost:4013`
 - **Chargebee** on `http://localhost:4014`
 - **Zendesk** on `http://localhost:4015`
+- **Mailgun** on `http://localhost:4016`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -190,7 +191,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, or `'zendesk'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, or `'mailgun'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1063,6 +1064,47 @@ Triggers evaluate on every ticket create and update. Field and tag actions are a
 
 Current Zendesk limits: Help Center articles, Talk, Chat, Sunshine Conversations, side conversations, SLA policies, schedules, automations, skills-based routing, multiple ticket forms and brands, sharing agreements, the suspended ticket queue, OAuth authorization flows, rate limiting, and outbound email notifications are not implemented.
 
+## Mailgun API
+
+Stateful Mailgun API emulation with message sending, stored messages, events, the analytics logs API, domains and SMTP credentials, mailing lists and members, suppressions, templates, tags, stats, signed webhooks, address validation, inbound routes, a simulator, and an inspector. No email leaves the machine.
+
+Default local credentials:
+
+```text
+MAILGUN_URL=http://localhost:4016
+MAILGUN_API_KEY=key-emulate-mailgun-test
+MAILGUN_DOMAIN=mail.example.com
+MAILGUN_WEBHOOK_SIGNING_KEY=emulate-mailgun-webhook-key
+```
+
+The default seed includes domain `mail.example.com` with tracking on, a sandbox domain with authorized recipient `test@example.com`, mailing list `team@mail.example.com` with two members, and a `welcome` template.
+
+### REST Routes
+
+Authenticate with HTTP Basic using any username and the API key as password. `mailgun.js` works by setting its `url` option to the emulator.
+
+- `POST /v3/{domain}/messages`, `POST /v3/{domain}/messages.mime` - send (form or multipart, attachments, tags, variables, templates, recipient variables, test mode)
+- `GET /v3/domains/{domain}/messages/{key}` - stored message, `POST` to resend; HTML preview at `GET /_mailgun/messages/{key}`
+- `GET /v3/{domain}/events`, `POST /v1/analytics/logs`, `GET /v3/{domain}/stats/total` - events, logs, and stats
+- `GET|POST /v4/domains`, `GET|PUT|DELETE /v4/domains/{name}`, `verify`, `connection`, `tracking`, `credentials`, `GET|POST /v5/sandbox/auth_recipients` - domains
+- `GET /v3/lists/pages`, `GET|POST /v3/lists`, `GET|PUT|DELETE /v3/lists/{address}`, `GET|POST /v3/lists/{address}/members`, `members/pages`, `members.json`, `GET|PUT|DELETE /v3/lists/{address}/members/{member}` - mailing lists
+- `GET|POST|DELETE /v3/{domain}/bounces`, `unsubscribes`, `complaints`, `whitelists` and per-address routes - suppressions
+- `GET|POST|DELETE /v3/{domain}/templates`, template and version CRUD - templates
+- `GET /v3/{domain}/tags`, tag CRUD and stats - tags
+- `GET|POST /v3/domains/{domain}/webhooks`, `GET|PUT|DELETE /v3/domains/{domain}/webhooks/{type}` - webhooks
+- `GET|POST /v4/address/validate` - address validation
+- `GET|POST /v3/routes`, `GET|PUT|DELETE /v3/routes/{id}`, `GET /v3/routes/match` - inbound routes
+- `POST /_mailgun/simulate/inbound`, `POST /_mailgun/simulate/event` - simulate inbound mail through routes and engagement events
+- `GET /` - tabbed inspector for messages, events, lists, suppressions, templates, domains, webhooks, routes, and credentials
+
+### Delivery Behavior
+
+Every send stores the message and records `accepted` and `delivered` events per recipient. Mailing list addresses expand to subscribed members with `%recipient.*%` substitutions. Test recipients: `bounce@...` bounces permanently and is added to the bounces list, `fail@...` fails temporarily, `complaint@...` complains, suppressed addresses fail with `suppress-*` reasons, and sandbox domains reject unauthorized recipients with Mailgun's error. `o:testmode=yes` records `accepted` only.
+
+Webhook payloads are `{ signature: { timestamp, token, signature }, "event-data": {...} }` with `signature = HMAC-SHA256(webhook_signing_key, timestamp + token)`. Inbound route forwards and store notifications post Mailgun's parsed form fields with the same signature fields.
+
+Current Mailgun limits: scheduled delivery is immediate; bulk validation, IP pools, subaccounts, SMTP transport, inbox placement, and dedicated IP management are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1348,6 +1390,7 @@ packages/
     twilio/         # Twilio Messaging, Verify, Voice, webhooks
     chargebee/      # Chargebee billing API, hosted pages, webhooks
     zendesk/        # Zendesk Support API, triggers, webhooks
+    mailgun/        # Mailgun messages, lists, events, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1376,6 +1419,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Chargebee**: HTTP Basic auth with a seeded API key as the username and an empty password. All API routes live under `/api/v2`; the hosted checkout lives at `/pages/v3/{id}/` and the customer portal at `/portal/v2/authenticate`.
 
 **Zendesk**: HTTP Basic auth with `email/token:API_TOKEN` (seeded API tokens), `email:password` for seeded passwords, or `Bearer` OAuth tokens. `X-On-Behalf-Of` acts as an end user. All routes live under `/api/v2` with an optional `.json` suffix.
+
+**Mailgun**: HTTP Basic auth with any username and a seeded API key as the password. Domain sending keys are limited to their domain. Message routes live under `/v3/{domain}` and management routes under `/v3`, `/v4`, and `/v5` like the real API.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

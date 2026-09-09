@@ -1,0 +1,141 @@
+# Mailgun
+
+Stateful Mailgun API emulation: message sending with stored copies and events, mailing lists and members, domains, suppressions, templates, tags, stats, signed webhooks, the analytics logs API, address validation, inbound routes with a simulator, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service mailgun
+```
+
+When Mailgun is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4016`.
+
+## Defaults
+
+```text
+MAILGUN_URL=http://localhost:4000
+MAILGUN_API_KEY=key-emulate-mailgun-test
+MAILGUN_DOMAIN=mail.example.com
+MAILGUN_WEBHOOK_SIGNING_KEY=emulate-mailgun-webhook-key
+```
+
+Seeded: domain `mail.example.com` with tracking on, a sandbox domain with authorized recipient `test@example.com`, mailing list `team@mail.example.com` with two members, and a `welcome` template.
+
+## URL Mapping
+
+| Real Mailgun URL | Emulator URL |
+|------------------|--------------|
+| `https://api.mailgun.net/v3/...` | `$MAILGUN_EMULATOR_URL/v3/...` |
+| `https://api.eu.mailgun.net/v3/...` | `$MAILGUN_EMULATOR_URL/v3/...` |
+
+Point `mailgun.js` at the emulator with the `url` client option. Authenticate with HTTP Basic, any username, and the API key as the password. Domain sending keys are limited to their domain.
+
+## Messages
+
+- `POST /v3/{domain}/messages` - send (form-urlencoded or multipart with `attachment` and `inline` files, `o:tag`, `v:` variables, `h:` headers, `template` with `t:variables`, `recipient-variables`, `o:testmode`)
+- `POST /v3/{domain}/messages.mime` - send raw MIME
+- `GET /v3/domains/{domain}/messages/{key}` - stored message, `POST` to resend, `DELETE` to remove
+- `GET /v3/domains/{domain}/messages/{key}/attachments/{index}` - attachment content
+- `GET /v3/{domain}/messages` - stored message listing (emulator helper)
+- `GET /_mailgun/messages/{key}` - HTML preview
+
+Mailing list recipients expand to subscribed members. Test recipients: `bounce@...` bounces permanently, `fail@...` fails temporarily, `complaint@...` complains, suppressed addresses fail with `suppress-*` reasons, and sandbox domains reject unauthorized recipients with Mailgun's error.
+
+## Events, Logs, Stats
+
+- `GET /v3/{domain}/events` - filters `event`, `recipient`, `from`, `subject`, `tags`, `message-id`, `severity`, `begin`, `end`, `ascending`, `limit`; `paging` links point at `/v3/{domain}/events/{token}`
+- `POST /v1/analytics/logs` - logs API with `start`, `end`, `events`, `filter.AND`, and `pagination`
+- `GET /v3/{domain}/stats/total`, `GET /v3/stats/total` - `event`, `resolution`, `start`, `end`, `duration`
+- `GET /v3/{domain}/tags`, `GET|PUT|DELETE /v3/{domain}/tags/{tag}`, `GET /v3/{domain}/tags/{tag}/stats`
+
+## Domains
+
+- `GET|POST /v4/domains` (also `/v3/domains`), `GET|PUT|DELETE /v4/domains/{name}`, `PUT /v4/domains/{name}/verify`
+- `GET|PUT /v3/domains/{name}/connection`, `GET /v3/domains/{name}/tracking`, `PUT /v3/domains/{name}/tracking/{type}`
+- `GET|POST /v3/domains/{name}/credentials`, `PUT|DELETE /v3/domains/{name}/credentials/{login}`
+- `GET /v3/domains/{name}/sending_queues`, `GET /v3/domains/{name}/ips`, `GET /v3/ips`
+- `GET|POST /v5/sandbox/auth_recipients`, `DELETE /v5/sandbox/auth_recipients/{email}`
+
+## Mailing Lists
+
+- `GET /v3/lists/pages`, `GET /v3/lists`, `POST /v3/lists`, `GET|PUT|DELETE /v3/lists/{address}`
+- `GET /v3/lists/{address}/members/pages`, `GET /v3/lists/{address}/members`, `POST /v3/lists/{address}/members`, `POST /v3/lists/{address}/members.json`
+- `GET|PUT|DELETE /v3/lists/{address}/members/{member}`
+- `POST|GET|DELETE /v3/lists/{address}/validate`
+
+Missing lists return `404 {"message":"Mailing list not found"}`; duplicate members without `upsert=yes` return `400 {"message":"Address already exists"}`.
+
+## Suppressions
+
+- `GET|POST|DELETE /v3/{domain}/bounces`, `/unsubscribes`, `/complaints`, `/whitelists`
+- `GET|DELETE /v3/{domain}/bounces/{address}` and the same for the other lists
+- `POST /v3/{domain}/unsubscribes/import`
+
+## Templates
+
+- `GET|POST|DELETE /v3/{domain}/templates`, `GET|PUT|DELETE /v3/{domain}/templates/{name}`
+- `GET|POST /v3/{domain}/templates/{name}/versions`, `GET|PUT|DELETE /v3/{domain}/templates/{name}/versions/{tag}`
+
+Rendering supports `{{var}}`, nested paths, `{{#if}}`, and `{{#each}}`.
+
+## Webhooks
+
+- `GET|POST /v3/domains/{domain}/webhooks`, `GET|PUT|DELETE /v3/domains/{domain}/webhooks/{type}`
+
+Types: `accepted`, `delivered`, `opened`, `clicked`, `unsubscribed`, `complained`, `permanent_fail`, `temporary_fail`. Payloads are `{ signature: { timestamp, token, signature }, "event-data": {...} }` with `signature = HMAC-SHA256(webhook_signing_key, timestamp + token)`.
+
+## Inbound Routes And Simulator
+
+- `GET|POST /v3/routes`, `GET|PUT|DELETE /v3/routes/{id}`, `GET /v3/routes/match?address=`
+- `POST /_mailgun/simulate/inbound` - deliver an inbound email through matching routes (`forward`, `store`, `stop`)
+- `POST /_mailgun/simulate/event` - add `opened`, `clicked`, `unsubscribed`, `complained`, `delivered`, or `failed` events to a sent message
+
+## Validation
+
+- `GET|POST /v4/address/validate?address=` and the legacy `GET /v3/address/validate`
+
+## Seed Config
+
+```yaml
+mailgun:
+  api_keys:
+    - key: key-emulate-mailgun-test
+  webhook_signing_key: emulate-mailgun-webhook-key
+  domains:
+    - name: mail.example.com
+      tracking:
+        open: true
+        click: true
+    - name: sandbox0000000000000000000000000000.mailgun.org
+      type: sandbox
+      authorized_recipients: [test@example.com]
+  lists:
+    - address: team@mail.example.com
+      name: Team
+      access_level: everyone
+      members:
+        - address: alice@example.com
+          name: Alice
+  templates:
+    - domain: mail.example.com
+      name: welcome
+      template: "<p>Hello {{name}}, welcome to {{company}}.</p>"
+      subject: "Welcome to {{company}}"
+  webhooks:
+    - domain: mail.example.com
+      types: [delivered, permanent_fail]
+      url: http://localhost:3000/api/webhooks/mailgun
+  routes:
+    - expression: match_recipient("support@mail.example.com")
+      actions:
+        - forward("http://localhost:3000/api/webhooks/mailgun/inbound")
+        - stop()
+```
+
+## Inspector
+
+Open `GET /` to inspect messages, events, mailing lists, suppressions, templates, domains, webhook deliveries, inbound routes, and credentials.
+
+## Current Limits
+
+Scheduled delivery is immediate, and bulk validation, IP pools, subaccounts, SMTP transport, and inbox placement are not implemented.
