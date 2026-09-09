@@ -43,6 +43,7 @@ const SERVICE_NAME_LIST = [
   "chargebee",
   "zendesk",
   "mailgun",
+  "document360",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -847,6 +848,45 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             actions: ['forward("http://localhost:3000/api/webhooks/mailgun/inbound")', "stop()"],
           },
         ],
+      },
+    },
+  },
+
+  document360: {
+    label: "Document360 knowledge base API emulator",
+    endpoints:
+      "project versions, languages, categories, articles with versions and publishing, search, readers, reader groups, team accounts, team groups, drive folders and files, events, inspector",
+    async load() {
+      const mod = await import("@emulators/document360");
+      return { plugin: mod.document360Plugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const tokens = cfg?.api_tokens as Array<{ token?: string }> | undefined;
+      return { login: tokens?.[0]?.token ?? "test_emulate_document360_token", id: 1, scopes: [] };
+    },
+    initConfig: {
+      document360: {
+        project_name: "Emulate Knowledge Base",
+        api_tokens: [{ token: "test_emulate_document360_token" }],
+        team_accounts: [{ email: "admin@example.com", first_name: "Admin", last_name: "User", portal_role: "owner" }],
+        project_versions: [
+          {
+            version_number: 1,
+            version_code_name: "v1",
+            is_main_version: true,
+            languages: [{ code: "en", is_default: true }, "fr"],
+            categories: [
+              {
+                name: "Getting Started",
+                articles: [
+                  { title: "Welcome", content: "# Welcome\n\nHello from the Document360 emulator.", published: true },
+                ],
+              },
+            ],
+          },
+        ],
+        reader_groups: [{ title: "Customers" }, { title: "MSP" }, { title: "Distributors" }],
+        readers: [{ email: "test@example.com", first_name: "Test", last_name: "Reader", groups: ["Customers"] }],
       },
     },
   },

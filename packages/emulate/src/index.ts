@@ -43,6 +43,10 @@ Mailgun API coverage:
   Messages at /v3/{domain}/messages with stored copies, events, mailing lists, suppressions, templates, and routes.
   Webhooks and inbound routes carry Mailgun timestamp, token, and HMAC-SHA256 signature fields.
 
+Document360 API coverage:
+  Knowledge base API at /v2 (and /v1) with project versions, categories, versioned articles, search, readers, teams, and drive.
+  Authenticate with the api_token header; every response uses the Document360 result and errors envelope.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

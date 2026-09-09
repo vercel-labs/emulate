@@ -27,6 +27,7 @@ All services start with sensible defaults. No config file needed:
 - **Chargebee** on `http://localhost:4014`
 - **Zendesk** on `http://localhost:4015`
 - **Mailgun** on `http://localhost:4016`
+- **Document360** on `http://localhost:4017`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -191,7 +192,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, or `'mailgun'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, or `'document360'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1105,6 +1106,37 @@ Webhook payloads are `{ signature: { timestamp, token, signature }, "event-data"
 
 Current Mailgun limits: scheduled delivery is immediate; bulk validation, IP pools, subaccounts, SMTP transport, inbox placement, and dedicated IP management are not implemented.
 
+## Document360 API
+
+Stateful Document360 knowledge base API emulation with project versions and languages, category trees, articles with draft and published versions, search, readers and reader groups, team accounts and team groups, Drive folders and files, an event log, and an inspector.
+
+Default local credentials:
+
+```text
+DOCUMENT360_BASE_URL=http://localhost:4017/v2
+DOCUMENT360_API_TOKEN=test_emulate_document360_token
+```
+
+The default seed includes project "Emulate Knowledge Base" with main version 1 (languages `en` and `fr`), categories "Getting Started" (published "Welcome" and draft "Setup guide" articles) and "FAQ", owner `admin@example.com`, reader groups Customers, MSP, and Distributors, reader `test@example.com` in Customers, and a Drive folder "Documents". Seed entries accept explicit `id` values so applications that reference fixed reader group GUIDs work unchanged.
+
+### REST Routes
+
+Authenticate with the `api_token` header (also accepted: `x-api-token` or `Authorization: Bearer`). Every route is served under both `/v2` and `/v1`, and `GET /v2/Readers/` with a trailing slash matches like the real API. Responses use the Document360 envelope `{ result, extension_data, success, errors, warnings, information }`.
+
+- `GET|POST /v2/ProjectVersions`, `GET|PUT|DELETE /v2/ProjectVersions/{id}`, `GET /v2/ProjectVersions/{id}/categories`, `GET /v2/ProjectVersions/{id}/articles` - project versions (new versions clone their base version)
+- `GET|POST /v2/Language/{versionId}`, `PUT|DELETE /v2/Language/{versionId}/{code}` - languages
+- `POST /v2/Categories`, `GET|PUT|DELETE /v2/Categories/{id}/{lang}`, `GET /v2/Categories/{id}/{lang}/articles` - categories with translations and `is_fall_back_content`
+- `POST /v2/Articles`, `GET|PUT|DELETE /v2/Articles/{id}/{lang}`, `versions`, `versions/{n}`, `fork`, `publish`, `settings`, `reviewreminder` - articles; editing a published article creates a new version, `isForDisplay=true` returns the public version
+- `GET /v2/Search/{versionId}?searchQuery=` - full-text search over published articles with highlights
+- `GET|POST /v2/Readers`, `GET /v2/Readers/?search_email=`, `GET|PUT|DELETE /v2/Readers/{id}`, `GET|POST /v2/Readers/groups`, `GET|PUT|DELETE /v2/Readers/groups/{id}` - readers and reader groups
+- `GET|POST /v2/Teams`, `GET|PUT|DELETE /v2/Teams/{id}`, `GET /v2/Teams/{id}/articles`, `GET|POST /v2/Teams/groups`, `GET|PUT|DELETE /v2/Teams/groups/{id}` - team accounts (by id or email) and groups; the last owner is protected
+- `GET|POST /v2/Drive/Folders`, `GET|PUT|DELETE /v2/Drive/Folders/{id}`, `GET|POST /v2/Drive/Folders/{id}/Items` (multipart or JSON), `GET /v2/Drive/Items`, `GET|PUT|DELETE /v2/Drive/Items/{id}` - Drive; file content is served at `/_document360/drive/{id}/{name}`
+- `GET /v2/Project`, `GET /v2/Project/tokens` - project summary and masked tokens
+- `GET|DELETE /_document360/events` - event log (`reader.created`, `article.published`, and so on)
+- `GET /` - tabbed inspector for articles, categories, versions, readers, team, drive, events, and auth
+
+Current Document360 limits: SSO invitations, article comments and feedback, analytics, redirects, custom pages, workflow assignments, AI features, and the public knowledge base site are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1391,6 +1423,7 @@ packages/
     chargebee/      # Chargebee billing API, hosted pages, webhooks
     zendesk/        # Zendesk Support API, triggers, webhooks
     mailgun/        # Mailgun messages, lists, events, webhooks
+    document360/    # Document360 knowledge base, readers, teams, drive
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1421,6 +1454,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Zendesk**: HTTP Basic auth with `email/token:API_TOKEN` (seeded API tokens), `email:password` for seeded passwords, or `Bearer` OAuth tokens. `X-On-Behalf-Of` acts as an end user. All routes live under `/api/v2` with an optional `.json` suffix.
 
 **Mailgun**: HTTP Basic auth with any username and a seeded API key as the password. Domain sending keys are limited to their domain. Message routes live under `/v3/{domain}` and management routes under `/v3`, `/v4`, and `/v5` like the real API.
+
+**Document360**: the `api_token` header with a seeded token (`x-api-token` and `Authorization: Bearer` also work). Routes live under `/v2` and `/v1`.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

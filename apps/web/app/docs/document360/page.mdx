@@ -1,0 +1,125 @@
+# Document360
+
+Stateful Document360 knowledge base API emulation: project versions and languages, category trees, articles with draft and published versions, search, readers and reader groups, team accounts and team groups, Drive folders and files, an event log, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service document360
+```
+
+When Document360 is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4017`.
+
+## Defaults
+
+```text
+DOCUMENT360_BASE_URL=http://localhost:4000/v2
+DOCUMENT360_API_TOKEN=test_emulate_document360_token
+```
+
+Seeded: project "Emulate Knowledge Base" with main version 1 (languages `en` and `fr`), categories "Getting Started" (published "Welcome" and draft "Setup guide") and "FAQ", owner `admin@example.com`, an editor, reader groups Customers, MSP, and Distributors, reader `test@example.com` in Customers, and a Drive folder "Documents" with one file.
+
+## URL Mapping
+
+| Real Document360 URL | Emulator URL |
+|----------------------|--------------|
+| `https://apihub.document360.io/v2/...` | `$DOCUMENT360_EMULATOR_URL/v2/...` |
+| `https://apihub.document360.io/v1/...` | `$DOCUMENT360_EMULATOR_URL/v1/...` |
+
+Send the API token in the `api_token` header on every request (`x-api-token` and `Authorization: Bearer` also work). Responses use the Document360 envelope `{ result, extension_data, success, errors, warnings, information }`; failures return HTTP 400 or 404 with `success: false` and populated `errors`.
+
+## Project Versions and Languages
+
+- `GET /v2/ProjectVersions` - list versions with their `language_versions`
+- `POST /v2/ProjectVersions` - create (`version_number`, optional `base_version_id` clones categories and articles)
+- `GET|PUT|DELETE /v2/ProjectVersions/{id}` - by id, version number, or slug; the main version cannot be deleted
+- `GET /v2/ProjectVersions/{id}/categories?langCode=en&excludeArticles=false` - category tree with article summaries
+- `GET /v2/ProjectVersions/{id}/articles?langCode=en` - flat article list
+- `GET|POST /v2/Language/{versionId}`, `PUT|DELETE /v2/Language/{versionId}/{code}` - languages; the default language cannot be removed
+
+## Categories
+
+- `POST /v2/Categories` - `name`, optional `project_version_id`, `parent_category_id`, `category_type` (0 folder, 1 page, 2 index), `order`, `slug`
+- `GET /v2/Categories/{id}/{lang}` - with `child_categories` and `articles`; missing translations fall back to the default language with `is_fall_back_content: true`
+- `GET /v2/Categories/{id}/{lang}/articles` - article summaries
+- `PUT /v2/Categories/{id}/{lang}` - update, or create the translation when it does not exist yet
+- `DELETE /v2/Categories/{id}/{lang}` - removes the subtree and its articles
+
+## Articles
+
+- `POST /v2/Articles` - `title`, `content` (markdown, rendered to `html_content`) or `html_content`, `category_id`, optional `project_version_id`, `user_id`, `order`, `hidden`, `slug`, `publish`
+- `GET /v2/Articles/{id}/{lang}` - latest version; `?isForDisplay=true` returns the public version or 404 for drafts
+- `PUT /v2/Articles/{id}/{lang}` - edits the latest draft in place, or creates a new version when the latest version is published
+- `DELETE /v2/Articles/{id}/{lang}` - removes the translation (or the whole article when it is the last one)
+- `GET /v2/Articles/{id}/{lang}/versions`, `GET|DELETE .../versions/{n}` - version history; published versions cannot be deleted
+- `POST /v2/Articles/{id}/{lang}/fork` - copy a version into a new draft
+- `POST /v2/Articles/{id}/{lang}/publish` - publish `version_number` with `publish_message`
+- `PUT /v2/Articles/{id}/{lang}/settings` - slug, SEO title, tags, related articles, comment and search flags
+- `GET|PUT|DELETE /v2/Articles/{id}/{lang}/reviewreminder` - review reminder date
+- `GET /v2/Search/{versionId}?searchQuery=term&langCode=en` - published, searchable articles with `highlighted_title` and `highlighted_content`
+
+Article `url` values point at the configured knowledge base URL (`https://emulate.document360.io/{versionSlug}/{lang}/docs/{slug}` by default).
+
+## Readers and Reader Groups
+
+- `GET /v2/Readers?search_email=user@example.com` - array of readers; also accepts the trailing-slash form `GET /v2/Readers/?search_email=` and `skip`/`take`
+- `POST /v2/Readers` - `email_id` (required, unique), `first_name`, `last_name`, `access_scope.access_level`, `invited_by`, `is_sso_user`, `skip_sso_invitation_email`, `associated_reader_groups`
+- `GET|PUT|DELETE /v2/Readers/{id}` - `PUT` accepts names, email, access scope, and `associated_reader_groups` to move between groups
+- `GET|POST /v2/Readers/groups`, `GET|PUT|DELETE /v2/Readers/groups/{id}` - groups with `access_scope` and `associated_readers`
+
+Reader responses contain `reader_id`, `first_name`, `last_name`, `email`, `access_scope { access_level, categories, project_versions, languages }`, and `associated_reader_groups`.
+
+## Team Accounts and Groups
+
+- `GET|POST /v2/Teams`, `GET|PUT|DELETE /v2/Teams/{id}` - `{id}` accepts the user id or email; `portal_role` accepts names (`owner`, `admin`, `editor`, `draft_writer`, `reader`) or codes 0 to 4; the last owner cannot be demoted or deleted
+- `GET /v2/Teams/{id}/articles` - articles authored by the account
+- `GET|POST /v2/Teams/groups`, `GET|PUT|DELETE /v2/Teams/groups/{id}` - team groups with `associated_team_accounts`
+
+## Drive
+
+- `GET|POST /v2/Drive/Folders`, `GET|PUT|DELETE /v2/Drive/Folders/{id}` - folder tree with `sub_folders`; system folders cannot be deleted
+- `GET|POST /v2/Drive/Folders/{id}/Items` - list or upload files (multipart file fields plus `tags`, or JSON `{ title, content, content_type, base64 }`)
+- `GET /v2/Drive/Items?search=`, `GET|PUT|DELETE /v2/Drive/Items/{id}` - items; `PUT` renames, moves, tags, or stars
+- `GET /_document360/drive/{id}/{name}` - the stored file content behind each item `url`
+
+## Events and Inspector
+
+- `GET /_document360/events?type=reader.created` - JSON event log (`reader.*`, `reader_group.*`, `article.*`, `category.*`, `project_version.*`, `language.*`, `team_account.*`, `team_group.*`, `drive_*`); `DELETE` clears it
+- `GET /v2/Project` - project summary with counts; `GET /v2/Project/tokens` - masked tokens
+- `GET /` - tabbed inspector for articles, categories, versions, readers, team, drive, events, and auth
+
+## Seed Configuration
+
+```json
+{
+  "document360": {
+    "project_name": "Emulate Knowledge Base",
+    "knowledge_base_url": "https://docs.example.com",
+    "api_tokens": [{ "token": "test_emulate_document360_token" }],
+    "team_accounts": [{ "email": "admin@example.com", "first_name": "Admin", "last_name": "User", "portal_role": "owner" }],
+    "project_versions": [
+      {
+        "version_number": 1,
+        "is_main_version": true,
+        "languages": [{ "code": "en", "is_default": true }, "fr"],
+        "categories": [
+          {
+            "name": "Getting Started",
+            "articles": [{ "title": "Welcome", "content": "# Welcome", "published": true }],
+            "categories": [{ "name": "Install" }]
+          }
+        ]
+      }
+    ],
+    "reader_groups": [{ "id": "351f884c-b6ac-44d9-bac6-b49d03ba196a", "title": "Customers" }],
+    "readers": [{ "email": "test@example.com", "first_name": "Test", "last_name": "Reader", "groups": ["Customers"] }],
+    "drive": [{ "title": "Documents", "items": [{ "title": "readme.txt", "content": "hello", "content_type": "text/plain" }] }]
+  }
+}
+```
+
+Every entity accepts an explicit `id` so fixtures can reference stable GUIDs. Reader `groups` accept group ids or titles, and `invited_by` defaults to the owner's email.
+
+## Limits
+
+SSO invitations, article comments and feedback, analytics, redirects, custom pages, workflow assignments, AI features, and the public knowledge base site are not implemented.

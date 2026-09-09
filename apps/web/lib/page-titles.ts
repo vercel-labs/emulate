@@ -20,6 +20,7 @@ export const PAGE_TITLES: Record<string, string> = {
   chargebee: "Chargebee",
   zendesk: "Zendesk",
   mailgun: "Mailgun",
+  document360: "Document360",
   authentication: "Authentication",
   architecture: "Architecture",
 };

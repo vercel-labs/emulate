@@ -75,6 +75,7 @@
     "@emulators/chargebee": "workspace:*",
     "@emulators/zendesk": "workspace:*",
     "@emulators/mailgun": "workspace:*",
+    "@emulators/document360": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }
