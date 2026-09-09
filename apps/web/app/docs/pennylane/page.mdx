@@ -1,0 +1,123 @@
+# Pennylane
+
+Stateful Pennylane external API v2 emulation: customers and suppliers, products and categories, customer invoices with drafts, finalization, imports, payments, credit notes and appendices, supplier invoices, bank accounts and transactions, journals, ledger accounts and entries, fiscal years, a Chargebee sync simulator, an event log, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service pennylane
+```
+
+When Pennylane is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4019`.
+
+## Defaults
+
+```text
+PENNYLANE_URL=http://localhost:4000/api/external/v2
+PENNYLANE_API_KEY=test_emulate_pennylane_api_key
+```
+
+Seeded: company "Emulate SAS"; customers Acme SAS (`200001`, external reference `cb_acme`), Nimbus MSP (`200002`), and Jeanne Martin (individual); supplier Cloud Hosting Ltd; three products; revenue and expense categories; journals VT, AC, BQ, OD; French ledger accounts; two fiscal years; a bank account with two transactions; invoices `F-2026-0001` (paid, one PDF appendix), `F-2026-0002` (open), `INV-000123` (imported Chargebee-style invoice whose `invoice_number` and `external_reference` are the Chargebee id), and a draft; one supplier invoice `CH-88231`.
+
+## URL Mapping
+
+| Real Pennylane URL | Emulator URL |
+|--------------------|--------------|
+| `https://app.pennylane.com/api/external/v2/...` | `$PENNYLANE_EMULATOR_URL/api/external/v2/...` |
+
+Send `Authorization: Bearer <api key>`. The `/v2/...` and bare `/...` forms are also served. Missing or unknown keys return 401 `{ message }`.
+
+## Conventions
+
+- Lists return `{ items, has_more, next_cursor }`. Page with `limit` (default 20, max 100) and `cursor`. Sort with `sort=date` or `sort=-amount`.
+- Filter with a `filter` query parameter holding JSON: `[{"field":"invoice_number","operator":"eq","value":"INV-000123"}]`. Operators: `eq`, `not_eq`, `gt`, `gteq`, `lt`, `lteq`, `in`, `not_in`, `contains`, `starts_with`, `is_null`, `is_not_null`. Fields restrict their operators like the real API: `external_reference` accepts only `eq` and `in`. Unknown fields or operators return 400.
+- Amounts are decimal strings (`"540.00"`); dates are `YYYY-MM-DD`; VAT rates use Pennylane codes (`FR_200`, `FR_100`, `FR_55`, `FR_21`, `FR_0`, `exempt`, `EU_reverse_charge`, `non_EU`), numeric values such as `20` are converted.
+- Validation errors return 422 `{ message: "Validation failed", errors: [{ field, message }] }`; missing records return 404.
+
+## Customers and Suppliers
+
+- `GET /customers`, `GET /company_customers`, `GET /individual_customers`, `GET /customers/{id}`
+- `POST /company_customers` (`name`, `reg_no`, `vat_number`, `emails`, `billing_address`, `payment_conditions`, `external_reference`), `POST /individual_customers` (`first_name`, `last_name`)
+- `PUT /company_customers/{id}`, `PUT /individual_customers/{id}`, `PUT|PATCH /customers/{id}`, `DELETE /customers/{id}` (archives when invoices exist)
+- `GET|POST /suppliers`, `GET|PUT|DELETE /suppliers/{id}` (`ledger_account_id` must exist)
+
+## Catalog
+
+- `GET|POST /products`, `GET|PUT|DELETE /products/{id}` - `label`, `price_before_tax`, `vat_rate`, `unit`, `reference`, `external_reference`
+- `GET|POST /category_groups`, `GET /category_groups/{id}`
+- `GET|POST /categories`, `GET|PUT|DELETE /categories/{id}` - `label`, `color`, `direction` (`expense`, `revenue`, `both`), `category_group_id`
+
+## Customer Invoices
+
+- `GET /customer_invoices` - filters on `id`, `invoice_number`, `external_reference`, `customer_id`, `status`, `paid`, `draft`, `date`, `deadline`, `currency`, `amount`, `label`, `created_at`, `updated_at`
+- `POST /customer_invoices` - creates a draft (`customer_id`, `date`, `deadline`, `invoice_lines: [{ label, quantity, raw_currency_unit_price, vat_rate, product_id, unit, description, discount }]`, `pdf_invoice_subject`, `special_mention`, `language`, `discount`); pass `draft: false` to finalize immediately
+- `POST /customer_invoices/import` - imports a finalized invoice (`invoice_number` required, `file` as base64 or data URL, `filename`, `currency_amount` or `invoice_lines`, `external_reference`)
+- `GET /customer_invoices/{id}`, `PUT /customer_invoices/{id}` (drafts are fully editable; finalized invoices accept `external_reference`, `pdf_invoice_free_text`, `pdf_invoice_subject`, `special_mention`, `transaction_reference`, `label`), `DELETE /customer_invoices/{id}` (drafts only)
+- `POST /customer_invoices/{id}/finalize` - assigns the next `F-YYYY-NNNN` number
+- `POST /customer_invoices/{id}/mark_as_paid` (`amount` optional for partial payments), `POST .../send_by_email` (`recipients`, `subject`), `POST .../cancel` (creates an `AV-` credit note)
+- `GET .../invoice_lines`, `GET|PUT .../categories` (`{ categories: [{ id, weight }] }`, weights sum to 1), `GET|PUT .../matched_transactions` (`{ transaction_ids }`, matching marks the invoice paid), `GET .../file`
+
+Invoice objects carry `id`, `label`, `invoice_number`, `currency`, `amount`, `amount_before_tax`, `tax`, `currency_amount`, `exchange_rate`, `date`, `deadline`, `paid`, `remaining_amount`, `status` (`draft`, `upcoming`, `late`, `paid`, `cancelled`, `partially_cancelled`, `incomplete`), `draft`, `imported`, `external_reference`, `filename`, `file_url`, `public_file_url`, `customer { id, name, url }`, and links to `invoice_lines`, `categories`, `matched_transactions`, and `appendices`.
+
+## Appendices
+
+- `GET /customer_invoices/{id}/appendices` - `{ items: [{ id, filename, content_type, size, url, created_at, updated_at }] }`
+- `POST /customer_invoices/{id}/appendices` - multipart `file`, or JSON `{ filename, content_type, file: "<base64>" }`
+- `DELETE /customer_invoices/{id}/appendices/{appendixId}`
+- Same routes under `/supplier_invoices/{id}/appendices`
+
+Only `image/png`, `image/jpeg`, `image/tiff`, `image/bmp`, `image/gif`, and `application/pdf` are accepted, matching Pennylane; anything else returns 422 with `errors[0].field === "file"`. Widen the list for local runs with the `appendix_content_types` seed key or `POST /_pennylane/simulate/appendix-content-types`.
+
+## Supplier Invoices
+
+- `GET /supplier_invoices`, `POST /supplier_invoices/import` (`supplier_id`, `invoice_number`, `date`, `deadline`, `currency_amount`, `currency_amount_before_tax` or `invoice_lines`, `file`, `filename`), `GET|PUT|DELETE /supplier_invoices/{id}`
+- `POST .../mark_as_paid`, `GET .../invoice_lines`, `GET|PUT .../categories`, `GET|PUT .../matched_transactions`, `GET .../file`
+
+## Banking
+
+- `GET /bank_accounts`, `GET /bank_accounts/{id}` - balances include seeded transactions
+- `GET|POST /transactions` (`bank_account_id`, `label`, `amount`, `date`, `currency`), `GET|PUT /transactions/{id}`, `GET|PUT /transactions/{id}/categories`, `GET /transactions/{id}/matched_invoices`
+
+## Accounting
+
+- `GET|POST /journals`, `GET /journals/{id or code}`
+- `GET|POST /ledger_accounts`, `GET|PUT /ledger_accounts/{id}` - filter `number` with `starts_with`
+- `GET /fiscal_years`
+- `GET|POST /ledger_entries` (`date`, `journal_id` or `journal_code`, `label`, `lines: [{ ledger_account_id, debit, credit, label }]`, debits must equal credits), `GET /ledger_entries/{id}`, `GET /ledger_entries/{id}/lines`, `GET /ledger_entry_lines`
+- `GET /me`, `GET /company`
+
+## Simulator, Events, and Inspector
+
+- `POST /_pennylane/simulate/chargebee-invoice` - `invoice_number` (the Chargebee invoice id), `customer_name` or `chargebee_customer_id` (creates the customer when unknown), `amount` (or `amount_cents`), `date`, `paid`, `invoice_lines`; creates a finalized imported invoice whose `external_reference` is the Chargebee id, like Pennylane's native integration
+- `GET|POST /_pennylane/simulate/appendix-content-types`
+- `GET /_pennylane/events?type=appendix.created` - JSON event log (`customer_invoice.*`, `appendix.*`, `customer.*`, `supplier_invoice.*`, `transaction.*`, `ledger_entry.*`, `chargebee.synced`); `DELETE` clears it
+- `GET /` - inspector tabs: invoices, appendices, customers, suppliers, catalog, banking, accounting, events, auth
+
+## Seed Configuration
+
+```json
+{
+  "pennylane": {
+    "api_keys": [{ "key": "test_emulate_pennylane_api_key" }],
+    "company": { "name": "Emulate SAS", "invoice_number_prefix": "F-" },
+    "appendix_content_types": ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    "customers": [{ "name": "Acme SAS", "emails": ["billing@acme.example"], "external_reference": "cb_acme", "payment_conditions": "30_days" }],
+    "products": [{ "label": "Managed EDR - per endpoint", "price_before_tax": 8, "vat_rate": "FR_200", "unit": "endpoint" }],
+    "categories": [{ "label": "Managed services", "direction": "revenue" }],
+    "customer_invoices": [
+      { "customer": "Acme SAS", "invoice_number": "F-2026-0001", "date": "2026-01-15", "paid": true, "lines": [{ "label": "Managed EDR - per endpoint", "quantity": 25, "product": "Managed EDR - per endpoint" }], "categories": [{ "category": "Managed services" }], "appendices": [{ "filename": "detail.pdf", "content_type": "application/pdf" }] },
+      { "customer": "Acme SAS", "invoice_number": "INV-000123", "external_reference": "INV-000123", "imported": true, "amount": 1200 }
+    ],
+    "suppliers": [{ "name": "Cloud Hosting Ltd", "ledger_account": "604000" }],
+    "supplier_invoices": [{ "supplier": "Cloud Hosting Ltd", "invoice_number": "CH-88231", "amount": 540, "amount_before_tax": 450 }],
+    "bank_accounts": [{ "label": "Compte courant", "iban": "FR7616798000010000012345678", "balance": 12500 }],
+    "transactions": [{ "bank_account": "Compte courant", "label": "VIR ACME", "amount": 540, "match_invoice": "F-2026-0001" }]
+  }
+}
+```
+
+Entities accept explicit numeric `id` values. Invoice `lines` resolve `product` by label, reference, or external reference; `amount` alone creates a single line at 20 percent VAT. Seeding is idempotent by id, name, or invoice number.
+
+## Limits
+
+Quotes, customer invoice templates, e-invoicing, recurring invoices, changelog endpoints, transaction attachments, and webhooks are not implemented.

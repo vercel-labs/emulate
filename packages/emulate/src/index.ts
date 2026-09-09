@@ -51,6 +51,10 @@ Defender for Endpoint API coverage:
   Tokens at /{tenantId}/oauth2/v2.0/token (client_credentials) and the WDATP API at /api with OData $filter, $top, $skip, $orderby, $select, and $count.
   Machines, machine actions, alerts, vulnerabilities, software, recommendations, indicators, and a KQL subset for advanced hunting, scoped per tenant.
 
+Pennylane API coverage:
+  External API v2 at /api/external/v2 with customers, suppliers, products, categories, customer and supplier invoices, appendices, transactions, and accounting.
+  Lists return { items, has_more, next_cursor } with the JSON filter parameter; appendices enforce Pennylane's accepted content types.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

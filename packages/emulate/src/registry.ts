@@ -45,6 +45,7 @@ const SERVICE_NAME_LIST = [
   "mailgun",
   "document360",
   "defender",
+  "pennylane",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -945,6 +946,44 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
                 category: "Execution",
               },
             ],
+          },
+        ],
+      },
+    },
+  },
+
+  pennylane: {
+    label: "Pennylane accounting API emulator",
+    endpoints:
+      "customers, suppliers, products, categories, customer invoices with appendices, supplier invoices, transactions, bank accounts, journals, ledger accounts, ledger entries, fiscal years, Chargebee sync simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/pennylane");
+      return { plugin: mod.pennylanePlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const keys = cfg?.api_keys as Array<{ key?: string }> | undefined;
+      return { login: keys?.[0]?.key ?? "test_emulate_pennylane_api_key", id: 1, scopes: [] };
+    },
+    initConfig: {
+      pennylane: {
+        api_keys: [{ key: "test_emulate_pennylane_api_key" }],
+        company: { name: "Emulate SAS", invoice_number_prefix: "F-" },
+        customers: [{ name: "Acme SAS", emails: ["billing@acme.example"], external_reference: "cb_acme" }],
+        products: [{ label: "Managed EDR - per endpoint", price_before_tax: 8, vat_rate: "FR_200", unit: "endpoint" }],
+        customer_invoices: [
+          {
+            customer: "Acme SAS",
+            invoice_number: "F-2026-0001",
+            date: "2026-01-15",
+            paid: true,
+            lines: [{ label: "Managed EDR - per endpoint", quantity: 25, product: "Managed EDR - per endpoint" }],
+          },
+          {
+            customer: "Acme SAS",
+            invoice_number: "INV-000123",
+            external_reference: "INV-000123",
+            imported: true,
+            amount: 1200,
           },
         ],
       },

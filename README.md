@@ -29,6 +29,7 @@ All services start with sensible defaults. No config file needed:
 - **Mailgun** on `http://localhost:4016`
 - **Document360** on `http://localhost:4017`
 - **Defender for Endpoint** on `http://localhost:4018`
+- **Pennylane** on `http://localhost:4019`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -193,7 +194,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, or `'defender'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, or `'pennylane'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1173,6 +1174,36 @@ Request a token with `POST /{tenantId}/oauth2/v2.0/token` (`grant_type=client_cr
 
 Current Defender limits: incidents, the unified security.microsoft.com Graph API, automated investigation details, live response library files, streaming API, device groups and RBAC roles management, and Defender Vulnerability Management remediation tasks are not implemented.
 
+## Pennylane API
+
+Stateful Pennylane external API v2 emulation with customers (company and individual), suppliers, products, categories and category groups, customer invoices (drafts, finalization with sequential numbering, imports, payments, cancellation with credit notes, appendices, invoice lines, categories, matched transactions), supplier invoices, bank accounts and transactions, journals, ledger accounts, ledger entries, fiscal years, a Chargebee sync simulator, an event log, and an inspector.
+
+Default local credentials:
+
+```text
+PENNYLANE_URL=http://localhost:4019/api/external/v2
+PENNYLANE_API_KEY=test_emulate_pennylane_api_key
+```
+
+The default seed includes company "Emulate SAS", customers Acme SAS, Nimbus MSP, and an individual, one supplier, three products, revenue and expense categories, French journals and ledger accounts, two fiscal years, a bank account with two transactions, a paid invoice `F-2026-0001` with an appendix, an open invoice `F-2026-0002`, an imported Chargebee-style invoice `INV-000123` whose `invoice_number` and `external_reference` both carry the Chargebee id, a draft invoice, and one supplier invoice.
+
+### REST Routes
+
+Authenticate with `Authorization: Bearer <api key>`. Routes are served under `/api/external/v2`, `/v2`, and the bare path. Lists return `{ items, has_more, next_cursor }` with `limit` and `cursor` paging, a `sort` parameter (`-date`), and a `filter` parameter holding JSON such as `[{"field":"invoice_number","operator":"eq","value":"INV-000123"}]` (operators `eq not_eq gt gteq lt lteq in not_in contains starts_with is_null is_not_null`, restricted per field like the real API: `external_reference` accepts only `eq` and `in`). Errors return `{ message, errors: [{ field, message }] }` with 400, 404, or 422.
+
+- `GET|POST|PUT|DELETE /customers`, `GET|POST|PUT /company_customers`, `GET|POST|PUT /individual_customers`, `GET|POST|PUT|DELETE /suppliers` - contacts
+- `GET|POST|PUT|DELETE /products`, `/categories`, `GET|POST /category_groups` - catalog
+- `GET|POST /customer_invoices` (POST creates a draft), `POST /customer_invoices/import`, `GET|PUT|DELETE /customer_invoices/{id}`, `POST .../finalize`, `mark_as_paid`, `send_by_email`, `cancel` (creates an `AV-` credit note), `GET .../invoice_lines`, `GET|PUT .../categories`, `GET|PUT .../matched_transactions`, `GET .../file` - customer invoices
+- `GET|POST /customer_invoices/{id}/appendices`, `DELETE .../appendices/{appendixId}` - appendices (multipart `file` or JSON base64); only `image/png, image/jpeg, image/tiff, image/bmp, image/gif, application/pdf` are accepted, like Pennylane, unless the seed widens `appendix_content_types`
+- `GET /supplier_invoices`, `POST /supplier_invoices/import`, `GET|PUT|DELETE /supplier_invoices/{id}`, `mark_as_paid`, `invoice_lines`, `categories`, `matched_transactions`, `appendices`, `file` - supplier invoices
+- `GET /bank_accounts`, `GET|POST /transactions`, `GET|PUT /transactions/{id}`, `GET|PUT .../categories`, `GET .../matched_invoices` - banking (matching a transaction pays the invoice)
+- `GET|POST /journals`, `GET /journals/{id or code}`, `GET|POST /ledger_accounts`, `GET|PUT /ledger_accounts/{id}`, `GET /fiscal_years`, `GET|POST /ledger_entries` (balanced lines required), `GET /ledger_entries/{id}/lines`, `GET /ledger_entry_lines` - accounting
+- `GET /me`, `GET /company` - the company behind the token
+- `POST /_pennylane/simulate/chargebee-invoice` - mimic Pennylane's Chargebee integration creating a finalized invoice whose `invoice_number` and `external_reference` are the Chargebee invoice id; `POST|GET /_pennylane/simulate/appendix-content-types`; `GET|DELETE /_pennylane/events`
+- `GET /` - tabbed inspector for invoices, appendices, customers, suppliers, catalog, banking, accounting, events, and auth
+
+Current Pennylane limits: quotes, customer invoice templates, e-invoicing, recurring invoices, changelog endpoints, file attachments on transactions, and webhooks are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1461,6 +1492,7 @@ packages/
     mailgun/        # Mailgun messages, lists, events, webhooks
     document360/    # Document360 knowledge base, readers, teams, drive
     defender/       # Microsoft Defender for Endpoint machines, alerts, TVM, hunting
+    pennylane/      # Pennylane invoices, appendices, contacts, banking, accounting
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1495,6 +1527,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Document360**: the `api_token` header with a seeded token (`x-api-token` and `Authorization: Bearer` also work). Routes live under `/v2` and `/v1`.
 
 **Defender for Endpoint**: Entra client_credentials at `/{tenantId}/oauth2/v2.0/token` with a seeded app, then `Authorization: Bearer` on `/api/...`. Each token only sees the tenant it was issued for.
+
+**Pennylane**: `Authorization: Bearer` with a seeded API key. Routes live under `/api/external/v2` (also `/v2` and the bare path).
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

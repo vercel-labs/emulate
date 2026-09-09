@@ -27,6 +27,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Mailgun", href: "/docs/mailgun" },
   { name: "Document360", href: "/docs/document360" },
   { name: "Defender for Endpoint", href: "/docs/defender" },
+  { name: "Pennylane", href: "/docs/pennylane" },
   { name: "Authentication", href: "/docs/authentication" },
   { name: "Architecture", href: "/docs/architecture" },
 ];
