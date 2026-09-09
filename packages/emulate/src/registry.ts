@@ -44,6 +44,7 @@ const SERVICE_NAME_LIST = [
   "zendesk",
   "mailgun",
   "document360",
+  "defender",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -887,6 +888,65 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         ],
         reader_groups: [{ title: "Customers" }, { title: "MSP" }, { title: "Distributors" }],
         readers: [{ email: "test@example.com", first_name: "Test", last_name: "Reader", groups: ["Customers"] }],
+      },
+    },
+  },
+
+  defender: {
+    label: "Microsoft Defender for Endpoint API emulator",
+    endpoints:
+      "client_credentials tokens, machines with OData queries, machine actions, alerts, vulnerabilities, software, recommendations, indicators, advanced hunting, entities, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/defender");
+      return { plugin: mod.defenderPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const apps = cfg?.apps as Array<{ client_id?: string }> | undefined;
+      return { login: apps?.[0]?.client_id ?? "00000000-0000-4000-8000-00000000c1e0", id: 1, scopes: [] };
+    },
+    initConfig: {
+      defender: {
+        apps: [
+          { client_id: "00000000-0000-4000-8000-00000000c1e0", client_secret: "test_emulate_defender_client_secret" },
+        ],
+        tenants: [
+          {
+            id: "00000000-0000-4000-8000-0000000000de",
+            name: "Contoso",
+            machines: [
+              {
+                computerDnsName: "desktop-01.contoso.local",
+                osPlatform: "Windows11",
+                version: "23H2",
+                osBuild: 22631,
+                machineTags: ["laptop"],
+              },
+              {
+                computerDnsName: "srv-files-01.contoso.local",
+                osPlatform: "WindowsServer2022",
+                version: "21H2",
+                osBuild: 20348,
+                rbacGroupName: "Servers",
+              },
+              {
+                computerDnsName: "old-kiosk-07.contoso.local",
+                osPlatform: "Windows10",
+                version: "21H2",
+                osBuild: 19044,
+                onboardingStatus: "CanBeOnboarded",
+                healthStatus: "Inactive",
+              },
+            ],
+            alerts: [
+              {
+                machine: "srv-files-01.contoso.local",
+                title: "Suspicious PowerShell command line",
+                severity: "High",
+                category: "Execution",
+              },
+            ],
+          },
+        ],
       },
     },
   },

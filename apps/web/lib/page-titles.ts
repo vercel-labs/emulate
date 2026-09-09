@@ -21,6 +21,7 @@ export const PAGE_TITLES: Record<string, string> = {
   zendesk: "Zendesk",
   mailgun: "Mailgun",
   document360: "Document360",
+  defender: "Defender for Endpoint",
   authentication: "Authentication",
   architecture: "Architecture",
 };

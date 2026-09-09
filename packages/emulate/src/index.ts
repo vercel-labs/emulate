@@ -47,6 +47,10 @@ Document360 API coverage:
   Knowledge base API at /v2 (and /v1) with project versions, categories, versioned articles, search, readers, teams, and drive.
   Authenticate with the api_token header; every response uses the Document360 result and errors envelope.
 
+Defender for Endpoint API coverage:
+  Tokens at /{tenantId}/oauth2/v2.0/token (client_credentials) and the WDATP API at /api with OData $filter, $top, $skip, $orderby, $select, and $count.
+  Machines, machine actions, alerts, vulnerabilities, software, recommendations, indicators, and a KQL subset for advanced hunting, scoped per tenant.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

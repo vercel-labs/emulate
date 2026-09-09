@@ -1,0 +1,168 @@
+# Microsoft Defender for Endpoint
+
+Stateful Microsoft Defender for Endpoint (WDATP) API emulation: Entra client_credentials tokens per tenant, machines with OData queries, machine actions that progress over time, alerts with evidence, vulnerabilities, software, recommendations, exposure scores, custom indicators, an advanced hunting KQL subset, entity lookups, a simulator, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service defender
+```
+
+When Defender is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4018`.
+
+## Defaults
+
+```text
+MS365_DEFENDER_LOGIN_URL=http://localhost:4000
+MS365_DEFENDER_URL=http://localhost:4000/api
+MS365_DEFENDER_SECURITY_CENTER_SCOPE=https://api.securitycenter.microsoft.com
+MS365_DEFENDER_CLIENT_ID=00000000-0000-4000-8000-00000000c1e0
+MS365_DEFENDER_CLIENT_SECRET=test_emulate_defender_client_secret
+MS365_DEFENDER_TENANT_ID=00000000-0000-4000-8000-0000000000de
+```
+
+Seeded: tenant Contoso (`00000000-0000-4000-8000-0000000000de`) with three onboarded machines (`desktop-01`, `srv-files-01`, `mbp-carol`), one machine that can be onboarded, two alerts with evidence, three CVEs, three software products, three recommendations, and a blocked domain indicator; tenant Fabrikam (`00000000-0000-4000-8000-0000000001de`) with two machines. The default app is allowed in every tenant.
+
+## URL Mapping
+
+| Real URL | Emulator URL |
+|----------|--------------|
+| `https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token` | `$DEFENDER_EMULATOR_URL/{tenantId}/oauth2/v2.0/token` |
+| `https://api.securitycenter.microsoft.com/api/...` | `$DEFENDER_EMULATOR_URL/api/...` |
+| `https://api-eu.securitycenter.microsoft.com/api/...` | `$DEFENDER_EMULATOR_URL/api/...` |
+
+Point the login URL and the API URL at the emulator. The token is a JWT whose `tid` claim decides which tenant's data every later request sees.
+
+## Authentication
+
+```bash
+curl -X POST http://localhost:4000/00000000-0000-4000-8000-0000000000de/oauth2/v2.0/token \
+  -d grant_type=client_credentials \
+  -d scope=https://api.securitycenter.microsoft.com/.default \
+  -d client_id=00000000-0000-4000-8000-00000000c1e0 \
+  -d client_secret=test_emulate_defender_client_secret
+```
+
+Responses look like Entra's: `{ token_type, expires_in, ext_expires_in, access_token }`. Wrong secrets return `invalid_client` (401), unknown tenants return `AADSTS90002` (400), and apps seeded with `tenant_ids` get `unauthorized_client` outside their tenants. `/oauth2/v2.0/token`, the v1 `/{tenantId}/oauth2/token` form with `resource`, and HTTP Basic client authentication also work. API calls without a valid bearer token return 401 with `{ error: { code: "Unauthorized" } }`.
+
+## Machines
+
+- `GET /api/machines` - OData: `$filter`, `$top`, `$skip`, `$orderby`, `$select`, `$count`; responses carry `@odata.context`, `value`, and `@odata.nextLink` when more pages exist
+- `GET /api/machines/{id}`, `GET /api/machines/findbyip?ip=&timestamp=`, `GET /api/machines/findbytag?tag=&useStartsWithFilter=`
+- `GET /api/machines/{id}/alerts`, `logonusers`, `machineactions`, `activeactions`, `vulnerabilities`, `software`, `recommendations`, `exposurescore`
+- `POST /api/machines/{id}/tags` (`{ Value, Action: "Add" | "Remove" }`), `POST /api/machines/{id}/setDeviceValue` (`{ DeviceValue }`)
+
+Supported `$filter` syntax: `eq ne gt ge lt le`, `and or not`, parentheses, `in (...)`, `contains()`, `startswith()`, `endswith()`, `tolower()`, string, number, boolean, null, and datetime literals, nested paths (`relatedUser/userName`), and lambdas (`machineTags/any(t: t eq 'laptop')`). Comparisons are case-insensitive like the real API. Invalid filters return 400 `InvalidQuery`.
+
+```bash
+curl "http://localhost:4000/api/machines?\$filter=onboardingStatus%20eq%20'Onboarded'" -H "Authorization: Bearer $TOKEN"
+```
+
+Machine objects include every documented property: `id`, `computerDnsName`, `firstSeen`, `lastSeen`, `osPlatform`, `osVersion`, `osProcessor`, `version`, `lastIpAddress`, `lastExternalIpAddress`, `agentVersion`, `osBuild`, `healthStatus`, `deviceValue`, `rbacGroupId`, `rbacGroupName`, `riskScore`, `exposureLevel`, `isAadJoined`, `aadDeviceId`, `machineTags`, `defenderAvStatus`, `onboardingStatus`, `osArchitecture`, `managedBy`, `managedByStatus`, `ipAddresses`, `vmMetadata`.
+
+## Machine Actions
+
+- `POST /api/machines/{id}/isolate` (`{ Comment, IsolationType }`), `unisolate`, `restrictCodeExecution`, `unrestrictCodeExecution`, `runAntiVirusScan` (`{ Comment, ScanType }`), `collectInvestigationPackage`, `offboard`, `StopAndQuarantineFile` (`{ Comment, Sha1 }`), `runliveresponse` (`{ Comment, Commands }`), `startInvestigation`
+- `GET /api/machineactions`, `GET /api/machineactions/{id}`, `POST /api/machineactions/{id}/cancel` (`{ Comment }`)
+- `GET /api/machineactions/{id}/getPackageUri`, `GET /api/machineactions/{id}/GetLiveResponseResultDownloadLink?index=0`
+
+Every action requires a `Comment`. A second active action of the same type on the same machine returns 400 `ActiveRequestAlreadyExists`. Actions are created `Pending`, become `InProgress` after 1 second and `Succeeded` after 3 seconds by default; change this with `POST /_defender/simulate/action-delays` (`{ in_progress_after_ms, succeeded_after_ms }`, use zeros in tests). Isolation and offboarding update the machine (`offboard` flips it to `CanBeOnboarded`).
+
+## Alerts
+
+- `GET /api/alerts` (OData), `GET /api/alerts/{id}`
+- `PATCH /api/alerts/{id}` - `status`, `assignedTo`, `classification`, `determination`, `comment`
+- `POST /api/alerts/CreateAlertByReference` - `machineId`, `severity`, `title`, `description`, `recommendedAction`, `eventTime`, `reportId`, `category`
+- `POST /api/alerts/batchUpdate` - `alertIds` plus the same update fields
+- `GET /api/alerts/{id}/machine`, `user`, `files`, `ips`, `domains`
+
+Alerts include `incidentId`, `evidence` entries (files, processes, IPs, URLs, users), `mitreTechniques`, `relatedUser`, `loggedOnUsers`, and `comments`.
+
+## Threat and Vulnerability Management
+
+- `GET /api/vulnerabilities`, `GET /api/vulnerabilities/{cve}`, `GET /api/vulnerabilities/{cve}/machineReferences`, `GET /api/vulnerabilities/machinesVulnerabilities`
+- `GET /api/software`, `GET /api/software/{id}`, `machineReferences`, `vulnerabilities`, `distributions`
+- `GET /api/recommendations`, `GET /api/recommendations/{id}`, `machineReferences`, `software`, `vulnerabilities`
+- `GET /api/exposureScore`, `GET /api/exposureScore/ByMachineGroups`, `GET /api/configurationScore`
+
+Exposure counts are derived from the machine to software and machine to CVE links in the seed.
+
+## Indicators
+
+- `GET /api/indicators`, `GET /api/indicators/{id}`
+- `POST /api/indicators` - `indicatorValue`, `indicatorType` (`FileSha1`, `FileSha256`, `FileMd5`, `CertificateThumbprint`, `IpAddress`, `DomainName`, `Url`), `action` (`Warn`, `Block`, `Audit`, `Alert`, `AlertAndBlock`, `BlockAndRemediate`, `Allowed`), `title`, `description`, optional `severity`, `expirationTime`, `rbacGroupNames`, `generateAlert`; posting the same value and type again updates the existing indicator
+- `POST /api/indicators/import` - `{ Indicators: [...] }` with per-item results
+- `DELETE /api/indicators/{id}`, `DELETE /api/indicators` (`{ IndicatorIds }`)
+
+## Advanced Hunting
+
+`POST /api/advancedqueries/run` with `{ Query }` returns `{ Stats, Schema, Results }`. Supported operators: `where` (`== != > >= < <= =~ has contains startswith endswith in !in`, `and`, `or`, `not`, `ago()`, `datetime()`, `isnull()`, `isnotempty()`), `project`, `project-away`, `extend`, `summarize` (`count`, `dcount`, `sum`, `avg`, `min`, `max`, `make_set`, `make_list`, `arg_max`, `arg_min` with `by`), `distinct`, `sort by`, `order by`, `top N by`, `take`, `limit`, `count`.
+
+Tables: `DeviceInfo`, `DeviceNetworkInfo`, `AlertInfo`, `AlertEvidence`, `DeviceAlertEvents`, `DeviceTvmSoftwareInventory`, `DeviceTvmSoftwareVulnerabilities`, `DeviceTvmSecureConfigurationAssessment`, `DeviceLogonEvents`, `MachineActions`. `GET /api/advancedqueries/schema` lists them.
+
+```text
+DeviceInfo
+| where OnboardingStatus == "Onboarded"
+| summarize count() by OSPlatform
+| sort by count_ desc
+```
+
+## Entities and Investigations
+
+- `GET /api/domains/{host}/alerts`, `machines`, `stats`
+- `GET /api/files/{sha}`, `GET /api/files/{sha}/alerts`, `machines`, `stats`
+- `GET /api/ips/{ip}/alerts`, `machines`, `stats`
+- `GET /api/users/{domain\user}/alerts`, `machines`
+- `GET /api/investigations`, `GET /api/investigations/{id}`, `GET /api/machinegroups`
+
+## Simulator, Events, and Inspector
+
+- `POST /_defender/simulate/alert` - `machineId` (id or DNS name), `title`, `severity`, `category`, `evidence`, `relatedUser`
+- `POST /_defender/simulate/machine` - `machineId` plus `lastSeen`, `healthStatus`, `onboardingStatus`, `lastIpAddress`, `agentVersion`, `version`, `osBuild`
+- `POST /_defender/simulate/action-delays` - action timing
+- `GET /_defender/events?type=alert.created&tenant=` - JSON event log; `DELETE` clears it
+- `GET /api` - the calling token's tenant, counts, and roles
+- `GET /` - inspector tabs: machines, alerts, actions, vulnerabilities, indicators, tenants, events, auth
+
+## Seed Configuration
+
+```json
+{
+  "defender": {
+    "apps": [{ "client_id": "acb57369-de24-4642-8890-5f09746d18d7", "client_secret": "secret", "tenant_ids": ["11111111-1111-4111-8111-111111111111"] }],
+    "action_delays": { "in_progress_after_ms": 0, "succeeded_after_ms": 0 },
+    "tenants": [
+      {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "name": "Customer A",
+        "software": [{ "id": "google-_-chrome", "name": "Chrome", "vendor": "Google" }],
+        "vulnerabilities": [{ "cve": "CVE-2024-4947", "severity": "High", "cvssV3": 8.8, "publicExploit": true }],
+        "machines": [
+          {
+            "computerDnsName": "ws-01.customer-a.local",
+            "osPlatform": "Windows11",
+            "version": "24H2",
+            "osBuild": 26100,
+            "rbacGroupName": "Workstations",
+            "machineTags": ["vip"],
+            "logonUsers": [{ "accountName": "erin", "accountDomain": "CUSTOMERA" }],
+            "software": [{ "id": "google-_-chrome", "version": "124.0.6367.60" }],
+            "vulnerabilities": [{ "cve": "CVE-2024-4947", "software": "google-_-chrome" }]
+          },
+          { "computerDnsName": "ubuntu-01.customer-a.local", "osPlatform": "Ubuntu", "version": "24.4", "osBuild": null },
+          { "computerDnsName": "retired.customer-a.local", "onboardingStatus": "CanBeOnboarded", "healthStatus": "Inactive" }
+        ],
+        "recommendations": [{ "name": "Update Chrome", "software": "google-_-chrome", "cves": ["CVE-2024-4947"], "severityScore": 7.2 }],
+        "alerts": [{ "machine": "ws-01.customer-a.local", "title": "Suspicious login", "severity": "Medium" }],
+        "indicators": [{ "value": "bad.example.net", "type": "DomainName", "action": "Block", "title": "C2", "description": "Known C2" }]
+      }
+    ]
+  }
+}
+```
+
+Machines default to `Onboarded`, `Active`, `x64`, and `version: "Other"`; every entity accepts an explicit `id`. Seeding is idempotent by id or name.
+
+## Limits
+
+Incidents, the unified `security.microsoft.com` Graph API, automated investigation details, live response library files, the streaming API, device group and RBAC role management, and Defender Vulnerability Management remediation tasks are not implemented.

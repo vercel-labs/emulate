@@ -28,6 +28,7 @@ All services start with sensible defaults. No config file needed:
 - **Zendesk** on `http://localhost:4015`
 - **Mailgun** on `http://localhost:4016`
 - **Document360** on `http://localhost:4017`
+- **Defender for Endpoint** on `http://localhost:4018`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -192,7 +193,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, or `'document360'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, or `'defender'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1137,6 +1138,41 @@ Authenticate with the `api_token` header (also accepted: `x-api-token` or `Autho
 
 Current Document360 limits: SSO invitations, article comments and feedback, analytics, redirects, custom pages, workflow assignments, AI features, and the public knowledge base site are not implemented.
 
+## Microsoft Defender for Endpoint API
+
+Stateful Microsoft Defender for Endpoint (WDATP) API emulation with Entra client_credentials tokens per tenant, machines with full OData query support, machine actions that progress over time, alerts with evidence, vulnerabilities, software, security recommendations, exposure scores, custom indicators, an advanced hunting KQL subset, entity lookups, a simulator, and an inspector. Data is scoped to the tenant the token was issued for, so one emulator can stand in for many customer tenants.
+
+Default local credentials:
+
+```text
+MS365_DEFENDER_LOGIN_URL=http://localhost:4018
+MS365_DEFENDER_URL=http://localhost:4018/api
+MS365_DEFENDER_SECURITY_CENTER_SCOPE=https://api.securitycenter.microsoft.com
+MS365_DEFENDER_CLIENT_ID=00000000-0000-4000-8000-00000000c1e0
+MS365_DEFENDER_CLIENT_SECRET=test_emulate_defender_client_secret
+MS365_DEFENDER_TENANT_ID=00000000-0000-4000-8000-0000000000de
+```
+
+The default seed includes tenant Contoso with three onboarded machines (a Windows 11 laptop, a Windows Server 2022 file server, and a macOS laptop), one machine that can be onboarded, two alerts with evidence, three CVEs, three software products, three recommendations, and a blocked domain indicator, plus tenant Fabrikam with two machines. Apps can be limited to specific tenants with `tenant_ids`.
+
+### REST Routes
+
+Request a token with `POST /{tenantId}/oauth2/v2.0/token` (`grant_type=client_credentials`, `client_id`, `client_secret`, `scope`); `/oauth2/v2.0/token`, the v1 `/{tenantId}/oauth2/token` form with `resource`, and HTTP Basic client authentication also work. Send the returned JWT as `Authorization: Bearer`. API routes live under `/api` (also without the prefix) and return `@odata.context`, `value`, and `@odata.nextLink` like the real API; errors use `{ error: { code, message, target } }`.
+
+- `GET /api/machines`, `GET /api/machines/{id}`, `findbyip`, `findbytag` - machines with `$filter` (`eq ne gt ge lt le and or not in`, `contains`, `startswith`, `endswith`, datetime literals, `machineTags/any(t: t eq 'x')`), `$top`, `$skip`, `$orderby`, `$select`, `$count`
+- `GET /api/machines/{id}/alerts`, `logonusers`, `machineactions`, `vulnerabilities`, `software`, `recommendations`, `exposurescore` - related data
+- `POST /api/machines/{id}/tags`, `setDeviceValue`, `isolate`, `unisolate`, `restrictCodeExecution`, `unrestrictCodeExecution`, `runAntiVirusScan`, `collectInvestigationPackage`, `offboard`, `StopAndQuarantineFile`, `runliveresponse`, `startInvestigation` - response actions (a `Comment` is required; duplicates return `ActiveRequestAlreadyExists`)
+- `GET /api/machineactions`, `GET /api/machineactions/{id}`, `POST .../cancel`, `GET .../getPackageUri`, `GET .../GetLiveResponseResultDownloadLink?index=` - actions move Pending, InProgress, Succeeded on a configurable timer
+- `GET /api/alerts`, `GET|PATCH /api/alerts/{id}`, `POST /api/alerts/CreateAlertByReference`, `POST /api/alerts/batchUpdate`, `GET /api/alerts/{id}/machine`, `user`, `files`, `ips`, `domains` - alerts
+- `GET /api/vulnerabilities`, `/{id}`, `/{id}/machineReferences`, `/machinesVulnerabilities`; `GET /api/software`, `/{id}`, `machineReferences`, `vulnerabilities`, `distributions`; `GET /api/recommendations`, `/{id}`, `machineReferences`, `software`, `vulnerabilities`; `GET /api/exposureScore`, `/ByMachineGroups`, `GET /api/configurationScore` - threat and vulnerability management
+- `GET|POST|DELETE /api/indicators`, `GET|DELETE /api/indicators/{id}`, `POST /api/indicators/import` - custom indicators (upsert by value and type, hash validation)
+- `POST /api/advancedqueries/run` - KQL subset (`where`, `project`, `project-away`, `extend`, `summarize`, `distinct`, `sort`, `top`, `take`, `count`) over `DeviceInfo`, `DeviceNetworkInfo`, `AlertInfo`, `AlertEvidence`, `DeviceAlertEvents`, `DeviceTvmSoftwareInventory`, `DeviceTvmSoftwareVulnerabilities`, `DeviceTvmSecureConfigurationAssessment`, `DeviceLogonEvents`, `MachineActions`
+- `GET /api/domains/{host}/alerts|machines|stats`, `GET /api/files/{sha}`, `/alerts|machines|stats`, `GET /api/ips/{ip}/alerts|machines|stats`, `GET /api/users/{id}/alerts|machines`, `GET /api/investigations`, `GET /api/machinegroups` - entities
+- `POST /_defender/simulate/alert`, `POST /_defender/simulate/machine`, `POST /_defender/simulate/action-delays`, `GET|DELETE /_defender/events` - simulate detections, sensor check-ins, and action timing
+- `GET /` - tabbed inspector for machines, alerts, actions, vulnerabilities, indicators, tenants, events, and auth
+
+Current Defender limits: incidents, the unified security.microsoft.com Graph API, automated investigation details, live response library files, streaming API, device groups and RBAC roles management, and Defender Vulnerability Management remediation tasks are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1424,6 +1460,7 @@ packages/
     zendesk/        # Zendesk Support API, triggers, webhooks
     mailgun/        # Mailgun messages, lists, events, webhooks
     document360/    # Document360 knowledge base, readers, teams, drive
+    defender/       # Microsoft Defender for Endpoint machines, alerts, TVM, hunting
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1456,6 +1493,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Mailgun**: HTTP Basic auth with any username and a seeded API key as the password. Domain sending keys are limited to their domain. Message routes live under `/v3/{domain}` and management routes under `/v3`, `/v4`, and `/v5` like the real API.
 
 **Document360**: the `api_token` header with a seeded token (`x-api-token` and `Authorization: Bearer` also work). Routes live under `/v2` and `/v1`.
+
+**Defender for Endpoint**: Entra client_credentials at `/{tenantId}/oauth2/v2.0/token` with a seeded app, then `Authorization: Bearer` on `/api/...`. Each token only sees the tenant it was issued for.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
