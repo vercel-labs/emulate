@@ -46,6 +46,7 @@ const SERVICE_NAME_LIST = [
   "document360",
   "defender",
   "pennylane",
+  "sentinelone",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -986,6 +987,56 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             amount: 1200,
           },
         ],
+      },
+    },
+  },
+
+  sentinelone: {
+    label: "SentinelOne management console API emulator",
+    endpoints:
+      "accounts, sites, groups, filters, agents and actions, users, RBAC roles, threats, application risks and CVEs, exclusions, blocklist, device control, activities, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/sentinelone");
+      return { plugin: mod.sentinelonePlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const tokens = cfg?.api_tokens as Array<{ token?: string }> | undefined;
+      return { login: tokens?.[0]?.token ?? "test_emulate_sentinelone_api_token", id: 1, scopes: [] };
+    },
+    initConfig: {
+      sentinelone: {
+        api_tokens: [{ token: "test_emulate_sentinelone_api_token" }],
+        accounts: [
+          {
+            name: "EMULATE MSSP",
+            usageType: "mssp",
+            sites: [
+              {
+                name: "ACME CORP",
+                siteType: "Paid",
+                externalId: "11111111-1111-4111-8111-111111111111",
+                filters: [
+                  { name: "Windows-Workstations", machineTypes: ["desktop", "laptop"], osTypes: ["windows"] },
+                  { name: "Windows-Servers", machineTypes: ["server"], osTypes: ["windows"] },
+                ],
+                groups: [
+                  { name: "Windows-Workstations", filter: "Windows-Workstations" },
+                  { name: "Windows-Servers", filter: "Windows-Servers" },
+                ],
+                agents: [
+                  { computerName: "ACME-WS-001", osType: "windows", machineType: "laptop" },
+                  {
+                    computerName: "ACME-SRV-FILES",
+                    osType: "windows",
+                    osName: "Windows Server 2022 Standard",
+                    machineType: "server",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        users: [{ email: "admin@example.com", fullName: "Admin User", scope: "tenant" }],
       },
     },
   },

@@ -23,6 +23,7 @@ export const PAGE_TITLES: Record<string, string> = {
   document360: "Document360",
   defender: "Defender for Endpoint",
   pennylane: "Pennylane",
+  sentinelone: "SentinelOne",
   authentication: "Authentication",
   architecture: "Architecture",
 };

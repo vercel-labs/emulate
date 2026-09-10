@@ -1,0 +1,147 @@
+# SentinelOne
+
+Stateful SentinelOne management console API emulation: the account, site, group, and agent hierarchy, dynamic groups driven by filters, agent response actions, users with scope roles and RBAC roles, threats with mitigation and incident workflows, application risks and CVEs, legacy and unified exclusions, the blocklist, device control, policies with inheritance, activities, a simulator, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service sentinelone
+```
+
+When SentinelOne is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4020`.
+
+## Defaults
+
+```text
+SENTINELONE_URL=http://localhost:4000
+SENTINELONE_BASE_API_ENDPOINT=/web/api
+SENTINELONE_VERSION=v2.1
+SENTINELONE_API_KEY=test_emulate_sentinelone_api_token
+SENTINELONE_ACCOUNT_ID=2250000000000000001
+SENTINELONE_SITE_ID=2250000000000000101
+```
+
+Seeded: account "EMULATE MSSP" (`2250000000000000001`, mssp, complete bundle) with site "ACME CORP" (`2250000000000000101`, external id `11111111-1111-4111-8111-111111111111`, registration token seeded) holding five agents (`ACME-WS-001`, `ACME-SRV-FILES`, `ACME-MBP-CAROL`, `acme-ubuntu-01`, and the offline `ACME-OLD-KIOSK` pending migration) placed in dynamic groups `Windows-Workstations`, `Windows-Servers`, `Linux-Workstations`, `Linux-Servers`, and `MacOS-Workstations`; trial site "GLOBEX #TRIAL" (`2250000000000000102`, 25 licenses); two threats (an unmitigated `mimikatz.exe` and a resolved `eicar.com`); five CVEs across Chrome, 7-Zip, Windows Server, and OpenSSL; sixteen RBAC roles; users `admin@example.com` (tenant), `msp.admin@example.com` (MSP Admin on the account), `analyst@example.com` (SOC N1 on ACME CORP), and `customer.admin@acme.example`.
+
+## URL Mapping
+
+| Real SentinelOne URL | Emulator URL |
+|----------------------|--------------|
+| `https://<console>.sentinelone.net/web/api/v2.1/...` | `$SENTINELONE_EMULATOR_URL/web/api/v2.1/...` |
+| `https://<console>.sentinelone.net/web/api/v2.0/...` | `$SENTINELONE_EMULATOR_URL/web/api/v2.0/...` |
+
+Send `Authorization: ApiToken <token>` (`Bearer` is accepted too). Missing or unknown tokens return 401 `{ errors: [{ code: 4010010 }] }`.
+
+## Conventions
+
+- Lists return `{ data, pagination: { nextCursor, totalItems } }`. Page with `limit` (1 to 1000, default 10), `cursor`, or `skip`; `countOnly=true` returns only `totalItems`; `skipCount=true` sets it to null; `sortBy` and `sortOrder` sort by any listed field.
+- Id filters (`siteIds`, `accountIds`, `groupIds`, `ids`) take comma separated values. String filters accept `__contains` variants where the real API does, plus `query` for free text.
+- Writes take `{ data: {...} }` and bulk actions take `{ filter: {...}, data?: {...} }`, returning `{ data: { affected } }`.
+- Errors return `{ errors: [{ code, detail, title }] }`: 4000010 validation, 4000030 already exists, 4010010 unauthorized, 4040010 not found.
+- Ids are 19 digit numeric strings like the real console; seed entries accept explicit ids.
+
+## Accounts and Sites
+
+- `GET /accounts` (`ids`, `states`, `name`, `name__contains`, `accountType`, `usageType`, `externalId`), `POST /accounts` (`name`, `accountType`, `usageType`, `billingMode`, `unlimitedExpiration` or `expiration`, `inherits`, `licenses { bundles, modules, settings }`, `policy`), `GET|PUT|DELETE /accounts/{id}`, `GET|PUT /accounts/{id}/policy`, `PUT /accounts/{id}/revert-policy`
+- `GET /sites` returns `{ data: { allSites: { activeLicenses, totalLicenses }, sites }, pagination }` and filters on `siteIds`, `accountId`, `accountIds`, `states`, `name`, `name__contains`, `siteType`, `externalId`, `accountName__contains`
+- `POST /sites` (`name`, `siteType`, `accountId`, `externalId`, `expiration` or `unlimitedExpiration`, `unlimitedLicenses` or `totalLicenses`, `inherits`, `licenses`) trims the name, rejects duplicates within the account with 4000030, creates a default group and a registration token, and derives `sku` and `suite` from the first bundle
+- `GET|PUT|DELETE /sites/{id}` (`PUT` accepts the same fields; deletion marks the site deleted and decommissions its agents), `PUT /sites/{id}/reactivate`, `GET|PUT /sites/{id}/policy`, `PUT /sites/{id}/revert-policy`
+
+Policies resolve global, account, site, then group with `inheritedFrom` reporting the level that supplied them. `PUT .../policy` merges the fields you send and turns inheritance off; `revert-policy` restores it.
+
+## Groups and Filters
+
+- `GET /groups` (`siteIds`, `accountIds`, `groupIds`, `name`, `types`), `POST /groups` (`siteId`, `name`, `inherits`, `filterId`, `type`, `policy`), `GET|PUT|DELETE /groups/{id}`, `GET|PUT /groups/{id}/policy`, `PUT /groups/{id}/revert-policy`, `PUT /groups/{id}/move-agents`, `GET /groups/{id}/agents`
+- `GET /filters` (`siteIds`, `accountIds`, `ids`), `POST /filters` (`{ data: { name, filterFields: { machineTypes, osTypes } }, filter: { siteIds } }`), `GET|PUT|DELETE /filters/{id}`
+
+A group created with a `filterId` is dynamic. Agents are placed in the first dynamic group whose filter matches their `machineType` and `osType`, otherwise in the site's default group. Filters used by a group cannot be deleted.
+
+## Agents
+
+- `GET /agents` - filters on `siteIds`, `accountIds`, `groupIds`, `ids`, `uuids`, `consoleMigrationStatuses`, `computerName__contains`, `query`, `osTypes`, `machineTypes`, `isActive`, `infected`, `isDecommissioned` (excluded by default), `isUpToDate`, `networkStatuses`, `scanStatuses`, `activeThreats__gt`, `lastActiveDate__gt`, `agentVersion__gte`, `externalId`
+- `GET /agents/count`, `GET /agents/passphrases` (`{ id, uuid, computerName, domain, lastLoggedInUserName, passphrase }`), `GET /agents/applications?ids=`, `GET|PUT /agents/{id}`
+- `POST /agents/actions/{action}` with `{ filter: { ids, uuids, siteIds, groupIds, accountIds, migrationStatus } }`: `decommission`, `recommission`, `initiate-scan`, `abort-scan`, `disconnect`, `connect`, `fetch-logs`, `restart-machine`, `shutdown`, `uninstall`, `approve-uninstall`, `reject-uninstall`, `update-software`, `set-external-id`, `enable-agent`, `disable-agent`, `move-to-site` (`data.targetSiteId`), `move-to-group` (`data.targetGroupId`)
+
+Agents carry the console fields: `id`, `uuid`, `computerName`, `siteId`, `siteName`, `accountId`, `accountName`, `groupId`, `groupName`, `osType`, `osName`, `osRevision`, `osArch`, `machineType`, `agentVersion`, `lastActiveDate`, `registeredAt`, `isActive`, `isDecommissioned`, `infected`, `activeThreats`, `externalIp`, `lastIpToMgmt`, `lastLoggedInUserName`, `networkStatus`, `scanStatus`, `mitigationMode`, `consoleMigrationStatus`, `appsVulnerabilityStatus`, `networkInterfaces`, and more. Decommissioned agents stop counting toward `activeLicenses`, and sites with `unlimitedLicenses: false` reject registrations above `totalLicenses`.
+
+## Users and Roles
+
+- `GET /users` (`email`, `email__contains`, `fullName__contains`, `query`, `siteIds`, `accountIds`, `roleIds`, `emailVerified`, `twoFaEnabled`, `scope`), `POST /users` (`email`, `fullName`, `scope`, `scopeRoles: [{ id, roleId }]`, `twoFaEnabled`), `GET|PUT|DELETE /users/{id}`
+- `POST /users/onboarding/send-verification-email`, `POST /users/login/send-reset-password-email` (`{ filter: { ids } }`), `POST /users/reset-2fa`, `POST /users/enroll-2fa` (`{ data: { ids } }`), `POST /users/generate-api-token` (mints a token bound to the calling user, valid 180 days), `POST /users/revoke-api-token`, `GET /user`
+- `GET /rbac/roles` (`siteIds`, `accountIds`, `name`, `query`, `scope`, `predefinedRole`), `POST /rbac/role`, `GET|DELETE /rbac/role/{id}`
+
+`scopeRoles` entries must reference existing roles and an account (scope `account`) or site (scope `site`). Duplicate emails return 4000030. Seed `roles` with explicit `id` values when your application hard codes role ids.
+
+## Threats
+
+- `GET /threats` (`siteIds`, `accountIds`, `groupIds`, `agentIds`, `ids`, `resolved`, `incidentStatuses`, `mitigationStatuses`, `analystVerdicts`, `confidenceLevels`, `classifications`, `contentHashes`, `createdAt__gte`), `GET /threats/{id}`, `GET /threats/{id}/timeline`
+- `POST /threats/mitigate/{kill|quarantine|remediate|rollback-remediation|un-quarantine|network-quarantine}`, `POST /threats/incident` (`data.incidentStatus`), `POST /threats/analyst-verdict` (`data.analystVerdict`), `POST /threats/mark-as-benign`, `POST /threats/mark-as-threat`, `POST /threats/notes` (`data.text`), each with `{ filter: { ids, agentIds, siteIds, ... } }`
+
+Threats expose `threatInfo`, `agentRealtimeInfo`, `agentDetectionInfo`, `mitigationStatus`, `indicators`, and `notes`. Mitigating or resolving a threat updates the agent's `activeThreats` and `infected` flags.
+
+## Application Risks
+
+- `GET /application-management/risks/applications` - one row per application per endpoint with `highestSeverity`, `cveCount`, `endpointId`, `endpointName`, `siteId`; filters `siteIds`, `accountIds`, `groupIds`, `highestSeverities`, `applicationTypes`, `application__contains`, `countOnly`
+- `GET /application-management/risks` - CVE rows with `cveId`, `baseScore`, `severity`, `endpointId`, `endpointName`, `application`, `applicationVendor`, `applicationVersion`, `detectionDate`, `ransomware`, `exploitedInTheWild`, `analystVerdict`; filters `siteIds`, `severities`, `analystVerdict` (comma separated, for example `Added CVE,Default`), `cveIds`, `statuses`, `detectionDate__gte`, `skipCount`, `sortBy=detectionDate`
+- `GET /application-management/risks/{id}`, `POST /application-management/risks/analyst-verdict`, `GET /application-management/inventory/endpoints`
+
+## Exclusions, Blocklist, Device Control
+
+- `GET /exclusions`, `GET /unified-exclusions` (`siteIds`, `accountIds`, `groupIds`, `tenant`, `type`, `osTypes`, `value__contains`, `modeType`); `POST /exclusions` (`data: { osType, type, value, mode, description, pathExclusionType }`) and `POST /unified-exclusions` (`data: { osType, type, value, exclusionName, threatType, interactionLevel, reason, modeType, source, tagIds, actions }`), scoped with `filter.siteIds`, `filter.accountIds`, `filter.groupIds`, or `filter.scopeLevel` plus `filter.scopeLevelId`; `DELETE /exclusions`, `DELETE /unified-exclusions` (`{ data: { data: { exclusions: [{ id, type }] } } }` or `filter.ids`), `DELETE /exclusions/{id}`
+- `GET|POST|DELETE /restrictions` - blocklist entries (`black_hash` needs a SHA1 `value` or `sha256Value`)
+- `GET|POST|DELETE /device-control`, `PUT /device-control/{id}`, `PUT /device-control/enable`, `PUT /device-control/disable` - USB, Bluetooth, SD card, and Thunderbolt rules by `ruleType`
+
+Duplicate values in the same scope return 4000030; hash formats are validated.
+
+## Activities, System, Simulator, Inspector
+
+- `GET /activities` (`siteIds`, `accountIds`, `groupIds`, `agentIds`, `threatIds`, `userIds`, `activityTypes`, `createdAt__gte`), `GET /activities/types`, `GET /system/info`, `GET /system/status`, `GET /private/agents/summary`
+- `POST /_sentinelone/simulate/agent` - `siteId`, `siteName`, or `registrationToken` plus `computerName`, `osType`, `osName`, `osRevision`, `machineType`, `agentVersion`, `domain`, `lastLoggedInUserName`, `isActive`, `consoleMigrationStatus`, `tags`
+- `POST /_sentinelone/simulate/agent-checkin` - `agentId` or `computerName` plus `lastActiveDate`, `isActive`, `agentVersion`, `osRevision`
+- `POST /_sentinelone/simulate/threat` - `agentId` or `computerName` plus `threatName`, `classification`, `confidenceLevel`, `mitigationStatus`, `incidentStatus`, `filePath`, `sha1`
+- `POST /_sentinelone/simulate/vulnerability` - `agentId` or `computerName` plus `cveId`, `application`, `applicationVendor`, `applicationVersion`, `baseScore`, `severity`, `exploitedInTheWild`
+- `GET /_sentinelone/events?type=site.created` - JSON event log (`account.*`, `site.*`, `group.*`, `filter.*`, `agent.*`, `user.*`, `threat.*`, `risk.*`, `exclusion.*`, `policy.updated`); `DELETE` clears it
+- `GET /` - inspector tabs: accounts and sites, agents, threats, vulnerabilities, users and roles, exclusions, activities, events, auth
+
+## Seed Configuration
+
+```json
+{
+  "sentinelone": {
+    "api_tokens": [{ "token": "test_emulate_sentinelone_api_token", "user": "admin@example.com" }],
+    "roles": [
+      { "id": "2153718167648641127", "name": "MSP Admin", "scope": "account" },
+      { "id": "2143855039033122024", "name": "SOC N1", "scope": "site" }
+    ],
+    "accounts": [
+      {
+        "id": "2000000000000000001",
+        "name": "CYNA PRO",
+        "usageType": "mssp",
+        "licenses": { "bundles": [{ "name": "complete", "surfaces": [{ "name": "Total Agents", "count": -1 }] }] },
+        "sites": [
+          {
+            "id": "2000000000000000101",
+            "name": "CUSTOMER ONE #C1",
+            "siteType": "Paid",
+            "externalId": "customer-uuid",
+            "filters": [{ "name": "Windows-Servers", "machineTypes": ["server"], "osTypes": ["windows"] }],
+            "groups": [{ "name": "Windows-Servers", "filter": "Windows-Servers" }],
+            "agents": [
+              { "computerName": "c1-srv-01", "osType": "windows", "osName": "Windows Server 2022 Standard", "osRevision": "20348", "machineType": "server", "threats": [{ "threatName": "mimikatz.exe", "classification": "Hacktool" }], "applications": [{ "name": "Google Chrome", "vendor": "Google", "version": "124.0.6367.60", "cves": [{ "cveId": "CVE-2024-4947", "baseScore": 8.8 }] }] },
+              { "computerName": "c1-ubuntu-01", "osType": "linux", "osRevision": "Ubuntu 22.04.4 LTS 5.15.0-105-generic", "machineType": "server" }
+            ]
+          }
+        ]
+      }
+    ],
+    "users": [{ "email": "pro.admin@example.com", "fullName": "Pro Admin", "scope": "account", "scopeRoles": [{ "account": "CYNA PRO", "roleId": "2153718167648641127" }] }]
+  }
+}
+```
+
+Every entity accepts an explicit `id`. Group `filter` and user `scopeRoles` accept names or ids. Seeding is idempotent by id, name, or email.
+
+## Limits
+
+Deep Visibility and Power Query, remote shell sessions, remote scripts, the Ranger network inventory, Singularity Identity, firewall control rules, agent package downloads, notifications and webhook syslog, and the Graph API are not implemented.

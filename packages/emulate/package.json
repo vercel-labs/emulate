@@ -76,6 +76,7 @@
     "@emulators/zendesk": "workspace:*",
     "@emulators/mailgun": "workspace:*",
     "@emulators/pennylane": "workspace:*",
+    "@emulators/sentinelone": "workspace:*",
     "@emulators/defender": "workspace:*",
     "@emulators/document360": "workspace:*",
     "tsup": "^8",

@@ -55,6 +55,10 @@ Pennylane API coverage:
   External API v2 at /api/external/v2 with customers, suppliers, products, categories, customer and supplier invoices, appendices, transactions, and accounting.
   Lists return { items, has_more, next_cursor } with the JSON filter parameter; appendices accept PDF, XLSX, and image uploads.
 
+SentinelOne API coverage:
+  Management console API at /web/api/v2.1 with accounts, sites, groups, filters, agents, users, RBAC roles, threats, application risks, exclusions, and device control.
+  Authenticate with the ApiToken header; lists return { data, pagination: { nextCursor, totalItems } } with cursor, skip, limit, and countOnly.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

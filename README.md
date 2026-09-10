@@ -30,6 +30,7 @@ All services start with sensible defaults. No config file needed:
 - **Document360** on `http://localhost:4017`
 - **Defender for Endpoint** on `http://localhost:4018`
 - **Pennylane** on `http://localhost:4019`
+- **SentinelOne** on `http://localhost:4020`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -194,7 +195,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, or `'pennylane'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, or `'sentinelone'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1204,6 +1205,41 @@ Authenticate with `Authorization: Bearer <api key>`. Routes are served under `/a
 
 Current Pennylane limits: quotes, customer invoice templates, e-invoicing, recurring invoices, changelog endpoints, file attachments on transactions, and webhooks are not implemented.
 
+## SentinelOne API
+
+Stateful SentinelOne management console API emulation with the account, site, group, and agent hierarchy, dynamic groups driven by filters, agent response actions, users with scope roles and RBAC roles, threats with mitigation and incident workflows, application risks and CVEs, legacy and unified exclusions, the blocklist, device control rules, policies with inheritance, activities, a simulator, and an inspector.
+
+Default local credentials:
+
+```text
+SENTINELONE_URL=http://localhost:4020
+SENTINELONE_BASE_API_ENDPOINT=/web/api
+SENTINELONE_VERSION=v2.1
+SENTINELONE_API_KEY=test_emulate_sentinelone_api_token
+SENTINELONE_ACCOUNT_ID=2250000000000000001
+SENTINELONE_SITE_ID=2250000000000000101
+```
+
+The default seed includes MSSP account "EMULATE MSSP" with site "ACME CORP" (five agents across Windows, macOS, and Linux with dynamic groups, two threats, and five CVEs) and trial site "GLOBEX #TRIAL", sixteen RBAC roles (predefined ones plus MSP, customer, and SOC roles), a tenant admin, an MSP admin, a SOC analyst, and a customer admin. Seed entries accept explicit ids so applications that reference fixed role or account ids work unchanged.
+
+### REST Routes
+
+Authenticate with `Authorization: ApiToken <token>` (`Bearer` also works). Routes are served under `/web/api/v2.1` and `/web/api/v2.0`. Lists return `{ data, pagination: { nextCursor, totalItems } }` and accept `limit` (1 to 1000, default 10), `cursor`, `skip`, `countOnly`, `skipCount`, `sortBy`, and `sortOrder`; id filters such as `siteIds` and `accountIds` take comma separated values. Errors return `{ errors: [{ code, detail, title }] }` with SentinelOne codes (4000010 validation, 4000030 already exists, 4010010 unauthorized, 4040010 not found).
+
+- `GET|POST /accounts`, `GET|PUT|DELETE /accounts/{id}`, `GET|PUT /accounts/{id}/policy`, `PUT .../revert-policy` - accounts (duplicate names return code 4000030)
+- `GET|POST /sites` (`{ data: { allSites, sites }, pagination }`), `GET|PUT|DELETE /sites/{id}`, `PUT /sites/{id}/reactivate`, `GET|PUT /sites/{id}/policy`, `PUT .../revert-policy` - sites; creation adds a default group and a registration token
+- `GET|POST /groups`, `GET|PUT|DELETE /groups/{id}`, `GET|PUT /groups/{id}/policy`, `PUT .../revert-policy`, `PUT .../move-agents`, `GET .../agents`; `GET|POST /filters`, `GET|PUT|DELETE /filters/{id}` - dynamic groups place agents by `machineTypes` and `osTypes`
+- `GET /agents`, `GET /agents/count`, `GET /agents/passphrases`, `GET /agents/applications`, `GET|PUT /agents/{id}`, `POST /agents/actions/{decommission|recommission|initiate-scan|abort-scan|disconnect|connect|fetch-logs|restart-machine|shutdown|uninstall|approve-uninstall|reject-uninstall|update-software|set-external-id|enable-agent|disable-agent|move-to-site|move-to-group}` - agents with `{ filter: { ids, siteIds, ... } }` selectors returning `{ data: { affected } }`
+- `GET|POST /users`, `GET|PUT|DELETE /users/{id}`, `POST /users/onboarding/send-verification-email`, `login/send-reset-password-email`, `reset-2fa`, `enroll-2fa`, `generate-api-token`, `revoke-api-token`, `GET /user`, `GET /rbac/roles`, `POST /rbac/role`, `GET|DELETE /rbac/role/{id}` - users with `scope` and `scopeRoles`
+- `GET /threats`, `GET /threats/{id}`, `GET .../timeline`, `POST /threats/mitigate/{kill|quarantine|remediate|rollback-remediation|un-quarantine|network-quarantine}`, `POST /threats/incident`, `analyst-verdict`, `mark-as-benign`, `mark-as-threat`, `notes` - threats; mitigation updates the agent's active threat count
+- `GET /application-management/risks/applications` (`highestSeverities`, `countOnly`), `GET /application-management/risks` (`analystVerdict`, `severities`, `skipCount`, `sortBy=detectionDate`), `GET .../risks/{id}`, `POST .../risks/analyst-verdict`, `GET .../inventory/endpoints` - vulnerability management
+- `GET|POST|DELETE /exclusions`, `DELETE /exclusions/{id}`, `GET|POST|DELETE /unified-exclusions`, `GET|POST|DELETE /restrictions`, `GET|POST|DELETE /device-control`, `PUT /device-control/{id}`, `PUT /device-control/{enable|disable}` - scoped with `filter.siteIds`, `filter.accountIds`, `filter.groupIds`, or `scopeLevel` and `scopeLevelId`
+- `GET /activities`, `GET /activities/types`, `GET /system/info`, `GET /system/status`, `GET /private/agents/summary` - platform
+- `POST /_sentinelone/simulate/agent` (register by `siteId` or `registrationToken`), `POST /_sentinelone/simulate/agent-checkin`, `POST /_sentinelone/simulate/threat`, `POST /_sentinelone/simulate/vulnerability`, `GET|DELETE /_sentinelone/events` - simulate sensors, detections, and findings
+- `GET /` - tabbed inspector for accounts and sites, agents, threats, vulnerabilities, users and roles, exclusions, activities, events, and auth
+
+Current SentinelOne limits: Deep Visibility and Power Query, remote shell sessions, remote scripts, the Ranger network inventory, Singularity Identity, firewall control rules, agent package downloads, notifications and webhook syslog, and the Graph API are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1493,6 +1529,7 @@ packages/
     document360/    # Document360 knowledge base, readers, teams, drive
     defender/       # Microsoft Defender for Endpoint machines, alerts, TVM, hunting
     pennylane/      # Pennylane invoices, appendices, contacts, banking, accounting
+    sentinelone/    # SentinelOne accounts, sites, agents, threats, users, exclusions
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1529,6 +1566,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Defender for Endpoint**: Entra client_credentials at `/{tenantId}/oauth2/v2.0/token` with a seeded app, then `Authorization: Bearer` on `/api/...`. Each token only sees the tenant it was issued for.
 
 **Pennylane**: `Authorization: Bearer` with a seeded API key. Routes live under `/api/external/v2` (also `/v2` and the bare path).
+
+**SentinelOne**: `Authorization: ApiToken` with a seeded token (`Bearer` also works). Routes live under `/web/api/v2.1` and `/web/api/v2.0`. `POST /users/generate-api-token` mints a user bound token.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
