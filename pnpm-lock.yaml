@@ -1027,6 +1027,9 @@ importers:
       '@emulators/document360':
         specifier: workspace:*
         version: link:../@emulators/document360
+      '@emulators/elastic':
+        specifier: workspace:*
+        version: link:../@emulators/elastic
       '@emulators/github':
         specifier: workspace:*
         version: link:../@emulators/github

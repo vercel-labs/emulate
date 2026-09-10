@@ -1,0 +1,134 @@
+# Elastic
+
+Stateful emulation of the Kibana Fleet API (agent policies, package policies, agents, enrollment keys, fleet server hosts) and the Elasticsearch REST API (search with bool queries and aggregations, indexing, bulk, count, index management), plus a simulator, an event log, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service elastic
+```
+
+When Elastic is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4022`.
+
+## Defaults
+
+```text
+ELASTIC_KIBANA_URL=http://localhost:4000/api
+ELASTIC_KIBANA_API_KEY=test_emulate_elastic_api_key
+ELASTICSEARCH_NODE=http://localhost:4000
+ELASTICSEARCH_API_KEY=ZW11bGF0ZS1lbGFzdGljLWtleTp0ZXN0X2VtdWxhdGVfZWxhc3RpY19hcGlfa2V5
+```
+
+The Elasticsearch value is `base64("emulate-elastic-key:test_emulate_elastic_api_key")`. The raw key, the encoded `id:key` form, and `Basic name:key` all authenticate.
+
+Seeded: five pooled agent policies `00000000-0000-4000-8000-00000000e001` to `...e005` (the first carries an `o365` 3.8.1 package policy, an `m365_defender` package policy, two Linux collector agents, and the enrollment token `emulate-enrollment-token-pool-1`), an "ACME-CORP Active Directory" policy with a `system` package policy and two Windows agents (one degraded), the `fleet-default-fleet-server-host` host at `https://fleet.emulate.local:8220`, and three indices: `services-monitoring`, `logs-o365.audit-default` (alias `logs-o365.audit`), and `logs-firewall.log-default` (alias `logs-firewall.log`).
+
+## URL Mapping
+
+| Real URL | Emulator URL |
+|----------|--------------|
+| `https://<deployment>.kb.<region>.cloud.es.io/api/fleet/...` | `$ELASTIC_EMULATOR_URL/api/fleet/...` |
+| `https://<deployment>.es.<region>.cloud.es.io/{index}/_search` | `$ELASTIC_EMULATOR_URL/{index}/_search` |
+
+Use `node: $ELASTIC_EMULATOR_URL` in the Elasticsearch client instead of a `cloud.id`.
+
+## Authentication
+
+```bash
+# Kibana Fleet
+curl http://localhost:4000/api/fleet/agent_policies \
+  -H "Authorization: ApiKey test_emulate_elastic_api_key" -H "kbn-xsrf: true"
+
+# Elasticsearch
+curl http://localhost:4000/services-monitoring/_search \
+  -H "Authorization: ApiKey ZW11bGF0ZS1lbGFzdGljLWtleTp0ZXN0X2VtdWxhdGVfZWxhc3RpY19hcGlfa2V5"
+```
+
+Missing or unknown keys return the Kibana `{ statusCode: 401 }` body on `/api/...` and the Elasticsearch `security_exception` body elsewhere. Fleet writes without `kbn-xsrf` return 400.
+
+## Fleet Routes
+
+Single items return `{ item }`, lists return `{ items, total, page, perPage }`, errors return `{ statusCode, error, message }`.
+
+- `GET /api/fleet/agent_policies` (`kuery`, `page`, `perPage`; each item includes `agents` and `package_policies`)
+- `POST /api/fleet/agent_policies?sys_monitoring=true` (creates the default `system` package policy like Fleet does), `GET|PUT /api/fleet/agent_policies/{id}`, `POST /api/fleet/agent_policies/delete` with `{ agentPolicyId }` (returns `{ id, name }`; 400 while active agents remain unless `force: true`)
+- `GET|POST /api/fleet/package_policies` (409 on a duplicate name, 404 on an unknown agent policy), `GET|PUT|DELETE /api/fleet/package_policies/{id}`, `POST /api/fleet/package_policies/delete`
+- `GET /api/fleet/agents` (`kuery` like `policy_id:<id>` or `status:degraded`), `GET /api/fleet/agents/{id}`, `POST .../unenroll`, `PUT .../reassign`, `POST /api/fleet/agents/bulk_unenroll`, `GET /api/fleet/agent_status`, `GET /api/fleet/agents/available_versions`
+- `GET|POST /api/fleet/enrollment_api_keys` (`kuery=<policyId>`), `GET|DELETE /api/fleet/enrollment_api_keys/{id}`
+- `GET /api/fleet/fleet_server_hosts`, `GET /api/fleet/fleet_server_hosts/{id}`, `GET /api/fleet/epm/packages/{name}`, `GET|POST /api/fleet/setup`, `GET /api/status`
+
+Package policy `inputs` accept both the object form (`{ "o365-cel": { enabled, streams: { "o365.audit": { vars } } } }`) and the array form Fleet returns; the emulator stores and returns the array form.
+
+## Elasticsearch Routes
+
+- `GET /` - product check (`X-Elastic-Product: Elasticsearch`, version 9.x)
+- `GET|POST /{index}/_search`, `GET|POST /_search` - `query`, `sort`, `from`, `size`, `_source`, `track_total_hits`, `aggs`
+- `GET|POST /{index}/_count`
+- `POST /{index}/_doc`, `PUT|POST /{index}/_doc/{id}`, `PUT /{index}/_create/{id}`, `GET|DELETE /{index}/_doc/{id}`, `POST /{index}/_update/{id}`
+- `POST /_bulk`, `POST /{index}/_bulk` (NDJSON `index`, `create`, `update`, `delete`)
+- `PUT|GET|DELETE /{index}`, `GET /{index}/_mapping`, `POST /{index}/_refresh`, `GET /_cat/indices?format=json`, `GET /_cluster/health`, `GET /_security/_authenticate`, `GET /_xpack`
+
+Supported query clauses: `bool` (`filter`, `must`, `must_not`, `should`, `minimum_should_match`), `term`, `terms`, `range` (numbers, ISO dates, and `now-30d` date math), `wildcard`, `prefix`, `exists`, `match`, `match_phrase`, `multi_match`, `query_string`, `ids`, `match_all`, `nested`, `constant_score`. Supported aggregations: `terms` (with `size`, `order`, `missing`, nested `aggs`), `cardinality`, `missing`, `filter`, `filters`, `value_count`, `sum`, `avg`, `min`, `max`, `date_histogram`, `top_hits`. Index expressions accept comma lists, wildcards, `-` exclusions, and aliases.
+
+```bash
+curl -X POST http://localhost:4000/services-monitoring/_search \
+  -H "Authorization: ApiKey test_emulate_elastic_api_key" -H "Content-Type: application/json" \
+  -d '{"size":1,"query":{"bool":{"filter":[{"term":{"service":"o365"}},{"term":{"integration_id":"00000000-0000-4000-8000-00000000f001"}}]}},"sort":[{"@timestamp":{"order":"desc"}}]}'
+```
+
+## Simulator
+
+- `POST /_elastic/simulate/enroll` - `{ enrollmentToken | policyId | policyName, hostname, os?, version?, status?, tags? }` enrolls an agent (201 with `{ item }`)
+- `POST /_elastic/simulate/checkin` - `{ hostname | agentId, status?, message?, version? }` updates an agent's status and last check-in
+- `POST /_elastic/simulate/documents` - `{ index, documents: [...] }` indexes documents (adds `@timestamp` when missing)
+- `POST /_elastic/simulate/service-status` - `{ integrationId, service, status, namespace? }` appends a `services-monitoring` document
+- `GET /_elastic/events`, `DELETE /_elastic/events` - event feed of policy, agent, indexing, and search activity
+
+## Inspector
+
+`GET /_elastic` renders tabs for agent policies, integrations, agents, indices, events, and auth. The root path belongs to Elasticsearch, so the inspector is not at `/` for this service.
+
+## Seed Configuration
+
+```yaml
+elastic:
+  api_keys:
+    - id: emulate-elastic-key
+      api_key: test_emulate_elastic_api_key
+  cluster:
+    version: 9.1.3
+  fleet_server_hosts:
+    - id: fleet-default-fleet-server-host
+      name: Default
+      host_urls: ["https://fleet.emulate.local:8220"]
+  agent_policies:
+    - id: 00000000-0000-4000-8000-00000000e001
+      name: Cyna SOC collectors 1
+      namespace: default
+      enrollment_token: emulate-enrollment-token-pool-1
+      global_data_tags:
+        - { name: cyna.customer, value: Acme Corp }
+      package_policies:
+        - name: O365_ACME-CORP
+          package: o365
+          version: 3.8.1
+          inputs:
+            o365-cel:
+              enabled: true
+              streams:
+                o365.audit:
+                  vars: { azure_tenant_id: 00000000-0000-4000-8000-00000000c0de }
+      agents:
+        - hostname: soc-collector-01
+          os: linux
+          status: online
+  indices:
+    - name: services-monitoring
+      aliases: []
+      documents:
+        - { "@timestamp": "2026-09-01T08:00:00Z", integration_id: 00000000-0000-4000-8000-00000000f001, service: o365, status: operational, namespace: nimbus-msp__acme-corp }
+```
+
+## Limits
+
+Scoring and relevance, analyzers and text tokenization, scripted fields and runtime mappings, `_msearch`, scroll and point in time, `_update_by_query` and `_delete_by_query`, ILM and data streams, Kibana saved objects, alerting, and the real Fleet Server check-in protocol are not implemented.

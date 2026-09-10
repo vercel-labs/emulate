@@ -32,6 +32,7 @@ All services start with sensible defaults. No config file needed:
 - **Pennylane** on `http://localhost:4019`
 - **SentinelOne** on `http://localhost:4020`
 - **Microsoft Graph** on `http://localhost:4021`
+- **Elastic** on `http://localhost:4022`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -196,7 +197,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, or `'graph'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, `'graph'`, or `'elastic'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1273,6 +1274,44 @@ Request a token with `POST /{tenantId}/oauth2/v2.0/token` (`grant_type=client_cr
 
 Current Graph limits: delegated flows and `/me`, mail, calendar, Teams, SharePoint, device management, delta queries, change notifications, and PIM eligibility schedules are not implemented.
 
+## Elastic Fleet and Elasticsearch
+
+Stateful emulation of the two Elastic surfaces an integration platform talks to: the Kibana Fleet API (agent policies, package policies, agents, enrollment keys, fleet server hosts) and the Elasticsearch REST API (search with bool queries and aggregations, document indexing, bulk, count, index management), plus a simulator, an event log, and an inspector.
+
+Default local credentials:
+
+```text
+ELASTIC_KIBANA_URL=http://localhost:4022/api
+ELASTIC_KIBANA_API_KEY=test_emulate_elastic_api_key
+ELASTICSEARCH_NODE=http://localhost:4022
+ELASTICSEARCH_API_KEY=ZW11bGF0ZS1lbGFzdGljLWtleTp0ZXN0X2VtdWxhdGVfZWxhc3RpY19hcGlfa2V5
+```
+
+The Elasticsearch key is `base64("emulate-elastic-key:test_emulate_elastic_api_key")`; the raw value, the encoded `id:key` form, and `Basic name:key` are all accepted. The default seed includes a pool of five agent policies (`00000000-0000-4000-8000-00000000e001` to `...e005`) with an o365 and an m365_defender package policy on the first one, an "ACME-CORP Active Directory" policy with two Windows agents, the `fleet-default-fleet-server-host` host, enrollment tokens, and three indices: `services-monitoring` (integration status documents), `logs-o365.audit-default` (aliased `logs-o365.audit`), and `logs-firewall.log-default` (aliased `logs-firewall.log`).
+
+### Fleet Routes
+
+Kibana routes live under `/api/fleet` (also `/kibana/api/fleet`) and require `Authorization: ApiKey <key>`; writes also require a `kbn-xsrf` header. Single items return `{ item }`, lists return `{ items, total, page, perPage }`, and errors use `{ statusCode, error, message }`.
+
+- `GET /api/fleet/agent_policies` (`kuery`, `page`, `perPage`; items include `agents` and `package_policies`), `POST /api/fleet/agent_policies?sys_monitoring=true` (adds the default `system` package policy), `GET|PUT /api/fleet/agent_policies/{id}`, `POST /api/fleet/agent_policies/delete` (`{ agentPolicyId }`, 400 while active agents are enrolled unless `force`), `GET .../{id}/full`
+- `GET|POST /api/fleet/package_policies` (duplicate names return 409, unknown agent policies 404; `inputs` accept the object form or the array form), `GET|PUT|DELETE /api/fleet/package_policies/{id}`, `POST /api/fleet/package_policies/delete`
+- `GET /api/fleet/agents` (`kuery` such as `policy_id:<id>` or `status:degraded`, `showInactive`), `GET /api/fleet/agents/{id}`, `POST .../unenroll`, `PUT .../reassign`, `POST /api/fleet/agents/bulk_unenroll`, `GET /api/fleet/agent_status`, `GET /api/fleet/agents/available_versions`
+- `GET|POST /api/fleet/enrollment_api_keys` (`kuery=<policyId>`), `GET|DELETE /api/fleet/enrollment_api_keys/{id}`
+- `GET /api/fleet/fleet_server_hosts`, `GET /api/fleet/fleet_server_hosts/{id}` (`fleet-default-fleet-server-host` by default), `GET /api/fleet/epm/packages/{name}`, `GET|POST /api/fleet/setup`, `GET /api/status`
+
+### Elasticsearch Routes
+
+Elasticsearch routes live at the root so `new Client({ node: "http://localhost:4022", auth: { apiKey } })` works unchanged; every response carries `X-Elastic-Product: Elasticsearch` and errors use `{ error: { type, reason, root_cause }, status }`.
+
+- `GET /` - product and version info
+- `GET|POST /{index}/_search` and `/_search` - `query` (`bool` with `filter`, `must`, `must_not`, `should`; `term`, `terms`, `range` with date math, `wildcard`, `prefix`, `exists`, `match`, `match_phrase`, `multi_match`, `query_string`, `ids`), `sort`, `from`, `size`, `_source`, `track_total_hits`, and `aggs` (`terms`, `cardinality`, `missing`, `filter`, `filters`, `value_count`, `sum`, `avg`, `min`, `max`, `date_histogram`, `top_hits`, nested)
+- `GET|POST /{index}/_count`, `POST /{index}/_doc`, `PUT|POST /{index}/_doc/{id}`, `PUT /{index}/_create/{id}`, `GET|DELETE /{index}/_doc/{id}`, `POST /{index}/_update/{id}`, `POST /_bulk` and `/{index}/_bulk` (NDJSON `index`, `create`, `update`, `delete`)
+- `PUT|GET|DELETE /{index}` (comma lists, wildcards, and aliases resolve), `GET /{index}/_mapping`, `POST /{index}/_refresh`, `GET /_cat/indices?format=json`, `GET /_cluster/health`, `GET /_security/_authenticate`, `GET /_xpack`
+- `POST /_elastic/simulate/enroll` (`enrollmentToken` or `policyId`, `hostname`, `os`, `status`), `POST /_elastic/simulate/checkin` (`hostname` or `agentId`, `status`), `POST /_elastic/simulate/documents` (`index`, `documents`), `POST /_elastic/simulate/service-status` (`integrationId`, `service`, `status`), `GET|DELETE /_elastic/events`
+- `GET /_elastic` - tabbed inspector for agent policies, integrations, agents, indices, events, and auth (the root path belongs to Elasticsearch)
+
+Current Elastic limits: scoring and relevance, analyzers and text tokenization, scripted fields and runtime mappings, `_msearch`, scroll and point in time, `_update_by_query` and `_delete_by_query`, ILM and data stream management, Kibana saved objects, alerting, and the real Fleet Server checkin protocol are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1564,6 +1603,7 @@ packages/
     pennylane/      # Pennylane invoices, appendices, contacts, banking, accounting
     sentinelone/    # SentinelOne accounts, sites, agents, threats, users, exclusions
     graph/          # Microsoft Graph users, invitations, role assignments, $batch
+    elastic/        # Kibana Fleet API + Elasticsearch search, indexing, aggregations
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1606,6 +1646,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Microsoft Graph**: Entra client_credentials at `/{tenantId}/oauth2/v2.0/token` with a seeded app, then `Authorization: Bearer` on `/v1.0/...`. Tokens only see their tenant, and app `permissions` gate each route.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
+
+**Elastic**: `Authorization: ApiKey <key>` on `/api/fleet/...` (plus `kbn-xsrf` on writes) and on Elasticsearch routes at the root. The raw seeded key, the base64 `id:key` form the official client sends, and `Basic name:key` all authenticate.
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 

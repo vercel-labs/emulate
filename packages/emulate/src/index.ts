@@ -63,6 +63,10 @@ Microsoft Graph API coverage:
   Tokens at /{tenantId}/oauth2/v2.0/token (client_credentials) and Graph at /v1.0 and /beta with users, invitations, role assignments, groups, and $batch.
   OData $filter, $select, $top, $count, $search, and $skiptoken paging; apps seeded with a permissions list get Authorization_RequestDenied outside it.
 
+Elastic Fleet and Elasticsearch coverage:
+  Kibana Fleet at /api/fleet with agent policies (sys_monitoring), package policies (409 on duplicate names), agents, enrollment keys, fleet server hosts, and available versions.
+  Elasticsearch at the root with the product check, _search (bool term/terms/range/wildcard/exists, sort, terms/cardinality/missing aggregations), _doc, _bulk, _count, and _cat/indices.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,

@@ -48,6 +48,7 @@ const SERVICE_NAME_LIST = [
   "pennylane",
   "sentinelone",
   "graph",
+  "elastic",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1076,6 +1077,47 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
                 mail: "nora.analyst@soc.example",
                 userType: "Guest",
                 roles: ["Security Administrator"],
+              },
+            ],
+          },
+        ],
+      },
+    },
+  },
+  elastic: {
+    label: "Elastic Fleet and Elasticsearch emulator",
+    endpoints:
+      "Kibana Fleet agent policies, package policies, agents, enrollment keys, fleet server hosts; Elasticsearch search with bool queries and aggregations, index, bulk, count; simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/elastic");
+      return { plugin: mod.elasticPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const keys = cfg?.api_keys as Array<{ api_key?: string }> | undefined;
+      return { login: keys?.[0]?.api_key ?? "test_emulate_elastic_api_key", id: 1, scopes: [] };
+    },
+    initConfig: {
+      elastic: {
+        api_keys: [{ id: "emulate-elastic-key", api_key: "test_emulate_elastic_api_key", name: "emulate" }],
+        agent_policies: [
+          {
+            id: "00000000-0000-4000-8000-00000000e001",
+            name: "Cyna SOC collectors 1",
+            enrollment_token: "emulate-enrollment-token-pool-1",
+            package_policies: [{ name: "O365_ACME-CORP", package: "o365", version: "3.8.1" }],
+            agents: [{ hostname: "soc-collector-01", os: "linux" }],
+          },
+        ],
+        indices: [
+          {
+            name: "services-monitoring",
+            documents: [
+              {
+                "@timestamp": "2026-09-01T08:00:00.000Z",
+                integration_id: "00000000-0000-4000-8000-00000000f001",
+                service: "o365",
+                status: "operational",
+                namespace: "nimbus-msp__acme-corp",
               },
             ],
           },

@@ -25,6 +25,7 @@ export const PAGE_TITLES: Record<string, string> = {
   pennylane: "Pennylane",
   sentinelone: "SentinelOne",
   graph: "Microsoft Graph",
+  elastic: "Elastic",
   authentication: "Authentication",
   architecture: "Architecture",
 };

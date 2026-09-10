@@ -65,6 +65,7 @@
     "@emulators/aws": "workspace:*",
     "@emulators/google": "workspace:*",
     "@emulators/graph": "workspace:*",
+    "@emulators/elastic": "workspace:*",
     "@emulators/mongoatlas": "workspace:*",
     "@emulators/slack": "workspace:*",
     "@emulators/vercel": "workspace:*",
