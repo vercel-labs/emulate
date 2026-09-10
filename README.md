@@ -33,6 +33,8 @@ All services start with sensible defaults. No config file needed:
 - **SentinelOne** on `http://localhost:4020`
 - **Microsoft Graph** on `http://localhost:4021`
 - **Elastic** on `http://localhost:4022`
+- **CyberSOAR** on `http://localhost:4023`
+- **Scaleway** on `http://localhost:4024`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -197,7 +199,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, `'graph'`, or `'elastic'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, `'graph'`, `'elastic'`, `'cybersoar'`, or `'scaleway'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1312,6 +1314,64 @@ Elasticsearch routes live at the root so `new Client({ node: "http://localhost:4
 
 Current Elastic limits: scoring and relevance, analyzers and text tokenization, scripted fields and runtime mappings, `_msearch`, scroll and point in time, `_update_by_query` and `_delete_by_query`, ILM and data stream management, Kibana saved objects, alerting, and the real Fleet Server checkin protocol are not implemented.
 
+## CyberSOAR API
+
+Stateful emulation of the CyberSOAR incident API, the SOC case management backend whose alert feed drives customer security reports: incident alerts with namespace, service, verdict, status, and ingest window filters, paging with `nextPage`, cases, stats, and customers, plus a simulator, an event log, and an inspector.
+
+Default local credentials:
+
+```text
+CYBERSOAR_URL=http://localhost:4023
+CYBERSOAR_API_KEY=test_emulate_cybersoar_api_key
+```
+
+The default seed includes customers Acme Corp and Globex Industries under Nimbus MSP and Initech under Direct, each with deterministic generated alerts over the last months drawn from a catalog of realistic SOC rules (SentinelOne, Defender, Sophos, Microsoft 365, Active Directory, firewall), plus three fixed alerts with known ids (`a0000000-0000-4000-8000-00000000f101` closed TP with `MAIL_SENT`, `...f102` closed FP, `...f103` waiting for an analyst).
+
+### REST Routes
+
+Send `Authorization: ApiKey <key>` (Bearer and `X-API-Key` also work). Lists return `{ data, meta: { count, pageIndex, pageSize, nextPage? } }` where `nextPage` is present while more pages remain; errors return `{ statusCode, message, error }`.
+
+- `GET /incidents/alerts` - `name` (quoted or bare `MSP:Customer`, matching display names or slugs), `customer`, `service`, `verdict`, `status` (comma lists accepted), `ingestAt.gt|gte|lt|lte`, `createdAt.gt|lt`, `criticity`, `criticity.gte`, `tags`, `caseId`, `ruleId`, `search`, `pageIndex` (0-based), `pageSize` (max 100); sorted by `ingestAt` descending
+- `POST /incidents/alerts`, `GET|PATCH|DELETE /incidents/alerts/{id}`, `GET /incidents/alerts/stats`
+- `GET /incidents/cases`, `GET /incidents/cases/{caseId}` - cases grouped from alerts sharing a `caseId`
+- `GET /customers`, `GET /health`
+- `POST /_cybersoar/simulate/alert` (`customer`, `msp`, `service`, `ruleName`, `criticity`, `status`, `verdict`, `tags`, `count`), `POST /_cybersoar/simulate/close` (`id` or `caseId`, `verdict`, `notify` adds `MAIL_SENT`), `GET|DELETE /_cybersoar/events`
+- `GET /` - tabbed inspector for alerts, cases, customers, events, and auth
+
+Current CyberSOAR limits: analyst workflows (assignments, comments, playbooks), case creation endpoints, and authentication beyond API keys are not implemented.
+
+## Scaleway Transactional Email
+
+Stateful emulation of the Scaleway Transactional Email (TEM) API: sending with one `Email` object per recipient, listing and filtering, cancel, statistics, domains with DNS records and verification, webhooks with recorded events, blocklists, and project settings, plus stored message bodies, a simulator, an event log, and an inspector.
+
+Default local credentials:
+
+```text
+EMAIL_ENDPOINT=http://localhost:4024/transactional-email/v1alpha1/regions/fr-par
+EMAIL_SECRET_KEY=00000000-0000-4000-8000-00000000ca1e
+EMAIL_ACCESS_KEY=SCWEMULATE0000000000
+EMAIL_PROJECT_ID=00000000-0000-4000-8000-00000000c0fe
+EMAIL_DOMAIN=emulate.example
+```
+
+The default seed includes project `00000000-0000-4000-8000-00000000c0fe`, the checked domain `emulate.example` (id `00000000-0000-4000-8000-00000000d0ac`) and the unchecked `pending.example`, one webhook on the checked domain, one blocklisted recipient (`bounce@blocked.example`), and three historical emails. Seed `settings.strict_domains: true` to reject senders whose domain is not checked, and `settings.delivery_delay_ms` to control how fast emails reach `sent` (default 1500 ms, in two steps through `sending`).
+
+### REST Routes
+
+All routes live under `/transactional-email/v1alpha1/regions/{region}` (`fr-par`, `nl-ams`, `pl-waw`) and require the secret key in `X-Auth-Token`. Errors use Scaleway shapes: 401 `denied_authentication`, 400 `invalid_arguments` with a `details` array of `{ argument_name, help_message, reason }`, 403 `permissions_denied` for unknown or inaccessible projects, 404 `not_found` with `resource` and `resource_id`, and 412 `precondition_failed`.
+
+- `POST .../emails` - `from`, `to`, `cc`, `bcc` (`{ email, name }`), `subject`, `text` and/or `html`, `project_id`, `attachments` (`{ name, type, content }` base64, type allowlist, 2 MB total), `additional_headers`, `send_before`; returns `{ emails: [...] }` sharing one `message_id`
+- `GET .../emails` - `project_id`, `domain_id`, `message_id`, `since`, `until`, `mail_from`, `mail_rcpt` (or `mail_to`), `statuses`, `flags`, `subject`, `search`, `order_by` (`created_at_desc` default), `page`, `page_size` (max 100); returns `{ total_count, emails }`
+- `GET .../emails/{id}`, `POST .../emails/{id}/cancel` (412 once the email is sent, failed, or canceled), `GET .../statistics`
+- `POST|GET .../domains`, `GET|PATCH .../domains/{id}`, `POST .../domains/{id}/check`, `POST .../domains/{id}/revoke`, `GET .../domains/{id}/verification`
+- `POST|GET .../webhooks`, `GET|PATCH|DELETE .../webhooks/{id}`, `GET .../webhooks/{id}/events` (events are recorded, not pushed, since Scaleway delivers through SNS)
+- `GET|POST .../blocklists`, `DELETE .../blocklists/{id}`, `GET|PATCH .../project/{projectId}/settings`, `GET .../project-consumption`
+- `GET /_scaleway/emails`, `GET /_scaleway/emails/{id}` (full content with `text`, `html`, recipients, attachments), `GET /_scaleway/emails/{id}/html`, `GET /_scaleway/emails/{id}/text`, `DELETE /_scaleway/emails`
+- `POST /_scaleway/simulate/deliver|bounce|spam|defer|fail` (`email_id`, `message_id`, or `mail_rcpt`; bounce takes `soft: true` for a mailbox-full soft bounce), `GET|DELETE /_scaleway/events`
+- `GET /` - tabbed inspector for emails (with HTML preview links), domains, webhooks, blocklists, events, and auth
+
+Current Scaleway limits: SMTP relay, DKIM signing of actual messages, SNS delivery of webhooks, offers and pools, and the Scaleway IAM API are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1604,6 +1664,8 @@ packages/
     sentinelone/    # SentinelOne accounts, sites, agents, threats, users, exclusions
     graph/          # Microsoft Graph users, invitations, role assignments, $batch
     elastic/        # Kibana Fleet API + Elasticsearch search, indexing, aggregations
+    cybersoar/      # CyberSOAR incident alerts, cases, simulator
+    scaleway/       # Scaleway Transactional Email: send, list, domains, webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1648,6 +1710,10 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
 **Elastic**: `Authorization: ApiKey <key>` on `/api/fleet/...` (plus `kbn-xsrf` on writes) and on Elasticsearch routes at the root. The raw seeded key, the base64 `id:key` form the official client sends, and `Basic name:key` all authenticate.
+
+**CyberSOAR**: `Authorization: ApiKey <key>` (Bearer and `X-API-Key` accepted) with the seeded `test_emulate_cybersoar_api_key`.
+
+**Scaleway**: the secret key in `X-Auth-Token`; API keys can be scoped to `project_ids`, and other projects return 403 `permissions_denied`.
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 

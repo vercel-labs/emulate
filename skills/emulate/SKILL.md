@@ -41,6 +41,8 @@ All services start with sensible defaults:
 | SentinelOne | 4020      |
 | Graph     | 4021        |
 | Elastic   | 4022        |
+| CyberSOAR | 4023        |
+| Scaleway  | 4024        |
 
 ## CLI
 
@@ -114,7 +116,7 @@ For GitHub App tests, inspect secret-free minted installation-token metadata at 
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, `'graph'`, or `'elastic'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, `'graph'`, `'elastic'`, `'cybersoar'`, or `'scaleway'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -423,6 +425,8 @@ packages/
     sentinelone/     # SentinelOne accounts, sites, agents, threats, users, exclusions plugin
     graph/           # Microsoft Graph users, invitations, role assignments, $batch plugin
     elastic/         # Kibana Fleet API + Elasticsearch search and indexing plugin
+    cybersoar/       # CyberSOAR incident alerts and cases plugin
+    scaleway/        # Scaleway Transactional Email plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
     aws/             # AWS S3, SQS, IAM, STS plugin

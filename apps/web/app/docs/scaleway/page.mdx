@@ -1,0 +1,150 @@
+# Scaleway
+
+Stateful emulation of the Scaleway Transactional Email (TEM) API: sending with one `Email` object per recipient, listing and filtering, cancel, statistics, domains with DNS records and verification, webhooks with recorded events, blocklists, project settings, stored message bodies, a simulator, an event log, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service scaleway
+```
+
+When Scaleway is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4024`.
+
+## Defaults
+
+```text
+EMAIL_ENDPOINT=http://localhost:4000/transactional-email/v1alpha1/regions/fr-par
+EMAIL_SECRET_KEY=00000000-0000-4000-8000-00000000ca1e
+EMAIL_ACCESS_KEY=SCWEMULATE0000000000
+EMAIL_PROJECT_ID=00000000-0000-4000-8000-00000000c0fe
+EMAIL_DOMAIN=emulate.example
+```
+
+Seeded: project `00000000-0000-4000-8000-00000000c0fe` in organization `...c0ff`, the checked domain `emulate.example` (`00000000-0000-4000-8000-00000000d0ac`) and the unchecked `pending.example`, a webhook on the checked domain, one blocklisted recipient `bounce@blocked.example`, and three historical emails (two sent, one hard bounce).
+
+## URL Mapping
+
+| Real URL | Emulator URL |
+|----------|--------------|
+| `https://api.scaleway.com/transactional-email/v1alpha1/regions/fr-par/emails` | `$SCALEWAY_EMULATOR_URL/transactional-email/v1alpha1/regions/fr-par/emails` |
+
+Regions `fr-par`, `nl-ams`, and `pl-waw` are accepted; anything else returns a 400 `invalid_arguments` error on `region`.
+
+## Authentication
+
+```bash
+curl http://localhost:4000/transactional-email/v1alpha1/regions/fr-par/emails \
+  -H "X-Auth-Token: 00000000-0000-4000-8000-00000000ca1e"
+```
+
+Missing or unknown keys return `{ "message": "authentication is denied", "method": "api_key", "reason": "...", "type": "denied_authentication" }`. Keys seeded with `project_ids` get 403 `permissions_denied` on other projects.
+
+## Sending
+
+```bash
+curl -X POST http://localhost:4000/transactional-email/v1alpha1/regions/fr-par/emails \
+  -H "X-Auth-Token: 00000000-0000-4000-8000-00000000ca1e" -H "Content-Type: application/json" \
+  -d '{
+    "from": { "name": "Cyna Platform", "email": "noreply@emulate.example" },
+    "to": [{ "name": "alice@customer.example", "email": "alice@customer.example" }],
+    "subject": "Your report is ready",
+    "project_id": "00000000-0000-4000-8000-00000000c0fe",
+    "text": "The report is attached.",
+    "html": "<p>The report is attached.</p>"
+  }'
+```
+
+Response:
+
+```json
+{
+  "emails": [
+    {
+      "id": "6f1c...",
+      "message_id": "<9d2e...@emulate.example>",
+      "project_id": "00000000-0000-4000-8000-00000000c0fe",
+      "mail_from": "noreply@emulate.example",
+      "rcpt_to": "alice@customer.example",
+      "mail_rcpt": "alice@customer.example",
+      "rcpt_type": "to",
+      "subject": "Your report is ready",
+      "created_at": "2026-09-10T12:00:00.000Z",
+      "updated_at": "2026-09-10T12:00:00.000Z",
+      "status": "new",
+      "status_details": null,
+      "try_count": 0,
+      "last_tries": [],
+      "flags": []
+    }
+  ]
+}
+```
+
+Validation returns 400 `invalid_arguments` with `details` entries such as `{ "argument_name": "to", "help_message": "at least one recipient is required", "reason": "required" }`. Checked fields: `from.email`, `to`/`cc`/`bcc` addresses, `subject`, `text` or `html`, `project_id` (UUID, must exist), `attachments` (`name`, allowlisted `type`, base64 `content`, 2 MB total), `additional_headers`, `send_before`. With `settings.strict_domains: true`, senders whose domain is not `checked` in the project are rejected on `from.email`.
+
+Emails move from `new` to `sending` to `sent` over `settings.delivery_delay_ms` (default 1500 ms). Recipients on the domain blocklist fail immediately with the `blocklisted` flag.
+
+## Emails
+
+- `GET .../emails` - `project_id`, `domain_id`, `message_id`, `since`, `until`, `mail_from`, `mail_rcpt` (or `mail_to`), `statuses` (`new`, `sending`, `sent`, `failed`, `canceled`), `flags`, `subject`, `search`, `order_by` (`created_at_desc` default; `created_at`, `updated_at`, `status`, `mail_from`, `mail_rcpt`, `subject` with `_asc`/`_desc`), `page`, `page_size` (max 100); returns `{ total_count, emails }`
+- `GET .../emails/{id}`
+- `POST .../emails/{id}/cancel` - 412 `precondition_failed` once the email is sent, failed, or canceled
+- `GET .../statistics` - `{ total_count, new_count, sending_count, sent_count, failed_count, canceled_count }` for `project_id`, `domain_id`, `since`, `until`, `mail_from`
+
+The real API never returns bodies, so the emulator serves them separately: `GET /_scaleway/emails/{id}` returns the full content (`from`, `to`, `cc`, `bcc`, `text`, `html`, `attachments`, `additional_headers`), `GET /_scaleway/emails/{id}/html` renders the HTML, `GET /_scaleway/emails/{id}/text` returns the text body, and `GET /_scaleway/emails` lists recent content. `DELETE /_scaleway/emails` clears the mailbox.
+
+## Domains, Webhooks, Blocklists, Settings
+
+- `POST .../domains` (`project_id`, `domain_name`, `accept_tos: true`, `autoconfig`) creates an `unchecked` domain with SPF, DKIM, DMARC, and MX `records`; `POST .../domains/{id}/check` moves it to `checked`; `POST .../domains/{id}/revoke`; `GET .../domains/{id}/verification` reports per-record status; `GET .../domains` filters by `project_id`, `organization_id`, `status`, `name`; `PATCH .../domains/{id}` toggles `autoconfig`
+- `POST|GET .../webhooks`, `GET|PATCH|DELETE .../webhooks/{id}`, `GET .../webhooks/{id}/events` (`event_types`, `statuses`, `email_id`) - events (`email_queued`, `email_delivered`, `email_dropped`, `email_deferred`, `email_spam`, `email_mailbox_not_found`, `email_blocklisted`, `blocklist_created`) are recorded for matching webhooks; Scaleway delivers them through SNS, so nothing is pushed
+- `GET .../blocklists?domain_id=`, `POST .../blocklists` (`domain_id`, `emails`, `type`, `reason`), `DELETE .../blocklists/{id}`
+- `GET|PATCH .../project/{projectId}/settings` (`periodic_report`), `GET .../project-consumption`
+
+## Simulator
+
+```bash
+# Deliver, hard bounce, soft bounce, spam, defer, or fail
+curl -X POST http://localhost:4000/_scaleway/simulate/deliver -H "Content-Type: application/json" -d '{"message_id":"<9d2e...@emulate.example>"}'
+curl -X POST http://localhost:4000/_scaleway/simulate/bounce -H "Content-Type: application/json" -d '{"mail_rcpt":"alice@customer.example"}'
+curl -X POST http://localhost:4000/_scaleway/simulate/bounce -H "Content-Type: application/json" -d '{"email_id":"6f1c...","soft":true}'
+curl -X POST http://localhost:4000/_scaleway/simulate/spam -H "Content-Type: application/json" -d '{"email_id":"6f1c..."}'
+```
+
+Each simulation updates `status`, `status_details`, `flags`, and `last_tries` and records the matching webhook event. `GET /_scaleway/events` lists internal events; `DELETE` clears them.
+
+## Inspector
+
+`GET /` renders tabs for emails (subjects link to the HTML preview), domains, webhooks and recent webhook events, blocklists, events, and auth.
+
+## Seed Configuration
+
+```yaml
+scaleway:
+  organization_id: 00000000-0000-4000-8000-00000000c0ff
+  projects:
+    - id: 00000000-0000-4000-8000-00000000c0fe
+      name: default
+  api_keys:
+    - secret_key: 00000000-0000-4000-8000-00000000ca1e
+      access_key: SCWEMULATE0000000000
+      project_ids: null
+  domains:
+    - name: cyna-it.fr
+      status: checked
+  webhooks:
+    - domain: cyna-it.fr
+      name: delivery-events
+      event_types: [email_delivered, email_dropped]
+  blocklists:
+    - domain: cyna-it.fr
+      email: bounce@blocked.example
+      type: mailbox_not_found
+  settings:
+    delivery_delay_ms: 0
+    strict_domains: true
+    max_recipients: 100
+```
+
+## Limits
+
+SMTP relay, DKIM signing of actual messages, SNS delivery of webhooks, offers and pools, and the Scaleway IAM API are not implemented.

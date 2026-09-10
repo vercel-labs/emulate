@@ -1,0 +1,130 @@
+# CyberSOAR
+
+Stateful emulation of the CyberSOAR incident API, the SOC case management backend whose alert feed drives customer security reports: incident alerts with namespace, service, verdict, status, and ingest window filters, paging with `nextPage`, cases, stats, customers, a simulator, an event log, and an inspector.
+
+## Start
+
+```bash
+npx emulate --service cybersoar
+```
+
+When CyberSOAR is the only enabled service, it starts on `http://localhost:4000`. When all services are started, it uses `http://localhost:4023`.
+
+## Defaults
+
+```text
+CYBERSOAR_URL=http://localhost:4000
+CYBERSOAR_API_KEY=test_emulate_cybersoar_api_key
+```
+
+Seeded: customers Acme Corp and Globex Industries under Nimbus MSP (namespaces `Nimbus MSP:Acme Corp` and `nimbus-msp:acme-corp`) and Initech under Direct, each with deterministic generated alerts from a catalog of realistic SOC rules, plus three fixed alerts: `a0000000-0000-4000-8000-00000000f101` (closed, TP, `MAIL_SENT`), `...f102` (closed, FP), and `...f103` (waiting for an analyst).
+
+## Authentication
+
+```bash
+curl "http://localhost:4000/incidents/alerts?pageSize=5" -H "Authorization: ApiKey test_emulate_cybersoar_api_key"
+```
+
+Unknown keys return `{ "statusCode": 401, "message": "Unauthorized", "error": "Unauthorized" }`. Bearer and `X-API-Key` are also accepted.
+
+## Alerts
+
+```bash
+curl -G http://localhost:4000/incidents/alerts \
+  -H "Authorization: ApiKey test_emulate_cybersoar_api_key" \
+  --data-urlencode 'name="Nimbus MSP:Acme Corp"' \
+  --data-urlencode 'status=CLOSED' \
+  --data-urlencode 'ingestAt.gt=2026-06-01T00:00:00.000Z' \
+  --data-urlencode 'ingestAt.lt=2026-09-01T00:00:00.000Z' \
+  --data-urlencode 'pageSize=100'
+```
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "id": "a0000000-0000-4000-8000-00000000f101",
+      "createdAt": "2026-09-07T09:59:30.000Z",
+      "importedAt": "2026-09-07T10:00:00.000Z",
+      "firstImportAt": "2026-09-07T10:00:00.000Z",
+      "ingestAt": "2026-09-07T10:00:00.000Z",
+      "closedAt": "2026-09-07T11:00:00.000Z",
+      "caseId": "CASE-FIXED-0001",
+      "criticity": 3,
+      "customer": "Acme Corp",
+      "msp": "Nimbus MSP",
+      "description": "A new mailbox rule forwards mail to an external address.",
+      "elasticId": "...",
+      "ruleId": "m365-inbox-forwarding",
+      "ruleName": "Inbox forwarding rule created",
+      "ruleRuntime": "kql",
+      "service": "MS365",
+      "sourceRef": "3f9a1c2e",
+      "status": "CLOSED",
+      "verdict": "TP",
+      "tags": ["MAIL_SENT"],
+      "analyst": "soc-analyst-1"
+    }
+  ],
+  "meta": { "count": 57, "pageIndex": 0, "pageSize": 100 }
+}
+```
+
+`meta.nextPage` is present while more pages remain; pass it back as `pageIndex`. Filters: `name` (quoted or bare `MSP:Customer`, matching display names or slugs), `customer`, `service` (`SENTINELONE`, `MS365_DEFENDER`, `SOPHOS`, `MS365`, `ACTIVE_DIRECTORY`, `FIREWALL`), `verdict` (`NEW`, `TP`, `FP`, `INDETERMINATE`, `OTHER`), `status` (`WAITING_ANALYST`, `CLOSED`), `ingestAt.gt|gte|lt|lte`, `createdAt.gt|lt`, `criticity`, `criticity.gte`, `tags`, `caseId`, `ruleId`, `search`. Comma lists are accepted for `service`, `verdict`, `status`, and `tags`. Results are sorted by `ingestAt` descending.
+
+- `POST /incidents/alerts` - `customer`, `msp`, `service`, `ruleName`, optional `criticity`, `status`, `verdict`, `tags`, `ingestAt`, `caseId`
+- `GET|PATCH|DELETE /incidents/alerts/{id}` - PATCH accepts `status`, `verdict`, `tags`, `criticity`, `description`, `analyst`
+- `GET /incidents/alerts/stats` - totals by service, verdict, status, and criticity for the same filters
+- `GET /incidents/cases`, `GET /incidents/cases/{caseId}` - alerts grouped by `caseId`
+- `GET /customers`, `GET /health`
+
+## Simulator
+
+```bash
+# Ten closed true positives for a customer
+curl -X POST http://localhost:4000/_cybersoar/simulate/alert -H "Content-Type: application/json" \
+  -d '{"customer":"Acme Corp","msp":"Nimbus MSP","service":"SENTINELONE","ruleName":"Ransomware behavior blocked","criticity":4,"status":"CLOSED","verdict":"TP","tags":["MAIL_SENT"],"count":10}'
+
+# Close an open alert and mark the customer as notified
+curl -X POST http://localhost:4000/_cybersoar/simulate/close -H "Content-Type: application/json" \
+  -d '{"id":"a0000000-0000-4000-8000-00000000f103","verdict":"TP","notify":true}'
+```
+
+`GET /_cybersoar/events` lists listing, creation, update, and close events; `DELETE` clears them.
+
+## Inspector
+
+`GET /` renders tabs for alerts, cases, customers, events, and auth.
+
+## Seed Configuration
+
+```yaml
+cybersoar:
+  api_keys:
+    - api_key: test_emulate_cybersoar_api_key
+  customers:
+    - name: Acme Corp
+      msp: Nimbus MSP
+      services: [SENTINELONE, MS365, ACTIVE_DIRECTORY, FIREWALL]
+      generate_alerts: 60
+      generate_days: 120
+  alerts:
+    - id: a0000000-0000-4000-8000-00000000f101
+      customer: Acme Corp
+      msp: Nimbus MSP
+      service: MS365
+      ruleName: Inbox forwarding rule created
+      criticity: 3
+      status: CLOSED
+      verdict: TP
+      tags: [MAIL_SENT]
+      ingestAt: 2026-09-07T10:00:00.000Z
+```
+
+Generated alerts are deterministic for a given customer list, so snapshots stay stable across restarts.
+
+## Limits
+
+Analyst workflows (assignments, comments, playbooks), case creation endpoints, and authentication beyond API keys are not implemented.

@@ -49,6 +49,8 @@ const SERVICE_NAME_LIST = [
   "sentinelone",
   "graph",
   "elastic",
+  "cybersoar",
+  "scaleway",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1122,6 +1124,60 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             ],
           },
         ],
+      },
+    },
+  },
+  cybersoar: {
+    label: "CyberSOAR incident API emulator",
+    endpoints:
+      "incident alerts with namespace, service, verdict, status, and ingest window filters, paging, cases, stats, customers, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/cybersoar");
+      return { plugin: mod.cybersoarPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const keys = cfg?.api_keys as Array<{ api_key?: string }> | undefined;
+      return { login: keys?.[0]?.api_key ?? "test_emulate_cybersoar_api_key", id: 1, scopes: [] };
+    },
+    initConfig: {
+      cybersoar: {
+        api_keys: [{ api_key: "test_emulate_cybersoar_api_key", name: "emulate" }],
+        customers: [{ name: "Acme Corp", msp: "Nimbus MSP", generate_alerts: 40, generate_days: 90 }],
+        alerts: [
+          {
+            customer: "Acme Corp",
+            msp: "Nimbus MSP",
+            service: "MS365",
+            ruleName: "Inbox forwarding rule created",
+            criticity: 3,
+            status: "CLOSED",
+            verdict: "TP",
+            tags: ["MAIL_SENT"],
+          },
+        ],
+      },
+    },
+  },
+  scaleway: {
+    label: "Scaleway Transactional Email emulator",
+    endpoints:
+      "emails (send, list, get, cancel, statistics), domains, webhooks and events, blocklists, project settings, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/scaleway");
+      return { plugin: mod.scalewayPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const keys = cfg?.api_keys as Array<{ secret_key?: string }> | undefined;
+      return { login: keys?.[0]?.secret_key ?? "00000000-0000-4000-8000-00000000ca1e", id: 1, scopes: [] };
+    },
+    initConfig: {
+      scaleway: {
+        projects: [{ id: "00000000-0000-4000-8000-00000000c0fe", name: "default" }],
+        api_keys: [
+          { secret_key: "00000000-0000-4000-8000-00000000ca1e", access_key: "SCWEMULATE0000000000", name: "emulate" },
+        ],
+        domains: [{ name: "emulate.example", status: "checked" }],
+        settings: { delivery_delay_ms: 1500, strict_domains: false },
       },
     },
   },

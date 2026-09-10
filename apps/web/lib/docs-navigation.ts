@@ -31,6 +31,8 @@ export const allDocsPages: NavItem[] = [
   { name: "SentinelOne", href: "/docs/sentinelone" },
   { name: "Microsoft Graph", href: "/docs/graph" },
   { name: "Elastic", href: "/docs/elastic" },
+  { name: "CyberSOAR", href: "/docs/cybersoar" },
+  { name: "Scaleway", href: "/docs/scaleway" },
   { name: "Authentication", href: "/docs/authentication" },
   { name: "Architecture", href: "/docs/architecture" },
 ];
