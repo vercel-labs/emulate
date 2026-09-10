@@ -47,6 +47,7 @@ const SERVICE_NAME_LIST = [
   "defender",
   "pennylane",
   "sentinelone",
+  "graph",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1037,6 +1038,48 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           },
         ],
         users: [{ email: "admin@example.com", fullName: "Admin User", scope: "tenant" }],
+      },
+    },
+  },
+
+  graph: {
+    label: "Microsoft Graph API emulator",
+    endpoints:
+      "client_credentials tokens per tenant, users with OData filters, invitations, directory role assignments and definitions, groups, organization, $batch, simulator, inspector",
+    async load() {
+      const mod = await import("@emulators/graph");
+      return { plugin: mod.graphPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const apps = cfg?.apps as Array<{ client_id?: string }> | undefined;
+      return { login: apps?.[0]?.client_id ?? "00000000-0000-4000-8000-0000000000a9", id: 1, scopes: [] };
+    },
+    initConfig: {
+      graph: {
+        apps: [
+          { client_id: "00000000-0000-4000-8000-0000000000a9", client_secret: "test_emulate_graph_client_secret" },
+        ],
+        tenants: [
+          {
+            id: "00000000-0000-4000-8000-00000000c0de",
+            displayName: "Contoso",
+            domain: "contoso.onmicrosoft.com",
+            users: [
+              {
+                displayName: "Adele Vance",
+                userPrincipalName: "adele.vance@contoso.example",
+                mail: "adele.vance@contoso.example",
+                roles: ["Global Administrator"],
+              },
+              {
+                displayName: "Nora Analyst",
+                mail: "nora.analyst@soc.example",
+                userType: "Guest",
+                roles: ["Security Administrator"],
+              },
+            ],
+          },
+        ],
       },
     },
   },

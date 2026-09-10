@@ -31,6 +31,7 @@ All services start with sensible defaults. No config file needed:
 - **Defender for Endpoint** on `http://localhost:4018`
 - **Pennylane** on `http://localhost:4019`
 - **SentinelOne** on `http://localhost:4020`
+- **Microsoft Graph** on `http://localhost:4021`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -195,7 +196,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, or `'sentinelone'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, `'chargebee'`, `'zendesk'`, `'mailgun'`, `'document360'`, `'defender'`, `'pennylane'`, `'sentinelone'`, or `'graph'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -1240,6 +1241,38 @@ Authenticate with `Authorization: ApiToken <token>` (`Bearer` also works). Route
 
 Current SentinelOne limits: Deep Visibility and Power Query, remote shell sessions, remote scripts, the Ranger network inventory, Singularity Identity, firewall control rules, agent package downloads, notifications and webhook syslog, and the Graph API are not implemented.
 
+## Microsoft Graph API
+
+Stateful Microsoft Graph emulation for app-only (client credentials) integrations: tenant-scoped Entra tokens, users with OData queries, guest invitations with redeemable links, directory role definitions and assignments, groups and membership, organization, deleted items, and JSON `$batch`, plus a simulator, an event log, and an inspector.
+
+Default local credentials:
+
+```text
+MS365_TOKENURL=http://localhost:4021
+MS365_GRAPH_URL=http://localhost:4021/v1.0
+MS365_GRAPH_SCOPES=https://graph.microsoft.com/.default
+MS365_CLIENT_ID=00000000-0000-4000-8000-0000000000a9
+MS365_CLIENT_SECRET=test_emulate_graph_client_secret
+MS365_TENANT_ID=00000000-0000-4000-8000-00000000c0de
+```
+
+The default seed includes tenant Contoso (`contoso.onmicrosoft.com`) with a Global Administrator, a Security Administrator who also holds Privileged Authentication Administrator, an accepted guest analyst with Security Administrator, a disabled guest, a regular member, a security group, and a pending invitation, plus tenant Fabrikam with one administrator. Twelve built-in role definitions use their real template ids, so applications that hard code ids such as `194ae4cb-b126-40b2-bd5b-6091b380977d` work unchanged.
+
+### REST Routes
+
+Request a token with `POST /{tenantId}/oauth2/v2.0/token` (`grant_type=client_credentials`; the tenant can be an id or a verified domain), then send it as `Authorization: Bearer` to `/v1.0/...` or `/beta/...`. Collections return `@odata.context`, `value`, optional `@odata.count` (with `$count=true`), and `@odata.nextLink` with `$skiptoken`. Errors use `{ error: { code, message, innerError } }` with Graph codes (`Request_ResourceNotFound`, `Request_BadRequest`, `Authorization_RequestDenied`, `InvalidAuthenticationToken`). Apps seeded with a `permissions` list are limited to it and receive 403 with "Insufficient privileges to complete the operation." elsewhere.
+
+- `GET /v1.0/users` (`$filter` with `eq ne in startsWith endsWith contains and or not`, `$select`, `$top`, `$orderby`, `$count`, `$search`), `POST /v1.0/users`, `GET|PATCH|DELETE /v1.0/users/{id or UPN}`, `GET .../memberOf`, `GET .../transitiveMemberOf`, `GET /v1.0/directory/deletedItems/microsoft.graph.user`, `POST /v1.0/directory/deletedItems/{id}/restore`
+- `POST /v1.0/invitations` - creates a Guest user (`mail` set, UPN in the `#EXT#` form, `externalUserState: PendingAcceptance`) and returns `inviteRedeemUrl`; `resetRedemption` reissues for an existing guest
+- `GET|POST /v1.0/roleManagement/directory/roleAssignments`, `GET|DELETE .../roleAssignments/{id}` (duplicates return the "conflicting object" 400, unknown principals or roles return 404), `GET /v1.0/roleManagement/directory/roleDefinitions`, `GET /v1.0/directoryRoles`, `GET /v1.0/directoryRoles/{id}/members`
+- `GET|POST /v1.0/groups`, `GET|PATCH|DELETE /v1.0/groups/{id}`, `GET /v1.0/groups/{id}/members`, `POST .../members/$ref`, `DELETE .../members/{id}/$ref`
+- `POST /v1.0/$batch` - up to 20 requests executed in order with `dependsOn`, each answered with `{ id, status, headers, body }`
+- `GET /v1.0/organization`, `GET /v1.0/servicePrincipals`, `GET /v1.0/me` (400 for app-only tokens, like Graph)
+- `GET /_graph/redeem/{code}`, `POST /_graph/simulate/accept-invitation`, `POST /_graph/simulate/sign-in`, `GET|DELETE /_graph/events`
+- `GET /` - tabbed inspector for users, role assignments, invitations, groups, tenants, events, and auth
+
+Current Graph limits: delegated flows and `/me`, mail, calendar, Teams, SharePoint, device management, delta queries, change notifications, and PIM eligibility schedules are not implemented.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1530,6 +1563,7 @@ packages/
     defender/       # Microsoft Defender for Endpoint machines, alerts, TVM, hunting
     pennylane/      # Pennylane invoices, appendices, contacts, banking, accounting
     sentinelone/    # SentinelOne accounts, sites, agents, threats, users, exclusions
+    graph/          # Microsoft Graph users, invitations, role assignments, $batch
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1568,6 +1602,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Pennylane**: `Authorization: Bearer` with a seeded API key. Routes live under `/api/external/v2` (also `/v2` and the bare path).
 
 **SentinelOne**: `Authorization: ApiToken` with a seeded token (`Bearer` also works). Routes live under `/web/api/v2.1` and `/web/api/v2.0`. `POST /users/generate-api-token` mints a user bound token.
+
+**Microsoft Graph**: Entra client_credentials at `/{tenantId}/oauth2/v2.0/token` with a seeded app, then `Authorization: Bearer` on `/v1.0/...`. Tokens only see their tenant, and app `permissions` gate each route.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

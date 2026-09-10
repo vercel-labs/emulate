@@ -59,6 +59,10 @@ SentinelOne API coverage:
   Management console API at /web/api/v2.1 with accounts, sites, groups, filters, agents, users, RBAC roles, threats, application risks, exclusions, and device control.
   Authenticate with the ApiToken header; lists return { data, pagination: { nextCursor, totalItems } } with cursor, skip, limit, and countOnly.
 
+Microsoft Graph API coverage:
+  Tokens at /{tenantId}/oauth2/v2.0/token (client_credentials) and Graph at /v1.0 and /beta with users, invitations, role assignments, groups, and $batch.
+  OData $filter, $select, $top, $count, $search, and $skiptoken paging; apps seeded with a permissions list get Authorization_RequestDenied outside it.
+
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
 `,
