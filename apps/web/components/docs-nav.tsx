@@ -26,6 +26,7 @@ const sections: NavSection[] = [
       { href: "/docs/google", label: "Google" },
       { href: "/docs/slack", label: "Slack" },
       { href: "/docs/linear", label: "Linear" },
+      { href: "/docs/twilio", label: "Twilio" },
       { href: "/docs/apple", label: "Apple" },
       { href: "/docs/microsoft", label: "Microsoft Entra ID" },
       { href: "/docs/aws", label: "AWS" },
@@ -33,6 +34,7 @@ const sections: NavSection[] = [
       { href: "/docs/mongoatlas", label: "MongoDB Atlas" },
       { href: "/docs/resend", label: "Resend" },
       { href: "/docs/stripe", label: "Stripe" },
+      { href: "/docs/aps", label: "Autodesk APS" },
     ],
   },
   {
