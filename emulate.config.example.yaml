@@ -78,6 +78,7 @@ vercel:
         - http://localhost:3000/api/auth/callback/vercel
 
 google:
+  strict_scopes: false
   users:
     - email: testuser@gmail.com
       name: Test User
