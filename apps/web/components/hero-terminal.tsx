@@ -14,6 +14,7 @@ const services = [
   { name: "MongoDB Atlas", port: 4008, slug: "mongoatlas" },
   { name: "Resend", port: 4009, slug: "resend" },
   { name: "Stripe", port: 4010, slug: "stripe" },
+  { name: "SePay", port: 4011, slug: "sepay" },
 ];
 
 export function HeroTerminal({ pixelFont }: { pixelFont: string }) {

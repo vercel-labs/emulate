@@ -128,3 +128,25 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+
+sepay:
+  api_keys:
+    - token: sepay_test_api_key
+      label: Local API Key
+  webhook_targets:
+    - url: http://localhost:3000/api/payments/sepay/webhook
+      api_key: sepay_test_webhook_key
+  bank_accounts:
+    - bin: "970436"
+      account_number: "0071000888888"
+      name: NGUYEN VAN A
+  transactions:
+    - id: 100001
+      gateway: Vietcombank
+      transactionDate: "2026-01-15 09:30:00"
+      accountNumber: "0071000888888"
+      transferType: in
+      amount: 250000
+      code: ORD1001
+      content: "ORD1001 thanh toan don hang"
+      referenceNumber: FT26011509300001

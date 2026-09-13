@@ -1,5 +1,14 @@
+import { createHmac, randomBytes } from "crypto";
 import type { Hono } from "@emulators/core";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
+import type {
+  ServicePlugin,
+  Store,
+  WebhookDispatcher,
+  WebhookHeaderContext,
+  TokenMap,
+  AppEnv,
+  RouteContext,
+} from "@emulators/core";
 import { getResendStore } from "./store.js";
 import { generateUuid } from "./helpers.js";
 import { emailRoutes } from "./routes/emails.js";
@@ -23,9 +32,36 @@ export interface ResendSeedConfig {
     last_name?: string;
     audience?: string;
   }>;
+  webhook_targets?: Array<{
+    url: string;
+    signing_secret?: string;
+  }>;
 }
 
-export function seedFromConfig(store: Store, _baseUrl: string, config: ResendSeedConfig): void {
+function resendWebhookHeaders({ body, subscription }: WebhookHeaderContext): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+
+  if (subscription.secret) {
+    const id = generateUuid();
+    const timestamp = Math.floor(Date.now() / 1000);
+    const key = Buffer.from(subscription.secret.replace(/^whsec_/, ""), "base64");
+    const signature = createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64");
+    headers["svix-id"] = id;
+    headers["svix-timestamp"] = String(timestamp);
+    headers["svix-signature"] = `v1,${signature}`;
+  }
+
+  return headers;
+}
+
+export function seedFromConfig(
+  store: Store,
+  _baseUrl: string,
+  config: ResendSeedConfig,
+  webhooks?: WebhookDispatcher,
+): void {
   const rs = getResendStore(store);
 
   if (config.domains) {
@@ -98,11 +134,52 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ResendSee
       });
     }
   }
+
+  if (config.webhook_targets && webhooks) {
+    webhooks.setHeaderFactory(resendWebhookHeaders);
+    const existingUrls = new Set(webhooks.getSubscriptions("resend").map((s) => s.url));
+    for (const target of config.webhook_targets) {
+      if (existingUrls.has(target.url)) continue;
+      webhooks.register({
+        url: target.url,
+        events: ["*"],
+        active: true,
+        secret: target.signing_secret,
+        owner: "resend",
+      });
+    }
+  }
+}
+
+export function materializeResendSeedConfig(config: ResendSeedConfig): {
+  config: ResendSeedConfig;
+  generatedSecrets: Array<{ kind: string; id: string; label: string; value: string }>;
+} {
+  const generatedSecrets: Array<{ kind: string; id: string; label: string; value: string }> = [];
+  const resolved: ResendSeedConfig = { ...config };
+
+  if (resolved.webhook_targets) {
+    resolved.webhook_targets = resolved.webhook_targets.map((target) => {
+      if (target.signing_secret) return target;
+      const secret = `whsec_${randomBytes(24).toString("base64")}`;
+      generatedSecrets.push({
+        kind: "resend.webhook_signing_secret",
+        id: target.url,
+        label: "Resend Webhook Signing Secret",
+        value: secret,
+      });
+      return { ...target, signing_secret: secret };
+    });
+  }
+
+  return { config: resolved, generatedSecrets };
 }
 
 export const resendPlugin: ServicePlugin = {
   name: "resend",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    webhooks.setHeaderFactory(resendWebhookHeaders);
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     emailRoutes(ctx);
     domainRoutes(ctx);
