@@ -13,9 +13,11 @@ import type {
   GoogleCalendar,
   GoogleCalendarEvent,
   GoogleDriveItem,
+  GoogleCalendarChannel,
 } from "./entities.js";
 
 export interface GoogleStore {
+  calendarChannels: Collection<GoogleCalendarChannel>;
   users: Collection<GoogleUser>;
   oauthClients: Collection<GoogleOAuthClient>;
   messages: Collection<GoogleMessage>;
@@ -33,6 +35,7 @@ export interface GoogleStore {
 
 export function getGoogleStore(store: Store): GoogleStore {
   return {
+    calendarChannels: store.collection<GoogleCalendarChannel>("google.calendar_channels", ["user_email", "channel_id"]),
     users: store.collection<GoogleUser>("google.users", ["uid", "email"]),
     oauthClients: store.collection<GoogleOAuthClient>("google.oauth_clients", ["client_id"]),
     messages: store.collection<GoogleMessage>("google.messages", ["gmail_id", "thread_id", "user_email"]),

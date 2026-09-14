@@ -893,6 +893,9 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 
+Google Calendar watch channels notify local callbacks after successful event
+writes. See [Calendar notifications](packages/@emulators/google/README.md#calendar).
+
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and `/oauth2/v3/certs` returns the matching RSA public key used to verify issued tokens.
