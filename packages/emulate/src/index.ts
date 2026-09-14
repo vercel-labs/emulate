@@ -37,6 +37,10 @@ Vercel API coverage:
 AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 
+Google Calendar events:
+  Read and patch individual events; omitted fields are preserved. Creation accepts caller-supplied event IDs.
+  Gzip bodies and POST with X-HTTP-Method-Override: PATCH support Java clients. Recurring writes are unsupported.
+
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 

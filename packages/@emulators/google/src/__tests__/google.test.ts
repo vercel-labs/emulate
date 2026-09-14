@@ -972,6 +972,66 @@ describe("Google plugin integration", () => {
     expect(((await userinfoRes.json()) as { hd?: string }).hd).toBe("override.io");
   });
 
+  it("reads individual calendar events with authentication and calendar scoping", async () => {
+    const path = "/calendar/v3/calendars/primary/events/evt_kickoff";
+    const response = await app.request(`${base}${path}`, { headers: authHeaders() });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      kind: "calendar#event",
+      id: "evt_kickoff",
+      summary: "Project Kickoff",
+      organizer: { email: "testuser@example.com" },
+      start: { dateTime: "2025-01-10T09:00:00.000Z" },
+      attendees: [{ email: "testuser@example.com" }, { email: "teammate@example.com" }],
+    });
+    for (const missingPath of [
+      "/calendar/v3/calendars/cal_team/events/evt_kickoff",
+      "/calendar/v3/calendars/primary/events/missing",
+    ]) {
+      const missing = await app.request(`${base}${missingPath}`, { headers: authHeaders() });
+      expect(missing.status).toBe(404);
+      expect(await missing.json()).toMatchObject({ error: { code: 404 } });
+    }
+    const unauthorized = await app.request(`${base}${path}`);
+    expect(unauthorized.status).toBe(401);
+  });
+
+  it("patches event end times and attendees without clearing omitted fields", async () => {
+    const path = "/calendar/v3/calendars/primary/events/evt_kickoff";
+    const ended = await jsonRequest(app, path, {
+      method: "PATCH",
+      body: { end: { dateTime: "2025-01-10T09:15:00.000Z" } },
+    });
+    expect(ended.status).toBe(200);
+    expect(await ended.json()).toMatchObject({
+      summary: "Project Kickoff",
+      description: "Align on the Q1 plan.",
+      start: { dateTime: "2025-01-10T09:00:00.000Z" },
+      end: { dateTime: "2025-01-10T09:15:00.000Z" },
+      attendees: [{ email: "testuser@example.com" }, { email: "teammate@example.com" }],
+    });
+    const changed = await jsonRequest(app, path, {
+      method: "PATCH",
+      body: { attendees: [{ email: "teammate@example.com", responseStatus: "accepted" }] },
+    });
+    expect(changed.status).toBe(200);
+    const read = await app.request(`${base}${path}`, { headers: authHeaders() });
+    expect(await read.json()).toMatchObject({
+      summary: "Project Kickoff",
+      end: { dateTime: "2025-01-10T09:15:00.000Z" },
+      attendees: [{ email: "teammate@example.com", responseStatus: "accepted" }],
+    });
+    const missing = await jsonRequest(app, path.replace("primary", "cal_team"), {
+      method: "PATCH",
+      body: { summary: "Wrong calendar" },
+    });
+    expect(missing.status).toBe(404);
+    const invalid = await jsonRequest(app, path, { method: "PATCH", body: { end: null } });
+    expect(invalid.status).toBe(400);
+    const unchanged = await app.request(`${base}${path}`, { headers: authHeaders() });
+    expect(await unchanged.json()).toMatchObject({ end: { dateTime: "2025-01-10T09:15:00.000Z" } });
+  });
+
   it("returns the Calendar v3 discovery document without authentication", async () => {
     const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
     expect(res.status).toBe(200);
@@ -1021,6 +1081,16 @@ describe("Google plugin integration", () => {
       baseUrl: `${base}/calendar/v3/`,
       servicePath: "calendar/v3/",
       basePath: "/calendar/v3/",
+    });
+    expect(body).toMatchObject({
+      resources: {
+        events: {
+          methods: {
+            get: { httpMethod: "GET", path: "calendars/{calendarId}/events/{eventId}" },
+            patch: { httpMethod: "PATCH", request: { $ref: "Event" } },
+          },
+        },
+      },
     });
     expect(body.parameters).toHaveProperty("prettyPrint");
     expect(body.parameters).toHaveProperty("fields");

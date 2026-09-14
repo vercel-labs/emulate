@@ -131,6 +131,7 @@ export interface GoogleCalendarConferenceEntryPoint {
 }
 
 export interface GoogleCalendarEvent extends Entity {
+  organizer_email?: string | null;
   google_id: string;
   user_email: string;
   calendar_google_id: string;

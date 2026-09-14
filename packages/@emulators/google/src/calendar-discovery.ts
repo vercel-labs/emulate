@@ -192,6 +192,39 @@ export function buildCalendarDiscoveryDocument(baseUrl: string) {
       },
       events: {
         methods: {
+          get: {
+            id: "calendar.events.get",
+            path: "calendars/{calendarId}/events/{eventId}",
+            httpMethod: "GET",
+            description: "Returns an event.",
+            parameterOrder: ["calendarId", "eventId"],
+            parameters: {
+              calendarId: calendarIdParameter,
+              eventId: { type: "string", location: "path", required: true },
+            },
+            response: { $ref: "Event" },
+            scopes: [
+              "https://www.googleapis.com/auth/calendar",
+              "https://www.googleapis.com/auth/calendar.events",
+              "https://www.googleapis.com/auth/calendar.readonly",
+              "https://www.googleapis.com/auth/calendar.events.readonly",
+            ],
+          },
+          patch: {
+            id: "calendar.events.patch",
+            path: "calendars/{calendarId}/events/{eventId}",
+            httpMethod: "PATCH",
+            description: "Updates supplied event fields, preserving omitted fields.",
+            parameterOrder: ["calendarId", "eventId"],
+            parameters: {
+              calendarId: calendarIdParameter,
+              eventId: { type: "string", location: "path", required: true },
+            },
+            request: { $ref: "Event" },
+            response: { $ref: "Event" },
+            scopes: ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/calendar.events"],
+          },
+
           list: {
             id: "calendar.events.list",
             path: "calendars/{calendarId}/events",
@@ -307,6 +340,7 @@ export function buildCalendarDiscoveryDocument(baseUrl: string) {
           location: { type: "string" },
           start: { $ref: "EventDateTime" },
           end: { $ref: "EventDateTime" },
+          organizer: { type: "object", properties: { email: { type: "string" } } },
           attendees: { type: "array", items: { $ref: "EventAttendee" } },
           hangoutLink: { type: "string" },
         },
