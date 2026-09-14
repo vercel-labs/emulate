@@ -41,6 +41,7 @@ Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 
 Google OIDC:
+  Refresh-token grants return an access token and an RS256-signed ID token.
   Discovery advertises RS256 ID tokens, and GET /oauth2/v3/certs returns the RSA public key used to verify them.
 
 Resend API coverage:

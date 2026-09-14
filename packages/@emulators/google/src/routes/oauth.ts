@@ -302,6 +302,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
       return c.json({
         access_token: accessToken,
+        id_token: await createIdToken(user, record.clientId, null, baseUrl),
         token_type: "Bearer",
         expires_in: 3600,
         scope: record.scope || "openid email profile",

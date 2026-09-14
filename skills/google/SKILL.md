@@ -252,7 +252,7 @@ client_secret=GOCSPX-secret&\
 grant_type=refresh_token"
 ```
 
-Returns a new `access_token` (no new `refresh_token` or `id_token` on refresh).
+Returns a new `access_token` and an RS256-signed `id_token` for the same user and client. Continue using the existing `refresh_token`.
 
 ### User Info
 

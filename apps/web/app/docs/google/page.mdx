@@ -10,6 +10,8 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS) with the RSA public key for ID token verification
 
+Refresh-token grants also return an RS256-signed `id_token` for the same user and client. The existing refresh token remains reusable.
+
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and the JWKS endpoint returns the matching RSA public key used to verify issued tokens.
 
 ## Gmail
