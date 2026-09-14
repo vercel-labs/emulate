@@ -469,6 +469,17 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
 
 ## Google Calendar API
 
+Event lists return `updated` and a final-page `nextSyncToken`. Use `syncToken`
+to receive subsequent changes and cancelled records for deleted events.
+Pagination preserves the original snapshot while events change. Tokens belong
+to one user and calendar. The shared cache retains at most 1,000 snapshots and
+32 MiB of serialized event data, always keeping the newest snapshot even if it
+alone exceeds that size limit. Reset or eviction makes sync tokens return 410
+and requires a full sync. Sync tokens cannot be combined with time bounds,
+search, ordering, or `showDeleted=false`. Full lists support `showDeleted=true`
+and apply the same search and time filters to cancelled events. `maxResults`
+accepts 1 to 2,500 events per page, with a default of 250.
+
 ### Discovery
 
 The Calendar discovery document is public and describes the Calendar v3 methods supported by the emulator:

@@ -1022,6 +1022,14 @@ describe("Google plugin integration", () => {
       servicePath: "calendar/v3/",
       basePath: "/calendar/v3/",
     });
+    expect(body).toMatchObject({
+      resources: {
+        events: {
+          methods: { list: { parameters: { syncToken: { location: "query" }, showDeleted: { type: "boolean" } } } },
+        },
+      },
+      schemas: { Events: { properties: { nextSyncToken: { type: "string" }, updated: { format: "date-time" } } } },
+    });
     expect(body.parameters).toHaveProperty("prettyPrint");
     expect(body.parameters).toHaveProperty("fields");
     expect(body.auth.oauth2.scopes["https://www.googleapis.com/auth/calendar"]).toEqual({

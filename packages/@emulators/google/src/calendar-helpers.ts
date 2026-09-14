@@ -39,6 +39,7 @@ export interface GoogleCalendarEventInput {
 }
 
 export interface ListCalendarEventsOptions {
+  showDeleted?: string | null;
   timeMin?: string | null;
   timeMax?: string | null;
   maxResults?: string | null;
@@ -189,22 +190,19 @@ export function deleteCalendarEventRecord(gs: GoogleStore, event: GoogleCalendar
   return gs.calendarEvents.delete(event.id);
 }
 
-export function listCalendarEvents(
+export function getMatchingCalendarEvents(
   gs: GoogleStore,
   userEmail: string,
   calendarId: string,
   options: ListCalendarEventsOptions,
-): {
-  items: GoogleCalendarEvent[];
-  nextPageToken?: string;
-} {
+): GoogleCalendarEvent[] {
   const calendar = getCalendarById(gs, userEmail, calendarId);
-  if (!calendar) return { items: [] };
+  if (!calendar) return [];
 
   let events = gs.calendarEvents
     .findBy("user_email", userEmail)
     .filter((event) => event.calendar_google_id === calendar.google_id)
-    .filter((event) => event.status !== "cancelled");
+    .filter((event) => options.showDeleted === "true" || event.status !== "cancelled");
 
   if (options.timeMin || options.timeMax) {
     const min = options.timeMin ? Date.parse(options.timeMin) : null;
@@ -222,6 +220,19 @@ export function listCalendarEvents(
     events.sort((a, b) => a.summary.localeCompare(b.summary));
   }
 
+  return events;
+}
+
+export function listCalendarEvents(
+  gs: GoogleStore,
+  userEmail: string,
+  calendarId: string,
+  options: ListCalendarEventsOptions,
+): {
+  items: GoogleCalendarEvent[];
+  nextPageToken?: string;
+} {
+  const events = getMatchingCalendarEvents(gs, userEmail, calendarId, options);
   const offset = parseOffset(options.pageToken);
   const limit = normalizeLimit(options.maxResults, 10, 250);
 

@@ -61,6 +61,18 @@ npm install @emulators/google
 - `GET /gmail/v1/users/:userId/settings/sendAs` — list send-as aliases
 
 ### Calendar
+
+Event lists return `updated` and a final-page `nextSyncToken`. Use `syncToken`
+to receive subsequent changes and cancelled records for deleted events.
+Pagination preserves the original snapshot while events change. Tokens belong
+to one user and calendar. The shared cache retains at most 1,000 snapshots and
+32 MiB of serialized event data, always keeping the newest snapshot even if it
+alone exceeds that size limit. Reset or eviction makes sync tokens return 410
+and requires a full sync. Sync tokens cannot be combined with time bounds,
+search, ordering, or `showDeleted=false`. Full lists support `showDeleted=true`
+and apply the same search and time filters to cancelled events. `maxResults`
+accepts 1 to 2,500 events per page, with a default of 250.
+
 - `GET /discovery/v1/apis/calendar/v3/rest` — public Calendar v3 REST discovery document
 - `GET /calendar/v3/users/:userId/calendarList` — list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` — list events
