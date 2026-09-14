@@ -1376,6 +1376,8 @@ export default defineEventHandler(createEmulateHandler({
 
 The persistence adapter loads on cold start and saves after mutations. Generated identities also require atomic create-or-read `initialize`; see `@emulators/core`.
 
+HEAD responses preserve status and response headers, including `Content-Length`, while omitting the body. This applies to explicit HEAD handlers and GET fallback routes.
+
 ## Architecture
 
 ```

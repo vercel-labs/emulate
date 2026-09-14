@@ -53,3 +53,7 @@ The persistence adapter is called on cold start (load) and after every mutating 
 
 - [Full documentation](https://emulate.dev)
 - [GitHub](https://github.com/vercel-labs/emulate)
+
+## HTTP response semantics
+
+HEAD responses preserve status and response headers, including `Content-Length`, while omitting the body. This applies to explicit HEAD handlers and GET fallback routes.
