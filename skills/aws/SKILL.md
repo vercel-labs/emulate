@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, IAM, STS, KMS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. All state is in-memory, and responses use AWS-compatible XML.
+S3, SQS, IAM, STS, and KMS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. Service state is in-memory. Query responses use AWS-compatible XML; KMS uses AWS JSON 1.1.
 
 ## Start
 
@@ -312,6 +312,16 @@ curl -X POST http://localhost:4006/sts/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session"
 ```
+
+### KMS
+
+KMS uses AWS JSON 1.1: send `POST /kms` or `POST /kms/` with an `X-Amz-Target: TrentService.Encrypt` or `TrentService.Decrypt` header and a JSON body.
+
+- `Encrypt` accepts `KeyId`, base64 `Plaintext` (1 to 4096 bytes), and optional `EncryptionContext`.
+- `Decrypt` accepts `CiphertextBlob` and the same encryption context. An optional `KeyId` must exactly match the identifier used for encryption.
+- Only `SYMMETRIC_DEFAULT` is supported. Aliases, raw IDs, and ARNs up to 255 UTF-8 bytes are preserved as supplied; alias resolution is not modeled.
+
+Ciphertext is self-contained and survives store resets and emulator restarts. The blob authenticates the key identity and encryption context using AES-256-GCM. Its wrapping key is fixed and public: use synthetic test data only. This emulates local key wrapping, without key creation, policies, grants, rotation, or access control.
 
 ### Inspector
 

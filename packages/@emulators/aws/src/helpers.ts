@@ -76,3 +76,24 @@ export function parseQueryString(body: string): Record<string, string> {
   }
   return result;
 }
+
+// AWS JSON 1.1 protocol (used by KMS). Unlike the query/XML services, these
+// endpoints take a JSON body with an X-Amz-Target header and return JSON.
+export function awsJsonResponse(c: Context, payload: unknown, status: ContentfulStatusCode = 200) {
+  return c.body(JSON.stringify(payload), status, { "Content-Type": "application/x-amz-json-1.1" });
+}
+
+export function awsErrorJson(c: Context, type: string, message: string, status: ContentfulStatusCode = 400) {
+  return c.body(JSON.stringify({ __type: type, message }), status, {
+    "Content-Type": "application/x-amz-json-1.1",
+    "x-amzn-ErrorType": type,
+    "x-amzn-RequestId": generateMessageId(),
+  });
+}
+
+// Buffer.from(s, "base64") silently ignores anything it cannot decode, which
+// would turn a malformed blob into a confusing crypto failure further down.
+export function decodeBase64(value: string): Buffer | null {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(value) || value.length % 4 !== 0) return null;
+  return Buffer.from(value, "base64");
+}
