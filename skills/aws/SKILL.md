@@ -299,7 +299,9 @@ curl -X POST http://localhost:4006/iam/ \
 
 ### STS
 
-All STS operations use `POST /sts/` with `Action` as a form-urlencoded parameter.
+All STS operations use `POST /sts` or `POST /sts/` with `Action` as a form-urlencoded parameter.
+
+`AssumeRoleWithWebIdentity` accepts a non-empty token and an IAM role ARN without requiring a seeded role. Requests may be unsigned. `RoleSessionName` is required; `DurationSeconds` defaults to 3600 and accepts 900 through 43200. JWT-shaped tokens supply the response subject, audience, and issuer; opaque tokens get a stable subject digest. Token signatures, expiry, role trust, policies, and role-specific session limits are not enforced. This is response emulation for local tests.
 
 ```bash
 # Get caller identity
@@ -311,6 +313,13 @@ curl -X POST http://localhost:4006/sts/ \
 curl -X POST http://localhost:4006/sts/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session"
+```
+
+For web identity credentials:
+
+```bash
+curl -X POST http://localhost:4006/sts \
+  -d "Action=AssumeRoleWithWebIdentity&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session&WebIdentityToken=local-token"
 ```
 
 ### Inspector
