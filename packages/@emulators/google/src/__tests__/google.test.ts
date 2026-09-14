@@ -936,6 +936,61 @@ describe("Google plugin integration", () => {
     expect(refreshBody.scope).toBe(tokenBody.scope);
   });
 
+  it.each(["query", "form", "json"])("revokes refresh tokens supplied in the %s", async (encoding) => {
+    const authorization = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      scope: "openid email profile",
+      client_id: "emu_google_client_id",
+    });
+    const code = new URL(authorization.headers.get("Location")!).searchParams.get("code")!;
+    const exchange = await formRequest(app, "/oauth2/token", {
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+    const tokens = (await exchange.json()) as { refresh_token: string };
+    const refresh = () =>
+      formRequest(app, "/oauth2/token", {
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token,
+        client_id: "emu_google_client_id",
+        client_secret: "emu_google_client_secret",
+      });
+    expect((await refresh()).status).toBe(200);
+    const revoked =
+      encoding === "query"
+        ? await app.request(`${base}/oauth2/revoke?token=${encodeURIComponent(tokens.refresh_token)}`, {
+            method: "POST",
+          })
+        : encoding === "form"
+          ? await formRequest(app, "/oauth2/revoke", { token: tokens.refresh_token })
+          : await app.request(`${base}/oauth2/revoke`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: tokens.refresh_token }),
+            });
+    expect(revoked.status).toBe(200);
+    const after = await refresh();
+    expect(after.status).toBe(400);
+    expect(await after.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("revokes access tokens in the query while preserving body-token precedence", async () => {
+    const stillValid = await app.request(`${base}/oauth2/revoke?token=test-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "token=unknown-token",
+    });
+    expect(stillValid.status).toBe(200);
+    expect((await app.request(`${base}/oauth2/v2/userinfo`, { headers: authHeaders() })).status).toBe(200);
+    const revoked = await app.request(`${base}/oauth2/revoke?token=test-token`, { method: "POST" });
+    expect(revoked.status).toBe(200);
+    expect((await app.request(`${base}/oauth2/v2/userinfo`, { headers: authHeaders() })).status).toBe(401);
+  });
+
   it("derives, overrides, and omits the hd claim based on user config", async () => {
     async function getIdTokenClaims(email: string) {
       const authorize = await formRequest(app, "/o/oauth2/v2/auth/callback", {
