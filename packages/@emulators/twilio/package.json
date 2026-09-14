@@ -38,6 +38,8 @@
     "@emulators/core": "workspace:*"
   },
   "devDependencies": {
+    "@sendgrid/client": "^8.1.6",
+    "@sendgrid/mail": "^8.1.6",
     "tsup": "^8",
     "twilio": "^6.0.2",
     "typescript": "^5.7",

@@ -1,10 +1,59 @@
 ---
 name: twilio
-description: Emulated Twilio REST APIs for local development and testing. Use when the user needs to test Twilio Messaging, Verify, Voice, phone numbers, webhooks, status callbacks, inbound SMS simulation, or Twilio SDK integrations without hitting the real Twilio service.
-allowed-tools: Bash(npx emulate:*)
+description: Emulated Twilio REST APIs for local development and testing. Use when the user needs to test Twilio Messaging, Verify, Voice, phone numbers, webhooks, status callbacks, inbound SMS simulation, Twilio SDK integrations, or SendGrid Mail Send without hitting real services.
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Twilio API Emulator
+
+## SendGrid Mail Send
+
+Use `POST /v3/mail/send` for existing SendGrid clients, with Bearer key
+`SG.emulate-test-key` by default. Configure `twilio.sendgrid.api_keys` to
+replace it. SendGrid authentication is separate from Twilio Basic auth.
+Accepted mail returns empty `202` with `x-message-id`; sandbox mode validates
+without delivery.
+Supported message bodies are `text/plain` and `text/html`; other content types return `501`.
+Templates and scheduled sends return `501`. With the official Node SDK, set the
+local base URL after `setApiKey()`, because setting the key resets the URL.
+
+Accepted requests are stored unchanged in `twilio.sendgrid.emails`, including
+recipient lists, content, custom headers, and base64 attachments. Library
+composition uses `createTwilioPlugin({ sendgrid: { apiKeys } })`.
+
+Set `TWILIO_EMULATOR_URL` to the URL printed when starting the emulator. With
+the default SendGrid key, send a message using:
+
+```bash
+curl -i "$TWILIO_EMULATOR_URL/v3/mail/send" \
+  -H 'Authorization: Bearer SG.emulate-test-key' \
+  -H 'Content-Type: application/json' \
+  --data '{"personalizations":[{"to":[{"email":"inbox@example.com"}]}],"from":{"email":"sender@example.com"},"subject":"Local test","content":[{"type":"text/plain","value":"Hello from the emulator"}]}'
+```
+
+Send and inspect captured mail through the public Store API in a local test:
+
+```javascript
+import { createServer } from "@emulators/core";
+import { createTwilioPlugin } from "@emulators/twilio";
+
+const { app, store } = createServer(createTwilioPlugin());
+const response = await app.request("http://localhost/v3/mail/send", {
+  method: "POST",
+  headers: {
+    Authorization: "Bearer SG.emulate-test-key",
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    personalizations: [{ to: [{ email: "inbox@example.com" }] }],
+    from: { email: "sender@example.com" },
+    subject: "Local test",
+    content: [{ type: "text/plain", value: "Hello from the emulator" }],
+  }),
+});
+console.log(response.status); // 202
+console.log(store.collection("twilio.sendgrid.emails").all());
+```
 
 Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
 
@@ -70,4 +119,4 @@ HTTP Basic auth accepts either:
 
 ## Current Limits
 
-No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, SendGrid, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.
+No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.

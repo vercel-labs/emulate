@@ -30,3 +30,19 @@ Twilio uses multiple product hosts. When testing with the official Node SDK, use
 For SMS and OTP tests, the seeded Verify Service uses code `123456`. Test runners can also read the latest local code with `GET /_twilio/simulate/verification-code?To=...&ServiceSid=...` using Basic auth. Inbound SMS webhooks are simulated with `POST /_twilio/simulate/inbound-message`, using an assigned Messaging Service `inbound_request_url` before falling back to the phone number `sms_url`. Outbound delivery transitions are simulated with `POST /_twilio/simulate/message-status`.
 
 No real SMS, voice, carrier, compliance, billing, or SendGrid traffic is performed.
+
+## SendGrid Mail Send
+
+SendGrid Mail Send is available at `POST /v3/mail/send` with Bearer key
+`SG.emulate-test-key` by default. Replace it with `twilio.sendgrid.api_keys`
+in seed configuration. Accepted mail returns an empty `202` response with
+`x-message-id` and is captured in `twilio.sendgrid.emails`.
+
+Library users can call `createTwilioPlugin({ sendgrid: { apiKeys } })`.
+Tests using `createServer` can inspect captured requests with
+`store.collection("twilio.sendgrid.emails").all()`. Recipient lists, content,
+custom headers, and base64 attachments are preserved unchanged.
+
+Sandbox mode validates without capture. Supported message bodies are
+`text/plain` and `text/html`; other content types return `501`. Templates and
+scheduled sends return `501`.
