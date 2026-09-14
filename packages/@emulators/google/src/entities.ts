@@ -160,3 +160,26 @@ export interface GoogleDriveItem extends Entity {
   trashed: boolean;
   data: string | null;
 }
+
+export interface GoogleDirectoryBuilding extends Entity {
+  user_email: string;
+  buildingId: string;
+  buildingName: string;
+  description?: string;
+  floorNames?: string[];
+  coordinates?: { latitude: number; longitude: number };
+  address?: { addressLines: string[]; postalCode?: string; regionCode?: string };
+}
+
+export interface GoogleDirectoryCalendarResource extends Entity {
+  user_email: string;
+  resourceId: string;
+  resourceEmail: string;
+  resourceName: string;
+  buildingId?: string;
+  capacity?: number;
+  floorName?: string;
+  resourceDescription?: string;
+  resourceCategory?: string;
+  featureInstances?: Array<{ feature: { name: string } }>;
+}

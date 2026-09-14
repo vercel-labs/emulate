@@ -37,6 +37,10 @@ Vercel API coverage:
 AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 
+Google Directory resources:
+  List seeded buildings and room resources, and read individual buildings under customer/my_customer/resources.
+  directory_buildings and directory_calendar_resources seeds are scoped to users; room resources create Calendars.
+
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 

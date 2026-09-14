@@ -8,8 +8,10 @@ import {
   findLabelByName,
   generateUid,
 } from "./helpers.js";
-import { createCalendarEventRecord, createCalendarRecord } from "./calendar-helpers.js";
+import { createCalendarEventRecord, createCalendarRecord, ensureDefaultCalendars } from "./calendar-helpers.js";
 import { createDriveItemRecord } from "./drive-helpers.js";
+import type { GoogleDirectoryBuilding, GoogleDirectoryCalendarResource } from "./entities.js";
+import { directoryRoutes } from "./routes/directory.js";
 import { calendarRoutes } from "./routes/calendar.js";
 import { draftRoutes } from "./routes/drafts.js";
 import { driveRoutes } from "./routes/drive.js";
@@ -123,6 +125,12 @@ export interface GoogleSeedConfig {
   }>;
   labels?: GoogleSeedLabel[];
   messages?: GoogleSeedMessage[];
+  directory_buildings?: Array<
+    Omit<GoogleDirectoryBuilding, "id" | "created_at" | "updated_at" | "user_email"> & { user_email?: string }
+  >;
+  directory_calendar_resources?: Array<
+    Omit<GoogleDirectoryCalendarResource, "id" | "created_at" | "updated_at" | "user_email"> & { user_email?: string }
+  >;
   calendars?: GoogleSeedCalendar[];
   calendar_events?: GoogleSeedCalendarEvent[];
   drive_items?: GoogleSeedDriveItem[];
@@ -333,6 +341,46 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
   const fallbackEmail = config.users?.[0]?.email ?? gs.users.all()[0]?.email ?? "testuser@gmail.com";
   ensureSystemLabels(gs, fallbackEmail);
 
+  const buildingIdsByUser = new Map<string, Set<string>>();
+  for (const building of config.directory_buildings ?? []) {
+    const user_email = building.user_email ?? fallbackEmail;
+    let buildingIds = buildingIdsByUser.get(user_email);
+    if (!buildingIds) {
+      buildingIds = new Set(gs.directoryBuildings.findBy("user_email", user_email).map((item) => item.buildingId));
+      buildingIdsByUser.set(user_email, buildingIds);
+    }
+    if (!buildingIds.has(building.buildingId)) {
+      gs.directoryBuildings.insert({ ...building, user_email });
+      buildingIds.add(building.buildingId);
+    }
+  }
+  const resourcesByUser = new Map<string, Map<string, GoogleDirectoryCalendarResource>>();
+  for (const resource of config.directory_calendar_resources ?? []) {
+    const user_email = resource.user_email ?? fallbackEmail;
+    let resources = resourcesByUser.get(user_email);
+    if (!resources) {
+      resources = new Map(
+        gs.directoryCalendarResources.findBy("user_email", user_email).map((item) => [item.resourceId, item]),
+      );
+      resourcesByUser.set(user_email, resources);
+      ensureDefaultCalendars(gs, user_email);
+    }
+    let record = resources.get(resource.resourceId);
+    if (!record) {
+      record = gs.directoryCalendarResources.insert({ ...resource, user_email });
+      resources.set(resource.resourceId, record);
+    }
+    createCalendarRecord(gs, {
+      google_id: record.resourceEmail,
+      user_email,
+      summary: record.resourceName,
+      time_zone: "UTC",
+      primary: false,
+      selected: true,
+      access_role: "owner",
+    });
+  }
+
   if (config.labels) {
     seedLabels(store, config.labels, fallbackEmail);
   }
@@ -495,6 +543,7 @@ export const googlePlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     calendarRoutes(ctx);
+    directoryRoutes(ctx);
     driveRoutes(ctx);
     messageRoutes(ctx);
     draftRoutes(ctx);
