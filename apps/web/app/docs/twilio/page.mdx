@@ -1,5 +1,23 @@
 # Twilio API
 
+## SendGrid Mail Send
+
+`POST /v3/mail/send` accepts SendGrid JSON with Bearer authentication. The
+default local key is `SG.emulate-test-key`; set `twilio.sendgrid.api_keys` in
+seed configuration to replace it. Valid mail returns an empty `202` response
+and `x-message-id`. Sandbox mode validates without capturing mail.
+Supported message bodies are `text/plain` and `text/html`; other content types return `501`.
+Templates and scheduled sends return `501`. Set the official Node SDK's local
+base URL after `setApiKey()`, which resets the endpoint.
+
+Accepted requests are stored unchanged in `twilio.sendgrid.emails`, including
+recipient lists, content, custom headers, and base64 attachments. Tests using
+`createServer` can inspect them with
+`store.collection("twilio.sendgrid.emails").all()`.
+
+Library users can configure keys with
+`createTwilioPlugin({ sendgrid: { apiKeys } })`.
+
 Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
 
 ## Start
@@ -23,11 +41,11 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 ## URL Mapping
 
-| Real Twilio URL | Emulator URL |
-|-----------------|--------------|
-| `https://api.twilio.com/2010-04-01/...` | `$TWILIO_EMULATOR_URL/2010-04-01/...` |
-| `https://messaging.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/messaging/v1/...` |
-| `https://verify.twilio.com/v2/...` | `$TWILIO_EMULATOR_URL/verify/v2/...` |
+| Real Twilio URL                           | Emulator URL                                |
+| ----------------------------------------- | ------------------------------------------- |
+| `https://api.twilio.com/2010-04-01/...`   | `$TWILIO_EMULATOR_URL/2010-04-01/...`       |
+| `https://messaging.twilio.com/v1/...`     | `$TWILIO_EMULATOR_URL/messaging/v1/...`     |
+| `https://verify.twilio.com/v2/...`        | `$TWILIO_EMULATOR_URL/verify/v2/...`        |
 | `https://conversations.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/conversations/v1/...` |
 
 The official Node SDK builds absolute Twilio product URLs. In SDK tests, use a custom request client that rewrites those hosts to the emulator prefixes above.
@@ -110,4 +128,4 @@ Open `GET /` in the Twilio emulator to inspect messages, Verify attempts, calls,
 
 ## Current Limits
 
-No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, SendGrid, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.
+No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.

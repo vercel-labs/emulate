@@ -31,6 +31,10 @@ GitHub API coverage:
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.
 
+SendGrid email coverage:
+  Twilio includes POST /v3/mail/send with Bearer authentication.
+  Accepted requests are captured in twilio.sendgrid.emails; sandbox mode validates without capture.
+
 Vercel API coverage:
   GET /v7/deployments lists deployments by commit SHA across a team's projects, with cursor pagination.
 
