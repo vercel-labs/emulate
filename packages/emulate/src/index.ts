@@ -34,6 +34,9 @@ Linear API coverage:
 Vercel API coverage:
   GET /v7/deployments lists deployments by commit SHA across a team's projects, with cursor pagination.
 
+HTTP response behavior:
+  HEAD responses retain headers such as Content-Length and omit the response body.
+
 AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 

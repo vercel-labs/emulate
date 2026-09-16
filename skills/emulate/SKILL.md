@@ -541,3 +541,7 @@ packages/
 ```
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.
+
+## HTTP response semantics
+
+HEAD responses preserve status and response headers, including `Content-Length`, while omitting the body. This applies to explicit HEAD handlers and GET fallback routes.

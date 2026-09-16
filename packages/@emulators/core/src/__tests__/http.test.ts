@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { Hono, cors } from "../http.js";
 
 describe("internal http layer", () => {
+  it.each([false, true])("preserves HEAD metadata with middleware=%s and no response body", async (middleware) => {
+    const app = new Hono();
+    if (middleware) app.use("*", cors());
+    app.on("HEAD", "/object", (c) => c.text("", 200, { "Content-Length": "123" }));
+    const res = await app.request("/object?partNumber=1", { method: "HEAD" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Length")).toBe("123");
+    expect(res.body).toBeNull();
+  });
+
   it("dispatches middleware and route handlers with params", async () => {
     const app = new Hono();
     const calls: string[] = [];
@@ -56,6 +66,33 @@ describe("internal http layer", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Handler")).toBe("get");
+    expect(res.body).toBeNull();
+  });
+
+  it("cancels a discarded HEAD stream and preserves middleware headers", async () => {
+    let cancelled = false;
+    const app = new Hono();
+    app.use("*", async (c, next) => {
+      c.header("X-Middleware", "present");
+      await next();
+    });
+    app.get(
+      "/stream",
+      () =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { headers: { "Content-Length": "42" } },
+        ),
+    );
+    const response = await app.request("/stream", { method: "HEAD" });
+    expect(response.body).toBeNull();
+    expect(response.headers.get("Content-Length")).toBe("42");
+    expect(response.headers.get("X-Middleware")).toBe("present");
+    expect(cancelled).toBe(true);
   });
 
   it("handles CORS preflight requests", async () => {
