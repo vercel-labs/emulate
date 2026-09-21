@@ -223,6 +223,17 @@ export interface GitHubReview extends Entity {
   submitted_at: string | null;
 }
 
+export type GitHubReactionContent = "+1" | "-1" | "laugh" | "hooray" | "confused" | "heart" | "rocket" | "eyes";
+
+export interface GitHubReaction extends Entity {
+  node_id: string;
+  repo_id: number;
+  subject_type: "issue" | "issue_comment" | "review_comment";
+  subject_id: number;
+  user_id: number;
+  content: GitHubReactionContent;
+}
+
 export interface GitHubIssueEvent extends Entity {
   node_id: string;
   repo_id: number;

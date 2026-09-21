@@ -169,6 +169,9 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
+    for (const reaction of gh.reactions.findBy("subject_id", comment.id)) {
+      if (reaction.subject_type === "issue_comment") gh.reactions.delete(reaction.id);
+    }
     if (issue) adjustIssueCommentCount(gh, issue, -1);
 
     webhooks.dispatch(
@@ -296,6 +299,9 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
+    for (const reaction of gh.reactions.findBy("subject_id", comment.id)) {
+      if (reaction.subject_type === "review_comment") gh.reactions.delete(reaction.id);
+    }
     if (pr) adjustPrReviewCommentCount(gh, pr, -1);
 
     webhooks.dispatch(

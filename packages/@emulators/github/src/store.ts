@@ -13,6 +13,7 @@ import type {
   GitHubMilestone,
   GitHubComment,
   GitHubReview,
+  GitHubReaction,
   GitHubIssueEvent,
   GitHubBranch,
   GitHubBranchProtection,
@@ -52,6 +53,7 @@ export interface GitHubStore {
   milestones: Collection<GitHubMilestone>;
   comments: Collection<GitHubComment>;
   reviews: Collection<GitHubReview>;
+  reactions: Collection<GitHubReaction>;
   issueEvents: Collection<GitHubIssueEvent>;
   branches: Collection<GitHubBranch>;
   branchProtections: Collection<GitHubBranchProtection>;
@@ -92,6 +94,7 @@ export function getGitHubStore(store: Store): GitHubStore {
     milestones: store.collection<GitHubMilestone>("github.milestones", ["repo_id", "number"]),
     comments: store.collection<GitHubComment>("github.comments", ["repo_id"]),
     reviews: store.collection<GitHubReview>("github.reviews", ["repo_id", "pull_number"]),
+    reactions: store.collection<GitHubReaction>("github.reactions", ["repo_id", "subject_id"]),
     issueEvents: store.collection<GitHubIssueEvent>("github.issue_events", ["repo_id", "issue_number"]),
     branches: store.collection<GitHubBranch>("github.branches", ["repo_id"]),
     branchProtections: store.collection<GitHubBranchProtection>("github.branch_protections", ["repo_id"]),

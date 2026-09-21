@@ -368,6 +368,18 @@ curl http://localhost:4001/repos/octocat/hello-world/pulls/comments
 curl http://localhost:4001/repos/octocat/hello-world/comments
 ```
 
+Issue-comment webhooks include `issue.pull_request` metadata for pull requests, with `/pull/` HTML URLs.
+
+### Reactions
+
+List or create reactions with `GET/POST` on these paths:
+
+- `/repos/:owner/:repo/issues/:number/reactions` (issues and pull-request bodies)
+- `/repos/:owner/:repo/issues/comments/:id/reactions`
+- `/repos/:owner/:repo/pulls/comments/:id/reactions`
+
+Append `/:reaction_id` and use `DELETE` to remove a reaction. Create with `{ "content": "heart" }` or another GitHub reaction value. Lists support `content`, `page`, and `per_page`; duplicate reactions by the same user return the existing reaction. Issue and comment summaries track stored reactions. Reaction changes do not emit webhooks.
+
 ### Reviews
 
 ```bash
@@ -462,6 +474,12 @@ curl http://localhost:4001/app/installations \
 curl http://localhost:4001/app/installations/100 \
   -H "Authorization: Bearer <jwt>"
 
+# Discover installations and repositories accessible to a user
+curl http://localhost:4001/user/installations \
+  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4001/user/installations/100/repositories \
+  -H "Authorization: Bearer $TOKEN"
+
 # Create installation access token (mints ghs_... token)
 curl -X POST http://localhost:4001/app/installations/100/access_tokens \
   -H "Authorization: Bearer <jwt>" \
@@ -473,6 +491,8 @@ curl http://localhost:4001/repos/my-org/org-repo/installation
 curl http://localhost:4001/orgs/my-org/installation
 curl http://localhost:4001/users/octocat/installation
 ```
+
+User discovery endpoints paginate and respect installation repository selection plus explicit user access through ownership, collaboration, or organization membership. Public visibility alone does not grant discovery access.
 
 App webhook delivery: when events occur, the emulator POSTs `event_callback` payloads to configured `webhook_url` with `X-GitHub-Event` and `X-Hub-Signature-256` headers.
 

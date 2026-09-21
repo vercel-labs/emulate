@@ -712,6 +712,8 @@ JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's privat
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 
+User tokens can discover accessible installations with `GET /user/installations` and their repositories with `GET /user/installations/:installation_id/repositories`. Both endpoints paginate; discovery respects installation repository selection and explicit user access through ownership, collaboration, or organization membership. Public visibility alone does not grant discovery access.
+
 Inspect secret-free metadata for minted installation tokens at `GET /_emulate/installation-tokens`.
 
 **App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:
@@ -915,6 +917,17 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
+
+Issue responses and issue-comment webhooks include `pull_request` metadata when the issue represents a pull request.
+
+### Reactions
+
+- `GET/POST /repos/:owner/:repo/issues/:number/reactions` - list/create issue or pull-request body reactions
+- `GET/POST /repos/:owner/:repo/issues/comments/:id/reactions` - list/create issue-comment reactions
+- `GET/POST /repos/:owner/:repo/pulls/comments/:id/reactions` - list/create review-comment reactions
+- `DELETE` on any of these paths with `/:reaction_id` - remove a reaction
+
+Lists support `content`, `page`, and `per_page`. Repeating a reaction by the same user returns the existing reaction; issue and comment summaries reflect stored reactions. Reaction changes do not emit webhooks.
 
 ### Reviews
 - `GET /repos/:owner/:repo/pulls/:number/reviews` - list
