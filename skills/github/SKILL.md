@@ -370,6 +370,8 @@ curl http://localhost:4001/repos/octocat/hello-world/comments
 
 Issue-comment webhooks include `issue.pull_request` metadata for pull requests, with `/pull/` HTML URLs.
 
+Review comments validate paths and lines against stored commit diffs. Unpushed files or lines return `422` until pushed. Git refs and Contents API writes advance open pull-request heads and emit `pull_request.synchronize`. Use `POST /repos/:owner/:repo/pulls/:number/comments/:id/replies` with `{ "body": "Reply" }` to preserve the parent's thread and location. Legacy diff positions, binary diffs, and full multiline-range validation are not covered.
+
 ### Reactions
 
 List or create reactions with `GET/POST` on these paths:

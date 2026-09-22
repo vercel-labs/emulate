@@ -915,10 +915,13 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 ### Comments
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
+- Review replies: `POST /repos/:owner/:repo/pulls/:number/comments/:id/replies`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
 
 Issue responses and issue-comment webhooks include `pull_request` metadata when the issue represents a pull request.
+
+Review comments validate paths and lines against stored commit diffs. Comments on unpushed files or lines return `422` until those changes are pushed. Git refs and Contents API writes advance open pull-request heads and emit `pull_request.synchronize` webhooks. Review replies retain their parent's location. Legacy diff positions, binary diffs, and full multiline-range validation are not covered.
 
 ### Reactions
 

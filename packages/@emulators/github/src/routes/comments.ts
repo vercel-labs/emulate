@@ -4,6 +4,7 @@ import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulat
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubComment, GitHubCommit, GitHubIssue, GitHubPullRequest, GitHubRepo } from "../entities.js";
+import { blobText, diffText, findCommitBySha, flattenTree } from "../git-helpers.js";
 import {
   formatComment,
   formatIssue,
@@ -78,6 +79,45 @@ function adjustIssueCommentCount(gh: GitHubStore, issue: GitHubIssue, delta: num
 
 function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delta: number) {
   gh.pullRequests.update(pr.id, { review_comments: Math.max(0, pr.review_comments + delta) });
+}
+
+function reviewDiffContainsLine(patch: string | undefined, line: unknown, side: unknown): boolean {
+  if (typeof line !== "number" || !Number.isInteger(line) || line < 1) return false;
+  for (const hunk of (patch ?? "").matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const offset = side === "LEFT" ? 1 : 3;
+    const start = Number(hunk[offset]);
+    const count = Number(hunk[offset + 1] ?? 1);
+    if (line >= start && line < start + count) return true;
+  }
+  return false;
+}
+
+function validateReviewCommentLocation(
+  gh: GitHubStore,
+  pr: GitHubPullRequest,
+  commitSha: string,
+  path: string | null,
+  raw: Record<string, unknown>,
+): void {
+  const base = findCommitBySha(gh, pr.repo_id, pr.base_sha);
+  const head = findCommitBySha(gh, pr.head_repo_id, commitSha);
+  if (!base || !head || path === null) throw new ApiError(422, "Validation failed");
+  const before = flattenTree(gh, pr.repo_id, base.tree_sha).blobs.get(path);
+  const after = flattenTree(gh, pr.head_repo_id, head.tree_sha).blobs.get(path);
+  if ((!before && !after) || before?.sha === after?.sha) {
+    throw new ApiError(422, "Path is not part of the pull request diff");
+  }
+  if (raw.subject_type === "file") return;
+  const oldText = before ? blobText(gh, pr.repo_id, before.sha) : "";
+  const newText = after ? blobText(gh, pr.head_repo_id, after.sha) : "";
+  const patch = oldText !== null && newText !== null ? diffText(oldText, newText).patch : undefined;
+  if (raw.position !== undefined) return;
+  if (
+    !reviewDiffContainsLine(patch, raw.line, raw.side) ||
+    (raw.start_line !== undefined && !reviewDiffContainsLine(patch, raw.start_line, raw.start_side))
+  ) {
+    throw new ApiError(422, "Line is not part of the pull request diff");
+  }
 }
 
 export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
@@ -553,7 +593,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     return c.json(body);
   });
 
-  app.post("/repos/:owner/:repo/pulls/:pull_number/comments", async (c) => {
+  const createReviewComment = async (c: Context) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
@@ -575,16 +615,18 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const commitSha = typeof raw.commit_id === "string" && raw.commit_id.trim() ? raw.commit_id.trim() : pr.head_sha;
 
     let inReplyTo: number | null = null;
-    if (raw.in_reply_to_id !== undefined && raw.in_reply_to_id !== null) {
-      const rid =
-        typeof raw.in_reply_to_id === "number" ? raw.in_reply_to_id : parseInt(String(raw.in_reply_to_id), 10);
+    let parent: GitHubComment | undefined;
+    const replyId = (c.req.param("comment_id") || undefined) ?? raw.in_reply_to ?? raw.in_reply_to_id;
+    if (replyId !== undefined && replyId !== null) {
+      const rid = typeof replyId === "number" ? replyId : parseInt(String(replyId), 10);
       if (!Number.isFinite(rid)) throw new ApiError(422, "Validation failed");
-      const parent = gh.comments.get(rid);
+      parent = gh.comments.get(rid);
       if (
         !parent ||
         parent.repo_id !== repo.id ||
         parent.comment_type !== "review" ||
-        parent.pull_number !== pullNumber
+        parent.pull_number !== pullNumber ||
+        parent.in_reply_to_id !== null
       ) {
         throw new ApiError(422, "Validation failed");
       }
@@ -617,20 +659,22 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (position !== null && !Number.isFinite(position)) throw new ApiError(422, "Validation failed");
     if (line !== null && !Number.isFinite(line)) throw new ApiError(422, "Validation failed");
 
+    if (inReplyTo === null) validateReviewCommentLocation(gh, pr, commitSha, pathVal, raw);
+
     const row = gh.comments.insert({
       node_id: "",
       repo_id: repo.id,
       issue_number: null,
       pull_number: pullNumber,
-      commit_sha: commitSha,
+      commit_sha: parent?.commit_sha ?? commitSha,
       body: raw.body,
       user_id: actor.id,
       in_reply_to_id: inReplyTo,
-      path: pathVal,
-      position: position !== null && Number.isFinite(position) ? position : null,
-      line: line !== null && Number.isFinite(line) ? line : null,
-      side,
-      subject_type: subjectType,
+      path: parent?.path ?? pathVal,
+      position: parent?.position ?? (position !== null && Number.isFinite(position) ? position : null),
+      line: parent?.line ?? (line !== null && Number.isFinite(line) ? line : null),
+      side: parent?.side ?? side,
+      subject_type: parent?.subject_type ?? subjectType,
       comment_type: "review",
       review_id: null,
     } as Omit<GitHubComment, "id" | "created_at" | "updated_at">);
@@ -657,7 +701,9 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     );
 
     return c.json(commentFmt, 201);
-  });
+  };
+  app.post("/repos/:owner/:repo/pulls/:pull_number/comments", createReviewComment);
+  app.post("/repos/:owner/:repo/pulls/:pull_number/comments/:comment_id/replies", createReviewComment);
 
   app.get("/repos/:owner/:repo/commits/:commit_sha/comments", (c) => {
     const owner = c.req.param("owner")!;

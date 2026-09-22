@@ -63,6 +63,13 @@ describe("GitHub reactions routes", () => {
     const { commit } = (await branch.json()) as { commit: { sha: string } };
     const ref = await request(`${repoPath}/git/refs`, "POST", { ref: "refs/heads/feature", sha: commit.sha });
     expect(ref.status).toBe(201);
+    const changed = await request(`${repoPath}/contents/review.md`, "PUT", {
+      branch: "feature",
+      message: "Add reviewed file",
+      content: Buffer.from("Review this\n").toString("base64"),
+    });
+    expect(changed.status).toBe(201);
+    const head = (await changed.json()) as { commit: { sha: string } };
     const pull = await request(`${repoPath}/pulls`, "POST", { title: "Pull request", head: "feature", base: "main" });
     expect(pull.status).toBe(201);
     const pullBody = (await pull.json()) as { number: number };
@@ -71,10 +78,10 @@ describe("GitHub reactions routes", () => {
     const commentBody = (await comment.json()) as { id: number };
     const review = await request(`${repoPath}/pulls/${pullBody.number}/comments`, "POST", {
       body: "Review",
-      path: "README.md",
+      path: "review.md",
       line: 1,
       side: "RIGHT",
-      commit_id: commit.sha,
+      commit_id: head.commit.sha,
     });
     expect(review.status).toBe(201);
     const reviewBody = (await review.json()) as { id: number };
