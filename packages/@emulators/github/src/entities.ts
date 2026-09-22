@@ -210,6 +210,9 @@ export interface GitHubComment extends Entity {
   comment_type: "issue" | "review" | "commit";
   /** Set for line comments created as part of a pull request review. */
   review_id: number | null;
+  /** Resolution of the inline thread rooted at this comment. Replies inherit their root's state. */
+  resolved?: boolean;
+  resolved_by?: number | null;
 }
 
 export interface GitHubReview extends Entity {

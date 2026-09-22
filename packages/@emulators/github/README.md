@@ -80,8 +80,22 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/pulls/:number/reviews` — list
 - `POST /repos/:owner/:repo/pulls/:number/reviews` — create (with inline comments)
 - `GET/PUT /repos/:owner/:repo/pulls/:number/reviews/:id` — get/update
+- `DELETE /repos/:owner/:repo/pulls/:number/reviews/:id` — discard a pending review and its comments
 - `POST /repos/:owner/:repo/pulls/:number/reviews/:id/events` — submit
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` — dismiss
+
+Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
+
+### GraphQL collaboration
+
+The `POST /graphql` endpoint supports a collaboration subset backed by the same pull requests and comments as REST:
+
+- `repository.pullRequest` with paginated `reviewThreads`, comment identities, and resolution state
+- `addPullRequestReviewThread` to add an inline comment to an existing pending review using its `pullRequestReviewId`
+- `convertPullRequestToDraft` and `markPullRequestReadyForReview`
+- `resolveReviewThread` and `unresolveReviewThread`
+
+Draft/ready transitions and public thread resolution changes emit the corresponding webhooks. This is not a complete GitHub GraphQL schema; diff-validation limitations also apply to GraphQL comments.
 
 ### Labels & Milestones
 - Labels: full CRUD, add/remove from issues, replace all

@@ -92,7 +92,7 @@ function reviewDiffContainsLine(patch: string | undefined, line: unknown, side: 
   return false;
 }
 
-function validateReviewCommentLocation(
+export function validateReviewCommentLocation(
   gh: GitHubStore,
   pr: GitHubPullRequest,
   commitSha: string,
@@ -303,19 +303,20 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const commentFmt = formatComment(comment, gh, baseUrl);
     if (!commentFmt) throw notFoundResponse();
 
-    webhooks.dispatch(
-      "pull_request_review_comment",
-      "edited",
-      {
-        action: "edited",
-        comment: commentFmt,
-        pull_request: pr ? formatPullRequest(pr, gh, baseUrl) : null,
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(actor, baseUrl),
-      },
-      ownerLogin,
-      repo.name,
-    );
+    if (!comment.review_id || gh.reviews.get(comment.review_id)?.state !== "PENDING")
+      webhooks.dispatch(
+        "pull_request_review_comment",
+        "edited",
+        {
+          action: "edited",
+          comment: commentFmt,
+          pull_request: pr ? formatPullRequest(pr, gh, baseUrl) : null,
+          repository: formatRepo(repo, gh, baseUrl),
+          sender: formatUser(actor, baseUrl),
+        },
+        ownerLogin,
+        repo.name,
+      );
 
     return c.json(commentFmt);
   });
@@ -344,19 +345,20 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     }
     if (pr) adjustPrReviewCommentCount(gh, pr, -1);
 
-    webhooks.dispatch(
-      "pull_request_review_comment",
-      "deleted",
-      {
-        action: "deleted",
-        comment: commentFmt,
-        pull_request: pr ? formatPullRequest(pr, gh, baseUrl) : null,
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(actor, baseUrl),
-      },
-      ownerLogin,
-      repo.name,
-    );
+    if (!comment.review_id || gh.reviews.get(comment.review_id)?.state !== "PENDING")
+      webhooks.dispatch(
+        "pull_request_review_comment",
+        "deleted",
+        {
+          action: "deleted",
+          comment: commentFmt,
+          pull_request: pr ? formatPullRequest(pr, gh, baseUrl) : null,
+          repository: formatRepo(repo, gh, baseUrl),
+          sender: formatUser(actor, baseUrl),
+        },
+        ownerLogin,
+        repo.name,
+      );
 
     return c.body(null, 204);
   });
@@ -581,7 +583,12 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
 
     let list = gh.comments
       .findBy("repo_id", repo.id)
-      .filter((x) => x.comment_type === "review" && x.pull_number === pullNumber);
+      .filter(
+        (x) =>
+          x.comment_type === "review" &&
+          x.pull_number === pullNumber &&
+          (!x.review_id || gh.reviews.get(x.review_id)?.state !== "PENDING"),
+      );
     list = sortComments(list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);

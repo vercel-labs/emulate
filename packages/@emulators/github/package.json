@@ -39,7 +39,8 @@
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "graphql": "^17.0.0"
   },
   "devDependencies": {
     "tsc-ts": "0.1.3",

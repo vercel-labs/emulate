@@ -18,7 +18,7 @@ const repoPath = "/repos/octocat/hello-world";
 describe("GitHub review comment locations", () => {
   let app: Hono<AppEnv>;
   let webhooks: WebhookDispatcher;
-  let pull: { number: number; head: { sha: string } };
+  let pull: { number: number; node_id: string; head: { sha: string } };
 
   function request(path: string, method = "GET", body?: unknown) {
     return app.request(`${base}${repoPath}${path}`, {
@@ -81,6 +81,110 @@ describe("GitHub review comment locations", () => {
     expect((await request("/git/refs/heads/feature", "PATCH", { sha: commit.sha })).status).toBe(200);
     return commit.sha;
   }
+
+  it("validates a review's comments before creating it and permits submitted summary edits", async () => {
+    const input = {
+      body: "Summary",
+      event: "COMMENT",
+      comments: [{ path: "new.md", line: 1, side: "RIGHT", body: "Inline" }],
+    };
+    expect((await request(`/pulls/${pull.number}/reviews`, "POST", input)).status).toBe(422);
+    expect(await (await request(`/pulls/${pull.number}/reviews`)).json()).toEqual([]);
+    await pushChanges();
+    const response = await request(`/pulls/${pull.number}/reviews`, "POST", input);
+    expect(response.status).toBe(201);
+    const review = (await response.json()) as { id: number };
+    expect(await (await request(`/pulls/${pull.number}/reviews/${review.id}/comments`)).json()).toMatchObject([
+      { body: "Inline", line: 1 },
+    ]);
+    const edited = await request(`/pulls/${pull.number}/reviews/${review.id}`, "PUT", { body: "Revised summary" });
+    expect(edited.status).toBe(200);
+    expect(await edited.json()).toMatchObject({ body: "Revised summary", state: "COMMENTED" });
+  });
+
+  it("adds draft comments incrementally before submission and deletes discarded pending reviews", async () => {
+    const reviewsPath = `/pulls/${pull.number}/reviews`;
+    const created = await request(reviewsPath, "POST", { body: "Draft" });
+    expect(created.status).toBe(201);
+    const review = (await created.json()) as { id: number; node_id: string };
+    expect((await request(reviewsPath, "POST", { body: "Another pending review" })).status).toBe(422);
+    async function addComment(path: string) {
+      const response = await app.request(`${base}/graphql`, {
+        method: "POST",
+        headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query:
+            "mutation($input: AddPullRequestReviewThreadInput!) { addPullRequestReviewThread(input: $input) { thread { comments(first: 1) { nodes { databaseId body url } } } } }",
+          variables: {
+            input: { pullRequestReviewId: review.node_id, body: "Inline draft", path, line: 1, side: "RIGHT" },
+          },
+        }),
+      });
+      return response.json() as Promise<{ data?: unknown; errors?: unknown[] }>;
+    }
+    expect((await addComment("new.md")).errors).toBeDefined();
+    expect(await (await request(`${reviewsPath}/${review.id}/comments`)).json()).toEqual([]);
+    expect((await addComment("scenario.md")).errors).toBeUndefined();
+    expect(await (await request(`${reviewsPath}/${review.id}`)).json()).toMatchObject({ state: "PENDING" });
+    expect(await (await request(`${reviewsPath}/${review.id}/comments`)).json()).toMatchObject([
+      { body: "Inline draft", pull_request_review_id: review.id },
+    ]);
+    expect((await request(`${reviewsPath}/${review.id}/events`, "POST", { event: "COMMENT" })).status).toBe(200);
+    expect((await request(`${reviewsPath}/${review.id}`, "DELETE")).status).toBe(422);
+    expect((await addComment("scenario.md")).errors).toBeDefined();
+    const discarded = await request(reviewsPath, "POST", {
+      comments: [{ path: "scenario.md", line: 1, side: "RIGHT", body: "Discard this" }],
+    });
+    const draft = (await discarded.json()) as { id: number };
+    expect((await request(`${reviewsPath}/${draft.id}`, "DELETE")).status).toBe(200);
+    expect((await request(`${reviewsPath}/${draft.id}/comments`)).status).toBe(404);
+  });
+
+  it("shares draft and thread resolution state between GraphQL and REST", async () => {
+    async function query(query: string, variables: Record<string, unknown>) {
+      const response = await app.request(`${base}/graphql`, {
+        method: "POST",
+        headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables }),
+      });
+      expect(response.status).toBe(200);
+      const result = (await response.json()) as { data: Record<string, any>; errors?: unknown[] };
+      expect(result.errors).toBeUndefined();
+      return result.data;
+    }
+    await query(
+      "mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+      { id: pull.node_id },
+    );
+    expect(await (await request(`/pulls/${pull.number}`)).json()).toMatchObject({ draft: true });
+    await query(
+      "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+      { id: pull.node_id },
+    );
+    expect(await (await request(`/pulls/${pull.number}`)).json()).toMatchObject({ draft: false });
+    const created = await request(`/pulls/${pull.number}/comments`, "POST", {
+      body: "Review this",
+      path: "scenario.md",
+      line: 1,
+      side: "RIGHT",
+      commit_id: pull.head.sha,
+    });
+    const comment = (await created.json()) as { id: number };
+    const data = await query(
+      'query($number: Int!) { repository(owner: "octocat", name: "hello-world") { pullRequest(number: $number) { reviewThreads(first: 1) { nodes { id isResolved comments(first: 1) { nodes { databaseId } } } pageInfo { hasNextPage } } } } }',
+      { number: pull.number },
+    );
+    const thread = data.repository.pullRequest.reviewThreads.nodes[0];
+    expect(thread).toMatchObject({ isResolved: false, comments: { nodes: [{ databaseId: comment.id }] } });
+    for (const resolved of [true, false]) {
+      const mutation = resolved ? "resolveReviewThread" : "unresolveReviewThread";
+      const result = await query(
+        `mutation($id: ID!) { ${mutation}(input: {threadId: $id}) { thread { id isResolved } } }`,
+        { id: thread.id },
+      );
+      expect(result[mutation].thread).toEqual({ id: thread.id, isResolved: resolved });
+    }
+  });
 
   it("rejects missing files and out-of-diff lines until their changes are pushed", async () => {
     const create = (path: string, line: number, sha = pull.head.sha, extra = {}) =>
