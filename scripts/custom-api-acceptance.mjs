@@ -11,12 +11,16 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const consumer = await mkdtemp(join(tmpdir(), "emulate packed consumer "));
 const artifacts = join(consumer, "artifacts");
 await mkdir(artifacts);
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const pnpm = process.env.npm_execpath;
+assert.ok(pnpm, "Run this suite with pnpm test:custom-consumer");
 function run(command, args, cwd = consumer) {
+  if (command === pnpm && /\.[cm]?js$/.test(pnpm)) {
+    args = [pnpm, ...args];
+    command = process.execPath;
+  }
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    shell: process.platform === "win32" && command.endsWith(".cmd"),
     timeout: 120000,
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -67,10 +71,9 @@ async function stop() {
 }
 try {
   run(pnpm, ["--filter", "emulate", "pack", "--pack-destination", artifacts], root);
-  const tarball = join(
-    artifacts,
-    (await readdir(artifacts)).find((file) => file.endsWith(".tgz")),
-  );
+  const archive = (await readdir(artifacts)).find((file) => file.endsWith(".tgz"));
+  assert.ok(archive, `Packing did not create a tarball in ${artifacts}`);
+  const tarball = join(artifacts, archive);
   const repo = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   await writeFile(
     join(consumer, "package.json"),
