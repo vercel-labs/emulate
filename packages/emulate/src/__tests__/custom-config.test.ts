@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { loadConfig } from "../config-loader.js";
 import { scaffoldCommand } from "../commands/scaffold.js";
 import { prepareProject } from "../project-runner.js";
+import { ProjectLoader } from "../project-loader.js";
 
 const directories: string[] = [];
 async function project() {
@@ -19,13 +20,66 @@ async function project() {
     "junction",
   );
   await writeFile(join(dir, "package.json"), '{"type":"module"}');
-  return dir;
+  return realpath(dir);
 }
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 describe("custom configuration and scaffold", () => {
+  it("isolates simultaneous module graphs and keeps source metadata and native TypeScript transforms", async () => {
+    const dir = await project();
+    const entry = join(dir, "entry.ts");
+    const helper = join(dir, "helper.ts");
+    await writeFile(helper, "export enum Stock { Count = 3 }");
+    await writeFile(
+      entry,
+      'import { Stock } from "./helper.js"; export default { count: Stock.Count, url: import.meta.url, directory: import.meta.dirname, filename: import.meta.filename };',
+    );
+    const first = new ProjectLoader(dir);
+    const second = new ProjectLoader(dir);
+    try {
+      expect(await first.load(entry)).toMatchObject({ count: 3, directory: dir, filename: entry });
+      await writeFile(helper, "export enum Stock { Count = 7 }");
+      const updated = (await second.load(entry)) as { count: number; url: string };
+      expect(updated.count).toBe(7);
+      expect(fileURLToPath(updated.url)).toBe(entry);
+      expect(new URL(updated.url).search).toBe("");
+      expect(await first.load(entry)).toMatchObject({ count: 3 });
+      expect(second.dependencies.has(helper)).toBe(true);
+    } finally {
+      first.close();
+      second.close();
+    }
+    await expect(first.load(entry)).rejects.toThrow("closed");
+  });
+
+  it("resolves inherited JSONC aliases relative to their declaring config and prefers exact paths", async () => {
+    const dir = await project();
+    await mkdir(join(dir, "config"));
+    await mkdir(join(dir, "src"));
+    await writeFile(
+      join(dir, "config/base.json"),
+      '{ // shared aliases\n "compilerOptions": {"paths": {"@/*": ["../missing/*", "../src/*"], "@/value": ["../src/exact.ts"],},},}',
+    );
+    await writeFile(join(dir, "tsconfig.json"), '{"extends":"./config/base",}');
+    await writeFile(join(dir, "src/value.ts"), "export default 1");
+    await writeFile(join(dir, "src/exact.ts"), "export default 2");
+    await writeFile(join(dir, "src/other.ts"), "export default 3");
+    await writeFile(
+      join(dir, "entry.mts"),
+      'import exact from "@/value"; import other from "@/other"; export default {exact,other}',
+    );
+    const loader = new ProjectLoader(dir);
+    try {
+      expect(await loader.load("./entry.mts")).toEqual({ exact: 2, other: 3 });
+      expect(loader.dependencies.has(join(dir, "config/base.json"))).toBe(true);
+      expect(loader.dependencies.has(join(dir, "tsconfig.json"))).toBe(true);
+    } finally {
+      loader.close();
+    }
+  });
+
   it("leaves persistence unchanged when a listener cannot start", async () => {
     const dir = await project();
     scaffoldCommand("inventory", undefined, dir);

@@ -253,6 +253,36 @@ await api.close();
   await waitFor(() => readyCount() > setupBefore, "setup recovery");
   await checkIdentity();
 
+  const lazyPath = join(consumer, "emulators/lazy.ts");
+  await writeFile(lazyPath, "export default 21;\n");
+  const lazyBefore = readyCount();
+  await writeFile(
+    modulePath,
+    validModule.replace(
+      "setup({ app, state }) {",
+      'setup({ app, state }) { app.get("/lazy", async c => c.json({value: (await import("./lazy.ts")).default}));',
+    ),
+  );
+  await waitFor(() => readyCount() > lazyBefore, "lazy import route");
+  assert.deepEqual(await (await fetch(`${base}/lazy`)).json(), { value: 21 });
+  // Allow the worker's dependency notification to reach the supervisor before editing.
+  await new Promise((done) => setTimeout(done, 300));
+  const lazyReady = readyCount();
+  await writeFile(lazyPath, "export default 23;\n");
+  await waitFor(() => readyCount() > lazyReady, "dynamic import reload");
+  assert.deepEqual(await (await fetch(`${base}/lazy`)).json(), { value: 23 });
+
+  const missingBefore = failures();
+  await writeFile(modulePath, validModule.replace('"./stock.ts"', '"./missing-stock.ts"'));
+  await waitFor(() => failures() > missingBefore, "missing import failure");
+  const missingReady = readyCount();
+  await writeFile(join(consumer, "emulators/missing-stock.ts"), "export const stock = 17;\n");
+  await waitFor(() => readyCount() > missingReady, "new file recovery");
+  assert.deepEqual(await (await fetch(`${base}/inventory`)).json(), { stock: 17 });
+  const restored = readyCount();
+  await writeFile(modulePath, validModule);
+  await waitFor(() => readyCount() > restored, "restore static imports");
+
   await writeFile(join(consumer, "fixtures/stock.json"), '{"stock":18}');
   await writeFile(
     configFile,

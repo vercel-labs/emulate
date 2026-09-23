@@ -30,6 +30,7 @@ Custom stateful HTTP APIs:
   Test in process with createEmulator({ service: yourDefinition, listen: false }).
   Custom APIs support seeds, reset, snapshots, restore, and opt-in persistence.
   Config accepts local TypeScript/JavaScript files and installed packages alongside built-ins.
+  Node 24 loads TypeScript with tsconfig aliases and source maps; no extra runtime packages are needed.
   Successful watch reloads reset the run to seed; errors keep the previous runner when possible.
   Docs: https://emulate.dev/docs/custom-apis
 

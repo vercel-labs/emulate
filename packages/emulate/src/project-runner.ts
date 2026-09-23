@@ -161,6 +161,9 @@ export async function prepareProject(
     return {
       metadata,
       close,
+      watchDependencies(listener: (files: string[]) => void) {
+        config.loader.onDependenciesChange = listener;
+      },
       async start() {
         try {
           for (const item of prepared) {

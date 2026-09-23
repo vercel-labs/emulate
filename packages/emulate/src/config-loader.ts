@@ -1,10 +1,7 @@
-import { build, transform } from "esbuild";
-import { resolve as resolveImport } from "import-meta-resolve";
-import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
-import { dirname, resolve, extname, join, isAbsolute } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve, extname } from "node:path";
 import { parseDocument } from "yaml";
+import { ProjectLoader } from "./project-loader.js";
 import { assertEmulatorDefinition, type EmulatorDefinition, type PersistenceAdapter } from "@emulators/core";
 import { SERVICE_NAMES, SERVICE_REGISTRY, type ServiceName } from "./registry.js";
 import type { EmulateConfig, ServiceConfig } from "./config.js";
@@ -31,119 +28,6 @@ export function findConfig(path?: string, cwd = process.cwd()): string | undefin
   if (candidates.length > 1)
     throw new Error(`Multiple config files found. Select one with --config:\n${candidates.join("\n")}`);
   return candidates[0];
-}
-
-export class ProjectLoader {
-  readonly dependencies = new Set<string>();
-  private readonly temporary: string[] = [];
-  private readonly cache = new Map<string, Promise<unknown>>();
-  constructor(readonly directory: string) {}
-
-  resolve(specifier: string): string {
-    if (specifier.startsWith(".") || isAbsolute(specifier)) return resolve(this.directory, specifier);
-    try {
-      return fileURLToPath(resolveImport(specifier, pathToFileURL(join(this.directory, "package.json")).href));
-    } catch (error) {
-      throw new Error(
-        `Cannot load emulator package "${specifier}" from ${this.directory}. Install it in this project with npm install ${specifier}.`,
-        { cause: error },
-      );
-    }
-  }
-
-  async compile(path: string): Promise<string> {
-    this.dependencies.add(path);
-    const result = await build({
-      absWorkingDir: this.directory,
-      entryPoints: [path],
-      bundle: true,
-      platform: "node",
-      format: "esm",
-      target: "node24",
-      sourcemap: "inline",
-      metafile: true,
-      write: false,
-      logLevel: "silent",
-      plugins: [
-        {
-          name: "project-modules",
-          setup(builder) {
-            builder.onResolve({ filter: /^[^./]/ }, async (args) => {
-              if (args.pluginData?.resolved) return;
-              const result = await builder.resolve(args.path, {
-                kind: args.kind,
-                resolveDir: args.resolveDir,
-                pluginData: { resolved: true },
-              });
-              if (result.errors.length || result.external) return result;
-              if (
-                args.path === "emulate" ||
-                args.path.startsWith("emulate/") ||
-                args.path.startsWith("@emulators/") ||
-                /[/\\]node_modules[/\\]/.test(result.path)
-              ) {
-                return { path: pathToFileURL(result.path).href, external: true };
-              }
-              return result;
-            });
-            builder.onLoad({ filter: /\.[cm]?[jt]s$/ }, async (args) => {
-              const result = await transform(readFileSync(args.path, "utf8"), {
-                loader: /\.[cm]?ts$/.test(args.path) ? "ts" : "js",
-                format: "esm",
-                target: "node24",
-                sourcemap: "inline",
-                sourcefile: args.path,
-                define: {
-                  "import.meta.url": JSON.stringify(pathToFileURL(args.path).href),
-                  "import.meta.dirname": JSON.stringify(dirname(args.path)),
-                  "import.meta.filename": JSON.stringify(args.path),
-                },
-              });
-              return { contents: result.code, loader: "js", resolveDir: dirname(args.path) };
-            });
-          },
-        },
-      ],
-      banner: {
-        js: 'import { createRequire as __emulateCreateRequire } from "node:module"; const require = __emulateCreateRequire(import.meta.url);',
-      },
-    });
-    for (const file of Object.keys(result.metafile!.inputs)) this.dependencies.add(resolve(this.directory, file));
-    // Use the project directory so external packages resolve exactly as they do in its source files.
-    const dir = join(this.directory, ".emulate", "runtime");
-    mkdirSync(dir, { recursive: true });
-    const destination = join(dir, `${randomUUID()}.mjs`);
-    writeFileSync(destination, result.outputFiles[0].contents, { mode: 0o600 });
-    this.temporary.push(destination);
-    return destination;
-  }
-
-  load(specifier: string): Promise<unknown> {
-    const path = this.resolve(specifier);
-    if (!this.cache.has(path))
-      this.cache.set(
-        path,
-        (async () => {
-          const compiled = await this.compile(path);
-          const mod = await import(pathToFileURL(compiled).href);
-          return mod.default;
-        })(),
-      );
-    return this.cache.get(path)!;
-  }
-
-  close(): void {
-    for (const path of this.temporary.splice(0)) {
-      try {
-        unlinkSync(path);
-      } catch {}
-    }
-    for (const dir of [join(this.directory, ".emulate", "runtime"), join(this.directory, ".emulate")]) {
-      try {
-        rmdirSync(dir);
-      } catch {}
-    }
-  }
 }
 
 export interface ResolvedService extends Omit<ServiceConfig, "emulator"> {

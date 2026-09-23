@@ -1,7 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { resolve, dirname, matchesGlob } from "node:path";
-import { watch } from "chokidar";
+import { resolve, dirname } from "node:path";
+import { ProjectWatcher } from "../project-watcher.js";
 import { findConfig } from "../config-loader.js";
 import { prepareProject, type ProjectOptions, type RunMetadata, type RetainedSeed } from "../project-runner.js";
 import { ensurePortless, registerAliases, removeAliases, type PortlessAlias } from "../portless.js";
@@ -120,14 +120,6 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
   }
   const configPath = findConfig(options.config ?? options.seed);
   const directory = configPath ? dirname(configPath) : process.cwd();
-  const watcher = watch(directory, {
-    // Native Windows watchers can abort inside libuv when paths use 8.3 names.
-    usePolling: process.platform === "win32",
-    interval: 150,
-    ignored: (path) => /(?:^|[/\\])(?:node_modules|\.git|\.emulate|dist|\.next|\.turbo)(?:[/\\]|$)/.test(path),
-    ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 25 },
-  });
   let worker: ChildProcess | undefined;
   let candidate: ChildProcess | undefined;
   let retained: Record<string, RetainedSeed> = {};
@@ -163,14 +155,6 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
         throw new Error(
           "Generated identities changed. Restart with a new --generated-secrets-file path to apply the change.",
         );
-      dependencies = new Set(metadata.dependencies);
-      patterns = metadata.watch.map((pattern) => resolve(directory, pattern));
-      watcher.add([
-        ...dependencies,
-        ...patterns
-          .map((pattern) => pattern.split(/[*?{[]/)[0])
-          .map((path) => (path.endsWith("/") ? path : dirname(path))),
-      ]);
       if (target && !published) {
         published = await publishGeneratedSecretsFile(target, { schemaVersion: 1, generatedSecrets: metadata.secrets });
         deliveredSecrets = secretsIdentity;
@@ -195,11 +179,19 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       }
       worker = candidate;
       candidate = undefined;
+      dependencies = new Set(metadata.dependencies);
+      patterns = metadata.watch.map((pattern) => resolve(directory, pattern));
       const running = worker;
+      running.on("message", (message: any) => {
+        if (worker !== running || stopped || message.type !== "dependencies") return;
+        dependencies = new Set(message.dependencies);
+        void watcher.update(dependencies, patterns, failed).catch(console.error);
+      });
       running.once("exit", (code, signal) => {
         if (worker !== running || stopped) return;
         worker = undefined;
         failed = true;
+        void watcher.update(dependencies, patterns, true).catch(console.error);
         removeAliases(aliases);
         aliases = [];
         console.error(`Emulator runner exited (${signal ?? code}). Save a source file to restart.`);
@@ -207,9 +199,11 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       retained = metadata.retained;
       successful = true;
       failed = false;
+      await watcher.update(dependencies, patterns, false);
       printReady(metadata, true);
     } catch (error) {
       failed = true;
+      await watcher.update(dependencies, patterns, true);
       console.error(
         `\nReload failed${worker ? "; serving the last successful version" : ""}. Fix the source and save to retry.\n${error instanceof Error ? error.message : error}`,
       );
@@ -232,16 +226,17 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       }
     }
   }
-  watcher.on("all", (_event, path) => {
-    const full = resolve(path);
-    if (stopped || (options.generatedSecretsFile && full === resolve(options.generatedSecretsFile))) return;
-    if (!failed && !dependencies.has(full) && !patterns.some((pattern) => matchesGlob(full, pattern))) return;
-    clearTimeout(debounce);
-    debounce = setTimeout(() => {
-      void reload();
-    }, 100);
-  });
-  watcher.on("error", (error) => console.error("Watch error:", error));
+  const watcher = new ProjectWatcher(
+    directory,
+    (path) => {
+      if (stopped || (options.generatedSecretsFile && path === resolve(options.generatedSecretsFile))) return;
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        void reload();
+      }, 100);
+    },
+    (error) => console.error("Watch error:", error),
+  );
   const shutdown = () => {
     if (stopped) return;
     stopped = true;
@@ -253,5 +248,6 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+  await watcher.start();
   await reload();
 }

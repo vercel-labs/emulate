@@ -11,6 +11,9 @@ process.on(
           run = await prepareProject(message.options!, message.retained, message.reload);
           process.send?.({ type: "prepared", metadata: run.metadata });
         } else if (message.type === "start") {
+          run!.watchDependencies((dependencies) => {
+            if (process.connected) process.send?.({ type: "dependencies", dependencies }, () => {});
+          });
           await run!.start();
           process.send?.({ type: "started" });
         } else if (message.type === "close") {
