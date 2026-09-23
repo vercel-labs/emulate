@@ -1,5 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import type { SlackChannel } from "../entities.js";
+import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import { formatSlackMessage, slackOk, slackError, parseSlackBody, requireSlackScopes } from "../helpers.js";
 
@@ -62,15 +63,12 @@ export function reactionsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "reaction_added",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "reaction_added",
-          user: authUserId,
-          reaction: name,
-          item: { type: "message", channel, ts: timestamp },
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+        type: "reaction_added",
+        user: authUserId,
+        reaction: name,
+        item: { type: "message", channel, ts: timestamp },
+      }),
       "slack",
     );
 
@@ -116,15 +114,12 @@ export function reactionsRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "reaction_removed",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "reaction_removed",
-          user: authUserId,
-          reaction: name,
-          item: { type: "message", channel, ts: timestamp },
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+        type: "reaction_removed",
+        user: authUserId,
+        reaction: name,
+        item: { type: "message", channel, ts: timestamp },
+      }),
       "slack",
     );
 

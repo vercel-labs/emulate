@@ -1,5 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackMessage, SlackUser } from "../entities.js";
+import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -51,18 +52,20 @@ export function chatRoutes(ctx: RouteContext): void {
       ss().pins.delete(pin.id);
     }
   };
-  const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
+  const dispatchConversationEvent = async (
+    c: Context,
+    type: string,
+    event: Record<string, unknown>,
+    teamId?: string,
+  ) => {
     await webhooks.dispatch(
       type,
       undefined,
-      {
-        type: "event_callback",
-        event: { type, ...event },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, teamId), { type, ...event }),
       "slack",
     );
   };
-  const findOrCreateDirectMessage = async (authUser: { login: string }, userId: string) => {
+  const findOrCreateDirectMessage = async (c: Context, authUser: { login: string }, userId: string) => {
     const targetUser = ss().users.findOneBy("user_id", userId);
     if (!targetUser || targetUser.deleted) return undefined;
 
@@ -79,7 +82,7 @@ export function chatRoutes(ctx: RouteContext): void {
     if (existing) {
       if (!getSlackConversationOpenState(existing, authUserId)) {
         const updated = ss().channels.update(existing.id, setSlackConversationOpenState(existing, authUserId, true));
-        if (updated) await dispatchConversationEvent("im_open", { channel: updated.channel_id });
+        if (updated) await dispatchConversationEvent(c, "im_open", { channel: updated.channel_id }, updated.team_id);
         return updated;
       }
       return existing;
@@ -105,14 +108,17 @@ export function chatRoutes(ctx: RouteContext): void {
       num_members: members.length,
       last_read: {},
     });
-    await dispatchConversationEvent("im_created", {
-      channel: formatDirectMessageChannel(created, authUserId, targetUser.user_id),
-    });
-    await dispatchConversationEvent("im_open", { channel: created.channel_id });
+    await dispatchConversationEvent(
+      c,
+      "im_created",
+      { channel: formatDirectMessageChannel(created, authUserId, targetUser.user_id) },
+      created.team_id,
+    );
+    await dispatchConversationEvent(c, "im_open", { channel: created.channel_id }, created.team_id);
     return created;
   };
-  const findWritableConversation = async (authUser: { login: string }, channel: string) =>
-    findChannel(channel) ?? (await findOrCreateDirectMessage(authUser, channel));
+  const findWritableConversation = async (c: Context, authUser: { login: string }, channel: string) =>
+    findChannel(channel) ?? (await findOrCreateDirectMessage(c, authUser, channel));
 
   // chat.postMessage
   app.post("/api/chat.postMessage", async (c) => {
@@ -132,7 +138,7 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");
 
-    const ch = await findWritableConversation(authUser, channel);
+    const ch = await findWritableConversation(c, authUser, channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
     if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
@@ -171,14 +177,11 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          ...formatSlackMessage(msg),
-          type: "message",
-          channel: ch.channel_id,
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch.team_id), {
+        ...formatSlackMessage(msg),
+        type: "message",
+        channel: ch.channel_id,
+      }),
       "slack",
     );
 
@@ -286,19 +289,16 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "message",
-          subtype: "message_changed",
-          hidden: true,
-          channel,
-          ts: eventTs,
-          event_ts: eventTs,
-          message: formatSlackMessage(updated),
-          previous_message: formatSlackMessage(msg),
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+        type: "message",
+        subtype: "message_changed",
+        hidden: true,
+        channel,
+        ts: eventTs,
+        event_ts: eventTs,
+        message: formatSlackMessage(updated),
+        previous_message: formatSlackMessage(msg),
+      }),
       "slack",
     );
 
@@ -340,19 +340,16 @@ export function chatRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "message",
-          subtype: "message_deleted",
-          hidden: true,
-          channel,
-          ts: eventTs,
-          event_ts: eventTs,
-          deleted_ts: ts,
-          previous_message: formatSlackMessage(msg),
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
+        type: "message",
+        subtype: "message_deleted",
+        hidden: true,
+        channel,
+        ts: eventTs,
+        event_ts: eventTs,
+        deleted_ts: ts,
+        previous_message: formatSlackMessage(msg),
+      }),
       "slack",
     );
 

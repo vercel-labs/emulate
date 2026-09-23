@@ -1,5 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackMessage, SlackPin, SlackUser } from "../entities.js";
+import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -65,7 +66,7 @@ export function pinsRoutes(ctx: RouteContext): void {
       created_by: authUserId,
     });
 
-    await dispatchPinEvent("pin_added", {
+    await dispatchPinEvent(c, channel, "pin_added", {
       user: authUserId,
       channel_id: channel.channel_id,
       item: formatPinItem(pin, message),
@@ -135,7 +136,7 @@ export function pinsRoutes(ctx: RouteContext): void {
     if (!message) return slackOk(c, {});
 
     const hasPins = ss().pins.findBy("channel_id", channel.channel_id).length > 0;
-    await dispatchPinEvent("pin_removed", {
+    await dispatchPinEvent(c, channel, "pin_removed", {
       user: authUserId,
       channel_id: channel.channel_id,
       item: formatPinItem(pin, message),
@@ -160,14 +161,16 @@ export function pinsRoutes(ctx: RouteContext): void {
     };
   }
 
-  async function dispatchPinEvent(type: "pin_added" | "pin_removed", event: Record<string, unknown>) {
+  async function dispatchPinEvent(
+    c: Context,
+    channel: SlackChannel,
+    type: "pin_added" | "pin_removed",
+    event: Record<string, unknown>,
+  ) {
     await webhooks.dispatch(
       type,
       undefined,
-      {
-        type: "event_callback",
-        event: { type, ...event },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
       "slack",
     );
   }

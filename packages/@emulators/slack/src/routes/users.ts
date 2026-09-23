@@ -1,4 +1,5 @@
 import type { Context, RouteContext } from "@emulators/core";
+import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   generateTs,
@@ -119,14 +120,11 @@ export function usersRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "user_change",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "user_change",
-          user: formatUser(updated),
-          cache_ts: Number(generateTs().replace(".", "")),
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, updated.team_id), {
+        type: "user_change",
+        user: formatUser(updated),
+        cache_ts: Number(generateTs().replace(".", "")),
+      }),
       "slack",
     );
 
@@ -188,14 +186,11 @@ export function usersRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "presence_change",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "presence_change",
-          user: updated.user_id,
-          presence: nextPresence,
-        },
-      },
+      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, updated.team_id), {
+        type: "presence_change",
+        user: updated.user_id,
+        presence: nextPresence,
+      }),
       "slack",
     );
 

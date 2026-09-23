@@ -3,15 +3,207 @@ import { getSlackStore } from "../index.js";
 import { SLACK_MESSAGE_TEXT_LIMIT } from "../helpers.js";
 import {
   authHeaders,
-  captureFetchRequests,
+  captureFetchRequests as captureRawFetchRequests,
   createSlackTestApp,
   registerSlackEventSubscription,
   slackTestBaseUrl as base,
 } from "./helpers.js";
 
+function captureFetchRequests(teamId = "T000000001") {
+  const capture = captureRawFetchRequests();
+  return {
+    ...capture,
+    jsonBodies: () => {
+      const bodies = capture.jsonBodies();
+      for (const body of bodies) {
+        expect(body).toMatchObject({ type: "event_callback", team_id: teamId, event: expect.any(Object) });
+        const envelope = body as { event_id: string; event_time: number };
+        expect(envelope.event_id).toMatch(/^Ev[0-9a-f]{32}$/);
+        expect(Number.isInteger(envelope.event_time)).toBe(true);
+        expect(envelope.event_time).toBeGreaterThan(0);
+      }
+      return bodies;
+    },
+  };
+}
+
 describe("Slack plugin - event dispatch baseline", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it.each(["TokenMap-only", "seeded token"])(
+    "uses complete envelopes for five mutation routes with %s auth",
+    async (authMode) => {
+      const { app, store, webhooks } = createSlackTestApp();
+      const teamId = authMode === "seeded token" ? "TOTHERTEAM" : "T000000001";
+      const token = authMode === "seeded token" ? "xoxb-events-team" : "xoxb-test-token";
+      if (authMode === "seeded token") {
+        getSlackStore(store).tokens.insert({
+          token,
+          token_type: "bot",
+          team_id: teamId,
+          user_id: "U000000001",
+          scopes: ["chat:write", "reactions:write"],
+        });
+      }
+      const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      const capture = captureFetchRequests(teamId);
+      registerSlackEventSubscription(webhooks, ["message", "reaction_added", "reaction_removed"]);
+      const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+      vi.spyOn(Date, "now").mockReturnValue(1_750_000_000_123);
+
+      const postRes = await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ channel, text: "envelope repro" }),
+      });
+      const posted = (await postRes.json()) as { ok: boolean; ts: string };
+      expect(posted.ok).toBe(true);
+
+      for (const [method, body] of [
+        ["chat.update", { channel, ts: posted.ts, text: "updated envelope" }],
+        ["reactions.add", { channel, timestamp: posted.ts, name: "eyes" }],
+        ["reactions.remove", { channel, timestamp: posted.ts, name: "eyes" }],
+        ["chat.delete", { channel, ts: posted.ts }],
+      ] as const) {
+        const response = await app.request(`${base}/api/${method}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+        expect((await response.json()) as { ok: boolean }).toMatchObject({ ok: true });
+      }
+
+      const bodies = capture.jsonBodies() as Array<{
+        event_id: string;
+        event_time: number;
+        event: { type: string; subtype?: string; item?: { channel: string; ts: string } };
+      }>;
+      expect(bodies).toHaveLength(5);
+      expect(bodies.map((body) => [body.event.type, body.event.subtype])).toEqual([
+        ["message", undefined],
+        ["message", "message_changed"],
+        ["reaction_added", undefined],
+        ["reaction_removed", undefined],
+        ["message", "message_deleted"],
+      ]);
+      expect(bodies[2].event.item).toEqual({ type: "message", channel, ts: posted.ts });
+      expect(bodies[3].event.item).toEqual({ type: "message", channel, ts: posted.ts });
+      expect(bodies.map((body) => body.event_time)).toEqual(Array(5).fill(1_750_000_000));
+      expect(new Set(bodies.map((body) => body.event_id)).size).toBe(5);
+
+      const rejected = await app.request(`${base}/api/reactions.remove`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ channel, timestamp: posted.ts, name: "eyes" }),
+      });
+      expect((await rejected.json()) as { error: string }).toMatchObject({ error: "message_not_found" });
+      const invalidPost = await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ channel, text: "" }),
+      });
+      expect((await invalidPost.json()) as { error: string }).toMatchObject({ error: "no_text" });
+      expect(capture.requests).toHaveLength(5);
+    },
+  );
+
+  it("selects the team from the presented token when two installations share a user", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const slackStore = getSlackStore(store);
+    const teams = ["TINSTALLA", "TINSTALLB"];
+    for (const [index, teamId] of teams.entries()) {
+      slackStore.tokens.insert({
+        token: `xoxb-install-${index}`,
+        token_type: "bot",
+        team_id: teamId,
+        user_id: "U000000001",
+        scopes: ["chat:write"],
+      });
+    }
+    const capture = captureRawFetchRequests();
+    registerSlackEventSubscription(webhooks, ["message"]);
+    const channel = slackStore.channels.findOneBy("name", "general")!.channel_id;
+
+    for (const [index] of teams.entries()) {
+      const response = await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers: { Authorization: `Bearer xoxb-install-${index}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, text: `installation ${index}` }),
+      });
+      expect((await response.json()) as { ok: boolean }).toMatchObject({ ok: true });
+    }
+
+    expect(capture.jsonBodies()).toEqual([
+      expect.objectContaining({ team_id: teams[0], event_id: expect.any(String), event_time: expect.any(Number) }),
+      expect.objectContaining({ team_id: teams[1], event_id: expect.any(String), event_time: expect.any(Number) }),
+    ]);
+  });
+
+  it("falls back to the affected channel for development tokens and unmatched incoming webhooks", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const slackStore = getSlackStore(store);
+    const channel = slackStore.channels.findOneBy("name", "general")!;
+    slackStore.channels.update(channel.id, { team_id: "TCHANNELOTHER" });
+    const capture = captureFetchRequests("TCHANNELOTHER");
+    registerSlackEventSubscription(webhooks, ["message"]);
+
+    const posted = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: channel.channel_id, text: "channel team fallback" }),
+    });
+    expect((await posted.json()) as { ok: boolean }).toMatchObject({ ok: true });
+
+    const incoming = await app.request(`${base}/services/TIGNORED/BUNKNOWN/XUNKNOWN`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: channel.channel_id, text: "unregistered webhook fallback" }),
+    });
+    expect(incoming.status).toBe(200);
+    expect(capture.jsonBodies()).toHaveLength(2);
+  });
+
+  it("falls back to the affected user's team for development tokens", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const slackStore = getSlackStore(store);
+    const user = slackStore.users.findOneBy("user_id", "U000000001")!;
+    slackStore.users.update(user.id, { team_id: "TUSEROTHER" });
+    const capture = captureFetchRequests("TUSEROTHER");
+    registerSlackEventSubscription(webhooks, ["user_change"]);
+
+    const response = await app.request(`${base}/api/users.profile.set`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ profile: { display_name: "Other team user" } }),
+    });
+    expect((await response.json()) as { ok: boolean }).toMatchObject({ ok: true });
+    expect(capture.jsonBodies()).toHaveLength(1);
+  });
+
+  it("shares one envelope across subscriptions without reusing it for later events", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["message"]);
+    webhooks.register({ url: "https://hooks.example/second", events: ["message"], active: true, owner: "slack" });
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+
+    for (const text of ["first", "second"]) {
+      const response = await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ channel, text }),
+      });
+      expect((await response.json()) as { ok: boolean }).toMatchObject({ ok: true });
+    }
+
+    const bodies = capture.jsonBodies() as Array<{ event_id: string; event_time: number }>;
+    expect(bodies).toHaveLength(4);
+    expect(bodies[0]).toEqual(bodies[1]);
+    expect(bodies[2]).toEqual(bodies[3]);
+    expect(bodies[0].event_id).not.toBe(bodies[2].event_id);
   });
 
   it("dispatches message events for chat.postMessage", async () => {
@@ -334,7 +526,7 @@ describe("Slack plugin - event dispatch baseline", () => {
   it("dispatches file upload and file share events", async () => {
     const { app, store, webhooks } = createSlackTestApp();
     const capture = captureFetchRequests();
-    registerSlackEventSubscription(webhooks, ["file_created", "file_shared", "message"]);
+    registerSlackEventSubscription(webhooks, ["file_created", "file_shared", "file_deleted", "message"]);
 
     const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
     const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
@@ -381,6 +573,15 @@ describe("Slack plugin - event dispatch baseline", () => {
         }),
       }),
     ]);
+    const deleted = await app.request(`${base}/api/files.delete`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ file: upload.file_id }),
+    });
+    expect((await deleted.json()) as { ok: boolean }).toMatchObject({ ok: true });
+    expect(capture.jsonBodies()[3]).toMatchObject({
+      event: { type: "file_deleted", file_id: upload.file_id },
+    });
   });
 
   it("dispatches message_changed events for chat.update", async () => {
@@ -474,11 +675,12 @@ describe("Slack plugin - event dispatch baseline", () => {
 
   it("dispatches bot message events for incoming webhooks", async () => {
     const { app, store, webhooks } = createSlackTestApp();
-    const capture = captureFetchRequests();
+    const capture = captureFetchRequests("TWEBHOOKOTHER");
     registerSlackEventSubscription(webhooks, ["message"]);
 
     const ss = getSlackStore(store);
     const webhook = ss.incomingWebhooks.all()[0]!;
+    ss.incomingWebhooks.update(webhook.id, { team_id: "TWEBHOOKOTHER" });
     const res = await app.request(`${base}${webhook.url}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

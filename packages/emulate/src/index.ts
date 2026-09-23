@@ -68,6 +68,12 @@ Twilio API coverage:
 Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,
   and successful Web API responses include message_truncated warning metadata.
+
+Slack event callbacks:
+  Emitted event_callback payloads include team_id, event_id, and Unix-seconds event_time.
+  The team comes from the presented token's installation, or affected resource or seeded team
+  for development tokens. Incoming webhooks use their webhook or target channel team.
+  Each logical event has a distinct ID shared across subscriber deliveries.
 `,
   );
 

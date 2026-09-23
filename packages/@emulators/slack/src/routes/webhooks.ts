@@ -1,5 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
+import { buildSlackEventEnvelope } from "../events.js";
 import {
   formatSlackMessage,
   generateTs,
@@ -100,16 +101,13 @@ export function webhookRoutes(ctx: RouteContext): void {
     await webhooks.dispatch(
       "message",
       undefined,
-      {
-        type: "event_callback",
-        event: {
-          ...eventMessage,
-          type: "message",
-          subtype: "bot_message",
-          channel: targetChannel.channel_id,
-          bot_id: botId,
-        },
-      },
+      buildSlackEventEnvelope(webhook?.team_id ?? targetChannel.team_id, {
+        ...eventMessage,
+        type: "message",
+        subtype: "bot_message",
+        channel: targetChannel.channel_id,
+        bot_id: botId,
+      }),
       "slack",
     );
 

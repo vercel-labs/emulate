@@ -666,7 +666,9 @@ Open `GET /` in the Slack emulator to inspect conversations, messages, files, vi
 
 ## Event Dispatching
 
-When supported Slack writes mutate state, the emulator dispatches `event_callback` payloads to configured webhook URLs. These payloads match Slack's Events API format:
+For supported Slack writes that emit events, the emulator dispatches `event_callback` payloads to configured webhook URLs. These payloads match Slack's Events API format:
+
+Each callback includes outer `team_id`, `event_id`, and integer Unix-seconds `event_time` alongside the inner `event`. For authenticated Web API writes, `team_id` comes from the presented Slack token's installation. Development tokens without a stored Slack record fall back to the affected channel, user, or file's team, then the seeded workspace team (or `T000000001`). Incoming webhook posts use their webhook record's team, or the target channel's team when no record matches. Each logical event gets a distinct `event_id` shared by deliveries to multiple subscribers.
 
 - `message` events on `chat.postMessage`
 - `message` with `subtype: message_changed` on `chat.update`

@@ -89,6 +89,8 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 ### Inspector
 - `GET /` — tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
 
+When a supported write emits an `event_callback`, the payload includes the inner `event` and outer `team_id`, `event_id`, and integer Unix-seconds `event_time`. The team comes from the presented Slack token's installation; development tokens without a stored Slack record fall back to the affected channel, user, or file's team, then the seeded workspace team (or `T000000001`). Incoming webhook posts use their webhook record's team, or the target channel's team when no record matches. Each logical event has a distinct `event_id` shared by deliveries to multiple subscribers.
+
 Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
 
 ## Auth
