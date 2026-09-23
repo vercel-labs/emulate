@@ -121,6 +121,9 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
   const configPath = findConfig(options.config ?? options.seed);
   const directory = configPath ? dirname(configPath) : process.cwd();
   const watcher = watch(directory, {
+    // Native Windows watchers can abort inside libuv when paths use 8.3 names.
+    usePolling: process.platform === "win32",
+    interval: 150,
     ignored: (path) => /(?:^|[/\\])(?:node_modules|\.git|\.emulate|dist|\.next|\.turbo)(?:[/\\]|$)/.test(path),
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 25 },
