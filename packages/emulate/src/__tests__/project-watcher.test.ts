@@ -24,6 +24,14 @@ it("watches imports, atomic saves, missing files and fixture additions, and clos
     await writeFile(join(dir, "temporary"), "export default 2");
     await rename(join(dir, "temporary"), entry);
     await expect.poll(() => changes).toContain(entry);
+    changes.length = 0;
+    await writeFile(entry, "");
+    await new Promise((done) => setTimeout(done, 60));
+    expect(changes).toEqual([]);
+    await writeFile(entry, "export default 20");
+    await expect.poll(() => changes).toEqual([entry]);
+    await new Promise((done) => setTimeout(done, 120));
+    expect(changes).toEqual([entry]);
     await mkdir(join(dir, "fixtures"));
     await writeFile(fixture, "{}");
     await writeFile(missing, "export default 3");

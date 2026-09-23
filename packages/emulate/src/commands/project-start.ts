@@ -124,6 +124,8 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
   let candidate: ChildProcess | undefined;
   let retained: Record<string, RetainedSeed> = {};
   let dependencies = new Set<string>(configPath ? [configPath] : []);
+  // A new worker has not executed lazy route imports yet. Keep watching files discovered by earlier generations.
+  const lazyDependencies = new Set<string>();
   let patterns: string[] = [];
   let successful = false;
   let failed = false;
@@ -179,12 +181,15 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       }
       worker = candidate;
       candidate = undefined;
-      dependencies = new Set(metadata.dependencies);
+      dependencies = new Set([...metadata.dependencies, ...lazyDependencies]);
       patterns = metadata.watch.map((pattern) => resolve(directory, pattern));
       const running = worker;
       running.on("message", (message: any) => {
         if (worker !== running || stopped || message.type !== "dependencies") return;
-        dependencies = new Set(message.dependencies);
+        for (const file of message.dependencies as string[]) {
+          if (!metadata.dependencies.includes(file)) lazyDependencies.add(file);
+        }
+        dependencies = new Set([...metadata.dependencies, ...lazyDependencies]);
         void watcher.update(dependencies, patterns, failed).catch(console.error);
       });
       running.once("exit", (code, signal) => {

@@ -11,6 +11,7 @@ export class ProjectWatcher {
   private files = new Set<string>();
   private patterns: string[] = [];
   private previous = new Map<string, string>();
+  private readonly changes = new Map<string, { stamp: string | undefined; since: number }>();
   private recovery = true;
   private stopped = false;
   private timer?: ReturnType<typeof setTimeout>;
@@ -76,7 +77,15 @@ export class ProjectWatcher {
     const current = await this.snapshot();
     if (!baseline && !this.stopped) {
       for (const path of new Set([...this.previous.keys(), ...current.keys()])) {
-        if (this.previous.get(path) !== current.get(path)) this.change(path);
+        if (this.previous.get(path) !== current.get(path))
+          this.changes.set(path, { stamp: current.get(path), since: Date.now() });
+      }
+      // Editors may truncate and rewrite in separate operations. Emit once the observed version has settled.
+      for (const [path, change] of this.changes) {
+        if (current.get(path) === change.stamp && Date.now() - change.since >= 100) {
+          this.changes.delete(path);
+          this.change(path);
+        }
       }
     }
     this.previous = current;
@@ -109,7 +118,9 @@ export class ProjectWatcher {
         // Catch edits made while a candidate was loading, without treating newly watched files as edits.
         for (const [path, stamp] of this.previous) {
           const retained = this.files.has(path) || current.has(path);
-          if (!this.stopped && retained && current.get(path) !== stamp) this.change(path);
+          if (!retained) this.changes.delete(path);
+          else if (!this.stopped && current.get(path) !== stamp)
+            this.changes.set(path, { stamp: current.get(path), since: Date.now() });
         }
         this.previous = current;
       })
@@ -119,6 +130,7 @@ export class ProjectWatcher {
 
   async close(): Promise<void> {
     this.stopped = true;
+    this.changes.clear();
     clearTimeout(this.timer);
     await this.pending;
   }

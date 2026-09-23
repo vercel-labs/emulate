@@ -265,8 +265,9 @@ await api.close();
   );
   await waitFor(() => readyCount() > lazyBefore, "lazy import route");
   assert.deepEqual(await (await fetch(`${base}/lazy`)).json(), { value: 21 });
-  // Allow the worker's dependency notification to reach the supervisor before editing.
-  await new Promise((done) => setTimeout(done, 300));
+  const lazyConfigReady = readyCount();
+  await writeFile(configFile, (await readFile(configFile, "utf8")) + "\n");
+  await waitFor(() => readyCount() > lazyConfigReady, "reload with a previously discovered dynamic import");
   const lazyReady = readyCount();
   await writeFile(lazyPath, "export default 23;\n");
   await waitFor(() => readyCount() > lazyReady, "dynamic import reload");
