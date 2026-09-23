@@ -1,5 +1,6 @@
+import { createHmac } from "crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getSlackStore } from "../index.js";
+import { getSlackStore, seedFromConfig } from "../index.js";
 import { SLACK_MESSAGE_TEXT_LIMIT } from "../helpers.js";
 import {
   authHeaders,
@@ -11,6 +12,7 @@ import {
 
 describe("Slack plugin - event dispatch baseline", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -41,6 +43,93 @@ describe("Slack plugin - event dispatch baseline", () => {
         metadata,
       },
     });
+  });
+
+  it("signs callbacks with the current Slack signing secret and raw body", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const firstSecret = "test-slack-secret";
+    const secondSecret = "updated-slack-secret";
+    const firstTimestamp = 1_700_000_000_123;
+    const secondTimestamp = 1_700_000_099_987;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(firstTimestamp);
+
+    seedFromConfig(store, base, { signing_secret: firstSecret });
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["message"]);
+
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+    const text = 'Héllo "Slack"\nbackslash \\';
+    const firstResponse = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text }),
+    });
+    expect(firstResponse.status).toBe(200);
+
+    const firstRequest = capture.requests[0]!;
+    const firstBody = firstRequest.init.body as string;
+    const firstHeaders = firstRequest.init.headers as Record<string, string>;
+    expect(JSON.parse(firstBody)).toMatchObject({
+      type: "event_callback",
+      event: { type: "message", channel, text },
+    });
+    expect(firstHeaders["Content-Type"]).toBe("application/json");
+    expect(firstHeaders["X-Slack-Request-Timestamp"]).toBe("1700000000");
+    expect(firstHeaders["X-Slack-Signature"]).toMatch(/^v0=[a-f0-9]{64}$/);
+    expect(firstHeaders["X-Slack-Signature"]).toBe(
+      `v0=${createHmac("sha256", firstSecret).update(`v0:1700000000:${firstBody}`).digest("hex")}`,
+    );
+    expect(firstHeaders["X-GitHub-Event"]).toBeUndefined();
+    expect(firstHeaders["X-GitHub-Delivery"]).toBeUndefined();
+    expect(firstHeaders["X-Hub-Signature-256"]).toBeUndefined();
+
+    seedFromConfig(store, base, { signing_secret: secondSecret });
+    clock.mockReturnValue(secondTimestamp);
+    const secondResponse = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text: "updated Slack signature" }),
+    });
+    expect(secondResponse.status).toBe(200);
+
+    const secondRequest = capture.requests[1]!;
+    const secondBody = secondRequest.init.body as string;
+    const secondHeaders = secondRequest.init.headers as Record<string, string>;
+    expect(secondHeaders["X-Slack-Request-Timestamp"]).toBe("1700000099");
+    expect(secondHeaders["X-Slack-Signature"]).toBe(
+      `v0=${createHmac("sha256", secondSecret).update(`v0:1700000099:${secondBody}`).digest("hex")}`,
+    );
+    expect(webhooks.getDeliveries()).toEqual([
+      expect.objectContaining({ success: true, status_code: 200 }),
+      expect.objectContaining({ success: true, status_code: 200 }),
+    ]);
+  });
+
+  it.each([
+    ["omitted", {}],
+    ["empty", { signing_secret: "" }],
+  ])("sends unsigned Slack callbacks when the signing secret is %s", async (_case, config) => {
+    const { app, store, webhooks } = createSlackTestApp();
+    seedFromConfig(store, base, config);
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["message"], "subscription-secret");
+
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+    const response = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text: "unsigned event" }),
+    });
+    expect(response.status).toBe(200);
+
+    const headers = capture.requests[0]!.init.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-Slack-Request-Timestamp"]).toBeUndefined();
+    expect(headers["X-Slack-Signature"]).toBeUndefined();
+    expect(headers["X-GitHub-Event"]).toBeUndefined();
+    expect(headers["X-GitHub-Delivery"]).toBeUndefined();
+    expect(headers["X-Hub-Signature-256"]).toBeUndefined();
+    expect(webhooks.getDeliveries()).toEqual([expect.objectContaining({ success: true, status_code: 200 })]);
   });
 
   it("dispatches the normalized text for over-limit posts and updates", async () => {

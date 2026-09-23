@@ -52,6 +52,9 @@ Microsoft OAuth coverage:
 
 Webhook signatures:
   Stripe webhook secrets produce a Stripe-Signature header for raw-body verification.
+  Slack signing_secret produces X-Slack-Request-Timestamp and X-Slack-Signature for outbound event callbacks.
+  The Slack signature covers v0:<timestamp>:<raw-body>; configure the receiver with the same secret.
+  Slack callbacks are unsigned when signing_secret is absent or empty.
 
 Available services:
   ${SERVICE_NAMES.join(", ")}

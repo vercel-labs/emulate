@@ -1,5 +1,14 @@
+import { createHmac } from "crypto";
 import type { Context, Hono } from "@emulators/core";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
+import type {
+  ServicePlugin,
+  Store,
+  WebhookDispatcher,
+  WebhookHeaderContext,
+  TokenMap,
+  AppEnv,
+  RouteContext,
+} from "@emulators/core";
 import { getSlackStore } from "./store.js";
 import { generateSlackId } from "./helpers.js";
 import type { SlackOAuthApp, SlackPresence, SlackTokenType, SlackUserProfile } from "./entities.js";
@@ -107,6 +116,22 @@ const DEFAULT_SLACK_SCOPES = [
   "reactions:write",
   "team:read",
 ];
+
+function slackWebhookHeaders(store: Store, { body }: WebhookHeaderContext): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const signingSecret = store.getData<string>("slack.signing_secret");
+
+  if (signingSecret) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = createHmac("sha256", signingSecret).update(`v0:${timestamp}:${body}`).digest("hex");
+    headers["X-Slack-Request-Timestamp"] = String(timestamp);
+    headers["X-Slack-Signature"] = `v0=${signature}`;
+  }
+
+  return headers;
+}
 
 function seedDefaults(store: Store, _baseUrl: string): void {
   const ss = getSlackStore(store);
@@ -349,7 +374,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
     }
   }
 
-  if (config.signing_secret) {
+  if (config.signing_secret !== undefined) {
     store.setData("slack.signing_secret", config.signing_secret);
   }
 
@@ -361,6 +386,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
 export const slackPlugin: ServicePlugin = {
   name: "slack",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    webhooks.setHeaderFactory((context) => slackWebhookHeaders(store, context));
+
     app.use("*", async (c, next) => {
       applySlackTokenAuth(c, store);
       await next();

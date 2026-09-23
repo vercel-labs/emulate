@@ -135,6 +135,8 @@ When supported Slack writes mutate state, the emulator dispatches `event_callbac
 - `file_created`, `file_shared`, and `file_deleted` on file writes
 - `message` with `subtype: file_share` on shared file uploads
 
+Set `slack.signing_secret` in seed config to sign every outbound event subscription callback, including subscriptions that already exist. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`. The signature is `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`, calculated from the exact serialized request body. Configure the receiver with the same secret and verify the unparsed body. When the secret is absent or empty, callbacks are unsigned.
+
 ## Current Limits
 
 Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.

@@ -140,11 +140,16 @@ export function captureFetchRequests(status = 200): {
   };
 }
 
-export function registerSlackEventSubscription(webhooks: WebhookDispatcher, events: string[] = ["*"]): void {
+export function registerSlackEventSubscription(
+  webhooks: WebhookDispatcher,
+  events: string[] = ["*"],
+  secret?: string,
+): void {
   webhooks.register({
     url: "https://hooks.example/slack",
     events,
     active: true,
+    secret,
     owner: "slack",
   });
 }

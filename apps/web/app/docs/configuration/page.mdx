@@ -260,6 +260,8 @@ slack:
   signing_secret: my_signing_secret
 ```
 
+`signing_secret` signs every outbound Slack event subscription callback, including existing subscriptions. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`, calculated as `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>` over the exact serialized body. Configure the receiver with the same secret and verify the unparsed request body. When the secret is absent or empty, callbacks are unsigned.
+
 When no OAuth apps are configured, the emulator accepts any `client_id`. With apps configured, strict validation is enforced.
 
 ## Apple Seed Config

@@ -200,6 +200,8 @@ slack:
 
 When no OAuth apps are configured, the emulator accepts any `client_id`. With apps configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
 
+`signing_secret` signs every outbound event subscription callback. Configure the receiving app with the same secret; signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`, with `X-Slack-Signature` set to `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`. Verify against the unparsed request body. When the secret is absent or empty, callbacks are unsigned.
+
 ## API Endpoints
 
 ### Auth
@@ -685,6 +687,8 @@ When supported Slack writes mutate state, the emulator dispatches `event_callbac
 - `presence_change` on presence writes
 - `file_created`, `file_shared`, and `file_deleted` on file writes
 - `message` with `subtype: file_share` on shared file uploads
+
+When `slack.signing_secret` is configured, every existing outbound event subscription callback includes `X-Slack-Request-Timestamp` and `X-Slack-Signature`. The signature is `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`, using the exact serialized callback body. Configure the receiver with the same secret and verify the unparsed request body. With an absent or empty secret, callbacks are unsigned.
 
 ## Current Limits
 

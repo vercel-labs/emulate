@@ -229,6 +229,7 @@ slack:
       name: My Slack App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/slack
+  signing_secret: my_signing_secret
 
 linear:
   organization:
@@ -420,6 +421,8 @@ twilio:
     services:
       - friendly_name: Local Conversations
 ```
+
+`slack.signing_secret` signs every outbound event subscription callback. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`, calculated as `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>` over the exact serialized callback body. Configure the receiver with the same secret and verify the unparsed request body. Callbacks are unsigned when the secret is absent or empty.
 
 GitHub App `private_key` values are intentionally omitted from starter configuration. Programmatic `createEmulator` calls generate an RSA key and expose it through `generatedSecrets`. CLI startup generates omitted keys only when `--generated-secrets-file <path>` is provided; otherwise the seed must contain an explicit, valid private key. Never use a placeholder PEM value.
 
