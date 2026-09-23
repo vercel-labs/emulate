@@ -11,6 +11,16 @@ import { createServer } from "./server.js";
 import type { Store, StoreSnapshot } from "./store.js";
 import type { WebhookDispatcher } from "./webhooks.js";
 import type { PersistenceAdapter } from "./persistence.js";
+import {
+  createCustomRuntime,
+  isEmulatorDefinition,
+  type EmulatorDefinition,
+  type CustomRuntime,
+  type EmulatorSnapshot,
+} from "./custom.js";
+import type { InspectorOptions } from "./custom-inspector.js";
+import { Store as CustomStore } from "./store.js";
+import { WebhookDispatcher as CustomWebhooks } from "./webhooks.js";
 export interface AdapterEmulatorModule {
   plugin?: ServicePlugin;
   default?: ServicePlugin;
@@ -34,8 +44,10 @@ export interface GeneratedSecret {
   readonly value: string;
 }
 export interface AdapterEmulatorEntry {
-  emulator: AdapterEmulatorModule;
+  emulator: AdapterEmulatorModule | EmulatorDefinition;
   seed?: Record<string, unknown>;
+  inspector?: boolean | InspectorOptions;
+  persistence?: PersistenceAdapter;
 }
 export interface AdapterHandlerConfig {
   services: Record<string, AdapterEmulatorEntry>;
@@ -50,12 +62,14 @@ interface ServiceApp {
   tokenMap: TokenMap;
   plugin: ServicePlugin;
   webhooks: WebhookDispatcher;
+  custom?: CustomRuntime;
 }
 interface FullSnapshot {
   store: StoreSnapshot;
   tokens: Record<string, TokenEntry[]>;
   generatedSecrets?: GeneratedSecret[];
   seeded?: boolean;
+  custom?: Record<string, EmulatorSnapshot>;
 }
 interface PreparedState {
   snapshot: FullSnapshot | null;
@@ -77,6 +91,7 @@ function isFullSnapshot(value: unknown): value is FullSnapshot {
     isRecord(value.tokens) &&
     Object.values(value.tokens).every(Array.isArray) &&
     (value.seeded === undefined || typeof value.seeded === "boolean") &&
+    (value.custom === undefined || isRecord(value.custom)) &&
     (value.generatedSecrets === undefined ||
       (Array.isArray(value.generatedSecrets) && value.generatedSecrets.every(isGeneratedSecret)))
   );
@@ -97,7 +112,12 @@ function resolvePlugin(mod: AdapterEmulatorModule): ServicePlugin {
 function takeSnapshot(apps: Map<string, ServiceApp>, generatedSecrets: readonly GeneratedSecret[]): FullSnapshot {
   const mergedStore: StoreSnapshot = { collections: {}, data: {} };
   const tokens: Record<string, TokenEntry[]> = {};
+  const custom: Record<string, EmulatorSnapshot> = {};
   for (const [name, service] of apps) {
+    if (service.custom) {
+      custom[name] = service.custom.snapshot();
+      continue;
+    }
     const snapshot = service.store.snapshot();
     for (const [collection, value] of Object.entries(snapshot.collections)) {
       mergedStore.collections[`${name}:${collection}`] = value;
@@ -105,7 +125,13 @@ function takeSnapshot(apps: Map<string, ServiceApp>, generatedSecrets: readonly 
     for (const [key, value] of Object.entries(snapshot.data)) mergedStore.data[`${name}:${key}`] = value;
     tokens[name] = serializeTokenMap(service.tokenMap);
   }
-  return { store: mergedStore, tokens, generatedSecrets: [...generatedSecrets], seeded: true };
+  return {
+    store: mergedStore,
+    tokens,
+    generatedSecrets: [...generatedSecrets],
+    seeded: true,
+    ...(Object.keys(custom).length ? { custom } : {}),
+  };
 }
 function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapshot): void {
   const stores = new Map<string, StoreSnapshot>();
@@ -124,6 +150,7 @@ function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapsh
     stores.get(name)!.data[key] = value;
   }
   for (const [name, service] of apps) {
+    if (service.custom) continue;
     const storeSnapshot = stores.get(name);
     if (storeSnapshot) service.store.restore(storeSnapshot);
     restoreTokenMap(service.tokenMap, snapshot.tokens[name] ?? []);
@@ -160,14 +187,21 @@ export function createAdapterRuntime(
   let initPromise: Promise<void> | null = null;
   let preparationPromise: Promise<PreparedState> | null = null;
   let pendingSave: Promise<void> = Promise.resolve();
+  let closed = false;
+  let closing: Promise<void> | undefined;
+  const active = new Set<Promise<Response>>();
+  const hasCustom = Object.values(serviceEntries).some((entry) => isEmulatorDefinition(entry.emulator));
+  if (persistence && Object.values(serviceEntries).some((entry) => entry.persistence))
+    throw new Error("Choose either shared persistence or per-service persistence, not both");
   const needsDurableGeneratedIdentity = Object.values(serviceEntries).some(
-    (entry) => entry.seed && entry.emulator.needsGeneratedSecrets?.(entry.seed),
+    (entry) =>
+      !isEmulatorDefinition(entry.emulator) && entry.seed && entry.emulator.needsGeneratedSecrets?.(entry.seed),
   );
   async function prepareFreshState(restoredSecrets: readonly GeneratedSecret[] = [], strict = false) {
     const seeds = new Map<string, Record<string, unknown> | undefined>();
     const generatedSecrets: GeneratedSecret[] = [];
     for (const [name, entry] of Object.entries(serviceEntries)) {
-      if (entry.seed && entry.emulator.prepareSeed) {
+      if (!isEmulatorDefinition(entry.emulator) && entry.seed && entry.emulator.prepareSeed) {
         const serviceSecrets = restoredSecrets
           .filter((secret) => secret.service === name)
           .map(({ service: _service, ...secret }) => secret);
@@ -191,15 +225,22 @@ export function createAdapterRuntime(
       const preparation = (async () => {
         if (persistence) {
           const raw = await persistence.load();
-          if (raw) {
+          if (raw !== null && (raw !== "" || hasCustom)) {
             try {
               const snapshot = parseSnapshot(raw);
               const generatedSecrets = freezeSecrets(snapshot);
               if (snapshot.seeded === false) return { ...(await prepareFreshState(generatedSecrets, true)), snapshot };
               return { snapshot, seeds: new Map(), generatedSecrets };
-            } catch {
+            } catch (error) {
+              if (hasCustom)
+                throw new Error(
+                  "Cannot restore persisted custom emulator state. Repair or remove the saved snapshot.",
+                  { cause: error },
+                );
               if (needsDurableGeneratedIdentity) {
-                throw new Error("Cannot restore persisted emulator state without replacing generated identities");
+                throw new Error("Cannot restore persisted emulator state without replacing generated identities", {
+                  cause: error,
+                });
               }
             }
           }
@@ -266,42 +307,68 @@ export function createAdapterRuntime(
       }
     }
     const serviceApps = new Map<string, ServiceApp>();
-    for (const [name, entry] of Object.entries(serviceEntries)) {
-      const plugin = resolvePlugin(entry.emulator);
-      const baseUrl = `${origin}${servicePath(mountPath, name)}`;
-      let appKeyResolver: AppKeyResolver | undefined;
-      const server = createServer(plugin, {
-        baseUrl,
-        appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
-      });
-      if (entry.emulator.createAppKeyResolver) appKeyResolver = entry.emulator.createAppKeyResolver(server.store);
-      serviceApps.set(name, { ...server, plugin });
-    }
-    let restored = prepared.snapshot !== null && prepared.snapshot.seeded !== false;
-    if (restored && prepared.snapshot) {
-      try {
-        restoreFromSnapshot(serviceApps, prepared.snapshot);
-      } catch {
-        if (needsDurableGeneratedIdentity || prepared.generatedSecrets.length > 0) {
-          throw new Error("Cannot restore persisted emulator state without replacing generated identities");
-        }
-        restored = false;
-        prepared = await prepareFreshState();
-      }
-    }
-    if (!restored) {
+    try {
       for (const [name, entry] of Object.entries(serviceEntries)) {
-        const service = serviceApps.get(name)!;
         const baseUrl = `${origin}${servicePath(mountPath, name)}`;
-        service.plugin.seed?.(service.store, baseUrl);
-        const seed = prepared.seeds.get(name);
-        if (seed && entry.emulator.seedFromConfig) {
-          entry.emulator.seedFromConfig(service.store, baseUrl, seed, service.webhooks);
+        if (isEmulatorDefinition(entry.emulator)) {
+          if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`Invalid custom instance name: ${name}`);
+          const custom = await createCustomRuntime(entry.emulator, {
+            baseUrl,
+            seed: entry.seed,
+            inspector: entry.inspector,
+            persistence: entry.persistence,
+          });
+          serviceApps.set(name, {
+            app: custom,
+            custom,
+            store: new CustomStore(),
+            tokenMap: new Map(),
+            webhooks: new CustomWebhooks({ neutral: true }),
+            plugin: { name, register() {} },
+          });
+          const saved = prepared.snapshot?.custom;
+          if (saved && Object.hasOwn(saved, name)) await custom.restore(saved[name]);
+          continue;
+        }
+        const plugin = resolvePlugin(entry.emulator);
+        let appKeyResolver: AppKeyResolver | undefined;
+        const server = createServer(plugin, {
+          baseUrl,
+          appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
+        });
+        if (entry.emulator.createAppKeyResolver) appKeyResolver = entry.emulator.createAppKeyResolver(server.store);
+        serviceApps.set(name, { ...server, plugin });
+      }
+      let restored = prepared.snapshot !== null && prepared.snapshot.seeded !== false;
+      if (restored && prepared.snapshot) {
+        try {
+          restoreFromSnapshot(serviceApps, prepared.snapshot);
+        } catch {
+          if (hasCustom || needsDurableGeneratedIdentity || prepared.generatedSecrets.length > 0) {
+            throw new Error("Cannot restore persisted emulator state without replacing generated identities");
+          }
+          restored = false;
+          prepared = await prepareFreshState();
         }
       }
-      if (persistence) await enqueueSave(serviceApps, prepared.generatedSecrets, prepared.generatedSecrets.length > 0);
+      if (!restored) {
+        for (const [name, entry] of Object.entries(serviceEntries)) {
+          const service = serviceApps.get(name)!;
+          const baseUrl = `${origin}${servicePath(mountPath, name)}`;
+          service.plugin.seed?.(service.store, baseUrl);
+          const seed = prepared.seeds.get(name);
+          if (!isEmulatorDefinition(entry.emulator) && seed && entry.emulator.seedFromConfig) {
+            entry.emulator.seedFromConfig(service.store, baseUrl, seed, service.webhooks);
+          }
+        }
+        if (persistence)
+          await enqueueSave(serviceApps, prepared.generatedSecrets, hasCustom || prepared.generatedSecrets.length > 0);
+      }
+      return serviceApps;
+    } catch (error) {
+      await Promise.allSettled([...serviceApps.values()].map((service) => service.custom?.close()));
+      throw error;
     }
-    return serviceApps;
   }
   async function ensureInit(origin: string, mountPath: string): Promise<Map<string, ServiceApp>> {
     if (apps) return apps;
@@ -331,15 +398,58 @@ export function createAdapterRuntime(
       headers: req.headers,
       body: req.body,
       duplex: "half",
+      signal: req.signal,
     } as RequestInit & { duplex: string });
-    const response = await rewriteResponse(await service.app.fetch(strippedReq), servicePath(mountPath, serviceName));
-    if (persistence && MUTATING_METHODS.has(req.method)) {
-      enqueueSave(serviceApps, (await getPreparation()).generatedSecrets);
+    const rawResponse = await service.app.fetch(strippedReq);
+    const response = service.custom
+      ? rawResponse
+      : await rewriteResponse(rawResponse, servicePath(mountPath, serviceName));
+    if (persistence && (service.custom || MUTATING_METHODS.has(req.method))) {
+      if (service.custom) await enqueueSave(serviceApps, (await getPreparation()).generatedSecrets, true);
+      else enqueueSave(serviceApps, (await getPreparation()).generatedSecrets);
     }
     return response;
   }
   return {
-    handle,
+    handle(req: Request, pathSegments: string[], mountPath: string): Promise<Response> {
+      if (closed) return Promise.resolve(new Response("Emulator is closed", { status: 503 }));
+      const request = handle(req, pathSegments, mountPath);
+      active.add(request);
+      return request.finally(() => active.delete(request));
+    },
+    close() {
+      if (closing) return closing;
+      closed = true;
+      closing = (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            (async () => {
+              await initPromise?.catch(() => {});
+              const results = await Promise.allSettled(
+                [...(apps?.values() ?? [])].map((service) => service.custom?.close()),
+              );
+              await Promise.allSettled([...active]);
+              if (apps && hasCustom) await enqueueSave(apps, (await getPreparation()).generatedSecrets, true);
+              else await pendingSave;
+              for (const service of apps?.values() ?? []) service.webhooks.clear();
+              const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+              if (errors.length)
+                throw new AggregateError(
+                  errors.map((result) => result.reason),
+                  "Adapter cleanup failed",
+                );
+            })(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error("Adapter shutdown exceeded 10000ms")), 10000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      })();
+      return closing;
+    },
     async generatedSecrets(): Promise<readonly GeneratedSecret[]> {
       return (await getPreparation()).generatedSecrets;
     },

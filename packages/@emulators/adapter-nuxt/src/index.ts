@@ -100,6 +100,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig, options: Nuxt
     return runtime.handle(request, path, mountPath);
   };
   handler.generatedSecrets = runtime.generatedSecrets;
+  handler.close = runtime.close;
   return handler;
 }
 interface NitroInstanceLike {

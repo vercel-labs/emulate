@@ -11,7 +11,8 @@
     "type-check": "turbo type-check",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx}\"",
-    "sync-versions": "node scripts/sync-versions.mjs"
+    "sync-versions": "node scripts/sync-versions.mjs",
+    "test:custom-consumer": "node scripts/custom-api-acceptance.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

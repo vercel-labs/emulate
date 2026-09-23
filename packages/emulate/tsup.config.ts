@@ -26,7 +26,7 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
-    entry: ["src/index.ts"],
+    entry: ["src/index.ts", "src/project-worker.ts"],
     format: ["esm"],
     dts: false,
     clean: true,
@@ -42,7 +42,7 @@ export default defineConfig([
     ...shared,
     entry: ["src/api.ts"],
     format: ["esm"],
-    dts: true,
+    dts: { resolve: ["@emulators/core"] },
     clean: false,
     splitting: true,
     sourcemap: true,

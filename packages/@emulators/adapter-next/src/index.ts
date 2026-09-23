@@ -33,6 +33,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
     PATCH: handler,
     DELETE: handler,
     generatedSecrets: runtime.generatedSecrets,
+    close: runtime.close,
   };
 }
 export function withEmulate<T>(nextConfig: T, options?: { routePrefix?: string }): T {

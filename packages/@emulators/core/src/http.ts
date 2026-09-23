@@ -19,6 +19,18 @@ export type MiddlewareHandler<E = unknown> = Handler<E>;
 export type ErrorHandler<E = unknown> = (err: unknown, c: Context<E>) => Response | Promise<Response>;
 export type FetchHandler = (request: Request) => Response | Promise<Response>;
 
+export interface HttpOptions {
+  strictRoutes?: boolean;
+  strictJson?: boolean;
+  onError?: (error: unknown, request: Request) => void;
+}
+
+export interface RouteInfo {
+  method: string;
+  path: string;
+  source?: string;
+}
+
 interface CompiledPath {
   pattern: string;
   regex: RegExp;
@@ -29,6 +41,7 @@ interface Route<E> {
   method: string;
   compiled: CompiledPath;
   handlers: Handler<E>[];
+  source?: string;
 }
 
 interface MatchedHandler<E> {
@@ -59,6 +72,7 @@ export class HonoRequest<P extends string = string> {
   constructor(
     request: Request,
     private readonly params: Record<string, string>,
+    private readonly strictJson = false,
   ) {
     this.raw = request;
     this.url = request.url;
@@ -93,8 +107,13 @@ export class HonoRequest<P extends string = string> {
     return this.params[name] ?? "";
   }
 
-  json<T = any>(): Promise<T> {
-    return this.raw.json() as Promise<T>;
+  async json<T = any>(): Promise<T> {
+    try {
+      return (await this.raw.json()) as T;
+    } catch (error) {
+      if (!this.strictJson) throw error;
+      throw Object.assign(new Error("Invalid JSON request body", { cause: error }), { status: 400 });
+    }
   }
 
   text(): Promise<string> {
@@ -119,7 +138,7 @@ export class HonoRequest<P extends string = string> {
       return out;
     }
     if (contentType.includes("application/json")) {
-      const body = await this.raw.json().catch(() => ({}));
+      const body = this.strictJson ? await this.json() : await this.raw.json().catch(() => ({}));
       return body && typeof body === "object" && !Array.isArray(body)
         ? (body as Record<string, FormDataEntryValue | FormDataEntryValue[]>)
         : {};
@@ -138,8 +157,9 @@ export class Context<E = unknown, P extends string = string> {
     request: Request,
     params: Record<string, string>,
     private readonly notFoundHandler: (c: Context<E>) => Response | Promise<Response>,
+    strictJson = false,
   ) {
-    this.req = new HonoRequest<P>(request, params);
+    this.req = new HonoRequest<P>(request, params, strictJson);
   }
 
   get<K extends keyof VariablesOf<E> & string>(key: K): VariablesOf<E>[K] | undefined {
@@ -150,8 +170,9 @@ export class Context<E = unknown, P extends string = string> {
     this.vars.set(key, value);
   }
 
-  header(name: string, value: string): void {
-    this.responseHeaders.set(name, value);
+  header(name: string, value: string, options?: { append?: boolean }): void {
+    if (options?.append) this.responseHeaders.append(name, value);
+    else this.responseHeaders.set(name, value);
   }
 
   status(status: number): void {
@@ -185,9 +206,7 @@ export class Context<E = unknown, P extends string = string> {
   finalize(response: Response): Response {
     if (!hasHeaders(this.responseHeaders)) return response;
     const headers = new Headers(response.headers);
-    this.responseHeaders.forEach((value, key) => {
-      headers.set(key, value);
-    });
+    mergeHeaders(headers, this.responseHeaders);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -197,9 +216,7 @@ export class Context<E = unknown, P extends string = string> {
 
   private response(body: BodyInit | null, status?: ContentfulStatusCode, headers?: HeadersInit): Response {
     const merged = new Headers(headers);
-    this.responseHeaders.forEach((value, key) => {
-      merged.set(key, value);
-    });
+    mergeHeaders(merged, this.responseHeaders);
     return new Response(body, {
       status: status ?? this.responseStatus,
       headers: merged,
@@ -207,7 +224,30 @@ export class Context<E = unknown, P extends string = string> {
   }
 }
 
+function mergeHeaders(target: Headers, source: Headers): void {
+  source.forEach((value, key) => {
+    if (key !== "set-cookie") target.set(key, value);
+  });
+  const cookies = source.getSetCookie();
+  if (cookies.length) {
+    target.delete("set-cookie");
+    for (const cookie of cookies) target.append("set-cookie", cookie);
+  }
+}
+
 export class Hono<E = unknown> {
+  constructor(private readonly options: HttpOptions = {}) {}
+
+  get routeTable(): RouteInfo[] {
+    return this.routes.map((r) => ({ method: r.method, path: r.compiled.pattern, source: r.source }));
+  }
+
+  matchedRoute(method: string, path: string): RouteInfo | undefined {
+    const route =
+      this.routes.find((r) => r.method === method && matchPath(r.compiled, path)) ??
+      (method === "HEAD" ? this.routes.find((r) => r.method === "GET" && matchPath(r.compiled, path)) : undefined);
+    return route && { method: route.method, path: route.compiled.pattern, source: route.source };
+  }
   private readonly middleware: Route<E>[] = [];
   private readonly routes: Route<E>[] = [];
   private errorHandler: ErrorHandler<E> = (err) => {
@@ -229,7 +269,20 @@ export class Hono<E = unknown> {
   }
 
   on<P extends string = string>(method: string, path: string, ...handlers: Handler<E, P>[]): this {
-    this.routes.push({ method: method.toUpperCase(), compiled: compilePath(path), handlers: handlers as Handler<E>[] });
+    const compiled = compilePath(path);
+    const source = this.options.strictRoutes ? new Error().stack?.split("\n").slice(2).join("\n") : undefined;
+    if (this.options.strictRoutes) {
+      if (path === "/_emulate" || path.startsWith("/_emulate/"))
+        throw new Error(`Route ${method} ${path} uses the reserved /_emulate namespace`);
+      const existing = this.routes.find(
+        (r) => r.method === method.toUpperCase() && r.compiled.regex.source === compiled.regex.source,
+      );
+      if (existing)
+        throw new Error(
+          `Duplicate route ${method} ${path}\nFirst registration:${existing.source}\nSecond registration:${source}`,
+        );
+    }
+    this.routes.push({ method: method.toUpperCase(), compiled, handlers: handlers as Handler<E>[], source });
     return this;
   }
 
@@ -274,12 +327,13 @@ export class Hono<E = unknown> {
     const path = url.pathname;
     const method = request.method.toUpperCase();
     const matched = this.match(method, path);
-    const context = new Context<E>(request, matched.params, this.notFoundHandler);
+    const context = new Context<E>(request, matched.params, this.notFoundHandler, this.options.strictJson);
 
     try {
       const response = await this.dispatch(context, matched.handlers);
       return context.finalize(response ?? (await this.notFoundHandler(context)));
     } catch (err) {
+      this.options.onError?.(err, request);
       return context.finalize(await this.errorHandler(err, context));
     }
   };

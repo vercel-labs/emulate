@@ -183,3 +183,7 @@ import * as stripe from '@emulators/stripe'
 ```
 
 These are the same modules used internally by the CLI and the [Next.js adapter](/docs/nextjs) or [Nuxt adapter](/docs/nuxt). See the framework integration pages for full examples of using scoped packages with `createEmulateHandler`.
+
+## Custom stateful HTTP APIs
+
+Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. See [Custom HTTP APIs](/docs/custom-apis) for the quickstart, API reference, and complete lifecycle semantics.

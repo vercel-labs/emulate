@@ -124,3 +124,7 @@ persistence: filePersistence('.emulate/state.json'),
 
 - [Full documentation](https://emulate.dev)
 - [GitHub](https://github.com/vercel-labs/emulate)
+
+## Custom HTTP APIs
+
+Pass a definition created with `defineEmulator` from `emulate` to `services[name].emulator` in framework adapters. The same definition runs through the CLI and `createEmulator({ service: definition, listen: false })` in tests. Custom entries accept an optional inspector and persistence adapter. Keep state inside the definition's state factory, and await the handler's `close()` in tests. See the [custom API guide](https://emulate.dev/docs/custom-apis).

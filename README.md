@@ -38,6 +38,47 @@ Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` wh
 
 Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks.
 
+## Custom stateful HTTP APIs
+
+Write your own API in a typed module and use it in the CLI, tests, and framework adapters:
+
+```bash
+npm install -D emulate
+npx emulate init --custom inventory
+npx emulate start --watch
+```
+
+The scaffold implements reservations, stock changes, cancellation, and out-of-stock errors. It includes a config and a runnable Node test. Open the printed `/_emulate` URL to inspect requests, routes, and state, then reset to the initial seed.
+
+```typescript
+import { defineEmulator, createEmulator } from 'emulate'
+
+const counter = defineEmulator({
+  name: 'counter',
+  state: () => ({ count: 0 }),
+  setup({ app, state }) {
+    app.get('/count', (c) => c.json(state))
+    app.post('/increment', (c) => c.json({ count: ++state.count }))
+  },
+})
+
+const api = await createEmulator({ service: counter, listen: false })
+try {
+  await api.request('/increment', { method: 'POST' })
+  const checkpoint = api.snapshot()
+  await api.reset()
+  await api.restore(checkpoint)
+} finally {
+  await api.close()
+}
+```
+
+Use `defineConfig({ services: { inventory: { emulator: inventory }, github: { emulator: 'github' } } })` in `emulate.config.ts`. YAML/JSON entries accept local module paths and installed packages. `--config` selects a config explicitly; legacy flat configs and `--seed` remain supported. TypeScript path aliases and source locations work without a separate build.
+
+Custom state uses your own record shapes and IDs. Seeds replace the complete initial state. Reset restores the captured seed; successful watch reloads create a new baseline and reset the run. Instances are independent. Persistence is opt-in, with versioned snapshots and no cross-process locking. Use `port: 0` for HTTP tests, or `listen: false` to test without opening a port. Custom reset and close are awaitable.
+
+See the [custom API guide](https://emulate.dev/docs/custom-apis) and [complete inventory example](examples/custom-api) for validation, middleware, persistence, adapters, package sharing, and troubleshooting.
+
 ## CLI
 
 ```bash

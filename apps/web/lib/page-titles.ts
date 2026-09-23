@@ -1,6 +1,7 @@
 export const PAGE_TITLES: Record<string, string> = {
   "": "Local API Emulation\nfor CI and Sandboxes",
   "programmatic-api": "Programmatic API",
+  "custom-apis": "Custom Stateful HTTP APIs",
   configuration: "Configuration",
   nextjs: "Next.js Integration",
   nuxt: "Nuxt Integration",

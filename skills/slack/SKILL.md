@@ -735,3 +735,7 @@ curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
   -d '{"text": "Build passed on main"}'
 ```
+
+## Custom HTTP APIs alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a custom stateful API and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "slack" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing custom APIs, see https://emulate.dev/docs/custom-apis.

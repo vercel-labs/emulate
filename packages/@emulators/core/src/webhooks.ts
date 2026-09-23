@@ -50,6 +50,9 @@ function githubHeaders({ event, body, subscription, deliveryId }: WebhookHeaderC
 }
 
 export class WebhookDispatcher {
+  constructor(private readonly options: { signal?: AbortSignal; neutral?: boolean } = {}) {
+    if (options.neutral) this.headerFactory = () => ({ "Content-Type": "application/json" });
+  }
   private subscriptions: WebhookSubscription[] = [];
   private deliveries: WebhookDelivery[] = [];
   private subscriptionIdCounter = 1;
@@ -140,7 +143,9 @@ export class WebhookDispatcher {
           method: "POST",
           headers,
           body,
-          signal: AbortSignal.timeout(10000),
+          signal: this.options.signal
+            ? AbortSignal.any([this.options.signal, AbortSignal.timeout(10000)])
+            : AbortSignal.timeout(10000),
         });
         delivery.duration = Date.now() - start;
         delivery.status_code = response.status;

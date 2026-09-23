@@ -90,3 +90,16 @@ export {
   type PreparedServiceSeed,
   type GeneratedSecret,
 } from "./adapter-runtime.js";
+export {
+  defineEmulator,
+  isEmulatorDefinition,
+  assertEmulatorDefinition,
+  createCustomRuntime,
+  cloneState,
+  type EmulatorDefinition,
+  type EmulatorContext,
+  type EmulatorSnapshot,
+  type CustomRuntime,
+  type CustomRuntimeOptions,
+} from "./custom.js";
+export { type InspectorOptions } from "./custom-inspector.js";

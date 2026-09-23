@@ -44,7 +44,7 @@ interface LoadResult {
   source: string;
 }
 
-interface PreparedService {
+export interface PreparedService {
   svc: ServiceName;
   entry: (typeof SERVICE_REGISTRY)[ServiceName];
   loadedSvc: Awaited<ReturnType<(typeof SERVICE_REGISTRY)[ServiceName]["load"]>>;
@@ -152,7 +152,7 @@ export async function prepareStartServices(
 
 type HttpServer = ReturnType<typeof serve>;
 
-function createPreparedServiceServer(preparedService: PreparedService, tokens: Tokens) {
+export function createPreparedServiceServer(preparedService: PreparedService, tokens: Tokens) {
   const { entry, loadedSvc, svcSeedConfig, port, baseUrl } = preparedService;
   let cachedResolver: AppKeyResolver | undefined = undefined;
   const appKeyResolver: AppKeyResolver | undefined = loadedSvc.createAppKeyResolver
@@ -170,7 +170,7 @@ function createPreparedServiceServer(preparedService: PreparedService, tokens: T
   return server;
 }
 
-function seedPreparedService(
+export function seedPreparedService(
   preparedService: PreparedService,
   store: Store,
   webhooks: ReturnType<typeof createServer>["webhooks"],

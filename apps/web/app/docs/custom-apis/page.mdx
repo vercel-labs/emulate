@@ -1,0 +1,194 @@
+# Custom stateful HTTP APIs
+
+Define your own API in a TypeScript module. Run it alongside built-in services, inspect requests and state in the browser, and use the same definition in tests and framework adapters.
+
+Requires Node 24 or later.
+
+```bash
+npm install -D emulate
+npx emulate init --custom inventory
+npx emulate start --watch
+```
+
+The scaffold creates `emulators/inventory.ts`, a Node test, and a config entry. It implements reservations that consume stock, cancellation that returns stock, and an out-of-stock response.
+
+```bash
+curl -X POST http://localhost:4000/reservations
+curl http://localhost:4000/inventory
+curl -X DELETE http://localhost:4000/reservations/r_1
+node --test emulators/inventory.test.ts
+```
+
+Open the printed inspector URL, normally `http://localhost:4000/_emulate`. Requests, Routes, and State are available automatically. Reset restores the captured initial seed.
+
+## Define an emulator
+
+```typescript
+import { defineEmulator } from 'emulate'
+
+export default defineEmulator({
+  name: 'counter',
+  state: () => ({ count: 0 }),
+  setup({ app, state }) {
+    app.get('/count', (c) => c.json({ count: state.count }))
+    app.post('/increment', (c) => {
+      state.count += 1
+      return c.json({ count: state.count })
+    })
+  },
+})
+```
+
+State is inferred inside handlers. Use your own record shapes and IDs. State must contain JSON-compatible objects, arrays, finite numbers, strings, booleans, or null. Use strings for dates and string-keyed records for maps. Unsupported values produce errors with their property path.
+
+Importing a definition starts no server. `state()` creates initial data for each instance. Keep mutable state inside that factory, and keep `setup()` synchronous. Reset recreates handlers so their closures refer to the new state.
+
+The setup context contains `app`, `state`, `baseUrl`, `signal`, `webhooks`, and `onDispose(callback)`. Use `baseUrl` for advertised URLs. Pass the lifecycle signal to asynchronous work, and register resource cleanup with `onDispose`; cleanup may return a promise.
+
+## HTTP handlers
+
+The router supports `get`, `post`, `put`, `patch`, `delete`, `on(method, path, handler)`, `use`, `onError`, and `notFound`. Use `on` for HEAD or OPTIONS. HEAD also falls back to a matching GET handler with no response body.
+
+Read requests through `c.req.param(name)`, `query(name)`, `queries(name)`, `header(name)`, `json()`, `text()`, `arrayBuffer()`, or `parseBody()`. The original native Request is `c.req.raw`. Malformed JSON produces HTTP 400. Type annotations on `json<T>()` do not validate input; use your existing validation library for domain rules.
+
+Return `c.json`, `c.text`, `c.html`, `c.body`, `c.redirect`, or a native Response. Set response headers with `c.header(name, value)`; use the third argument `{ append: true }` for repeated headers such as cookies. Cookies can be read from the request's Cookie header and written with Set-Cookie. There is no implicit authentication or rate limit. Add middleware for the API behavior you need. The router is the documented emulate API, not the entire Hono middleware ecosystem.
+
+CORS defaults to permissive local development behavior. Set `cors: false` on the definition to implement OPTIONS yourself, or provide CORS options. Middleware can use `c.set` and `c.get` for request-local values. Register explicit routes outside the reserved `/_emulate` management namespace.
+
+## Configure services
+
+```typescript
+import { defineConfig } from 'emulate'
+import inventory from './emulators/inventory.ts'
+
+export default defineConfig({
+  services: {
+    inventory: { emulator: inventory, port: 4000 },
+    github: { emulator: 'github', port: 4001 },
+  },
+})
+```
+
+YAML and JSON support the same services map, using a module path or installed package as the emulator:
+
+```yaml
+services:
+  inventory:
+    emulator: ./emulators/inventory.ts
+    port: 4000
+  billing:
+    emulator: '@acme/emulate-billing'
+    port: 4001
+```
+
+Files and packages resolve from the config project, including when using `npx`. Local `.ts`, `.mts`, `.js`, and `.mjs` modules need no build step. TypeScript path aliases work. Installed packages must export a built JavaScript definition as their default export.
+
+Use `--config path/to/emulate.config.ts` to select a file, `--service inventory,github` to select instances, and `npx emulate list` to see available services and configured custom instances. Existing flat YAML/JSON configurations and `--seed` remain supported. `--config` and `--seed` cannot be combined. If discovery finds multiple files, select one explicitly.
+
+The config key is the instance name. Register one definition under different names for independent instances. A custom instance cannot replace a built-in name. Instance names use lowercase letters, digits, and hyphens.
+
+## Seeds, reset, snapshots, and persistence
+
+A custom `seed` completely replaces the default initial state. It is not a deep merge. Inline seeds are typed. Add `validateSeed(value)` to the definition for external fixtures; return a valid state or throw a descriptive error. The same validator is used for snapshot restoration.
+
+```typescript
+const api = await createEmulator({
+  service: counter,
+  listen: false,
+  seed: { count: 10 },
+})
+
+const checkpoint = api.snapshot()
+await api.request('/increment', { method: 'POST' })
+await api.restore(checkpoint)
+await api.reset()
+await api.close()
+```
+
+Snapshots are detached copies with format, definition, and state version metadata. Set `stateVersion` on the definition and increment it when changing the persisted shape. Incompatible snapshots fail explicitly. `restore()` changes current state while preserving the original reset baseline.
+
+State is held in one process by default. Add a persistence file to a custom CLI entry:
+
+```typescript
+inventory: {
+  emulator: inventory,
+  persistence: './.emulate/inventory.json',
+}
+```
+
+Programmatic and adapter usage accepts `filePersistence(path)` or an object with asynchronous `load()` and `save(data)` methods. Saves are serialized. Completed requests, including reads that change state and error responses after mutations, persist state. Reset, restore, and controlled shutdown also persist state. Arbitrary background mutations are outside automatic persistence boundaries. Load/save does not provide cross-process locking.
+
+<table>
+  <thead><tr><th>Action</th><th>State</th></tr></thead>
+  <tbody>
+    <tr><td>First startup</td><td>Capture the configured seed or state factory result as the reset baseline.</td></tr>
+    <tr><td>Reset</td><td>Restore a fresh copy of that baseline and recreate handlers.</td></tr>
+    <tr><td>Restore</td><td>Replace current state; preserve the original reset baseline.</td></tr>
+    <tr><td>Startup with persistence</td><td>Restore saved state; use the configured seed as the reset baseline.</td></tr>
+    <tr><td>Successful watch reload</td><td>Capture a new baseline and reset the run to it.</td></tr>
+  </tbody>
+</table>
+
+Concurrent handlers use ordinary JavaScript semantics. An `await` can allow another request to run. Keep checks and related state changes together, or implement the synchronization appropriate to your API.
+
+## Test without a server
+
+```typescript
+import { createEmulator } from 'emulate'
+import inventory from './emulators/inventory.ts'
+
+const api = await createEmulator({ service: inventory, listen: false })
+try {
+  const response = await api.request('/reservations', { method: 'POST' })
+  console.log(response.status) // 201
+  console.log(await (await api.request('/inventory')).json()) // { stock: 9 }
+  await api.reset()
+} finally {
+  await api.close()
+}
+```
+
+`request(path, init)` and `fetch(Request)` use the same handlers as HTTP. There is no network URL with `listen: false`. For SDKs that need HTTP, use `port: 0` and the actual assigned `api.url`. Startup awaits the listening socket. Custom reset and close are awaitable; existing built-in synchronous reset remains supported.
+
+The scaffold's test runs on Node 24 without a test-framework dependency. In Vitest or Jest, create the instance in setup, await reset between tests, and await close in teardown. For TypeScript checks on source imports, enable `allowImportingTsExtensions` with `noEmit`.
+
+## Watch and inspect
+
+`--watch` follows config, imported local modules, and imported JSON fixtures. For runtime file reads, declare additional paths with `watch: ['./fixtures/**']` in config. Successful reloads reset every configured service and retain its port and advertised URL. There can be a brief reconnect during restart. Compilation or preparation failures leave the previous runner available and print the source error.
+
+Generated built-in identities remain stable across code reloads. Changing a seeded service with delivered generated secrets requires restarting with a new delivery-file path. The supervisor owns the secrets file and portless aliases for the invocation.
+
+The inspector is enabled by default for CLI custom services and disabled by default for tests and adapters. Set `inspector: true` to enable it elsewhere, or pass options such as `{ maxRequests: 100, maxBodyBytes: 8192, redact: ['access_key'] }`. Authentication headers and common secret fields are redacted. Large, binary, and streaming previews are omitted or summarized. State and request views are escaped and bounded. Inspector traffic is excluded from request history.
+
+## Embed in Next.js or Nuxt
+
+Pass the same definition in the existing adapter services map:
+
+```typescript
+import { createEmulateHandler } from '@emulators/adapter-next'
+import inventory from './inventory'
+
+const handler = createEmulateHandler({
+  services: { inventory: { emulator: inventory } },
+})
+export const { GET, POST, PUT, PATCH, DELETE } = handler
+```
+
+The Nuxt adapter accepts the same entry. Use the framework's existing catch-all route setup. Custom responses remain author-controlled, and the provided `baseUrl` includes the mounted service path. Inspector links and fonts respect that mount. Retain the handler and call its `close()` method in test teardown. Install `emulate` as a runtime dependency when the definition is deployed inside your application.
+
+## Share a package
+
+Export the definition as your package's default export, compile it to JavaScript, and publish declarations. Declare `emulate` as a peer dependency compatible with the version you tested. An import-only ESM package export is supported. Consumers install the package themselves and reference it from their config; emulate does not automatically install missing plugins.
+
+## Troubleshooting
+
+- **Cannot find a package:** install it in the project containing the config. A CLI downloaded by `npx` does not install the packages imported by your source.
+- **Multiple configs:** select one with `--config` or remove the obsolete config after reviewing it.
+- **Seed field errors:** provide a complete state object and check the definition's validator.
+- **Incompatible snapshot:** migrate the stored data to the definition's state version, or deliberately choose a new persistence file.
+- **Port already in use:** change that instance's port. Startup reports the failure and closes services already opened by that attempt.
+- **A runtime fixture does not trigger reload:** add it to the config's `watch` paths.
+- **State survives unexpectedly:** check for mutable module-level variables; only instance-owned state belongs to the reset contract.
+- **Custom setup fails:** keep setup synchronous and use `onDispose` to register cleanup for resources created before the failure.
+
+The [inventory example](https://github.com/vercel-labs/emulate/tree/main/examples/custom-api) contains the complete workflow and test. Codebase generation, record/replay, distributed state, and state migration across source edits are separate future capabilities.
