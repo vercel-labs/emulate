@@ -54,6 +54,6 @@ The persistence adapter is called on cold start (load) and after every mutating 
 - [Full documentation](https://emulate.dev)
 - [GitHub](https://github.com/vercel-labs/emulate)
 
-## Custom HTTP APIs
+## Custom emulators
 
-Pass a definition created with `defineEmulator` from `emulate` to `services[name].emulator` in framework adapters. The same definition runs through the CLI and `createEmulator({ service: definition, listen: false })` in tests. Custom entries accept an optional inspector and persistence adapter. Streamed response bodies persist state changes on completion or cancellation, and reset and close cancel active streams before cleanup. Appended Set-Cookie headers retain cookies already on a response. Keep state inside the definition's state factory, and await the handler's `close()` in tests. See the [custom API guide](https://emulate.dev/docs/custom-apis).
+Pass a definition created with `defineEmulator` from `emulate` to `services[name].emulator` in framework adapters. The same definition runs through the CLI and `createEmulator({ service: definition, listen: false })` in tests. Custom entries accept an optional inspector and persistence adapter. Streamed response bodies persist state changes on completion or cancellation, and reset and close cancel active streams before cleanup. Appended Set-Cookie headers retain cookies already on a response. Keep state inside the definition's state factory, and await the handler's `close()` in tests. See the [custom emulator guide](https://emulate.dev/docs/custom-emulators).

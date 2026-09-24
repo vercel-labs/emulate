@@ -23,8 +23,10 @@ Framework adapters:
   Embed emulators in app routes with @emulators/adapter-next or @emulators/adapter-nuxt.
   Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
 
-Custom stateful HTTP APIs:
-  Run 'npx emulate init --custom inventory' to create a typed API, config, and runnable test.
+Custom emulators:
+  Build and share emulators for third-party HTTP APIs alongside the built-in services.
+  Run 'npx emulate init --custom inventory' to scaffold an emulator, config, and runnable test.
+  Adapt the generated inventory routes, state, and test to the provider your app uses.
   Existing YAML, JSON, TypeScript, and JavaScript configs get a service entry when supported.
   For unusual executable configs, init prints the import and service entry to add manually.
   Init prints the test command; use the service URL and Inspector link printed by start for requests.
@@ -32,7 +34,7 @@ Custom stateful HTTP APIs:
   Creating a missing local import retries a failed reload, including outside the config directory.
   Import defineEmulator, defineConfig, and createEmulator from 'emulate'.
   Test in process with createEmulator({ service: yourDefinition, listen: false }).
-  Custom APIs support seeds, reset, snapshots, restore, and opt-in persistence.
+  Custom emulators support seeds, reset, snapshots, restore, and opt-in persistence.
   Streamed responses persist state changes during delivery; reset and close cancel active streams before cleanup.
   Appended Set-Cookie headers retain cookies already on a response.
   Config accepts local TypeScript/JavaScript files and installed packages alongside built-ins.
@@ -44,7 +46,7 @@ Custom stateful HTTP APIs:
   Structured inspection redacts token and secret fields, including access_token and client_secret.
   Framework adapters keep root-relative custom redirects under the service mount.
   Export OPTIONS from the Next.js handler to forward preflight and custom OPTIONS routes.
-  Docs: https://emulate.dev/docs/custom-apis
+  Docs: https://emulate.dev/docs/custom-emulators
 
 GitHub API coverage:
   Includes repository contents, raw downloads, raw media negotiation for file Contents and README responses,
@@ -146,7 +148,7 @@ program
   .command("init")
   .description("Generate a starter config file")
   .option("-s, --service <service>", "Service to generate config for", "all")
-  .option("--custom <name>", "Scaffold a custom stateful API, config, and test")
+  .option("--custom <name>", "Scaffold a third-party API emulator, config, and test")
   .option("--config <file>", "Existing configuration to update when scaffolding a custom API")
   .action((opts) => {
     try {

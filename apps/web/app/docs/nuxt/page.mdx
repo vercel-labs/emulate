@@ -147,6 +147,6 @@ export default defineEventHandler(createEmulateHandler(config, { routePrefix: '/
 - Requires a Node-compatible Nuxt server runtime since emulators use Node APIs
 - Concurrent mutations use last-write-wins semantics. Generated identities use `initialize` to select the initial snapshot atomically across cold starts.
 
-## Custom stateful HTTP APIs
+## Custom emulators
 
-Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. Root-relative redirect locations stay under the mounted service path, while custom HTML bodies pass through unchanged. See [Custom HTTP APIs](/docs/custom-apis) for the quickstart, API reference, and complete lifecycle semantics.
+Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. Root-relative redirect locations stay under the mounted service path, while custom HTML bodies pass through unchanged. See [Custom emulators](/docs/custom-emulators) for the quickstart, API reference, and complete lifecycle semantics.

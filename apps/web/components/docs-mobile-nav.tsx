@@ -4,57 +4,14 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Sheet, SheetTrigger, SheetContent, SheetTitle } from "@/components/ui/sheet";
-
-type NavSection = {
-  title?: string;
-  items: { href: string; label: string }[];
-};
-
-const sections: NavSection[] = [
-  {
-    items: [
-      { href: "/docs", label: "Getting Started" },
-      { href: "/docs/programmatic-api", label: "Programmatic API" },
-      { href: "/docs/configuration", label: "Configuration" },
-      { href: "/docs/nextjs", label: "Next.js Integration" },
-      { href: "/docs/nuxt", label: "Nuxt Integration" },
-    ],
-  },
-  {
-    title: "Services",
-    items: [
-      { href: "/docs/vercel", label: "Vercel" },
-      { href: "/docs/github", label: "GitHub" },
-      { href: "/docs/google", label: "Google" },
-      { href: "/docs/slack", label: "Slack" },
-      { href: "/docs/linear", label: "Linear" },
-      { href: "/docs/twilio", label: "Twilio" },
-      { href: "/docs/apple", label: "Apple" },
-      { href: "/docs/microsoft", label: "Microsoft Entra ID" },
-      { href: "/docs/aws", label: "AWS" },
-      { href: "/docs/okta", label: "Okta" },
-      { href: "/docs/mongoatlas", label: "MongoDB Atlas" },
-      { href: "/docs/resend", label: "Resend" },
-      { href: "/docs/stripe", label: "Stripe" },
-    ],
-  },
-  {
-    title: "Reference",
-    items: [
-      { href: "/docs/authentication", label: "Authentication" },
-      { href: "/docs/architecture", label: "Architecture" },
-    ],
-  },
-];
-
-const allItems = sections.flatMap((s) => s.items);
+import { allDocsPages, docsSections } from "@/lib/docs-navigation";
 
 export function DocsMobileNav() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
   const currentPage = useMemo(() => {
-    return allItems.find((page) => page.href === pathname) ?? allItems[0];
+    return allDocsPages.find((page) => page.href === pathname) ?? allDocsPages[0];
   }, [pathname]);
 
   return (
@@ -63,7 +20,9 @@ export function DocsMobileNav() {
         aria-label="Open table of contents"
         className="lg:hidden sticky top-14 z-40 w-full px-6 py-3 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-sm border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between focus:outline-none"
       >
-        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{currentPage.label}</div>
+        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          {currentPage.label ?? currentPage.name}
+        </div>
         <div className="w-8 h-8 flex items-center justify-center">
           <svg
             className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
@@ -87,7 +46,7 @@ export function DocsMobileNav() {
       <SheetContent side="left" className="overflow-y-auto p-6" showCloseButton={false}>
         <SheetTitle className="mb-6">Table of Contents</SheetTitle>
         <nav className="space-y-6">
-          {sections.map((section, i) => (
+          {docsSections.map((section, i) => (
             <div key={i}>
               {section.title && (
                 <div className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
@@ -99,6 +58,7 @@ export function DocsMobileNav() {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      aria-current={pathname === item.href ? "page" : undefined}
                       onClick={() => setOpen(false)}
                       className={`text-sm block py-2 transition-colors ${
                         pathname === item.href
@@ -106,7 +66,7 @@ export function DocsMobileNav() {
                           : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
                       }`}
                     >
-                      {item.label}
+                      {item.label ?? item.name}
                     </Link>
                   </li>
                 ))}

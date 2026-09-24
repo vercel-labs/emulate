@@ -2,48 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-type NavSection = {
-  title?: string;
-  items: { href: string; label: string }[];
-};
-
-const sections: NavSection[] = [
-  {
-    items: [
-      { href: "/docs", label: "Getting Started" },
-      { href: "/docs/programmatic-api", label: "Programmatic API" },
-      { href: "/docs/configuration", label: "Configuration" },
-      { href: "/docs/nextjs", label: "Next.js Integration" },
-      { href: "/docs/nuxt", label: "Nuxt Integration" },
-    ],
-  },
-  {
-    title: "Services",
-    items: [
-      { href: "/docs/vercel", label: "Vercel" },
-      { href: "/docs/github", label: "GitHub" },
-      { href: "/docs/google", label: "Google" },
-      { href: "/docs/slack", label: "Slack" },
-      { href: "/docs/linear", label: "Linear" },
-      { href: "/docs/twilio", label: "Twilio" },
-      { href: "/docs/apple", label: "Apple" },
-      { href: "/docs/microsoft", label: "Microsoft Entra ID" },
-      { href: "/docs/aws", label: "AWS" },
-      { href: "/docs/okta", label: "Okta" },
-      { href: "/docs/mongoatlas", label: "MongoDB Atlas" },
-      { href: "/docs/resend", label: "Resend" },
-      { href: "/docs/stripe", label: "Stripe" },
-    ],
-  },
-  {
-    title: "Reference",
-    items: [
-      { href: "/docs/authentication", label: "Authentication" },
-      { href: "/docs/architecture", label: "Architecture" },
-    ],
-  },
-];
+import { docsSections } from "@/lib/docs-navigation";
 
 function Sidebar() {
   const pathname = usePathname();
@@ -51,7 +10,7 @@ function Sidebar() {
   return (
     <aside className="hidden w-56 shrink-0 lg:block">
       <nav className="sticky top-20 space-y-6">
-        {sections.map((section, i) => (
+        {docsSections.map((section, i) => (
           <div key={i}>
             {section.title && (
               <div className="mb-2 px-3 text-xs font-medium uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
@@ -59,12 +18,13 @@ function Sidebar() {
               </div>
             )}
             <div className="space-y-1">
-              {section.items.map(({ href, label }) => {
+              {section.items.map(({ href, name, label = name }) => {
                 const active = pathname === href;
                 return (
                   <Link
                     key={href}
                     href={href}
+                    aria-current={active ? "page" : undefined}
                     className={`block rounded-md px-3 py-1.5 text-sm transition-colors ${
                       active
                         ? "bg-neutral-100 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"

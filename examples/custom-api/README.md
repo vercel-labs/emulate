@@ -26,4 +26,4 @@ Open `http://localhost:4000/_emulate` to inspect requests, routes, and state. Re
 
 Run the generated test with `node --test emulators/inventory.test.ts`. It checks reservations, cancellation, exhaustion, and reset. The test has no server or framework dependency.
 
-The config can add built-ins with entries such as `github: { emulator: "github", port: 4001 }`. See the [custom API guide](https://emulate.dev/docs/custom-apis) for validation, snapshots, persistence, adapters, and publishing modules.
+The config can add built-ins with entries such as `github: { emulator: "github", port: 4001 }`. See the [custom emulator guide](https://emulate.dev/docs/custom-emulators) for validation, snapshots, persistence, adapters, and publishing modules.

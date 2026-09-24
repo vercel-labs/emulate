@@ -1,13 +1,15 @@
 ---
 name: custom-apis
-description: Author and run custom stateful HTTP APIs with emulate. Use for an internal API emulator, a custom service plugin, stateful test endpoints, custom seeds, or packaging an emulator. For an existing built-in service, use that service's skill.
+description: Build and share third-party HTTP API emulators with emulate. Use to emulate an external provider, add a custom service plugin, model stateful vendor endpoints, configure custom seeds, or package an emulator. For an existing built-in service, use that service's skill.
 ---
 
-# Custom stateful HTTP APIs
+# Custom emulators
+
+Bring a third-party provider's HTTP API into local development, tests, and agent sandboxes. Implement the provider behavior your integration uses, run it alongside built-in services, and share the definition as a package.
 
 Use the project's existing package manager for changes. End-user CLI examples use `npx emulate` because bare `emulate` is a zsh built-in. Requires Node 24 or later.
 
-Start from the scaffold when creating a new API:
+Start from the scaffold when creating an emulator:
 
 ```bash
 npm install -D emulate
@@ -15,7 +17,7 @@ npx emulate init --custom inventory
 npx emulate start --watch
 ```
 
-The scaffold creates a TypeScript definition and a Node test. It adds an entry to a discovered YAML, JSON, TypeScript, or JavaScript config, preserving existing services. For an unusual executable config, follow the manual import and registration instructions printed by the command. `init` prints the generated test path; use the service URL and Inspector link printed by `start` for requests because the port depends on the config.
+The scaffold creates a TypeScript definition and a Node test for an inventory API. Adapt its routes, state, and test to the third-party provider. It adds an entry to a discovered YAML, JSON, TypeScript, or JavaScript config, preserving existing services. For an unusual executable config, follow the manual import and registration instructions printed by the command. `init` prints the generated test path; use the service URL and Inspector link printed by `start` for requests because the port depends on the config.
 
 Define the service with `defineEmulator` imported from `emulate`. `state()` returns fresh JSON-compatible data, and synchronous `setup({ app, state, baseUrl, signal, onDispose })` registers handlers. State is inferred. Implement observable state transitions, validation, and errors from the actual API contract. Use author-controlled response shapes and IDs.
 
@@ -46,4 +48,4 @@ The CLI inspector shows requests, routes, and state at the printed `/_emulate` U
 
 For persistence, use a custom entry's file path or `filePersistence(path)` from `emulate`. Automatic saves cover completed requests, including state changes made while streaming a response body, reset/restore, and controlled shutdown. Reset and close cancel active streams before running `onDispose` callbacks; pass the lifecycle signal to asynchronous work. Persistence is process-local coordination, not distributed locking. Publish plugins as built JavaScript plus declarations with an appropriate `emulate` peer dependency.
 
-Reference: https://emulate.dev/docs/custom-apis
+Reference: https://emulate.dev/docs/custom-emulators

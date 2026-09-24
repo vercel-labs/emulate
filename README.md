@@ -38,9 +38,11 @@ Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` wh
 
 Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks.
 
-## Custom stateful HTTP APIs
+## Custom emulators
 
-Write your own API in a typed module and use it in the CLI, tests, and framework adapters:
+Build and share emulators for the third-party HTTP APIs your app uses. Define a provider's behavior in TypeScript, run it alongside built-in services, and reuse it in tests and framework adapters. emulate provides seeds, resets, persistence, and request/state inspection.
+
+Start from a working scaffold and adapt its routes and state to your provider:
 
 ```bash
 npm install -D emulate
@@ -53,18 +55,22 @@ The scaffold implements reservations, stock changes, cancellation, and out-of-st
 ```typescript
 import { defineEmulator, createEmulator } from 'emulate'
 
-const counter = defineEmulator({
-  name: 'counter',
-  state: () => ({ count: 0 }),
+const acme = defineEmulator({
+  name: 'acme',
+  state: () => ({ anvils: 100 }),
   setup({ app, state }) {
-    app.get('/count', (c) => c.json(state))
-    app.post('/increment', (c) => c.json({ count: ++state.count }))
+    app.get('/inventory', (c) => c.json(state))
+    app.post('/orders', (c) => {
+      if (!state.anvils) return c.json({ error: 'sold_out' }, 409)
+      state.anvils -= 1
+      return c.json({ shipped: 'anvil', to: 'coyote' }, 201)
+    })
   },
 })
 
-const api = await createEmulator({ service: counter, listen: false })
+const api = await createEmulator({ service: acme, listen: false })
 try {
-  await api.request('/increment', { method: 'POST' })
+  await api.request('/orders', { method: 'POST' })
   const checkpoint = api.snapshot()
   await api.reset()
   await api.restore(checkpoint)
@@ -73,13 +79,13 @@ try {
 }
 ```
 
-Use `defineConfig({ services: { inventory: { emulator: inventory }, github: { emulator: 'github' } } })` in `emulate.config.ts`. YAML/JSON entries accept local module paths and installed packages. `--config` selects a config explicitly; legacy flat configs and `--seed` remain supported. Node loads local TypeScript with path aliases and source locations without additional runtime dependencies. Node 26 supports erasable TypeScript only; compile enums and parameter properties to JavaScript before loading them. Node 24 also supports native TypeScript transforms.
+Use `defineConfig({ services: { acme: { emulator: acme }, github: { emulator: 'github' } } })` in `emulate.config.ts`. YAML/JSON entries accept local module paths and installed packages. `--config` selects a config explicitly; legacy flat configs and `--seed` remain supported. Node loads local TypeScript with path aliases and source locations without additional runtime dependencies. Node 26 supports erasable TypeScript only; compile enums and parameter properties to JavaScript before loading them. Node 24 also supports native TypeScript transforms.
 
 Custom state uses your own record shapes and IDs. Seeds replace the complete initial state. Reset restores the captured seed; successful watch reloads create a new baseline and reset the run. With config auto-discovery, watch mode also detects recognized config files created after startup. Instances are independent. Persistence is opt-in, with versioned snapshots and no cross-process locking. Use `port: 0` for HTTP tests, or `listen: false` to test without opening a port. Custom reset and close are awaitable. Framework adapters keep root-relative custom redirects under the service mount while preserving custom HTML bodies.
 
 Streamed responses persist state changes when their bodies finish or are canceled. Reset and close cancel active streams before running cleanup. `c.header('Set-Cookie', value, { append: true })` retains cookies already set on the response. In a Next.js route, export `OPTIONS` from `createEmulateHandler` to forward preflight requests and custom OPTIONS handlers.
 
-See the [custom API guide](https://emulate.dev/docs/custom-apis) and [complete inventory example](examples/custom-api) for validation, middleware, persistence, adapters, package sharing, and troubleshooting.
+See the [custom emulator guide](https://emulate.dev/docs/custom-emulators) and [complete inventory example](examples/custom-api) for validation, middleware, persistence, adapters, package sharing, and troubleshooting.
 
 ## CLI
 
