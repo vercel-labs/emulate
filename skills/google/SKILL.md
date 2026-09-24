@@ -467,6 +467,23 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+## Directory room discovery
+
+Authenticated `GET /admin/directory/v1/customer/my_customer/resources/buildings`
+and `GET /admin/directory/v1/customer/my_customer/resources/calendars` list seeded
+buildings and room resources for the signed-in user. Lists accept `maxResults`
+(1 to 500, default 100) and `pageToken`. Individual buildings are available at
+`GET /admin/directory/v1/customer/my_customer/resources/buildings/:buildingId`.
+Other customer IDs return 404.
+
+Seed `directory_buildings` with `buildingId`, `buildingName`, and optional
+`floorNames`, `coordinates`, and `address`. Seed `directory_calendar_resources`
+with `resourceId`, `resourceEmail`, `resourceName`, and optional `buildingId`,
+`floorName`, `capacity`, and `featureInstances`. Both accept `user_email` and
+otherwise use the first seeded user. Repeating a seed preserves existing records.
+Each room resource ensures a Calendar whose ID is its `resourceEmail`, so callers
+can discover a room and create or list its events through the Calendar API.
+
 ## Google Calendar API
 
 ### Discovery

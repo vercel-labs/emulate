@@ -954,6 +954,10 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 
+Google Directory building list/get and calendar-resource list endpoints support
+seeded room discovery. Resource seeds create corresponding Calendars for local
+booking workflows. See [Directory room discovery](packages/@emulators/google/README.md#directory-room-discovery).
+
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and `/oauth2/v3/certs` returns the matching RSA public key used to verify issued tokens.
