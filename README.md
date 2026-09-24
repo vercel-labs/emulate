@@ -1465,6 +1465,10 @@ apps/
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state.
 
+## Acknowledgments
+
+The internal HTTP layer builds on [Hono](https://hono.dev)'s API and design. Thank you to Yusuke Wada and the Hono contributors for their work. Hono's copyright and MIT license notice are included in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and distributed with the npm packages.
+
 ## Auth
 
 Tokens are configured in the seed config and map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`.

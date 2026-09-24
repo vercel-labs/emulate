@@ -28,6 +28,16 @@ jobs:
 
       - run: pnpm build
 
+      - name: Check packaged license notices
+        shell: bash
+        run: |
+          package_dir=$(mktemp -d)
+          pnpm --filter "./packages/**" -r pack --pack-destination "$package_dir"
+          for archive in "$package_dir"/*.tgz; do
+            tar -xOf "$archive" package/LICENSE | cmp LICENSE -
+            tar -xOf "$archive" package/THIRD_PARTY_NOTICES.md | cmp THIRD_PARTY_NOTICES.md -
+          done
+
       - run: node scripts/sync-versions.mjs --check
 
       - run: pnpm format:check

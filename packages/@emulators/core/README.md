@@ -4,6 +4,8 @@ HTTP server, in-memory store, plugin interface, and middleware for emulate servi
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
+The internal HTTP layer builds on [Hono](https://hono.dev)'s API and design. Thank you to Yusuke Wada and the Hono contributors. See [THIRD_PARTY_NOTICES.md](https://github.com/vercel-labs/emulate/blob/main/THIRD_PARTY_NOTICES.md) for Hono's copyright and MIT license notice, also included in this npm package.
+
 ## Install
 
 ```bash

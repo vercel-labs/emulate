@@ -37,13 +37,15 @@
     "local-development"
   ],
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "bin": {
     "emulate": "./dist/index.js"
   },
   "scripts": {
-    "prepack": "cp ../../README.md .",
+    "prepack": "node ../../scripts/prepare-package.mjs",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",

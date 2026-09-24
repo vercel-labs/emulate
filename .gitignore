@@ -12,5 +12,11 @@ emulate.config.yml
 # emulate CLI README is copied from root by prepack
 packages/emulate/README.md
 
+# Package license notices are copied from root by prepack
+packages/*/LICENSE
+packages/*/THIRD_PARTY_NOTICES.md
+packages/@emulators/*/LICENSE
+packages/@emulators/*/THIRD_PARTY_NOTICES.md
+
 # opensrc - source code for packages
 opensrc/

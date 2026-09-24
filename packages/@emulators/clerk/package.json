@@ -24,13 +24,16 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "tsup --clean",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
     "@emulators/core": "workspace:*",

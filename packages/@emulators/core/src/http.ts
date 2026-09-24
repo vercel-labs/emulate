@@ -1,3 +1,9 @@
+/*!
+ * This HTTP compatibility layer builds on Hono's API and design.
+ * https://github.com/honojs/hono
+ * Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
+ * MIT license: see THIRD_PARTY_NOTICES.md in the repository and npm packages.
+ */
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 type BodyInit = ConstructorParameters<typeof Response>[0];

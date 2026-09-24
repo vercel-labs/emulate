@@ -29,6 +29,8 @@ apps/
 
 The core package provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state.
 
+The internal HTTP layer builds on [Hono](https://hono.dev)'s API and design. Thank you to Yusuke Wada and the Hono contributors. Hono's copyright and MIT license notice are included in [THIRD_PARTY_NOTICES.md](https://github.com/vercel-labs/emulate/blob/main/THIRD_PARTY_NOTICES.md) and distributed with the npm packages.
+
 ## Plugin System
 
 Each service is a plugin that:

@@ -25,7 +25,9 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "tsup --clean",
@@ -33,7 +35,8 @@
     "clean": "rm -rf dist .turbo",
     "test": "vitest run",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
     "@emulators/core": "workspace:*"
