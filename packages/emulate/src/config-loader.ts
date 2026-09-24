@@ -49,12 +49,14 @@ export const isBuiltin = (value: string): value is ServiceName => Object.hasOwn(
 
 export async function loadConfig(
   options: { config?: string; seed?: string; service?: string; cwd?: string } = {},
+  onDependenciesChange?: (files: string[]) => void,
 ): Promise<LoadedConfig> {
   if (options.config && options.seed)
     throw new Error("--config and --seed select a config file and cannot be used together");
   const path = findConfig(options.config ?? options.seed, options.cwd);
   const directory = path ? dirname(path) : resolve(options.cwd ?? process.cwd());
   const loader = new ProjectLoader(directory);
+  loader.onDependenciesChange = onDependenciesChange;
   try {
     let raw: Record<string, any> = {};
     if (path) {

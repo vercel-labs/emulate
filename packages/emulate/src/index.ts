@@ -27,8 +27,9 @@ Custom stateful HTTP APIs:
   Run 'npx emulate init --custom inventory' to create a typed API, config, and runnable test.
   Existing YAML, JSON, TypeScript, and JavaScript configs get a service entry when supported.
   For unusual executable configs, init prints the import and service entry to add manually.
-  Init prints the test command; start prints inspector and Routes links for custom services.
+  Init prints the test command; use the service URL and Inspector link printed by start for requests.
   Run 'npx emulate start --watch' to reload local modules and inspect requests at /_emulate.
+  Creating a missing local import retries a failed reload, including outside the config directory.
   Import defineEmulator, defineConfig, and createEmulator from 'emulate'.
   Test in process with createEmulator({ service: yourDefinition, listen: false }).
   Custom APIs support seeds, reset, snapshots, restore, and opt-in persistence.

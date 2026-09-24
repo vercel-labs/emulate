@@ -153,6 +153,23 @@ describe("custom configuration and scaffold", () => {
     }
   });
 
+  it("registers a service when an existing config uses differently indented markers", async () => {
+    const dir = await project();
+    const path = join(dir, "emulate.config.ts");
+    await writeFile(
+      path,
+      'import { defineConfig } from "emulate";\n// @emulate:imports\nexport default defineConfig({ services: {\n  github: { emulator: "github" },\n  // @emulate:services\n} });\n',
+    );
+    scaffoldCommand("inventory", undefined, dir);
+    const config = await loadConfig({ cwd: dir });
+    try {
+      expect(config.services.map((service) => service.name)).toEqual(["github", "inventory"]);
+      expect(await readFile(path, "utf8")).toContain('  "inventory": { emulator: inventoryEmulator },');
+    } finally {
+      config.loader.close();
+    }
+  });
+
   it("adds services to an existing TypeScript config without markers", async () => {
     const dir = await project();
     const path = join(dir, "emulate.config.ts");

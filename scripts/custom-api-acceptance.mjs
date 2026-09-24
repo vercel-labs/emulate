@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { createServer } from "node:net";
 import { sign } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const consumer = await mkdtemp(join(tmpdir(), "emulate packed consumer "));
+const external = await mkdtemp(join(tmpdir(), "emulate external import "));
 const artifacts = join(consumer, "artifacts");
 await mkdir(artifacts);
 const pnpm = process.env.npm_execpath;
@@ -307,6 +308,19 @@ await api.close();
   await writeFile(modulePath, validModule);
   await waitFor(() => readyCount() > restored, "restore static imports");
 
+  const missingExternal = join(external, "stock.ts");
+  const externalSpecifier = relative(dirname(modulePath), missingExternal).replaceAll("\\", "/");
+  const externalFailure = failures();
+  await writeFile(modulePath, validModule.replace('"./stock.ts"', JSON.stringify(externalSpecifier)));
+  await waitFor(() => failures() > externalFailure, "missing import outside the config directory");
+  const externalRecovery = readyCount();
+  await writeFile(missingExternal, "export const stock = 19;\n");
+  await waitFor(() => readyCount() > externalRecovery, "external import creation recovery");
+  assert.deepEqual(await (await fetch(`${base}/inventory`)).json(), { stock: 19 });
+  const externalRestored = readyCount();
+  await writeFile(modulePath, validModule);
+  await waitFor(() => readyCount() > externalRestored, "restore external import change");
+
   await writeFile(join(consumer, "fixtures/stock.json"), '{"stock":18}');
   await writeFile(
     configFile,
@@ -356,6 +370,10 @@ await api.close();
   passed = true;
 } finally {
   await stop();
-  if (passed && !process.env.EMULATE_KEEP_ACCEPTANCE) await rm(consumer, { recursive: true, force: true });
-  else console.log(`Consumer artifacts: ${consumer}`);
+  if (passed && !process.env.EMULATE_KEEP_ACCEPTANCE)
+    await Promise.all([
+      rm(consumer, { recursive: true, force: true }),
+      rm(external, { recursive: true, force: true }),
+    ]);
+  else console.log(`Consumer artifacts: ${consumer}\nExternal import artifacts: ${external}`);
 }

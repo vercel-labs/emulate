@@ -19,7 +19,7 @@ curl -X DELETE http://localhost:4000/reservations/r_1
 node --test emulators/inventory.test.ts
 ```
 
-`init` prints the generated test command. `start` prints the inspector URL and a direct Routes link for each custom service. Requests, Routes, and State are available in the inspector, normally at `http://localhost:4000/_emulate`. Reset restores the captured initial seed.
+`init` prints the generated test command. `start` prints the service URL, inspector URL, and a direct Routes link for each custom service. Use the printed service URL for requests because an existing config may assign a different port. Requests, Routes, and State are available in the inspector, normally at `http://localhost:4000/_emulate` for a new config. Reset restores the captured initial seed.
 
 ## Define an emulator
 
@@ -154,7 +154,7 @@ The scaffold's test runs on Node 24 without a test-framework dependency. In Vite
 
 ## Watch and inspect
 
-`--watch` follows config, imported local modules, and imported JSON fixtures. If no config exists at startup, creating a recognized config file also triggers a reload. For runtime file reads, declare additional paths with `watch: ['./fixtures/**']` in config. Successful reloads reset every configured service and retain its port and advertised URL. There can be a brief reconnect during restart. Compilation or preparation failures leave the previous runner available and print the source error.
+`--watch` follows config, imported local modules, and imported JSON fixtures. If no config exists at startup, creating a recognized config file also triggers a reload. Creating a missing local import retries a failed reload even when the file is outside the config directory. For runtime file reads, declare additional paths with `watch: ['./fixtures/**']` in config. Successful reloads reset every configured service and retain its port and advertised URL. There can be a brief reconnect during restart. Compilation or preparation failures leave the previous runner available and print the source error.
 
 Generated built-in identities remain stable across code reloads. Changing a seeded service with delivered generated secrets requires restarting with a new delivery-file path. The supervisor owns the secrets file and portless aliases for the invocation.
 

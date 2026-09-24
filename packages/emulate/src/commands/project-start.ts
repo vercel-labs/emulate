@@ -140,11 +140,19 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       return;
     }
     loading = true;
+    const attemptedDependencies = new Set<string>();
+    let candidateProcess: ChildProcess | undefined;
+    const trackCandidateDependencies = (message: any) => {
+      if (message.type === "dependencies")
+        for (const file of message.dependencies as string[]) attemptedDependencies.add(file);
+    };
     try {
       candidate = fork(fileURLToPath(new URL("./project-worker.js", import.meta.url)), [], {
         execArgv: ["--enable-source-maps"],
         stdio: ["ignore", "inherit", "inherit", "ipc"],
       });
+      candidateProcess = candidate;
+      candidate.on("message", trackCandidateDependencies);
       const prepared = receive(candidate, "prepared");
       candidate.send({ type: "prepare", options, retained, reload: successful });
       const { metadata } = (await prepared) as { metadata: RunMetadata };
@@ -208,6 +216,7 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       printReady(metadata, true);
     } catch (error) {
       failed = true;
+      dependencies = new Set([...dependencies, ...attemptedDependencies]);
       await watcher.update(dependencies, patterns, true);
       console.error(
         `\nReload failed${worker ? "; serving the last successful version" : ""}. Fix the source and save to retry.\n${error instanceof Error ? error.message : error}`,
@@ -224,6 +233,7 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
         deliveredSecrets = undefined;
       }
     } finally {
+      candidateProcess?.off("message", trackCandidateDependencies);
       loading = false;
       if (queued && !stopped) {
         queued = false;

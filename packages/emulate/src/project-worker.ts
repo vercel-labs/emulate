@@ -8,7 +8,9 @@ process.on(
     handling = handling.then(async () => {
       try {
         if (message.type === "prepare") {
-          run = await prepareProject(message.options!, message.retained, message.reload);
+          run = await prepareProject(message.options!, message.retained, message.reload, (dependencies) => {
+            if (process.connected) process.send?.({ type: "dependencies", dependencies }, () => {});
+          });
           process.send?.({ type: "prepared", metadata: run.metadata });
         } else if (message.type === "start") {
           run!.watchDependencies((dependencies) => {

@@ -42,9 +42,10 @@ export async function prepareProject(
   options: ProjectOptions,
   retained: Record<string, RetainedSeed> = {},
   reload = false,
+  onDependenciesChange?: (files: string[]) => void,
 ) {
   if (options.portless && options.baseUrl) throw new Error("--portless and --base-url are mutually exclusive");
-  const config = await loadConfig(options);
+  const config = await loadConfig(options, onDependenciesChange);
   const servers: Server[] = [];
   const cleanups: Array<() => void | Promise<void>> = [];
   const prepared: Array<{ fetch: (req: Request) => Response | Promise<Response>; port: number }> = [];

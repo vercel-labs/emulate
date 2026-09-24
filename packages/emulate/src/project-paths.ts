@@ -2,12 +2,16 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 
-export function sourceFile(path: string): string | undefined {
+export function sourceCandidates(path: string): string[] {
   const candidates = [path];
   if (/\.[cm]?js$/.test(path)) candidates.push(path.replace(/js$/, "ts"));
   if (!extname(path)) candidates.push(...[".ts", ".mts", ".js", ".mjs", ".json"].map((ext) => path + ext));
   candidates.push(...["index.ts", "index.mts", "index.js", "index.mjs"].map((name) => join(path, name)));
-  return candidates.find((candidate) => {
+  return candidates;
+}
+
+export function sourceFile(path: string): string | undefined {
+  return sourceCandidates(path).find((candidate) => {
     try {
       return statSync(candidate).isFile();
     } catch {
@@ -97,7 +101,7 @@ export class ProjectPaths {
     return config;
   }
 
-  resolve(specifier: string, directory: string): string | undefined {
+  resolve(specifier: string, directory: string, missingCandidates: string[] = []): string | undefined {
     const config = this.nearest(directory);
     const keys = Object.keys(config.paths ?? {}).sort((a, b) => {
       if (a === specifier) return -1;
@@ -120,11 +124,19 @@ export class ProjectPaths {
       if (!Array.isArray(values) || values.some((value) => typeof value !== "string"))
         throw new Error(`TypeScript path "${key}" must contain an array of paths`);
       for (const target of values) {
-        const file = sourceFile(resolve(config.baseUrl ?? config.pathsDirectory!, target.replace("*", matched)));
+        const path = resolve(config.baseUrl ?? config.pathsDirectory!, target.replace("*", matched));
+        const file = sourceFile(path);
         if (file) return file;
+        missingCandidates.push(...sourceCandidates(path));
       }
       break;
     }
-    return config.baseUrl ? sourceFile(resolve(config.baseUrl, specifier)) : undefined;
+    if (config.baseUrl) {
+      const path = resolve(config.baseUrl, specifier);
+      const file = sourceFile(path);
+      if (file) return file;
+      missingCandidates.push(...sourceCandidates(path));
+    }
+    return undefined;
   }
 }

@@ -3,7 +3,7 @@ import { registerHooks, stripTypeScriptTypes, type ModuleHooks } from "node:modu
 import { dirname, extname, isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { ProjectPaths, sourceFile } from "./project-paths.js";
+import { ProjectPaths, sourceCandidates, sourceFile } from "./project-paths.js";
 
 let transformTypesAvailable = true;
 
@@ -19,6 +19,15 @@ export class ProjectLoader {
 
   constructor(readonly directory: string) {
     const paths = new ProjectPaths(this.dependencies);
+    const track = (files: Iterable<string>) => {
+      let changed = false;
+      for (const file of files) {
+        if (this.dependencies.has(file)) continue;
+        this.dependencies.add(file);
+        changed = true;
+      }
+      if (changed) this.onDependenciesChange?.([...this.dependencies]);
+    };
     const owns = (url?: string) => url?.startsWith("file:") && new URL(url).searchParams.get("emulate") === this.id;
     this.hooks = registerHooks({
       resolve: (specifier, context, nextResolve) => {
@@ -28,18 +37,24 @@ export class ProjectLoader {
         if (entry) specifier = specifier.slice(this.prefix.length);
         const local = specifier.startsWith(".") || isAbsolute(specifier) || specifier.startsWith("file:");
         let target = specifier;
+        let missingCandidates: string[] = [];
         if (local) {
           const url = isAbsolute(specifier) ? pathToFileURL(specifier) : new URL(specifier, parentURL);
-          const file = sourceFile(fileURLToPath(url));
+          const path = fileURLToPath(url);
+          const file = sourceFile(path);
           if (file) target = pathToFileURL(file).href;
+          else missingCandidates = sourceCandidates(path);
         } else if (!specifier.startsWith("node:")) {
-          const alias = paths.resolve(specifier, dirname(fileURLToPath(parentURL)));
+          const previousSize = this.dependencies.size;
+          const alias = paths.resolve(specifier, dirname(fileURLToPath(parentURL)), missingCandidates);
+          if (this.dependencies.size !== previousSize) this.onDependenciesChange?.([...this.dependencies]);
           if (alias) target = pathToFileURL(alias).href;
         }
         let result;
         try {
           result = nextResolve(target, { ...context, parentURL });
         } catch (error) {
+          track(missingCandidates);
           if (entry && !local)
             throw new Error(
               `Cannot load emulator package "${specifier}" from ${directory}. Install it in this project with npm install ${specifier}.`,
@@ -57,10 +72,7 @@ export class ProjectLoader {
           specifier.startsWith("@emulators/")
         )
           return result;
-        if (!this.dependencies.has(file)) {
-          this.dependencies.add(file);
-          this.onDependenciesChange?.([...this.dependencies]);
-        }
+        track([file]);
         const url = new URL(result.url);
         url.searchParams.set("emulate", this.id);
         return {

@@ -217,15 +217,20 @@ export function scaffoldCommand(name: string, configOption?: string, cwd = proce
     output = extname(config) === ".json" ? `${JSON.stringify(document.toJS(), null, 2)}\n` : document.toString();
   } else if ([".ts", ".mts", ".js", ".mjs"].includes(extname(config))) {
     const original = readFileSync(config, "utf8");
-    if (original.includes("// @emulate:imports") && original.includes("// @emulate:services")) {
+    const importMarker = /^[ \t]*\/\/ @emulate:imports[ \t]*$/m;
+    const serviceMarker = /^([ \t]*)\/\/ @emulate:services[ \t]*$/m;
+    if (importMarker.test(original) && serviceMarker.test(original)) {
       if (
         hasLiteralServiceKey(original, maskStringsAndComments(original), name) ||
         original.includes(`import ${identifier} `)
       )
         throw new Error(`Service ${name} already exists in ${config}`);
       output = original
-        .replace("// @emulate:imports", `${importLine}\n// @emulate:imports`)
-        .replace("    // @emulate:services", `${entryLine}\n    // @emulate:services`);
+        .replace(importMarker, (marker) => `${importLine}\n${marker}`)
+        .replace(
+          serviceMarker,
+          (marker, indent: string) => `${indent}${JSON.stringify(name)}: { emulator: ${identifier} },\n${marker}`,
+        );
     } else output = addToExecutableConfig(original, name, identifier, importLine);
   }
   mkdirSync(dirname(source), { recursive: true });
@@ -237,6 +242,6 @@ export function scaffoldCommand(name: string, configOption?: string, cwd = proce
     console.log(`\nAdd this import to ${config}:\n${importLine}\n\nAdd this entry to services:\n${entryLine}`);
   else console.log(`${existing ? "Updated" : "Created"} ${relative(cwd, config)}`);
   console.log(
-    `\nStart: npx emulate start --watch${configOption ? ` --config ${JSON.stringify(configOption)}` : ""}\nTest: node --test ${relative(cwd, test)}\nReserve: curl -X POST http://localhost:4000/reservations\nInspect: http://localhost:4000/_emulate`,
+    `\nStart: npx emulate start --watch${configOption ? ` --config ${JSON.stringify(configOption)}` : ""}\nTest: node --test ${relative(cwd, test)}\nUse the ${name} URL and Inspector link printed by start to send requests and inspect state.`,
   );
 }
