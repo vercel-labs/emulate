@@ -149,4 +149,4 @@ export default defineEventHandler(createEmulateHandler(config, { routePrefix: '/
 
 ## Custom stateful HTTP APIs
 
-Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. See [Custom HTTP APIs](/docs/custom-apis) for the quickstart, API reference, and complete lifecycle semantics.
+Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. Root-relative redirect locations stay under the mounted service path, while custom HTML bodies pass through unchanged. See [Custom HTTP APIs](/docs/custom-apis) for the quickstart, API reference, and complete lifecycle semantics.

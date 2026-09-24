@@ -33,7 +33,10 @@ Custom stateful HTTP APIs:
   Node loads TypeScript with tsconfig aliases and source maps; no extra runtime packages are needed.
   Node 26 requires erasable TypeScript; compile enums and parameter properties to JavaScript first.
   Node 24 also supports native TypeScript transforms.
-  Successful watch reloads reset the run to seed; errors keep the previous runner when possible.
+  Successful watch reloads reset the run to seed; auto-detected config files created later also trigger reloads.
+  Reload errors keep the previous runner when possible.
+  Structured inspection redacts token and secret fields, including access_token and client_secret.
+  Framework adapters keep root-relative custom redirects under the service mount.
   Docs: https://emulate.dev/docs/custom-apis
 
 GitHub API coverage:

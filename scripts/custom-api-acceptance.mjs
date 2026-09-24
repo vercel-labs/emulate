@@ -89,6 +89,25 @@ try {
   );
   run(pnpm, ["install", "--ignore-scripts"]);
   const cli = join(consumer, "node_modules/emulate/dist/index.js");
+  const discoveryPort = await port();
+  child = spawn(process.execPath, [cli, "start", "--watch", "--service", "github", "--port", String(discoveryPort)], {
+    cwd: consumer,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (data) => {
+    output += data;
+  });
+  child.stderr.on("data", (data) => {
+    output += data;
+  });
+  const discoveryReady = () => (output.match(/Watching imports and fixtures/g) ?? []).length;
+  await waitFor(() => discoveryReady() >= 1, "startup without a config");
+  await writeFile(join(consumer, "emulate.config.yaml"), "github: {}\n");
+  await waitFor(() => discoveryReady() >= 2, "config creation reload");
+  await stop();
+  await rm(join(consumer, "emulate.config.yaml"));
+  output = "";
+  console.log("Watch mode detected a config created after startup.");
   const before = await readFile(join(consumer, "package.json"), "utf8");
   run(process.execPath, [cli, "init", "--custom", "inventory"]);
   assert.equal(await readFile(join(consumer, "package.json"), "utf8"), before);

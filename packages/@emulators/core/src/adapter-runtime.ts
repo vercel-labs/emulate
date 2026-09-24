@@ -156,14 +156,25 @@ function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapsh
     restoreTokenMap(service.tokenMap, snapshot.tokens[name] ?? []);
   }
 }
-async function rewriteResponse(response: Response, servicePrefix: string): Promise<Response> {
+function prefixedLocation(location: string | null, servicePrefix: string): string | undefined {
+  if (!location?.startsWith("/") || location.startsWith("//")) return undefined;
+  if (
+    location === servicePrefix ||
+    location.startsWith(`${servicePrefix}/`) ||
+    location.startsWith(`${servicePrefix}?`) ||
+    location.startsWith(`${servicePrefix}#`)
+  )
+    return undefined;
+  return servicePrefix + location;
+}
+
+async function rewriteResponse(response: Response, servicePrefix: string, rewriteHtml: boolean): Promise<Response> {
   const contentType = response.headers.get("Content-Type") ?? "";
-  const location = response.headers.get("Location");
-  const locationChanged = location != null && location.startsWith("/");
-  if (!contentType.includes("text/html")) {
-    if (!locationChanged) return response;
+  const location = prefixedLocation(response.headers.get("Location"), servicePrefix);
+  if (!rewriteHtml || !contentType.includes("text/html")) {
+    if (!location) return response;
     const headers = new Headers(response.headers);
-    headers.set("Location", servicePrefix + location);
+    headers.set("Location", location);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
   let html = await response.text();
@@ -174,7 +185,7 @@ async function rewriteResponse(response: Response, servicePrefix: string): Promi
     path.startsWith(servicePrefix) ? `url('${path}')` : `url('${servicePrefix}${path}')`,
   );
   const headers = new Headers(response.headers);
-  if (locationChanged) headers.set("Location", servicePrefix + location);
+  if (location) headers.set("Location", location);
   headers.delete("Content-Length");
   return new Response(html, { status: response.status, statusText: response.statusText, headers });
 }
@@ -401,9 +412,7 @@ export function createAdapterRuntime(
       signal: req.signal,
     } as RequestInit & { duplex: string });
     const rawResponse = await service.app.fetch(strippedReq);
-    const response = service.custom
-      ? rawResponse
-      : await rewriteResponse(rawResponse, servicePath(mountPath, serviceName));
+    const response = await rewriteResponse(rawResponse, servicePath(mountPath, serviceName), !service.custom);
     if (persistence && (service.custom || MUTATING_METHODS.has(req.method))) {
       if (service.custom) await enqueueSave(serviceApps, (await getPreparation()).generatedSecrets, true);
       else enqueueSave(serviceApps, (await getPreparation()).generatedSecrets);

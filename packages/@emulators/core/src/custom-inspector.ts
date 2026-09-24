@@ -49,6 +49,14 @@ export function createCustomInspector(name: string, baseUrl: string, options: In
     "private_key",
     ...(options.redact ?? []).map((s) => s.toLowerCase()),
   ]);
+  function isSensitive(key: string): boolean {
+    if (sensitive.has(key.toLowerCase())) return true;
+    const normalized = key
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/[-\s]/g, "_")
+      .toLowerCase();
+    return sensitive.has(normalized) || /(?:^|_)(?:token|secret|password|api_key|private_key|cookie)$/.test(normalized);
+  }
   const traces: Trace[] = [];
   const active = new WeakMap<Request, { trace: Trace; start: number; preview: Promise<unknown>; epoch: number }>();
   let epoch = 0;
@@ -60,12 +68,12 @@ export function createCustomInspector(name: string, baseUrl: string, options: In
     if (Array.isArray(value)) return value.map(redact);
     if (!value || typeof value !== "object") return value;
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, sensitive.has(key.toLowerCase()) ? "[redacted]" : redact(item)]),
+      Object.entries(value).map(([key, item]) => [key, isSensitive(key) ? "[redacted]" : redact(item)]),
     );
   }
   function headers(value: Headers): Record<string, string> {
     return Object.fromEntries(
-      [...value].map(([key, val]) => [key, sensitive.has(key.toLowerCase()) ? "[redacted]" : val.slice(0, maxBytes)]),
+      [...value].map(([key, val]) => [key, isSensitive(key) ? "[redacted]" : val.slice(0, maxBytes)]),
     );
   }
   async function preview(value: Request | Response): Promise<unknown> {
@@ -112,8 +120,7 @@ export function createCustomInspector(name: string, baseUrl: string, options: In
     }
   }
   function safePath(url: URL): string {
-    for (const key of [...url.searchParams.keys()])
-      if (sensitive.has(key.toLowerCase())) url.searchParams.set(key, "[redacted]");
+    for (const key of [...url.searchParams.keys()]) if (isSensitive(key)) url.searchParams.set(key, "[redacted]");
     return `${url.pathname}${url.search}`;
   }
   const api = {

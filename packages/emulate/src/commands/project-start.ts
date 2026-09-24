@@ -2,7 +2,7 @@ import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import { ProjectWatcher } from "../project-watcher.js";
-import { findConfig } from "../config-loader.js";
+import { CONFIG_FILES, findConfig } from "../config-loader.js";
 import { prepareProject, type ProjectOptions, type RunMetadata, type RetainedSeed } from "../project-runner.js";
 import { ensurePortless, registerAliases, removeAliases, type PortlessAlias } from "../portless.js";
 import {
@@ -120,10 +120,11 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
   }
   const configPath = findConfig(options.config ?? options.seed);
   const directory = configPath ? dirname(configPath) : process.cwd();
+  const configCandidates = options.config || options.seed ? [] : CONFIG_FILES.map((name) => resolve(directory, name));
   let worker: ChildProcess | undefined;
   let candidate: ChildProcess | undefined;
   let retained: Record<string, RetainedSeed> = {};
-  let dependencies = new Set<string>(configPath ? [configPath] : []);
+  let dependencies = new Set<string>([...configCandidates, ...(configPath ? [configPath] : [])]);
   // A new worker has not executed lazy route imports yet. Keep watching files discovered by earlier generations.
   const lazyDependencies = new Set<string>();
   let patterns: string[] = [];
@@ -181,7 +182,7 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
       }
       worker = candidate;
       candidate = undefined;
-      dependencies = new Set([...metadata.dependencies, ...lazyDependencies]);
+      dependencies = new Set([...configCandidates, ...metadata.dependencies, ...lazyDependencies]);
       patterns = metadata.watch.map((pattern) => resolve(directory, pattern));
       const running = worker;
       running.on("message", (message: any) => {
@@ -189,7 +190,7 @@ export async function projectStartCommand(options: ProjectOptions): Promise<void
         for (const file of message.dependencies as string[]) {
           if (!metadata.dependencies.includes(file)) lazyDependencies.add(file);
         }
-        dependencies = new Set([...metadata.dependencies, ...lazyDependencies]);
+        dependencies = new Set([...configCandidates, ...metadata.dependencies, ...lazyDependencies]);
         void watcher.update(dependencies, patterns, failed).catch(console.error);
       });
       running.once("exit", (code, signal) => {

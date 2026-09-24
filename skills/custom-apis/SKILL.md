@@ -42,7 +42,7 @@ try {
 
 Import `createEmulator` from `emulate`. Use `port: 0` and the returned `url` for HTTP SDK tests. Run the scaffold's test with `node --test emulators/inventory.test.ts`. Test reads after writes, domain errors, reset, and independent instances. Do not describe an API as implemented based only on matching response schemas.
 
-The CLI inspector shows requests, routes, and state at the printed `/_emulate` URL. Successful watch reloads reset the run to seed. Declare files read at runtime with config `watch` paths. Inspector is opt-in in programmatic and embedded usage. Reuse the same definition in Next/Nuxt adapter entries and close handlers in test teardown.
+The CLI inspector shows requests, routes, and state at the printed `/_emulate` URL. Structured previews and state redact token and secret fields such as `access_token`, `refresh_token`, and `client_secret`. Successful watch reloads reset the run to seed. With config auto-discovery, watch mode detects recognized config files created after startup. Declare files read at runtime with config `watch` paths. Inspector is opt-in in programmatic and embedded usage. Reuse the same definition in Next/Nuxt adapter entries; root-relative redirects remain under the service mount while custom HTML stays unchanged. Close handlers in test teardown.
 
 For persistence, use a custom entry's file path or `filePersistence(path)` from `emulate`. Automatic saves cover completed requests, reset/restore, and controlled shutdown. Persistence is process-local coordination, not distributed locking. Publish plugins as built JavaScript plus declarations with an appropriate `emulate` peer dependency.
 

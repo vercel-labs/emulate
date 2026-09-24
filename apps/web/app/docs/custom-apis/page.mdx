@@ -154,11 +154,11 @@ The scaffold's test runs on Node 24 without a test-framework dependency. In Vite
 
 ## Watch and inspect
 
-`--watch` follows config, imported local modules, and imported JSON fixtures. For runtime file reads, declare additional paths with `watch: ['./fixtures/**']` in config. Successful reloads reset every configured service and retain its port and advertised URL. There can be a brief reconnect during restart. Compilation or preparation failures leave the previous runner available and print the source error.
+`--watch` follows config, imported local modules, and imported JSON fixtures. If no config exists at startup, creating a recognized config file also triggers a reload. For runtime file reads, declare additional paths with `watch: ['./fixtures/**']` in config. Successful reloads reset every configured service and retain its port and advertised URL. There can be a brief reconnect during restart. Compilation or preparation failures leave the previous runner available and print the source error.
 
 Generated built-in identities remain stable across code reloads. Changing a seeded service with delivered generated secrets requires restarting with a new delivery-file path. The supervisor owns the secrets file and portless aliases for the invocation.
 
-The inspector is enabled by default for CLI custom services and disabled by default for tests and adapters. Set `inspector: true` to enable it elsewhere, or pass options such as `{ maxRequests: 100, maxBodyBytes: 8192, redact: ['access_key'] }`. Authentication headers and common secret fields are redacted. Large, binary, and streaming previews are omitted or summarized. State and request views are escaped and bounded. Inspector traffic is excluded from request history.
+The inspector is enabled by default for CLI custom services and disabled by default for tests and adapters. Set `inspector: true` to enable it elsewhere, or pass options such as `{ maxRequests: 100, maxBodyBytes: 8192, redact: ['access_key'] }`. Authentication headers and token or secret fields such as `access_token`, `refresh_token`, and `client_secret` are redacted in structured previews and state. Large, binary, and streaming previews are omitted or summarized. State and request views are escaped and bounded. Inspector traffic is excluded from request history.
 
 ## Embed in Next.js or Nuxt
 
@@ -174,7 +174,7 @@ const handler = createEmulateHandler({
 export const { GET, POST, PUT, PATCH, DELETE } = handler
 ```
 
-The Nuxt adapter accepts the same entry. Use the framework's existing catch-all route setup. Custom responses remain author-controlled, and the provided `baseUrl` includes the mounted service path. Inspector links and fonts respect that mount. Retain the handler and call its `close()` method in test teardown. Install `emulate` as a runtime dependency when the definition is deployed inside your application.
+The Nuxt adapter accepts the same entry. Use the framework's existing catch-all route setup. Custom response bodies remain author-controlled, and the provided `baseUrl` includes the mounted service path. Root-relative redirect locations stay under that mount; custom HTML bodies pass through unchanged. Inspector links and fonts respect the mount. Retain the handler and call its `close()` method in test teardown. Install `emulate` as a runtime dependency when the definition is deployed inside your application.
 
 ## Share a package
 

@@ -11,6 +11,8 @@ export function customApiContract({ describe, it, expect, defineEmulator, create
           });
           app.get("/", (c) => c.json(state));
           app.get("/html", (c) => c.html('<a href="/original">original</a>'));
+          app.get("/redirect", (c) => c.redirect("/html"));
+          app.get("/mounted-redirect", (c) => c.redirect(`${new URL(baseUrl).pathname}/html`));
           app.post("/binary", async (c) =>
             c.body(await c.req.arrayBuffer(), 200, { "Content-Type": "application/octet-stream" }),
           );
@@ -24,6 +26,11 @@ export function customApiContract({ describe, it, expect, defineEmulator, create
         expect(await response.json()).toEqual({ count: 1, baseUrl: "http://localhost/local/counter" });
         expect(await (await runtime.request("other")).json()).toEqual({ count: 0 });
         expect(await (await runtime.request("counter/html")).text()).toBe('<a href="/original">original</a>');
+        const redirect = await runtime.request("counter/redirect");
+        expect(redirect.status).toBe(302);
+        expect(redirect.headers.get("Location")).toBe("/local/counter/html");
+        const mountedRedirect = await runtime.request("counter/mounted-redirect");
+        expect(mountedRedirect.headers.get("Location")).toBe("/local/counter/html");
         const binary = new Uint8Array([0, 255, 10, 128]);
         expect(
           new Uint8Array(
@@ -33,7 +40,9 @@ export function customApiContract({ describe, it, expect, defineEmulator, create
         const html = await (await runtime.request("counter/_emulate?tab=state")).text();
         expect(html).toContain("http://localhost/local/counter/_emulate/reset");
         expect((await runtime.request("other/_emulate")).status).toBe(404);
-        expect((await runtime.request("counter/_emulate/reset", { method: "POST" })).status).toBe(303);
+        const reset = await runtime.request("counter/_emulate/reset", { method: "POST" });
+        expect(reset.status).toBe(303);
+        expect(reset.headers.get("Location")).toBe("http://localhost/local/counter/_emulate?tab=state");
         expect(await (await runtime.request("counter")).json()).toEqual({ count: 0 });
       } finally {
         await runtime.close();

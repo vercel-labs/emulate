@@ -184,4 +184,4 @@ interface PersistenceAdapter {
 
 ## Custom HTTP APIs
 
-The adapter accepts definitions created with `defineEmulator` from `emulate` in `services[name].emulator`. Reuse the definition from CLI/tests; custom inspector is opt-in. Await the returned handler's `close()` in test teardown. Install `emulate` as a runtime dependency for deployed definitions. See https://emulate.dev/docs/custom-apis for seeds, snapshots, persistence, and lifecycle rules.
+The adapter accepts definitions created with `defineEmulator` from `emulate` in `services[name].emulator`. Reuse the definition from CLI/tests; custom inspector is opt-in. Root-relative redirect locations stay under the service mount, while custom HTML bodies pass through unchanged. Await the returned handler's `close()` in test teardown. Install `emulate` as a runtime dependency for deployed definitions. See https://emulate.dev/docs/custom-apis for seeds, snapshots, persistence, and lifecycle rules.

@@ -48,7 +48,7 @@ npx emulate init --custom inventory
 npx emulate start --watch
 ```
 
-The scaffold implements reservations, stock changes, cancellation, and out-of-stock errors. It includes a config and a runnable Node test. Open the printed `/_emulate` URL to inspect requests, routes, and state, then reset to the initial seed.
+The scaffold implements reservations, stock changes, cancellation, and out-of-stock errors. It includes a config and a runnable Node test. Open the printed `/_emulate` URL to inspect requests, routes, and state, then reset to the initial seed. Structured inspection redacts token and secret fields such as `access_token`, `refresh_token`, and `client_secret`.
 
 ```typescript
 import { defineEmulator, createEmulator } from 'emulate'
@@ -75,7 +75,7 @@ try {
 
 Use `defineConfig({ services: { inventory: { emulator: inventory }, github: { emulator: 'github' } } })` in `emulate.config.ts`. YAML/JSON entries accept local module paths and installed packages. `--config` selects a config explicitly; legacy flat configs and `--seed` remain supported. Node loads local TypeScript with path aliases and source locations without additional runtime dependencies. Node 26 supports erasable TypeScript only; compile enums and parameter properties to JavaScript before loading them. Node 24 also supports native TypeScript transforms.
 
-Custom state uses your own record shapes and IDs. Seeds replace the complete initial state. Reset restores the captured seed; successful watch reloads create a new baseline and reset the run. Instances are independent. Persistence is opt-in, with versioned snapshots and no cross-process locking. Use `port: 0` for HTTP tests, or `listen: false` to test without opening a port. Custom reset and close are awaitable.
+Custom state uses your own record shapes and IDs. Seeds replace the complete initial state. Reset restores the captured seed; successful watch reloads create a new baseline and reset the run. With config auto-discovery, watch mode also detects recognized config files created after startup. Instances are independent. Persistence is opt-in, with versioned snapshots and no cross-process locking. Use `port: 0` for HTTP tests, or `listen: false` to test without opening a port. Custom reset and close are awaitable. Framework adapters keep root-relative custom redirects under the service mount while preserving custom HTML bodies.
 
 See the [custom API guide](https://emulate.dev/docs/custom-apis) and [complete inventory example](examples/custom-api) for validation, middleware, persistence, adapters, package sharing, and troubleshooting.
 

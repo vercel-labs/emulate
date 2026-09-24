@@ -349,6 +349,39 @@ describe("custom runtime", () => {
     await runtime.close();
   });
 
+  it("redacts token and secret fields across paths, headers, bodies, and state", async () => {
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "secrets",
+        state: () => ({ access_token: "state-secret" }),
+        setup({ app }) {
+          app.post("/echo", async (c) => c.json({ ...(await c.req.json()), clientSecret: "response-secret" }));
+        },
+      }),
+      { inspector: true },
+    );
+    try {
+      const response = await runtime.request("/echo?client_secret=query-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Refresh-Token": "header-secret" },
+        body: JSON.stringify({ refresh_token: "body-secret", token_type: "bearer" }),
+      });
+      expect(await response.json()).toEqual({
+        refresh_token: "body-secret",
+        token_type: "bearer",
+        clientSecret: "response-secret",
+      });
+      const requests = await (await runtime.request("/_emulate")).text();
+      const state = await (await runtime.request("/_emulate?tab=state")).text();
+      for (const secret of ["query-secret", "header-secret", "body-secret", "response-secret", "state-secret"])
+        expect(requests + state).not.toContain(secret);
+      expect(requests).toContain("bearer");
+      expect(requests).toContain("[redacted]");
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("rejects conflicting and reserved routes without affecting built-in router defaults", async () => {
     await expect(
       createCustomRuntime(
