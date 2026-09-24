@@ -51,7 +51,7 @@ The router supports `get`, `post`, `put`, `patch`, `delete`, `on(method, path, h
 
 Read requests through `c.req.param(name)`, `query(name)`, `queries(name)`, `header(name)`, `json()`, `text()`, `arrayBuffer()`, or `parseBody()`. The original native Request is `c.req.raw`. Malformed JSON produces HTTP 400. Type annotations on `json<T>()` do not validate input; use your existing validation library for domain rules.
 
-Return `c.json`, `c.text`, `c.html`, `c.body`, `c.redirect`, or a native Response. Set response headers with `c.header(name, value)`; use the third argument `{ append: true }` for repeated headers such as cookies. Cookies can be read from the request's Cookie header and written with Set-Cookie. There is no implicit authentication or rate limit. Add middleware for the API behavior you need. The router is the documented emulate API, not the entire Hono middleware ecosystem.
+Return `c.json`, `c.text`, `c.html`, `c.body`, `c.redirect`, or a native Response. Set response headers with `c.header(name, value)`; use the third argument `{ append: true }` for repeated headers such as cookies. Appending Set-Cookie retains cookies already present on the response. Cookies can be read from the request's Cookie header and written with Set-Cookie. There is no implicit authentication or rate limit. Add middleware for the API behavior you need. The router is the documented emulate API, not the entire Hono middleware ecosystem.
 
 CORS defaults to permissive local development behavior. Set `cors: false` on the definition to implement OPTIONS yourself, or provide CORS options. Middleware can use `c.set` and `c.get` for request-local values. Register explicit routes outside the reserved `/_emulate` management namespace.
 
@@ -116,7 +116,7 @@ inventory: {
 }
 ```
 
-Programmatic and adapter usage accepts `filePersistence(path)` or an object with asynchronous `load()` and `save(data)` methods. Saves are serialized. Completed requests, including reads that change state and error responses after mutations, persist state. Reset, restore, and controlled shutdown also persist state. Arbitrary background mutations are outside automatic persistence boundaries. Load/save does not provide cross-process locking.
+Programmatic and adapter usage accepts `filePersistence(path)` or an object with asynchronous `load()` and `save(data)` methods. Saves are serialized. Completed requests, including reads that change state and error responses after mutations, persist state. For streamed responses, state changes made while delivering the body are saved when the body completes or is canceled. Reset and close cancel active streams and wait for cancellation before running cleanup, subject to `shutdownTimeout`. Reset, restore, and controlled shutdown also persist state. Arbitrary background mutations are outside automatic persistence boundaries. Load/save does not provide cross-process locking.
 
 <table>
   <thead><tr><th>Action</th><th>State</th></tr></thead>
@@ -171,10 +171,10 @@ import inventory from './inventory'
 const handler = createEmulateHandler({
   services: { inventory: { emulator: inventory } },
 })
-export const { GET, POST, PUT, PATCH, DELETE } = handler
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = handler
 ```
 
-The Nuxt adapter accepts the same entry. Use the framework's existing catch-all route setup. Custom response bodies remain author-controlled, and the provided `baseUrl` includes the mounted service path. Root-relative redirect locations stay under that mount; custom HTML bodies pass through unchanged. Inspector links and fonts respect the mount. Retain the handler and call its `close()` method in test teardown. Install `emulate` as a runtime dependency when the definition is deployed inside your application.
+Export `OPTIONS` in Next.js so preflight requests and explicit OPTIONS routes reach the emulator. The Nuxt adapter accepts the same entry. Use the framework's existing catch-all route setup. Custom response bodies remain author-controlled, and the provided `baseUrl` includes the mounted service path. Root-relative redirect locations stay under that mount; custom HTML bodies pass through unchanged. Inspector links and fonts respect the mount. Retain the handler and call its `close()` method in test teardown. Install `emulate` as a runtime dependency when the definition is deployed inside your application.
 
 ## Share a package
 

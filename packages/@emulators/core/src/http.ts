@@ -151,6 +151,8 @@ export class Context<E = unknown, P extends string = string> {
   readonly req: HonoRequest<P>;
   private readonly vars = new Map<string, unknown>();
   private readonly responseHeaders = new Headers();
+  private readonly headerOperations: Array<{ name: string; value: string; append: boolean }> = [];
+  private readonly appliedHeaders = new WeakMap<Response, number>();
   private responseStatus = 200;
 
   constructor(
@@ -173,6 +175,7 @@ export class Context<E = unknown, P extends string = string> {
   header(name: string, value: string, options?: { append?: boolean }): void {
     if (options?.append) this.responseHeaders.append(name, value);
     else this.responseHeaders.set(name, value);
+    this.headerOperations.push({ name, value, append: options?.append === true });
   }
 
   status(status: number): void {
@@ -204,9 +207,10 @@ export class Context<E = unknown, P extends string = string> {
   }
 
   finalize(response: Response): Response {
-    if (!hasHeaders(this.responseHeaders)) return response;
+    const applied = this.appliedHeaders.get(response) ?? 0;
+    if (applied === this.headerOperations.length) return response;
     const headers = new Headers(response.headers);
-    mergeHeaders(headers, this.responseHeaders);
+    mergeHeaders(headers, this.headerOperations.slice(applied));
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -216,22 +220,20 @@ export class Context<E = unknown, P extends string = string> {
 
   private response(body: BodyInit | null, status?: ContentfulStatusCode, headers?: HeadersInit): Response {
     const merged = new Headers(headers);
-    mergeHeaders(merged, this.responseHeaders);
-    return new Response(body, {
+    mergeHeaders(merged, this.headerOperations);
+    const response = new Response(body, {
       status: status ?? this.responseStatus,
       headers: merged,
     });
+    this.appliedHeaders.set(response, this.headerOperations.length);
+    return response;
   }
 }
 
-function mergeHeaders(target: Headers, source: Headers): void {
-  source.forEach((value, key) => {
-    if (key !== "set-cookie") target.set(key, value);
-  });
-  const cookies = source.getSetCookie();
-  if (cookies.length) {
-    target.delete("set-cookie");
-    for (const cookie of cookies) target.append("set-cookie", cookie);
+function mergeHeaders(target: Headers, operations: Array<{ name: string; value: string; append: boolean }>): void {
+  for (const { name, value, append } of operations) {
+    if (append) target.append(name, value);
+    else target.set(name, value);
   }
 }
 
@@ -491,11 +493,6 @@ function decodePathParam(value: string): string {
 
 function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
-}
-
-function hasHeaders(headers: Headers): boolean {
-  for (const _ of headers) return true;
-  return false;
 }
 
 function defaultContentType(headers: HeadersInit | undefined, contentType: string): Headers {

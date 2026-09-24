@@ -77,6 +77,8 @@ Use `defineConfig({ services: { inventory: { emulator: inventory }, github: { em
 
 Custom state uses your own record shapes and IDs. Seeds replace the complete initial state. Reset restores the captured seed; successful watch reloads create a new baseline and reset the run. With config auto-discovery, watch mode also detects recognized config files created after startup. Instances are independent. Persistence is opt-in, with versioned snapshots and no cross-process locking. Use `port: 0` for HTTP tests, or `listen: false` to test without opening a port. Custom reset and close are awaitable. Framework adapters keep root-relative custom redirects under the service mount while preserving custom HTML bodies.
 
+Streamed responses persist state changes when their bodies finish or are canceled. Reset and close cancel active streams before running cleanup. `c.header('Set-Cookie', value, { append: true })` retains cookies already set on the response. In a Next.js route, export `OPTIONS` from `createEmulateHandler` to forward preflight requests and custom OPTIONS handlers.
+
 See the [custom API guide](https://emulate.dev/docs/custom-apis) and [complete inventory example](examples/custom-api) for validation, middleware, persistence, adapters, package sharing, and troubleshooting.
 
 ## CLI

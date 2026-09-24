@@ -36,6 +36,7 @@ describe("custom runtime", () => {
           app.use(async (c, next) => {
             await next();
             c.header("X-Middleware", "yes");
+            if (c.req.path === "/native-cookies") c.header("Set-Cookie", "middleware=1; Path=/", { append: true });
           });
           app.put("/items/:id", async (c) =>
             c.json({ id: c.req.param("id"), tags: c.req.queries("tag"), text: await c.req.text() }),
@@ -49,6 +50,7 @@ describe("custom runtime", () => {
             c.header("Set-Cookie", "b=2; Expires=Wed, 21 Oct 2030 07:28:00 GMT", { append: true });
             return c.text(c.req.header("Cookie") ?? "");
           });
+          app.get("/native-cookies", () => new Response("ok", { headers: { "Set-Cookie": "route=1; Path=/" } }));
           app.on("OPTIONS", "/options", (c) => c.body(null, 204, { Allow: "GET, OPTIONS" }));
         },
       }),
@@ -73,6 +75,8 @@ describe("custom runtime", () => {
       const cookies = await runtime.request("/cookies", { headers: { Cookie: "input=1" } });
       expect(cookies.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Expires=Wed, 21 Oct 2030 07:28:00 GMT"]);
       expect(await cookies.text()).toBe("input=1");
+      const nativeCookies = await runtime.request("/native-cookies");
+      expect(nativeCookies.headers.getSetCookie()).toEqual(["route=1; Path=/", "middleware=1; Path=/"]);
       expect((await runtime.request("/options", { method: "OPTIONS" })).headers.get("Allow")).toBe("GET, OPTIONS");
     } finally {
       await runtime.close();
@@ -241,6 +245,54 @@ describe("custom runtime", () => {
     }
   });
 
+  it("waits for HEAD response cancellation before cleanup", async () => {
+    let started!: () => void;
+    const cancellationStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let release!: () => void;
+    const cancellationGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const disposed = vi.fn();
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "streaming-head-cleanup",
+        state: () => ({}),
+        setup({ app, onDispose }) {
+          onDispose(disposed);
+          app.get(
+            "/stream",
+            () =>
+              new Response(
+                new ReadableStream({
+                  pull: () => new Promise<void>(() => {}),
+                  async cancel() {
+                    started();
+                    await cancellationGate;
+                  },
+                }),
+              ),
+          );
+        },
+      }),
+    );
+    try {
+      const response = await runtime.request("/stream", { method: "HEAD" });
+      expect(response.body).toBeNull();
+      await cancellationStarted;
+      const reset = runtime.reset();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(disposed).not.toHaveBeenCalled();
+      release();
+      await reset;
+      expect(disposed).toHaveBeenCalledOnce();
+    } finally {
+      release();
+      await runtime.close();
+    }
+  });
+
   it("validates seeds and rejects unsupported state with a path", async () => {
     const def = defineEmulator({
       name: "validated",
@@ -325,6 +377,196 @@ describe("custom runtime", () => {
     expect(disposed).toHaveBeenCalledTimes(1);
     await Promise.all([runtime.close(), runtime.close()]);
     expect(disposed).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists mutations made while streaming a response", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saved = "";
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "stream-persistence",
+        state: () => ({ count: 0 }),
+        setup({ app, state }) {
+          app.get(
+            "/stream",
+            () =>
+              new Response(
+                new ReadableStream({
+                  async pull(controller) {
+                    await gate;
+                    state.count++;
+                    controller.enqueue(new TextEncoder().encode("complete"));
+                    controller.close();
+                  },
+                }),
+              ),
+          );
+        },
+      }),
+      {
+        persistence: {
+          load: async () => null,
+          save: async (value) => {
+            saved = value;
+          },
+        },
+      },
+    );
+    try {
+      const response = await runtime.request("/stream");
+      expect(JSON.parse(saved).state.count).toBe(0);
+      release();
+      expect(await response.text()).toBe("complete");
+      expect(runtime.snapshot().state.count).toBe(1);
+      expect(JSON.parse(saved).state.count).toBe(1);
+    } finally {
+      release();
+      await runtime.close();
+    }
+  });
+
+  it("persists a stream's final state after another request saves an intermediate state", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let saved = "";
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "stream-interleaving",
+        state: () => ({ count: 0 }),
+        setup({ app, state }) {
+          app.get("/set", (c) => {
+            state.count = 1;
+            return c.text("set");
+          });
+          app.get(
+            "/stream",
+            () =>
+              new Response(
+                new ReadableStream({
+                  async pull(controller) {
+                    await gate;
+                    state.count = 0;
+                    controller.close();
+                  },
+                }),
+              ),
+          );
+        },
+      }),
+      {
+        persistence: {
+          load: async () => null,
+          save: async (value) => {
+            saved = value;
+          },
+        },
+      },
+    );
+    try {
+      const stream = await runtime.request("/stream");
+      expect(await (await runtime.request("/set")).text()).toBe("set");
+      expect(JSON.parse(saved).state.count).toBe(1);
+      release();
+      expect(await stream.text()).toBe("");
+      expect(JSON.parse(saved).state.count).toBe(0);
+    } finally {
+      release();
+      await runtime.close();
+    }
+  });
+
+  it("persists state changed by response body cancellation", async () => {
+    let saved = "";
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "stream-cancel-persistence",
+        state: () => ({ count: 0 }),
+        setup({ app, state }) {
+          app.get(
+            "/stream",
+            () =>
+              new Response(
+                new ReadableStream({
+                  pull: () => new Promise<void>(() => {}),
+                  cancel() {
+                    state.count++;
+                  },
+                }),
+              ),
+          );
+        },
+      }),
+      {
+        persistence: {
+          load: async () => null,
+          save: async (value) => {
+            saved = value;
+          },
+        },
+      },
+    );
+    try {
+      const response = await runtime.request("/stream");
+      expect(JSON.parse(saved).state.count).toBe(0);
+      await response.body!.cancel();
+      expect(JSON.parse(saved).state.count).toBe(1);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("waits for stream cancellation before disposing a generation", async () => {
+    let cancelling!: () => void;
+    const cancellationStarted = new Promise<void>((resolve) => {
+      cancelling = resolve;
+    });
+    let release!: () => void;
+    const cancellationGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const disposed = vi.fn();
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "stream-cleanup",
+        state: () => ({}),
+        setup({ app, onDispose }) {
+          onDispose(disposed);
+          app.get(
+            "/stream",
+            () =>
+              new Response(
+                new ReadableStream({
+                  pull() {
+                    return new Promise<void>(() => {});
+                  },
+                  async cancel() {
+                    cancelling();
+                    await cancellationGate;
+                  },
+                }),
+              ),
+          );
+        },
+      }),
+    );
+    try {
+      const response = await runtime.request("/stream");
+      const reset = runtime.reset();
+      await cancellationStarted;
+      expect(disposed).not.toHaveBeenCalled();
+      release();
+      await reset;
+      expect(disposed).toHaveBeenCalledOnce();
+      await expect(response.text()).rejects.toThrow();
+    } finally {
+      release();
+      await runtime.close();
+    }
   });
 
   it("renders redacted inspection without changing JSON/binary responses", async () => {

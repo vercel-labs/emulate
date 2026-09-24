@@ -29,6 +29,8 @@ Custom stateful HTTP APIs:
   Import defineEmulator, defineConfig, and createEmulator from 'emulate'.
   Test in process with createEmulator({ service: yourDefinition, listen: false }).
   Custom APIs support seeds, reset, snapshots, restore, and opt-in persistence.
+  Streamed responses persist state changes during delivery; reset and close cancel active streams before cleanup.
+  Appended Set-Cookie headers retain cookies already on a response.
   Config accepts local TypeScript/JavaScript files and installed packages alongside built-ins.
   Node loads TypeScript with tsconfig aliases and source maps; no extra runtime packages are needed.
   Node 26 requires erasable TypeScript; compile enums and parameter properties to JavaScript first.
@@ -37,6 +39,7 @@ Custom stateful HTTP APIs:
   Reload errors keep the previous runner when possible.
   Structured inspection redacts token and secret fields, including access_token and client_secret.
   Framework adapters keep root-relative custom redirects under the service mount.
+  Export OPTIONS from the Next.js handler to forward preflight and custom OPTIONS routes.
   Docs: https://emulate.dev/docs/custom-apis
 
 GitHub API coverage:

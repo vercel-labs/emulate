@@ -26,7 +26,7 @@ import { createEmulateHandler } from '@emulators/adapter-next'
 import * as github from '@emulators/github'
 import * as google from '@emulators/google'
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateHandler({
   services: {
     github: {
       emulator: github,
@@ -108,7 +108,7 @@ const kvAdapter = {
   async save(data: string) { await kv.set('emulate-state', data) },
 }
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateHandler({
   services: { github: { emulator: github } },
   persistence: kvAdapter,
 })

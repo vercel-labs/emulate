@@ -32,6 +32,7 @@ export function createEmulateHandler(config: EmulateHandlerConfig) {
     PUT: handler,
     PATCH: handler,
     DELETE: handler,
+    OPTIONS: handler,
     generatedSecrets: runtime.generatedSecrets,
     close: runtime.close,
   };

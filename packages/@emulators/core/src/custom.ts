@@ -185,7 +185,13 @@ export async function createCustomRuntime<State extends object>(
     gen.controller.abort();
     const errors: unknown[] = [];
     try {
-      await bounded(Promise.allSettled([...gen.active]), timeout, "Requests draining");
+      await bounded(
+        (async () => {
+          while (gen.active.size) await Promise.allSettled([...gen.active]);
+        })(),
+        timeout,
+        "Requests draining",
+      );
     } catch (error) {
       errors.push(error);
     }
@@ -263,6 +269,7 @@ export async function createCustomRuntime<State extends object>(
   let closed = false;
   let transition: Promise<void> = Promise.resolve();
   let saving: Promise<void> = Promise.resolve();
+  let saveRevision = 0;
   let closing: Promise<void> | undefined;
   const snapshot = (): EmulatorSnapshot<State> => ({
     formatVersion: 1,
@@ -270,11 +277,81 @@ export async function createCustomRuntime<State extends object>(
     stateVersion: definition.stateVersion ?? 1,
     state: cloneState(generation.state),
   });
-  function save(): Promise<void> {
+  function save(serialized?: string): Promise<void> {
     if (!options.persistence) return Promise.resolve();
-    const serialized = JSON.stringify(snapshot());
-    saving = saving.catch(() => {}).then(() => options.persistence!.save(serialized));
+    const data = serialized ?? JSON.stringify(snapshot());
+    saveRevision++;
+    saving = saving.catch(() => {}).then(() => options.persistence!.save(data));
     return saving;
+  }
+  function trackBody(gen: Generation, response: Response, savedSnapshot?: string, savedRevision?: number): Response {
+    if (!response.body) return response;
+    const reader = response.body.getReader();
+    let resolveDone!: () => void;
+    const done = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+    gen.active.add(done);
+    void done.then(() => gen.active.delete(done));
+    let settled = false;
+    let stopped = false;
+    let abort: () => void;
+    async function finish(persist: boolean): Promise<void> {
+      if (settled) return;
+      settled = true;
+      gen.controller.signal.removeEventListener("abort", abort);
+      try {
+        if (persist && savedSnapshot !== undefined && gen === generation && !gen.controller.signal.aborted) {
+          const current = JSON.stringify(snapshot());
+          if (current !== savedSnapshot || saveRevision !== savedRevision) await save(current);
+        }
+      } catch (error) {
+        console.error(`[${definition.name}] persistence failed`, error);
+        throw new Error("Could not persist emulator state", { cause: error });
+      } finally {
+        resolveDone();
+      }
+    }
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        abort = () => {
+          if (stopped) return;
+          stopped = true;
+          controller.error(gen.controller.signal.reason);
+          void reader
+            .cancel(gen.controller.signal.reason)
+            .catch(() => {})
+            .finally(() => {
+              void finish(false);
+            });
+        };
+        gen.controller.signal.addEventListener("abort", abort, { once: true });
+        if (gen.controller.signal.aborted) abort();
+      },
+      async pull(controller) {
+        try {
+          const chunk = await reader.read();
+          if (stopped) return;
+          if (chunk.done) {
+            await finish(true);
+            controller.close();
+          } else controller.enqueue(chunk.value);
+        } catch (error) {
+          if (stopped) return;
+          await finish(true).catch(() => {});
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        stopped = true;
+        try {
+          await reader.cancel(reason);
+        } finally {
+          await finish(true);
+        }
+      },
+    });
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
   function replace(state: State): Promise<void> {
     if (closed) return Promise.reject(new Error("Emulator is closed"));
@@ -329,24 +406,33 @@ export async function createCustomRuntime<State extends object>(
         const req = new Request(request, { signal: AbortSignal.any([request.signal, gen.controller.signal]) });
         const started = inspector?.begin(req, gen.app.matchedRoute(req.method, pathname));
         let response = await gen.app.fetch(req);
+        let savedSnapshot: string | undefined;
+        let savedRevision: number | undefined;
         if (gen === generation && !gen.controller.signal.aborted) {
           try {
-            await save();
+            savedSnapshot = options.persistence ? JSON.stringify(snapshot()) : undefined;
+            const pendingSave = save(savedSnapshot);
+            savedRevision = saveRevision;
+            await pendingSave;
           } catch (error) {
             console.error(`[${definition.name}] persistence failed`, error);
+            void response.body?.cancel().catch(() => {});
+            savedSnapshot = undefined;
+            savedRevision = undefined;
             response = Response.json({ error: "Could not persist emulator state" }, { status: 500 });
           }
-          await inspector?.finish(req, response, started);
         }
+        response = trackBody(gen, response, savedSnapshot, savedRevision);
         if (request.method === "HEAD") {
           // Cancellation is best effort; a streaming body can reject or never settle.
           void response.body?.cancel().catch(() => {});
-          return new Response(null, {
+          response = new Response(null, {
             status: response.status,
             statusText: response.statusText,
             headers: response.headers,
           });
         }
+        if (gen === generation && !gen.controller.signal.aborted) await inspector?.finish(req, response, started);
         return response;
       })();
       gen.active.add(task);
