@@ -18,6 +18,7 @@ import {
   assertRepoContentsRead,
   assertRepoPermission,
   assertRepoWrite,
+  getActorUser,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -273,6 +274,11 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const comment = getCommentForRepo(gh, repo, commentId, "review");
     if (!comment) throw notFoundResponse();
 
+    const review = comment.review_id ? gh.reviews.get(comment.review_id) : undefined;
+    const auth = c.get("authUser");
+    if (review?.state === "PENDING" && (!auth || getActorUser(gh, auth)?.id !== review.user_id))
+      throw notFoundResponse();
+
     const json = formatComment(comment, gh, baseUrl);
     if (!json) throw notFoundResponse();
     return c.json(json);
@@ -373,7 +379,13 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const { page, per_page } = parsePagination(c);
     const { sort, direction } = parseCommentSort(c, "asc");
 
-    let list = gh.comments.findBy("repo_id", repo.id).filter((x) => x.comment_type === "review");
+    const auth = c.get("authUser");
+    const viewer = auth ? getActorUser(gh, auth) : undefined;
+    let list = gh.comments.findBy("repo_id", repo.id).filter((comment) => {
+      if (comment.comment_type !== "review") return false;
+      const review = comment.review_id ? gh.reviews.get(comment.review_id) : undefined;
+      return review?.state !== "PENDING" || review.user_id === viewer?.id;
+    });
     list = sortComments(list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);

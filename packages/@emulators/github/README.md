@@ -70,6 +70,8 @@ npm install @emulators/github
 - `POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` — manage reviewers
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` — update branch
 
+Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
+
 ### Comments
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
@@ -84,7 +86,7 @@ npm install @emulators/github
 - `POST /repos/:owner/:repo/pulls/:number/reviews/:id/events` — submit
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` — dismiss
 
-Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
+Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Individual comment reads and repository-wide comment listings also hide pending review comments from other users and anonymous readers. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
 
 ### GraphQL collaboration
 

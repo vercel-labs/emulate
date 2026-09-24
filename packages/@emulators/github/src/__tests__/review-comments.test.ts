@@ -20,10 +20,10 @@ describe("GitHub review comment locations", () => {
   let webhooks: WebhookDispatcher;
   let pull: { number: number; node_id: string; head: { sha: string } };
 
-  function request(path: string, method = "GET", body?: unknown) {
+  function request(path: string, method = "GET", body?: unknown, token: string | null = "test-token") {
     return app.request(`${base}${repoPath}${path}`, {
       method,
-      headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
@@ -37,11 +37,13 @@ describe("GitHub review comment locations", () => {
     app.use("*", authMiddleware(tokenMap));
     githubPlugin.register(app, store, webhooks, base, tokenMap);
     seedFromConfig(store, base, {
-      users: [{ login: "octocat" }],
+      users: [{ login: "octocat" }, { login: "reader" }],
       repos: [{ owner: "octocat", name: "hello-world", auto_init: true }],
     });
     const user = getGitHubStore(store).users.findOneBy("login", "octocat")!;
     tokenMap.set("test-token", { id: user.id, login: user.login, scopes: ["repo"] });
+    const reader = getGitHubStore(store).users.findOneBy("login", "reader")!;
+    tokenMap.set("reader-token", { id: reader.id, login: reader.login, scopes: ["repo"] });
     const branch = (await (await request("/branches/main")).json()) as { commit: { sha: string } };
     expect((await request("/git/refs", "POST", { ref: "refs/heads/feature", sha: branch.commit.sha })).status).toBe(
       201,
@@ -138,6 +140,50 @@ describe("GitHub review comment locations", () => {
     const draft = (await discarded.json()) as { id: number };
     expect((await request(`${reviewsPath}/${draft.id}`, "DELETE")).status).toBe(200);
     expect((await request(`${reviewsPath}/${draft.id}/comments`)).status).toBe(404);
+  });
+
+  it("keeps pending review comments private on individual and repository-wide reads until submission", async () => {
+    const reviewsPath = `/pulls/${pull.number}/reviews`;
+    const created = await request(reviewsPath, "POST", {
+      body: "Draft",
+      comments: [{ path: "scenario.md", line: 1, side: "RIGHT", body: "Private draft" }],
+    });
+    expect(created.status).toBe(201);
+    const review = (await created.json()) as { id: number };
+    const [draft] = (await (await request(`${reviewsPath}/${review.id}/comments`)).json()) as { id: number }[];
+    const published = await request(`/pulls/${pull.number}/comments`, "POST", {
+      body: "Published comment",
+      path: "scenario.md",
+      line: 1,
+      side: "RIGHT",
+      commit_id: pull.head.sha,
+    });
+    expect(published.status).toBe(201);
+    const comment = (await published.json()) as { id: number };
+
+    expect(await (await request(`/pulls/comments/${draft.id}`)).json()).toMatchObject({ body: "Private draft" });
+    expect(await (await request("/pulls/comments")).json()).toMatchObject([{ id: draft.id }, { id: comment.id }]);
+    for (const token of ["reader-token", null]) {
+      expect((await request(`/pulls/comments/${draft.id}`, "GET", undefined, token)).status).toBe(404);
+      const listed = await request("/pulls/comments?per_page=1", "GET", undefined, token);
+      expect(await listed.json()).toMatchObject([{ id: comment.id }]);
+      expect(listed.headers.get("Link")).toBeNull();
+      expect(await (await request(`/pulls/${pull.number}/comments`, "GET", undefined, token)).json()).toMatchObject([
+        { id: comment.id },
+      ]);
+      expect((await request(`/pulls/comments/${comment.id}`, "GET", undefined, token)).status).toBe(200);
+    }
+
+    expect((await request(`${reviewsPath}/${review.id}/events`, "POST", { event: "COMMENT" })).status).toBe(200);
+    for (const token of ["reader-token", null]) {
+      expect(await (await request(`/pulls/comments/${draft.id}`, "GET", undefined, token)).json()).toMatchObject({
+        body: "Private draft",
+      });
+      expect(await (await request("/pulls/comments", "GET", undefined, token)).json()).toMatchObject([
+        { id: draft.id },
+        { id: comment.id },
+      ]);
+    }
   });
 
   it("shares draft and thread resolution state between GraphQL and REST", async () => {
@@ -242,6 +288,50 @@ describe("GitHub review comment locations", () => {
     expect(
       (await request(`/pulls/${pull.number}/comments/${body.id}/replies`, "POST", { body: "Nested" })).status,
     ).toBe(422);
+  });
+
+  it("emits an edited webhook with the new base snapshot when only the target branch changes", async () => {
+    const main = (await (await request("/branches/main")).json()) as { commit: { sha: string } };
+    expect((await request("/git/refs", "POST", { ref: "refs/heads/release", sha: main.commit.sha })).status).toBe(201);
+    const added = await request("/contents/release.md", "PUT", {
+      branch: "release",
+      message: "Prepare release",
+      content: Buffer.from("Release\n").toString("base64"),
+    });
+    expect(added.status).toBe(201);
+    const release = (await added.json()) as { commit: { sha: string } };
+    const receiver = createServer((_req, res) => res.writeHead(200).end());
+    receiver.listen(0, "127.0.0.1");
+    await once(receiver, "listening");
+    const address = receiver.address();
+    if (!address || typeof address === "string") throw new Error("Missing webhook address");
+    webhooks.register({
+      url: `http://127.0.0.1:${address.port}`,
+      active: true,
+      events: ["pull_request"],
+      owner: "octocat",
+      repo: "hello-world",
+    });
+    try {
+      const updated = await request(`/pulls/${pull.number}`, "PATCH", { base: "release" });
+      expect(updated.status).toBe(200);
+      const snapshot = { base: { ref: "release", sha: release.commit.sha }, head: { sha: pull.head.sha } };
+      expect(await updated.json()).toMatchObject(snapshot);
+      expect(await (await request(`/pulls/${pull.number}`)).json()).toMatchObject(snapshot);
+      await expect.poll(() => webhooks.getDeliveries().filter((delivery) => delivery.success)).toHaveLength(1);
+      expect(webhooks.getDeliveries()[0]).toMatchObject({
+        event: "pull_request",
+        action: "edited",
+        payload: {
+          action: "edited",
+          pull_request: { number: pull.number, ...snapshot },
+          repository: { full_name: "octocat/hello-world" },
+          sender: { login: "octocat" },
+        },
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => receiver.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 
   it("emits synchronize webhooks for ref and contents writes, but not unchanged or closed heads", async () => {

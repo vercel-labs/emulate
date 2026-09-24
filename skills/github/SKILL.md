@@ -343,6 +343,8 @@ curl -X PUT http://localhost:4001/repos/octocat/hello-world/pulls/1/merge \
 # Commits, files, requested reviewers, update branch
 ```
 
+Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
+
 ### Comments
 
 ```bash
@@ -393,7 +395,7 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/pulls/1/reviews \
   -d '{"event": "APPROVE", "body": "LGTM"}'
 ```
 
-Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
+Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Individual comment reads and repository-wide comment listings also hide pending review comments from other users and anonymous readers. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
 
 Use `DELETE /repos/:owner/:repo/pulls/:number/reviews/:id` to discard a pending review and its comments. Submitted reviews cannot be deleted.
 
