@@ -24,6 +24,13 @@ export interface ResendIdempotencyRecord extends Entity {
   response_email_ids: string[];
 }
 
+export interface ResendSendAttempt extends Entity {
+  to: string[];
+  from: string;
+  subject: string;
+  idempotency_key: string | null;
+}
+
 export interface ResendDomain extends Entity {
   uuid: string;
   name: string;
