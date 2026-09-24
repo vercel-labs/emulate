@@ -42,10 +42,13 @@ All IAM operations use `POST /iam/` with an `Action` form parameter.
 
 ## STS
 
-All STS operations use `POST /sts/` with an `Action` form parameter.
+All STS operations use `POST /sts` or `POST /sts/` with an `Action` form parameter.
 
 - `GetCallerIdentity` - get caller identity
 - `AssumeRole` - assume a role (returns temporary credentials)
+- `AssumeRoleWithWebIdentity` - obtain temporary credentials from an opaque or JWT-shaped token
+
+`AssumeRoleWithWebIdentity` accepts a non-empty token and an IAM role ARN without requiring a seeded role. Requests may be unsigned. `RoleSessionName` is required; `DurationSeconds` defaults to 3600 and accepts 900 through 43200. JWT-shaped tokens supply the response subject, audience, and issuer; opaque tokens get a stable subject digest. Token signatures, expiry, role trust, policies, and role-specific session limits are not enforced. This is response emulation for local tests.
 
 ## Inspector
 

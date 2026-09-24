@@ -61,6 +61,7 @@ Vercel API coverage:
   GET /v7/deployments lists deployments by commit SHA across a team's projects, with cursor pagination.
 
 AWS API coverage:
+  STS AssumeRoleWithWebIdentity accepts unverified tokens at POST /sts or /sts/ for local credential flows.
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 
 Google Calendar discovery:

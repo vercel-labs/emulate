@@ -10,7 +10,7 @@ import {
   parseQueryString,
   escapeXml,
 } from "../helpers.js";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 
 export function iamRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -51,8 +51,9 @@ export function iamRoutes(ctx: RouteContext): void {
     }
   });
 
-  // STS endpoints
-  app.post("/sts/", async (c) => {
+  // STS endpoints. The AWS SDKs resolve a configured endpoint of ".../sts" and
+  // then post to it directly, so the path arrives without a trailing slash.
+  const stsHandler = async (c: Context) => {
     const body = await c.req.text();
     const params = parseQueryString(body);
     const action = params["Action"] ?? c.req.query("Action") ?? "";
@@ -62,10 +63,15 @@ export function iamRoutes(ctx: RouteContext): void {
         return getCallerIdentity(c);
       case "AssumeRole":
         return assumeRole(c, params);
+      case "AssumeRoleWithWebIdentity":
+        return assumeRoleWithWebIdentity(c, params);
       default:
         return awsErrorXml(c, "InvalidAction", `The action ${action} is not valid for this endpoint.`, 400);
     }
-  });
+  };
+
+  app.post("/sts", stsHandler);
+  app.post("/sts/", stsHandler);
 
   function createUser(c: Context, params: Record<string, string>) {
     const userName = params["UserName"] ?? "";
@@ -419,6 +425,95 @@ ${rolesXml}
   </AssumeRoleResult>
   <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
 </AssumeRoleResponse>`;
+    return awsXmlResponse(c, xml);
+  }
+
+  // Claims are read only to populate the response. Tokens and role trust are
+  // never verified; this endpoint emulates the response shape for local tests.
+  function webIdentityClaims(token: string): Record<string, unknown> {
+    const segments = token.split(".");
+    if (segments.length === 3) {
+      try {
+        const claims: unknown = JSON.parse(Buffer.from(segments[1], "base64url").toString("utf8"));
+        if (claims && typeof claims === "object") {
+          return claims as Record<string, unknown>;
+        }
+      } catch {
+        // Not a JWT after all. Fall through to the digest.
+      }
+    }
+    return {};
+  }
+
+  function assumeRoleWithWebIdentity(c: Context, params: Record<string, string>) {
+    const roleArn = params["RoleArn"] ?? "";
+    if (!roleArn) {
+      return awsErrorXml(c, "ValidationError", "The request must contain the parameter RoleArn.", 400);
+    }
+
+    const token = params["WebIdentityToken"] ?? "";
+    if (!token) {
+      return awsErrorXml(c, "ValidationError", "The request must contain the parameter WebIdentityToken.", 400);
+    }
+
+    const roleMatch = /^arn:([^:]+):iam::(\d{12}):role\/(.+)$/.exec(roleArn);
+    if (!roleMatch) {
+      return awsErrorXml(c, "ValidationError", "RoleArn must be an IAM role ARN.", 400);
+    }
+    const sessionName = params["RoleSessionName"] ?? "";
+    if (!/^[\w+=,.@-]{2,64}$/.test(sessionName)) {
+      return awsErrorXml(
+        c,
+        "ValidationError",
+        "RoleSessionName must contain 2 to 64 valid session name characters.",
+        400,
+      );
+    }
+    const duration = params["DurationSeconds"] ?? "3600";
+    if (!/^\d+$/.test(duration) || Number(duration) < 900 || Number(duration) > 43200) {
+      return awsErrorXml(c, "ValidationError", "DurationSeconds must be an integer between 900 and 43200.", 400);
+    }
+
+    // Unlike AssumeRole, the role need not be seeded. Callers point at whatever
+    // role ARN their production configuration names, and the emulator issues
+    // credentials for it regardless.
+    const role = aws()
+      .iamRoles.all()
+      .find((r) => r.arn === roleArn);
+    const roleId = role?.role_id ?? generateAwsId("AROA");
+
+    const accessKeyId = "ASIA" + randomBytes(8).toString("hex").toUpperCase();
+    const secretAccessKey = randomBytes(30).toString("base64");
+    const sessionToken = randomBytes(64).toString("base64");
+    const expiration = new Date(Date.now() + Number(duration) * 1000).toISOString();
+    const claims = webIdentityClaims(token);
+    const subject =
+      typeof claims["sub"] === "string" && claims["sub"]
+        ? claims["sub"]
+        : `emulate:${createHash("sha256").update(token).digest("hex").slice(0, 32)}`;
+    const audience = typeof claims["aud"] === "string" ? claims["aud"] : "emulate";
+    const provider = params["ProviderId"] || (typeof claims["iss"] === "string" ? claims["iss"] : "emulate");
+    const assumedRoleArn = `arn:${roleMatch[1]}:sts::${roleMatch[2]}:assumed-role/${roleMatch[3].split("/").pop()}/${sessionName}`;
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<AssumeRoleWithWebIdentityResponse>
+  <AssumeRoleWithWebIdentityResult>
+    <SubjectFromWebIdentityToken>${escapeXml(subject)}</SubjectFromWebIdentityToken>
+    <Audience>${escapeXml(audience)}</Audience>
+    <Provider>${escapeXml(provider)}</Provider>
+    <Credentials>
+      <AccessKeyId>${accessKeyId}</AccessKeyId>
+      <SecretAccessKey>${secretAccessKey}</SecretAccessKey>
+      <SessionToken>${sessionToken}</SessionToken>
+      <Expiration>${expiration}</Expiration>
+    </Credentials>
+    <AssumedRoleUser>
+      <Arn>${escapeXml(assumedRoleArn)}</Arn>
+      <AssumedRoleId>${roleId}:${escapeXml(sessionName)}</AssumedRoleId>
+    </AssumedRoleUser>
+  </AssumeRoleWithWebIdentityResult>
+  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
+</AssumeRoleWithWebIdentityResponse>`;
     return awsXmlResponse(c, xml);
   }
 }
