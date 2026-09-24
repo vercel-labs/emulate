@@ -1,6 +1,7 @@
 import type { AppEnv, Context, RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { synchronizePullRequestHeads } from "../pull-request-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubBranch, GitHubCommit, GitHubRef, GitHubRepo, GitHubTree, GitHubUser } from "../entities.js";
 import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
@@ -711,6 +712,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       repo.name,
     );
 
+    synchronizePullRequestHeads(gh, webhooks, repo, `refs/heads/${branchName}`, commit.sha, user, baseUrl);
     const entry: FileTreeEntry = {
       mode: existing?.type === "blob" ? existing.mode : "100644",
       type: "blob",
@@ -793,6 +795,7 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       repo.name,
     );
 
+    synchronizePullRequestHeads(gh, webhooks, repo, `refs/heads/${branchName}`, commit.sha, user, baseUrl);
     return c.json({ content: null, commit: formatGitCommit(repo, commit, baseUrl) });
   });
 }

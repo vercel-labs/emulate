@@ -1,10 +1,73 @@
 import { randomBytes } from "crypto";
 import type { RouteContext, AuthApp } from "@emulators/core";
+import { forbidden, notFound, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { generateNodeId } from "../helpers.js";
+import { formatRepo, generateNodeId } from "../helpers.js";
+import { assertAuthenticatedUser, isOrgMember } from "../route-helpers.js";
+import type { GitHubAppInstallation, GitHubRepo, GitHubUser } from "../entities.js";
 
 export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const gh = getGitHubStore(store);
+
+  function installationRepositories(installation: GitHubAppInstallation): GitHubRepo[] {
+    return gh.repos
+      .all()
+      .filter(
+        (repo) =>
+          repo.owner_id === installation.account_id &&
+          repo.owner_type === installation.account_type &&
+          (installation.repository_selection === "all" || installation.repository_ids.includes(repo.id)),
+      );
+  }
+
+  function hasExplicitRepoAccess(user: GitHubUser, repo: GitHubRepo): boolean {
+    if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
+    if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
+    return gh.collaborators.findBy("repo_id", repo.id).some((collaborator) => collaborator.user_id === user.id);
+  }
+
+  function canAccessInstallation(user: GitHubUser, installation: GitHubAppInstallation): boolean {
+    if (installation.account_type === "User" && installation.account_id === user.id) return true;
+    if (installation.account_type === "Organization" && isOrgMember(gh, user.id, installation.account_id)) return true;
+    return installationRepositories(installation).some((repo) => hasExplicitRepoAccess(user, repo));
+  }
+
+  app.get("/user/installations", (c) => {
+    const authUser = c.get("authUser");
+    if (authUser?.installation) throw forbidden();
+    const user = assertAuthenticatedUser(gh, authUser);
+    const installations = gh.appInstallations.all().filter((installation) => canAccessInstallation(user, installation));
+    const { page, per_page } = parsePagination(c);
+    setLinkHeader(c, installations.length, page, per_page);
+    const start = (page - 1) * per_page;
+
+    return c.json({
+      total_count: installations.length,
+      installations: installations.slice(start, start + per_page).map((installation) => {
+        const ghApp = gh.apps.findOneBy("app_id", installation.app_id);
+        return formatInstallation(installation, ghApp, baseUrl);
+      }),
+    });
+  });
+
+  app.get("/user/installations/:installation_id/repositories", (c) => {
+    const authUser = c.get("authUser");
+    if (authUser?.installation) throw forbidden();
+    const user = assertAuthenticatedUser(gh, authUser);
+    const installationId = parseInt(c.req.param("installation_id"), 10);
+    const installation = gh.appInstallations.findOneBy("installation_id", installationId);
+    if (!installation || !canAccessInstallation(user, installation)) throw notFound();
+    // Public visibility alone is not an explicit grant for user installation discovery.
+    const repositories = installationRepositories(installation).filter((repo) => hasExplicitRepoAccess(user, repo));
+    const { page, per_page } = parsePagination(c);
+    setLinkHeader(c, repositories.length, page, per_page);
+    const start = (page - 1) * per_page;
+
+    return c.json({
+      total_count: repositories.length,
+      repositories: repositories.slice(start, start + per_page).map((repo) => formatRepo(repo, gh, baseUrl, user.id)),
+    });
+  });
 
   function requireApp(c: any): AuthApp | null {
     const authApp = c.get("authApp") as AuthApp | undefined;

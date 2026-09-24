@@ -1,6 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { synchronizePullRequestHeads } from "../pull-request-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type {
   GitHubBranch,
@@ -804,6 +805,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
     gh.refs.update(r.id, { sha: newSha });
     syncBranchFromRef(gh, repo, fullRef, newSha);
+    synchronizePullRequestHeads(gh, webhooks, repo, fullRef, newSha, user, baseUrl);
     webhooks.dispatch(
       "push",
       undefined,

@@ -658,6 +658,9 @@ importers:
       '@emulators/core':
         specifier: workspace:*
         version: link:../core
+      graphql:
+        specifier: ^17.0.0
+        version: 17.0.0
     devDependencies:
       tsup:
         specifier: ^8

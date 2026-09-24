@@ -15,6 +15,7 @@ import type {
   GitHubCheckRun,
   GitHubCheckSuite,
   GitHubReview,
+  GitHubReaction,
   GitHubWorkflow,
   GitHubWorkflowRun,
   GitHubJob,
@@ -341,7 +342,17 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     labels_url: `${repoUrl}/issues/${issue.number}/labels{/name}`,
     comments_url: `${repoUrl}/issues/${issue.number}/comments`,
     events_url: `${repoUrl}/issues/${issue.number}/events`,
-    html_url: `${baseUrl}/${repo.full_name}/issues/${issue.number}`,
+    html_url: `${baseUrl}/${repo.full_name}/${issue.is_pull_request ? "pull" : "issues"}/${issue.number}`,
+    ...(issue.is_pull_request
+      ? {
+          pull_request: {
+            url: `${repoUrl}/pulls/${issue.number}`,
+            html_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}`,
+            diff_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}.diff`,
+            patch_url: `${baseUrl}/${repo.full_name}/pull/${issue.number}.patch`,
+          },
+        }
+      : {}),
     id: issue.id,
     node_id: issue.node_id,
     number: issue.number,
@@ -361,7 +372,7 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     closed_at: issue.closed_at,
     closed_by: closedBy ? formatUser(closedBy, baseUrl) : null,
     body: issue.body,
-    reactions: defaultReactions(`${repoUrl}/issues/${issue.number}`),
+    reactions: formatReactions(store, issue.repo_id, "issue", issue.id, `${repoUrl}/issues/${issue.number}`),
     timeline_url: `${repoUrl}/issues/${issue.number}/timeline`,
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
@@ -512,9 +523,10 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
 
   if (comment.comment_type === "issue") {
+    const issue = store.issues.findBy("repo_id", repo.id).find((i) => i.number === comment.issue_number);
     return {
       url: `${repoUrl}/issues/comments/${comment.id}`,
-      html_url: `${baseUrl}/${repo.full_name}/issues/${comment.issue_number}#issuecomment-${comment.id}`,
+      html_url: `${baseUrl}/${repo.full_name}/${issue?.is_pull_request ? "pull" : "issues"}/${comment.issue_number}#issuecomment-${comment.id}`,
       issue_url: `${repoUrl}/issues/${comment.issue_number}`,
       id: comment.id,
       node_id: comment.node_id,
@@ -523,7 +535,13 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
       updated_at: comment.updated_at,
       author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
       body: comment.body,
-      reactions: defaultReactions(`${repoUrl}/issues/comments/${comment.id}`),
+      reactions: formatReactions(
+        store,
+        repo.id,
+        "issue_comment",
+        comment.id,
+        `${repoUrl}/issues/comments/${comment.id}`,
+      ),
       performed_via_github_app: null,
     };
   }
@@ -547,7 +565,13 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
       created_at: comment.created_at,
       updated_at: comment.updated_at,
       author_association: computeAuthorAssociation(store, comment.user_id, comment.repo_id),
-      reactions: defaultReactions(`${repoUrl}/pulls/comments/${comment.id}`),
+      reactions: formatReactions(
+        store,
+        repo.id,
+        "review_comment",
+        comment.id,
+        `${repoUrl}/pulls/comments/${comment.id}`,
+      ),
       line: comment.line,
       side: comment.side ?? "RIGHT",
       subject_type: comment.subject_type ?? "line",
@@ -713,6 +737,33 @@ function defaultReactions(url: string) {
     heart: 0,
     rocket: 0,
     eyes: 0,
+  };
+}
+
+function formatReactions(
+  store: GitHubStore,
+  repoId: number,
+  subjectType: GitHubReaction["subject_type"],
+  subjectId: number,
+  url: string,
+) {
+  const summary = defaultReactions(url);
+  for (const reaction of store.reactions.findBy("subject_id", subjectId)) {
+    if (reaction.repo_id !== repoId || reaction.subject_type !== subjectType) continue;
+    summary.total_count++;
+    summary[reaction.content]++;
+  }
+  return summary;
+}
+
+export function formatReaction(reaction: GitHubReaction, store: GitHubStore, baseUrl: string) {
+  const user = store.users.get(reaction.user_id);
+  return {
+    id: reaction.id,
+    node_id: reaction.node_id,
+    user: user ? formatUser(user, baseUrl) : null,
+    content: reaction.content,
+    created_at: reaction.created_at,
   };
 }
 
