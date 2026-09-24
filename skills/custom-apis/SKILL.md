@@ -15,7 +15,7 @@ npx emulate init --custom inventory
 npx emulate start --watch
 ```
 
-The scaffold creates a TypeScript definition, a config entry, and a Node test. Inspect existing configuration before scaffolding; arbitrary executable configs may need the registration edit printed by the command. Preserve unrelated services and files.
+The scaffold creates a TypeScript definition and a Node test. It adds an entry to a discovered YAML, JSON, TypeScript, or JavaScript config, preserving existing services. For an unusual executable config, follow the manual import and registration instructions printed by the command. `init` prints the generated test path; `start` prints inspector and Routes links for custom services.
 
 Define the service with `defineEmulator` imported from `emulate`. `state()` returns fresh JSON-compatible data, and synchronous `setup({ app, state, baseUrl, signal, onDispose })` registers handlers. State is inferred. Implement observable state transitions, validation, and errors from the actual API contract. Use author-controlled response shapes and IDs.
 

@@ -15,11 +15,10 @@ function printReady(metadata: RunMetadata, watching: boolean) {
   console.log("\nemulate\n");
   for (const service of metadata.services) {
     console.log(`  ${service.name}  ${service.url}\n    Source: ${service.source}`);
-    if (service.inspectorUrl) console.log(`    Inspector: ${service.inspectorUrl}`);
+    if (service.inspectorUrl)
+      console.log(`    Inspector: ${service.inspectorUrl}\n    Routes: ${service.inspectorUrl}?tab=routes`);
   }
   console.log(`\n  ${watching ? "Watching imports and fixtures. Reloads reset state to seed." : "Ready."}`);
-  const first = metadata.services.find((service) => service.inspectorUrl);
-  if (first) console.log(`  Try: curl ${first.url}/inventory\n  Test: node --test emulators/${first.name}.test.ts`);
 }
 
 function receive(child: ChildProcess, wanted: string, timeout = 30000): Promise<any> {

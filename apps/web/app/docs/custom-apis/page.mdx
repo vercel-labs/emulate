@@ -10,7 +10,7 @@ npx emulate init --custom inventory
 npx emulate start --watch
 ```
 
-The scaffold creates `emulators/inventory.ts`, a Node test, and a config entry. It implements reservations that consume stock, cancellation that returns stock, and an out-of-stock response.
+The scaffold creates `emulators/inventory.ts` and a Node test, then adds a service entry to a discovered YAML, JSON, TypeScript, or JavaScript config. If the executable config uses an unusual default export, follow the manual import and service entry printed by the command. The sample implements reservations that consume stock, cancellation that returns stock, and an out-of-stock response.
 
 ```bash
 curl -X POST http://localhost:4000/reservations
@@ -19,7 +19,7 @@ curl -X DELETE http://localhost:4000/reservations/r_1
 node --test emulators/inventory.test.ts
 ```
 
-Open the printed inspector URL, normally `http://localhost:4000/_emulate`. Requests, Routes, and State are available automatically. Reset restores the captured initial seed.
+`init` prints the generated test command. `start` prints the inspector URL and a direct Routes link for each custom service. Requests, Routes, and State are available in the inspector, normally at `http://localhost:4000/_emulate`. Reset restores the captured initial seed.
 
 ## Define an emulator
 

@@ -48,7 +48,7 @@ npx emulate init --custom inventory
 npx emulate start --watch
 ```
 
-The scaffold implements reservations, stock changes, cancellation, and out-of-stock errors. It includes a config and a runnable Node test. Open the printed `/_emulate` URL to inspect requests, routes, and state, then reset to the initial seed. Structured inspection redacts token and secret fields such as `access_token`, `refresh_token`, and `client_secret`.
+The scaffold implements reservations, stock changes, cancellation, and out-of-stock errors. It creates a runnable Node test and adds the service to a discovered YAML, JSON, TypeScript, or JavaScript config. For an unusual executable config, it prints the import and service entry to add manually. `init` prints the test command; `start` prints inspector and Routes links for custom services. Use the inspector to view requests and state or reset to the initial seed. Structured inspection redacts token and secret fields such as `access_token`, `refresh_token`, and `client_secret`.
 
 ```typescript
 import { defineEmulator, createEmulator } from 'emulate'

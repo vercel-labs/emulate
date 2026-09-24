@@ -153,6 +153,61 @@ describe("custom configuration and scaffold", () => {
     }
   });
 
+  it("adds services to an existing TypeScript config without markers", async () => {
+    const dir = await project();
+    const path = join(dir, "emulate.config.ts");
+    await writeFile(
+      path,
+      'import { defineConfig } from "emulate";\n// export default { services: { inventory: true } };\nconst example = `export default { services: { inventory: true } }`;\nconst nested = { services: { github: { inventory: true, "billing": true } } };\nexport default defineConfig({ services: { github: { emulator: "github" } }, watch: ["./fixtures/**"] });\n',
+    );
+    scaffoldCommand("inventory", undefined, dir);
+    scaffoldCommand("billing", undefined, dir);
+    const updated = await readFile(path, "utf8");
+    expect(updated).toContain("const example = `export default");
+    expect(updated).toContain("// @emulate:imports");
+    expect(updated).toContain("// @emulate:services");
+    expect(updated).not.toContain("__emulateConfigBefore_billingEmulator");
+    const config = await loadConfig({ cwd: dir });
+    try {
+      expect(config.services.map((service) => service.name)).toEqual(["github", "inventory", "billing"]);
+      expect(config.watch).toEqual(["./fixtures/**"]);
+    } finally {
+      config.loader.close();
+    }
+  });
+
+  it("adds a service to a JavaScript config while preserving other exports", async () => {
+    const dir = await project();
+    const path = join(dir, "emulate.config.js");
+    await writeFile(
+      path,
+      'export const enabled = true;\nconst config = { services: { github: { emulator: "github" } } };\nexport default config;\n',
+    );
+    scaffoldCommand("inventory", undefined, dir);
+    const updated = await readFile(path, "utf8");
+    expect(updated).toContain("export const enabled = true");
+    const config = await loadConfig({ cwd: dir });
+    try {
+      expect(config.services.map((service) => service.name)).toEqual(["github", "inventory"]);
+    } finally {
+      config.loader.close();
+    }
+  });
+
+  it.each([
+    ["services", "inventory"],
+    ["services", '"inventory"'],
+    ["'services' /* configured */", "'inventory'"],
+  ])("refuses a duplicate custom name %s %s before creating files", async (servicesKey, key) => {
+    const dir = await project();
+    await writeFile(
+      join(dir, "emulate.config.ts"),
+      `export default { ${servicesKey}: { ${key}: { emulator: "./existing.ts" } } };\n`,
+    );
+    expect(() => scaffoldCommand("inventory", undefined, dir)).toThrow("may already be defined");
+    await expect(readFile(join(dir, "emulators/inventory.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("keeps YAML comments and legacy services while adding a custom API", async () => {
     const dir = await project();
     await writeFile(

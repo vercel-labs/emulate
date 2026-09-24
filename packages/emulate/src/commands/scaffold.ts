@@ -70,6 +70,125 @@ test("reservations update inventory, cancellation restores it, and reset re-seed
 `;
 }
 
+function maskStringsAndComments(source: string): string {
+  const masked = source.split("");
+  for (let index = 0; index < source.length; ) {
+    const char = source[index];
+    let end = index;
+    if (char === "/" && source[index + 1] === "/") {
+      end = source.indexOf("\n", index + 2);
+      if (end < 0) end = source.length;
+    } else if (char === "/" && source[index + 1] === "*") {
+      end = source.indexOf("*/", index + 2);
+      end = end < 0 ? source.length : end + 2;
+    } else if (char === '"' || char === "'" || char === "`") {
+      end = index + 1;
+      while (end < source.length) {
+        if (source[end] === "\\") end += 2;
+        else if (source[end++] === char) break;
+      }
+    }
+    if (end === index) {
+      index++;
+      continue;
+    }
+    for (let cursor = index; cursor < end; cursor++)
+      if (masked[cursor] !== "\n" && masked[cursor] !== "\r") masked[cursor] = " ";
+    index = end;
+  }
+  return masked.join("");
+}
+
+function skipTrivia(source: string, start: number): number {
+  let index = start;
+  while (index < source.length) {
+    if (/\s/.test(source[index])) index++;
+    else if (source.startsWith("//", index)) {
+      const end = source.indexOf("\n", index + 2);
+      index = end < 0 ? source.length : end;
+    } else if (source.startsWith("/*", index)) {
+      const end = source.indexOf("*/", index + 2);
+      index = end < 0 ? source.length : end + 2;
+    } else break;
+  }
+  return index;
+}
+
+function hasLiteralServiceKey(source: string, code: string, name: string): boolean {
+  const openings: number[] = [];
+  const addOpening = (afterKey: number) => {
+    const colon = skipTrivia(source, afterKey);
+    if (code[colon] !== ":") return;
+    const opening = skipTrivia(source, colon + 1);
+    if (code[opening] === "{") openings.push(opening);
+  };
+  for (const match of code.matchAll(/\bservices\b/g)) addOpening(match.index! + match[0].length);
+  for (const match of source.matchAll(/(["'])services\1/g)) addOpening(match.index! + match[0].length);
+  for (const opening of openings) {
+    let braces = 1;
+    let brackets = 0;
+    let parentheses = 0;
+    for (let index = opening + 1; index < code.length && braces > 0; index++) {
+      const char = code[index];
+      if (index === opening + 1 || (char === "," && braces === 1 && brackets === 0 && parentheses === 0)) {
+        const keyStart = skipTrivia(source, index === opening + 1 ? index : index + 1);
+        const quote = source[keyStart];
+        const quoted = quote === '"' || quote === "'";
+        const keyEnd = keyStart + name.length + (quoted ? 2 : 0);
+        if (
+          (!quoted || source[keyEnd - 1] === quote) &&
+          source.slice(keyStart + (quoted ? 1 : 0), keyEnd - (quoted ? 1 : 0)) === name &&
+          code[skipTrivia(source, keyEnd)] === ":"
+        )
+          return true;
+      }
+      if (char === "{") braces++;
+      else if (char === "}") braces--;
+      else if (char === "[") brackets++;
+      else if (char === "]") brackets--;
+      else if (char === "(") parentheses++;
+      else if (char === ")") parentheses--;
+    }
+  }
+  return false;
+}
+
+function addToExecutableConfig(
+  original: string,
+  name: string,
+  identifier: string,
+  importLine: string,
+): string | undefined {
+  if (original.startsWith("#!")) return undefined;
+  const code = maskStringsAndComments(original);
+  const exports = [...code.matchAll(/(?:^|[;\r\n])\s*(export\s+default)\b/g)];
+  if (exports.length !== 1) return undefined;
+  const base = `__emulateConfigBefore_${identifier}`;
+  if (original.includes(base) || original.includes(`import ${identifier} `))
+    throw new Error(`Service ${name} may already be defined in the config`);
+  if (hasLiteralServiceKey(original, code, name))
+    throw new Error(`Service ${name} may already be defined in the config`);
+  const match = exports[0];
+  const start = match.index! + match[0].lastIndexOf(match[1]);
+  const renamed = original.slice(0, start) + `const ${base} =` + original.slice(start + match[1].length);
+  return `${importLine}
+// @emulate:imports
+${renamed.trimEnd()}
+
+if (Object.hasOwn(${base}.services ?? {}, ${JSON.stringify(name)}))
+  throw new Error(${JSON.stringify(`Service ${name} already exists in config`)});
+
+export default {
+  ...${base},
+  services: {
+    ...${base}.services,
+    ${JSON.stringify(name)}: { emulator: ${identifier} },
+    // @emulate:services
+  },
+};
+`;
+}
+
 export function scaffoldCommand(name: string, configOption?: string, cwd = process.cwd()): void {
   if (!/^[a-z][a-z0-9-]*$/.test(name) || isBuiltin(name))
     throw new Error(
@@ -96,15 +215,18 @@ export function scaffoldCommand(name: string, configOption?: string, cwd = proce
       throw new Error(`Service ${name} already exists in ${config}`);
     document.setIn(["services", name], { emulator: `./emulators/${name}.ts` });
     output = extname(config) === ".json" ? `${JSON.stringify(document.toJS(), null, 2)}\n` : document.toString();
-  } else {
+  } else if ([".ts", ".mts", ".js", ".mjs"].includes(extname(config))) {
     const original = readFileSync(config, "utf8");
     if (original.includes("// @emulate:imports") && original.includes("// @emulate:services")) {
-      if (original.includes(`"${name}":`) || original.includes(`import ${identifier} `))
+      if (
+        hasLiteralServiceKey(original, maskStringsAndComments(original), name) ||
+        original.includes(`import ${identifier} `)
+      )
         throw new Error(`Service ${name} already exists in ${config}`);
       output = original
         .replace("// @emulate:imports", `${importLine}\n// @emulate:imports`)
         .replace("    // @emulate:services", `${entryLine}\n    // @emulate:services`);
-    }
+    } else output = addToExecutableConfig(original, name, identifier, importLine);
   }
   mkdirSync(dirname(source), { recursive: true });
   writeFileSync(source, inventorySource(name), { flag: "wx" });
