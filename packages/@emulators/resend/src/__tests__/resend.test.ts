@@ -684,6 +684,121 @@ describe("Resend plugin - Inbox UI", () => {
   });
 });
 
+describe("Resend plugin - allowlist and send attempts", () => {
+  const allowlist = ["alex@acme.example.test", "casey@cedar.example.test"];
+
+  function seededApp() {
+    const setup = createTestApp();
+    seedFromConfig(setup.store, base, { allowlist });
+    return setup;
+  }
+
+  it("rejects an address that is not in the allowlist and records the attempt", async () => {
+    const { app, store } = seededApp();
+    const res = await sendEmail(
+      app,
+      {
+        from: "operations@recruitflow.example.test",
+        to: ["blair@beacon.example.test"],
+        subject: "Checking in with Beacon Talent",
+      },
+      { "Idempotency-Key": "rev-abc:blair" },
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      statusCode: 403,
+      name: "validation_error",
+      message: "blair@beacon.example.test is not in the allowlist: alex@acme.example.test, casey@cedar.example.test.",
+    });
+    const rs = getResendStore(store);
+    expect(rs.emails.all()).toEqual([]);
+    expect(rs.idempotencyKeys.all()).toEqual([]);
+    expect(rs.sendAttempts.all()).toMatchObject([
+      {
+        to: ["blair@beacon.example.test"],
+        from: "operations@recruitflow.example.test",
+        subject: "Checking in with Beacon Talent",
+        idempotency_key: "rev-abc:blair",
+      },
+    ]);
+  });
+
+  it("records another attempt when a rejected send is retried", async () => {
+    const { app, store } = seededApp();
+    const body = {
+      from: "operations@recruitflow.example.test",
+      to: ["blair@beacon.example.test"],
+      subject: "Checking in",
+    };
+    await sendEmail(app, body, { "Idempotency-Key": "rev-abc:blair" });
+    await sendEmail(app, body, { "Idempotency-Key": "rev-abc:blair" });
+    expect(getResendStore(store).sendAttempts.all()).toHaveLength(2);
+    expect(getResendStore(store).emails.all()).toEqual([]);
+  });
+
+  it("stores a delivered email and one attempt for an allowed recipient", async () => {
+    const { app, store } = seededApp();
+    const res = await sendEmail(app, {
+      from: "operations@recruitflow.example.test",
+      to: ["alex@acme.example.test"],
+      cc: ["casey@cedar.example.test"],
+      subject: "Checking in with Acme",
+    });
+    expect(res.status).toBe(200);
+    const rs = getResendStore(store);
+    expect(rs.emails.all()).toHaveLength(1);
+    expect(rs.emails.all()[0].status).toBe("delivered");
+    expect(rs.sendAttempts.all()).toHaveLength(1);
+  });
+
+  it("does not record an attempt when an idempotency key replays a stored email", async () => {
+    const { app, store } = seededApp();
+    const headers = { "Idempotency-Key": "rev-abc:alex" };
+    const body = {
+      from: "operations@recruitflow.example.test",
+      to: ["alex@acme.example.test"],
+      subject: "Checking in with Acme",
+    };
+    await sendEmail(app, body, headers);
+    const replay = await sendEmail(app, body, headers);
+    expect(replay.status).toBe(200);
+    expect(getResendStore(store).sendAttempts.all()).toHaveLength(1);
+    expect(getResendStore(store).emails.all()).toHaveLength(1);
+  });
+
+  it("rejects every email in a batch when one recipient is missing", async () => {
+    const { app, store } = seededApp();
+    const res = await app.request(`${base}/emails/batch`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify([
+        { from: "operations@recruitflow.example.test", to: ["alex@acme.example.test"], subject: "Alex" },
+        { from: "operations@recruitflow.example.test", to: ["blair@beacon.example.test"], subject: "Blair" },
+      ]),
+    });
+    expect(res.status).toBe(403);
+    expect(getResendStore(store).emails.all()).toEqual([]);
+    expect(getResendStore(store).sendAttempts.all()).toHaveLength(2);
+  });
+
+  it("rejects every recipient when the allowlist is empty", async () => {
+    const { app, store } = createTestApp();
+    seedFromConfig(store, base, { allowlist: [] });
+    const res = await sendEmail(app, { from: "a@b.com", to: ["c@d.com"], subject: "Hi" });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { message: string }).message).toBe("c@d.com is not in the allowlist: .");
+    expect(getResendStore(store).sendAttempts.all()).toHaveLength(1);
+  });
+
+  it("does not record an attempt when required fields are missing", async () => {
+    const { app, store } = seededApp();
+    const res = await sendEmail(app, { from: "operations@recruitflow.example.test" });
+    expect(res.status).toBe(422);
+    expect(getResendStore(store).sendAttempts.all()).toEqual([]);
+  });
+});
+
 describe("Resend plugin - seedFromConfig", () => {
   it("seeds domains and contacts from config", () => {
     const { store } = createTestApp();
@@ -701,5 +816,13 @@ describe("Resend plugin - seedFromConfig", () => {
     const contacts = rs.contacts.all();
     expect(contacts.length).toBe(1);
     expect(contacts[0].email).toBe("user@example.com");
+  });
+
+  it("stores an allowlist, including an empty one", () => {
+    const { store } = createTestApp();
+    seedFromConfig(store, base, { allowlist: ["alex@acme.example.test"] });
+    expect(store.getData("allowlist")).toEqual(["alex@acme.example.test"]);
+    seedFromConfig(store, base, { allowlist: [] });
+    expect(store.getData("allowlist")).toEqual([]);
   });
 });
