@@ -1,6 +1,26 @@
 # Changelog
 
 <!-- release:start -->
+## 0.12.0
+
+### New Features
+
+- **Custom stateful HTTP APIs** let projects define typed emulators with seeds, reset, snapshots, and optional persistence, then reuse the same definitions in tests and Next.js or Nuxt adapters (#268)
+- **Custom API development workflow** adds `npx emulate init --custom inventory`, TypeScript and JavaScript configuration, watch mode, and request, route, and state inspection alongside built-in services (#268)
+
+### Improvements
+
+- **Slack event signatures** use the configured `slack.signing_secret` to send Slack-compatible timestamp and signature headers (#266)
+- **Slack event envelopes** include the installation team, unique event ID, and event timestamp for routing and deduplication (#267)
+
+### Contributors
+
+- @ctate
+- @K-Mistele
+- @Railly
+
+<!-- release:end -->
+
 ## 0.11.2
 
 ### New Features
@@ -22,8 +42,6 @@
 - Fixed **GitHub App installation writes** to authenticate as the App bot for organization installations (#242)
 - Fixed **AWS S3** uploads, copies, and downloads to preserve arbitrary binary payloads (#241, #245)
 - Fixed **Microsoft refresh tokens** to remain bound to the OAuth client that issued them (#243)
-
-<!-- release:end -->
 
 ## 0.11.1
 
