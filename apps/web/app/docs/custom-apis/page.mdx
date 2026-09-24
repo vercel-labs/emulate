@@ -81,7 +81,7 @@ services:
     port: 4001
 ```
 
-Files and packages resolve from the config project, including when using `npx`. Local `.ts`, `.mts`, `.js`, and `.mjs` modules need no build step. The CLI uses Node 24's native TypeScript transform and module hooks, with no additional runtime dependencies. TypeScript `paths` and `baseUrl` aliases work, including JSONC configs and inherited `extends`. JSX and compiler plugins are not supported. Use erasable TypeScript for definitions that also run directly in Node tests. Installed packages must export a built JavaScript definition as their default export.
+Files and packages resolve from the config project, including when using `npx`. Local `.ts`, `.mts`, `.js`, and `.mjs` modules use Node's native TypeScript support and module hooks, with no additional runtime dependencies. TypeScript `paths` and `baseUrl` aliases work, including JSONC configs and inherited `extends`. Node 24 supports native TypeScript transforms. Node 26 supports erasable TypeScript only; compile enums and parameter properties to JavaScript before loading them. Use erasable TypeScript for definitions that also run directly in Node tests. JSX and compiler plugins are not supported. Installed packages must export a built JavaScript definition as their default export.
 
 Use `--config path/to/emulate.config.ts` to select a file, `--service inventory,github` to select instances, and `npx emulate list` to see available services and configured custom instances. Existing flat YAML/JSON configurations and `--seed` remain supported. `--config` and `--seed` cannot be combined. If discovery finds multiple files, select one explicitly.
 

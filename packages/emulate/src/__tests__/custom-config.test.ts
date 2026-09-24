@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
+import { stripTypeScriptTypes } from "node:module";
 import { describe, it, expect, afterEach } from "vitest";
 import { loadConfig } from "../config-loader.js";
 import { scaffoldCommand } from "../commands/scaffold.js";
@@ -10,6 +11,15 @@ import { prepareProject } from "../project-runner.js";
 import { ProjectLoader } from "../project-loader.js";
 
 const directories: string[] = [];
+const supportsNativeTransform = (() => {
+  try {
+    stripTypeScriptTypes("enum Stock { Count = 1 }", { mode: "transform" });
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError && "code" in error && error.code === "ERR_INVALID_ARG_VALUE") return false;
+    throw error;
+  }
+})();
 async function project() {
   const dir = await mkdtemp(join(tmpdir(), "emulate config space "));
   directories.push(dir);
@@ -27,11 +37,11 @@ afterEach(async () => {
 });
 
 describe("custom configuration and scaffold", () => {
-  it("isolates simultaneous module graphs and keeps source metadata and native TypeScript transforms", async () => {
+  it("isolates simultaneous module graphs and keeps source metadata with erasable TypeScript", async () => {
     const dir = await project();
     const entry = join(dir, "entry.ts");
     const helper = join(dir, "helper.ts");
-    await writeFile(helper, "export enum Stock { Count = 3 }");
+    await writeFile(helper, "export const Stock: { Count: number } = { Count: 3 }");
     await writeFile(
       entry,
       'import { Stock } from "./helper.js"; export default { count: Stock.Count, url: import.meta.url, directory: import.meta.dirname, filename: import.meta.filename };',
@@ -40,7 +50,7 @@ describe("custom configuration and scaffold", () => {
     const second = new ProjectLoader(dir);
     try {
       expect(await first.load(entry)).toMatchObject({ count: 3, directory: dir, filename: entry });
-      await writeFile(helper, "export enum Stock { Count = 7 }");
+      await writeFile(helper, "export const Stock: { Count: number } = { Count: 7 }");
       const updated = (await second.load(entry)) as { count: number; url: string };
       expect(updated.count).toBe(7);
       expect(fileURLToPath(updated.url)).toBe(entry);
@@ -52,6 +62,18 @@ describe("custom configuration and scaffold", () => {
       second.close();
     }
     await expect(first.load(entry)).rejects.toThrow("closed");
+  });
+
+  it.skipIf(!supportsNativeTransform)("supports TypeScript enums when native transform mode is available", async () => {
+    const dir = await project();
+    const entry = join(dir, "enum.ts");
+    await writeFile(entry, "enum Stock { Count = 3 }\nexport default Stock.Count");
+    const loader = new ProjectLoader(dir);
+    try {
+      expect(await loader.load(entry)).toBe(3);
+    } finally {
+      loader.close();
+    }
   });
 
   it("resolves inherited JSONC aliases relative to their declaring config and prefers exact paths", async () => {

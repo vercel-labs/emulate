@@ -4,6 +4,8 @@ A complete stateful HTTP API defined in one TypeScript module. Reservations decr
 
 Requires Node 24 or later. From the repository root, run `pnpm install` and `pnpm --filter emulate... build`. Then run `pnpm --filter custom-api-example dev` and open the printed inspector URL.
 
+The example uses erasable TypeScript and runs on Node 26. Node 26 requires erasable syntax for local TypeScript configs and definitions; compile enums and parameter properties to JavaScript first.
+
 For an existing project outside this repository:
 
 ```bash

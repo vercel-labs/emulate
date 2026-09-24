@@ -339,7 +339,8 @@ export async function createCustomRuntime<State extends object>(
           await inspector?.finish(req, response, started);
         }
         if (request.method === "HEAD") {
-          void response.body?.cancel();
+          // Cancellation is best effort; a streaming body can reject or never settle.
+          void response.body?.cancel().catch(() => {});
           return new Response(null, {
             status: response.status,
             statusText: response.statusText,

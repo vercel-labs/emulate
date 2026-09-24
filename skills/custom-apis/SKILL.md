@@ -25,7 +25,7 @@ The router provides `get`, `post`, `put`, `patch`, `delete`, `on`, `use`, `onErr
 
 Use `baseUrl` for advertised URLs, the lifecycle signal for asynchronous work, and `onDispose` for cleanup. An `await` can interleave concurrent handlers; protect domain invariants accordingly.
 
-Register definitions in `defineConfig({ services: { inventory: { emulator: inventory } } })`. YAML/JSON entries can use local module paths or installed packages. Paths resolve from the config project. The CLI uses Node 24 built-ins with support for TypeScript path aliases and inherited JSONC tsconfig files. Use erasable TypeScript for definitions shared with native Node tests; JSX and compiler plugins are unsupported. Built-ins can appear alongside custom services. Instance names must not replace built-in names.
+Register definitions in `defineConfig({ services: { inventory: { emulator: inventory } } })`. YAML/JSON entries can use local module paths or installed packages. Paths resolve from the config project. The CLI uses Node built-ins with support for TypeScript path aliases and inherited JSONC tsconfig files. Node 26 accepts erasable TypeScript only; compile enums and parameter properties to JavaScript before loading them. Node 24 also supports native TypeScript transforms. Use erasable TypeScript for definitions shared with native Node tests; JSX and compiler plugins are unsupported. Built-ins can appear alongside custom services. Instance names must not replace built-in names.
 
 Validate the API in process:
 

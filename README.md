@@ -73,7 +73,7 @@ try {
 }
 ```
 
-Use `defineConfig({ services: { inventory: { emulator: inventory }, github: { emulator: 'github' } } })` in `emulate.config.ts`. YAML/JSON entries accept local module paths and installed packages. `--config` selects a config explicitly; legacy flat configs and `--seed` remain supported. Node 24 loads TypeScript with path aliases and source locations without a separate build or additional runtime dependencies.
+Use `defineConfig({ services: { inventory: { emulator: inventory }, github: { emulator: 'github' } } })` in `emulate.config.ts`. YAML/JSON entries accept local module paths and installed packages. `--config` selects a config explicitly; legacy flat configs and `--seed` remain supported. Node loads local TypeScript with path aliases and source locations without additional runtime dependencies. Node 26 supports erasable TypeScript only; compile enums and parameter properties to JavaScript before loading them. Node 24 also supports native TypeScript transforms.
 
 Custom state uses your own record shapes and IDs. Seeds replace the complete initial state. Reset restores the captured seed; successful watch reloads create a new baseline and reset the run. Instances are independent. Persistence is opt-in, with versioned snapshots and no cross-process locking. Use `port: 0` for HTTP tests, or `listen: false` to test without opening a port. Custom reset and close are awaitable.
 

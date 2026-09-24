@@ -5,6 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { ProjectPaths, sourceFile } from "./project-paths.js";
 
+let transformTypesAvailable = true;
+
 /** Scoped native hooks keep installed packages on Node's own exports/conditions resolver. */
 export class ProjectLoader {
   readonly dependencies = new Set<string>();
@@ -77,19 +79,47 @@ export class ProjectLoader {
         let source = readFileSync(file, "utf8").replace(/^#![^\r\n]*/, "");
         if (extension === ".ts" || extension === ".mts") {
           try {
-            source = stripTypeScriptTypes(source, { mode: "transform", sourceMap: true, sourceUrl: originalURL });
+            if (transformTypesAvailable) {
+              try {
+                source = stripTypeScriptTypes(source, { mode: "transform", sourceMap: true, sourceUrl: originalURL });
+              } catch (error) {
+                if (
+                  error instanceof TypeError &&
+                  "code" in error &&
+                  error.code === "ERR_INVALID_ARG_VALUE" &&
+                  error.message.includes("options.mode")
+                )
+                  transformTypesAvailable = false;
+                else throw error;
+              }
+            }
+            if (!transformTypesAvailable) {
+              // Strip mode preserves positions, so the identity map only accounts for the injected line.
+              source = stripTypeScriptTypes(source, { mode: "strip", sourceUrl: originalURL });
+              const map = {
+                version: 3,
+                sources: [originalURL],
+                names: [],
+                mappings: ";AAAA" + ";AACA".repeat(source.split("\n").length - 1),
+              };
+              source +=
+                "\n//# sourceMappingURL=data:application/json;base64," +
+                Buffer.from(JSON.stringify(map)).toString("base64");
+            }
           } catch (error) {
             throw new Error(`Cannot load ${file}: ${error instanceof Error ? error.message : error}`, { cause: error });
           }
-          // A separate generated line keeps every original line/column in the native source map intact.
-          source = source.replace(
-            /(\/\/# sourceMappingURL=data:application\/json;base64,)([^\s]+)/,
-            (_match, prefix, encoded) => {
-              const map = JSON.parse(Buffer.from(encoded, "base64").toString());
-              map.mappings = ";" + map.mappings;
-              return prefix + Buffer.from(JSON.stringify(map)).toString("base64");
-            },
-          );
+          if (transformTypesAvailable) {
+            // A separate generated line keeps every original line/column in the native source map intact.
+            source = source.replace(
+              /(\/\/# sourceMappingURL=data:application\/json;base64,)([^\s]+)/,
+              (_match, prefix, encoded) => {
+                const map = JSON.parse(Buffer.from(encoded, "base64").toString());
+                map.mappings = ";" + map.mappings;
+                return prefix + Buffer.from(JSON.stringify(map)).toString("base64");
+              },
+            );
+          }
         } else {
           const map = {
             version: 3,

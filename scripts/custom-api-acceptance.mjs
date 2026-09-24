@@ -246,7 +246,11 @@ await api.close();
     validModule.replace("setup({ app, state }) {", 'setup({ app, state }) { throw new Error("setup fixture failed");'),
   );
   await waitFor(() => failures() > failuresBefore, "setup failure");
-  assert.ok(output.includes("inventory.ts:"), "Setup diagnostic must refer to the original TypeScript source");
+  const setupLine = validModule.slice(0, validModule.indexOf("setup({ app, state }) {")).split("\n").length;
+  assert.ok(
+    output.includes(`inventory.ts:${setupLine}:`),
+    `Setup diagnostic must refer to inventory.ts:${setupLine}\n${output}`,
+  );
   assert.deepEqual(await (await fetch(`${base}/inventory`)).json(), { stock: 16 });
   const setupBefore = readyCount();
   await writeFile(modulePath, validModule);

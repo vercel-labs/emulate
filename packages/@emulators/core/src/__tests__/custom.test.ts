@@ -219,6 +219,28 @@ describe("custom runtime", () => {
     await runtime.close();
   });
 
+  it("handles a rejected stream cancellation on HEAD without an unhandled rejection", async () => {
+    const cancel = vi.fn(() => Promise.reject(new Error("cancel failed")));
+    const runtime = await createCustomRuntime(
+      defineEmulator({
+        name: "streaming-head",
+        state: () => ({}),
+        setup({ app }) {
+          app.get("/stream", () => new Response(new ReadableStream({ cancel })));
+        },
+      }),
+    );
+    try {
+      const response = await runtime.request("/stream", { method: "HEAD" });
+      expect(response.status).toBe(200);
+      expect(response.body).toBeNull();
+      expect(cancel).toHaveBeenCalledOnce();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("validates seeds and rejects unsupported state with a path", async () => {
     const def = defineEmulator({
       name: "validated",
