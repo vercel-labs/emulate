@@ -63,6 +63,11 @@ Vercel API coverage:
 AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 
+Google Calendar synchronization:
+  Event lists return snapshot page tokens and nextSyncToken for subsequent changes, including deletions.
+  The shared cache retains up to 1,000 snapshots and 32 MiB of serialized event data; the newest always remains.
+  Invalid, reset, or evicted sync tokens return 410 and require a full sync.
+
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 

@@ -107,6 +107,16 @@ const userIdParameter = {
 
 const eventListParameters = {
   calendarId: calendarIdParameter,
+  syncToken: {
+    type: "string",
+    location: "query",
+    description: "Token from the final page of a previous list response to retrieve subsequent changes.",
+  },
+  showDeleted: {
+    type: "boolean",
+    location: "query",
+    description: "Whether to include cancelled events. Cannot be false during incremental synchronization.",
+  },
   maxResults: {
     type: "integer",
     format: "int32",
@@ -335,6 +345,8 @@ export function buildCalendarDiscoveryDocument(baseUrl: string) {
         id: "Events",
         type: "object",
         properties: {
+          nextSyncToken: { type: "string" },
+          updated: { type: "string", format: "date-time" },
           kind: { type: "string" },
           nextPageToken: { type: "string" },
           items: { type: "array", items: { $ref: "Event" } },

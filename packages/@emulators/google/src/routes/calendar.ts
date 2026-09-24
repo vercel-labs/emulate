@@ -8,9 +8,9 @@ import {
   formatCalendarResource,
   getCalendarById,
   getCalendarEventById,
-  listCalendarEvents,
   listCalendarsForUser,
 } from "../calendar-helpers.js";
+import { CalendarSyncError, syncCalendarEvents } from "../calendar-sync.js";
 import { googleApiError } from "../helpers.js";
 import {
   getRecord,
@@ -49,20 +49,36 @@ export function calendarRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     const url = new URL(c.req.url);
-    const response = listCalendarEvents(gs, authEmail, calendar.google_id, {
-      timeMin: url.searchParams.get("timeMin"),
-      timeMax: url.searchParams.get("timeMax"),
-      maxResults: url.searchParams.get("maxResults"),
-      pageToken: url.searchParams.get("pageToken"),
-      q: url.searchParams.get("q"),
-      orderBy: url.searchParams.get("orderBy"),
-    });
+    try {
+      const response = syncCalendarEvents(store, gs, authEmail, calendar.google_id, {
+        syncToken: url.searchParams.get("syncToken"),
+        showDeleted: url.searchParams.get("showDeleted"),
+        timeMin: url.searchParams.get("timeMin"),
+        timeMax: url.searchParams.get("timeMax"),
+        maxResults: url.searchParams.get("maxResults"),
+        pageToken: url.searchParams.get("pageToken"),
+        q: url.searchParams.get("q"),
+        orderBy: url.searchParams.get("orderBy"),
+      });
 
-    return c.json({
-      kind: "calendar#events",
-      items: response.items.map((event) => formatCalendarEventResource(gs, event)),
-      nextPageToken: response.nextPageToken,
-    });
+      return c.json({
+        kind: "calendar#events",
+        items: response.items.map((event) => formatCalendarEventResource(gs, event)),
+        nextPageToken: response.nextPageToken,
+        nextSyncToken: response.nextSyncToken,
+        updated: response.updated,
+      });
+    } catch (error) {
+      if (error instanceof CalendarSyncError)
+        return googleApiError(
+          c,
+          error.status,
+          error.message,
+          error.status === 410 ? "fullSyncRequired" : "invalidArgument",
+          error.status === 410 ? "GONE" : "INVALID_ARGUMENT",
+        );
+      throw error;
+    }
   });
 
   app.post("/calendar/v3/calendars/:calendarId/events", async (c) => {
