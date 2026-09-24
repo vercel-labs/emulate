@@ -61,6 +61,7 @@ Vercel API coverage:
   GET /v7/deployments lists deployments by commit SHA across a team's projects, with cursor pagination.
 
 AWS API coverage:
+  KMS Encrypt and Decrypt use AWS JSON 1.1 at POST /kms or /kms/ with synthetic test data.
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 
 Google Calendar discovery:

@@ -1199,7 +1199,7 @@ grant_type=refresh_token"
 
 ## AWS
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. All responses use AWS-compatible XML.
+S3, SQS, IAM, STS, and KMS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. Query responses use AWS-compatible XML; KMS uses AWS JSON 1.1.
 
 ### S3
 
@@ -1231,6 +1231,16 @@ All operations via `POST /iam/` with `Action` parameter:
 ### STS
 All operations via `POST /sts/` with `Action` parameter:
 - `GetCallerIdentity`, `AssumeRole`
+
+### KMS
+
+KMS uses AWS JSON 1.1: send `POST /kms` or `POST /kms/` with an `X-Amz-Target: TrentService.Encrypt` or `TrentService.Decrypt` header and a JSON body.
+
+- `Encrypt` accepts `KeyId`, base64 `Plaintext` (1 to 4096 bytes), and optional `EncryptionContext`.
+- `Decrypt` accepts `CiphertextBlob` and the same encryption context. An optional `KeyId` must exactly match the identifier used for encryption.
+- Only `SYMMETRIC_DEFAULT` is supported. Aliases, raw IDs, and ARNs up to 255 UTF-8 bytes are preserved as supplied; alias resolution is not modeled.
+
+Ciphertext is self-contained and survives store resets and emulator restarts. The blob authenticates the key identity and encryption context using AES-256-GCM. Its wrapping key is fixed and public: use synthetic test data only. This emulates local key wrapping, without key creation, policies, grants, rotation, or access control.
 
 ## Next.js Integration
 
