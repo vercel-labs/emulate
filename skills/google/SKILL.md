@@ -269,6 +269,8 @@ curl -X POST http://localhost:4002/oauth2/revoke \
   -d "token=google_..."
 ```
 
+`POST /oauth2/revoke` accepts an access or refresh token in the `token` query parameter, a form body, or a JSON body. A non-empty body token takes precedence over the query parameter.
+
 ## Gmail API
 
 All Gmail endpoints are under `/gmail/v1/users/:userId/...` where `:userId` is `me` or the authenticated user's email.

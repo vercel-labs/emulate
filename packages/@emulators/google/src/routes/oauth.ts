@@ -426,6 +426,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       token = params.get("token") ?? "";
     }
 
+    token ||= c.req.query("token") ?? "";
     if (token && tokenMap) {
       tokenMap.delete(token);
     }

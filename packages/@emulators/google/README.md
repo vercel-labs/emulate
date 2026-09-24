@@ -78,6 +78,8 @@ npm install @emulators/google
 
 ## Auth
 
+`POST /oauth2/revoke` accepts an access or refresh token in the `token` query parameter, a form body, or a JSON body. A non-empty body token takes precedence over the query parameter.
+
 Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. Configure clients in the seed config. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued ID tokens.
 
 ## Seed Configuration
