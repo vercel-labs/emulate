@@ -323,11 +323,21 @@ export function createAdapterRuntime(
         const baseUrl = `${origin}${servicePath(mountPath, name)}`;
         if (isEmulatorDefinition(entry.emulator)) {
           if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`Invalid custom instance name: ${name}`);
+          const sharedCustomPersistence: PersistenceAdapter | undefined = persistence && {
+            async load() {
+              const saved = prepared.snapshot?.custom;
+              return saved && Object.hasOwn(saved, name) ? JSON.stringify(saved[name]) : null;
+            },
+            async save() {
+              // A shared snapshot needs every service, so initialization writes it after setup.
+              if (apps) await enqueueSave(apps, prepared.generatedSecrets, true);
+            },
+          };
           const custom = await createCustomRuntime(entry.emulator, {
             baseUrl,
             seed: entry.seed,
             inspector: entry.inspector,
-            persistence: entry.persistence,
+            persistence: entry.persistence ?? sharedCustomPersistence,
           });
           serviceApps.set(name, {
             app: custom,
@@ -337,8 +347,6 @@ export function createAdapterRuntime(
             webhooks: new CustomWebhooks({ neutral: true }),
             plugin: { name, register() {} },
           });
-          const saved = prepared.snapshot?.custom;
-          if (saved && Object.hasOwn(saved, name)) await custom.restore(saved[name]);
           continue;
         }
         const plugin = resolvePlugin(entry.emulator);
@@ -413,10 +421,8 @@ export function createAdapterRuntime(
     } as RequestInit & { duplex: string });
     const rawResponse = await service.app.fetch(strippedReq);
     const response = await rewriteResponse(rawResponse, servicePath(mountPath, serviceName), !service.custom);
-    if (persistence && (service.custom || MUTATING_METHODS.has(req.method))) {
-      if (service.custom) await enqueueSave(serviceApps, (await getPreparation()).generatedSecrets, true);
-      else enqueueSave(serviceApps, (await getPreparation()).generatedSecrets);
-    }
+    if (persistence && !service.custom && MUTATING_METHODS.has(req.method))
+      enqueueSave(serviceApps, (await getPreparation()).generatedSecrets);
     return response;
   }
   return {
