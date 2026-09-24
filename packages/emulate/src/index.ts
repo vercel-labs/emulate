@@ -63,6 +63,10 @@ Vercel API coverage:
 AWS API coverage:
   S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags.
 
+Google Calendar notifications:
+  Event watch channels deliver sync and change callbacks with Google headers.
+  channels/stop ends delivery; callback failures do not undo successful event writes.
+
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 

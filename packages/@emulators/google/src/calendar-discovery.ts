@@ -192,6 +192,23 @@ export function buildCalendarDiscoveryDocument(baseUrl: string) {
       },
       events: {
         methods: {
+          watch: {
+            id: "calendar.events.watch",
+            path: "calendars/{calendarId}/events/watch",
+            httpMethod: "POST",
+            description: "Watches event changes using an HTTP callback channel.",
+            parameterOrder: ["calendarId"],
+            parameters: { calendarId: calendarIdParameter },
+            request: { $ref: "Channel" },
+            response: { $ref: "Channel" },
+            scopes: [
+              "https://www.googleapis.com/auth/calendar",
+              "https://www.googleapis.com/auth/calendar.events",
+              "https://www.googleapis.com/auth/calendar.readonly",
+              "https://www.googleapis.com/auth/calendar.events.readonly",
+            ],
+          },
+
           list: {
             id: "calendar.events.list",
             path: "calendars/{calendarId}/events",
@@ -252,6 +269,23 @@ export function buildCalendarDiscoveryDocument(baseUrl: string) {
           },
         },
       },
+      channels: {
+        methods: {
+          stop: {
+            id: "calendar.channels.stop",
+            path: "channels/stop",
+            httpMethod: "POST",
+            description: "Stops a notification channel.",
+            request: { $ref: "Channel" },
+            scopes: [
+              "https://www.googleapis.com/auth/calendar",
+              "https://www.googleapis.com/auth/calendar.events",
+              "https://www.googleapis.com/auth/calendar.readonly",
+              "https://www.googleapis.com/auth/calendar.events.readonly",
+            ],
+          },
+        },
+      },
       freebusy: {
         methods: {
           query: {
@@ -272,6 +306,21 @@ export function buildCalendarDiscoveryDocument(baseUrl: string) {
       },
     },
     schemas: {
+      Channel: {
+        id: "Channel",
+        type: "object",
+        properties: {
+          kind: { type: "string" },
+          id: { type: "string" },
+          resourceId: { type: "string" },
+          resourceUri: { type: "string" },
+          type: { type: "string" },
+          address: { type: "string" },
+          token: { type: "string" },
+          expiration: { type: "string", format: "int64" },
+        },
+      },
+
       CalendarList: {
         id: "CalendarList",
         type: "object",

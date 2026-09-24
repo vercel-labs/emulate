@@ -10,6 +10,7 @@ import {
 } from "./helpers.js";
 import { createCalendarEventRecord, createCalendarRecord } from "./calendar-helpers.js";
 import { createDriveItemRecord } from "./drive-helpers.js";
+import { calendarNotificationRoutes } from "./calendar-notifications.js";
 import { calendarRoutes } from "./routes/calendar.js";
 import { draftRoutes } from "./routes/drafts.js";
 import { driveRoutes } from "./routes/drive.js";
@@ -494,6 +495,7 @@ export const googlePlugin: ServicePlugin = {
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
+    calendarNotificationRoutes(ctx);
     calendarRoutes(ctx);
     driveRoutes(ctx);
     messageRoutes(ctx);

@@ -61,6 +61,19 @@ npm install @emulators/google
 - `GET /gmail/v1/users/:userId/settings/sendAs` — list send-as aliases
 
 ### Calendar
+
+`POST /calendar/v3/calendars/:calendarId/events/watch` accepts a channel `id`,
+`type` (`web_hook` or `webhook`), callback `address`, optional `token`, and optional
+millisecond `expiration` (capped at seven days). It returns channel and resource
+identifiers. Callbacks carry Google `X-Goog-*` headers: initial `sync`, then
+`exists` after successful event creation and deletion.
+
+HTTP callbacks are supported for local testing, along with HTTPS. Requests wait
+for delivery, which has a five-second timeout and no retries. Delivery failure
+does not undo an event write. Channel state records the latest HTTP status or
+null for a transport failure. `POST /calendar/v3/channels/stop` requires matching
+`id` and `resourceId`. Stopped or expired channels receive no further notifications.
+
 - `GET /discovery/v1/apis/calendar/v3/rest` — public Calendar v3 REST discovery document
 - `GET /calendar/v3/users/:userId/calendarList` — list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` — list events

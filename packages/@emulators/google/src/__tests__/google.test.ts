@@ -1022,6 +1022,17 @@ describe("Google plugin integration", () => {
       servicePath: "calendar/v3/",
       basePath: "/calendar/v3/",
     });
+    expect(body).toMatchObject({
+      resources: {
+        events: {
+          methods: {
+            watch: { httpMethod: "POST", path: "calendars/{calendarId}/events/watch", request: { $ref: "Channel" } },
+          },
+        },
+        channels: { methods: { stop: { httpMethod: "POST", path: "channels/stop", request: { $ref: "Channel" } } } },
+      },
+      schemas: { Channel: { properties: { expiration: { format: "int64" } } } },
+    });
     expect(body.parameters).toHaveProperty("prettyPrint");
     expect(body.parameters).toHaveProperty("fields");
     expect(body.auth.oauth2.scopes["https://www.googleapis.com/auth/calendar"]).toEqual({

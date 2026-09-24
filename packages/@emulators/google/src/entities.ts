@@ -160,3 +160,16 @@ export interface GoogleDriveItem extends Entity {
   trashed: boolean;
   data: string | null;
 }
+
+export interface GoogleCalendarChannel extends Entity {
+  channel_id: string;
+  user_email: string;
+  calendar_google_id: string;
+  resource_id: string;
+  resource_uri: string;
+  address: string;
+  token?: string;
+  expiration: number;
+  message_number: number;
+  last_delivery_status?: number | null;
+}
