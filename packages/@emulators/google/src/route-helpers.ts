@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib";
 import type { Context } from "@emulators/core";
 import type { GoogleCalendarEventInput } from "./calendar-helpers.js";
 import type { GoogleDriveItemInput } from "./drive-helpers.js";
@@ -28,7 +29,15 @@ export function requireGmailUser(c: Context): string | Response {
 
 export async function parseGoogleBody(c: Context): Promise<Record<string, unknown>> {
   const contentType = c.req.header("Content-Type") ?? "";
-  const rawText = await c.req.text();
+  let rawText: string;
+  try {
+    rawText =
+      c.req.header("Content-Encoding")?.toLowerCase() === "gzip"
+        ? gunzipSync(Buffer.from(await c.req.arrayBuffer()), { maxOutputLength: 2 * 1024 * 1024 }).toString("utf8")
+        : await c.req.text();
+  } catch {
+    return {};
+  }
 
   if (!rawText) return {};
 
@@ -142,6 +151,8 @@ export function parseCalendarEventInputFromBody(
     .filter((entry) => entry.uri.length > 0);
 
   return {
+    google_id: getString(body, "id"),
+    organizer_email: getString(getRecord(body, "organizer") ?? {}, "email") ?? null,
     status: getString(body, "status") ?? "confirmed",
     summary: getString(body, "summary"),
     description: getString(body, "description") ?? null,

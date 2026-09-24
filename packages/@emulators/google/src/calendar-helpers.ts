@@ -21,6 +21,7 @@ export interface GoogleCalendarInput {
 }
 
 export interface GoogleCalendarEventInput {
+  organizer_email?: string | null;
   google_id?: string;
   user_email: string;
   calendar_google_id: string;
@@ -143,7 +144,7 @@ export function createCalendarEventRecord(gs: GoogleStore, input: GoogleCalendar
   const eventId = input.google_id ?? generateUid("evt");
   const existing = gs.calendarEvents
     .findBy("user_email", input.user_email)
-    .find((event) => event.google_id === eventId);
+    .find((event) => event.google_id === eventId && event.calendar_google_id === calendar.google_id);
   if (existing) return existing;
 
   const hangoutLink =
@@ -152,6 +153,7 @@ export function createCalendarEventRecord(gs: GoogleStore, input: GoogleCalendar
     null;
 
   return gs.calendarEvents.insert({
+    organizer_email: input.organizer_email ?? (calendar.primary ? input.user_email : calendar.google_id),
     google_id: eventId,
     user_email: input.user_email,
     calendar_google_id: calendar.google_id,
@@ -238,7 +240,9 @@ export function formatCalendarEventResource(gs: GoogleStore, event: GoogleCalend
     kind: "calendar#event",
     etag: `"${event.google_id}"`,
     id: event.google_id,
+    organizer: { email: event.organizer_email ?? (calendar?.primary ? event.user_email : event.calendar_google_id) },
     status: event.status,
+    transparency: event.transparency ?? undefined,
     htmlLink: event.html_link ?? undefined,
     hangoutLink: event.hangout_link ?? undefined,
     summary: event.summary,

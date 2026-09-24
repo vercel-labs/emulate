@@ -469,6 +469,13 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
 
 ## Google Calendar API
 
+Calendar events support individual `GET` and partial `PATCH` requests, including
+POST requests with `X-HTTP-Method-Override: PATCH`. Omitted event fields are
+preserved. Creation accepts a caller-supplied event ID and organizer email;
+duplicate IDs within a calendar return 409. Gzip request bodies are decoded with
+a 2 MiB output limit. Recurring event writes return 400; recurrence expansion
+and the instances API are not supported.
+
 ### Discovery
 
 The Calendar discovery document is public and describes the Calendar v3 methods supported by the emulator:

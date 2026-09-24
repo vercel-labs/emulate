@@ -63,9 +63,18 @@ Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256,
 
 ## Calendar
 
+Calendar events support individual `GET` and partial `PATCH` requests, including
+POST requests with `X-HTTP-Method-Override: PATCH`. Omitted event fields are
+preserved. Creation accepts a caller-supplied event ID and organizer email;
+duplicate IDs within a calendar return 409. Gzip request bodies are decoded with
+a 2 MiB output limit. Recurring event writes return 400; recurrence expansion
+and the instances API are not supported.
+
 - `GET /discovery/v1/apis/calendar/v3/rest` - public Calendar v3 REST discovery document
 - `GET /calendar/v3/users/:userId/calendarList` - list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` - list events
+- `GET /calendar/v3/calendars/:calendarId/events/:eventId` - read an event
+- `PATCH /calendar/v3/calendars/:calendarId/events/:eventId` - update supplied event fields
 - `POST /calendar/v3/calendars/:calendarId/events` - create event
 - `DELETE /calendar/v3/calendars/:calendarId/events/:eventId` - delete event
 - `POST /calendar/v3/freeBusy` - query free/busy
