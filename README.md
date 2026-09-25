@@ -958,10 +958,13 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and `/oauth2/v3/certs` returns the matching RSA public key used to verify issued tokens.
 
+`/oauth2/v1/certs` returns X.509 certificates, matching [Google's PEM endpoint](https://www.googleapis.com/oauth2/v1/certs). Each certificate contains the same public key published under its key ID in `/oauth2/v3/certs`. Both endpoints are public and return `Cache-Control`, `Date`, and `Expires` headers with a one-hour cache lifetime. The emulator uses a locally generated, self-signed certificate valid for one year and a signing key fixed for the process lifetime; Google's periodic key rotation is not emulated.
+
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info
 - `GET /.well-known/openid-configuration` - OIDC discovery document
+- `GET /oauth2/v1/certs` — JSON map of key IDs to PEM-encoded X.509 signing certificates
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS) with the RSA public key for ID token verification
 - `GET /gmail/v1/users/:userId/messages` - list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
 - `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full`, `metadata`, `minimal`, or `raw` formats
@@ -1477,7 +1480,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
 
-**Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued tokens. Configure clients in the seed config.
+**Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256. `/oauth2/v3/certs` returns the signing public key as JWKS, and `/oauth2/v1/certs` returns its PEM-encoded X.509 certificate. Configure clients in the seed config.
 
 **Slack**: All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation records, and OAuth v2 flow with user picker UI creates scoped bot tokens. Optional strict scope mode returns `missing_scope` when a token lacks a required method scope.
 

@@ -43,6 +43,7 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 | `https://oauth2.googleapis.com/token` | `$GOOGLE_EMULATOR_URL/oauth2/token` |
 | `https://www.googleapis.com/oauth2/v2/userinfo` | `$GOOGLE_EMULATOR_URL/oauth2/v2/userinfo` |
 | `https://accounts.google.com/.well-known/openid-configuration` | `$GOOGLE_EMULATOR_URL/.well-known/openid-configuration` |
+| `https://www.googleapis.com/oauth2/v1/certs` | `$GOOGLE_EMULATOR_URL/oauth2/v1/certs` |
 | `https://www.googleapis.com/oauth2/v3/certs` | `$GOOGLE_EMULATOR_URL/oauth2/v3/certs` |
 | `https://gmail.googleapis.com/gmail/v1/...` | `$GOOGLE_EMULATOR_URL/gmail/v1/...` |
 | `https://www.googleapis.com/calendar/v3/...` | `$GOOGLE_EMULATOR_URL/calendar/v3/...` |
@@ -200,6 +201,14 @@ curl http://localhost:4002/oauth2/v3/certs
 ```
 
 Returns the RSA public key used to verify the ID tokens issued by the emulator. Google ID tokens use RS256, and the discovery document advertises the same algorithm.
+
+### X.509 signing certificates
+
+```bash
+curl http://localhost:4002/oauth2/v1/certs
+```
+
+Returns a JSON map from key IDs to PEM-encoded X.509 certificates, matching [Google's PEM endpoint](https://www.googleapis.com/oauth2/v1/certs). The certificates contain the same public keys as the JWKS endpoint. Both endpoints are public and advertise a one-hour cache lifetime through `Cache-Control`, `Date`, and `Expires`. The certificate is locally generated, self-signed, and valid for one year. Signing keys remain fixed for the process lifetime; Google's periodic key rotation is not emulated.
 
 ### Authorization
 

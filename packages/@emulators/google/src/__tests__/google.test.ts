@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { X509Certificate } from "node:crypto";
 import { Hono } from "@emulators/core";
-import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify, type JWK } from "jose";
+import { decodeJwt, decodeProtectedHeader, importJWK, importX509, jwtVerify, type JWK } from "jose";
 import {
   Store,
   WebhookDispatcher,
@@ -239,6 +240,52 @@ describe("Google plugin integration", () => {
     expect(key.alg).toBe("RS256");
     expect(key.n).toBeDefined();
     expect(key.e).toBe("AQAB");
+  });
+
+  // Google documents both formats at https://developers.google.com/identity/gsi/web/guides/verify-google-id-token.
+  // The live v1 endpoint returns X.509 certificates, not bare PEM public keys.
+  it("publishes an X.509 certificate matching the JWKS without authentication", async () => {
+    const res = await app.request(`${base}/oauth2/v1/certs`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("application/json");
+    const certs = (await res.json()) as Record<string, string>;
+    const jwksRes = await app.request(`${base}/oauth2/v3/certs`);
+    const jwks = (await jwksRes.json()) as { keys: JWK[] };
+    expect(Object.keys(certs).sort()).toEqual(jwks.keys.map((key) => key.kid).sort());
+
+    for (const key of jwks.keys) {
+      const pem = certs[key.kid!];
+      expect(pem).toMatch(/^-----BEGIN CERTIFICATE-----/);
+      const certificate = new X509Certificate(pem);
+      expect(certificate.publicKey.export({ format: "jwk" })).toMatchObject({
+        kty: key.kty,
+        n: key.n,
+        e: key.e,
+      });
+      expect(certificate.ca).toBe(false);
+      expect(certificate.verify(certificate.publicKey)).toBe(true);
+      expect(Date.parse(certificate.validFrom)).toBeLessThanOrEqual(Date.now());
+      expect(Date.parse(certificate.validTo)).toBeGreaterThan(Date.now());
+    }
+
+    const repeated = await app.request(`${base}/oauth2/v1/certs`);
+    expect(await repeated.json()).toEqual(certs);
+  });
+
+  it.each(["/oauth2/v1/certs", "/oauth2/v3/certs"])("advertises cache freshness for %s", async (path) => {
+    const before = Date.now();
+    const res = await app.request(`${base}${path}`);
+    expect(res.status).toBe(200);
+    const cacheControl = res.headers.get("Cache-Control")!;
+    expect(cacheControl).toContain("public");
+    expect(cacheControl).toContain("must-revalidate");
+    expect(cacheControl).toContain("no-transform");
+    const maxAge = Number(/max-age=(\d+)/.exec(cacheControl)?.[1]);
+    expect(maxAge).toBeGreaterThan(0);
+    const date = Date.parse(res.headers.get("Date")!);
+    expect(date).toBeGreaterThanOrEqual(before - 1000);
+    expect(date).toBeLessThanOrEqual(Date.now());
+    expect(Date.parse(res.headers.get("Expires")!)).toBe(date + maxAge * 1000);
   });
 
   it("returns user info for a valid token", async () => {
@@ -918,6 +965,20 @@ describe("Google plugin integration", () => {
     });
     expect(payload.email).toBe("testuser@example.com");
     expect(payload.hd).toBe("example.com");
+
+    const certificatesRes = await app.request(`${base}/oauth2/v1/certs`);
+    expect(certificatesRes.status).toBe(200);
+    const certificates = (await certificatesRes.json()) as Record<string, string>;
+    const certificateKey = await importX509(certificates[header.kid!], "RS256");
+    const verified = await jwtVerify(tokenBody.id_token, certificateKey, {
+      issuer: base,
+      audience: "emu_google_client_id",
+    });
+    expect(verified.payload).toEqual(payload);
+    await expect(jwtVerify(tokenBody.id_token, certificateKey, { audience: "another-client" })).rejects.toThrow();
+    const [protectedHeader, claims, signature] = tokenBody.id_token.split(".");
+    const invalidSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+    await expect(jwtVerify(`${protectedHeader}.${claims}.${invalidSignature}`, certificateKey)).rejects.toThrow();
 
     const refreshRes = await formRequest(app, "/oauth2/token", {
       grant_type: "refresh_token",

@@ -17,6 +17,7 @@ npm install @emulators/google
 - `POST /oauth2/token` — token exchange
 - `GET /oauth2/v2/userinfo` — get user info
 - `GET /.well-known/openid-configuration` — OIDC discovery document
+- `GET /oauth2/v1/certs` — JSON map of key IDs to PEM-encoded X.509 signing certificates
 - `GET /oauth2/v3/certs` — JSON Web Key Set (JWKS) with the RSA public key for ID token verification
 
 ### Gmail
@@ -79,6 +80,8 @@ npm install @emulators/google
 ## Auth
 
 Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. Configure clients in the seed config. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued ID tokens.
+
+`/oauth2/v1/certs` returns X.509 certificates, matching [Google's PEM endpoint](https://www.googleapis.com/oauth2/v1/certs). Each certificate contains the same public key published under its key ID in `/oauth2/v3/certs`. Both endpoints are public and return `Cache-Control`, `Date`, and `Expires` headers with a one-hour cache lifetime. The emulator uses a locally generated, self-signed certificate valid for one year and a signing key fixed for the process lifetime; Google's periodic key rotation is not emulated.
 
 ## Seed Configuration
 

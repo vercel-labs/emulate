@@ -67,7 +67,8 @@ Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 
 Google OIDC:
-  Discovery advertises RS256 ID tokens, and GET /oauth2/v3/certs returns the RSA public key used to verify them.
+  Discovery advertises RS256 ID tokens. GET /oauth2/v3/certs returns JWKS; GET /oauth2/v1/certs returns matching PEM X.509 certificates.
+  Both certificate endpoints advertise a one-hour cache lifetime. Signing keys do not rotate during the process lifetime.
 
 Resend API coverage:
   POST /emails and POST /emails/batch support 24-hour Idempotency-Key replay without duplicate emails or webhooks.
