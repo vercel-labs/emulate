@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { SignJWT, exportJWK, exportPKCS8, exportSPKI, generateKeyPair } from "jose";
+import forge from "node-forge";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
@@ -17,8 +18,40 @@ import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 
 // RSA key pair generated at module load for signing ID tokens.
-const keyPairPromise = generateKeyPair("RS256");
+const keyPairPromise = generateKeyPair("RS256", { extractable: true });
 const KID = "emulate-google-1";
+
+const CERTIFICATE_MAX_AGE_SECONDS = 3600;
+
+// Google exposes the signing key in both JWKS and X.509 formats. Generate one
+// certificate per process so repeated fetches return the same certificate.
+const certificatePromise = keyPairPromise.then(async ({ privateKey, publicKey }) => {
+  const certificate = forge.pki.createCertificate();
+  certificate.publicKey = forge.pki.publicKeyFromPem(await exportSPKI(publicKey));
+  certificate.serialNumber = `01${randomBytes(15).toString("hex")}`;
+  certificate.validity.notBefore = new Date();
+  certificate.validity.notAfter = new Date(certificate.validity.notBefore);
+  certificate.validity.notAfter.setUTCFullYear(certificate.validity.notAfter.getUTCFullYear() + 1);
+  const name = [{ name: "commonName", value: "federated-signon.system.gserviceaccount.com" }];
+  certificate.setSubject(name);
+  certificate.setIssuer(name);
+  certificate.setExtensions([
+    { name: "basicConstraints", critical: true, cA: false },
+    { name: "keyUsage", critical: true, digitalSignature: true },
+    { name: "extKeyUsage", critical: true, clientAuth: true },
+  ]);
+  certificate.sign(forge.pki.privateKeyFromPem(await exportPKCS8(privateKey)), forge.md.sha256.create());
+  return forge.pki.certificateToPem(certificate);
+});
+
+function certificateHeaders(): Record<string, string> {
+  const now = Date.now();
+  return {
+    "Cache-Control": `public, max-age=${CERTIFICATE_MAX_AGE_SECONDS}, must-revalidate, no-transform`,
+    Date: new Date(now).toUTCString(),
+    Expires: new Date(now + CERTIFICATE_MAX_AGE_SECONDS * 1000).toUTCString(),
+  };
+}
 
 type PendingCode = {
   email: string;
@@ -125,21 +158,16 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
-  // ---------- JWKS ----------
+  // ---------- Signing certificates ----------
+
+  app.get("/oauth2/v1/certs", async (c) => {
+    return c.json({ [KID]: await certificatePromise }, 200, certificateHeaders());
+  });
 
   app.get("/oauth2/v3/certs", async (c) => {
     const { publicKey } = await keyPairPromise;
     const jwk = await exportJWK(publicKey);
-    return c.json({
-      keys: [
-        {
-          ...jwk,
-          kid: KID,
-          use: "sig",
-          alg: "RS256",
-        },
-      ],
-    });
+    return c.json({ keys: [{ ...jwk, kid: KID, use: "sig", alg: "RS256" }] }, 200, certificateHeaders());
   });
 
   // ---------- Authorization page ----------
