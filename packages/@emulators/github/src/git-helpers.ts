@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import type { GitHubStore } from "./store.js";
 import type { GitHubBlob, GitHubCommit, GitHubRepo, GitHubTree, GitHubUser } from "./entities.js";
-import { formatUser, generateNodeId } from "./helpers.js";
+import { formatPusher, formatRepo, formatUser, generateNodeId } from "./helpers.js";
 
 function gitObjectSha(type: "blob" | "tree" | "commit", content: Buffer): string {
   const header = Buffer.from(`${type} ${content.byteLength}\0`, "utf8");
@@ -660,5 +660,113 @@ export function formatGitCommit(repo: GitHubRepo, c: GitHubCommit, baseUrl: stri
       html_url: `${baseUrl}/${repo.full_name}/commit/${sha}`,
     })),
     verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
+  };
+}
+
+export interface PushCommitChanges {
+  added: string[];
+  removed: string[];
+  modified: string[];
+}
+
+/** Paths a commit added, removed, or modified relative to its first parent. */
+export function pushCommitChanges(gh: GitHubStore, repoId: number, commit: GitHubCommit): PushCommitChanges {
+  const parent = commit.parent_shas[0] ? findCommitBySha(gh, repoId, commit.parent_shas[0]) : undefined;
+  const changes: PushCommitChanges = { added: [], removed: [], modified: [] };
+  for (const file of diffTrees(gh, repoId, parent?.tree_sha ?? null, commit.tree_sha)) {
+    if (file.status === "added") changes.added.push(file.filename);
+    else if (file.status === "removed") changes.removed.push(file.filename);
+    else if (file.status === "renamed") {
+      changes.removed.push(file.previous_filename!);
+      changes.added.push(file.filename);
+    } else changes.modified.push(file.filename);
+  }
+  return changes;
+}
+
+/** Commit object in the shape `push` event payloads use for `commits[]` and `head_commit`. */
+export function formatPushCommit(
+  gh: GitHubStore,
+  repo: GitHubRepo,
+  commit: GitHubCommit,
+  baseUrl: string,
+  changes: PushCommitChanges = pushCommitChanges(gh, repo.id, commit),
+) {
+  const identity = (name: string, email: string) => {
+    const user = resolveCommitUser(gh, email);
+    return { name, email, ...(user ? { username: user.login } : {}) };
+  };
+  return {
+    id: commit.sha,
+    tree_id: commit.tree_sha,
+    distinct: true,
+    message: commit.message,
+    timestamp: commit.committer_date,
+    url: `${baseUrl}/${repo.full_name}/commit/${commit.sha}`,
+    author: identity(commit.author_name, commit.author_email),
+    committer: identity(commit.committer_name, commit.committer_email),
+    added: changes.added,
+    removed: changes.removed,
+    modified: changes.modified,
+  };
+}
+
+/** Commits reachable from `after` but not from `before`, oldest first. */
+export function listPushedCommits(
+  gh: GitHubStore,
+  repoId: number,
+  beforeSha: string,
+  afterSha: string,
+): GitHubCommit[] {
+  const excluded = new Set(listAncestors(gh, repoId, beforeSha).map((commit) => commit.sha));
+  return listAncestors(gh, repoId, afterSha)
+    .filter((commit) => !excluded.has(commit.sha))
+    .reverse();
+}
+
+export interface PushPayloadOptions {
+  ref: string;
+  /** Previous head sha, or null when the ref was created. */
+  before: string | null;
+  /** New head sha, or null when the ref was deleted. */
+  after: string | null;
+  actor: GitHubUser;
+  /** True when the update was not a fast-forward. */
+  forced?: boolean;
+  /** Explicit `commits[]` entries; otherwise computed from the before...after range. */
+  commits?: ReturnType<typeof formatPushCommit>[];
+}
+
+const ZERO_SHA = "0".repeat(40);
+
+/** `push` event payload carrying GitHub's ref, commit, pusher, and created/deleted/forced fields. */
+export function formatPushPayload(gh: GitHubStore, repo: GitHubRepo, baseUrl: string, options: PushPayloadOptions) {
+  const before = options.before ?? ZERO_SHA;
+  const after = options.after ?? ZERO_SHA;
+  const head = options.after ? peelToCommit(gh, repo.id, options.after) : undefined;
+  const previous = options.before ? peelToCommit(gh, repo.id, options.before) : undefined;
+  const commits =
+    options.commits ??
+    (head && previous
+      ? listPushedCommits(gh, repo.id, previous.sha, head.sha).map((commit) =>
+          formatPushCommit(gh, repo, commit, baseUrl),
+        )
+      : []);
+  return {
+    ref: options.ref,
+    before,
+    after,
+    created: options.before === null,
+    deleted: options.after === null,
+    forced: options.forced ?? false,
+    base_ref: null,
+    compare: `${baseUrl}/${repo.full_name}/compare/${before.slice(0, 12)}...${after.slice(0, 12)}`,
+    commits,
+    head_commit: head
+      ? (commits.find((commit) => commit.id === head.sha) ?? formatPushCommit(gh, repo, head, baseUrl))
+      : null,
+    repository: formatRepo(repo, gh, baseUrl),
+    pusher: formatPusher(options.actor),
+    sender: formatUser(options.actor, baseUrl),
   };
 }

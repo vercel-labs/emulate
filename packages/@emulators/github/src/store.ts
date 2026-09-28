@@ -31,6 +31,7 @@ import type {
   GitHubSecret,
   GitHubCheckRun,
   GitHubCheckSuite,
+  GitHubCommitStatus,
   GitHubOAuthApp,
   GitHubApp,
   GitHubAppInstallation,
@@ -70,6 +71,7 @@ export interface GitHubStore {
   secrets: Collection<GitHubSecret>;
   checkRuns: Collection<GitHubCheckRun>;
   checkSuites: Collection<GitHubCheckSuite>;
+  commitStatuses: Collection<GitHubCommitStatus>;
   oauthApps: Collection<GitHubOAuthApp>;
   apps: Collection<GitHubApp>;
   appInstallations: Collection<GitHubAppInstallation>;
@@ -110,6 +112,7 @@ export function getGitHubStore(store: Store): GitHubStore {
     secrets: store.collection<GitHubSecret>("github.secrets", ["repo_id", "org_id"]),
     checkRuns: store.collection<GitHubCheckRun>("github.check_runs", ["repo_id", "head_sha"]),
     checkSuites: store.collection<GitHubCheckSuite>("github.check_suites", ["repo_id", "head_sha"]),
+    commitStatuses: store.collection<GitHubCommitStatus>("github.commit_statuses", ["repo_id", "sha"]),
     oauthApps: store.collection<GitHubOAuthApp>("github.oauth_apps", ["client_id"]),
     apps: store.collection<GitHubApp>("github.apps", ["slug"]),
     appInstallations: store.collection<GitHubAppInstallation>("github.app_installations", [

@@ -303,6 +303,10 @@ curl -X PUT http://localhost:4001/repos/octocat/hello-world/contents/notes.txt \
 curl http://localhost:4001/repos/octocat/hello-world/commits
 curl http://localhost:4001/repos/octocat/hello-world/commits/main
 curl http://localhost:4001/repos/octocat/hello-world/compare/v1.0.0...main
+
+# Download a tarball or zipball of a ref (served directly with 200 rather than a 302 to codeload)
+curl -o hello-world.tar.gz http://localhost:4001/repos/octocat/hello-world/tarball/main
+curl -o hello-world.zip http://localhost:4001/repos/octocat/hello-world/zipball/v1.0.0
 ```
 
 ### Issues
@@ -505,6 +509,7 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/hooks \
 
 # Full CRUD, ping, test, deliveries
 # Org webhooks also supported
+# push payloads include pusher, head_commit, commits with added/removed/modified paths, and created/deleted/forced flags
 ```
 
 ### Search
@@ -541,6 +546,23 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
 # Check suites: create, get, rerequest, preferences, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 # Check runs: list for suite, annotations. Ref based lookups accept branch and tag refs containing slashes.
 # Automatic suite status rollup from check run results
+```
+
+### Commit Statuses
+
+```bash
+# Create a status for a commit sha (state: error, failure, pending, or success; context defaults to "default")
+curl -X POST http://localhost:4001/repos/octocat/hello-world/statuses/abc123 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"state": "success", "context": "ci/build", "target_url": "https://ci.example/builds/1", "description": "Build passed"}'
+
+# List statuses for a ref (newest first) or read the combined status
+curl http://localhost:4001/repos/octocat/hello-world/commits/main/statuses
+curl http://localhost:4001/repos/octocat/hello-world/commits/main/status
+
+# Combined state uses the latest status per context: failure if any is failure or error,
+# pending if any is pending or none exist, otherwise success. Creating a status delivers a status webhook.
 ```
 
 ### OAuth

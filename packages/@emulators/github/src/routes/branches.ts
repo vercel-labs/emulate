@@ -33,6 +33,7 @@ import {
   findOrCreateCommit,
   findOrCreateTree,
   formatGitCommit,
+  formatPushPayload,
   resolveRefToCommit,
 } from "../git-helpers.js";
 
@@ -758,6 +759,13 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       ownerLoginOf(gh, repo),
       repo.name,
     );
+    webhooks.dispatch(
+      "push",
+      undefined,
+      formatPushPayload(gh, repo, baseUrl, { ref: fullRef, before: null, after: sha, actor: user }),
+      ownerLoginOf(gh, repo),
+      repo.name,
+    );
     const r = gh.refs.get(refRow.id)!;
     return c.json(formatRefJson(gh, repo, r.ref, r.sha, baseUrl), 201);
   });
@@ -782,13 +790,14 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     if (findCommitBySha(gh, repo.id, newSha) === undefined && findTagObjectBySha(gh, repo.id, newSha) === undefined) {
       throw new ApiError(422, "Invalid sha");
     }
+    const fastForward = isDescendantOf(gh, repo.id, oldSha, newSha);
     if (!force) {
       const oldCommit = findCommitBySha(gh, repo.id, oldSha);
       const newCommit = findCommitBySha(gh, repo.id, newSha);
       if (!oldCommit || !newCommit) {
         throw new ApiError(422, "Fast-forward update requires commit objects");
       }
-      if (!isDescendantOf(gh, repo.id, oldSha, newSha)) {
+      if (!fastForward) {
         throw new ApiError(422, "Update is not a fast-forward");
       }
     }
@@ -807,13 +816,13 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     webhooks.dispatch(
       "push",
       undefined,
-      {
+      formatPushPayload(gh, repo, baseUrl, {
         ref: fullRef,
         before: oldSha,
         after: newSha,
-        repository: formatRepo(repo, gh, baseUrl),
-        sender: formatUser(user, baseUrl),
-      },
+        actor: user,
+        forced: !fastForward,
+      }),
       ownerLoginOf(gh, repo),
       repo.name,
     );
@@ -840,6 +849,26 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
     gh.refs.delete(r.id);
     deleteBranchForHeadRef(gh, repo.id, fullRef);
+    webhooks.dispatch(
+      "push",
+      undefined,
+      formatPushPayload(gh, repo, baseUrl, { ref: fullRef, before: r.sha, after: null, actor: user }),
+      ownerLoginOf(gh, repo),
+      repo.name,
+    );
+    webhooks.dispatch(
+      "delete",
+      undefined,
+      {
+        ref: fullRef,
+        ref_type: fullRef.startsWith("refs/heads/") ? "branch" : "tag",
+        pusher_type: "user",
+        repository: formatRepo(repo, gh, baseUrl),
+        sender: formatUser(user, baseUrl),
+      },
+      ownerLoginOf(gh, repo),
+      repo.name,
+    );
     return c.body(null, 204);
   });
 

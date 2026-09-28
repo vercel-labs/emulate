@@ -3,7 +3,7 @@ import { ApiError, parseJsonBody } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubBranch, GitHubCommit, GitHubRef, GitHubRepo, GitHubTree, GitHubUser } from "../entities.js";
-import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
+import { generateNodeId, lookupRepo, timestamp } from "../helpers.js";
 import {
   assertBranchUpdateAllowed,
   assertRepoContentsRead,
@@ -20,6 +20,8 @@ import {
   findOrCreateTree,
   flattenTree,
   formatGitCommit,
+  formatPushCommit,
+  formatPushPayload,
   resolveBranchToCommit,
   resolveRefToCommit,
   type FlatTree,
@@ -689,24 +691,19 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     webhooks.dispatch(
       "push",
       undefined,
-      {
+      formatPushPayload(gh, gh.repos.get(repo.id)!, baseUrl, {
         ref: `refs/heads/${branchName}`,
-        before: headCommit?.sha ?? "0".repeat(40),
+        before: headCommit?.sha ?? null,
         after: commit.sha,
-        repository: formatRepo(gh.repos.get(repo.id)!, gh, baseUrl),
-        sender: formatUser(user, baseUrl),
+        actor: user,
         commits: [
-          {
-            id: commit.sha,
-            message: commit.message,
-            timestamp: commit.committer_date,
-            author: { name: commit.author_name, email: commit.author_email },
+          formatPushCommit(gh, repo, commit, baseUrl, {
             added: existing ? [] : [path],
             removed: [],
             modified: existing ? [path] : [],
-          },
+          }),
         ],
-      },
+      }),
       ownerLoginOf(gh, repo),
       repo.name,
     );
@@ -771,24 +768,13 @@ export function contentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     webhooks.dispatch(
       "push",
       undefined,
-      {
+      formatPushPayload(gh, gh.repos.get(repo.id)!, baseUrl, {
         ref: `refs/heads/${branchName}`,
         before: headCommit.sha,
         after: commit.sha,
-        repository: formatRepo(gh.repos.get(repo.id)!, gh, baseUrl),
-        sender: formatUser(user, baseUrl),
-        commits: [
-          {
-            id: commit.sha,
-            message: commit.message,
-            timestamp: commit.committer_date,
-            author: { name: commit.author_name, email: commit.author_email },
-            added: [],
-            removed: [path],
-            modified: [],
-          },
-        ],
-      },
+        actor: user,
+        commits: [formatPushCommit(gh, repo, commit, baseUrl, { added: [], removed: [path], modified: [] })],
+      }),
       ownerLoginOf(gh, repo),
       repo.name,
     );
