@@ -29,6 +29,8 @@ import { webhooksRoutes } from "./routes/webhooks.js";
 import { searchRoutes } from "./routes/search.js";
 import { actionsRoutes } from "./routes/actions.js";
 import { checksRoutes } from "./routes/checks.js";
+import { statusesRoutes } from "./routes/statuses.js";
+import { archivesRoutes } from "./routes/archives.js";
 import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
@@ -671,14 +673,17 @@ export const githubPlugin: ServicePlugin = {
     searchRoutes(ctx);
     actionsRoutes(ctx);
     checksRoutes(ctx);
+    statusesRoutes(ctx);
     rateLimitRoutes(ctx);
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);
     installationTokenRoutes(ctx);
     contentsRoutes(ctx);
+    archivesRoutes(ctx);
     // Registered last: the catch-all /commits/:ref{.+} route must not shadow
-    // /commits/:sha/comments (comments.ts) or /commits/:ref/check-* (checks.ts).
+    // /commits/:sha/comments (comments.ts), /commits/:ref/check-* (checks.ts),
+    // or /commits/:ref/status and /commits/:ref/statuses (statuses.ts).
     commitsRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {

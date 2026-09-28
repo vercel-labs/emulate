@@ -50,7 +50,8 @@ Custom emulators:
 
 GitHub API coverage:
   Includes repository contents, raw downloads, raw media negotiation for file Contents and README responses,
-  commit history, commit details, ref comparisons, organization membership seeding with member/admin roles,
+  commit history, commit details, ref comparisons, tarball and zipball archives served directly with 200,
+  commit statuses with combined status rollups, organization membership seeding with member/admin roles,
   and Checks list-by-ref endpoints for branch and tag refs containing slashes.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
 

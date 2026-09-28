@@ -861,6 +861,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/commits` - list commits with ref, path, author, and date filters
 - `GET /repos/:owner/:repo/commits/:ref` - get a commit with file diffs and stats
 - `GET /repos/:owner/:repo/compare/:base...:head` - compare two refs
+- `GET /repos/:owner/:repo/tarball/:ref` and `GET /repos/:owner/:repo/zipball/:ref` - download a gzipped tar or zip archive of the tree at a ref (the default branch when `:ref` is omitted), rooted in a `<owner>-<repo>-<short sha>/` directory with file modes preserved. GitHub answers these with a `302` to `codeload.github.com`; the emulator serves the bytes directly with `200`, so Octokit's `downloadTarballArchive` and `downloadZipballArchive` work without following redirects
 
 ### Issues
 - `GET /repos/:owner/:repo/issues` - list (filter by state, labels, assignee, milestone, creator, since)
@@ -922,6 +923,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Repo webhooks: full CRUD, ping, test, deliveries
 - Org webhooks: full CRUD, ping
 - Real HTTP delivery to registered URLs on all state changes
+- `push` payloads carry `pusher`, `head_commit`, `commits` (with `added`, `removed`, and `modified` paths), and the `created`, `deleted`, and `forced` flags; creating or deleting a ref sends `push` alongside `create` or `delete`
 
 ### Search
 - `GET /search/repositories` - full query syntax (user, org, language, topic, stars, forks, etc.)
@@ -943,6 +945,12 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite. Ref based lookups accept branch and tag refs containing slashes.
 - Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
+
+### Commit Statuses
+- `POST /repos/:owner/:repo/statuses/:sha` - create a status (`state` is `error`, `failure`, `pending`, or `success`; `context` defaults to `default`)
+- `GET /repos/:owner/:repo/commits/:ref/statuses` - list statuses for a commit, newest first
+- `GET /repos/:owner/:repo/commits/:ref/status` - combined status from the latest status per context: `failure` when any is `failure` or `error`, `pending` when any is `pending` or none exist, otherwise `success`
+- Ref based lookups accept branch, tag, and sha refs, including refs containing slashes. Creating a status dispatches a `status` webhook.
 
 ### Misc
 - `GET /rate_limit` - rate limit status

@@ -102,6 +102,11 @@ export function formatUserFull(user: GitHubUser, baseUrl: string) {
   };
 }
 
+/** The `pusher` object of `push` event payloads. */
+export function formatPusher(user: GitHubUser) {
+  return { name: user.login, email: user.email ?? `${user.login}@users.noreply.github.com` };
+}
+
 export function formatOwner(store: GitHubStore, ownerId: number, ownerType: string, baseUrl: string) {
   if (ownerType === "Organization") {
     const org = store.orgs.get(ownerId);
