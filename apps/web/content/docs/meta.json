@@ -1,0 +1,28 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "custom-emulators",
+    "programmatic-api",
+    "configuration",
+    "nextjs",
+    "nuxt",
+    "---Services---",
+    "vercel",
+    "github",
+    "google",
+    "slack",
+    "linear",
+    "twilio",
+    "apple",
+    "microsoft",
+    "aws",
+    "okta",
+    "mongoatlas",
+    "resend",
+    "stripe",
+    "---Reference---",
+    "authentication",
+    "architecture"
+  ]
+}

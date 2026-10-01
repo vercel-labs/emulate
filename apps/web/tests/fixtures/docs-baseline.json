@@ -1,0 +1,347 @@
+{
+  "source": "origin/main 3edeb2d production build",
+  "pages": {
+    "/": {
+      "title": "emulate | Local API Emulation for CI & Sandboxes",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.",
+      "ogImage": "/og",
+      "ogTitle": "emulate | Local API Emulation for CI & Sandboxes",
+      "headings": [
+        "What this gives you",
+        "Stateful",
+        "Real protocols",
+        "Zero config",
+        "Offline and CI-ready",
+        "Point your SDK at localhost",
+        "Use it your way"
+      ]
+    },
+    "/docs": {
+      "title": "emulate | Local API Emulation for CI & Sandboxes",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.",
+      "ogImage": "/og",
+      "ogTitle": "emulate | Local API Emulation for CI & Sandboxes",
+      "headings": ["Quick Start", "CLI", "Options", "Programmatic API", "Framework Integration"]
+    },
+    "/docs/custom-emulators": {
+      "title": "Custom Emulators | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/custom-emulators",
+      "ogTitle": "Custom Emulators | emulate",
+      "headings": [
+        "Define an emulator",
+        "Run alongside built-ins",
+        "HTTP handlers",
+        "Seeds, reset, snapshots, and persistence",
+        "Test without a server",
+        "Watch and inspect",
+        "Embed in Next.js or Nuxt",
+        "Start from a scaffold",
+        "Share your emulator",
+        "Troubleshooting"
+      ]
+    },
+    "/docs/programmatic-api": {
+      "title": "Programmatic API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/programmatic-api",
+      "ogTitle": "Programmatic API | emulate",
+      "headings": [
+        "CLI package",
+        "Generated secrets",
+        "Vitest / Jest setup",
+        "createEmulator options",
+        "Instance methods",
+        "Scoped packages",
+        "Available packages",
+        "Direct usage",
+        "Custom emulators"
+      ]
+    },
+    "/docs/configuration": {
+      "title": "Configuration | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/configuration",
+      "ogTitle": "Configuration | emulate",
+      "headings": [
+        "Vercel Seed Config",
+        "Vercel Integrations",
+        "GitHub Seed Config",
+        "GitHub OAuth Apps",
+        "GitHub Apps",
+        "Google Seed Config",
+        "Hosted domain (hd) claim",
+        "Slack Seed Config",
+        "Apple Seed Config",
+        "Microsoft Seed Config",
+        "AWS Seed Config",
+        "Okta Seed Config",
+        "MongoDB Atlas Seed Config",
+        "Resend Seed Config",
+        "Stripe Seed Config",
+        "Clerk Seed Config",
+        "Linear Seed Config",
+        "Twilio Seed Config",
+        "Custom emulators"
+      ]
+    },
+    "/docs/nextjs": {
+      "title": "Next.js Integration | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/nextjs",
+      "ogTitle": "Next.js Integration | emulate",
+      "headings": [
+        "Install",
+        "Route Handler",
+        "GitHub App Private Keys",
+        "Auth.js / NextAuth Configuration",
+        "Font Tracing for Serverless",
+        "Persistence",
+        "Custom Adapter (Vercel KV, Redis, etc.)",
+        "File Persistence (Local Dev)",
+        "How It Works",
+        "How It Works",
+        "Limitations",
+        "Custom emulators"
+      ]
+    },
+    "/docs/nuxt": {
+      "title": "Nuxt Integration | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/nuxt",
+      "ogTitle": "Nuxt Integration | emulate",
+      "headings": [
+        "Install",
+        "Server Route",
+        "GitHub App Private Keys",
+        "Nuxt Config",
+        "OAuth Configuration",
+        "Persistence",
+        "Nitro Storage",
+        "File Persistence",
+        "How It Works",
+        "Custom Mounts",
+        "How It Works",
+        "Limitations",
+        "Custom emulators"
+      ]
+    },
+    "/docs/vercel": {
+      "title": "Vercel API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/vercel",
+      "ogTitle": "Vercel API | emulate",
+      "headings": ["User & Teams", "Projects", "Deployments", "Domains", "Environment Variables", "Blob"]
+    },
+    "/docs/github": {
+      "title": "GitHub API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/github",
+      "ogTitle": "GitHub API | emulate",
+      "headings": [
+        "GitHub App keys",
+        "Installation token inspection",
+        "Seed Config",
+        "Users",
+        "Repositories",
+        "Contents & Commit History",
+        "Issues",
+        "Pull Requests",
+        "Comments",
+        "Reviews",
+        "Labels & Milestones",
+        "Branches & Git Data",
+        "Organizations & Teams",
+        "Releases",
+        "Webhooks",
+        "Search",
+        "Actions",
+        "Checks",
+        "Misc"
+      ]
+    },
+    "/docs/google": {
+      "title": "Google API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/google",
+      "ogTitle": "Google API | emulate",
+      "headings": [
+        "OAuth & OpenID Connect",
+        "Gmail",
+        "Gmail Drafts",
+        "Gmail Threads",
+        "Gmail Labels",
+        "Gmail History & Push",
+        "Gmail Settings",
+        "Calendar",
+        "Drive"
+      ]
+    },
+    "/docs/slack": {
+      "title": "Slack API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/slack",
+      "ogTitle": "Slack API | emulate",
+      "headings": [
+        "Auth",
+        "Chat",
+        "Conversations",
+        "Users",
+        "Reactions",
+        "Files",
+        "Pins And Bookmarks",
+        "Views",
+        "Team",
+        "Bots",
+        "Incoming Webhooks",
+        "OAuth",
+        "Inspector",
+        "Event Dispatching",
+        "Current Limits"
+      ]
+    },
+    "/docs/linear": {
+      "title": "Linear API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/linear",
+      "ogTitle": "Linear API | emulate",
+      "headings": [
+        "Start",
+        "URL Mapping",
+        "GraphQL",
+        "Auth",
+        "OAuth",
+        "Seed Config",
+        "Webhooks",
+        "Inspector",
+        "Current Limits"
+      ]
+    },
+    "/docs/twilio": {
+      "title": "Twilio API | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/twilio",
+      "ogTitle": "Twilio API | emulate",
+      "headings": [
+        "Start",
+        "Defaults",
+        "URL Mapping",
+        "Supported Routes",
+        "SMS And OTP Testing",
+        "Simulator",
+        "Seed Config",
+        "Inspector",
+        "Current Limits"
+      ]
+    },
+    "/docs/apple": {
+      "title": "Apple Sign In | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/apple",
+      "ogTitle": "Apple Sign In | emulate",
+      "headings": ["Endpoints", "Authorization Flow", "ID Token", "Supported Parameters"]
+    },
+    "/docs/microsoft": {
+      "title": "Microsoft Entra ID | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/microsoft",
+      "ogTitle": "Microsoft Entra ID | emulate",
+      "headings": [
+        "Endpoints",
+        "Authorization Code Flow",
+        "PKCE",
+        "Client Credentials",
+        "Refresh Tokens",
+        "ID Token",
+        "Microsoft Graph"
+      ]
+    },
+    "/docs/aws": {
+      "title": "AWS | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/aws",
+      "ogTitle": "AWS | emulate",
+      "headings": ["S3", "SQS", "IAM", "STS", "Inspector"]
+    },
+    "/docs/okta": {
+      "title": "Okta | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/okta",
+      "ogTitle": "Okta | emulate",
+      "headings": ["OAuth / OIDC", "Users", "Groups", "Apps", "Authorization Servers"]
+    },
+    "/docs/mongoatlas": {
+      "title": "MongoDB Atlas | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/mongoatlas",
+      "ogTitle": "MongoDB Atlas | emulate",
+      "headings": ["Admin API", "Projects", "Clusters", "Database Users", "Data Explorer", "Data API"]
+    },
+    "/docs/resend": {
+      "title": "Resend | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/resend",
+      "ogTitle": "Resend | emulate",
+      "headings": ["Emails", "Idempotency", "Domains", "API Keys", "Audiences & Contacts", "Inbox"]
+    },
+    "/docs/stripe": {
+      "title": "Stripe | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/stripe",
+      "ogTitle": "Stripe | emulate",
+      "headings": [
+        "Customers",
+        "Payment Methods",
+        "Customer Sessions",
+        "Payment Intents",
+        "Charges",
+        "Products",
+        "Prices",
+        "Checkout Sessions",
+        "Webhooks"
+      ]
+    },
+    "/docs/authentication": {
+      "title": "Authentication | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/authentication",
+      "ogTitle": "Authentication | emulate",
+      "headings": [
+        "Vercel",
+        "GitHub",
+        "GitHub Apps (JWT)",
+        "Google OAuth",
+        "Slack OAuth",
+        "Apple Sign In",
+        "Microsoft Entra ID",
+        "AWS"
+      ]
+    },
+    "/docs/architecture": {
+      "title": "Architecture | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/architecture",
+      "ogTitle": "Architecture | emulate",
+      "headings": ["Core", "Plugin System", "In-Memory State", "Middleware", "Custom emulators"]
+    }
+  },
+  "redirects": {
+    "/programmatic-api": "/docs/programmatic-api",
+    "/configuration": "/docs/configuration",
+    "/nextjs": "/docs/nextjs",
+    "/vercel": "/docs/vercel",
+    "/github": "/docs/github",
+    "/google": "/docs/google",
+    "/slack": "/docs/slack",
+    "/linear": "/docs/linear",
+    "/apple": "/docs/apple",
+    "/microsoft": "/docs/microsoft",
+    "/aws": "/docs/aws",
+    "/okta": "/docs/okta",
+    "/mongoatlas": "/docs/mongoatlas",
+    "/resend": "/docs/resend",
+    "/stripe": "/docs/stripe",
+    "/authentication": "/docs/authentication",
+    "/architecture": "/docs/architecture"
+  }
+}

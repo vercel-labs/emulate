@@ -1,26 +1,32 @@
 import type { Metadata } from "next";
 import { PAGE_TITLES } from "./page-titles";
-
-const DESCRIPTION =
-  "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.";
+import { canonicalUrlFor, isPreview, siteDescription } from "./site";
 
 export function pageMetadata(slug: string): Metadata {
-  const title = PAGE_TITLES[slug];
-  if (!title) return {};
+  const pathname = slug ? `/docs/${slug}` : "/docs";
+  const indexing: Metadata = {
+    robots: { index: !isPreview, follow: !isPreview },
+    alternates: { canonical: pathname, types: { "text/markdown": `${pathname}.md` } },
+  };
+  // The docs index keeps the site-wide title and social card from the root layout.
+  const title = slug ? PAGE_TITLES[slug] : undefined;
+  if (!title) return indexing;
 
   const displayTitle = title.replace(/\n/g, " ");
   const fullTitle = `${displayTitle} | emulate`;
   const ogImageUrl = slug ? `/og/${slug}` : "/og";
 
   return {
+    ...indexing,
     title: displayTitle,
-    description: DESCRIPTION,
+    description: siteDescription,
     openGraph: {
+      url: canonicalUrlFor(pathname),
       type: "website",
       locale: "en_US",
       siteName: "emulate",
       title: fullTitle,
-      description: DESCRIPTION,
+      description: siteDescription,
       images: [
         {
           url: ogImageUrl,
@@ -33,7 +39,7 @@ export function pageMetadata(slug: string): Metadata {
     twitter: {
       card: "summary_large_image",
       title: fullTitle,
-      description: DESCRIPTION,
+      description: siteDescription,
       images: [ogImageUrl],
     },
   };

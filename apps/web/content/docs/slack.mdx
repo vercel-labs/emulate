@@ -1,0 +1,147 @@
+---
+title: "Slack API"
+navTitle: "Slack"
+---
+
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, modern file uploads, pins, bookmarks, views, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. File writes support the current external upload flow with local upload URLs, file share messages, reads, lists, downloads, and deletes. Pin and bookmark writes support channel message pins and link bookmarks. View writes support App Home publishing and modal stacks. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
+
+Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
+
+## Auth
+
+- `POST /api/auth.test` - test authentication
+
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+
+## Chat
+
+- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
+- `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
+- `POST /api/chat.update` - update message text and rich payload fields
+- `POST /api/chat.delete` - delete message
+- `GET /api/chat.getPermalink` / `POST /api/chat.getPermalink` - get message permalink
+- `POST /api/chat.scheduleMessage` - schedule pending message
+- `POST /api/chat.deleteScheduledMessage` - delete pending scheduled message
+- `POST /api/chat.scheduledMessages.list` - list pending scheduled messages
+- `POST /api/chat.meMessage` - /me message
+
+## Conversations
+
+- `POST /api/conversations.list` - list conversations (cursor pagination, `types`, `exclude_archived`)
+- `POST /api/conversations.info` - get channel info
+- `POST /api/conversations.create` - create channel
+- `POST /api/conversations.archive` - archive channel
+- `POST /api/conversations.unarchive` - restore archived channel
+- `POST /api/conversations.rename` - rename channel
+- `POST /api/conversations.setTopic` - update channel topic
+- `POST /api/conversations.setPurpose` - update channel purpose
+- `POST /api/conversations.history` - channel history with rich message fields (top-level messages)
+- `POST /api/conversations.replies` - thread replies with rich message fields
+- `POST /api/conversations.join` - join channel
+- `POST /api/conversations.leave` - leave channel
+- `POST /api/conversations.invite` - invite user to a channel
+- `POST /api/conversations.kick` - remove user from a channel
+- `POST /api/conversations.open` - open or resume DM/MPIM
+- `POST /api/conversations.close` - close DM/MPIM
+- `POST /api/conversations.mark` - set read cursor
+- `POST /api/conversations.members` - list members
+
+## Users
+
+- `POST /api/users.list` - list users (cursor pagination)
+- `POST /api/users.info` - get user info
+- `POST /api/users.lookupByEmail` - lookup by email
+- `GET /api/users.profile.get` / `POST /api/users.profile.get` - get user profile fields
+- `POST /api/users.profile.set` - update profile fields, status, and custom fields
+- `GET /api/users.getPresence` / `POST /api/users.getPresence` - get active or away presence
+- `POST /api/users.setPresence` - set the authed user to away or automatic presence
+
+## Reactions
+
+- `POST /api/reactions.add` - add reaction
+- `POST /api/reactions.remove` - remove reaction
+- `POST /api/reactions.get` - get reactions for a message
+
+## Files
+
+- `POST /api/files.getUploadURLExternal` - create a local external upload session
+- `POST /upload/v1/:fileId` - receive raw uploaded file bytes
+- `POST /api/files.completeUploadExternal` - complete uploads and optionally share file messages
+- `GET /api/files.info` / `POST /api/files.info` - get file metadata
+- `GET /api/files.list` / `POST /api/files.list` - list completed files
+- `GET /files-pri/:fileId/:filename` - download file bytes with a bearer token that can access the file
+- `POST /api/files.delete` - delete a completed file
+
+## Pins And Bookmarks
+
+- `POST /api/pins.add` - pin a message to a channel
+- `GET /api/pins.list` / `POST /api/pins.list` - list pinned message items for a channel
+- `POST /api/pins.remove` - remove a message pin from a channel
+- `POST /api/bookmarks.add` - add a link bookmark to a channel
+- `POST /api/bookmarks.edit` - update a link bookmark
+- `POST /api/bookmarks.list` - list channel bookmarks
+- `POST /api/bookmarks.remove` - remove a bookmark from a channel
+
+## Views
+
+- `POST /api/views.publish` - publish or update an App Home view for a user
+- `POST /api/views.open` - open a modal view
+- `POST /api/views.update` - update a view by `view_id` or `external_id`
+- `POST /api/views.push` - push a modal view onto the current modal stack
+- `POST /api/views.generateTriggerId` - local helper for tests that need a modal trigger id
+
+Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass the returned value as `trigger_id` or `interactivity_pointer`; generate push values with an existing `view_id` and use them within 3 seconds.
+
+## Team
+
+- `POST /api/team.info` - get workspace info
+
+## Bots
+
+- `POST /api/bots.info` - get bot info
+
+## Incoming Webhooks
+
+- `POST /services/:teamId/:botId/:webhookId` - post text or rich payload fields via incoming webhook (supports `channel` override and `thread_ts`)
+
+## OAuth
+
+- `GET /oauth/v2/authorize` - authorization endpoint (shows user picker)
+- `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
+- `POST /api/oauth.v2.access` - token exchange
+
+## Inspector
+
+- `GET /` - tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
+
+`oauth.v2.access` returns a bot token, `bot_user_id`, `app_id`, team details, and the `authed_user` object. When `user_scope` is requested, `authed_user` also includes a user token and granted user scopes.
+
+## Event Dispatching
+
+For supported Slack writes that emit events, the emulator dispatches `event_callback` payloads to configured webhook URLs matching Slack's Events API format:
+
+Each callback includes outer `team_id`, `event_id`, and integer Unix-seconds `event_time` alongside the inner `event`. For authenticated Web API writes, `team_id` comes from the presented Slack token's installation. Development tokens without a stored Slack record fall back to the affected channel, user, or file's team, then the seeded workspace team (or `T000000001`). Incoming webhook posts use their webhook record's team, or the target channel's team when no record matches. Each logical event gets a distinct `event_id` shared by deliveries to multiple subscribers.
+
+- `message` events on `chat.postMessage`
+- `message` with `subtype: message_changed` on `chat.update`
+- `message` with `subtype: message_deleted` on `chat.delete`
+- rich message fields are included on posted `message` events when present
+- `reaction_added` / `reaction_removed` events on `reactions.add` / `reactions.remove`
+- `pin_added` / `pin_removed` events on `pins.add` / `pins.remove`
+- `message` with `subtype: bot_message` on incoming webhook posts
+- `channel_archive` / `channel_unarchive` for public lifecycle archive writes
+- `group_archive` / `group_unarchive` for private lifecycle archive writes
+- `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
+- `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
+- `member_joined_channel` / `member_left_channel` on invite, join, leave, and kick writes
+- `im_created`, `im_open`, `im_close`, `im_marked`, and group open/close/marked events for DM and MPIM writes
+- `user_change` on profile writes
+- `presence_change` on presence writes
+- `file_created`, `file_shared`, and `file_deleted` on file writes
+- `message` with `subtype: file_share` on shared file uploads
+
+Set `slack.signing_secret` in seed config to sign every outbound event subscription callback, including subscriptions that already exist. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`. The signature is `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`, calculated from the exact serialized request body. Configure the receiver with the same secret and verify the unparsed body. When the secret is absent or empty, callbacks are unsigned.
+
+## Current Limits
+
+Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
