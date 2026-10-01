@@ -1,0 +1,196 @@
+---
+name: jira
+description: Emulated Jira Cloud REST API for local development and testing. Use when the user needs to test Jira integrations locally, emulate Jira issues, JQL search, transitions, comments, worklogs, projects, boards, sprints, webhooks, Atlassian OAuth 2.0 (3LO), or work with the Jira API without hitting a real Atlassian site. Triggers include "Jira API", "emulate Jira", "mock Jira", "local Jira", "JQL", "Jira webhook", "Atlassian OAuth", "jira.js", "Jira sprint", or any task requiring a local Jira API.
+allowed-tools: Bash(npx emulate:*)
+---
+
+# Jira API Emulator
+
+Stateful Jira Cloud emulation covering the platform REST API (v3 and v2), the Jira Software Agile API, JQL search, webhooks, and Atlassian OAuth 2.0 (3LO). Writes record changelog history and dispatch Jira-shaped webhooks.
+
+## Start
+
+```bash
+# Jira only
+npx emulate --service jira
+```
+
+Default URL: `http://localhost:4014` when all services are started, or `http://localhost:4000` when Jira is the only service.
+
+## URL Mapping
+
+| Real Jira URL | Emulator URL |
+|---------------|--------------|
+| `https://your-domain.atlassian.net/rest/api/3/...` | `$JIRA_EMULATOR_URL/rest/api/3/...` |
+| `https://your-domain.atlassian.net/rest/api/2/...` | `$JIRA_EMULATOR_URL/rest/api/2/...` |
+| `https://your-domain.atlassian.net/rest/agile/1.0/...` | `$JIRA_EMULATOR_URL/rest/agile/1.0/...` |
+| `https://api.atlassian.com/ex/jira/{cloudId}/rest/...` | `$JIRA_EMULATOR_URL/ex/jira/{cloudId}/rest/...` |
+| `https://auth.atlassian.com/authorize` | `$JIRA_EMULATOR_URL/authorize` |
+| `https://auth.atlassian.com/oauth/token` | `$JIRA_EMULATOR_URL/oauth/token` |
+| `https://api.atlassian.com/oauth/token/accessible-resources` | `$JIRA_EMULATOR_URL/oauth/token/accessible-resources` |
+| `https://api.atlassian.com/me` | `$JIRA_EMULATOR_URL/me` |
+
+## Auth
+
+Use HTTP Basic auth with a seeded user's email and API token, exactly like Jira Cloud API tokens:
+
+```bash
+curl -u admin@jira.local:jira_test_token "$JIRA_EMULATOR_URL/rest/api/3/myself"
+```
+
+Default credentials: `admin@jira.local` / `jira_test_token` (admin) and `dev@jira.local` / `jira_dev_token`. API tokens also work as `Authorization: Bearer <token>`. Wrong credentials return `401` with `{"errorMessages":["Client must be authenticated to access this resource."],"errors":{}}`. Creating, editing, or deleting projects and webhooks requires an admin; components and versions also accept the project lead.
+
+OAuth scope checks are relaxed by default. Set `jira.strict_scopes: true` to require granular scopes such as `read:jira-work` and `write:jira-work` for OAuth access tokens.
+
+## Default Seed
+
+- Project `EMU` (id `10000`) with workflow `To Do`, `In Progress`, `Done` and issue types `Epic`, `Story`, `Task`, `Bug`, `Subtask`
+- Scrum board `1` with active sprint `1` (`EMU Sprint 1`)
+- Issue `EMU-1` assigned to `dev@jira.local`, with one comment
+- Custom fields `customfield_10015` (Start date), `customfield_10016` (Story point estimate), `customfield_10020` (Sprint)
+- OAuth app `jira_example_client_id` / `example_client_secret`
+- Cloud ID `11111111-2222-4333-8444-555555555555`
+
+## Seed Config
+
+```yaml
+jira:
+  site:
+    name: acme
+  users:
+    - email: admin@example.com
+      display_name: Admin User
+      admin: true
+      api_token: jira_test_token
+    - email: dev@example.com
+      display_name: Developer
+      api_token: jira_dev_token
+  statuses:
+    - name: In Review
+      category: indeterminate
+  custom_fields:
+    - name: Team
+      type: option
+      options: [Red, Blue]
+  projects:
+    - key: ENG
+      name: Engineering
+      lead: admin@example.com
+      statuses: [To Do, In Progress, In Review, Done]
+      components: [API, Web]
+      versions: ["1.0.0"]
+  sprints:
+    - project: ENG
+      name: ENG Sprint 1
+      state: active
+  issues:
+    - project: ENG
+      summary: Fix local checkout test
+      type: Bug
+      description: Reproduce and fix the checkout failure.
+      status: To Do
+      priority: High
+      assignee: dev@example.com
+      labels: [checkout]
+      sprint: ENG Sprint 1
+      comments:
+        - body: Reproduced locally.
+          author: admin@example.com
+  links:
+    - type: Blocks
+      inward: Fix local checkout test
+      outward: ENG-2
+  webhooks:
+    - name: Local issue events
+      url: http://localhost:3000/api/webhooks/jira
+      events: [jira:issue_created, jira:issue_updated, comment_created]
+      jql: project = ENG
+      secret: webhook_secret
+  oauth_apps:
+    - client_id: jira_example_client_id
+      client_secret: example_client_secret
+      name: My Jira App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/atlassian
+      scopes: [read:jira-work, write:jira-work, read:jira-user, manage:jira-webhook, offline_access]
+  strict_scopes: false
+```
+
+Issue `parent` and link `inward`/`outward` accept an issue key or a seeded summary. As in Jira's API, the outward issue is the source of a link: `{ type: Blocks, inward: A, outward: B }` means B blocks A. Statuses listed on a project that do not exist yet are created, with the category inferred from the name.
+
+## REST Surface
+
+Issues (`/rest/api/3` and `/rest/api/2`):
+
+- `POST /issue`, `POST /issue/bulk`, `GET|PUT|DELETE /issue/{idOrKey}`
+- `PUT /issue/{idOrKey}/assignee`, `GET|POST /issue/{idOrKey}/transitions`, `GET /issue/{idOrKey}/changelog`
+- `GET /issue/createmeta/{project}/issuetypes[/{issueTypeId}]`, `GET /issue/{idOrKey}/editmeta`
+- `GET|POST /issue/{idOrKey}/comment`, `GET|PUT|DELETE /issue/{idOrKey}/comment/{id}`, `POST /comment/list`
+- `GET|POST|DELETE /issue/{idOrKey}/watchers`
+- `GET|POST /issue/{idOrKey}/worklog`, `GET|PUT|DELETE /issue/{idOrKey}/worklog/{id}`
+- `POST /issueLink`, `GET|DELETE /issueLink/{id}`, `GET /issueLinkType`
+
+Search: `GET|POST /search/jql` (enhanced, `nextPageToken`, rejects unbounded queries), `POST /search/approximate-count`, legacy `GET|POST /search`, `GET /issue/picker`.
+
+Projects and configuration: `/project`, `/project/search`, `/project/{key}`, `/project/{key}/statuses|components|versions`, `/component`, `/version`, `/issuetype`, `/status`, `/statuscategory`, `/priority`, `/resolution`, `/field`, `/label`, `/mypermissions`, `/serverInfo`.
+
+Users: `/myself`, `/user`, `/user/search`, `/users/search`, `/user/assignable/search`, `/user/bulk`.
+
+Agile (`/rest/agile/1.0`, also `/rest/software/1.0`): boards, board issues, backlog, sprints, epics, sprint lifecycle (`future` to `active` to `closed`), moving issues to sprints and the backlog.
+
+## Fidelity Notes
+
+- REST API v3 bodies (descriptions, comments, worklog comments) must be Atlassian Document Format. Plain strings return Jira's `400` error. REST API v2 accepts and returns plain strings.
+- `GET /issue` supports `fields` (`*all`, `summary,status`, `-comment`) and `expand` (`changelog`, `renderedFields`, `names`, `schema`, `transitions`).
+- `/search/jql` returns only issue IDs and keys unless `fields` are requested.
+- Workflows allow any status to move to any other status, like team-managed projects. Transition IDs are `11`, `21`, `31`, and so on by workflow position. Moving to a Done category sets the resolution; moving out clears it.
+- Setting `status` through edit fails, as in Jira. Use transitions.
+- Closing a sprint keeps completed issues in it and returns unfinished issues to the backlog.
+- In `POST /issueLink`, `outwardIssue` is the source ("from") issue and receives the optional comment. In the issue view, the source lists the other issue as `outwardIssue` and the target lists it as `inwardIssue`.
+- Errors use `{ "errorMessages": [...], "errors": { "field": "message" } }`.
+
+## JQL
+
+Supports `AND`, `OR`, `NOT`, parentheses, `=`, `!=`, `~`, `!~`, `>`, `>=`, `<`, `<=`, `IN`, `NOT IN`, `IS [NOT] EMPTY`, and `ORDER BY`. Fields include `project`, `key`, `summary`, `description`, `comment`, `text`, `status`, `statusCategory`, `assignee`, `reporter`, `creator`, `watcher`, `priority`, `issuetype`, `labels`, `resolution`, `parent`, `created`, `updated`, `duedate`, `resolutiondate`, `sprint`, `component`, `fixVersion`, and custom fields by `cf[id]` or name. Functions: `currentUser()`, `now()`, `startOfDay()`, `endOfDay()`, `startOfWeek()`, `startOfMonth()`, `startOfYear()` (with offsets like `startOfDay(-1d)`), `openSprints()`, `closedSprints()`, `futureSprints()`, `standardIssueTypes()`, `subTaskIssueTypes()`, `releasedVersions()`, `unreleasedVersions()`, and `linkedIssues(key[, "link text"])`. Relative dates such as `-7d` and `-2w` work.
+
+## Webhooks
+
+- Admin webhooks: `GET|POST /rest/webhooks/1.0/webhook`, `GET|PUT|DELETE /rest/webhooks/1.0/webhook/{id}` with a JQL filter in `filters["issue-related-events-section"]`, `excludeBody`, and `secret`. Secrets sign deliveries with `X-Hub-Signature: sha256=<hmac-hex>`.
+- Dynamic webhooks for OAuth apps: `GET|POST|DELETE /rest/api/3/webhook`, `PUT /rest/api/3/webhook/refresh`. Deliveries include `matchedWebhookIds`.
+- Events: `jira:issue_created`, `jira:issue_updated` (with `changelog` and `issue_event_type_name` such as `issue_generic`, `issue_assigned`, `issue_commented`), sent once per edit even when the edit also adds a comment, `jira:issue_deleted`, `comment_created`, `comment_updated`, `comment_deleted`.
+
+## OAuth 2.0 (3LO)
+
+- `GET /authorize?audience=api.atlassian.com&client_id=...&scope=...&redirect_uri=...&state=...&response_type=code` shows a user picker
+- `POST /oauth/token` supports `authorization_code` and rotating `refresh_token` grants (refresh tokens need `offline_access`), with JSON or form bodies
+- `GET /oauth/token/accessible-resources` returns the site cloud ID; call the API at `/ex/jira/{cloudId}/rest/api/3/...`
+- `GET /me` returns the Atlassian profile
+
+## jira.js
+
+```typescript
+import { createCloudClient } from "jira.js";
+
+const client = createCloudClient({
+  host: process.env.JIRA_EMULATOR_URL!,
+  auth: { type: "basic", email: "admin@jira.local", apiToken: "jira_test_token" },
+});
+
+const issue = await client.issues.createIssue({
+  fields: {
+    project: { key: "EMU" },
+    issuetype: { name: "Task" },
+    summary: "Created locally",
+  },
+});
+```
+
+jira.js always sends OAuth 2.0 requests (clients configured with a `cloudId`) to `https://api.atlassian.com/ex/jira/{cloudId}`, so point those at the emulator with a proxy or a `fetch` wrapper, or use Basic auth with `host` as above. Any HTTP client can call `/ex/jira/{cloudId}/rest/api/3/...` on the emulator directly.
+
+## Inspector
+
+Open `GET /` for issues, projects, boards and sprints, users, webhooks and deliveries, and auth (API tokens, OAuth apps, cloud IDs). `GET /browse/{issueKey}` shows an issue page.
+
+## Current Limits
+
+Attachments, filters, dashboards, workflow and screen scheme administration, permission schemes, groups, Jira Service Management, Confluence, rate limiting, and exact search relevance are not implemented.

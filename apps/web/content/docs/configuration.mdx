@@ -502,6 +502,57 @@ twilio:
       - friendly_name: Local Conversations
 ```
 
+## Jira Seed Config
+
+```yaml
+jira:
+  site:
+    name: acme
+  users:
+    - email: admin@example.com
+      display_name: Admin User
+      admin: true
+      api_token: jira_test_token
+    - email: dev@example.com
+      display_name: Developer
+      api_token: jira_dev_token
+  projects:
+    - key: ENG
+      name: Engineering
+      lead: admin@example.com
+      statuses: [To Do, In Progress, In Review, Done]
+      components: [API, Web]
+      versions: ["1.0.0"]
+  sprints:
+    - project: ENG
+      name: ENG Sprint 1
+      state: active
+  issues:
+    - project: ENG
+      summary: Fix local checkout test
+      type: Bug
+      status: To Do
+      priority: High
+      assignee: dev@example.com
+      labels: [checkout]
+      sprint: ENG Sprint 1
+  webhooks:
+    - name: Local issue events
+      url: http://localhost:3000/api/webhooks/jira
+      events: [jira:issue_created, jira:issue_updated, comment_created]
+      jql: project = ENG
+  oauth_apps:
+    - client_id: jira_example_client_id
+      client_secret: example_client_secret
+      name: My Jira App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/atlassian
+      scopes: [read:jira-work, write:jira-work, read:jira-user, manage:jira-webhook, offline_access]
+  strict_scopes: false
+```
+
+Users authenticate with Basic auth `email:api_token`. Issue `parent` and link references accept an issue key or a seeded summary.
+
 ## Custom emulators
 
 Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. See [Custom emulators](/docs/custom-emulators) for the quickstart, API reference, and complete lifecycle semantics.

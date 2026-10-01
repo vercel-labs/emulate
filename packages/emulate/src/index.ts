@@ -94,6 +94,12 @@ Configuration:
 Twilio API coverage:
   Accounts, API keys, phone numbers, Messaging, Verify, Voice, Conversations, webhooks, simulators, and inspector.
 
+Jira API coverage:
+  Jira Cloud REST API v3 and v2, JQL search (/search/jql with nextPageToken), issues, transitions, comments,
+  worklogs, links, projects, users, Agile boards and sprints, webhooks, and OAuth 2.0 (3LO).
+  Authenticate with Basic auth email:api_token (default admin@jira.local:jira_test_token).
+  OAuth clients call the API through /ex/jira/{cloudId}; inspect state at GET /.
+
 Slack message limits:
   Slack text fields are limited to 40,000 Unicode characters. Longer text is truncated safely,
   and successful Web API responses include message_truncated warning metadata.

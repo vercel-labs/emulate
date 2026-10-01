@@ -11,6 +11,7 @@ export const PAGE_TITLES: Record<string, string> = {
   slack: "Slack API",
   linear: "Linear API",
   twilio: "Twilio API",
+  jira: "Jira API",
   apple: "Apple Sign In",
   microsoft: "Microsoft Entra ID",
   aws: "AWS",
