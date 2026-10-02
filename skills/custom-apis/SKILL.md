@@ -9,6 +9,8 @@ Bring a third-party provider's HTTP API into local development, tests, and agent
 
 Use the project's existing package manager for changes. End-user CLI examples use `npx emulate` because bare `emulate` is a zsh built-in. Requires Node 24 or later.
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 Start from the scaffold when creating an emulator:
 
 ```bash

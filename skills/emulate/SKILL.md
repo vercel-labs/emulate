@@ -14,7 +14,7 @@ Local drop-in replacement services for CI and no-network sandboxes. Fully statef
 npx emulate
 ```
 
-All services start with sensible defaults:
+All services listen on IPv4 loopback (`127.0.0.1`) by default:
 
 | Service   | Default Port |
 |-----------|-------------|
@@ -66,6 +66,7 @@ npx emulate list
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-p, --port` | `4000` | Base port (auto-increments per service) |
+| `--host` | `127.0.0.1` | Listening address; use `0.0.0.0` to allow network access |
 | `-s, --service` | all | Comma-separated services to enable |
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
@@ -73,6 +74,8 @@ npx emulate list
 | `--generated-secrets-file` | none | Generate omitted service secrets and write them to a new owner-only JSON file |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+For access from a container or another machine, use `npx emulate start --host 0.0.0.0`. Set `--base-url` to a URL reachable by those clients when using OAuth redirects or other advertised URLs.
 
 The generated-secrets destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Only service-generated values appear in the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows.
 
@@ -107,8 +110,11 @@ For GitHub App tests, inspect secret-free minted installation-token metadata at 
 |--------|---------|-------------|
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
 | `port` | `4000` | Port for the HTTP server |
+| `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+
+Use `hostname: '0.0.0.0'` to allow connections from containers or other machines, and `baseUrl` to advertise a URL reachable by those clients.
 
 ### Instance Methods
 

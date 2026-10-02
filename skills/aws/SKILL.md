@@ -10,6 +10,8 @@ S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # AWS only
 npx emulate --service aws

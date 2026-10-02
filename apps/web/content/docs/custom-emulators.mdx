@@ -91,6 +91,8 @@ The config key is the instance name. Register one definition under different nam
 
 ## HTTP handlers
 
+Custom CLI and programmatic listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to `npx emulate start`, or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 The router supports `get`, `post`, `put`, `patch`, `delete`, `on(method, path, handler)`, `use`, `onError`, and `notFound`. Use `on` for HEAD or OPTIONS. HEAD also falls back to a matching GET handler with no response body.
 
 Read requests through `c.req.param(name)`, `query(name)`, `queries(name)`, `header(name)`, `json()`, `text()`, `arrayBuffer()`, or `parseBody()`. The original native Request is `c.req.raw`. Malformed JSON produces HTTP 400. Type annotations on `json<T>()` do not validate input; use your existing validation library for domain rules.

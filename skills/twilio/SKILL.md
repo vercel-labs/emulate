@@ -10,6 +10,8 @@ Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, inco
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 npx emulate --service twilio
 ```

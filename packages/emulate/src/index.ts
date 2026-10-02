@@ -23,6 +23,12 @@ Framework adapters:
   Embed emulators in app routes with @emulators/adapter-next or @emulators/adapter-nuxt.
   Docs: https://emulate.dev/docs/nextjs and https://emulate.dev/docs/nuxt
 
+Networking:
+  Built-in and custom listeners bind to 127.0.0.1 by default.
+  Use --host 0.0.0.0 for access from containers or other machines.
+  createEmulator accepts hostname for the listening address.
+  Use --base-url or baseUrl for advertised URLs reachable by those clients.
+
 Custom emulators:
   Build and share emulators for third-party HTTP APIs alongside the built-in services.
   Run 'npx emulate init --custom inventory' to scaffold an emulator, config, and runnable test.
@@ -110,6 +116,7 @@ program
   .command("start", { isDefault: true })
   .description("Start the emulator server")
   .option("-p, --port <port>", "Base port", defaultPort)
+  .option("--host <host>", "Listening address (use 0.0.0.0 for network access)", "127.0.0.1")
   .option("-s, --service <services>", "Comma-separated services to enable")
   .option("--seed <file>", "Path to seed config file")
   .option("--config <file>", "Path to TypeScript, JavaScript, YAML, or JSON configuration")
@@ -128,6 +135,7 @@ program
     }
     const options = {
       port,
+      host: opts.host,
       service: opts.service,
       seed: opts.seed,
       config: opts.config,

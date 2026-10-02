@@ -10,7 +10,7 @@ Local drop-in replacement for Vercel, GitHub, Google, Slack, Apple, Microsoft, O
 npx emulate
 ```
 
-All services start with sensible defaults. No config file needed:
+All services listen on IPv4 loopback (`127.0.0.1`) by default. No config file needed:
 
 - **Vercel** on `http://localhost:4000`
 - **GitHub** on `http://localhost:4001`
@@ -72,6 +72,11 @@ npx emulate list
       <td>Base port (auto-increments per service)</td>
     </tr>
     <tr>
+      <td><code>--host</code></td>
+      <td><code>127.0.0.1</code></td>
+      <td>Listening address; use <code>0.0.0.0</code> to allow network access</td>
+    </tr>
+    <tr>
       <td><code>-s, --service</code></td>
       <td>all</td>
       <td>Comma-separated services to enable</td>
@@ -102,6 +107,8 @@ npx emulate list
 The generated-secrets destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes the complete file before startup. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that requires manual recovery. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows.
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
+
+For access from a container or another machine, use `npx emulate start --host 0.0.0.0`. Set `--base-url` to a URL reachable by those clients when using OAuth redirects or other advertised URLs.
 
 ## Programmatic API
 

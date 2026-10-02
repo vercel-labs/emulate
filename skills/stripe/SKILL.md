@@ -12,6 +12,8 @@ No real payments are processed. Every Stripe SDK call hits the emulator and prod
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # Stripe only
 npx emulate --service stripe

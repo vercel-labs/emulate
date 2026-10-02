@@ -27,6 +27,7 @@ const pkg = { version: PKG_VERSION };
 
 export interface StartOptions {
   port: number;
+  host?: string;
   service?: string;
   seed?: string;
   baseUrl?: string;
@@ -337,7 +338,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
-      const httpServer = serve({ fetch: app.fetch, port });
+      const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
       httpServers.push(httpServer);
     }
 
@@ -367,7 +368,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
-      const httpServer = serve({ fetch: app.fetch, port });
+      const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
       httpServers.push(httpServer);
       await waitForServerListening(httpServer);
     }

@@ -10,6 +10,8 @@ OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE suppor
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # Google only
 npx emulate --service google

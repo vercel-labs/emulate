@@ -170,6 +170,7 @@ export async function prepareProject(
           for (const item of prepared) {
             const server = serve({
               ...item,
+              hostname: options.host,
               fetch: (request) =>
                 accepting ? item.fetch(request) : Response.json({ error: "Starting" }, { status: 503 }),
             });
