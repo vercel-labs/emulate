@@ -24,6 +24,7 @@ import { filesRoutes } from "./routes/files.js";
 import { pinsRoutes } from "./routes/pins.js";
 import { bookmarksRoutes } from "./routes/bookmarks.js";
 import { viewsRoutes } from "./routes/views.js";
+import { usergroupsRoutes } from "./routes/usergroups.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export { getSlackStore, type SlackStore } from "./store.js";
@@ -51,6 +52,16 @@ export interface SlackSeedConfig {
   }>;
   bots?: Array<{
     name: string;
+  }>;
+  usergroups?: Array<{
+    name: string;
+    handle?: string;
+    description?: string;
+    /** User names or IDs. */
+    users?: string[];
+    /** Channel names or IDs. */
+    channels?: string[];
+    disabled?: boolean;
   }>;
   oauth_apps?: Array<{
     app_id?: string;
@@ -115,6 +126,8 @@ const DEFAULT_SLACK_SCOPES = [
   "reactions:read",
   "reactions:write",
   "team:read",
+  "usergroups:read",
+  "usergroups:write",
 ];
 
 function slackWebhookHeaders(store: Store, { body }: WebhookHeaderContext): Record<string, string> {
@@ -291,6 +304,46 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
     }
   }
 
+  if (config.usergroups) {
+    const creator = ss.users.all().find((user) => !user.deleted && !user.is_bot)?.user_id ?? "U000000001";
+    for (const ug of config.usergroups) {
+      if (ss.usergroups.all().some((existing) => existing.name === ug.name)) continue;
+
+      const now = Math.floor(Date.now() / 1000);
+      ss.usergroups.insert({
+        usergroup_id: generateSlackId("S"),
+        team_id: teamId,
+        name: ug.name,
+        handle: ug.handle ?? "",
+        description: ug.description ?? "",
+        channels: (ug.channels ?? []).map((ref) =>
+          resolveSeedUsergroupRef(
+            ug.name,
+            "channel",
+            ref,
+            ss.channels.findOneBy("channel_id", ref) ?? ss.channels.findOneBy("name", ref),
+            (ch) => ch.channel_id,
+          ),
+        ),
+        users: (ug.users ?? []).map((ref) =>
+          resolveSeedUsergroupRef(
+            ug.name,
+            "user",
+            ref,
+            ss.users.findOneBy("user_id", ref) ?? ss.users.findOneBy("name", ref),
+            (user) => user.user_id,
+          ),
+        ),
+        date_create: now,
+        date_update: now,
+        date_delete: ug.disabled ? now : 0,
+        created_by: creator,
+        updated_by: creator,
+        deleted_by: ug.disabled ? creator : null,
+      });
+    }
+  }
+
   if (config.bots) {
     for (const b of config.bots) {
       const existing = ss.bots.all().find((eb) => eb.name === b.name);
@@ -406,6 +459,7 @@ export const slackPlugin: ServicePlugin = {
     pinsRoutes(ctx);
     bookmarksRoutes(ctx);
     viewsRoutes(ctx);
+    usergroupsRoutes(ctx);
     inspectorRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
@@ -544,6 +598,18 @@ function seedOAuthInstallation(
 function resolveSeedTokenUserId(ss: ReturnType<typeof getSlackStore>, userRef: string | undefined): string | undefined {
   if (!userRef) return undefined;
   return ss.users.findOneBy("user_id", userRef)?.user_id ?? ss.users.findOneBy("name", userRef)?.user_id ?? userRef;
+}
+
+// A seed that names a missing user or channel is a typo, and an empty group would hide it.
+function resolveSeedUsergroupRef<T>(
+  group: string,
+  kind: string,
+  ref: string,
+  found: T | undefined,
+  id: (entity: T) => string,
+): string {
+  if (!found) throw new Error(`Slack seed usergroup "${group}" references unknown ${kind} "${ref}"`);
+  return id(found);
 }
 
 function slugifySlackBotName(value: string): string {
