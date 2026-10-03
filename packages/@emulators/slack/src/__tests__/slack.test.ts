@@ -7,6 +7,7 @@ import {
   createSlackTestApp as createTestApp,
   registerSlackEventSubscription,
   slackTestBaseUrl as base,
+  slackTestToken,
   type SlackTestApp,
 } from "./helpers.js";
 import { SLACK_MESSAGE_TEXT_LIMIT, normalizeSlackMessageText } from "../helpers.js";
@@ -60,6 +61,76 @@ describe("Slack plugin - auth.test", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("not_authed");
+  });
+});
+
+// Slack accepts the token as a `token` argument as well as a header. slack-go, for
+// one, sends it only as a form field.
+describe("Slack plugin - token argument", () => {
+  const form = { "Content-Type": "application/x-www-form-urlencoded" };
+
+  it("authenticates a token sent in a form-encoded body", async () => {
+    const { app } = createTestApp();
+    const res = await app.request(`${base}/api/auth.test`, {
+      method: "POST",
+      headers: form,
+      body: new URLSearchParams({ token: slackTestToken }).toString(),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.user_id).toBe("U000000001");
+  });
+
+  it("authenticates a token sent in the query string", async () => {
+    const { app } = createTestApp();
+    const res = await app.request(`${base}/api/auth.test?token=${slackTestToken}`, { method: "POST" });
+    expect(((await res.json()) as any).ok).toBe(true);
+  });
+
+  it("leaves the form body readable by the method", async () => {
+    const { app, store } = createTestApp();
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: form,
+      body: new URLSearchParams({ token: slackTestToken, channel: "C000000001", text: "from a form" }).toString(),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(getSlackStore(store).messages.findOneBy("ts", body.ts)?.text).toBe("from a form");
+  });
+
+  it("resolves a seeded Slack token sent as an argument, including its scopes", async () => {
+    const { app, store } = createTestApp();
+    seedFromConfig(store, base, {
+      users: [{ name: "alice" }],
+      tokens: [{ token: "xoxp-form-token", user: "alice", scopes: ["chat:write"] }],
+      strict_scopes: true,
+    });
+    const alice = getSlackStore(store).users.findOneBy("name", "alice")!;
+
+    const auth = await app.request(`${base}/api/auth.test`, {
+      method: "POST",
+      headers: form,
+      body: "token=xoxp-form-token",
+    });
+    expect(((await auth.json()) as any).user_id).toBe(alice.user_id);
+
+    const denied = await app.request(`${base}/api/users.list`, {
+      method: "POST",
+      headers: form,
+      body: "token=xoxp-form-token",
+    });
+    expect(((await denied.json()) as any).error).toBe("missing_scope");
+  });
+
+  it("does not read a token from a JSON body, which Slack does not accept", async () => {
+    const { app } = createTestApp();
+    const res = await app.request(`${base}/api/auth.test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: slackTestToken }),
+    });
+    expect(((await res.json()) as any).error).toBe("not_authed");
   });
 });
 
