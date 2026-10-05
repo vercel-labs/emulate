@@ -1,4 +1,11 @@
-import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
+import type {
+  ServicePlugin,
+  ServiceHost,
+  Store,
+  AppKeyResolver,
+  AuthFallback,
+  WebhookDispatcher,
+} from "@emulators/core";
 
 export interface PreparedServiceSeed {
   config: Record<string, unknown>;
@@ -12,6 +19,7 @@ export interface PreparedServiceSeed {
 
 export interface LoadedService {
   plugin: ServicePlugin;
+  hosts?: readonly ServiceHost[];
   seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
   prepareSeed?(config: Record<string, unknown>): Promise<PreparedServiceSeed>;
@@ -50,7 +58,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass, blob storage",
     async load() {
       const mod = await import("@emulators/vercel");
-      return { plugin: mod.vercelPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.vercelPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstLogin = (cfg?.users as Array<{ username?: string }> | undefined)?.[0]?.username ?? "admin";
@@ -81,6 +89,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       const mod = await import("@emulators/github");
       return {
         plugin: mod.githubPlugin,
+        hosts: mod.hosts,
         seedFromConfig: mod.seedFromConfig,
         prepareSeed: mod.prepareSeed,
         createAppKeyResolver: mod.createAppKeyResolver,
@@ -145,7 +154,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "OAuth authorize, token exchange, userinfo, RS256 OIDC discovery and JWKS, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar discovery/lists/events/freebusy, Drive files/uploads",
     async load() {
       const mod = await import("@emulators/google");
-      return { plugin: mod.googlePlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.googlePlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@gmail.com";
@@ -229,7 +238,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "auth, chat, conversations, users, profiles, presence, files, pins, bookmarks, views, reactions, team, OAuth, incoming webhooks, inspector",
     async load() {
       const mod = await import("@emulators/slack");
-      return { plugin: mod.slackPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.slackPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback() {
       return {
@@ -311,7 +320,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "OAuth authorize, token exchange, JWKS",
     async load() {
       const mod = await import("@emulators/apple");
-      return { plugin: mod.applePlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.applePlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@icloud.com";
@@ -337,7 +346,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, Graph /me, logout, token revocation",
     async load() {
       const mod = await import("@emulators/microsoft");
-      return { plugin: mod.microsoftPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.microsoftPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@outlook.com";
@@ -364,7 +373,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "OIDC discovery, JWKS, OAuth authorize/token/userinfo/introspect/revoke/logout, users, groups, apps, authorization servers",
     async load() {
       const mod = await import("@emulators/okta");
-      return { plugin: mod.oktaPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.oktaPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstLogin =
@@ -397,7 +406,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "S3 (buckets, objects), SQS (queues, messages), IAM (users, roles, access keys), STS (assume role, caller identity)",
     async load() {
       const mod = await import("@emulators/aws");
-      return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback() {
       return { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
@@ -419,7 +428,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "emails with 24-hour Idempotency-Key replay, domains, contacts, API keys, inbox UI",
     async load() {
       const mod = await import("@emulators/resend");
-      return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback() {
       return { login: "re_test_admin", id: 1, scopes: [] };
@@ -437,7 +446,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
     async load() {
       const mod = await import("@emulators/stripe");
-      return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback() {
       return { login: "sk_test_admin", id: 1, scopes: [] };
@@ -456,7 +465,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "Atlas Admin API v2 (projects, clusters, database users, databases, collections), Atlas Data API v1 (findOne, find, insertOne, insertMany, updateOne, updateMany, deleteOne, deleteMany, aggregate)",
     async load() {
       const mod = await import("@emulators/mongoatlas");
-      return { plugin: mod.mongoatlasPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.mongoatlasPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback() {
       return { login: "admin", id: 1, scopes: [] };
@@ -476,7 +485,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
     async load() {
       const mod = await import("@emulators/clerk");
-      return { plugin: mod.clerkPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.clerkPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstEmail =
@@ -518,7 +527,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agents, inspector",
     async load() {
       const mod = await import("@emulators/linear");
-      return { plugin: mod.linearPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.linearPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "admin@linear.local";
@@ -585,7 +594,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "accounts, API keys, phone numbers, Programmable Messaging, Messaging Services, Verify, Voice, webhooks, simulator, inspector",
     async load() {
       const mod = await import("@emulators/twilio");
-      return { plugin: mod.twilioPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.twilioPlugin, seedFromConfig: mod.seedFromConfig, hosts: mod.hosts };
     },
     defaultFallback(cfg) {
       const account = cfg?.account as { sid?: string } | undefined;

@@ -276,3 +276,5 @@ export const oktaPlugin: ServicePlugin = {
 };
 
 export default oktaPlugin;
+
+export { hosts } from "./hosts.js";

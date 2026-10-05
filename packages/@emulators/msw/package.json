@@ -1,0 +1,60 @@
+{
+  "name": "@emulators/msw",
+  "version": "0.12.0",
+  "description": "Mock Service Worker handlers backed by stateful emulate services",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "homepage": "https://emulate.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/msw"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel-labs/emulate/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsup --clean",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist .turbo",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src",
+    "prepack": "node ../../../scripts/prepare-package.mjs"
+  },
+  "dependencies": {
+    "emulate": "workspace:*"
+  },
+  "peerDependencies": {
+    "msw": "^2.0.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1031.0",
+    "@octokit/rest": "^22.0.1",
+    "@slack/web-api": "^7.16.0",
+    "msw": "^2.15.0",
+    "resend": "^6.10.0",
+    "stripe": "^22.1.0",
+    "tsup": "^8.5.1",
+    "twilio": "^6.0.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.3"
+  }
+}

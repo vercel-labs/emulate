@@ -191,3 +191,5 @@ export const awsPlugin: ServicePlugin = {
 };
 
 export default awsPlugin;
+
+export { hosts } from "./hosts.js";

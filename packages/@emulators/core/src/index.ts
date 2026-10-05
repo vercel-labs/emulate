@@ -103,3 +103,11 @@ export {
   type CustomRuntimeOptions,
 } from "./custom.js";
 export { type InspectorOptions } from "./custom-inspector.js";
+export {
+  type ServiceHost,
+  findServiceHost,
+  hostPatternSource,
+  matchesHost,
+  primaryHost,
+  toEmulatorPath,
+} from "./hosts.js";

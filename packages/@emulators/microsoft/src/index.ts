@@ -88,3 +88,5 @@ export const microsoftPlugin: ServicePlugin = {
 };
 
 export default microsoftPlugin;
+
+export { hosts } from "./hosts.js";

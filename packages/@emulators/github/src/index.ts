@@ -687,3 +687,5 @@ export const githubPlugin: ServicePlugin = {
 };
 
 export default githubPlugin;
+
+export { hosts } from "./hosts.js";
