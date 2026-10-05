@@ -1,24 +1,24 @@
 ---
 name: msw
-description: Mock Service Worker integration that answers real provider URLs from stateful emulators via @emulators/msw. Use when the user wants SDKs to keep production URLs in tests, needs MSW handlers for GitHub, Slack, Twilio, Stripe, AWS, Google, or other emulated APIs, wants to combine realistic emulator state with per-test MSW overrides, or wants to capture emulator webhooks in process. Triggers include "MSW", "MSW 3", "Mock Service Worker", "setupServer", "defineNetwork", "@emulators/msw", "createEmulatorHandlers", "setupEmulatorNetwork", "intercept real API hosts", or "no base URL in tests".
+description: Mock Service Worker integration that answers real provider URLs from stateful emulators via @emulators/adapter-msw. Use when the user wants SDKs to keep production URLs in tests, needs MSW handlers for GitHub, Slack, Twilio, Stripe, AWS, Google, or other emulated APIs, wants to combine realistic emulator state with per-test MSW overrides, or wants to capture emulator webhooks in process. Triggers include "MSW", "MSW 3", "Mock Service Worker", "setupServer", "defineNetwork", "@emulators/adapter-msw", "createEmulatorHandlers", "setupEmulatorNetwork", "intercept real API hosts", or "no base URL in tests".
 allowed-tools: Bash(npx emulate:*)
 ---
 
 # Mock Service Worker Integration
 
-The `@emulators/msw` package turns emulators into [Mock Service Worker](https://mswjs.io) request handlers for the real provider hosts. Application code and SDKs keep their production URLs. MSW intercepts each request, and a stateful emulator running in the same process answers it.
+The `@emulators/adapter-msw` package turns emulators into [Mock Service Worker](https://mswjs.io) request handlers for the real provider hosts. Application code and SDKs keep their production URLs. MSW intercepts each request, and a stateful emulator running in the same process answers it.
 
 ## Install
 
 ```bash
-npm install -D @emulators/msw msw@^3
+npm install -D @emulators/adapter-msw msw@^3
 ```
 
 ## Setup
 
 ```typescript
 import { setupServer } from 'msw/node'
-import { createEmulatorHandlers } from '@emulators/msw'
+import { createEmulatorHandlers } from '@emulators/adapter-msw'
 
 const emulators = await createEmulatorHandlers({
   services: {
@@ -64,7 +64,7 @@ Each service accepts `seed` (the same shape as its section of `emulate.config.ya
 
 ```typescript
 import { http, HttpResponse } from 'msw/http'
-import { setupEmulatorNetwork } from '@emulators/msw'
+import { setupEmulatorNetwork } from '@emulators/adapter-msw'
 
 const emulate = await setupEmulatorNetwork({
   services: { github: {}, slack: {}, twilio: {} },

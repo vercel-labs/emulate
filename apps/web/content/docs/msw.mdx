@@ -2,19 +2,19 @@
 title: "Mock Service Worker"
 ---
 
-The `@emulators/msw` package turns emulators into [Mock Service Worker](https://mswjs.io) request handlers for the real provider hosts. Application code and SDKs keep their production URLs. MSW intercepts each request, and a stateful emulator running in the same process answers it.
+The `@emulators/adapter-msw` package turns emulators into [Mock Service Worker](https://mswjs.io) request handlers for the real provider hosts. Application code and SDKs keep their production URLs. MSW intercepts each request, and a stateful emulator running in the same process answers it.
 
 ## Install
 
 ```bash
-npm install -D @emulators/msw msw@^3
+npm install -D @emulators/adapter-msw msw@^3
 ```
 
 ## Setup
 
 ```typescript
 import { setupServer } from 'msw/node'
-import { createEmulatorHandlers } from '@emulators/msw'
+import { createEmulatorHandlers } from '@emulators/adapter-msw'
 
 const emulators = await createEmulatorHandlers({
   services: {
@@ -60,7 +60,7 @@ Each service accepts `seed` (the same shape as its section of `emulate.config.ya
 
 ```typescript
 import { http, HttpResponse } from 'msw/http'
-import { setupEmulatorNetwork } from '@emulators/msw'
+import { setupEmulatorNetwork } from '@emulators/adapter-msw'
 
 const emulate = await setupEmulatorNetwork({
   services: { github: {}, slack: {}, twilio: {} },

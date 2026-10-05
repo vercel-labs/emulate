@@ -37,7 +37,7 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 | `https://messaging.twilio.com/v1/...` | `$TWILIO_EMULATOR_URL/messaging/v1/...` |
 | `https://verify.twilio.com/v2/...` | `$TWILIO_EMULATOR_URL/verify/v2/...` |
 
-The official Node SDK builds absolute Twilio product URLs. In Node tests, `@emulators/msw` maps those hosts onto the emulator prefixes above with no SDK changes. Without MSW, use a custom request client that rewrites the hosts.
+The official Node SDK builds absolute Twilio product URLs. In Node tests, `@emulators/adapter-msw` maps those hosts onto the emulator prefixes above with no SDK changes. Without MSW, use a custom request client that rewrites the hosts.
 
 ## Auth
 

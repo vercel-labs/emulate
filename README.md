@@ -297,11 +297,11 @@ toEmulatorPath(hosts, 'https://verify.twilio.com/v2/Services') // '/verify/v2/Se
 
 ## Mock Service Worker
 
-`@emulators/msw` turns emulators into [Mock Service Worker](https://mswjs.io) 3 handlers for the real provider hosts, so SDKs keep their production URLs in tests:
+`@emulators/adapter-msw` turns emulators into [Mock Service Worker](https://mswjs.io) 3 handlers for the real provider hosts, so SDKs keep their production URLs in tests:
 
 ```typescript
 import { setupServer } from 'msw/node'
-import { createEmulatorHandlers } from '@emulators/msw'
+import { createEmulatorHandlers } from '@emulators/adapter-msw'
 
 const emulators = await createEmulatorHandlers({ services: { github: {}, slack: {}, twilio: {} } })
 const server = setupServer(...emulators.handlers)
