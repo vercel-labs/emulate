@@ -19,7 +19,6 @@ export {
   type PersistenceAdapter,
   type ServiceHost,
   findServiceHost,
-  hostPatternSource,
   matchesHost,
   primaryHost,
   toEmulatorPath,

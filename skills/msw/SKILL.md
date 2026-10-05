@@ -1,6 +1,6 @@
 ---
 name: msw
-description: Mock Service Worker integration that answers real provider URLs from stateful emulators via @emulators/msw. Use when the user wants SDKs to keep production URLs in tests, needs MSW handlers for GitHub, Slack, Twilio, Stripe, AWS, Google, or other emulated APIs, wants to combine realistic emulator state with per-test MSW overrides, or wants to capture emulator webhooks in process. Triggers include "MSW", "Mock Service Worker", "setupServer", "@emulators/msw", "createEmulatorHandlers", "intercept real API hosts", or "no base URL in tests".
+description: Mock Service Worker integration that answers real provider URLs from stateful emulators via @emulators/msw. Use when the user wants SDKs to keep production URLs in tests, needs MSW handlers for GitHub, Slack, Twilio, Stripe, AWS, Google, or other emulated APIs, wants to combine realistic emulator state with per-test MSW overrides, or wants to capture emulator webhooks in process. Triggers include "MSW", "MSW 3", "Mock Service Worker", "setupServer", "defineNetwork", "@emulators/msw", "createEmulatorHandlers", "setupEmulatorNetwork", "intercept real API hosts", or "no base URL in tests".
 allowed-tools: Bash(npx emulate:*)
 ---
 
@@ -11,7 +11,7 @@ The `@emulators/msw` package turns emulators into [Mock Service Worker](https://
 ## Install
 
 ```bash
-npm install -D @emulators/msw msw
+npm install -D @emulators/msw msw@^3
 ```
 
 ## Setup
@@ -35,7 +35,7 @@ const emulators = await createEmulatorHandlers({
 })
 const server = setupServer(...emulators.handlers)
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 afterEach(() => {
   server.resetHandlers()
   emulators.reset()
@@ -58,12 +58,40 @@ await client.verify.v2.services('VA00000000000000000000000000000000').verificati
 
 Each service accepts `seed` (the same shape as its section of `emulate.config.yaml`) and `baseUrl`. Pass `{}` or `true` for defaults. `tokens` is shared by every service. `emulators.emulators.<service>` exposes each in-process emulator for direct `fetch` and `request` calls.
 
-## Per-test overrides
+## Network setup (experimental)
 
-Handlers added with `server.use()` run first, so you can inject failures on top of realistic state:
+`setupEmulatorNetwork` builds on MSW 3's experimental `defineNetwork` API. It intercepts every HTTP request in the process at the socket level, whichever client sends it, and owns both lifecycles, so one `reset()` clears per-test overrides and emulator state:
 
 ```typescript
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse } from 'msw/http'
+import { setupEmulatorNetwork } from '@emulators/msw'
+
+const emulate = await setupEmulatorNetwork({
+  services: { github: {}, slack: {}, twilio: {} },
+  handlers: [http.get('https://app.example.test/api/health', () => HttpResponse.json({ ok: true }))],
+  onUnhandledFrame: 'error',
+})
+
+beforeAll(() => emulate.enable())
+afterEach(() => emulate.reset())
+afterAll(() => emulate.close())
+
+it('handles revoked credentials', async () => {
+  emulate.use(
+    http.get('https://api.github.com/user', () => HttpResponse.json({ message: 'Bad credentials' }, { status: 401 })),
+  )
+  // ...
+})
+```
+
+`handlers` run before the emulators, `use()` prepends per-test overrides, and `emulate.network` exposes the underlying MSW network for life-cycle events. `onUnhandledFrame` defaults to `'warn'`, as in `setupServer`. Because `defineNetwork` is experimental, this API may change in MSW minor releases. `createEmulatorHandlers` with `setupServer` is the stable path.
+
+## Per-test overrides
+
+Handlers added with `server.use()` (or `emulate.use()` with the network setup) run first, so you can inject failures on top of realistic state:
+
+```typescript
+import { http, HttpResponse } from 'msw/http'
 
 server.use(
   http.post(
@@ -84,7 +112,7 @@ import { POST } from '@/app/api/github/webhook/route'
 server.use(http.post('https://app.example.test/api/github/webhook', ({ request }) => POST(request)))
 ```
 
-With `onUnhandledRequest: 'error'`, MSW reports a delivery to a URL that has no handler as unhandled. Many deliveries are sent in the background, so wait for them (for example with `vi.waitFor`) before asserting.
+With `onUnhandledFrame: 'error'`, MSW reports a delivery to a URL that has no handler as unhandled. Many deliveries are sent in the background, so wait for them (for example with `vi.waitFor`) before asserting.
 
 ## Hosts
 
@@ -111,9 +139,8 @@ Paths in parentheses are the emulator prefixes that a host maps onto. Every serv
 
 ## Limitations
 
-- Node only. The handlers run emulators in process with `setupServer`. Browser `setupWorker` is not supported.
-- Stripe's default Node HTTP client writes the request body after a TLS `secureConnect` event that MSW's intercepted sockets do not emit, so requests stall. Use the fetch client: `new Stripe(key, { httpClient: Stripe.createFetchHttpClient() })`.
-- Emulated responses without a `Content-Length` are buffered so Node HTTP clients such as axios finish reading them. `text/event-stream` responses stay streamed.
+- Requires MSW 3. MSW 2 is not supported.
+- Node only. Emulators run in process with `setupServer` or `setupEmulatorNetwork`. Browser `setupWorker` is not supported.
 - The SQS emulator implements the Query protocol (`Action` parameters). It does not handle the AWS JSON protocol that current AWS SDK SQS clients use.
 
 ## In-process emulators without MSW

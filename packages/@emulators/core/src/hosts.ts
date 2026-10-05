@@ -28,8 +28,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Returns the regular expression source that matches a host pattern. */
-export function hostPatternSource(host: string): string {
+function hostPatternSource(host: string): string {
   return host.toLowerCase().split("*").map(escapeRegExp).join(LABELS);
 }
 

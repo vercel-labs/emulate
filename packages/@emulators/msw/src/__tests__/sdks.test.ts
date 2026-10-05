@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { getResponse, http, HttpResponse } from "msw";
+import { getResponse } from "msw";
+import { http, HttpResponse } from "msw/http";
 import { setupServer } from "msw/node";
 import { Octokit } from "@octokit/rest";
 import { WebClient } from "@slack/web-api";
@@ -30,7 +31,7 @@ const emulators = await createEmulatorHandlers({
 });
 const server = setupServer(...emulators.handlers);
 
-beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterEach(() => {
   server.resetHandlers();
   emulators.reset();
@@ -135,9 +136,7 @@ describe("Twilio via the official SDK", () => {
 
 describe("Stripe via the official SDK", () => {
   it("creates and retrieves customers on api.stripe.com", async () => {
-    // Stripe's default Node client writes the body only after `secureConnect`,
-    // which MSW's intercepted sockets do not emit. The fetch client avoids that.
-    const stripe = new Stripe("sk_test_emulated", { httpClient: Stripe.createFetchHttpClient() });
+    const stripe = new Stripe("sk_test_emulated");
     const customer = await stripe.customers.create({ email: "ada@example.com" });
     expect((await stripe.customers.retrieve(customer.id)) as Stripe.Customer).toMatchObject({
       email: "ada@example.com",

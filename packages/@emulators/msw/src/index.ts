@@ -1,9 +1,17 @@
-import { http, type HttpHandler } from "msw";
+import type { AnyHandler } from "msw";
+import { http, type HttpHandler } from "msw/http";
+import {
+  defineNetwork,
+  InterceptorSource,
+  NetworkReadyState,
+  type DefineNetworkOptions,
+  type NetworkApi,
+} from "msw/experimental";
+import { HttpRequestInterceptor } from "@mswjs/interceptors/http";
 import {
   createEmulator,
   findServiceHost,
   getServiceHosts,
-  hostPatternSource,
   primaryHost,
   toEmulatorPath,
   type InProcessEmulator,
@@ -33,7 +41,7 @@ export interface EmulatorHandlersOptions<Name extends ServiceName> {
 }
 
 export interface EmulatorHandlers<Name extends ServiceName> {
-  /** Request handlers to pass to `setupServer` or `server.use`. */
+  /** Request handlers to pass to `setupServer`, `defineNetwork`, or `server.use`. */
   readonly handlers: HttpHandler[];
   /** In-process emulators by service name, for direct requests and inspection. */
   readonly emulators: { readonly [K in Name]: InProcessEmulator };
@@ -82,6 +90,78 @@ export async function createEmulatorHandlers<const Name extends ServiceName>(
   };
 }
 
+type EmulatorNetworkApi = NetworkApi<[InterceptorSource]>;
+
+export interface EmulatorNetworkOptions<Name extends ServiceName> extends EmulatorHandlersOptions<Name> {
+  /** Handlers that run before the emulators, such as mocks for your own API. */
+  handlers?: AnyHandler[];
+  /** Strategy for requests that no handler or emulator serves. Defaults to `"warn"`, as in `setupServer`. */
+  onUnhandledFrame?: DefineNetworkOptions<[InterceptorSource]>["onUnhandledFrame"];
+}
+
+export interface EmulatorNetwork<Name extends ServiceName> {
+  /** The underlying MSW network, for events and advanced configuration. */
+  readonly network: EmulatorNetworkApi;
+  /** In-process emulators by service name, for direct requests and inspection. */
+  readonly emulators: { readonly [K in Name]: InProcessEmulator };
+  /** Start intercepting requests in this process. */
+  enable(): Promise<void>;
+  /** Prepend handlers, typically per-test failures layered over emulator state. */
+  use(...handlers: AnyHandler[]): void;
+  /** Remove handlers added with `use()` and reset every emulator to its seed. */
+  reset(): void;
+  /** Stop intercepting and close every emulator. */
+  close(): Promise<void>;
+}
+
+/**
+ * Creates an MSW network that intercepts every HTTP request in this process at
+ * the socket level and answers real provider URLs from in-process emulators.
+ * One object owns both lifecycles, so a single `reset()` clears per-test
+ * overrides and emulator state.
+ *
+ * Built on MSW's experimental `defineNetwork` API, which may change in minor
+ * MSW releases. Use `createEmulatorHandlers` with `setupServer` for the stable path.
+ *
+ * @experimental
+ * @example
+ * const emulate = await setupEmulatorNetwork({ services: { github: {}, twilio: {} } });
+ * beforeAll(() => emulate.enable());
+ * afterEach(() => emulate.reset());
+ * afterAll(() => emulate.close());
+ */
+export async function setupEmulatorNetwork<const Name extends ServiceName>(
+  options: EmulatorNetworkOptions<Name>,
+): Promise<EmulatorNetwork<Name>> {
+  const { handlers: ownHandlers = [], onUnhandledFrame = "warn", ...handlerOptions } = options;
+  const emulators = await createEmulatorHandlers(handlerOptions);
+  const network = defineNetwork({
+    sources: [new InterceptorSource({ interceptors: [new HttpRequestInterceptor()] })],
+    handlers: [...ownHandlers, ...emulators.handlers],
+    onUnhandledFrame,
+    context: { quiet: true },
+  });
+
+  return {
+    network,
+    emulators: emulators.emulators,
+    async enable() {
+      await network.enable();
+    },
+    use(...handlers) {
+      network.use(...handlers);
+    },
+    reset() {
+      network.resetHandlers();
+      emulators.reset();
+    },
+    async close() {
+      if (network.readyState === NetworkReadyState.ENABLED) await network.disable();
+      await emulators.close();
+    },
+  };
+}
+
 async function createServiceEmulator(
   name: ServiceName,
   options: EmulatorServiceOptions,
@@ -115,31 +195,17 @@ function routableHosts(name: ServiceName, emulator: InProcessEmulator): readonly
 
 function createServiceHandler(name: ServiceName, emulator: InProcessEmulator): HttpHandler {
   const hosts = routableHosts(name, emulator);
-  const pattern = new RegExp(
-    `^https?://(?:${hosts.map((entry) => hostPatternSource(entry.host)).join("|")})(?::\\d+)?(?:/|$)`,
-    "i",
-  );
   const origin = new URL(emulator.url).origin;
 
-  return http.all(pattern, async ({ request }) => {
-    const path = toEmulatorPath(hosts, new URL(request.url));
-    if (path === undefined) return undefined;
-    return withContentLength(await emulator.fetch(await toEmulatorRequest(request, new URL(path, origin))));
-  });
-}
-
-/**
- * Buffers bodies that lack a Content-Length. Some Node HTTP clients, such as
- * axios over a keep-alive agent, never finish reading a mocked response
- * without one. Event streams stay streamed.
- */
-async function withContentLength(response: Response): Promise<Response> {
-  if (!response.body || response.headers.has("content-length")) return response;
-  if (response.headers.get("content-type")?.includes("text/event-stream")) return response;
-  const body = await response.arrayBuffer();
-  const headers = new Headers(response.headers);
-  headers.set("content-length", String(body.byteLength));
-  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+  // The predicate translates the URL through the host table once and hands
+  // the emulator path to the resolver, so unknown hosts never match.
+  return http.all<{ path: string }>(
+    ({ request }) => {
+      const path = toEmulatorPath(hosts, request.url);
+      return path === undefined ? false : { matches: true, params: { path } };
+    },
+    async ({ request, params }) => emulator.fetch(await toEmulatorRequest(request, new URL(params.path, origin))),
+  );
 }
 
 async function toEmulatorRequest(request: Request, url: URL): Promise<Request> {

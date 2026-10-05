@@ -1,6 +1,6 @@
 {
   "name": "@emulators/msw",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Mock Service Worker handlers backed by stateful emulate services",
   "license": "Apache-2.0",
   "type": "module",
@@ -40,16 +40,17 @@
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
+    "@mswjs/interceptors": "^0.45.6",
     "emulate": "workspace:*"
   },
   "peerDependencies": {
-    "msw": "^2.0.0"
+    "msw": "^3.0.0"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1031.0",
     "@octokit/rest": "^22.0.1",
     "@slack/web-api": "^7.16.0",
-    "msw": "^2.15.0",
+    "msw": "^3.0.2",
     "resend": "^6.10.0",
     "stripe": "^22.1.0",
     "tsup": "^8.5.1",

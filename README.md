@@ -297,7 +297,7 @@ toEmulatorPath(hosts, 'https://verify.twilio.com/v2/Services') // '/verify/v2/Se
 
 ## Mock Service Worker
 
-`@emulators/msw` turns emulators into [Mock Service Worker](https://mswjs.io) handlers for the real provider hosts, so SDKs keep their production URLs in tests:
+`@emulators/msw` turns emulators into [Mock Service Worker](https://mswjs.io) 3 handlers for the real provider hosts, so SDKs keep their production URLs in tests:
 
 ```typescript
 import { setupServer } from 'msw/node'
@@ -306,12 +306,12 @@ import { createEmulatorHandlers } from '@emulators/msw'
 const emulators = await createEmulatorHandlers({ services: { github: {}, slack: {}, twilio: {} } })
 const server = setupServer(...emulators.handlers)
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
 afterEach(() => { server.resetHandlers(); emulators.reset() })
 afterAll(async () => { server.close(); await emulators.close() })
 ```
 
-`new Octokit()`, `new WebClient()`, and `twilio()` then reach the emulators with no base URL or custom HTTP client, and handlers added with `server.use()` still take priority for per-test failures. See the [Mock Service Worker guide](https://emulate.dev/docs/msw) for webhooks, host tables, and limitations.
+`new Octokit()`, `new WebClient()`, and `twilio()` then reach the emulators with no base URL or custom HTTP client, and handlers added with `server.use()` still take priority for per-test failures. See the [Mock Service Worker guide](https://emulate.dev/docs/msw) for the experimental `setupEmulatorNetwork` setup, webhooks, host tables, and limitations.
 
 ## Configuration
 
