@@ -32,7 +32,6 @@
     "build": "tsup --clean",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "test:blob-contract": "vitest run --reporter=verbose src/__tests__/blob-contract.test.ts src/__tests__/blob-contract-support.test.ts",
     "clean": "rm -rf dist .turbo",
     "type-check": "tsc --noEmit",
     "lint": "eslint src",

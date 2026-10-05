@@ -225,7 +225,26 @@ describe("Vercel Blob via the @vercel/blob SDK", () => {
   });
 });
 
-describe("Vercel Blob direct HTTP error shapes", () => {
+describe("Vercel Blob direct HTTP behavior", () => {
+  const headers = {
+    authorization: `Bearer ${token}`,
+    "x-api-version": "12",
+    "x-vercel-blob-access": "public",
+    "x-add-random-suffix": "0",
+  };
+
+  let copySource: Awaited<ReturnType<typeof put>>;
+  let copyDestination: Awaited<ReturnType<typeof put>>;
+  let deletionSurvivor: Awaited<ReturnType<typeof put>>;
+
+  beforeAll(async () => {
+    copySource = await put("http-copy/source.bin", "source", { access: "public", token });
+    copyDestination = await put("http-copy/existing.bin", "destination", { access: "public", token });
+    deletionSurvivor = await put("http-delete/survivor.bin", "survives", { access: "public", token });
+    await put("http-folded/a/file.bin", "first", { access: "public", token });
+    await put("http-folded/b/file.bin", "second", { access: "public", token });
+  });
+
   it("returns a 403 forbidden JSON body for a bad token", async () => {
     const res = await fetch(apiUrl, { headers: { authorization: "Bearer wrong" } });
     expect(res.status).toBe(403);
@@ -242,6 +261,178 @@ describe("Vercel Blob direct HTTP error shapes", () => {
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("not_found");
     expect(body.error.message).toBe("The requested blob does not exist");
+  });
+
+  it("rejects a stale conditional PUT without changing stored bytes", async () => {
+    const uploaded = await put("http-conditional/stale.bin", "original", { access: "public", token });
+    const response = await fetch(`${apiUrl}?pathname=${encodeURIComponent(uploaded.pathname)}`, {
+      method: "PUT",
+      headers: { ...headers, "x-if-match": '"stale"' },
+      body: "replacement",
+    });
+    expect(response.status).toBe(412);
+    expect(await response.json()).toEqual({
+      error: { code: "precondition_failed", message: "Precondition failed: ETag mismatch." },
+    });
+    expect(await (await fetch(uploaded.url)).text()).toBe("original");
+  });
+
+  it("accepts a matching conditional PUT and changes the ETag", async () => {
+    const uploaded = await put("http-conditional/matching.bin", "original", { access: "public", token });
+    const response = await fetch(`${apiUrl}?pathname=${encodeURIComponent(uploaded.pathname)}`, {
+      method: "PUT",
+      headers: { ...headers, "x-if-match": uploaded.etag },
+      body: "updated",
+    });
+    expect(response.status).toBe(200);
+    const updated = (await response.json()) as { etag: string };
+    expect(updated.etag).not.toBe(uploaded.etag);
+    expect(await (await fetch(uploaded.url)).text()).toBe("updated");
+  });
+
+  it("serves an exact If-None-Match as a bodyless 304", async () => {
+    const uploaded = await put("http-cache/conditional.bin", "cached", { access: "public", token });
+    const response = await fetch(uploaded.url, { headers: { "if-none-match": uploaded.etag } });
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe(uploaded.etag);
+    expect(await response.text()).toBe("");
+  });
+
+  it.fails("rejects an empty deletion batch without changing stored content", async () => {
+    const response = await fetch(`${apiUrl}/delete`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ urls: [] }),
+    });
+    const body = await response.json();
+    const survivor = await fetch(deletionSurvivor.url);
+    expect({ status: response.status, body, survivor: await survivor.text() }).toEqual({
+      status: 400,
+      body: { error: { code: "bad_request", message: "Missing urls in request body" } },
+      survivor: "survives",
+    });
+  });
+
+  it.fails("rejects malformed deletion JSON without changing stored content", async () => {
+    const response = await fetch(`${apiUrl}/delete`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: "not json",
+    });
+    const body = await response.json();
+    const survivor = await fetch(deletionSurvivor.url);
+    expect({ status: response.status, body, survivor: await survivor.text() }).toEqual({
+      status: 400,
+      body: {
+        error: { code: "bad_request", message: "Cannot delete more than 1,000 urls at once or body is malformed" },
+      },
+      survivor: "survives",
+    });
+  });
+
+  it.fails("copies to a new pathname when ifMatch matches the source ETag", async () => {
+    const response = await fetch(
+      `${apiUrl}?${new URLSearchParams({ pathname: "http-copy/new.bin", fromUrl: copySource.url })}`,
+      { method: "PUT", headers: { ...headers, "x-if-match": copySource.etag } },
+    );
+    expect(response.status).toBe(200);
+    const copied = (await response.json()) as { url: string };
+    expect(await (await fetch(copySource.url)).text()).toBe("source");
+    expect(await (await fetch(copied.url)).text()).toBe("source");
+  });
+
+  it.fails("rejects conditional copy when only the destination ETag matches", async () => {
+    const response = await fetch(
+      `${apiUrl}?${new URLSearchParams({ pathname: copyDestination.pathname, fromUrl: copySource.url })}`,
+      { method: "PUT", headers: { ...headers, "x-if-match": copyDestination.etag } },
+    );
+    const body = await response.json();
+    const source = await fetch(copySource.url);
+    const destination = await fetch(copyDestination.url);
+    expect({
+      status: response.status,
+      body,
+      source: await source.text(),
+      destination: await destination.text(),
+    }).toEqual({
+      status: 412,
+      body: { error: { code: "precondition_failed", message: "Precondition failed: ETag mismatch." } },
+      source: "source",
+      destination: "destination",
+    });
+  });
+
+  it.fails("paginates folded listings that contain only folders", async () => {
+    const first = await list({ prefix: "http-folded/", mode: "folded", limit: 1, token });
+    expect(first.blobs).toEqual([]);
+    expect(first.folders).toEqual(["http-folded/a/"]);
+    expect(first.hasMore).toBe(true);
+    expect(first.cursor).toBeDefined();
+    const second = await list({ prefix: "http-folded/", mode: "folded", limit: 1, cursor: first.cursor, token });
+    expect(second.blobs).toEqual([]);
+    expect(second.folders).toEqual(["http-folded/b/"]);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it.fails("uses the Content-Type header for an extensionless upload", async () => {
+    const response = await fetch(`${apiUrl}?pathname=http-metadata%2Fextensionless`, {
+      method: "PUT",
+      headers: { ...headers, "content-type": "application/x-test-fixture" },
+      body: "bytes",
+    });
+    expect(response.status).toBe(200);
+    const uploaded = (await response.json()) as { url: string; contentType: string };
+    const download = await fetch(uploaded.url);
+    expect({
+      contentType: uploaded.contentType,
+      servedContentType: download.headers.get("content-type"),
+      bytes: await download.text(),
+    }).toEqual({
+      contentType: "application/x-test-fixture",
+      servedContentType: "application/x-test-fixture",
+      bytes: "bytes",
+    });
+  });
+
+  it.fails("clamps modern cache max-age to at least one minute", async () => {
+    const response = await fetch(`${apiUrl}?pathname=http-cache%2Fminimum.bin`, {
+      method: "PUT",
+      headers: { ...headers, "x-cache-control-max-age": "0" },
+      body: "bytes",
+    });
+    expect(response.status).toBe(200);
+    const uploaded = (await response.json()) as { url: string };
+    const metadata = await head(uploaded.url, { token });
+    expect(metadata.cacheControl).toBe("public, max-age=60");
+    expect(await (await fetch(uploaded.url)).text()).toBe("bytes");
+  });
+
+  it.fails("removes a leading slash from the uploaded pathname", async () => {
+    const response = await fetch(`${apiUrl}?pathname=%2Fhttp-paths%2Fleading.bin`, {
+      method: "PUT",
+      headers,
+      body: "bytes",
+    });
+    expect(response.status).toBe(200);
+    const uploaded = (await response.json()) as { url: string; pathname: string };
+    const metadata = await head(uploaded.url, { token });
+    expect({ pathname: uploaded.pathname, metadataPathname: metadata.pathname }).toEqual({
+      pathname: "http-paths/leading.bin",
+      metadataPathname: "http-paths/leading.bin",
+    });
+  });
+
+  it.fails("creates a multipart session without publishing a blob", async () => {
+    const response = await fetch(`${apiUrl}/mpu?pathname=http-multipart%2Fsession.bin`, {
+      method: "POST",
+      headers: { ...headers, "x-mpu-action": "create" },
+    });
+    expect(response.status).toBe(200);
+    const session = (await response.json()) as { key: string; uploadId: string };
+    expect(session.key).toBe("http-multipart/session.bin");
+    expect(typeof session.uploadId).toBe("string");
+    expect(session.uploadId.length).toBeGreaterThan(0);
+    await expect(head("http-multipart/session.bin", { token })).rejects.toBeInstanceOf(BlobNotFoundError);
   });
 });
 
