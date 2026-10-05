@@ -48,6 +48,9 @@ jobs:
 
       - run: pnpm test
 
+      - name: Blob compatibility contracts and known gaps
+        run: pnpm --filter @emulators/vercel test:blob-contract
+
   docs:
     name: Docs (${{ matrix.environment }})
     runs-on: ubuntu-latest
@@ -67,6 +70,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run build --filter=web
       - run: pnpm --filter web test:routes
+
 
   custom-consumer:
     strategy:

@@ -823,7 +823,7 @@ importers:
         version: link:../core
     devDependencies:
       '@vercel/blob':
-        specifier: ^2.4.0
+        specifier: 2.4.0
         version: 2.4.0
       tsup:
         specifier: ^8

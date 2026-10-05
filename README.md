@@ -812,6 +812,8 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 ### Blob
 Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`).
 
+For contributors, the [Blob compatibility contract foundation](packages/@emulators/vercel/BLOB_CONTRACT.md) tracks verified behavior separately from executable known gaps. It does not imply full Blob API coverage.
+
 - `PUT /api/blob?pathname=<path>` - upload a blob (honors `x-add-random-suffix`, `x-allow-overwrite`, `x-content-type`, `x-cache-control-max-age`, `x-if-match` headers)
 - `GET /api/blob?url=<urlOrPathname>` - blob metadata (`head()`)
 - `GET /api/blob?prefix=&limit=&cursor=&mode=` - list blobs (`list()`, including folded mode)
