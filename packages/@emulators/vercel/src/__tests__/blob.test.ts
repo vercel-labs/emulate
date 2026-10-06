@@ -1431,12 +1431,19 @@ describe("Vercel Blob browser preflight and versioned responses", () => {
     await expect(head(uploaded.url, { token })).rejects.toBeInstanceOf(BlobNotFoundError);
   });
 
-  it.fails("allows SDK get to stream a local emulator URL", async () => {
+  it("allows SDK get to stream a local emulator URL", async () => {
     const uploaded = await put("delivery/sdk-get.txt", "SDK bytes", { access: "public", token });
     const result = await get(uploaded.url, { access: "public", token });
     expect(result?.statusCode).toBe(200);
-    expect(result?.blob.size).toBe(9);
     expect(await new Response(result?.stream).text()).toBe("SDK bytes");
+  });
+
+  it.fails("reports blob size from SDK get on a local emulator URL", async () => {
+    const uploaded = await put("delivery/sdk-get-size.txt", "SDK bytes", { access: "public", token });
+    const result = await get(uploaded.url, { access: "public", token });
+    expect(result?.statusCode).toBe(200);
+    expect(await new Response(result?.stream).text()).toBe("SDK bytes");
+    expect(result?.blob.size).toBe(9);
   });
 });
 
