@@ -714,6 +714,8 @@ Installation access tokens act as the configured GitHub App bot for repository w
 
 User tokens can discover accessible installations with `GET /user/installations` and their repositories with `GET /user/installations/:installation_id/repositories`. Both endpoints paginate; discovery respects installation repository selection and explicit user access through ownership, collaboration, or organization membership. Public visibility alone does not grant discovery access.
 
+Installation tokens can list their repositories with `GET /installation/repositories`. The endpoint paginates and intersects the token's selection with current installation grants. Removed or suspended installations cannot discover repositories.
+
 Inspect secret-free metadata for minted installation tokens at `GET /_emulate/installation-tokens`.
 
 **App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:

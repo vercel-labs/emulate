@@ -505,6 +505,10 @@ curl -X POST http://localhost:4001/app/installations/100/access_tokens \
   -H "Content-Type: application/json" \
   -d '{"permissions": {"contents": "read"}}'
 
+# List repositories granted to an installation token (supports pagination)
+curl http://localhost:4001/installation/repositories \
+  -H "Authorization: Bearer <installation-token>"
+
 # Find installation for repo / org / user
 curl http://localhost:4001/repos/my-org/org-repo/installation
 curl http://localhost:4001/orgs/my-org/installation

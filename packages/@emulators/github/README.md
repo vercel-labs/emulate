@@ -231,6 +231,8 @@ npx emulate start --service github --seed emulate.config.yaml \
 
 The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Explicit keys are excluded from the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files continue requiring `private_key`.
 
+Installation tokens can list repositories with `GET /installation/repositories`. Results paginate and intersect the token's selection with current installation grants. Removed or suspended installations cannot discover repositories. User-token discovery remains limited to explicit repository access.
+
 ## Links
 
 - [Full documentation](https://emulate.dev/github)

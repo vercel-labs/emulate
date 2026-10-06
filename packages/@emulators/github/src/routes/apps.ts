@@ -3,7 +3,7 @@ import type { RouteContext, AuthApp } from "@emulators/core";
 import { forbidden, notFound, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import { formatApp, formatRepo, generateNodeId } from "../helpers.js";
-import { assertAuthenticatedUser, isOrgMember } from "../route-helpers.js";
+import { assertAuthenticatedUser, installationCanAccessRepo, isOrgMember } from "../route-helpers.js";
 import type { GitHubAppInstallation, GitHubRepo, GitHubUser } from "../entities.js";
 
 export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
@@ -66,6 +66,29 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     return c.json({
       total_count: repositories.length,
       repositories: repositories.slice(start, start + per_page).map((repo) => formatRepo(repo, gh, baseUrl, user.id)),
+    });
+  });
+
+  app.get("/installation/repositories", (c) => {
+    const authUser = c.get("authUser");
+    const grant = authUser?.installation;
+    if (!grant) return c.json({ message: "Requires installation authentication" }, 401);
+    const installation = gh.appInstallations
+      .all()
+      .find((candidate) => candidate.installation_id === grant.installationId && candidate.app_id === grant.appId);
+    if (!installation || installation.suspended_at) throw notFound();
+    // Intersect the token's selection with current grants, including repositories added after issuance.
+    const repositories = installationRepositories(installation).filter((repo) =>
+      installationCanAccessRepo(authUser, repo),
+    );
+    const { page, per_page } = parsePagination(c);
+    setLinkHeader(c, repositories.length, page, per_page);
+    const start = (page - 1) * per_page;
+
+    return c.json({
+      total_count: repositories.length,
+      repository_selection: grant.repositorySelection,
+      repositories: repositories.slice(start, start + per_page).map((repo) => formatRepo(repo, gh, baseUrl)),
     });
   });
 

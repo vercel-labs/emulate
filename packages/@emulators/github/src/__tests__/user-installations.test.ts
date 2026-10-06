@@ -66,16 +66,18 @@ function createTestApp() {
       repositorySelection: "all",
     },
   });
-  return app;
+  return { app, gh, tokenMap };
 }
 
-describe("user installation discovery", () => {
+describe("installation discovery", () => {
   let app: Hono<AppEnv>;
+  let gh: ReturnType<typeof getGitHubStore>;
+  let tokenMap: TokenMap;
   const get = (path: string, token = "octocat-token") =>
     app.request(`${base}${path}`, { headers: { Authorization: `Bearer ${token}` } });
 
   beforeEach(async () => {
-    app = createTestApp();
+    ({ app, gh, tokenMap } = createTestApp());
     const response = await app.request(`${base}/repos/bob/shared/collaborators/octocat`, {
       method: "PUT",
       headers: { Authorization: "Bearer bob-token", "Content-Type": "application/json" },
@@ -134,6 +136,79 @@ describe("user installation discovery", () => {
   it("does not expose unknown installations or grant discovery through public visibility", async () => {
     expect((await get("/user/installations/999/repositories")).status).toBe(404);
     expect((await get("/user/installations/4/repositories")).status).toBe(404);
+  });
+
+  it("lists installation-token repositories with pagination and includes new grants", async () => {
+    const created = await app.request(`${base}/user/repos`, {
+      method: "POST",
+      headers: { Authorization: "Bearer octocat-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "new-repo", private: true }),
+    });
+    expect(created.status).toBe(201);
+
+    const response = await get("/installation/repositories?per_page=1", "installation-token");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      total_count: 2,
+      repository_selection: "all",
+      repositories: [{ full_name: "octocat/owned", private: true }],
+    });
+    expect(response.headers.get("Link")).toContain('page=2>; rel="next"');
+    const next = await get("/installation/repositories?per_page=1&page=2", "installation-token");
+    expect(await next.json()).toMatchObject({
+      total_count: 2,
+      repositories: [{ full_name: "octocat/new-repo" }],
+    });
+  });
+
+  it("intersects installation-token selections with current repository grants", async () => {
+    const installation = gh.appInstallations.findOneBy("installation_id", 3)!;
+    const shared = gh.repos.findOneBy("full_name", "bob/shared")!;
+    const privateRepo = gh.repos.findOneBy("full_name", "bob/private")!;
+    tokenMap.set("selected-token", {
+      login: "bob",
+      id: installation.account_id,
+      scopes: ["contents:read"],
+      installation: {
+        installationId: installation.installation_id,
+        appId: installation.app_id,
+        accountId: installation.account_id,
+        accountType: installation.account_type,
+        permissions: { contents: "read" },
+        repositoryIds: [shared.id, privateRepo.id],
+        repositorySelection: "selected",
+      },
+    });
+    gh.appInstallations.update(installation.id, {
+      repository_selection: "selected",
+      repository_ids: [shared.id],
+    });
+
+    const response = await get("/installation/repositories", "selected-token");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      total_count: 1,
+      repository_selection: "selected",
+      repositories: [{ full_name: "bob/shared" }],
+    });
+
+    gh.appInstallations.update(installation.id, { repository_ids: [] });
+    expect(await (await get("/installation/repositories", "selected-token")).json()).toMatchObject({
+      total_count: 0,
+      repositories: [],
+    });
+  });
+
+  it("requires an active installation token for installation repository discovery", async () => {
+    expect((await app.request(`${base}/installation/repositories`)).status).toBe(401);
+    expect((await get("/installation/repositories")).status).toBe(401);
+    expect((await get("/installation/repositories", "invalid-token")).status).toBe(401);
+
+    const installation = gh.appInstallations.findOneBy("installation_id", 1)!;
+    gh.appInstallations.update(installation.id, { suspended_at: new Date().toISOString() });
+    expect((await get("/installation/repositories", "installation-token")).status).toBe(404);
+    gh.appInstallations.delete(installation.id);
+    expect((await get("/installation/repositories", "installation-token")).status).toBe(404);
   });
 
   it.each(["/user/installations", "/user/installations/1/repositories"])(
