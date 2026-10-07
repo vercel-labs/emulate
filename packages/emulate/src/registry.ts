@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "jira",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -633,6 +634,62 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+  jira: {
+    label: "Jira Cloud REST API emulator",
+    endpoints:
+      "REST API v2/v3, JQL search, issues, transitions, comments, worklogs, links, projects, users, Agile boards and sprints, webhooks, OAuth 2.0 (3LO), inspector",
+    async load() {
+      const mod = await import("@emulators/jira");
+      return { plugin: mod.jiraPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "admin@jira.local";
+      return { login: firstEmail, id: 1, scopes: [] };
+    },
+    initConfig: {
+      jira: {
+        site: { name: "acme" },
+        users: [
+          { email: "admin@example.com", display_name: "Admin User", admin: true, api_token: "jira_test_token" },
+          { email: "dev@example.com", display_name: "Developer", api_token: "jira_dev_token" },
+        ],
+        projects: [
+          {
+            key: "ENG",
+            name: "Engineering",
+            lead: "admin@example.com",
+            statuses: ["To Do", "In Progress", "In Review", "Done"],
+            components: ["API", "Web"],
+            versions: ["1.0.0"],
+          },
+        ],
+        sprints: [{ project: "ENG", name: "ENG Sprint 1", state: "active" }],
+        issues: [
+          {
+            project: "ENG",
+            summary: "Fix local checkout test",
+            type: "Bug",
+            description: "Reproduce and fix the checkout failure.",
+            status: "To Do",
+            priority: "High",
+            assignee: "dev@example.com",
+            labels: ["checkout"],
+            sprint: "ENG Sprint 1",
+          },
+        ],
+        oauth_apps: [
+          {
+            client_id: "jira_example_client_id",
+            client_secret: "example_client_secret",
+            name: "My Jira App",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/atlassian"],
+            scopes: ["read:jira-work", "write:jira-work", "read:jira-user", "manage:jira-webhook", "offline_access"],
+          },
+        ],
+        strict_scopes: false,
       },
     },
   },

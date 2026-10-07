@@ -31,6 +31,7 @@ All services listen on IPv4 loopback (`127.0.0.1`) by default. No config file ne
 - **Clerk** on `http://localhost:4011`
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
+- **Jira** on `http://localhost:4014`
 
 Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
 
@@ -251,7 +252,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'jira'` |
 | `port` | `4000` | Port for the HTTP server |
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
@@ -640,6 +641,43 @@ twilio:
   conversations:
     services:
       - friendly_name: Local Conversations
+
+jira:
+  site:
+    name: acme
+  users:
+    - email: admin@example.com
+      display_name: Admin User
+      admin: true
+      api_token: jira_test_token
+    - email: dev@example.com
+      display_name: Developer
+      api_token: jira_dev_token
+  projects:
+    - key: ENG
+      name: Engineering
+      lead: admin@example.com
+      statuses: [To Do, In Progress, In Review, Done]
+      components: [API, Web]
+      versions: ["1.0.0"]
+  sprints:
+    - project: ENG
+      name: ENG Sprint 1
+      state: active
+  issues:
+    - project: ENG
+      summary: Fix local checkout test
+      type: Bug
+      status: To Do
+      priority: High
+      assignee: dev@example.com
+      labels: [checkout]
+      sprint: ENG Sprint 1
+  webhooks:
+    - name: Local issue events
+      url: http://localhost:3000/api/webhooks/jira
+      events: [jira:issue_created, jira:issue_updated, comment_created]
+      jql: project = ENG
 ```
 
 GitHub organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, while `admin` creates an organization administrator. Unknown users are ignored. Seeded memberships use the synthetic `members` team and grant private organization repository access.
@@ -733,6 +771,19 @@ linear:
         - "http://localhost:3000/api/auth/callback/linear"
       scopes: [read, write, issues:create, comments:create]
       actor: user
+```
+
+### Jira (Atlassian) OAuth 2.0 Apps
+
+```yaml
+jira:
+  oauth_apps:
+    - client_id: "jira_example_client_id"
+      client_secret: "example_client_secret"
+      name: "My Jira App"
+      redirect_uris:
+        - "http://localhost:3000/api/auth/callback/atlassian"
+      scopes: [read:jira-work, write:jira-work, read:jira-user, manage:jira-webhook, offline_access]
 ```
 
 ### Apple OAuth Clients
@@ -1168,6 +1219,79 @@ To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then ca
 
 Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
 
+## Jira API
+
+Stateful Jira Cloud REST API emulation (platform REST API v3 and v2, plus the Jira Software Agile API) with seeded users, API tokens, projects, workflows, issue types, priorities, resolutions, custom fields, components, versions, boards, sprints, issues, comments, worklogs, issue links, webhooks, and OAuth 2.0 (3LO) apps. Writes record changelog history and dispatch Jira-shaped webhooks.
+
+Default local credentials (Basic auth `email:api_token`, the same scheme Jira Cloud API tokens use):
+
+```text
+JIRA_BASE_URL=http://localhost:4014
+JIRA_EMAIL=admin@jira.local
+JIRA_API_TOKEN=jira_test_token
+```
+
+The default seed also creates `dev@jira.local` / `jira_dev_token`, project `EMU` with board `1`, active sprint `1`, and issue `EMU-1`. Project and webhook changes require an admin; components and versions also accept the project lead.
+
+### Issues
+
+- `POST /rest/api/3/issue`, `POST /rest/api/3/issue/bulk` - create issues (v3 requires Atlassian Document Format descriptions; v2 accepts plain strings)
+- `GET /rest/api/3/issue/{issueIdOrKey}` - supports `fields` (`*all`, `-comment`) and `expand` (`changelog`, `renderedFields`, `names`, `schema`, `transitions`)
+- `PUT /rest/api/3/issue/{issueIdOrKey}` - edit with `fields` and `update` operations (`set`, `add`, `remove`, `issuelinks`, `comment`)
+- `DELETE /rest/api/3/issue/{issueIdOrKey}` - `deleteSubtasks=true` is required for issues with subtasks
+- `PUT /rest/api/3/issue/{issueIdOrKey}/assignee`
+- `GET|POST /rest/api/3/issue/{issueIdOrKey}/transitions` - moving to a Done category status sets the resolution
+- `GET /rest/api/3/issue/{issueIdOrKey}/changelog`, `GET /rest/api/3/issue/{issueIdOrKey}/editmeta`
+- `GET /rest/api/3/issue/createmeta/{projectIdOrKey}/issuetypes[/{issueTypeId}]`
+- Comments, watchers, worklogs (`timeSpent` like `1h 30m`), and issue links under `/rest/api/3/issue/{key}/...` and `/rest/api/3/issueLink`
+
+### Search (JQL)
+
+- `GET|POST /rest/api/3/search/jql` - enhanced search with `nextPageToken`; rejects unbounded queries like Jira Cloud
+- `POST /rest/api/3/search/approximate-count`
+- `GET|POST /rest/api/3/search` - legacy `startAt`/`total` search
+- `GET /rest/api/3/issue/picker`
+
+The JQL engine supports `AND`, `OR`, `NOT`, parentheses, `=`, `!=`, `~`, `!~`, `>`, `>=`, `<`, `<=`, `IN`, `NOT IN`, `IS [NOT] EMPTY`, `ORDER BY`, relative dates (`-7d`), and functions such as `currentUser()`, `now()`, `startOfDay()`, `openSprints()`, `closedSprints()`, `linkedIssues()`, `subTaskIssueTypes()`, and `unreleasedVersions()`. Unknown fields, values, and functions return Jira's error messages.
+
+### Projects, Users, And Configuration
+
+- `GET /rest/api/3/myself`, `/user`, `/user/search`, `/users/search`, `/user/assignable/search`, `/user/bulk`
+- `GET|POST /rest/api/3/project`, `GET /rest/api/3/project/search`, `GET|PUT|DELETE /rest/api/3/project/{projectIdOrKey}`
+- `GET /rest/api/3/project/{key}/statuses`, `/components`, `/versions`; `POST /rest/api/3/component`, `POST /rest/api/3/version`
+- `GET /rest/api/3/issuetype`, `/status`, `/statuscategory`, `/priority`, `/resolution`, `/field`, `/label`, `/issueLinkType`, `/mypermissions`, `/serverInfo`
+
+### Agile
+
+- `GET|POST /rest/agile/1.0/board`, `GET /rest/agile/1.0/board/{id}/issue`, `/backlog`, `/sprint`, `/epic`, `/configuration`
+- `POST /rest/agile/1.0/sprint`, `GET|POST|PUT|DELETE /rest/agile/1.0/sprint/{id}` - start and close sprints; closing returns unfinished issues to the backlog
+- `GET|POST /rest/agile/1.0/sprint/{id}/issue`, `POST /rest/agile/1.0/backlog/issue`
+- The same routes are served under `/rest/software/1.0`
+
+### Webhooks
+
+- `GET|POST /rest/webhooks/1.0/webhook`, `GET|PUT|DELETE /rest/webhooks/1.0/webhook/{id}` - admin webhooks with JQL filters, `excludeBody`, and an optional `secret` that signs deliveries with `X-Hub-Signature: sha256=<hmac>`
+- `GET|POST|DELETE /rest/api/3/webhook`, `PUT /rest/api/3/webhook/refresh` - dynamic webhooks for OAuth 2.0 apps
+- Events: `jira:issue_created`, `jira:issue_updated` (with `changelog` and `issue_event_type_name`), sent once per edit even when the edit also adds a comment, `jira:issue_deleted`, `comment_created`, `comment_updated`, `comment_deleted`
+
+### OAuth 2.0 (3LO) And The API Gateway
+
+- `GET /authorize` - Atlassian consent screen with a local user picker (`audience=api.atlassian.com`)
+- `POST /oauth/token` - `authorization_code` and rotating `refresh_token` grants (refresh tokens require `offline_access`)
+- `GET /oauth/token/accessible-resources`, `GET /me`
+- `/ex/jira/{cloudId}/rest/...` - the `api.atlassian.com` gateway path for OAuth clients; the default cloud ID is `11111111-2222-4333-8444-555555555555`
+
+Point clients at the emulator by replacing `https://your-domain.atlassian.net` with the emulator URL, and `https://api.atlassian.com` / `https://auth.atlassian.com` with the same URL for OAuth apps.
+
+### Inspector
+
+- `GET /` - tabbed inspector for issues, projects, boards and sprints, users, webhooks and deliveries, and auth
+- `GET /browse/{issueKey}` - issue detail page
+
+OAuth scope checks are relaxed by default. Set `jira.strict_scopes: true` to require granular scopes such as `read:jira-work` and `write:jira-work` for OAuth tokens. API tokens always carry the user's full permissions.
+
+Current Jira limits: no attachments, filters, dashboards, workflow and screen scheme administration, permission schemes, groups, service management, Confluence, rate limiting, or exact search relevance. Workflows allow any status to move to any other status, like team-managed projects.
+
 ## Apple Sign In
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
@@ -1462,6 +1586,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     linear/         # Linear GraphQL API, OAuth, webhooks
     twilio/         # Twilio Messaging, Verify, Voice, webhooks
+    jira/           # Jira Cloud REST v2/v3, JQL, Agile, webhooks, OAuth 2.0
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
     aws/            # AWS S3, SQS, IAM, STS
@@ -1490,6 +1615,8 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Linear**: GraphQL accepts `Authorization: Bearer <token>` or a bare personal API key value. Seeded Linear tokens map to users or app actors, OAuth apps support local authorization code and client credentials flows, and optional strict scope mode checks supported GraphQL operations.
 
 **Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
+
+**Jira**: HTTP Basic auth with a seeded user's `email:api_token`, or `Authorization: Bearer <token>` with an API token or an OAuth 2.0 access token. Errors use Jira's `{ "errorMessages": [], "errors": {} }` shape. OAuth clients call the API through `/ex/jira/{cloudId}`.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
