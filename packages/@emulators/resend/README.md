@@ -55,7 +55,11 @@ resend:
     - name: example.com
   api_keys:
     - name: default
+  allowlist:
+    - alex@acme.example.test
 ```
+
+When `allowlist` is set, every `to`, `cc`, and `bcc` address must be listed. A missing address returns `403` `validation_error`, stores no email, and still records a row in `resend.send_attempts`. Omit `allowlist` to accept every recipient. Attempts are emulator state, not a Resend API route.
 
 ## Links
 
