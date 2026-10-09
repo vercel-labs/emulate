@@ -509,3 +509,5 @@ export const googlePlugin: ServicePlugin = {
 };
 
 export default googlePlugin;
+
+export { hosts } from "./hosts.js";

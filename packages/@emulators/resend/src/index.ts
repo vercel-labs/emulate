@@ -116,3 +116,5 @@ export const resendPlugin: ServicePlugin = {
 };
 
 export default resendPlugin;
+
+export { hosts } from "./hosts.js";

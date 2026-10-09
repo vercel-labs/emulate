@@ -256,6 +256,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `listen` | `true` | Set to `false` to run in process without opening a port. See [In-process emulators](#in-process-emulators). |
 
 Use `hostname: '0.0.0.0'` to allow connections from containers or other machines, and `baseUrl` to advertise a URL reachable by those clients.
 
@@ -267,6 +268,50 @@ Use `hostname: '0.0.0.0'` to allow connections from containers or other machines
 | `generatedSecrets` | Readonly secrets generated while preparing seed data |
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
+
+### In-process emulators
+
+Pass `listen: false` to run a built-in service in the current process without opening a port. The instance handles standard `Request` objects directly, which suits request interceptors, workers, and sandboxes that cannot bind ports.
+
+```typescript
+import { createEmulator } from 'emulate'
+
+const github = await createEmulator({ service: 'github', listen: false, baseUrl: 'https://api.github.com' })
+
+await github.request('/user', { headers: { Authorization: 'token test_token_admin' } })
+await github.fetch(new Request('https://api.github.com/user', { headers: { Authorization: 'token test_token_admin' } }))
+
+await github.close()
+```
+
+Only the path and query string select a route. `baseUrl` defaults to `http://<service>.localhost` and appears in generated links, redirects, and issued URLs. In-process instances also expose `request(path, init)` and `hosts`, the real provider hosts the service emulates. After `close()`, requests return `503`.
+
+Use `getServiceHosts` and `toEmulatorPath` to translate a real provider URL into the emulator path that serves it:
+
+```typescript
+import { getServiceHosts, toEmulatorPath } from 'emulate'
+
+const hosts = await getServiceHosts('twilio')
+toEmulatorPath(hosts, 'https://verify.twilio.com/v2/Services') // '/verify/v2/Services'
+```
+
+## Mock Service Worker
+
+`@emulators/adapter-msw` turns emulators into [Mock Service Worker](https://mswjs.io) 3 handlers for the real provider hosts, so SDKs keep their production URLs in tests:
+
+```typescript
+import { setupServer } from 'msw/node'
+import { createEmulatorHandlers } from '@emulators/adapter-msw'
+
+const emulators = await createEmulatorHandlers({ services: { github: {}, slack: {}, twilio: {} } })
+const server = setupServer(...emulators.handlers)
+
+beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
+afterEach(() => { server.resetHandlers(); emulators.reset() })
+afterAll(async () => { server.close(); await emulators.close() })
+```
+
+`new Octokit()`, `new WebClient()`, and `twilio()` then reach the emulators with no base URL or custom HTTP client, and handlers added with `server.use()` still take priority for per-test failures. See the [Mock Service Worker guide](https://emulate.dev/docs/msw) for the experimental `setupEmulatorNetwork` setup, webhooks, host tables, and limitations.
 
 ## Configuration
 

@@ -110,6 +110,11 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
       <td>none</td>
       <td>Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Per-service <code>baseUrl</code> in seed config takes highest priority, then this option, then the <code>EMULATE_BASE_URL</code> env var (supports <code>{'{service}'}</code> template), then <code>PORTLESS_URL</code> (supports <code>{'{service}'}</code>, automatically set by the <code>portless</code> CLI wrapper), then <code>{`http://localhost:<port>`}</code>.</td>
     </tr>
+    <tr>
+      <td><code>listen</code></td>
+      <td><code>true</code></td>
+      <td>Set to <code>false</code> to run in process without opening a port. See <a href="#in-process-emulators">In-process emulators</a>.</td>
+    </tr>
   </tbody>
 </table>
 
@@ -143,6 +148,34 @@ Use `hostname: '0.0.0.0'` to allow connections from containers or other machines
     </tr>
   </tbody>
 </table>
+
+### In-process emulators
+
+Pass `listen: false` to run a built-in service in the current process without opening a port. The instance handles standard `Request` objects directly, which suits request interceptors, workers, and sandboxes that cannot bind ports.
+
+```typescript
+import { createEmulator } from 'emulate'
+
+const github = await createEmulator({ service: 'github', listen: false, baseUrl: 'https://api.github.com' })
+
+await github.request('/user', { headers: { Authorization: 'token test_token_admin' } })
+await github.fetch(new Request('https://api.github.com/user', { headers: { Authorization: 'token test_token_admin' } }))
+
+await github.close()
+```
+
+Only the path and query string select a route. `baseUrl` defaults to `http://<service>.localhost` and appears in generated links, redirects, and issued URLs. In-process instances also expose `request(path, init)` and `hosts`, the real provider hosts the service emulates. After `close()`, requests return `503`.
+
+Use `getServiceHosts` and `toEmulatorPath` to translate a real provider URL into the emulator path that serves it:
+
+```typescript
+import { getServiceHosts, toEmulatorPath } from 'emulate'
+
+const hosts = await getServiceHosts('twilio')
+toEmulatorPath(hosts, 'https://verify.twilio.com/v2/Services') // '/verify/v2/Services'
+```
+
+For Mock Service Worker handlers built on in-process emulators, see [Mock Service Worker](/docs/msw).
 
 ## Scoped packages
 
