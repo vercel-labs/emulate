@@ -1,0 +1,2 @@
+export const DEFAULT_CACHE_MAX_AGE = 2592000;
+export const DEFAULT_LIST_LIMIT = 1000;
