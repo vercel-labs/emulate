@@ -946,6 +946,8 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Secrets: repo + org CRUD
 
 ### Checks
+
+Check runs listed by ref support `per_page`, `page`, and pagination `Link` headers. Pagination is applied after the `check_name`, `status`, and `filter` queries.
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite. Ref based lookups accept branch and tag refs containing slashes.
 - Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
