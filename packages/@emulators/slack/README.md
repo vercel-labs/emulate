@@ -43,11 +43,16 @@ npm install @emulators/slack
 - `POST /api/users.list` — list users (cursor pagination)
 - `POST /api/users.info` — get user info
 - `POST /api/users.lookupByEmail` — lookup by email
+- `POST /api/users.conversations` — list the conversations a user belongs to (cursor pagination, `types`, `exclude_archived`, optional `user`)
 - `GET /api/users.profile.get` / `POST /api/users.profile.get` — get user profile fields
 - `POST /api/users.profile.set` — update profile fields, status, and custom fields
 - `GET /api/users.getPresence` / `POST /api/users.getPresence` — get active or away presence
 - `POST /api/users.setPresence` — set the authed user to away or automatic presence
 - `POST /api/reactions.add` / `reactions.remove` / `reactions.get` — manage reactions
+
+### Search
+- `POST /api/search.messages` — search message text and block text in conversations the caller can read. Supports quoted phrases and the `in:`, `from:`, `before:`, `after:`, and `on:` modifiers, `sort` (`score` or `timestamp`), `sort_dir`, `count`, and `page`
+- `POST /api/search.all` — the `search.messages` results plus an empty `files` result, since files are not searched
 
 ### Files
 - `POST /api/files.getUploadURLExternal` — create a local external upload session
@@ -95,7 +100,7 @@ Slack message text is limited to 40,000 Unicode characters across chat writes, i
 
 ## Auth
 
-All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `search:read`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Current Limits
 
