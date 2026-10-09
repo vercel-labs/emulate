@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import type { RouteContext, AuthApp } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { generateNodeId } from "../helpers.js";
+import { formatApp } from "../helpers.js";
 
 export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const gh = getGitHubStore(store);
@@ -32,23 +32,7 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       return c.json({ message: "Not Found" }, 404);
     }
 
-    const installations = gh.appInstallations.findBy("app_id", ghApp.app_id);
-
-    return c.json({
-      id: ghApp.app_id,
-      slug: ghApp.slug,
-      node_id: generateNodeId("App", ghApp.app_id),
-      name: ghApp.name,
-      description: ghApp.description,
-      external_url: `${baseUrl}/apps/${ghApp.slug}`,
-      html_url: `${baseUrl}/apps/${ghApp.slug}`,
-      created_at: ghApp.created_at,
-      updated_at: ghApp.updated_at,
-      permissions: ghApp.permissions,
-      events: ghApp.events,
-      installations_count: installations.length,
-      owner: null,
-    });
+    return c.json(formatApp(ghApp, gh, baseUrl));
   });
 
   app.get("/app/installations", (c) => {

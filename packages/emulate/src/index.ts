@@ -58,6 +58,8 @@ GitHub API coverage:
   Includes repository contents, raw downloads, raw media negotiation for file Contents and README responses,
   commit history, commit details, ref comparisons, organization membership seeding with member/admin roles,
   and Checks list-by-ref endpoints for branch and tag refs containing slashes.
+  Checks created with installation tokens expose their App and use App-specific suites.
+  Checks created with user tokens retain app: null.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
 
 Linear API coverage:

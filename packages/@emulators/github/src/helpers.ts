@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import type {
+  GitHubApp,
   GitHubUser,
   GitHubOrg,
   GitHubRepo,
@@ -30,6 +31,24 @@ import type { GitHubStore } from "./store.js";
 
 export function generateNodeId(type: string, id: number): string {
   return Buffer.from(`0:${type}${id}`).toString("base64").replace(/=+$/, "");
+}
+
+export function formatApp(app: GitHubApp, gh: GitHubStore, baseUrl: string) {
+  return {
+    id: app.app_id,
+    slug: app.slug,
+    node_id: generateNodeId("App", app.app_id),
+    name: app.name,
+    description: app.description,
+    external_url: `${baseUrl}/apps/${app.slug}`,
+    html_url: `${baseUrl}/apps/${app.slug}`,
+    created_at: app.created_at,
+    updated_at: app.updated_at,
+    permissions: app.permissions,
+    events: app.events,
+    installations_count: gh.appInstallations.findBy("app_id", app.app_id).length,
+    owner: null,
+  };
 }
 
 export function generateSha(): string {
