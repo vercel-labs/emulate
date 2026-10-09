@@ -17,6 +17,7 @@ import type {
   SlackBookmark,
   SlackView,
   SlackViewTrigger,
+  SlackUsergroup,
 } from "./entities.js";
 
 export interface SlackStore {
@@ -37,6 +38,7 @@ export interface SlackStore {
   bookmarks: Collection<SlackBookmark>;
   views: Collection<SlackView>;
   viewTriggers: Collection<SlackViewTrigger>;
+  usergroups: Collection<SlackUsergroup>;
 }
 
 export function getSlackStore(store: Store): SlackStore {
@@ -70,5 +72,6 @@ export function getSlackStore(store: Store): SlackStore {
     bookmarks: store.collection<SlackBookmark>("slack.bookmarks", ["bookmark_id", "channel_id"]),
     views: store.collection<SlackView>("slack.views", ["view_id", "user_id", "external_id", "root_view_id"]),
     viewTriggers: store.collection<SlackViewTrigger>("slack.view_triggers", ["trigger_id", "user_id", "view_id"]),
+    usergroups: store.collection<SlackUsergroup>("slack.usergroups", ["usergroup_id", "handle"]),
   };
 }
