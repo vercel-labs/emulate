@@ -1016,7 +1016,7 @@ Slack message text is limited to 40,000 Unicode characters across chat writes, i
 - `POST /api/conversations.archive` / `conversations.unarchive` - archive/restore channel
 - `POST /api/conversations.rename` - rename channel
 - `POST /api/conversations.setTopic` / `conversations.setPurpose` - update topic/purpose
-- `POST /api/conversations.history` - channel history with rich message fields
+- `POST /api/conversations.history` - channel history with rich message fields, limited to `oldest` and `latest` (exclusive unless `inclusive` is set)
 - `POST /api/conversations.replies` - thread replies with rich message fields
 - `POST /api/conversations.join` / `conversations.leave` - join/leave
 - `POST /api/conversations.invite` / `conversations.kick` - manage membership

@@ -437,6 +437,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const channel = typeof body.channel === "string" ? body.channel : "";
     const limit = Math.min(Number(body.limit) || 100, 1000);
     const cursor = typeof body.cursor === "string" ? body.cursor : "";
+    const range = parseTimeRange(body);
+    if ("error" in range) return slackError(c, range.error);
 
     if (!channel) return slackError(c, "channel_not_found");
 
@@ -448,10 +450,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const authUserId = getAuthUserId(authUser);
     if (!canReadConversation(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
 
-    // Get top-level messages (no thread_ts or thread_ts === ts)
+    // Get top-level messages (no thread_ts or thread_ts === ts) in the requested time range
     const allMessages = ss()
       .messages.findBy("channel_id", channel)
       .filter((m) => !m.thread_ts || m.thread_ts === m.ts)
+      .filter((m) => inTimeRange(m.ts, range))
       .sort((a, b) => (b.ts > a.ts ? 1 : -1));
 
     let startIndex = 0;
@@ -873,6 +876,45 @@ function validateChannelName(name: string): string | undefined {
   if (!/[a-z0-9]/.test(name)) return "invalid_name_punctuation";
   if (!/^[a-z0-9_-]+$/.test(name)) return "invalid_name_specials";
   return undefined;
+}
+
+interface SlackTimeRange {
+  oldest?: bigint;
+  latest?: bigint;
+  inclusive: boolean;
+}
+
+// Slack timestamps are seconds with a six-digit fraction, compared exactly.
+// Numbers lose the last digits at current epoch values, so they are compared as
+// integer microseconds.
+function slackTsMicros(ts: string): bigint | undefined {
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(ts.trim());
+  if (!match) return undefined;
+  return BigInt(match[1]) * 1_000_000n + BigInt((match[2] ?? "").padEnd(6, "0"));
+}
+
+// `oldest` and `latest` bound the result; `inclusive` keeps messages whose ts
+// equals either bound. An empty or zero bound means no bound.
+function parseTimeRange(body: Record<string, unknown>): SlackTimeRange | { error: string } {
+  const bound = (value: unknown, error: string): bigint | undefined | { error: string } => {
+    if (value === undefined || value === null || value === "") return undefined;
+    const micros = slackTsMicros(String(value));
+    if (micros === undefined) return { error };
+    return micros === 0n ? undefined : micros;
+  };
+  const oldest = bound(body.oldest, "invalid_ts_oldest");
+  if (typeof oldest === "object") return oldest;
+  const latest = bound(body.latest, "invalid_ts_latest");
+  if (typeof latest === "object") return latest;
+  return { oldest, latest, inclusive: isTruthySlackBoolean(body.inclusive) };
+}
+
+function inTimeRange(ts: string, range: SlackTimeRange): boolean {
+  const micros = slackTsMicros(ts);
+  if (micros === undefined) return true;
+  if (range.oldest !== undefined && (range.inclusive ? micros < range.oldest : micros <= range.oldest)) return false;
+  if (range.latest !== undefined && (range.inclusive ? micros > range.latest : micros >= range.latest)) return false;
+  return true;
 }
 
 function isTruthySlackBoolean(value: unknown): boolean {
