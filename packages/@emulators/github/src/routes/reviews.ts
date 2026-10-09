@@ -15,7 +15,14 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoPermission,
+  assertRepoWrite,
+  getActorUser,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
+import { validateReviewCommentLocation } from "./comments.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -83,7 +90,7 @@ function dispatchReviewWebhook(
   pr: GitHubPullRequest,
   actor: GitHubUser,
   baseUrl: string,
-  action: "submitted" | "dismissed",
+  action: "submitted" | "dismissed" | "edited",
 ) {
   const ownerLogin = ownerLoginOf(gh, repo);
   const reviewFmt = formatReview(review, gh, baseUrl);
@@ -120,7 +127,11 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!pr) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
-    const list = gh.reviews.findBy("repo_id", repo.id).filter((r) => r.pull_number === pullNumber);
+    const auth = c.get("authUser");
+    const viewer = auth ? getActorUser(gh, auth) : undefined;
+    const list = gh.reviews
+      .findBy("repo_id", repo.id)
+      .filter((r) => r.pull_number === pullNumber && (r.state !== "PENDING" || r.user_id === viewer?.id));
     list.sort((a, b) => a.id - b.id);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
@@ -164,7 +175,26 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       typeof raw.commit_id === "string" && raw.commit_id.trim() ? raw.commit_id.trim() : pr.head_sha || generateSha();
 
     const state: GitHubReview["state"] = event ? eventToState(event) : "PENDING";
+    if (
+      state === "PENDING" &&
+      gh.reviews
+        .findBy("repo_id", repo.id)
+        .some(
+          (review) => review.pull_number === pullNumber && review.user_id === actor.id && review.state === "PENDING",
+        )
+    )
+      throw new ApiError(422, "A pending review already exists for this user");
     const submittedAt = event ? timestamp() : null;
+
+    // Reject the entire review before storing anything if one inline comment is invalid.
+    const commentsArr = Array.isArray(raw.comments) ? raw.comments : [];
+    for (const entry of commentsArr) {
+      if (!entry || typeof entry !== "object") throw new ApiError(422, "Validation failed");
+      const comment = entry as Record<string, unknown>;
+      if (typeof comment.body !== "string" || typeof comment.path !== "string")
+        throw new ApiError(422, "Validation failed");
+      validateReviewCommentLocation(gh, pr, commitId, comment.path, comment);
+    }
 
     const row = gh.reviews.insert({
       node_id: "",
@@ -179,14 +209,13 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     gh.reviews.update(row.id, { node_id: generateNodeId("PullRequestReview", row.id) });
     const review = gh.reviews.get(row.id)!;
 
-    const commentsArr = Array.isArray(raw.comments) ? raw.comments : [];
     for (const entry of commentsArr) {
       if (!entry || typeof entry !== "object") throw new ApiError(422, "Validation failed");
       const o = entry as Record<string, unknown>;
       if (typeof o.path !== "string" || !o.path.trim()) throw new ApiError(422, "Validation failed");
       const pos =
         typeof o.position === "number" && Number.isFinite(o.position) ? o.position : parseInt(String(o.position), 10);
-      if (!Number.isFinite(pos)) throw new ApiError(422, "Validation failed");
+      if (!Number.isFinite(pos) && typeof o.line !== "number") throw new ApiError(422, "Validation failed");
       if (typeof o.body !== "string") throw new ApiError(422, "Validation failed");
 
       const cRow = gh.comments.insert({
@@ -199,9 +228,9 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         user_id: actor.id,
         in_reply_to_id: null,
         path: o.path,
-        position: pos,
-        line: null,
-        side: "RIGHT",
+        position: Number.isFinite(pos) ? pos : null,
+        line: typeof o.line === "number" ? o.line : null,
+        side: o.side === "LEFT" ? "LEFT" : "RIGHT",
         subject_type: "line",
         comment_type: "review",
         review_id: review.id,
@@ -232,9 +261,31 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
 
     const review = findReview(gh, repo, pullNumber, reviewId);
     if (!review) throw notFoundResponse();
+    const auth = c.get("authUser");
+    if (review.state === "PENDING" && (!auth || getActorUser(gh, auth)?.id !== review.user_id))
+      throw notFoundResponse();
 
     const json = formatReview(review, gh, baseUrl);
     if (!json) throw notFoundResponse();
+    return c.json(json);
+  });
+
+  app.delete("/repos/:owner/:repo/pulls/:pull_number/reviews/:review_id", (c) => {
+    const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
+    if (!repo) throw notFoundResponse();
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const review = findReview(gh, repo, Number(c.req.param("pull_number")), Number(c.req.param("review_id")));
+    if (!review) throw notFoundResponse();
+    if (review.user_id !== actor.id) throw new ApiError(403, "Only the reviewer can discard this review");
+    if (review.state !== "PENDING") throw new ApiError(422, "Only pending reviews can be deleted");
+    const json = formatReview(review, gh, baseUrl);
+    for (const comment of gh.comments.findBy("review_id", review.id)) {
+      for (const reaction of gh.reactions.findBy("subject_id", comment.id)) {
+        if (reaction.subject_type === "review_comment") gh.reactions.delete(reaction.id);
+      }
+      gh.comments.delete(comment.id);
+    }
+    gh.reviews.delete(review.id);
     return c.json(json);
   });
 
@@ -244,7 +295,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
@@ -252,9 +303,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
 
     const existing = findReview(gh, repo, pullNumber, reviewId);
     if (!existing) throw notFoundResponse();
-    if (existing.state !== "PENDING") {
-      throw new ApiError(422, "Validation failed");
-    }
+    if (existing.user_id !== actor.id) throw new ApiError(403, "Only the reviewer can edit this review");
 
     const raw = await parseJsonBody(c);
     if (typeof raw.body !== "string" && raw.body !== null) {
@@ -264,6 +313,10 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
 
     const updated = gh.reviews.update(reviewId, { body: bodyVal });
     if (!updated) throw notFoundResponse();
+
+    const pr = findPull(gh, repo.id, pullNumber);
+    if (pr && updated.state !== "PENDING")
+      dispatchReviewWebhook(webhooks, gh, repo, updated, pr, actor, baseUrl, "edited");
 
     const json = formatReview(updated, gh, baseUrl);
     if (!json) throw notFoundResponse();
@@ -290,6 +343,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (review.state !== "PENDING") {
       throw new ApiError(422, "Validation failed");
     }
+    if (review.user_id !== actor.id) throw new ApiError(403, "Only the reviewer can submit this review");
 
     const raw = await parseJsonBody(c);
     const event = parseSubmitEvent(raw.event);
@@ -366,6 +420,9 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!review) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
+    const auth = c.get("authUser");
+    if (review.state === "PENDING" && (!auth || getActorUser(gh, auth)?.id !== review.user_id))
+      throw notFoundResponse();
     const { sort, direction } = parseCommentSort(c, "asc");
 
     let list = gh.comments
