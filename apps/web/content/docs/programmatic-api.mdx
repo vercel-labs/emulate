@@ -138,6 +138,14 @@ Use `hostname: '0.0.0.0'` to allow connections from containers or other machines
       <td>Wipe the store and replay seed data</td>
     </tr>
     <tr>
+      <td><code>snapshot()</code></td>
+      <td>Return a JSON-compatible copy of the store and tokens, including tokens minted at run time. Webhook subscriptions are not included</td>
+    </tr>
+    <tr>
+      <td><code>restore(snapshot)</code></td>
+      <td>Replace the current state with a snapshot from the same service</td>
+    </tr>
+    <tr>
       <td><code>close()</code></td>
       <td>Shut down the HTTP server, returns a Promise</td>
     </tr>
