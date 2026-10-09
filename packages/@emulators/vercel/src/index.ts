@@ -10,7 +10,7 @@ import { domainsRoutes } from "./routes/domains.js";
 import { envRoutes } from "./routes/env.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { apiKeysRoutes } from "./routes/api-keys.js";
-import { blobRoutes } from "./routes/blob.js";
+import { blobRoutes } from "./routes/blob/index.js";
 
 export { getVercelStore, type VercelStore } from "./store.js";
 export * from "./entities.js";
