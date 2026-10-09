@@ -533,6 +533,8 @@ curl "http://localhost:4001/search/issues?q=repo:octocat/hello-world+is:open"
 
 ### Checks
 
+Check runs and suites created with installation tokens expose the creating GitHub App. Suites are grouped by repository, head SHA, and App. Checks created with user tokens retain `app: null`.
+
 ```bash
 # Create check run
 curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
