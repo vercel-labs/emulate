@@ -740,9 +740,13 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       runs = [...byName.values()].sort((a, b) => b.id - a.id);
     }
 
+    const { page, per_page } = parsePagination(c);
+    const total = runs.length;
+    const slice = runs.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
+    setLinkHeader(c, total, page, per_page);
     return c.json({
-      total_count: runs.length,
-      check_runs: runs.map((r) => formatCheckRun(r, repo, gh, baseUrl)),
+      total_count: total,
+      check_runs: slice.map((r) => formatCheckRun(r, repo, gh, baseUrl)),
     });
   });
 }

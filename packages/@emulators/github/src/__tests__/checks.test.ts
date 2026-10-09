@@ -35,11 +35,112 @@ function jsonHeaders(): Record<string, string> {
   return { ...authHeaders(), "Content-Type": "application/json" };
 }
 
+async function createCheckRuns(app: Hono, runs: Array<{ name: string; status: string }>) {
+  const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
+  const [head] = (await commits.json()) as Array<{ sha: string }>;
+  const ids: number[] = [];
+  for (const run of runs) {
+    const response = await app.request(`${base}/repos/octocat/hello-world/check-runs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        ...run,
+        head_sha: head.sha,
+        ...(run.status === "completed" ? { conclusion: "success" } : {}),
+      }),
+    });
+    expect(response.status).toBe(201);
+    ids.push(((await response.json()) as { id: number }).id);
+  }
+  return ids;
+}
+
 describe("GitHub checks routes", () => {
   let app: Hono;
 
   beforeEach(() => {
     app = createTestApp();
+  });
+
+  it("paginates filtered check runs and preserves filters in pagination links", async () => {
+    const ids = await createCheckRuns(app, [
+      { name: "CI", status: "completed" },
+      { name: "CI", status: "queued" },
+      { name: "CI", status: "completed" },
+      { name: "Lint", status: "completed" },
+      { name: "CI", status: "completed" },
+    ]);
+    const url = `${base}/repos/octocat/hello-world/commits/main/check-runs?check_name=CI&status=completed&filter=all&per_page=2`;
+    const first = await app.request(url, { headers: authHeaders() });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual(
+      expect.objectContaining({
+        total_count: 3,
+        check_runs: [expect.objectContaining({ id: ids[4] }), expect.objectContaining({ id: ids[2] })],
+      }),
+    );
+    const next = first.headers.get("Link")?.match(/<([^>]+)>; rel="next"/)?.[1];
+    expect(next).toBeDefined();
+    const nextUrl = new URL(next!);
+    expect(nextUrl.pathname).toBe("/repos/octocat/hello-world/commits/main/check-runs");
+    expect(Object.fromEntries(nextUrl.searchParams)).toEqual({
+      check_name: "CI",
+      status: "completed",
+      filter: "all",
+      per_page: "2",
+      page: "2",
+    });
+    expect(first.headers.get("Link")).toContain('rel="last"');
+
+    const last = await app.request(next!, { headers: authHeaders() });
+    expect(last.status).toBe(200);
+    expect(await last.json()).toEqual(
+      expect.objectContaining({ total_count: 3, check_runs: [expect.objectContaining({ id: ids[0] })] }),
+    );
+    expect(last.headers.get("Link")).not.toContain('rel="next"');
+    expect(last.headers.get("Link")).toContain('rel="prev"');
+    expect(last.headers.get("Link")).toContain('rel="first"');
+
+    nextUrl.searchParams.set("page", "3");
+    const beyondLast = await app.request(nextUrl.toString(), { headers: authHeaders() });
+    expect(beyondLast.status).toBe(200);
+    expect(await beyondLast.json()).toEqual({ total_count: 3, check_runs: [] });
+    expect(beyondLast.headers.get("Link")).not.toContain('rel="next"');
+
+    nextUrl.searchParams.set("page", "1");
+    nextUrl.searchParams.set("check_name", "missing");
+    const empty = await app.request(nextUrl.toString(), { headers: authHeaders() });
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({ total_count: 0, check_runs: [] });
+    expect(empty.headers.get("Link")).toBeNull();
+  });
+
+  it("applies the default latest filter before counting and paginating check runs", async () => {
+    const ids = await createCheckRuns(app, [
+      { name: "CI", status: "completed" },
+      { name: "Lint", status: "completed" },
+      { name: "CI", status: "completed" },
+      { name: "Build", status: "completed" },
+      { name: "CI", status: "queued" },
+    ]);
+    const first = await app.request(`${base}/repos/octocat/hello-world/commits/main/check-runs?per_page=2`, {
+      headers: authHeaders(),
+    });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual(
+      expect.objectContaining({
+        total_count: 3,
+        check_runs: [expect.objectContaining({ id: ids[4] }), expect.objectContaining({ id: ids[3] })],
+      }),
+    );
+    const next = first.headers.get("Link")?.match(/<([^>]+)>; rel="next"/)?.[1];
+    expect(next).toBeDefined();
+    const last = await app.request(next!, { headers: authHeaders() });
+    expect(last.status).toBe(200);
+    expect(await last.json()).toEqual(
+      expect.objectContaining({ total_count: 3, check_runs: [expect.objectContaining({ id: ids[1] })] }),
+    );
+    expect(last.headers.get("Link")).not.toContain('rel="next"');
   });
 
   it("lists check runs and suites for refs containing slashes", async () => {

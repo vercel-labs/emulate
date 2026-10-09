@@ -533,6 +533,8 @@ curl "http://localhost:4001/search/issues?q=repo:octocat/hello-world+is:open"
 
 ### Checks
 
+Check runs listed by ref support `per_page`, `page`, and pagination `Link` headers. Pagination is applied after the `check_name`, `status`, and `filter` queries.
+
 ```bash
 # Create check run
 curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
