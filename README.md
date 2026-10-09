@@ -998,6 +998,8 @@ Set `slack.signing_secret` in seed config to sign every outbound event subscript
 Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
 
 ### Auth & Chat
+Send the token as an `Authorization: Bearer` header, or, as Slack also accepts, as a `token` argument in the query string or a form-encoded body. A `token` field in a JSON body is ignored, as it is by Slack.
+
 - `POST /api/auth.test` - test authentication
 - `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history

@@ -389,7 +389,7 @@ export const slackPlugin: ServicePlugin = {
     webhooks.setHeaderFactory((context) => slackWebhookHeaders(store, context));
 
     app.use("*", async (c, next) => {
-      applySlackTokenAuth(c, store);
+      await applySlackTokenAuth(c, store);
       await next();
     });
 
@@ -411,6 +411,7 @@ export const slackPlugin: ServicePlugin = {
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
   },
+  requestToken: readSlackTokenArgument,
 };
 
 export default slackPlugin;
@@ -426,8 +427,8 @@ export function normalizeScopes(value: string[] | string | undefined, fallback: 
   return [...fallback];
 }
 
-function applySlackTokenAuth(c: Context, store: Store): void {
-  const token = slackRequestToken(c);
+async function applySlackTokenAuth(c: Context, store: Store): Promise<void> {
+  const token = await slackRequestToken(c);
   if (!token) return;
 
   const record = getSlackStore(store).tokens.findOneBy("token", token);
@@ -442,11 +443,23 @@ function applySlackTokenAuth(c: Context, store: Store): void {
   });
 }
 
-function slackRequestToken(c: Context): string | undefined {
+async function slackRequestToken(c: Context): Promise<string | undefined> {
   const authHeader = c.req.header("Authorization");
-  if (!authHeader) return undefined;
+  if (!authHeader) return readSlackTokenArgument(c);
   const token = authHeader.replace(/^(Bearer|token)\s+/i, "").trim();
   return token || undefined;
+}
+
+/**
+ * Slack also accepts the token as a `token` argument, in the query string or a
+ * form-encoded body, and some clients send it only that way (slack-go's form
+ * requests, for one). The body is read from a clone, so the method can still read it.
+ */
+export async function readSlackTokenArgument(c: Context): Promise<string | undefined> {
+  const fromQuery = c.req.query("token");
+  if (fromQuery) return fromQuery;
+  if (!(c.req.header("Content-Type") ?? "").includes("application/x-www-form-urlencoded")) return undefined;
+  return new URLSearchParams(await c.req.raw.clone().text()).get("token") ?? undefined;
 }
 
 function seedOAuthInstallation(
