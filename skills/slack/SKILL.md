@@ -42,7 +42,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 Requests without a token return `not_authed`. In relaxed scope mode, any non-empty unknown bearer token maps to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, `usergroups:read`, and `usergroups:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Pointing Your App at the Emulator
 
@@ -119,6 +119,12 @@ slack:
       is_private: true
   bots:
     - name: my-bot
+  usergroups:
+    - name: Design
+      handle: design
+      description: Product designers
+      users: [designer]
+      channels: [general]
   oauth_apps:
     - client_id: "12345.67890"
       client_secret: example_client_secret
@@ -452,6 +458,29 @@ curl -X POST http://localhost:4003/api/users.setPresence \
   -d '{"presence": "auto"}'
 ```
 
+### User groups
+
+User group handles must be unique among groups, members, and channels. Disabled groups are hidden from `usergroups.list` and `usergroups.users.list` unless `include_disabled` is set. Seeded groups name their members and default channels by name or ID, and an unknown name fails the seed.
+
+```bash
+# Create a group, then replace its members
+curl -X POST http://localhost:4003/api/usergroups.create \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "On-call", "handle": "oncall", "channels": "C000000001"}'
+
+curl -X POST http://localhost:4003/api/usergroups.users.update \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"usergroup": "S...", "users": "U000000001,U000000002"}'
+
+# List groups with their members and counts
+curl -X POST http://localhost:4003/api/usergroups.list \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"include_users": true, "include_count": true}'
+```
+
 ### Files
 
 ```bash
@@ -696,7 +725,7 @@ When `slack.signing_secret` is configured, every existing outbound event subscri
 
 ## Current Limits
 
-Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
 ## Common Patterns
 

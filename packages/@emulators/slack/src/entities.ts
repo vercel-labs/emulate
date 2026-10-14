@@ -334,3 +334,19 @@ export interface SlackViewTrigger extends Entity {
   used: boolean;
   view_id?: string;
 }
+
+export interface SlackUsergroup extends Entity {
+  usergroup_id: string;
+  team_id: string;
+  name: string;
+  handle: string;
+  description: string;
+  channels: string[];
+  users: string[];
+  date_create: number;
+  date_update: number;
+  date_delete: number;
+  created_by: string;
+  updated_by: string;
+  deleted_by: string | null;
+}
