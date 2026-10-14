@@ -236,6 +236,17 @@ export interface VercelApiKey extends Entity {
   tokenString: string;
 }
 
+export type VercelBlobAccess = "public" | "private";
+
+// A Blob store and the read-write token that authenticates it. Stores are
+// registered on the first valid read-write token that names them.
+export interface VercelBlobStore extends Entity {
+  storeId: string;
+  rwToken: string;
+  access: VercelBlobAccess;
+  createdAt: string;
+}
+
 export interface VercelBlob extends Entity {
   pathname: string;
   storeId: string;
