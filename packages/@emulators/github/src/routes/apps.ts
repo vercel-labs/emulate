@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import type { RouteContext, AuthApp } from "@emulators/core";
 import { forbidden, notFound, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { formatApp, formatRepo, generateNodeId } from "../helpers.js";
+import { formatApp, formatRepo } from "../helpers.js";
 import { assertAuthenticatedUser, installationCanAccessRepo, isOrgMember } from "../route-helpers.js";
 import type { GitHubAppInstallation, GitHubRepo, GitHubUser } from "../entities.js";
 

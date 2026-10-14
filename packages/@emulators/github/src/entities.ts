@@ -491,6 +491,16 @@ export interface GitHubCheckSuite extends Entity {
   app_id: number | null;
 }
 
+export interface GitHubCommitStatus extends Entity {
+  repo_id: number;
+  sha: string;
+  user_id: number;
+  state: "pending" | "success" | "failure" | "error";
+  context: string;
+  description: string | null;
+  target_url: string | null;
+}
+
 export interface GitHubOAuthApp extends Entity {
   client_id: string;
   client_secret: string;

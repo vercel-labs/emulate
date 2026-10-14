@@ -244,7 +244,7 @@ describe("GitHub reactions routes", () => {
       const comment = await request(`${targets.pull}/comments`, "POST", { body: "Pull request discussion" });
       expect(comment.status).toBe(201);
       const commentBody = (await comment.json()) as { id: number };
-      await expect.poll(() => context.webhooks.getDeliveries().length).toBe(1);
+      await expect.poll(() => payloads.length).toBe(1);
       expect(payloads).toHaveLength(1);
       expect(payloads[0]).toMatchObject({
         issue: {
@@ -255,7 +255,7 @@ describe("GitHub reactions routes", () => {
         comment: { html_url: `${base}/octocat/hello-world/pull/2#issuecomment-${commentBody.id}` },
       });
       await request(`${targets.issue}/comments`, "POST", { body: "Issue discussion" });
-      await expect.poll(() => context.webhooks.getDeliveries().length).toBe(2);
+      await expect.poll(() => payloads.length).toBe(2);
       expect(payloads[1].issue).not.toHaveProperty("pull_request");
       expect(payloads[1].issue).toMatchObject({ html_url: `${base}/octocat/hello-world/issues/1` });
     } finally {

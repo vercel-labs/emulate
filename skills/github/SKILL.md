@@ -584,6 +584,10 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
   -d '{"name": "CI", "head_sha": "abc123", "status": "completed", "conclusion": "success"}'
 
 # Check suites: create, get, rerequest, preferences, list by ref. Ref based lookups accept branch and tag refs containing slashes.
+# Commit statuses: POST /repos/:owner/:repo/statuses/:sha; GET /repos/:owner/:repo/commits/:ref/statuses.
+# Lists retain history in newest-first order with page/per_page and Link headers; writes emit signed status webhooks.
+# Combined-status summaries are not implemented.
+
 # Check runs: list for suite, annotations. Ref based lookups accept branch and tag refs containing slashes.
 # Automatic suite status rollup from check run results
 ```

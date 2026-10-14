@@ -1001,6 +1001,7 @@ Draft/ready transitions and public thread resolution changes emit the correspond
 - Secrets: repo + org CRUD
 
 ### Checks
+- Commit statuses: create and list by commit or ref, newest first, with pagination and signed `status` webhooks. Status history is retained; combined-status summaries are not implemented.
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite. Ref based lookups accept branch and tag refs containing slashes.
 - Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
