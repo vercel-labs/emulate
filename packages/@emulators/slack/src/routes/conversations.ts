@@ -168,6 +168,52 @@ export function conversationsRoutes(ctx: RouteContext): void {
     });
   });
 
+  // users.conversations: the conversations a user belongs to. Defaults to the
+  // calling user; private conversations of another user are listed only when
+  // the caller is also a member, since the caller could not see them otherwise.
+  app.post("/api/users.conversations", async (c) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return slackError(c, "not_authed");
+
+    const body = await parseSlackBody(c);
+    const limit = Math.min(Number(body.limit) || 100, 1000);
+    const cursor = typeof body.cursor === "string" ? body.cursor : "";
+    const excludeArchived = isTruthySlackBoolean(body.exclude_archived);
+    const types = parseConversationTypes(body.types);
+    const scopeError = requireSlackScopes(c, store, readScopesForConversationTypes(types));
+    if (scopeError) return scopeError;
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = getAuthUserId(authUser);
+
+    const requestedUser = typeof body.user === "string" ? body.user : "";
+    const targetUser = requestedUser
+      ? (ss().users.findOneBy("user_id", requestedUser) ?? ss().users.findOneBy("name", requestedUser))
+      : authSlackUser;
+    if (requestedUser && !targetUser) return slackError(c, "user_not_found");
+    const targetUserId = targetUser?.user_id ?? authUserId;
+
+    const memberChannels = ss()
+      .channels.all()
+      .filter((ch) => matchesConversationTypes(ch, types))
+      .filter((ch) => isChannelMember(ch, targetUser, targetUserId))
+      .filter((ch) => canReadConversation(ch, authSlackUser, authUserId))
+      .filter((ch) => !excludeArchived || !ch.is_archived);
+
+    let startIndex = 0;
+    if (cursor) {
+      const idx = memberChannels.findIndex((ch) => ch.channel_id === cursor);
+      if (idx >= 0) startIndex = idx;
+    }
+
+    const page = memberChannels.slice(startIndex, startIndex + limit);
+    const nextCursor = startIndex + limit < memberChannels.length ? memberChannels[startIndex + limit].channel_id : "";
+
+    return slackOk(c, {
+      channels: page.map((ch) => formatChannel(ch, authUserId, authSlackUser?.name)),
+      response_metadata: { next_cursor: nextCursor },
+    });
+  });
+
   // conversations.info
   app.post("/api/conversations.info", async (c) => {
     const authUser = c.get("authUser");

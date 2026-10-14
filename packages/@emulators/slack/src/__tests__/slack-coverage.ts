@@ -303,6 +303,32 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     notes: "Sets the authed user's manual away or automatic active presence and dispatches presence_change.",
   },
   {
+    family: "users",
+    method: "users.conversations",
+    route: "POST /api/users.conversations",
+    status: "partial",
+    testedBy: ["slack-search.test.ts"],
+    notes:
+      "Lists conversations the calling or requested user belongs to, with types, exclude_archived, and cursor pagination. Private conversations appear only when the caller is also a member.",
+  },
+  {
+    family: "search",
+    method: "search.messages",
+    route: "POST /api/search.messages",
+    status: "partial",
+    testedBy: ["slack-search.test.ts"],
+    notes:
+      "Matches every free-text term case-insensitively against message text and block text, with quoted phrases and in:, from:, before:, after:, and on: modifiers. Sorts by a term-count score or timestamp. Other modifiers are matched as plain text.",
+  },
+  {
+    family: "search",
+    method: "search.all",
+    route: "POST /api/search.all",
+    status: "partial",
+    testedBy: ["slack-search.test.ts"],
+    notes: "Returns the search.messages results; files are not searched and always return an empty result.",
+  },
+  {
     family: "reactions",
     method: "reactions.add",
     route: "POST /api/reactions.add",

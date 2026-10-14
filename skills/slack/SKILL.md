@@ -42,7 +42,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 Requests without a token return `not_authed`. In relaxed scope mode, any non-empty unknown bearer token maps to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `search:read`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 ## Pointing Your App at the Emulator
 
@@ -425,6 +425,12 @@ curl -X POST http://localhost:4003/api/users.lookupByEmail \
   -H "Content-Type: application/json" \
   -d '{"email": "dev@example.com"}'
 
+# List the conversations the authed user belongs to (or pass "user")
+curl -X POST http://localhost:4003/api/users.conversations \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"types": "public_channel,private_channel", "exclude_archived": true}'
+
 # Get a user profile
 curl -X GET 'http://localhost:4003/api/users.profile.get?user=U000000001' \
   -H "Authorization: Bearer $TOKEN"
@@ -450,6 +456,24 @@ curl -X POST http://localhost:4003/api/users.setPresence \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"presence": "auto"}'
+```
+
+### Search
+
+Search covers message text and block text in conversations the caller can read. Queries support quoted phrases and the `in:`, `from:`, `before:`, `after:`, and `on:` modifiers. `search.all` returns the same message results with an empty `files` result, since files are not searched.
+
+```bash
+# Search messages from one user in one channel, newest first
+curl -X POST http://localhost:4003/api/search.messages \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "\"deploy failed\" in:#general from:@developer", "sort": "timestamp", "count": 20}'
+
+# Search everything
+curl -X POST http://localhost:4003/api/search.all \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "refund after:2026-01-01"}'
 ```
 
 ### Files
