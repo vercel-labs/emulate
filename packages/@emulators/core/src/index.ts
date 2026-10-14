@@ -49,6 +49,7 @@ export {
 } from "./middleware/error-handler.js";
 export {
   authMiddleware,
+  type RequestTokenReader,
   requireAuth,
   requireAppAuth,
   serializeTokenMap,

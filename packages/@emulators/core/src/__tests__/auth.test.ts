@@ -51,6 +51,47 @@ describe("authMiddleware", () => {
     expect(tokenMap.has("unknown-secret")).toBe(false);
   });
 
+  it("reads a token from the request when there is no Authorization header", async () => {
+    tokenMap.set("query-token", { login: "testuser", id: 1, scopes: ["repo"] });
+    const fallbackUser = { login: "fallback", id: 99, scopes: [] };
+
+    const app = new Hono<AppEnv>();
+    app.use(
+      "*",
+      authMiddleware(tokenMap, undefined, fallbackUser, (c) => c.req.query("token")),
+    );
+    app.get("/test", (c) => c.json({ user: c.get("authUser") ?? null, token: c.get("authToken") ?? null }));
+
+    const known = (await (await app.request("/test?token=query-token")).json()) as any;
+    expect(known).toEqual({ user: { login: "testuser", id: 1, scopes: ["repo"] }, token: "query-token" });
+
+    // The same fallback applies as for a header token.
+    const unknown = (await (await app.request("/test?token=other")).json()) as any;
+    expect(unknown.user).toEqual(fallbackUser);
+
+    expect(((await (await app.request("/test")).json()) as any).user).toBeNull();
+  });
+
+  it("prefers the Authorization header over a token read from the request", async () => {
+    tokenMap.set("header-token", { login: "header", id: 1, scopes: [] });
+    tokenMap.set("query-token", { login: "query", id: 2, scopes: [] });
+    let reads = 0;
+
+    const app = new Hono<AppEnv>();
+    app.use(
+      "*",
+      authMiddleware(tokenMap, undefined, undefined, (c) => {
+        reads++;
+        return c.req.query("token");
+      }),
+    );
+    app.get("/test", (c) => c.json({ user: c.get("authUser") }));
+
+    const res = await app.request("/test?token=query-token", { headers: { Authorization: "Bearer header-token" } });
+    expect(((await res.json()) as any).user.login).toBe("header");
+    expect(reads).toBe(0);
+  });
+
   it("does not set authUser when there is no Authorization header", async () => {
     tokenMap.set("test-token", { login: "testuser", id: 1, scopes: ["repo"] });
 

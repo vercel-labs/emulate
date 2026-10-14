@@ -46,7 +46,7 @@ export function createSlackTestApp(baseUrl = slackTestBaseUrl): SlackTestApp {
   const app = new Hono<AppEnv>() as Hono<AppEnv> & SlackTestHttpApp;
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
-  app.use("*", (authMiddleware as (tokens: TokenMap) => ReturnType<typeof authMiddleware>)(tokenMap));
+  app.use("*", authMiddleware(tokenMap, undefined, undefined, slackPlugin.requestToken));
   slackPlugin.register!(app, store, webhooks, baseUrl, tokenMap);
   slackPlugin.seed?.(store, baseUrl);
 
@@ -78,7 +78,7 @@ export async function startSlackTestEmulator(
   const app = new Hono<AppEnv>() as Hono<AppEnv> & SlackTestHttpApp;
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
-  app.use("*", (authMiddleware as (tokens: TokenMap) => ReturnType<typeof authMiddleware>)(tokenMap));
+  app.use("*", authMiddleware(tokenMap, undefined, undefined, slackPlugin.requestToken));
 
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }) as unknown as Server;
   await new Promise<void>((resolve, reject) => {

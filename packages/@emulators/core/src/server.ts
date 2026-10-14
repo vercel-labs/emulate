@@ -47,7 +47,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   app.onError(createApiErrorHandler(docsUrl));
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
-  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
+  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser, plugin.requestToken));
 
   const rateLimitCounters = new Map<string, { remaining: number; resetAt: number }>();
   let lastPruneAt = Math.floor(Date.now() / 1000);

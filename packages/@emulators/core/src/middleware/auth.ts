@@ -78,12 +78,24 @@ export interface AuthFallback {
   scopes: string[];
 }
 
-export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver, fallbackUser?: AuthFallback) {
+/**
+ * Reads a token from somewhere other than the Authorization header, for APIs that
+ * also accept one as a request argument. Consulted only when the header is absent.
+ */
+export type RequestTokenReader = (c: Context) => string | undefined | Promise<string | undefined>;
+
+export function authMiddleware(
+  tokens: TokenMap,
+  appKeyResolver?: AppKeyResolver,
+  fallbackUser?: AuthFallback,
+  readRequestToken?: RequestTokenReader,
+) {
   return async (c: Context, next: Next) => {
     const authHeader = c.req.header("Authorization");
-    if (authHeader) {
-      const token = authHeader.replace(/^(Bearer|token)\s+/i, "").trim();
-
+    const token = authHeader
+      ? authHeader.replace(/^(Bearer|token)\s+/i, "").trim()
+      : ((await readRequestToken?.(c))?.trim() ?? "");
+    if (token) {
       if (token.startsWith("eyJ") && appKeyResolver) {
         try {
           const [, payloadB64] = token.split(".");
