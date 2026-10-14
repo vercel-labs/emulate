@@ -1,5 +1,5 @@
-import type { RouteContext } from "@emulators/core";
-import { getResendStore } from "../store.js";
+import type { RouteContext, Store } from "@emulators/core";
+import { ALLOWLIST_DATA_KEY, getResendStore } from "../store.js";
 import { generateUuid, resendError, resendList, parseResendBody } from "../helpers.js";
 import type { ResendEmail } from "../entities.js";
 
@@ -61,10 +61,16 @@ export function emailRoutes(ctx: RouteContext): void {
 
     const normalizedEmails = emails.map(normalizeEmailInput);
     const fingerprint = requestFingerprint(normalizedEmails);
-    if (idempotencyKey !== undefined) {
-      const replay = findIdempotencyReplay(c, rs(), idempotencyKey, "emails/batch", fingerprint);
-      if (replay) return replay;
-    }
+    const replay =
+      idempotencyKey !== undefined
+        ? findIdempotencyReplay(c, rs(), idempotencyKey, "emails/batch", fingerprint)
+        : undefined;
+    if (replay?.status === 200) return replay;
+
+    for (const input of normalizedEmails) recordSendAttempt(rs(), input, idempotencyKey);
+    if (replay) return replay;
+    const denied = rejectAllowlist(c, store, normalizedEmails);
+    if (denied) return denied;
 
     if (idempotencyKey === undefined) {
       const results: Array<{ id: string }> = [];
@@ -115,10 +121,14 @@ export function emailRoutes(ctx: RouteContext): void {
 
     const normalizedInput = normalizeEmailInput(body);
     const fingerprint = requestFingerprint(normalizedInput);
-    if (idempotencyKey !== undefined) {
-      const replay = findIdempotencyReplay(c, rs(), idempotencyKey, "emails", fingerprint);
-      if (replay) return replay;
-    }
+    const replay =
+      idempotencyKey !== undefined ? findIdempotencyReplay(c, rs(), idempotencyKey, "emails", fingerprint) : undefined;
+    if (replay?.status === 200) return replay;
+
+    recordSendAttempt(rs(), normalizedInput, idempotencyKey);
+    if (replay) return replay;
+    const denied = rejectAllowlist(c, store, [normalizedInput]);
+    if (denied) return denied;
 
     const prepared = prepareEmail(normalizedInput);
     insertPreparedEmail(rs().emails, prepared);
@@ -161,6 +171,44 @@ export function emailRoutes(ctx: RouteContext): void {
 
     return c.json({ id: email.uuid, object: "email", canceled: true });
   });
+}
+
+function recordSendAttempt(
+  resendStore: ReturnType<typeof getResendStore>,
+  input: NormalizedEmailInput,
+  idempotencyKey: string | undefined,
+): void {
+  resendStore.sendAttempts.insert({
+    to: input.to,
+    from: input.from,
+    subject: input.subject,
+    idempotency_key: idempotencyKey ?? null,
+  });
+}
+
+function rejectAllowlist(
+  c: Parameters<typeof resendError>[0],
+  store: Store,
+  inputs: NormalizedEmailInput[],
+): Response | undefined {
+  const allowlist = store.getData<string[]>(ALLOWLIST_DATA_KEY);
+  if (!allowlist) return undefined;
+
+  const rejected = [
+    ...new Set(
+      inputs
+        .flatMap((input) => [...input.to, ...input.cc, ...input.bcc])
+        .filter((address) => !allowlist.includes(address)),
+    ),
+  ];
+  if (!rejected.length) return undefined;
+
+  return resendError(
+    c,
+    403,
+    "validation_error",
+    `${rejected.join(", ")} is not in the allowlist: ${allowlist.join(", ")}.`,
+  );
 }
 
 function isValidIdempotencyKey(key: string): boolean {

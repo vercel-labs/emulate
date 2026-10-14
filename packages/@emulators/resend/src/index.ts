@@ -1,6 +1,6 @@
 import type { Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
-import { getResendStore } from "./store.js";
+import { ALLOWLIST_DATA_KEY, getResendStore } from "./store.js";
 import { generateUuid } from "./helpers.js";
 import { emailRoutes } from "./routes/emails.js";
 import { domainRoutes } from "./routes/domains.js";
@@ -23,10 +23,13 @@ export interface ResendSeedConfig {
     last_name?: string;
     audience?: string;
   }>;
+  allowlist?: string[];
 }
 
 export function seedFromConfig(store: Store, _baseUrl: string, config: ResendSeedConfig): void {
   const rs = getResendStore(store);
+
+  if (config.allowlist !== undefined) store.setData(ALLOWLIST_DATA_KEY, config.allowlist);
 
   if (config.domains) {
     for (const d of config.domains) {
