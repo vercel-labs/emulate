@@ -21,6 +21,7 @@ import type {
 import {
   formatPullRequest,
   formatRepo,
+  formatTeamBrief,
   formatUser,
   generateNodeId,
   generateSha,
@@ -806,6 +807,16 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     );
   });
 
+  app.get("/repos/:owner/:repo/pulls/:pull_number/requested_reviewers", (c) => {
+    const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
+    if (!repo) throw notFoundResponse();
+    assertRepoPermission(gh, c.get("authUser"), repo, "pull_requests");
+    const pr = findPull(gh, repo.id, Number(c.req.param("pull_number")));
+    if (!pr) throw notFoundResponse();
+    const formatted = formatPullRequest(pr, gh, baseUrl)!;
+    return c.json({ users: formatted.requested_reviewers, teams: formatted.requested_teams });
+  });
+
   app.post("/repos/:owner/:repo/pulls/:pull_number/requested_reviewers", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
@@ -832,6 +843,8 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       : [];
 
     const newUserIds = reviewerLogins.map((login) => lookupUserByLogin(gh, login).id);
+    if (newUserIds.includes(pr.user_id))
+      throw new ApiError(422, "Pull request authors cannot be requested to review their own pull request.");
     let newTeamIds: number[] = [];
     if (teamSlugs.length > 0) {
       if (repo.owner_type !== "Organization") {
@@ -870,7 +883,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -900,7 +913,35 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
     gh.pullRequests.update(pr.id, { requested_reviewer_ids, requested_team_ids });
     const fresh = gh.pullRequests.get(pr.id)!;
-    return c.json(formatPullRequest(fresh, gh, baseUrl)!);
+    const prFmt = formatPullRequest(fresh, gh, baseUrl)!;
+    const removed = [
+      ...pr.requested_reviewer_ids
+        .filter((id) => removeUserIds.has(id))
+        .map((id) => ({
+          requested_reviewer: formatUser(gh.users.get(id)!, baseUrl),
+        })),
+      ...pr.requested_team_ids
+        .filter((id) => removeTeamIds.has(id))
+        .map((id) => ({
+          requested_team: formatTeamBrief(gh.teams.get(id)!, gh, baseUrl),
+        })),
+    ];
+    for (const requested of removed) {
+      webhooks.dispatch(
+        "pull_request",
+        "review_request_removed",
+        {
+          action: "review_request_removed",
+          ...requested,
+          pull_request: prFmt,
+          repository: formatRepo(repo, gh, baseUrl),
+          sender: formatUser(actor, baseUrl),
+        },
+        ownerLoginOf(gh, repo),
+        repo.name,
+      );
+    }
+    return c.json(prFmt);
   });
 
   app.put("/repos/:owner/:repo/pulls/:pull_number/update-branch", async (c) => {

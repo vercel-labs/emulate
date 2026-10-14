@@ -92,6 +92,12 @@ function dispatchReviewWebhook(
   baseUrl: string,
   action: "submitted" | "dismissed" | "edited",
 ) {
+  if (action === "submitted") {
+    pr =
+      gh.pullRequests.update(pr.id, {
+        requested_reviewer_ids: pr.requested_reviewer_ids.filter((id) => id !== actor.id),
+      }) ?? pr;
+  }
   const ownerLogin = ownerLoginOf(gh, repo);
   const reviewFmt = formatReview(review, gh, baseUrl);
   if (!reviewFmt) return;

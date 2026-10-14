@@ -90,6 +90,7 @@ Organization `members` are optional. Each entry references a seeded user by `log
 - `GET /user` - authenticated user
 - `PATCH /user` - update profile
 - `GET /users/:username` - get user
+- `GET /user/:account_id` - resolve the current user profile by durable ID
 - `GET /users` - list users
 - `GET /users/:username/repos` - list user repos
 - `GET /users/:username/orgs` - list user orgs
@@ -145,10 +146,12 @@ Organization `members` are optional. Each entry references a seeded user by `log
 - `PUT /repos/:owner/:repo/pulls/:number/merge` - merge (with branch protection enforcement)
 - `GET /repos/:owner/:repo/pulls/:number/commits` - list commits
 - `GET /repos/:owner/:repo/pulls/:number/files` - list files
-- `POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` - manage reviewers
+- `GET/POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` - list or manage user and team reviewers; removals emit `pull_request.review_request_removed`
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` - update branch
 
 Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
+
+Pull request authors cannot be requested to review their own pull request. Submitting a review removes the author from the outstanding requested users; pending reviews retain the request. Team requests remain until explicitly removed.
 
 ## Comments
 
