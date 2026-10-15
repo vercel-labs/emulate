@@ -106,7 +106,9 @@ describe("custom configuration and scaffold", () => {
     const dir = await project();
     scaffoldCommand("inventory", undefined, dir);
     const blocker = createServer();
-    await new Promise<void>((done) => blocker.listen(0, done));
+    // Emulators bind to loopback, so the blocker must too: macOS lets a
+    // loopback listener share a port held on the wildcard address.
+    await new Promise<void>((done) => blocker.listen(0, "127.0.0.1", done));
     const port = (blocker.address() as { port: number }).port;
     const snapshot = JSON.stringify({
       formatVersion: 1,
