@@ -159,3 +159,5 @@ export const stripePlugin: ServicePlugin = {
 };
 
 export default stripePlugin;
+
+export { hosts } from "./hosts.js";

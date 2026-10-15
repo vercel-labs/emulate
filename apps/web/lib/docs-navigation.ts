@@ -18,6 +18,7 @@ export const docsSections: NavSection[] = [
       { name: "Configuration", href: "/docs/configuration" },
       { name: "Next.js Integration", href: "/docs/nextjs" },
       { name: "Nuxt Integration", href: "/docs/nuxt" },
+      { name: "Mock Service Worker", href: "/docs/msw" },
     ],
   },
   {

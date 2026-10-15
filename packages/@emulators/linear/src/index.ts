@@ -747,3 +747,5 @@ function ensureAppUser(store: Store, appName: string) {
     app: true,
   });
 }
+
+export { hosts } from "./hosts.js";

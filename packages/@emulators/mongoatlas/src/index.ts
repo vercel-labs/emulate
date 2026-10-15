@@ -210,3 +210,5 @@ export const mongoatlasPlugin: ServicePlugin = {
 };
 
 export default mongoatlasPlugin;
+
+export { hosts } from "./hosts.js";

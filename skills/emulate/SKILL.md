@@ -113,6 +113,7 @@ For GitHub App tests, inspect secret-free minted installation-token metadata at 
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `listen` | `true` | Set to `false` to run in process without opening a port. See [In-process emulators](#in-process-emulators). |
 
 Use `hostname: '0.0.0.0'` to allow connections from containers or other machines, and `baseUrl` to advertise a URL reachable by those clients.
 
@@ -123,6 +124,34 @@ Use `hostname: '0.0.0.0'` to allow connections from containers or other machines
 | `url` | Base URL of the running server |
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
+
+### In-process emulators
+
+Pass `listen: false` to run a built-in service in the current process without opening a port. The instance handles standard `Request` objects directly, which suits request interceptors, workers, and sandboxes that cannot bind ports.
+
+```typescript
+import { createEmulator } from 'emulate'
+
+const github = await createEmulator({ service: 'github', listen: false, baseUrl: 'https://api.github.com' })
+
+await github.request('/user', { headers: { Authorization: 'token test_token_admin' } })
+await github.fetch(new Request('https://api.github.com/user', { headers: { Authorization: 'token test_token_admin' } }))
+
+await github.close()
+```
+
+Only the path and query string select a route. `baseUrl` defaults to `http://<service>.localhost` and appears in generated links, redirects, and issued URLs. In-process instances also expose `request(path, init)` and `hosts`, the real provider hosts the service emulates. After `close()`, requests return `503`.
+
+Use `getServiceHosts` and `toEmulatorPath` to translate a real provider URL into the emulator path that serves it:
+
+```typescript
+import { getServiceHosts, toEmulatorPath } from 'emulate'
+
+const hosts = await getServiceHosts('twilio')
+toEmulatorPath(hosts, 'https://verify.twilio.com/v2/Services') // '/verify/v2/Services'
+```
+
+For Mock Service Worker handlers built on in-process emulators, see the `msw` skill.
 
 ## Vitest / Jest Setup
 
