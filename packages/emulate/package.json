@@ -33,6 +33,7 @@
     "google",
     "oauth",
     "testing",
+    "jira",
     "ci",
     "local-development"
   ],
@@ -74,6 +75,7 @@
     "@emulators/clerk": "workspace:*",
     "@emulators/linear": "workspace:*",
     "@emulators/twilio": "workspace:*",
+    "@emulators/jira": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

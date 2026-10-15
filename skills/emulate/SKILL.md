@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, AWS, Clerk, Linear, Twilio, and other developer APIs. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, AWS, Clerk, Linear, Twilio, Jira, and other developer APIs. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
 allowed-tools: Bash(npx emulate:*)
 ---
 
@@ -32,6 +32,7 @@ All services listen on IPv4 loopback (`127.0.0.1`) by default:
 | Clerk     | 4011        |
 | Linear    | 4012        |
 | Twilio    | 4013        |
+| Jira      | 4014        |
 
 ## CLI
 
@@ -108,7 +109,7 @@ For GitHub App tests, inspect secret-free minted installation-token metadata at 
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'jira'` |
 | `port` | `4000` | Port for the HTTP server |
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
@@ -426,6 +427,22 @@ twilio:
   conversations:
     services:
       - friendly_name: Local Conversations
+
+jira:
+  users:
+    - email: admin@example.com
+      display_name: Admin User
+      admin: true
+      api_token: jira_test_token
+  projects:
+    - key: ENG
+      name: Engineering
+      statuses: [To Do, In Progress, In Review, Done]
+  issues:
+    - project: ENG
+      summary: Fix local checkout test
+      type: Bug
+      status: To Do
 ```
 
 `slack.signing_secret` signs every outbound event subscription callback. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`, calculated as `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>` over the exact serialized callback body. Configure the receiver with the same secret and verify the unparsed request body. Callbacks are unsigned when the secret is absent or empty.
@@ -493,6 +510,7 @@ APPLE_EMULATOR_URL=http://localhost:4004
 MICROSOFT_EMULATOR_URL=http://localhost:4005
 AWS_EMULATOR_URL=http://localhost:4007
 LINEAR_EMULATOR_URL=http://localhost:4012
+JIRA_EMULATOR_URL=http://localhost:4014
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
@@ -544,6 +562,7 @@ packages/
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
     linear/          # Linear GraphQL API, OAuth, webhooks plugin
     twilio/          # Twilio Messaging, Verify, Voice, webhooks plugin
+    jira/            # Jira Cloud REST v2/v3, JQL, Agile, webhooks, OAuth 2.0 plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
     aws/             # AWS S3, SQS, IAM, STS plugin

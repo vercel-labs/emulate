@@ -120,6 +120,12 @@ Configuration:
 Twilio API coverage:
   Accounts, API keys, phone numbers, Messaging, Verify, Voice, Conversations, webhooks, simulators, and inspector.
 
+Jira API coverage:
+  Jira Cloud REST API v3 and v2, JQL search (/search/jql with nextPageToken), issues, transitions, comments,
+  worklogs, links, projects, users, Agile boards and sprints, webhooks, and OAuth 2.0 (3LO).
+  Authenticate with Basic auth email:api_token (default admin@jira.local:jira_test_token).
+  OAuth clients call the API through /ex/jira/{cloudId}; inspect state at GET /.
+
 Slack interactivity:
   Configure slack.oauth_apps[].interactivity_url and slack.signing_secret for signed button and modal callbacks.
   POST /_slack/simulate/block-actions clicks a stored button; POST /_slack/simulate/view-submission submits a modal.
