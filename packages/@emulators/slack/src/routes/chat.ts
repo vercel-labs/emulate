@@ -1,6 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackMessage, SlackUser } from "../entities.js";
-import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -17,6 +17,7 @@ import {
   requireSlackScopes,
   setSlackConversationOpenState,
   slackError,
+  slackBotMessageFields,
   slackMessageTextResponseMetadata,
   slackOk,
 } from "../helpers.js";
@@ -29,6 +30,15 @@ export function chatRoutes(ctx: RouteContext): void {
     ss()
       .channels.all()
       .find((ch) => !ch.is_im && !ch.is_mpim && ch.name === channel);
+  const messageAppId = (c: Context) => {
+    const token = c.get("authToken");
+    const record = token ? ss().tokens.findOneBy("token", token) : undefined;
+    return (
+      record?.app_id ??
+      (record?.client_id ? ss().oauthApps.findOneBy("client_id", record.client_id)?.app_id : undefined) ??
+      (ss().oauthApps.all().length === 1 ? ss().oauthApps.all()[0]?.app_id : undefined)
+    );
+  };
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
@@ -58,12 +68,36 @@ export function chatRoutes(ctx: RouteContext): void {
     event: Record<string, unknown>,
     teamId?: string,
   ) => {
-    await webhooks.dispatch(
-      type,
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, teamId), { type, ...event }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, teamId), { type, ...event });
+  };
+  const dispatchAppMentions = async (c: Context, channel: SlackChannel, message: SlackMessage) => {
+    if (channel.is_im || channel.is_mpim) return;
+
+    const mentionedUsers = new Set([...message.text.matchAll(/<@([^<>\s|]+)(?:\|[^<>]*)?>/g)].map((match) => match[1]));
+    if (mentionedUsers.size === 0) return;
+
+    const teamId = resolveSlackEventTeamId(c, store, channel.team_id);
+    for (const installation of ss().installations.findBy("team_id", teamId)) {
+      if (!mentionedUsers.has(installation.bot_user_id)) continue;
+      const botUser = ss().users.findOneBy("user_id", installation.bot_user_id);
+      const bot = ss().bots.findOneBy("bot_id", installation.bot_id);
+      if (!botUser || !botUser.is_bot || botUser.deleted || !bot || bot.deleted || !isChannelMember(channel, botUser)) {
+        continue;
+      }
+
+      await dispatchSlackEvent(
+        store,
+        webhooks,
+        teamId,
+        {
+          ...formatSlackMessage(message),
+          type: "app_mention",
+          channel: channel.channel_id,
+          event_ts: message.ts,
+        },
+        installation,
+      );
+    }
   };
   const findOrCreateDirectMessage = async (c: Context, authUser: { login: string }, userId: string) => {
     const targetUser = ss().users.findOneBy("user_id", userId);
@@ -145,14 +179,25 @@ export function chatRoutes(ctx: RouteContext): void {
     const authUserId = getAuthUserId(authUser);
 
     const ts = generateTs();
+    const token = c.get("authToken");
+    const authToken = token ? ss().tokens.findOneBy("token", token) : undefined;
+    const bot =
+      authToken?.token_type === "bot"
+        ? ss()
+            .bots.all()
+            .find((bot) => bot.bot_id === authToken.bot_id || bot.user_id === authUserId)
+        : undefined;
+    const botId = authToken?.token_type === "bot" ? (authToken.bot_id ?? bot?.bot_id) : undefined;
     const msg = ss().messages.insert({
       ts,
+      interaction_app_id: messageAppId(c),
       channel_id: ch.channel_id,
       user: authUserId,
       text: normalizedText.text,
       type: "message" as const,
       thread_ts,
       ...richMessage.fields,
+      ...(botId ? slackBotMessageFields(store, botId, ch.team_id, authToken?.app_id) : {}),
       reply_count: 0,
       reply_users: [],
       reactions: [],
@@ -174,16 +219,12 @@ export function chatRoutes(ctx: RouteContext): void {
       }
     }
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch.team_id), {
-        ...formatSlackMessage(msg),
-        type: "message",
-        channel: ch.channel_id,
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch.team_id), {
+      ...formatSlackMessage(msg),
+      type: "message",
+      channel: ch.channel_id,
+    });
+    await dispatchAppMentions(c, ch, msg);
 
     return slackOk(c, {
       channel: ch.channel_id,
@@ -226,6 +267,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const ts = generateTs();
     ss().ephemeralMessages.insert({
       ts,
+      interaction_app_id: messageAppId(c),
       channel_id: ch.channel_id,
       user: authUserId,
       target_user: targetUser.user_id,
@@ -278,6 +320,10 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!hasText && Object.keys(updates).length === 0) {
       return slackError(c, "no_text");
     }
+    if (msg.bot_id) {
+      updates.bot_id = msg.bot_id;
+      updates.app_id = msg.app_id;
+    }
 
     const authUserId = getAuthUserId(authUser);
     const eventTs = generateTs();
@@ -286,21 +332,16 @@ export function chatRoutes(ctx: RouteContext): void {
       edited: { user: authUserId, ts: eventTs },
     })!;
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
-        type: "message",
-        subtype: "message_changed",
-        hidden: true,
-        channel,
-        ts: eventTs,
-        event_ts: eventTs,
-        message: formatSlackMessage(updated),
-        previous_message: formatSlackMessage(msg),
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch?.team_id), {
+      type: "message",
+      subtype: "message_changed",
+      hidden: true,
+      channel,
+      ts: eventTs,
+      event_ts: eventTs,
+      message: formatSlackMessage(updated),
+      previous_message: formatSlackMessage(msg),
+    });
 
     return slackOk(c, {
       channel,
@@ -337,21 +378,16 @@ export function chatRoutes(ctx: RouteContext): void {
     deletePinsForMessage(channel, ts);
 
     const eventTs = generateTs();
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
-        type: "message",
-        subtype: "message_deleted",
-        hidden: true,
-        channel,
-        ts: eventTs,
-        event_ts: eventTs,
-        deleted_ts: ts,
-        previous_message: formatSlackMessage(msg),
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch?.team_id), {
+      type: "message",
+      subtype: "message_deleted",
+      hidden: true,
+      channel,
+      ts: eventTs,
+      event_ts: eventTs,
+      deleted_ts: ts,
+      previous_message: formatSlackMessage(msg),
+    });
 
     return slackOk(c, { channel, ts });
   });

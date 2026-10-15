@@ -321,6 +321,126 @@ describe("WebhookDispatcher", () => {
     });
   });
 
+  describe("redeliver", () => {
+    const mockFetch = vi.fn();
+
+    beforeEach(() => {
+      mockFetch.mockReset().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", mockFetch);
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    function setup() {
+      const dispatcher = new WebhookDispatcher();
+      const subscription = dispatcher.register({
+        url: "https://hooks.example/original",
+        events: ["issues"],
+        active: true,
+        owner: "acme",
+        secret: "secret",
+      });
+      return { dispatcher, subscription };
+    }
+
+    it("replays the recorded payload only to its subscription and signs a new delivery", async () => {
+      const { dispatcher, subscription } = setup();
+      const payload = { action: "opened", issue: { title: "Original" } };
+      await dispatcher.dispatch("issues", "opened", payload, "acme");
+      payload.issue.title = "Changed after dispatch";
+      dispatcher.register({ url: "https://hooks.example/new", events: ["*"], active: true, owner: "acme" });
+      dispatcher.updateSubscription(subscription.id, { events: [] });
+
+      const retry = await dispatcher.redeliver(1, { headers: { "X-Retry": "1" } });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [url, request] = mockFetch.mock.calls[1]!;
+      expect(url).toBe(subscription.url);
+      expect(request.body).toBe(mockFetch.mock.calls[0]![1].body);
+      expect(request.headers).toMatchObject({
+        "X-GitHub-Event": "issues",
+        "X-GitHub-Delivery": "2",
+        "X-Retry": "1",
+        "X-Hub-Signature-256": `sha256=${createHmac("sha256", "secret").update(request.body).digest("hex")}`,
+      });
+      expect(retry).toMatchObject({
+        id: 2,
+        hook_id: subscription.id,
+        event: "issues",
+        action: "opened",
+        redelivery_of: 1,
+        redelivery_count: 1,
+        success: true,
+      });
+      expect(dispatcher.getDeliveries()[0]).not.toHaveProperty("redelivery_of");
+    });
+
+    it("runs the current custom header factory for each retry", async () => {
+      const { dispatcher } = setup();
+      const factory = vi.fn(({ deliveryId }) => ({
+        "Content-Type": "application/json",
+        "X-Attempt": String(deliveryId),
+      }));
+      dispatcher.setHeaderFactory(factory);
+      await dispatcher.dispatch("issues", "opened", {}, "acme");
+      await dispatcher.redeliver(1);
+      await dispatcher.redeliver(2);
+      expect(factory).toHaveBeenCalledTimes(3);
+      expect(mockFetch.mock.calls[2]![1].headers["X-Attempt"]).toBe("3");
+      expect(dispatcher.getDeliveries()[2]).toMatchObject({ redelivery_of: 2, redelivery_count: 2 });
+    });
+
+    it("does not send for unknown deliveries or inactive or deleted subscriptions", async () => {
+      const { dispatcher, subscription } = setup();
+      expect(await dispatcher.redeliver(999)).toBeUndefined();
+      await dispatcher.dispatch("issues", undefined, {}, "acme");
+      dispatcher.updateSubscription(subscription.id, { active: false });
+      expect(await dispatcher.redeliver(1)).toBeUndefined();
+      dispatcher.unregister(subscription.id);
+      expect(await dispatcher.redeliver(1)).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(dispatcher.getDeliveries()).toHaveLength(1);
+    });
+
+    it("records HTTP and transport failures without changing the original", async () => {
+      const { dispatcher } = setup();
+      await dispatcher.dispatch("issues", undefined, {}, "acme");
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+      expect(await dispatcher.redeliver(1)).toMatchObject({ id: 2, success: false, status_code: 503 });
+      mockFetch.mockRejectedValueOnce(new Error("offline"));
+      expect(await dispatcher.redeliver(2)).toMatchObject({
+        id: 3,
+        success: false,
+        status_code: null,
+        redelivery_count: 2,
+      });
+      expect(dispatcher.getDeliveries()[0]).toMatchObject({ success: true, status_code: 200 });
+    });
+
+    it("exposes a reserved attempt while delivery is still pending", async () => {
+      const { dispatcher } = setup();
+      await dispatcher.dispatch("issues", undefined, {}, "acme");
+      let finish!: (value: { ok: boolean; status: number }) => void;
+      mockFetch.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = dispatcher.redeliver(1);
+      expect(dispatcher.getDeliveries()[1]).toMatchObject({ id: 2, redelivery_count: 1, status_code: null });
+      finish({ ok: true, status: 200 });
+      expect(await pending).toMatchObject({ id: 2, success: true });
+    });
+
+    it("bounds retry history without resetting the retry count", async () => {
+      const { dispatcher } = setup();
+      await dispatcher.dispatch("issues", undefined, {}, "acme");
+      for (let id = 1; id <= 1001; id++) await dispatcher.redeliver(id);
+      expect(dispatcher.getDeliveries()).toHaveLength(1000);
+      expect(dispatcher.getDeliveries().at(-1)).toMatchObject({ id: 1002, redelivery_count: 1001 });
+      expect(await dispatcher.redeliver(1)).toBeUndefined();
+    });
+  });
+
   describe("getDeliveries", () => {
     it("returns all deliveries or filters by hook id", async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });

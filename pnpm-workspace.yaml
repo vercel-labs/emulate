@@ -1,4 +1,6 @@
 minimumReleaseAge: 2880
+minimumReleaseAgeExclude:
+  - "@vercel/blob@2.8.1"
 
 allowBuilds:
   "@mongodb-js/zstd@7.0.0": false

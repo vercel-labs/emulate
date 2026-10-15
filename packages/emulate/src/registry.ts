@@ -395,7 +395,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   aws: {
     label: "AWS cloud service emulator",
     endpoints:
-      "S3 (buckets, objects), SQS (queues, messages), IAM (users, roles, access keys), STS (assume role, caller identity)",
+      "S3 (buckets, objects), SQS (queues, messages), Cognito (User Pools, OAuth, JWTs, Identity Pools), IAM (users, roles, access keys), STS (assume role, caller identity)",
     async load() {
       const mod = await import("@emulators/aws");
       return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
@@ -417,7 +417,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   resend: {
     label: "Resend email API emulator",
-    endpoints: "emails with 24-hour Idempotency-Key replay, domains, contacts, API keys, inbox UI",
+    endpoints: "emails with idempotency, recipient restrictions, send attempts, domains, contacts, API keys, inbox UI",
     async load() {
       const mod = await import("@emulators/resend");
       return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };

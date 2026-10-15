@@ -17,7 +17,16 @@ function captureFetchRequests(teamId = "T000000001") {
     jsonBodies: () => {
       const bodies = capture.jsonBodies();
       for (const body of bodies) {
-        expect(body).toMatchObject({ type: "event_callback", team_id: teamId, event: expect.any(Object) });
+        expect(body).toMatchObject({
+          type: "event_callback",
+          team_id: teamId,
+          token: expect.any(String),
+          api_app_id: expect.any(String),
+          authorizations: [
+            expect.objectContaining({ team_id: teamId, user_id: expect.any(String), is_bot: expect.any(Boolean) }),
+          ],
+          event: expect.objectContaining({ event_ts: expect.stringMatching(/^\d+\.\d+$/) }),
+        });
         const envelope = body as { event_id: string; event_time: number };
         expect(envelope.event_id).toMatch(/^Ev[0-9a-f]{32}$/);
         expect(Number.isInteger(envelope.event_time)).toBe(true);

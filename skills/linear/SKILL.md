@@ -10,6 +10,8 @@ Stateful Linear GraphQL API emulation with organizations, users, teams, workflow
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # Linear only
 npx emulate --service linear

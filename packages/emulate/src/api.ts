@@ -31,6 +31,8 @@ export interface SeedConfig {
 export interface EmulatorOptions {
   service: ServiceName;
   port?: number;
+  /** Listening address. Defaults to IPv4 loopback (127.0.0.1). */
+  hostname?: string;
   seed?: SeedConfig;
   baseUrl?: string;
 }
@@ -53,6 +55,8 @@ export interface Emulator {
 export interface CustomEmulatorOptions<State extends object> extends CustomRuntimeOptions<NoInfer<State>> {
   service: EmulatorDefinition<State>;
   port?: number;
+  /** Listening address. Defaults to IPv4 loopback (127.0.0.1). */
+  hostname?: string;
   listen?: boolean;
 }
 
@@ -78,6 +82,7 @@ export async function createEmulator(
   const server = serve({
     fetch: (request) => (runtime ? runtime.fetch(request) : Response.json({ error: "Starting" }, { status: 503 })),
     port: opts.port ?? 4000,
+    hostname: opts.hostname,
   });
   try {
     await waitForListening(server);
@@ -149,6 +154,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
   const httpServer = serve({
     fetch: (request) => (handler ? handler(request) : new Response("Starting", { status: 503 })),
     port,
+    hostname: options.hostname,
   });
   try {
     await waitForListening(httpServer);

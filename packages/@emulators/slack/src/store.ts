@@ -17,6 +17,8 @@ import type {
   SlackBookmark,
   SlackView,
   SlackViewTrigger,
+  SlackResponseUrl,
+  SlackInteractionDelivery,
 } from "./entities.js";
 
 export interface SlackStore {
@@ -37,6 +39,8 @@ export interface SlackStore {
   bookmarks: Collection<SlackBookmark>;
   views: Collection<SlackView>;
   viewTriggers: Collection<SlackViewTrigger>;
+  responseUrls: Collection<SlackResponseUrl>;
+  interactionDeliveries: Collection<SlackInteractionDelivery>;
 }
 
 export function getSlackStore(store: Store): SlackStore {
@@ -69,6 +73,8 @@ export function getSlackStore(store: Store): SlackStore {
     pins: store.collection<SlackPin>("slack.pins", ["pin_id", "channel_id", "message_ts"]),
     bookmarks: store.collection<SlackBookmark>("slack.bookmarks", ["bookmark_id", "channel_id"]),
     views: store.collection<SlackView>("slack.views", ["view_id", "user_id", "external_id", "root_view_id"]),
+    responseUrls: store.collection<SlackResponseUrl>("slack.response_urls", ["response_id"]),
+    interactionDeliveries: store.collection<SlackInteractionDelivery>("slack.interaction_deliveries", ["app_id"]),
     viewTriggers: store.collection<SlackViewTrigger>("slack.view_triggers", ["trigger_id", "user_id", "view_id"]),
   };
 }

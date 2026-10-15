@@ -10,6 +10,8 @@ Fully stateful GitHub REST API emulation. Creates, updates, and deletes persist 
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # GitHub only
 npx emulate --service github
@@ -542,6 +544,10 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
 # Check runs: list for suite, annotations. Ref based lookups accept branch and tag refs containing slashes.
 # Automatic suite status rollup from check run results
 ```
+
+Check-run lists by ref and suite support `page` and `per_page` (default 30, maximum 100) with pagination `Link` headers. Ref lists apply `check_name`, `status`, and `filter` before pagination; `total_count` reports the full filtered count.
+
+Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
 
 ### OAuth
 

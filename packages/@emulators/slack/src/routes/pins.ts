@@ -1,6 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackMessage, SlackPin, SlackUser } from "../entities.js";
-import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -167,12 +167,7 @@ export function pinsRoutes(ctx: RouteContext): void {
     type: "pin_added" | "pin_removed",
     event: Record<string, unknown>,
   ) {
-    await webhooks.dispatch(
-      type,
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event });
   }
 }
 

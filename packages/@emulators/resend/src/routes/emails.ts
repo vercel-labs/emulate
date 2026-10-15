@@ -54,9 +54,8 @@ export function emailRoutes(ctx: RouteContext): void {
 
     // Validate all emails before inserting any to prevent phantom records
     for (const emailData of emails) {
-      if (!emailData.from) return resendError(c, 422, "validation_error", "Missing required field: from");
-      if (!emailData.to) return resendError(c, 422, "validation_error", "Missing required field: to");
-      if (!emailData.subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
+      const error = validateEmailInput(emailData);
+      if (error) return resendError(c, 422, "validation_error", error);
     }
 
     const normalizedEmails = emails.map(normalizeEmailInput);
@@ -65,6 +64,10 @@ export function emailRoutes(ctx: RouteContext): void {
       const replay = findIdempotencyReplay(c, rs(), idempotencyKey, "emails/batch", fingerprint);
       if (replay) return replay;
     }
+
+    for (const input of normalizedEmails) recordSendAttempt(rs(), input, idempotencyKey);
+    const rejection = recipientRejection(normalizedEmails, store.getData<string[]>("resend.allowlist"));
+    if (rejection) return resendError(c, 403, "validation_error", rejection);
 
     if (idempotencyKey === undefined) {
       const results: Array<{ id: string }> = [];
@@ -105,13 +108,8 @@ export function emailRoutes(ctx: RouteContext): void {
     }
 
     const body = await parseResendBody(c);
-    const from = body.from as string | undefined;
-    const to = body.to as string | string[] | undefined;
-    const subject = body.subject as string | undefined;
-
-    if (!from) return resendError(c, 422, "validation_error", "Missing required field: from");
-    if (!to) return resendError(c, 422, "validation_error", "Missing required field: to");
-    if (!subject) return resendError(c, 422, "validation_error", "Missing required field: subject");
+    const error = validateEmailInput(body);
+    if (error) return resendError(c, 422, "validation_error", error);
 
     const normalizedInput = normalizeEmailInput(body);
     const fingerprint = requestFingerprint(normalizedInput);
@@ -119,6 +117,10 @@ export function emailRoutes(ctx: RouteContext): void {
       const replay = findIdempotencyReplay(c, rs(), idempotencyKey, "emails", fingerprint);
       if (replay) return replay;
     }
+
+    recordSendAttempt(rs(), normalizedInput, idempotencyKey);
+    const rejection = recipientRejection([normalizedInput], store.getData<string[]>("resend.allowlist"));
+    if (rejection) return resendError(c, 403, "validation_error", rejection);
 
     const prepared = prepareEmail(normalizedInput);
     insertPreparedEmail(rs().emails, prepared);
@@ -161,6 +163,52 @@ export function emailRoutes(ctx: RouteContext): void {
 
     return c.json({ id: email.uuid, object: "email", canceled: true });
   });
+}
+
+function validateEmailInput(value: Record<string, unknown>): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "Each email must be an object";
+  for (const field of ["from", "to", "subject"] as const) {
+    if (!value[field]) return `Missing required field: ${field}`;
+  }
+  for (const field of ["from", "subject"] as const) {
+    if (typeof value[field] !== "string") return `Invalid field: ${field}`;
+  }
+  for (const field of ["to", "cc", "bcc"] as const) {
+    if (field !== "to" && value[field] == null) continue;
+    const recipients = Array.isArray(value[field]) ? value[field] : [value[field]];
+    if (
+      (field === "to" && recipients.length === 0) ||
+      recipients.some((address) => typeof address !== "string" || !address.trim())
+    ) {
+      return `Invalid recipient field: ${field}`;
+    }
+  }
+  return undefined;
+}
+
+function recordSendAttempt(
+  resendStore: ReturnType<typeof getResendStore>,
+  input: NormalizedEmailInput,
+  idempotencyKey: string | undefined,
+): void {
+  resendStore.sendAttempts.insert({
+    from: input.from,
+    to: [...input.to],
+    cc: [...input.cc],
+    bcc: [...input.bcc],
+    subject: input.subject,
+    idempotency_key: idempotencyKey ?? null,
+  });
+}
+
+function recipientRejection(inputs: NormalizedEmailInput[], allowlist: string[] | undefined): string | undefined {
+  if (allowlist === undefined) return undefined;
+  const allowed = new Set(allowlist.map((address) => address.trim().toLowerCase()));
+  const rejected = [...new Set(inputs.flatMap((input) => [...input.to, ...input.cc, ...input.bcc]))].filter(
+    (address) => !allowed.has(address.trim().toLowerCase()),
+  );
+  if (rejected.length === 0) return undefined;
+  return `${rejected.join(", ")} ${rejected.length === 1 ? "is" : "are"} not in the allowlist: ${allowlist.join(", ")}.`;
 }
 
 function isValidIdempotencyKey(key: string): boolean {

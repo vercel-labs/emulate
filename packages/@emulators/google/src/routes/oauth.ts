@@ -15,6 +15,7 @@ import {
 } from "@emulators/core";
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
+import { getRefreshTokens, issueAccessToken, revokeToken } from "../oauth-tokens.js";
 
 // RSA key pair generated at module load for signing ID tokens.
 const keyPairPromise = generateKeyPair("RS256");
@@ -33,26 +34,11 @@ type PendingCode = {
 
 const PENDING_CODE_TTL_MS = 10 * 60 * 1000;
 
-type RefreshTokenRecord = {
-  email: string;
-  scope: string;
-  clientId: string;
-};
-
 function getPendingCodes(store: Store): Map<string, PendingCode> {
   let map = store.getData<Map<string, PendingCode>>("google.oauth.pendingCodes");
   if (!map) {
     map = new Map();
     store.setData("google.oauth.pendingCodes", map);
-  }
-  return map;
-}
-
-function getRefreshTokens(store: Store): Map<string, RefreshTokenRecord> {
-  let map = store.getData<Map<string, RefreshTokenRecord>>("google.oauth.refreshTokens");
-  if (!map) {
-    map = new Map();
-    store.setData("google.oauth.refreshTokens", map);
   }
   return map;
 }
@@ -293,12 +279,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
       }
 
-      const accessToken = "google_" + randomBytes(20).toString("base64url");
-      const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : [];
-
-      if (tokenMap) {
-        tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
-      }
+      const accessToken = issueAccessToken(store, tokenMap, user, record.scope, refreshToken);
 
       return c.json({
         access_token: accessToken,
@@ -354,13 +335,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
     }
 
-    const accessToken = "google_" + randomBytes(20).toString("base64url");
     const refreshToken = "google_refresh_" + randomBytes(24).toString("base64url");
-    const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : [];
-
-    if (tokenMap) {
-      tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
-    }
+    const accessToken = issueAccessToken(store, tokenMap, user, pending.scope, refreshToken);
     getRefreshTokens(store).set(refreshToken, {
       email: user.email,
       scope: pending.scope,
@@ -392,6 +368,27 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const user = gs.users.findOneBy("email", authUser.login as GoogleUser["email"]);
     if (!user) {
       return c.json({ error: "invalid_token", error_description: "User not found." }, 401);
+    }
+
+    if (store.getData<boolean>("google.strict_scopes") === true) {
+      const scopes = c.get("authScopes") ?? [];
+      const email = scopes.includes("email") || scopes.includes("https://www.googleapis.com/auth/userinfo.email");
+      const profile = scopes.includes("profile") || scopes.includes("https://www.googleapis.com/auth/userinfo.profile");
+      return c.json({
+        sub: user.uid,
+        ...(email
+          ? { email: user.email, email_verified: user.email_verified, ...(user.hd ? { hd: user.hd } : {}) }
+          : {}),
+        ...(profile
+          ? {
+              name: user.name,
+              given_name: user.given_name,
+              family_name: user.family_name,
+              picture: user.picture,
+              locale: user.locale,
+            }
+          : {}),
+      });
     }
 
     return c.json({
@@ -426,11 +423,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       token = params.get("token") ?? "";
     }
 
-    if (token && tokenMap) {
-      tokenMap.delete(token);
-    }
     if (token) {
-      getRefreshTokens(store).delete(token);
+      revokeToken(store, tokenMap, token);
     }
 
     return c.body(null, 200);

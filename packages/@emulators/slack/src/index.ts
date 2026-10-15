@@ -1,18 +1,11 @@
-import { createHmac } from "crypto";
 import type { Context, Hono } from "@emulators/core";
-import type {
-  ServicePlugin,
-  Store,
-  WebhookDispatcher,
-  WebhookHeaderContext,
-  TokenMap,
-  AppEnv,
-  RouteContext,
-} from "@emulators/core";
+import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getSlackStore } from "./store.js";
-import { generateSlackId } from "./helpers.js";
+import { generateSlackId, slackError } from "./helpers.js";
+import { isSlackTokenRevoked, slackRequestToken } from "./tokens.js";
 import type { SlackOAuthApp, SlackPresence, SlackTokenType, SlackUserProfile } from "./entities.js";
 import { authRoutes } from "./routes/auth.js";
+import { appsRoutes } from "./routes/apps.js";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
 import { usersRoutes } from "./routes/users.js";
@@ -24,6 +17,9 @@ import { filesRoutes } from "./routes/files.js";
 import { pinsRoutes } from "./routes/pins.js";
 import { bookmarksRoutes } from "./routes/bookmarks.js";
 import { viewsRoutes } from "./routes/views.js";
+import { eventRetryRoutes } from "./routes/event-retries.js";
+import { interactionRoutes } from "./routes/interactions.js";
+import { slackRequestHeaders } from "./signing.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 
 export { getSlackStore, type SlackStore } from "./store.js";
@@ -37,6 +33,8 @@ export interface SlackSeedConfig {
   };
   users?: Array<{
     name: string;
+    team_id?: string;
+    is_stranger?: boolean;
     real_name?: string;
     email?: string;
     is_admin?: boolean;
@@ -45,6 +43,7 @@ export interface SlackSeedConfig {
   }>;
   channels?: Array<{
     name: string;
+    is_ext_shared?: boolean;
     topic?: string;
     purpose?: string;
     is_private?: boolean;
@@ -63,6 +62,7 @@ export interface SlackSeedConfig {
     bot_id?: string;
     bot_user_id?: string;
     bot_name?: string;
+    interactivity_url?: string;
   }>;
   tokens?: Array<{
     token: string;
@@ -83,6 +83,8 @@ export interface SlackSeedConfig {
   }>;
   strict_scopes?: boolean;
   signing_secret?: string;
+  verification_token?: string;
+  view_trigger_ttl_seconds?: number;
 }
 
 const DEFAULT_SLACK_SCOPES = [
@@ -116,22 +118,6 @@ const DEFAULT_SLACK_SCOPES = [
   "reactions:write",
   "team:read",
 ];
-
-function slackWebhookHeaders(store: Store, { body }: WebhookHeaderContext): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const signingSecret = store.getData<string>("slack.signing_secret");
-
-  if (signingSecret) {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = createHmac("sha256", signingSecret).update(`v0:${timestamp}:${body}`).digest("hex");
-    headers["X-Slack-Request-Timestamp"] = String(timestamp);
-    headers["X-Slack-Signature"] = `v0=${signature}`;
-  }
-
-  return headers;
-}
 
 function seedDefaults(store: Store, _baseUrl: string): void {
   const ss = getSlackStore(store);
@@ -250,7 +236,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
       });
       ss.users.insert({
         user_id: userId,
-        team_id: teamId,
+        team_id: u.team_id ?? teamId,
+        is_stranger: u.is_stranger ?? false,
         name: u.name,
         real_name: profile.real_name,
         email: profile.email,
@@ -279,6 +266,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
         channel_id: generateSlackId("C"),
         team_id: teamId,
         name: ch.name,
+        is_ext_shared: ch.is_ext_shared ?? false,
         is_channel: !isPrivate,
         is_private: isPrivate,
         is_archived: false,
@@ -309,6 +297,9 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
     for (const oa of config.oauth_apps) {
       const existing = ss.oauthApps.findOneBy("client_id", oa.client_id);
       if (existing) {
+        if (oa.interactivity_url !== undefined) {
+          ss.oauthApps.update(existing.id, { interactivity_url: oa.interactivity_url });
+        }
         if (!existing.app_id) {
           ss.oauthApps.update(existing.id, { app_id: oa.app_id ?? generateSlackId("A") });
         }
@@ -326,6 +317,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
         bot_id: oa.bot_id,
         bot_user_id: oa.bot_user_id,
         bot_name: oa.bot_name,
+        interactivity_url: oa.interactivity_url,
       });
     }
 
@@ -374,8 +366,19 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
     }
   }
 
+  if (config.view_trigger_ttl_seconds !== undefined) {
+    if (!Number.isFinite(config.view_trigger_ttl_seconds) || config.view_trigger_ttl_seconds <= 0) {
+      throw new Error("Slack view_trigger_ttl_seconds must be a positive number");
+    }
+    store.setData("slack.view_trigger_ttl_seconds", config.view_trigger_ttl_seconds);
+  }
+
   if (config.signing_secret !== undefined) {
     store.setData("slack.signing_secret", config.signing_secret);
+  }
+
+  if (config.verification_token !== undefined) {
+    store.setData("slack.verification_token", config.verification_token);
   }
 
   if (config.strict_scopes !== undefined) {
@@ -386,15 +389,20 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
 export const slackPlugin: ServicePlugin = {
   name: "slack",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
-    webhooks.setHeaderFactory((context) => slackWebhookHeaders(store, context));
+    webhooks.setHeaderFactory(({ body }) => slackRequestHeaders(store, body));
 
     app.use("*", async (c, next) => {
+      const token = slackRequestToken(c);
+      if (c.req.path.startsWith("/api/") && token && isSlackTokenRevoked(store, token)) {
+        return slackError(c, "token_revoked");
+      }
       applySlackTokenAuth(c, store);
       await next();
     });
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     authRoutes(ctx);
+    appsRoutes(ctx);
     chatRoutes(ctx);
     conversationsRoutes(ctx);
     usersRoutes(ctx);
@@ -406,6 +414,8 @@ export const slackPlugin: ServicePlugin = {
     pinsRoutes(ctx);
     bookmarksRoutes(ctx);
     viewsRoutes(ctx);
+    interactionRoutes(ctx);
+    eventRetryRoutes(ctx);
     inspectorRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
@@ -440,13 +450,6 @@ function applySlackTokenAuth(c: Context, store: Store): void {
     id: record.id,
     scopes: record.scopes,
   });
-}
-
-function slackRequestToken(c: Context): string | undefined {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader) return undefined;
-  const token = authHeader.replace(/^(Bearer|token)\s+/i, "").trim();
-  return token || undefined;
 }
 
 function seedOAuthInstallation(

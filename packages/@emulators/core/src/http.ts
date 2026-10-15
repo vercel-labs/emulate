@@ -58,6 +58,7 @@ interface MatchedHandler<E> {
 export interface ServeOptions {
   fetch: FetchHandler;
   port?: number;
+  /** Listening address. Defaults to IPv4 loopback (127.0.0.1). */
   hostname?: string;
 }
 
@@ -438,7 +439,7 @@ export function serve(options: ServeOptions): Server {
       res.end(message);
     }
   });
-  server.listen(port, options.hostname);
+  server.listen(port, options.hostname ?? "127.0.0.1");
   return server;
 }
 

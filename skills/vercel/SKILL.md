@@ -10,6 +10,8 @@ Fully stateful Vercel REST API emulation with Vercel-style JSON responses and cu
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # Vercel only
 npx emulate --service vercel
@@ -379,11 +381,17 @@ curl -X PUT "http://localhost:4000/api/blob?pathname=docs/readme.txt" \
   -H "Authorization: Bearer $BLOB_TOKEN" \
   --data-binary @readme.txt
 
+# Copy (x-if-match is compared with the source blob's ETag;
+#   an existing destination is always replaced)
+curl -X PUT "http://localhost:4000/api/blob?pathname=docs/copy.txt&fromUrl=docs/readme.txt" \
+  -H "Authorization: Bearer $BLOB_TOKEN"
+
 # Metadata (head)
 curl "http://localhost:4000/api/blob?url=docs/readme.txt" \
   -H "Authorization: Bearer $BLOB_TOKEN"
 
-# List (prefix, limit, cursor, mode=folded)
+# List (prefix, limit, cursor, mode=folded; folded pages share one
+#   sorted cursor across folders and root blobs)
 curl "http://localhost:4000/api/blob?prefix=docs/" \
   -H "Authorization: Bearer $BLOB_TOKEN"
 
@@ -393,11 +401,23 @@ curl -X POST http://localhost:4000/api/blob/delete \
   -H "Content-Type: application/json" \
   -d '{"urls": ["docs/readme.txt"]}'
 
+# Start a multipart upload (returns { key, uploadId })
+curl -X POST "http://localhost:4000/api/blob/mpu?pathname=docs/large.bin" \
+  -H "Authorization: Bearer $BLOB_TOKEN" \
+  -H "x-mpu-action: create"
+
 # Serve content (public, no auth; ?download=1 forces attachment)
 curl http://localhost:4000/blob/mystore/docs/readme.txt
 ```
 
-Multipart uploads and client (browser) uploads are not supported yet.
+Upload and deletion rules:
+
+- A single leading slash is removed from the pathname, so `/docs/readme.txt` is stored as `docs/readme.txt`. As in the real service, `//` is otherwise accepted over HTTP, so `//a.txt` is stored as `/a.txt` (the `@vercel/blob` SDK rejects `//` before sending a request). This also applies to copy destinations and multipart uploads.
+- The content type is taken from `x-content-type`, then the pathname extension when it is a known type, then the request `Content-Type` header, then `application/octet-stream`.
+- `x-cache-control-max-age` has a minimum of 60 seconds (`0` is stored as `public, max-age=60`). Absent or invalid values default to 30 days.
+- Deleting with a missing or empty `urls` array returns 400 `Missing urls in request body`. Malformed JSON returns 400 `Cannot delete more than 1,000 urls at once or body is malformed`, more than 1,000 urls returns 400 `Cannot delete more than 1,000 urls at once`, and any non-string entry returns 400 `Some urls are malformed`. Nothing is deleted in any of these cases.
+
+Multipart uploads can be created, but uploading parts and completing the upload are not supported yet and return 400. Client (browser) uploads are not supported yet.
 
 ### API Keys
 

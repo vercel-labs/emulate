@@ -647,12 +647,14 @@ function renderDeliveriesTable(
 ): string {
   const subscriptionsById = new Map(subscriptions.map((subscription) => [subscription.id, subscription]));
   return renderTable(
-    ["ID", "Event", "Hook", "URL", "Status", "Duration", "Delivered"],
+    ["ID", "Event", "Event ID", "Retry", "Hook", "URL", "Status", "Duration", "Delivered"],
     deliveries.map((delivery) => {
       const subscription = subscriptionsById.get(delivery.hook_id);
       return [
         escapeHtml(String(delivery.id)),
         escapeHtml(delivery.event),
+        escapeHtml(String((delivery.payload as { event_id?: string } | null)?.event_id ?? "")),
+        escapeHtml(String(delivery.redelivery_count ?? 0)),
         escapeHtml(String(delivery.hook_id)),
         escapeHtml(subscription?.url ?? ""),
         delivery.success

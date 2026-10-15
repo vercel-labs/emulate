@@ -1,6 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import type { SlackChannel } from "../entities.js";
-import { buildSlackEventEnvelope, resolveSlackEventTeamId } from "../events.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import { formatSlackMessage, slackOk, slackError, parseSlackBody, requireSlackScopes } from "../helpers.js";
 
@@ -60,17 +60,12 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     ss().messages.update(msg.id, { reactions });
 
-    await webhooks.dispatch(
-      "reaction_added",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
-        type: "reaction_added",
-        user: authUserId,
-        reaction: name,
-        item: { type: "message", channel, ts: timestamp },
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch?.team_id), {
+      type: "reaction_added",
+      user: authUserId,
+      reaction: name,
+      item: { type: "message", channel, ts: timestamp },
+    });
 
     return slackOk(c, {});
   });
@@ -111,17 +106,12 @@ export function reactionsRoutes(ctx: RouteContext): void {
     const filtered = reactions.filter((r) => r.count > 0);
     ss().messages.update(msg.id, { reactions: filtered });
 
-    await webhooks.dispatch(
-      "reaction_removed",
-      undefined,
-      buildSlackEventEnvelope(resolveSlackEventTeamId(c, store, ch?.team_id), {
-        type: "reaction_removed",
-        user: authUserId,
-        reaction: name,
-        item: { type: "message", channel, ts: timestamp },
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch?.team_id), {
+      type: "reaction_removed",
+      user: authUserId,
+      reaction: name,
+      item: { type: "message", channel, ts: timestamp },
+    });
 
     return slackOk(c, {});
   });

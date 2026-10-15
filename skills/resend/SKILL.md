@@ -8,9 +8,11 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 Fully stateful Resend API emulation. Emails, domains, API keys, audiences, and contacts persist in memory. Sent emails are captured and viewable through the inbox UI or the REST API.
 
-No real emails are sent. Every call to `POST /emails` stores the message locally so you can inspect it programmatically or in the browser.
+No real emails are sent. Accepted calls to `POST /emails` store the message locally so you can inspect it programmatically or in the browser. Validated sends also record attempts, including recipient rejections.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # Resend only
@@ -213,6 +215,25 @@ curl -X POST http://localhost:4000/emails \
   -H "Idempotency-Key: signup-email-123" \
   -d '{"from": "hello@example.com", "to": "user@example.com", "subject": "Hello"}'
 ```
+
+### Recipient restrictions and send attempts
+
+Set `resend.allowlist` in seed config to test recipient rejection:
+
+```yaml
+resend:
+  allowlist:
+    - allowed@example.com
+    - copy@example.com
+```
+
+Omitting `allowlist` accepts every recipient; `allowlist: []` rejects every recipient. Every address in `to`, `cc`, and `bcc` must be listed. Matching ignores surrounding whitespace and letter case; entries are individual addresses, with no wildcard or domain matching. This is a local testing control, independent of Resend's domain verification and account restrictions.
+
+A rejected send returns `403 validation_error` naming the rejected addresses and configured allowlist. No email ID, email record, idempotency record, or webhook is created. A batch is rejected as a whole if any recipient is disallowed. Retrying a rejected request, even with the same idempotency key, creates a new attempt. Replaying an accepted idempotent request returns its original response even if the allowlist has since changed.
+
+Validated sends append one record per email to the `resend.send_attempts` store collection, including emails in a rejected batch. Each record contains `from`, `to`, `cc`, `bcc`, `subject`, `idempotency_key` (or `null`), and the store's `id`, `created_at`, and `updated_at`. Message bodies are not copied into attempts. Malformed requests, invalid or conflicting idempotency keys, and idempotency replays do not append attempts.
+
+Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/resend`, or inspect the persisted state. Shared adapter snapshots use the key `resend:resend.send_attempts`. Attempts and recipient restrictions survive saved-state restoration, including rejected sends. There is no additional Resend API endpoint for attempts. A rejected send has an attempt without an email; a send that never happened has neither.
 
 ### Domains
 

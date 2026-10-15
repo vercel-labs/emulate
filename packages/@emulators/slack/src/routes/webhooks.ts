@@ -1,12 +1,13 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { buildSlackEventEnvelope } from "../events.js";
+import { dispatchSlackEvent } from "../events.js";
 import {
   formatSlackMessage,
   generateTs,
   hasSlackMessageContent,
   normalizeSlackMessageText,
   parseSlackRichMessageFields,
+  slackBotMessageFields,
 } from "../helpers.js";
 
 export function webhookRoutes(ctx: RouteContext): void {
@@ -90,7 +91,7 @@ export function webhookRoutes(ctx: RouteContext): void {
       subtype: "bot_message",
       thread_ts: threadTs,
       ...richMessage.fields,
-      bot_id: botId,
+      ...slackBotMessageFields(store, botId, targetChannel.team_id),
       reply_count: 0,
       reply_users: [],
       reactions: [],
@@ -98,18 +99,13 @@ export function webhookRoutes(ctx: RouteContext): void {
 
     const { user: _user, ...eventMessage } = formatSlackMessage(msg);
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      buildSlackEventEnvelope(webhook?.team_id ?? targetChannel.team_id, {
-        ...eventMessage,
-        type: "message",
-        subtype: "bot_message",
-        channel: targetChannel.channel_id,
-        bot_id: botId,
-      }),
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, webhook?.team_id ?? targetChannel.team_id, {
+      ...eventMessage,
+      type: "message",
+      subtype: "bot_message",
+      channel: targetChannel.channel_id,
+      bot_id: botId,
+    });
 
     return c.text("ok");
   });
