@@ -7,6 +7,7 @@ import {
   findLabelById,
   findLabelByName,
   generateUid,
+  seedSendAsEntry,
 } from "./helpers.js";
 import { createCalendarEventRecord, createCalendarRecord } from "./calendar-helpers.js";
 import { createDriveItemRecord } from "./drive-helpers.js";
@@ -113,6 +114,16 @@ export interface GoogleSeedDriveItem {
   data?: string;
 }
 
+export interface GoogleSeedSendAs {
+  user_email?: string;
+  send_as_email: string;
+  display_name?: string;
+  /** HTML, as Gmail stores it. */
+  signature?: string;
+  is_default?: boolean;
+  verification_status?: "accepted" | "pending";
+}
+
 export interface GoogleSeedConfig {
   port?: number;
   strict_scopes?: boolean;
@@ -124,6 +135,7 @@ export interface GoogleSeedConfig {
     redirect_uris: string[];
   }>;
   labels?: GoogleSeedLabel[];
+  send_as?: GoogleSeedSendAs[];
   messages?: GoogleSeedMessage[];
   calendars?: GoogleSeedCalendar[];
   calendar_events?: GoogleSeedCalendarEvent[];
@@ -340,6 +352,13 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
 
   if (config.labels) {
     seedLabels(store, config.labels, fallbackEmail);
+  }
+
+  if (config.send_as) {
+    const gs = getGoogleStore(store);
+    for (const entry of config.send_as) {
+      seedSendAsEntry(gs, { ...entry, user_email: entry.user_email ?? fallbackEmail });
+    }
   }
 
   if (config.messages) {
