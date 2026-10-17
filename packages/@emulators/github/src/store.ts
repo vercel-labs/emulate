@@ -13,6 +13,7 @@ import type {
   GitHubMilestone,
   GitHubComment,
   GitHubReview,
+  GitHubReaction,
   GitHubIssueEvent,
   GitHubBranch,
   GitHubBranchProtection,
@@ -31,6 +32,7 @@ import type {
   GitHubSecret,
   GitHubCheckRun,
   GitHubCheckSuite,
+  GitHubCommitStatus,
   GitHubOAuthApp,
   GitHubApp,
   GitHubAppInstallation,
@@ -52,6 +54,7 @@ export interface GitHubStore {
   milestones: Collection<GitHubMilestone>;
   comments: Collection<GitHubComment>;
   reviews: Collection<GitHubReview>;
+  reactions: Collection<GitHubReaction>;
   issueEvents: Collection<GitHubIssueEvent>;
   branches: Collection<GitHubBranch>;
   branchProtections: Collection<GitHubBranchProtection>;
@@ -70,6 +73,7 @@ export interface GitHubStore {
   secrets: Collection<GitHubSecret>;
   checkRuns: Collection<GitHubCheckRun>;
   checkSuites: Collection<GitHubCheckSuite>;
+  commitStatuses: Collection<GitHubCommitStatus>;
   oauthApps: Collection<GitHubOAuthApp>;
   apps: Collection<GitHubApp>;
   appInstallations: Collection<GitHubAppInstallation>;
@@ -92,6 +96,7 @@ export function getGitHubStore(store: Store): GitHubStore {
     milestones: store.collection<GitHubMilestone>("github.milestones", ["repo_id", "number"]),
     comments: store.collection<GitHubComment>("github.comments", ["repo_id"]),
     reviews: store.collection<GitHubReview>("github.reviews", ["repo_id", "pull_number"]),
+    reactions: store.collection<GitHubReaction>("github.reactions", ["repo_id", "subject_id"]),
     issueEvents: store.collection<GitHubIssueEvent>("github.issue_events", ["repo_id", "issue_number"]),
     branches: store.collection<GitHubBranch>("github.branches", ["repo_id"]),
     branchProtections: store.collection<GitHubBranchProtection>("github.branch_protections", ["repo_id"]),
@@ -110,6 +115,7 @@ export function getGitHubStore(store: Store): GitHubStore {
     secrets: store.collection<GitHubSecret>("github.secrets", ["repo_id", "org_id"]),
     checkRuns: store.collection<GitHubCheckRun>("github.check_runs", ["repo_id", "head_sha"]),
     checkSuites: store.collection<GitHubCheckSuite>("github.check_suites", ["repo_id", "head_sha"]),
+    commitStatuses: store.collection<GitHubCommitStatus>("github.commit_statuses", ["repo_id", "sha"]),
     oauthApps: store.collection<GitHubOAuthApp>("github.oauth_apps", ["client_id"]),
     apps: store.collection<GitHubApp>("github.apps", ["slug"]),
     appInstallations: store.collection<GitHubAppInstallation>("github.app_installations", [

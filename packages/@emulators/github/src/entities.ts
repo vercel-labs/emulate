@@ -210,6 +210,9 @@ export interface GitHubComment extends Entity {
   comment_type: "issue" | "review" | "commit";
   /** Set for line comments created as part of a pull request review. */
   review_id: number | null;
+  /** Resolution of the inline thread rooted at this comment. Replies inherit their root's state. */
+  resolved?: boolean;
+  resolved_by?: number | null;
 }
 
 export interface GitHubReview extends Entity {
@@ -221,6 +224,17 @@ export interface GitHubReview extends Entity {
   state: "PENDING" | "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED";
   commit_id: string;
   submitted_at: string | null;
+}
+
+export type GitHubReactionContent = "+1" | "-1" | "laugh" | "hooray" | "confused" | "heart" | "rocket" | "eyes";
+
+export interface GitHubReaction extends Entity {
+  node_id: string;
+  repo_id: number;
+  subject_type: "issue" | "issue_comment" | "review_comment";
+  subject_id: number;
+  user_id: number;
+  content: GitHubReactionContent;
 }
 
 export interface GitHubIssueEvent extends Entity {
@@ -475,6 +489,16 @@ export interface GitHubCheckSuite extends Entity {
   before: string;
   after: string;
   app_id: number | null;
+}
+
+export interface GitHubCommitStatus extends Entity {
+  repo_id: number;
+  sha: string;
+  user_id: number;
+  state: "pending" | "success" | "failure" | "error";
+  context: string;
+  description: string | null;
+  target_url: string | null;
 }
 
 export interface GitHubOAuthApp extends Entity {

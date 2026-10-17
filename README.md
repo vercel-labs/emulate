@@ -700,6 +700,10 @@ JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's privat
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 
+User tokens can discover accessible installations with `GET /user/installations` and their repositories with `GET /user/installations/:installation_id/repositories`. Both endpoints paginate; discovery respects installation repository selection and explicit user access through ownership, collaboration, or organization membership. Public visibility alone does not grant discovery access.
+
+Installation tokens can list their repositories with `GET /installation/repositories`. The endpoint paginates and intersects the token's selection with current installation grants. Removed or suspended installations cannot discover repositories.
+
 Inspect secret-free metadata for minted installation tokens at `GET /_emulate/installation-tokens`.
 
 **App webhook delivery**: When events occur on repos where a GitHub App is installed, the emulator mirrors real GitHub behavior:
@@ -844,6 +848,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /user` - authenticated user
 - `PATCH /user` - update profile
 - `GET /users/:username` - get user
+- `GET /user/:account_id` - resolve the current user profile by durable ID
 - `GET /users` - list users
 - `GET /users/:username/repos` - list user repos
 - `GET /users/:username/orgs` - list user orgs
@@ -895,21 +900,53 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `PUT /repos/:owner/:repo/pulls/:number/merge` - merge (with branch protection enforcement)
 - `GET /repos/:owner/:repo/pulls/:number/commits` - list commits
 - `GET /repos/:owner/:repo/pulls/:number/files` - list files
-- `POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` - manage reviewers
+- `GET/POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` - list or manage user and team reviewers; removals emit `pull_request.review_request_removed`
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` - update branch
+
+Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
+
+Pull request authors cannot be requested to review their own pull request. Submitting a review removes the author from the outstanding requested users; pending reviews retain the request. Team requests remain until explicitly removed.
 
 ### Comments
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
+- Review replies: `POST /repos/:owner/:repo/pulls/:number/comments/:id/replies`
 - Commit comments: full CRUD on `/repos/:owner/:repo/commits/:sha/comments`
 - Repo-wide listings for each type
+
+Issue responses and issue-comment webhooks include `pull_request` metadata when the issue represents a pull request.
+
+Review comments validate paths and lines against stored commit diffs. Comments on unpushed files or lines return `422` until those changes are pushed. Git refs and Contents API writes advance open pull-request heads and emit `pull_request.synchronize` webhooks. Review replies retain their parent's location. Legacy diff positions, binary diffs, and full multiline-range validation are not covered.
+
+### Reactions
+
+- `GET/POST /repos/:owner/:repo/issues/:number/reactions` - list/create issue or pull-request body reactions
+- `GET/POST /repos/:owner/:repo/issues/comments/:id/reactions` - list/create issue-comment reactions
+- `GET/POST /repos/:owner/:repo/pulls/comments/:id/reactions` - list/create review-comment reactions
+- `DELETE` on any of these paths with `/:reaction_id` - remove a reaction
+
+Lists support `content`, `page`, and `per_page`. Repeating a reaction by the same user returns the existing reaction; issue and comment summaries reflect stored reactions. Reaction changes do not emit webhooks.
 
 ### Reviews
 - `GET /repos/:owner/:repo/pulls/:number/reviews` - list
 - `POST /repos/:owner/:repo/pulls/:number/reviews` - create (with inline comments)
 - `GET/PUT /repos/:owner/:repo/pulls/:number/reviews/:id` - get/update
+- `DELETE /repos/:owner/:repo/pulls/:number/reviews/:id` - discard a pending review and its comments
 - `POST /repos/:owner/:repo/pulls/:number/reviews/:id/events` - submit
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` - dismiss
+
+Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Individual comment reads and repository-wide comment listings also hide pending review comments from other users and anonymous readers. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
+
+### GraphQL collaboration
+
+The `POST /graphql` endpoint supports a collaboration subset backed by the same pull requests and comments as REST:
+
+- `repository.pullRequest` with paginated `reviewThreads`, comment identities, and resolution state
+- `addPullRequestReviewThread` to add an inline comment to an existing pending review using its `pullRequestReviewId`
+- `convertPullRequestToDraft` and `markPullRequestReadyForReview`
+- `resolveReviewThread` and `unresolveReviewThread`
+
+Draft/ready transitions and public thread resolution changes emit the corresponding webhooks. This is not a complete GitHub GraphQL schema; diff-validation limitations also apply to GraphQL comments.
 
 ### Labels & Milestones
 - Labels: full CRUD, add/remove from issues, replace all
@@ -955,6 +992,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - Secrets: repo + org CRUD
 
 ### Checks
+- Commit statuses: create and list by commit or ref, newest first, with pagination and signed `status` webhooks. Status history is retained; combined-status summaries are not implemented.
 - Check runs: create, update, get, annotations, rerequest, list by ref/suite. Ref based lookups accept branch and tag refs containing slashes.
 - Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
