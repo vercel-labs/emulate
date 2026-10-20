@@ -172,7 +172,7 @@ function createTestApp() {
     ],
   });
 
-  return { app };
+  return { app, store };
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -1230,5 +1230,138 @@ describe("Google plugin integration", () => {
     });
     expect(uploadedMediaRes.status).toBe(200);
     expect(Buffer.from(await uploadedMediaRes.arrayBuffer()).toString("utf8")).toBe(uploadedContent);
+  });
+});
+
+describe("Gmail send-as addresses", () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    const created = createTestApp();
+    app = created.app;
+    seedFromConfig(created.store, base, {
+      send_as: [
+        {
+          user_email: "testuser@example.com",
+          send_as_email: "support@example.com",
+          display_name: "Example Support",
+          signature: "<div>Support team</div>",
+        },
+        {
+          user_email: "testuser@example.com",
+          send_as_email: "pending@example.com",
+          verification_status: "pending",
+        },
+      ],
+    });
+  });
+
+  it("lists seeded aliases with their verification status", async () => {
+    const response = await jsonRequest(app, "/gmail/v1/users/me/settings/sendAs");
+    const body = (await response.json()) as { sendAs: Array<Record<string, unknown>> };
+
+    expect(body.sendAs).toEqual([
+      expect.objectContaining({
+        sendAsEmail: "testuser@example.com",
+        isPrimary: true,
+        isDefault: true,
+      }),
+      expect.objectContaining({
+        sendAsEmail: "pending@example.com",
+        isPrimary: false,
+        verificationStatus: "pending",
+      }),
+      expect.objectContaining({
+        sendAsEmail: "support@example.com",
+        displayName: "Example Support",
+        signature: "<div>Support team</div>",
+        isPrimary: false,
+        isDefault: false,
+        verificationStatus: "accepted",
+      }),
+    ]);
+    expect(body.sendAs[0]).not.toHaveProperty("verificationStatus");
+  });
+
+  it("sends from a verified alias and falls back to the default address otherwise", async () => {
+    const sendFrom = async (from?: string) => {
+      const raw = buildRawMessage({
+        from: from ?? "",
+        to: "customer@example.net",
+        subject: "Re: Help",
+        body_text: "Thanks",
+      });
+      const response = await jsonRequest(app, "/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        body: { raw },
+      });
+      const sent = (await response.json()) as { payload: { headers: Array<{ name: string; value: string }> } };
+      return sent.payload.headers.find((header) => header.name === "From")?.value;
+    };
+
+    expect(await sendFrom('"Example Support" <support@example.com>')).toBe('"Example Support" <support@example.com>');
+    expect(await sendFrom("pending@example.com")).toBe("Test User <testuser@example.com>");
+    expect(await sendFrom("stranger@example.org")).toBe("Test User <testuser@example.com>");
+    expect(await sendFrom()).toBe("Test User <testuser@example.com>");
+  });
+
+  it("sends a draft from its alias", async () => {
+    const createRes = await jsonRequest(app, "/gmail/v1/users/me/drafts", {
+      method: "POST",
+      body: {
+        message: {
+          raw: buildRawMessage({
+            from: "support@example.com",
+            to: "customer@example.net",
+            subject: "Draft from support",
+            body_text: "Draft body",
+          }),
+        },
+      },
+    });
+    const draft = (await createRes.json()) as { id: string };
+
+    const sendRes = await jsonRequest(app, "/gmail/v1/users/me/drafts/send", {
+      method: "POST",
+      body: { id: draft.id },
+    });
+    const sent = (await sendRes.json()) as { id: string };
+    const messageRes = await jsonRequest(app, `/gmail/v1/users/me/messages/${sent.id}`);
+    const message = (await messageRes.json()) as { payload: { headers: Array<{ name: string; value: string }> } };
+
+    expect(message.payload.headers.find((header) => header.name === "From")?.value).toBe("support@example.com");
+  });
+
+  it("creates and deletes aliases through the settings API", async () => {
+    const createRes = await jsonRequest(app, "/gmail/v1/users/me/settings/sendAs", {
+      method: "POST",
+      body: { sendAsEmail: "sales@example.com", displayName: "Sales" },
+    });
+    expect(createRes.status).toBe(200);
+    expect(await createRes.json()).toMatchObject({
+      sendAsEmail: "sales@example.com",
+      displayName: "Sales",
+      verificationStatus: "accepted",
+    });
+
+    const duplicateRes = await jsonRequest(app, "/gmail/v1/users/me/settings/sendAs", {
+      method: "POST",
+      body: { sendAsEmail: "sales@example.com" },
+    });
+    expect(duplicateRes.status).toBe(409);
+
+    const primaryRes = await jsonRequest(app, "/gmail/v1/users/me/settings/sendAs/testuser@example.com", {
+      method: "DELETE",
+    });
+    expect(primaryRes.status).toBe(400);
+
+    const deleteRes = await jsonRequest(app, "/gmail/v1/users/me/settings/sendAs/sales@example.com", {
+      method: "DELETE",
+    });
+    expect(deleteRes.status).toBe(204);
+
+    const listRes = await jsonRequest(app, "/gmail/v1/users/me/settings/sendAs");
+    const list = (await listRes.json()) as { sendAs: Array<{ sendAsEmail: string }> };
+    expect(list.sendAs.map((entry) => entry.sendAsEmail)).not.toContain("sales@example.com");
   });
 });
