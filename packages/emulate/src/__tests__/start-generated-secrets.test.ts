@@ -472,7 +472,9 @@ describe("CLI generated secrets", () => {
     const blocker = createNodeServer();
     await new Promise<void>((resolve, reject) => {
       blocker.once("error", reject);
-      blocker.listen(basePort + 1, resolve);
+      // Emulators bind to loopback, so the blocker must too: macOS lets a
+      // loopback listener share a port held on the wildcard address.
+      blocker.listen(basePort + 1, "127.0.0.1", resolve);
     });
 
     try {
