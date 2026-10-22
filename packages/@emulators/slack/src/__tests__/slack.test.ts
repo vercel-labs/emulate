@@ -3017,7 +3017,7 @@ describe("Slack plugin - files", () => {
     const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ filename: "deploy.txt", length: Buffer.byteLength(content), alt_text: "Deploy log" }),
+      body: JSON.stringify({ filename: "deploy.txt", length: Buffer.byteLength(content), alt_txt: "Deploy log" }),
     });
     const upload = (await urlRes.json()) as any;
     expect(upload.ok).toBe(true);
