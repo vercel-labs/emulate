@@ -2,21 +2,21 @@ import type { Context } from "@emulators/core";
 import type { VercelBlob } from "../../entities.js";
 import type { BlobRouteContext } from "./context.js";
 import { DEFAULT_LIST_LIMIT } from "./constants.js";
-import { blobErr, forbidden } from "./errors.js";
-import { resolveStoreId } from "./auth.js";
+import { blobErr } from "./errors.js";
 import { blobUrl, downloadUrl, resolveBlobRef } from "./paths.js";
 import { findBlobRef, headResponse } from "./lookup.js";
 
-export function registerHeadList({ app, vs, baseUrl, parsedBaseUrl }: BlobRouteContext): void {
+export function registerHeadList({ app, vs, baseUrl, parsedBaseUrl, authenticate }: BlobRouteContext): void {
   // Head and list.
   // The SDK sends GET <api>?url=<urlOrPathname> for head and
   // GET <api>?prefix=&limit=&cursor=&mode= for list.
 
   const handleGet = (c: Context): Response => {
-    const storeId = resolveStoreId(c);
-    if (!storeId) return forbidden(c);
-
     const urlParam = c.req.query("url");
+    const auth = authenticate(c, urlParam === undefined ? "list" : "head");
+    if (auth instanceof Response) return auth;
+    const { storeId } = auth;
+
     if (urlParam !== undefined) {
       const blob = findBlobRef(vs, storeId, resolveBlobRef(urlParam, parsedBaseUrl));
       if (!blob) {
