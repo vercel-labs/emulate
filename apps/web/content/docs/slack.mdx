@@ -35,7 +35,7 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `POST /api/conversations.rename` - rename channel
 - `POST /api/conversations.setTopic` - update channel topic
 - `POST /api/conversations.setPurpose` - update channel purpose
-- `POST /api/conversations.history` - channel history with rich message fields (top-level messages)
+- `POST /api/conversations.history` - channel history with rich message fields (top-level messages), limited to `oldest` and `latest` (exclusive unless `inclusive` is set)
 - `POST /api/conversations.replies` - thread replies with rich message fields
 - `POST /api/conversations.join` - join channel
 - `POST /api/conversations.leave` - leave channel
