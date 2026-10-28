@@ -20,7 +20,7 @@ Do not use emojis anywhere in this repository (code, comments, output, docs).
 
 ## Dashes
 
-Never use `--` as a dash in prose, comments, or user-facing output. Use an em dash (\u2014) when a dash is needed, but prefer rephrasing to avoid dashes entirely. The only exception is CLI flags (e.g. `--port`).
+Never use `--` or em dashes as dashes in prose, comments, or user-facing output. Rephrase the sentence instead. The only exception is CLI flags (e.g. `--port`).
 
 ## Emulator UI Design System
 
@@ -47,6 +47,8 @@ When a change affects how humans or agents use emulate (new/changed/removed comm
 2. `skills/*/SKILL.md` (agent skills for each service)
 3. `apps/web/` (docs site pages)
 4. CLI `--help` output in `packages/emulate/src/index.ts`
+
+Use the `technical-writer` skill (`.agents/skills/technical-writer/SKILL.md`) when you write or edit prose for this repo, including docs pages, READMEs, changelog entries, commit messages, PR descriptions, and issues.
 
 ## Releasing
 
