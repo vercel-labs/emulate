@@ -24,12 +24,11 @@ import {
   formatTeamBrief,
   formatUser,
   generateNodeId,
-  generateSha,
   getNextIssueNumber,
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { findOrCreateCommit } from "../git-helpers.js";
+import { diffTrees, findCommitBySha, findMergeBase, findOrCreateCommit, formatFileDiff } from "../git-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -783,27 +782,19 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
+    const headRepo = gh.repos.get(pr.head_repo_id);
+    if (!headRepo) throw notFoundResponse();
+    const headCommit = findCommitBySha(gh, headRepo.id, pr.head_sha);
+    const mergeBase = findMergeBase(gh, headRepo.id, pr.base_sha, pr.head_sha);
+    if (!headCommit || !mergeBase) throw notFoundResponse();
+    const files = diffTrees(gh, headRepo.id, mergeBase.tree_sha, headCommit.tree_sha).slice(0, 3000);
     const { page, per_page } = parsePagination(c);
-    const n = pr.changed_files;
-    const stubNames = Array.from({ length: n }, (_, i) => `file${i + 1}.ts`);
-    const total = stubNames.length;
-    setLinkHeader(c, total, page, per_page);
+    setLinkHeader(c, files.length, page, per_page);
     const start = (page - 1) * per_page;
-    const pageNames = stubNames.slice(start, start + per_page);
-
     return c.json(
-      pageNames.map((filename, i) => ({
-        sha: generateSha(),
-        filename,
-        status: "modified",
-        additions: 1,
-        deletions: 0,
-        changes: 1,
-        blob_url: `${baseUrl}/${repo.full_name}/blob/${pr.head_sha}/${filename}`,
-        raw_url: `${baseUrl}/${repo.full_name}/raw/${pr.head_sha}/${filename}`,
-        contents_url: `${baseUrl}/repos/${repo.full_name}/contents/${encodeURIComponent(filename)}?ref=${pr.head_ref}`,
-        patch: "",
-      })),
+      files
+        .slice(start, start + per_page)
+        .map((file) => formatFileDiff(file, repo, mergeBase.sha, pr.head_sha, baseUrl)),
     );
   });
 

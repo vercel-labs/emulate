@@ -345,6 +345,8 @@ curl -X PUT http://localhost:4001/repos/octocat/hello-world/pulls/1/merge \
 
 Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
 
+Pull-request file listings compare the merge base to the head commit and return actual stored paths, diff statistics, and text patches, with pagination and GitHub's 3,000-file limit. Unchanged files are excluded.
+
 `GET /user/:account_id` resolves a current username by durable user ID. `GET /repos/:owner/:repo/pulls/:number/requested_reviewers` returns `{ users, teams }`. Requesting the pull request author returns HTTP 422; deleting requests emits `pull_request.review_request_removed` for each removed user or team. Submitting a review clears its author’s user request; pending reviews retain it and team requests require explicit removal.
 
 ### Comments

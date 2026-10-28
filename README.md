@@ -917,6 +917,8 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
 
+Pull-request file listings compare the merge base to the head commit and return actual stored paths, diff statistics, and text patches, with pagination and GitHub's 3,000-file limit. Unchanged files are excluded.
+
 Pull request authors cannot be requested to review their own pull request. Submitting a review removes the author from the outstanding requested users; pending reviews retain the request. Team requests remain until explicitly removed.
 
 ### Comments

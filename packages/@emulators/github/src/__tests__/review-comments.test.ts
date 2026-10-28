@@ -84,6 +84,58 @@ describe("GitHub review comment locations", () => {
     return commit.sha;
   }
 
+  it("lists actual changed paths and text patches with pagination after a push", async () => {
+    const initial = await request(`/pulls/${pull.number}/files`);
+    expect(initial.status).toBe(200);
+    expect(await initial.json()).toMatchObject([
+      {
+        filename: "scenario.md",
+        status: "added",
+        additions: 1,
+        deletions: 0,
+        changes: 1,
+        patch: expect.stringContaining("+First line"),
+      },
+    ]);
+
+    const headSha = await pushChanges();
+    const first = await request(`/pulls/${pull.number}/files?per_page=1`);
+    expect(first.headers.get("Link")).toContain("page=2>");
+    expect(await first.json()).toMatchObject([
+      {
+        filename: "new.md",
+        status: "added",
+        additions: 1,
+        deletions: 0,
+        patch: expect.stringContaining("+New file"),
+        contents_url: `${base}${repoPath}/contents/new.md?ref=${headSha}`,
+      },
+    ]);
+    const second = await request(`/pulls/${pull.number}/files?per_page=1&page=2`);
+    expect(await second.json()).toMatchObject([
+      { filename: "scenario.md", additions: 2, patch: expect.stringContaining("+Added line") },
+    ]);
+    expect(await (await request(`/pulls/${pull.number}/files?per_page=1&page=3`)).json()).toEqual([]);
+  });
+
+  it("uses the merge base rather than reporting unrelated changes on an advanced base branch", async () => {
+    expect(
+      (
+        await request("/contents/base-only.md", "PUT", {
+          branch: "main",
+          message: "Advance the base independently",
+          content: Buffer.from("Base branch change\n").toString("base64"),
+        })
+      ).status,
+    ).toBe(201);
+    expect((await request(`/pulls/${pull.number}`, "PATCH", { base: "main" })).status).toBe(200);
+    const files = await request(`/pulls/${pull.number}/files`);
+    expect(files.status).toBe(200);
+    expect(await files.json()).toMatchObject([
+      { filename: "scenario.md", status: "added", additions: 1, deletions: 0 },
+    ]);
+  });
+
   it("validates a review's comments before creating it and permits submitted summary edits", async () => {
     const input = {
       body: "Summary",
