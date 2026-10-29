@@ -1,0 +1,55 @@
+{
+  "name": "@emulators/ai",
+  "version": "0.12.3",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "homepage": "https://emulate.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel-labs/emulate.git",
+    "directory": "packages/@emulators/ai"
+  },
+  "bugs": {
+    "url": "https://github.com/vercel-labs/emulate/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsup --clean",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src",
+    "prepack": "node ../../../scripts/prepare-package.mjs"
+  },
+  "dependencies": {
+    "@emulators/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@ai-sdk/openai": "4.0.102",
+    "@ai-sdk/openai-compatible": "3.0.78",
+    "ai": "7.0.153",
+    "ai-sdk-openai-v3": "npm:@ai-sdk/openai@3.0.52",
+    "ai-v6": "npm:ai@6.0.151",
+    "openai": "7.43.0",
+    "tsup": "^8",
+    "typescript": "^5.7",
+    "vitest": "^4.1.0",
+    "zod": "4.6.7"
+  }
+}
