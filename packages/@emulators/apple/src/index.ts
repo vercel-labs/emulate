@@ -92,3 +92,5 @@ export const applePlugin: ServicePlugin = {
 };
 
 export default applePlugin;
+
+export { hosts } from "./hosts.js";

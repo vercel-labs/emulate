@@ -6,6 +6,7 @@ import {
   type EmulatorDefinition,
   type CustomRuntime,
   type CustomRuntimeOptions,
+  type ServiceHost,
 } from "@emulators/core";
 import type { Server } from "node:http";
 export {
@@ -16,6 +17,11 @@ export {
   type InspectorOptions,
   filePersistence,
   type PersistenceAdapter,
+  type ServiceHost,
+  findServiceHost,
+  matchesHost,
+  primaryHost,
+  toEmulatorPath,
 } from "@emulators/core";
 export { defineConfig, type EmulateConfig, type ServiceConfig } from "./config.js";
 import { SERVICE_REGISTRY } from "./registry.js";
@@ -35,6 +41,16 @@ export interface EmulatorOptions {
   hostname?: string;
   seed?: SeedConfig;
   baseUrl?: string;
+  listen?: true;
+}
+
+export interface InProcessEmulatorOptions {
+  service: ServiceName;
+  seed?: SeedConfig;
+  /** Advertised base URL. Defaults to `http://<service>.localhost`. */
+  baseUrl?: string;
+  /** Run in the current process without opening a port. */
+  listen: false;
 }
 
 export interface GeneratedSecret {
@@ -52,6 +68,20 @@ export interface Emulator {
   close(): Promise<void>;
 }
 
+export interface InProcessEmulator {
+  /** Advertised base URL used in generated links, redirects, and issued URLs. */
+  readonly url: string;
+  /** Real provider hosts this service emulates and how they map onto emulator paths. */
+  readonly hosts: readonly ServiceHost[];
+  readonly generatedSecrets: readonly GeneratedSecret[];
+  /** Handle a request in process. Only the path and query string select the route. */
+  fetch(request: Request): Promise<Response>;
+  /** Handle a request for a path relative to `url`. */
+  request(path: string, init?: RequestInit): Promise<Response>;
+  reset(): void;
+  close(): Promise<void>;
+}
+
 export interface CustomEmulatorOptions<State extends object> extends CustomRuntimeOptions<NoInfer<State>> {
   service: EmulatorDefinition<State>;
   port?: number;
@@ -64,6 +94,7 @@ export type CustomEmulator<State extends object> = CustomRuntime<State> & {
   readonly generatedSecrets: readonly GeneratedSecret[];
 };
 
+export function createEmulator(options: InProcessEmulatorOptions): Promise<InProcessEmulator>;
 export function createEmulator(options: EmulatorOptions): Promise<Emulator>;
 export function createEmulator<State extends object>(
   options: CustomEmulatorOptions<State> & { listen: false },
@@ -72,9 +103,13 @@ export function createEmulator<State extends object>(
   options: CustomEmulatorOptions<State> & { listen?: true },
 ): Promise<CustomEmulator<State> & { url: string }>;
 export async function createEmulator(
-  options: EmulatorOptions | CustomEmulatorOptions<any>,
-): Promise<Emulator | CustomEmulator<any>> {
-  if (typeof options.service === "string") return createBuiltinEmulator(options as EmulatorOptions);
+  options: EmulatorOptions | InProcessEmulatorOptions | CustomEmulatorOptions<any>,
+): Promise<Emulator | InProcessEmulator | CustomEmulator<any>> {
+  if (typeof options.service === "string") {
+    return options.listen === false
+      ? createInProcessEmulator(options as InProcessEmulatorOptions)
+      : createBuiltinEmulator(options as EmulatorOptions);
+  }
   const opts = options as CustomEmulatorOptions<any>;
   if (opts.listen === false)
     return { ...(await createCustomRuntime(opts.service, opts)), generatedSecrets: Object.freeze([]) };
@@ -140,15 +175,113 @@ export function closeHttpServer(server: Server): Promise<void> {
   });
 }
 
-async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator> {
-  const { service, port = 4000, seed: seedConfig } = options;
+interface BuiltinRuntime {
+  baseUrl: string;
+  hosts: readonly ServiceHost[];
+  generatedSecrets: readonly GeneratedSecret[];
+  fetch(request: Request): Promise<Response>;
+  reset(): void;
+}
 
+interface BuiltinRuntimeOptions {
+  service: ServiceName;
+  seed?: SeedConfig;
+  baseUrl?: string;
+  /** Requested port passed to the service plugin. */
+  port?: number;
+  /** Port the HTTP server bound to. Undefined when running in process. */
+  listeningPort?: number;
+}
+
+/** Returns the real provider hosts a built-in service emulates. */
+export async function getServiceHosts(service: ServiceName): Promise<readonly ServiceHost[]> {
+  const loaded = await getServiceEntry(service).load();
+  return Object.freeze([...(loaded.hosts ?? [])]);
+}
+
+function getServiceEntry(service: ServiceName) {
   const entry = SERVICE_REGISTRY[service];
   if (!entry) {
     throw new Error(`Unknown service: ${service}`);
   }
+  return entry;
+}
 
+async function createBuiltinRuntime(options: BuiltinRuntimeOptions): Promise<BuiltinRuntime> {
+  const { service, seed: seedConfig, port, listeningPort } = options;
+  const entry = getServiceEntry(service);
   const loaded = await entry.load();
+
+  const tokens: Record<string, { login: string; id: number; scopes?: string[] }> = {};
+  if (seedConfig?.tokens) {
+    let tokenId = 100;
+    for (const [token, user] of Object.entries(seedConfig.tokens)) {
+      tokens[token] = { login: user.login, id: tokenId++, scopes: user.scopes };
+    }
+  } else {
+    tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
+  }
+
+  const inputSvcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
+  const preparedSeed =
+    inputSvcSeedConfig && loaded.prepareSeed ? await loaded.prepareSeed(inputSvcSeedConfig) : undefined;
+  const svcSeedConfig = preparedSeed?.config ?? inputSvcSeedConfig;
+  const generatedSecrets: readonly GeneratedSecret[] = Object.freeze(
+    (preparedSeed?.generatedSecrets ?? []).map((secret) => Object.freeze({ service, ...secret })),
+  );
+  const seedBaseUrl =
+    typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0 ? svcSeedConfig.baseUrl : undefined;
+  const baseUrl =
+    listeningPort === undefined
+      ? (seedBaseUrl ?? options.baseUrl ?? `http://${service}.localhost`)
+          .replace(/\{service\}/g, service)
+          .replace(/\/$/, "")
+      : resolveBaseUrl({ service, port: listeningPort, baseUrl: options.baseUrl, seedBaseUrl });
+
+  // eslint-disable-next-line prefer-const
+  let cachedResolver: AppKeyResolver | undefined;
+  const appKeyResolver: AppKeyResolver | undefined = loaded.createAppKeyResolver
+    ? (appId) => cachedResolver!(appId)
+    : undefined;
+
+  const fallbackUser = entry.defaultFallback(svcSeedConfig);
+
+  const { app, store, webhooks, tokenMap } = createServer(loaded.plugin, {
+    port,
+    baseUrl,
+    tokens,
+    appKeyResolver,
+    fallbackUser,
+  });
+  cachedResolver = loaded.createAppKeyResolver?.(store);
+
+  const seed = () => {
+    loaded.plugin.seed?.(store, baseUrl);
+    if (svcSeedConfig && loaded.seedFromConfig) {
+      loaded.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
+    }
+  };
+  seed();
+
+  return {
+    baseUrl,
+    hosts: Object.freeze([...(loaded.hosts ?? [])]),
+    generatedSecrets,
+    fetch: (request) => app.fetch(request),
+    reset() {
+      for (const [token, user] of tokenMap) {
+        if (user.installation) tokenMap.delete(token);
+      }
+      store.reset();
+      webhooks.clear();
+      seed();
+    },
+  };
+}
+
+async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator> {
+  const { service, port = 4000 } = options;
+  getServiceEntry(service);
 
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
   const httpServer = serve({
@@ -159,70 +292,16 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
   try {
     await waitForListening(httpServer);
     const address = httpServer.address();
-    const actualPort = address && typeof address === "object" ? address.port : port;
+    const listeningPort = address && typeof address === "object" ? address.port : port;
+    const runtime = await createBuiltinRuntime({ ...options, port, listeningPort });
 
-    const tokens: Record<string, { login: string; id: number; scopes?: string[] }> = {};
-    if (seedConfig?.tokens) {
-      let tokenId = 100;
-      for (const [token, user] of Object.entries(seedConfig.tokens)) {
-        tokens[token] = { login: user.login, id: tokenId++, scopes: user.scopes };
-      }
-    } else {
-      tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
-    }
-
-    const inputSvcSeedConfig = seedConfig?.[service] as Record<string, unknown> | undefined;
-    const preparedSeed =
-      inputSvcSeedConfig && loaded.prepareSeed ? await loaded.prepareSeed(inputSvcSeedConfig) : undefined;
-    const svcSeedConfig = preparedSeed?.config ?? inputSvcSeedConfig;
-    const generatedSecrets: readonly GeneratedSecret[] = Object.freeze(
-      (preparedSeed?.generatedSecrets ?? []).map((secret) => Object.freeze({ service, ...secret })),
-    );
-    const seedBaseUrl =
-      typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
-        ? svcSeedConfig.baseUrl
-        : undefined;
-    const baseUrl = resolveBaseUrl({ service, port: actualPort, baseUrl: options.baseUrl, seedBaseUrl });
-
-    // eslint-disable-next-line prefer-const
-    let cachedResolver: AppKeyResolver | undefined;
-    const appKeyResolver: AppKeyResolver | undefined = loaded.createAppKeyResolver
-      ? (appId) => cachedResolver!(appId)
-      : undefined;
-
-    const fallbackUser = entry.defaultFallback(svcSeedConfig);
-
-    const { app, store, webhooks, tokenMap } = createServer(loaded.plugin, {
-      port,
-      baseUrl,
-      tokens,
-      appKeyResolver,
-      fallbackUser,
-    });
-    cachedResolver = loaded.createAppKeyResolver?.(store);
-
-    const seed = () => {
-      loaded.plugin.seed?.(store, baseUrl);
-      if (svcSeedConfig && loaded.seedFromConfig) {
-        loaded.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
-      }
-    };
-    seed();
-
-    handler = app.fetch;
+    handler = runtime.fetch;
     let closing: Promise<void> | undefined;
 
     return {
-      url: baseUrl,
-      generatedSecrets,
-      reset() {
-        for (const [token, user] of tokenMap) {
-          if (user.installation) tokenMap.delete(token);
-        }
-        store.reset();
-        webhooks.clear();
-        seed();
-      },
+      url: runtime.baseUrl,
+      generatedSecrets: runtime.generatedSecrets,
+      reset: runtime.reset,
       close(): Promise<void> {
         return (closing ??= closeHttpServer(httpServer));
       },
@@ -231,4 +310,27 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
     await closeHttpServer(httpServer);
     throw error;
   }
+}
+
+async function createInProcessEmulator(options: InProcessEmulatorOptions): Promise<InProcessEmulator> {
+  const runtime = await createBuiltinRuntime({
+    service: options.service,
+    seed: options.seed,
+    baseUrl: options.baseUrl,
+  });
+  let closed = false;
+  const handle = async (request: Request): Promise<Response> =>
+    closed ? new Response("Emulator is closed", { status: 503 }) : runtime.fetch(request);
+
+  return {
+    url: runtime.baseUrl,
+    hosts: runtime.hosts,
+    generatedSecrets: runtime.generatedSecrets,
+    fetch: handle,
+    request: (path, init) => handle(new Request(new URL(path, `${runtime.baseUrl}/`), init)),
+    reset: runtime.reset,
+    async close() {
+      closed = true;
+    },
+  };
 }
