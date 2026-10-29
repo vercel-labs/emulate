@@ -106,3 +106,16 @@ curl http://localhost:4006/s3/ \
 ```
 
 For the AWS SDK, use IAM access key credentials. A default key pair is always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+## AI
+
+The AI service accepts a bearer key, an empty key, or no auth header. Keys are never required, validated, stored, or logged, and they do not select rules or partition state. SDK constructors that demand a key accept a placeholder such as `test`.
+
+```typescript
+import OpenAI from 'openai'
+
+const client = new OpenAI({
+  apiKey: 'test',
+  baseURL: 'http://localhost:4014/v1',
+})
+```
