@@ -245,6 +245,36 @@ describe("Slack interactions", () => {
     expect(await click(setup, actionBlocks, { action_id: "missing" })).toMatchObject({ error: "action_not_found" });
   });
 
+  it("finds buttons inside message attachments and reports the attachment container", async () => {
+    const setup = configure(createSlackTestApp());
+    const received = receiver();
+    const posted = await post(setup, "/api/chat.postMessage", {
+      channel: "general",
+      text: "Alert",
+      attachments: [
+        { color: "#888", text: "Context" },
+        { color: "#d00", blocks: actionBlocks },
+      ],
+    });
+    const clicked = await post(setup, "/_slack/simulate/block-actions", {
+      channel: posted.channel,
+      message_ts: posted.ts,
+      action_id: "open",
+      user: "admin",
+    });
+    expect(clicked.ok).toBe(true);
+    expect(received.payloads[0]).toMatchObject({
+      container: {
+        type: "message_attachment",
+        message_ts: posted.ts,
+        attachment_id: 2,
+        channel_id: posted.channel,
+        is_ephemeral: false,
+      },
+      actions: [{ type: "button", block_id: "buttons", action_id: "open", value: "item-42" }],
+    });
+  });
+
   it("rejects unauthenticated and inaccessible simulations before sending callbacks", async () => {
     const setup = configure(createSlackTestApp());
     const received = receiver();

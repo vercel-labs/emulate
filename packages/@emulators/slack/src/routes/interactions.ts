@@ -91,15 +91,23 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
         .find((item) => item.ts === body.message_ts && item.target_user === user.user_id);
     if (!message) return slackError(c, "message_not_found");
     const ephemeral = "target_user" in message;
-    const candidates = (message.blocks ?? []).flatMap((block, index) => {
-      const elements =
-        block.type === "actions" && Array.isArray(block.elements)
-          ? block.elements
-          : block.type === "section"
-            ? [block.accessory]
-            : [];
-      return elements.filter(isObject).map((element) => ({ block, element, index }));
-    });
+    const actionCandidates = (blocks: unknown, attachmentId?: number) =>
+      (Array.isArray(blocks) ? blocks : []).flatMap((block: unknown, index) => {
+        if (!isObject(block)) return [];
+        const elements =
+          block.type === "actions" && Array.isArray(block.elements)
+            ? block.elements
+            : block.type === "section"
+              ? [block.accessory]
+              : [];
+        return elements.filter(isObject).map((element) => ({ block, element, index, attachmentId }));
+      });
+    const candidates = [
+      ...actionCandidates(message.blocks),
+      ...(message.attachments ?? []).flatMap((attachment, index) =>
+        actionCandidates(attachment.blocks, typeof attachment.id === "number" ? attachment.id : index + 1),
+      ),
+    ];
     const selectors = ["action_id", "text", "url"].filter((key) => typeof body[key] === "string" && body[key]);
     if (!selectors.length) return slackError(c, "invalid_arguments");
     const matches = candidates.filter(({ element }) =>
@@ -109,7 +117,7 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
     );
     if (!matches.length) return slackError(c, "action_not_found");
     if (matches.length > 1) return slackError(c, "ambiguous_action");
-    const { block, element, index } = matches[0]!;
+    const { block, element, index, attachmentId } = matches[0]!;
     if (element.type !== "button") return slackError(c, "unsupported_element");
     const owner =
       message.interaction_app_id ??
@@ -145,7 +153,16 @@ export function interactionRoutes({ app, store, baseUrl, webhooks }: RouteContex
       ...commonPayload(targetApp.app_id, user.user_id, channel.team_id),
       type: "block_actions",
       trigger_id: trigger.trigger_id,
-      container: { type: "message", message_ts: message.ts, channel_id: channel.channel_id, is_ephemeral: ephemeral },
+      container:
+        attachmentId === undefined
+          ? { type: "message", message_ts: message.ts, channel_id: channel.channel_id, is_ephemeral: ephemeral }
+          : {
+              type: "message_attachment",
+              message_ts: message.ts,
+              attachment_id: attachmentId,
+              channel_id: channel.channel_id,
+              is_ephemeral: ephemeral,
+            },
       channel: { id: channel.channel_id, name: channel.name },
       message: formatSlackMessage(message),
       response_url: `${baseUrl.replace(/\/$/, "")}/_slack/response/${response.response_id}`,
