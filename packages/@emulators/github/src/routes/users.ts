@@ -71,6 +71,12 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.json(formatUserFull(user, baseUrl));
   });
 
+  app.get("/user/:account_id{[0-9]+}", (c) => {
+    const user = gh.users.get(Number(c.req.param("account_id")));
+    if (!user) throw notFoundResponse();
+    return c.json(formatUserFull(user, baseUrl));
+  });
+
   app.patch("/user", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) {

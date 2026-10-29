@@ -70,6 +70,8 @@ npm install @emulators/github
 - `POST/DELETE /repos/:owner/:repo/pulls/:number/requested_reviewers` — manage reviewers
 - `PUT /repos/:owner/:repo/pulls/:number/update-branch` — update branch
 
+Updating only a pull request's `base` branch emits `pull_request.edited` with the new base ref and SHA.
+
 ### Comments
 - Issue comments: full CRUD on `/repos/:owner/:repo/issues/:number/comments`
 - Review comments: full CRUD on `/repos/:owner/:repo/pulls/:number/comments`
@@ -80,8 +82,22 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/pulls/:number/reviews` — list
 - `POST /repos/:owner/:repo/pulls/:number/reviews` — create (with inline comments)
 - `GET/PUT /repos/:owner/:repo/pulls/:number/reviews/:id` — get/update
+- `DELETE /repos/:owner/:repo/pulls/:number/reviews/:id` — discard a pending review and its comments
 - `POST /repos/:owner/:repo/pulls/:number/reviews/:id/events` — submit
 - `PUT /repos/:owner/:repo/pulls/:number/reviews/:id/dismissals` — dismiss
+
+Omit `event` when creating a review to keep it pending. Each reviewer can have one pending review per pull request; review listings and review-specific reads expose it only to its author. Individual comment reads and repository-wide comment listings also hide pending review comments from other users and anonymous readers. Inline comments are validated before a review is stored. Pending edits emit no public webhooks, while submission and submitted-summary edits emit review events.
+
+### GraphQL collaboration
+
+The `POST /graphql` endpoint supports a collaboration subset backed by the same pull requests and comments as REST:
+
+- `repository.pullRequest` with paginated `reviewThreads`, comment identities, and resolution state
+- `addPullRequestReviewThread` to add an inline comment to an existing pending review using its `pullRequestReviewId`
+- `convertPullRequestToDraft` and `markPullRequestReadyForReview`
+- `resolveReviewThread` and `unresolveReviewThread`
+
+Draft/ready transitions and public thread resolution changes emit the corresponding webhooks. This is not a complete GitHub GraphQL schema; diff-validation limitations also apply to GraphQL comments.
 
 ### Labels & Milestones
 - Labels: full CRUD, add/remove from issues, replace all
@@ -214,6 +230,8 @@ npx emulate start --service github --seed emulate.config.yaml \
 ```
 
 The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Explicit keys are excluded from the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files continue requiring `private_key`.
+
+Installation tokens can list repositories with `GET /installation/repositories`. Results paginate and intersect the token's selection with current installation grants. Removed or suspended installations cannot discover repositories. User-token discovery remains limited to explicit repository access.
 
 ## Links
 

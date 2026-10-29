@@ -59,6 +59,9 @@ Custom emulators:
   Docs: https://emulate.dev/docs/custom-emulators
 
 GitHub API coverage:
+  User ID lookup and requested-reviewer listing use stored identities; removals emit review_request_removed.
+  Requests reject the PR author; submitted reviews clear that user request while drafts retain it.
+  Commit statuses support create, paginated history by ref, and signed status webhooks; combined summaries are not implemented.
   Includes repository contents, raw downloads, raw media negotiation for file Contents and README responses,
   commit history, commit details, ref comparisons, organization membership seeding with member/admin roles,
   and Checks list-by-ref endpoints for branch and tag refs containing slashes.
@@ -67,6 +70,18 @@ GitHub API coverage:
   Checks retain the authenticated installation's App in API responses and webhooks.
   Suites are separated by App and commit; latest runs are grouped by App and check name.
   User-token checks return app: null; request-body app_id cannot change attribution.
+  User installation discovery respects explicit repository access and supports pagination.
+  Installation tokens list paginated repositories within their current installation grants.
+  Issue, pull-request body, and comment reactions support list/create/delete with derived counts.
+  Pull-request issue-comment webhooks include issue.pull_request metadata. Reactions emit no webhooks.
+  Pull-request files list actual merge-base diffs, text patches, pagination, and the 3,000-file limit.
+  Review comments validate diff paths/lines; replies keep their parent's location.
+  Git refs and Contents writes advance open PR heads and emit pull_request.synchronize.
+  Base-only pull-request retargets emit pull_request.edited with the new base ref and SHA.
+  Pending reviews support incremental GraphQL comments, submission, and discard; summaries are editable.
+  Individual and repository-wide comment reads expose pending review comments only to their author.
+  POST /graphql also supports paginated review threads, resolution, and draft/ready transitions.
+  GraphQL is a collaboration subset, not the complete GitHub schema.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
 
 Linear API coverage:

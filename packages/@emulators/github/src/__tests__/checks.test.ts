@@ -53,6 +53,56 @@ describe("GitHub checks routes", () => {
     app = createTestApp().app;
   });
 
+  it("retains paginated commit-status history and enforces repository access", async () => {
+    const branch = await app.request(`${base}/repos/octocat/hello-world/branches/main`, {
+      headers: authHeaders(),
+    });
+    const { commit } = (await branch.json()) as { commit: { sha: string } };
+    const path = `${base}/repos/octocat/hello-world`;
+    const ref = await app.request(`${path}/git/refs`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ref: "refs/heads/status/nested", sha: commit.sha }),
+    });
+    expect(ref.status).toBe(201);
+    for (const state of ["pending", "failure", "success"]) {
+      const response = await app.request(`${path}/statuses/${commit.sha}`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ state, context: "ci", target_url: "https://ci.example.com" }),
+      });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({
+        state,
+        context: "ci",
+        target_url: "https://ci.example.com",
+        creator: { login: "octocat" },
+      });
+    }
+    const first = await app.request(`${path}/commits/status/nested/statuses?per_page=2`, {
+      headers: authHeaders(),
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("link")).toContain('rel="next"');
+    expect(await first.json()).toMatchObject([{ state: "success" }, { state: "failure" }]);
+    const last = await app.request(`${path}/commits/${commit.sha}/statuses?per_page=2&page=2`, {
+      headers: authHeaders(),
+    });
+    expect(await last.json()).toMatchObject([{ state: "pending" }]);
+    const invalid = await app.request(`${path}/statuses/${commit.sha}`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ state: "completed" }),
+    });
+    expect(invalid.status).toBe(422);
+    const anonymous = await app.request(`${path}/statuses/${commit.sha}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "success" }),
+    });
+    expect(anonymous.status).toBe(401);
+  });
+
   it("lists check runs and suites for refs containing slashes", async () => {
     const commits = await app.request(`${base}/repos/octocat/hello-world/commits`, { headers: authHeaders() });
     const [head] = (await commits.json()) as Array<{ sha: string }>;

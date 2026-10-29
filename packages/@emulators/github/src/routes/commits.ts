@@ -9,6 +9,7 @@ import {
   commitIdentityMatches,
   diffTrees,
   findCommitBySha,
+  findMergeBase,
   flattenTree,
   formatCommitItem,
   formatFileDiff,
@@ -41,31 +42,6 @@ function commitTouchesPath(gh: GitHubStore, repoId: number, commit: GitHubCommit
 function parseDateFilter(value: string): number | undefined {
   const date = Date.parse(value);
   return Number.isFinite(date) ? date : undefined;
-}
-
-function ancestorDistances(gh: GitHubStore, repoId: number, startSha: string): Map<string, number> {
-  const distances = new Map<string, number>();
-  const queue: Array<{ sha: string; distance: number }> = [{ sha: startSha, distance: 0 }];
-  for (let i = 0; i < queue.length; i++) {
-    const { sha, distance } = queue[i];
-    const known = distances.get(sha);
-    if (known !== undefined && known <= distance) continue;
-    distances.set(sha, distance);
-    const commit = findCommitBySha(gh, repoId, sha);
-    if (!commit) continue;
-    for (const parent of commit.parent_shas) queue.push({ sha: parent, distance: distance + 1 });
-  }
-  return distances;
-}
-
-function findMergeBase(gh: GitHubStore, repoId: number, baseSha: string, headSha: string): GitHubCommit | undefined {
-  const fromBase = ancestorDistances(gh, repoId, baseSha);
-  const fromHead = ancestorDistances(gh, repoId, headSha);
-  return [...fromBase.keys()]
-    .filter((sha) => fromHead.has(sha))
-    .map((sha) => ({ commit: findCommitBySha(gh, repoId, sha), score: fromBase.get(sha)! + fromHead.get(sha)! }))
-    .filter((candidate): candidate is { commit: GitHubCommit; score: number } => candidate.commit !== undefined)
-    .sort((a, b) => a.score - b.score || b.commit.id - a.commit.id)[0]?.commit;
 }
 
 function formatFullCommit(

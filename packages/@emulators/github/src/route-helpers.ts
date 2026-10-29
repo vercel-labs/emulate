@@ -26,7 +26,7 @@ export function getActorUser(gh: GitHubStore, authUser: AuthUser): GitHubUser | 
   return gh.users.findOneBy("login", authUser.login);
 }
 
-function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
+export function installationCanAccessRepo(authUser: AuthUser, repo: GitHubRepo): boolean {
   const installation = authUser.installation;
   if (!installation) return false;
   if (repo.owner_id !== installation.accountId || repo.owner_type !== installation.accountType) return false;
