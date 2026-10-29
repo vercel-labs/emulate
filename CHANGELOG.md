@@ -1,8 +1,24 @@
 # Changelog
 
-## 0.12.3
+## 0.13.0
 
 <!-- release:start -->
+
+### New Features
+
+- Added **local MCP server** with `npx emulate mcp` so agents can list services, create configurations, and start or stop emulators through shared CLI tools (#331)
+
+### Improvements
+
+- Centralized **CLI commands and startup lifecycle** to keep options, startup readiness, and shutdown behavior consistent across CLI and MCP entry points (#332)
+
+### Contributors
+
+- @lahfir
+
+<!-- release:end -->
+
+## 0.12.3
 
 ### New Features
 
@@ -31,8 +47,6 @@
 - @ikatkov
 - @marcusschiesser
 - @aneiasovbb
-
-<!-- release:end -->
 
 ## 0.12.2
 
