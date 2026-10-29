@@ -148,7 +148,7 @@ export function filesRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const filename = typeof body.filename === "string" ? body.filename.trim() : "";
     const length = Number(body.length);
-    const altTxt = typeof body.alt_text === "string" ? body.alt_text : undefined;
+    const altTxt = typeof body.alt_txt === "string" ? body.alt_txt : undefined;
     const snippetType = typeof body.snippet_type === "string" ? body.snippet_type : undefined;
 
     if (!filename || !Number.isFinite(length) || length < 0) return slackError(c, "invalid_arguments");
