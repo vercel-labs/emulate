@@ -2,7 +2,8 @@ import type { AuthUser } from "@emulators/core";
 import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
-import { generateNodeId, repoPermissionLevel } from "./helpers.js";
+import type { RepoPermissions } from "./helpers.js";
+import { formatRepo, generateNodeId, repoAccessLevel, repoPermissionFlags, repoPermissionLevel } from "./helpers.js";
 
 export { notFound as notFoundResponse };
 
@@ -71,6 +72,25 @@ export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, r
   const user = getActorUser(gh, authUser);
   if (!user) return false;
   return repoPermissionLevel(gh, repo, user.id) !== null;
+}
+
+function callerRepoPermissions(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+): RepoPermissions | undefined {
+  if (!authUser || authUser.installation) return undefined;
+  const user = getActorUser(gh, authUser);
+  return user ? repoPermissionFlags(repoAccessLevel(gh, repo, user.id)) : undefined;
+}
+
+export function formatRepoForCaller(
+  gh: GitHubStore,
+  repo: GitHubRepo,
+  baseUrl: string,
+  authUser: AuthUser | undefined,
+) {
+  return formatRepo(repo, gh, baseUrl, callerRepoPermissions(gh, authUser, repo));
 }
 
 export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {

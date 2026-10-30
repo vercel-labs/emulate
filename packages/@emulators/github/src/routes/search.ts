@@ -12,7 +12,7 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import { formatIssue, formatOrgBrief, formatRepo, formatUser, lookupRepo } from "../helpers.js";
-import { canAccessRepo, canReadRepoContents } from "../route-helpers.js";
+import { canAccessRepo, canReadRepoContents, formatRepoForCaller } from "../route-helpers.js";
 import {
   commitIdentityMatches,
   encodeContentPath,
@@ -874,7 +874,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.json({
       total_count: total,
       incomplete_results: false,
-      items: slice.map((r) => formatRepo(r, gh, baseUrl)),
+      items: slice.map((r) => formatRepoForCaller(gh, r, baseUrl, authUser)),
     });
   });
 

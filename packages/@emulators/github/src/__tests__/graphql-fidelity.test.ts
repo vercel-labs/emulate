@@ -927,7 +927,7 @@ describe("GitHub GraphQL fidelity", () => {
     const ORG_REPO = "/repos/acme/widgets";
     const tokens = ["owner", "member", "writer", "teammate"] as const;
 
-    async function seedOrg(basePermission: "read" | "write") {
+    async function seedOrg(basePermission: "read" | "write" | "none") {
       seedFromConfig(server.store, base, {
         users: tokens.map((login) => ({ login })),
         orgs: [
@@ -1067,6 +1067,106 @@ describe("GitHub GraphQL fidelity", () => {
       expect(viewer.data.repository.viewerPermission).toBe("WRITE");
       expect(await send("PUT", `${ORG_REPO}/pulls/${pr.number}/merge`, {}, "member-token")).toMatchObject({
         status: 200,
+      });
+    });
+
+    const viewerPermissionQuery = (name: string) =>
+      `{ repository(owner: "acme", name: "${name}") { viewerPermission } }`;
+    const ROLE = {
+      read: { admin: false, maintain: false, push: false, triage: false, pull: true },
+      write: { admin: false, maintain: false, push: true, triage: true, pull: true },
+      admin: { admin: true, maintain: true, push: true, triage: true, pull: true },
+    };
+
+    it("makes a member who creates or forks an organization repository its admin", async () => {
+      await seedOrg("none");
+      const created = await send("POST", "/orgs/acme/repos", { name: "tool", private: true }, "member-token");
+      expect(created).toMatchObject({ status: 201, body: { permissions: ROLE.admin } });
+      expect(await send("GET", "/repos/acme/tool", undefined, "member-token")).toMatchObject({ status: 200 });
+      expect((await graphql(viewerPermissionQuery("tool"), {}, "member-token")).data.repository.viewerPermission).toBe(
+        "ADMIN",
+      );
+      expect(await send("PATCH", "/repos/acme/tool", { description: "mine" }, "member-token")).toMatchObject({
+        status: 200,
+      });
+      expect(
+        await send("PUT", "/repos/acme/tool/contents/a.txt", { message: "a", content: "YQ==" }, "member-token"),
+      ).toMatchObject({ status: 201 });
+      const direct = await send("GET", "/repos/acme/tool/collaborators?affiliation=direct", undefined, "member-token");
+      expect(direct.body.map((u: { login: string; role_name: string }) => [u.login, u.role_name])).toEqual([
+        ["member", "admin"],
+      ]);
+
+      const forked = await send(
+        "POST",
+        `${ORG_REPO}/forks`,
+        { organization: "acme", name: "widgets-fork" },
+        "writer-token",
+      );
+      expect(forked).toMatchObject({ status: 202, body: { permissions: ROLE.admin } });
+      expect(await send("PATCH", "/repos/acme/widgets-fork", { description: "fork" }, "writer-token")).toMatchObject({
+        status: 200,
+      });
+    });
+
+    it("reports the caller's role as permissions on repository responses", async () => {
+      await seedOrg("read");
+      expect((await send("GET", ORG_REPO, undefined, "member-token")).body.permissions).toEqual(ROLE.read);
+      expect((await send("GET", ORG_REPO, undefined, "teammate-token")).body.permissions).toEqual(ROLE.write);
+      expect((await send("GET", ORG_REPO, undefined, "owner-token")).body.permissions).toEqual(ROLE.admin);
+      expect((await send("GET", ORG_REPO, undefined, "outsider-token")).body.permissions).toEqual(ROLE.read);
+      const search = await send("GET", "/search/repositories?q=widgets", undefined, "member-token");
+      expect(search.body.items[0].permissions).toEqual(ROLE.read);
+      const forks = await send("POST", `${REPO}/forks`, {}, "member-token");
+      expect(forks.body.permissions).toEqual(ROLE.admin);
+      expect((await send("GET", "/user/repos", undefined, "member-token")).body[0].permissions).toEqual(ROLE.admin);
+
+      const anonymous = await app.request(`${base}${ORG_REPO}`);
+      expect(await anonymous.json()).not.toHaveProperty("permissions");
+      expect((await send("GET", REPO, undefined, "app-11-token")).body).not.toHaveProperty("permissions");
+    });
+
+    it("answers collaborator permission checks with the computed role", async () => {
+      await seedOrg("read");
+      const check = async (login: string, token = "owner-token") =>
+        send("GET", `${ORG_REPO}/collaborators/${login}/permission`, undefined, token);
+
+      expect((await check("member")).body).toMatchObject({
+        permission: "read",
+        role_name: "read",
+        user: { login: "member", role_name: "read", permissions: ROLE.read },
+      });
+      expect((await check("teammate")).body).toMatchObject({ permission: "write", role_name: "write" });
+      expect((await check("owner")).body).toMatchObject({ permission: "admin", role_name: "admin" });
+      expect((await check("outsider")).body).toMatchObject({ permission: "read", role_name: "read" });
+      gh.repos.update(gh.repos.findOneBy("full_name", "acme/widgets")!.id, { private: true });
+      expect((await check("outsider")).body).toMatchObject({
+        permission: "none",
+        role_name: "",
+        user: { login: "outsider", role_name: "", permissions: { pull: false } },
+      });
+      expect(await check("nobody")).toMatchObject({ status: 404, body: { message: "nobody is not a user" } });
+      expect(await check("owner", "member-token")).toMatchObject({
+        status: 403,
+        body: { message: "Must have push access to view collaborator permission." },
+      });
+
+      const all = await send("GET", `${ORG_REPO}/collaborators`, undefined, "teammate-token");
+      expect(all.body.map((u: { login: string; role_name: string }) => [u.login, u.role_name])).toEqual([
+        ["owner", "admin"],
+        ["member", "read"],
+        ["writer", "write"],
+        ["teammate", "write"],
+      ]);
+      const pushers = await send("GET", `${ORG_REPO}/collaborators?permission=push`, undefined, "teammate-token");
+      expect(pushers.body.map((u: { login: string }) => u.login)).toEqual(["owner", "writer", "teammate"]);
+      const outside = await send("GET", `${ORG_REPO}/collaborators?affiliation=outside`, undefined, "owner-token");
+      expect(outside.body).toEqual([]);
+      expect(await send("GET", `${ORG_REPO}/collaborators?permission=read`, undefined, "owner-token")).toMatchObject({
+        status: 422,
+        body: {
+          message: "The permission 'read' is not valid. Supported values are: pull, triage, push, maintain, admin.",
+        },
       });
     });
   });

@@ -155,6 +155,10 @@ export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
 const PERMISSION_LEVELS = ["pull", "triage", "push", "maintain", "admin"] as const;
 export type RepoPermissionLevel = (typeof PERMISSION_LEVELS)[number];
 
+export function isRepoPermissionLevel(value: unknown): value is RepoPermissionLevel {
+  return PERMISSION_LEVELS.includes(value as RepoPermissionLevel);
+}
+
 function permissionRank(permission: string): number {
   if (permission === "read") return 0;
   if (permission === "write") return 2;
@@ -189,17 +193,25 @@ export function repoPermissionLevel(store: GitHubStore, repo: GitHubRepo, userId
   return collab ? collab.permission : null;
 }
 
-function computeRepoPermissions(store: GitHubStore, repo: GitHubRepo, authUserId: number) {
-  const level = repoPermissionLevel(store, repo, authUserId);
-  const rank = level ? permissionRank(level) : repo.private ? -1 : 0;
-  return {
-    admin: rank >= 4,
-    maintain: rank >= 3,
-    push: rank >= 2,
-    triage: rank >= 1,
-    pull: rank >= 0,
-  };
+/** A user's role on a repository, counting read access to any public repository. */
+export function repoAccessLevel(store: GitHubStore, repo: GitHubRepo, userId: number): RepoPermissionLevel | null {
+  return repoPermissionLevel(store, repo, userId) ?? (repo.private ? null : "pull");
 }
+
+export type RepoPermissions = Record<RepoPermissionLevel, boolean>;
+
+export function repoPermissionFlags(level: RepoPermissionLevel | null): RepoPermissions {
+  const rank = level ? permissionRank(level) : -1;
+  return { admin: rank >= 4, maintain: rank >= 3, push: rank >= 2, triage: rank >= 1, pull: rank >= 0 };
+}
+
+export const ROLE_NAMES: Record<RepoPermissionLevel, string> = {
+  pull: "read",
+  triage: "triage",
+  push: "write",
+  maintain: "maintain",
+  admin: "admin",
+};
 
 export function computeAuthorAssociation(store: GitHubStore, userId: number, repoId: number): string {
   const repo = store.repos.get(repoId);
@@ -245,7 +257,8 @@ export function formatOrgFull(org: GitHubOrg, baseUrl: string) {
   };
 }
 
-export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string, authUserId?: number) {
+/** `permissions` is the caller's role; GitHub omits it for anonymous callers, installation tokens, and embedded repositories. */
+export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string, permissions?: RepoPermissions) {
   const owner = formatOwner(store, repo.owner_id, repo.owner_type, baseUrl);
   const ownerLogin = owner?.login ?? "unknown";
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -330,16 +343,7 @@ export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string
     open_issues: repo.open_issues_count,
     watchers: repo.watchers_count,
     default_branch: repo.default_branch,
-    permissions:
-      authUserId !== undefined
-        ? computeRepoPermissions(store, repo, authUserId)
-        : {
-            admin: true,
-            maintain: true,
-            push: true,
-            triage: true,
-            pull: true,
-          },
+    ...(permissions && { permissions }),
     allow_rebase_merge: repo.allow_rebase_merge,
     allow_squash_merge: repo.allow_squash_merge,
     allow_merge_commit: repo.allow_merge_commit,
