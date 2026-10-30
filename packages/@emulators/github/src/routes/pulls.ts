@@ -5,6 +5,8 @@ import {
   assertAuthenticatedActor,
   assertRepoPermission,
   assertRepoWrite,
+  hasRepoAdmin,
+  hasRepoContentsWrite,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -262,6 +264,12 @@ function sortPulls(
   return sorted;
 }
 
+/** GitHub ignores approvals and change requests from reviewers without write access. */
+export function reviewCounts(gh: GitHubStore, repo: GitHubRepo, userId: number): boolean {
+  const user = gh.users.get(userId);
+  return user !== undefined && (hasRepoAdmin(gh, user, repo) || hasRepoContentsWrite(gh, user, repo));
+}
+
 export function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
   const baseRepo = gh.repos.get(pr.base_repo_id);
   if (!baseRepo) throw new ApiError(422, "Base repository not found");
@@ -286,7 +294,7 @@ export function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
     const need = rev.required_approving_review_count;
     const approved = gh.reviews
       .findBy("repo_id", baseRepo.id)
-      .filter((r) => r.pull_number === pr.number && r.state === "APPROVED");
+      .filter((r) => r.pull_number === pr.number && r.state === "APPROVED" && reviewCounts(gh, baseRepo, r.user_id));
     const approvers = new Set(approved.map((r) => r.user_id));
     if (approvers.size < need) {
       throw new ApiError(422, "Required approving review count not met.");

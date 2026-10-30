@@ -23,7 +23,7 @@ import {
 } from "../helpers.js";
 import { diffTrees, findCommitBySha, listAncestors } from "../git-helpers.js";
 import { assertAuthenticatedActor, hasRepoAdmin, hasRepoContentsWrite, ownerLoginOf } from "../route-helpers.js";
-import { checkMergeRequirements } from "../routes/pulls.js";
+import { checkMergeRequirements, reviewCounts } from "../routes/pulls.js";
 import { insertIssueEvent } from "../routes/issues.js";
 import { issuePrMatchesFilters, parseSearchQuery } from "../routes/search.js";
 import { connectionFromArray, type ConnectionArgs } from "./connection.js";
@@ -271,12 +271,14 @@ function rollupState(runs: GitHubCheckRun[]): "SUCCESS" | "FAILURE" | "PENDING" 
   return "SUCCESS";
 }
 
+// GitHub keeps the newest run per app and check name: two apps reporting the same name both count.
 function latestCheckRuns(ctx: GraphQLContext, repo: GitHubRepo, sha: string): GitHubCheckRun[] {
   const latest = new Map<string, GitHubCheckRun>();
   for (const run of ctx.gh.checkRuns.findBy("repo_id", repo.id)) {
     if (run.head_sha !== sha) continue;
-    const prev = latest.get(run.name);
-    if (!prev || prev.id < run.id) latest.set(run.name, run);
+    const key = `${run.app_id ?? ""}:${run.name}`;
+    const prev = latest.get(key);
+    if (!prev || prev.id < run.id) latest.set(key, run);
   }
   return [...latest.values()].sort((a, b) => a.id - b.id);
 }
@@ -504,7 +506,10 @@ function latestReviewsByAuthor(reviews: GitHubReview[]): GitHubReview[] {
 }
 
 function reviewDecision(ctx: GraphQLContext, pr: GitHubPullRequest): string | null {
-  const latest = latestReviewsByAuthor(visibleReviews(ctx, pr)).map((r) => r.state);
+  const repo = ctx.gh.repos.get(pr.base_repo_id);
+  const latest = latestReviewsByAuthor(visibleReviews(ctx, pr))
+    .filter((r) => repo !== undefined && reviewCounts(ctx.gh, repo, r.user_id))
+    .map((r) => r.state);
   if (latest.includes("CHANGES_REQUESTED")) return "CHANGES_REQUESTED";
   const rule = ctx.gh.branchProtections.findBy("repo_id", pr.base_repo_id).find((p) => p.branch_name === pr.base_ref);
   const required = rule?.required_pull_request_reviews?.required_approving_review_count ?? 0;
@@ -614,10 +619,16 @@ function pullRequestDiff(ctx: GraphQLContext, pr: GitHubPullRequest): PullReques
   return { commits, files };
 }
 
+function mergeable(pr: GitHubPullRequest): "MERGEABLE" | "CONFLICTING" | "UNKNOWN" {
+  if (pr.state !== "open" || pr.mergeable === null) return "UNKNOWN";
+  return pr.mergeable ? "MERGEABLE" : "CONFLICTING";
+}
+
 function mergeStateStatus(ctx: GraphQLContext, pr: GitHubPullRequest): string {
-  if (pr.state !== "open") return "UNKNOWN";
+  const state = mergeable(pr);
+  if (state === "UNKNOWN") return "UNKNOWN";
   if (pr.draft) return "DRAFT";
-  if (pr.mergeable === false) return "DIRTY";
+  if (state === "CONFLICTING") return "DIRTY";
   try {
     checkMergeRequirements(ctx.gh, pr);
   } catch {
@@ -663,7 +674,7 @@ export function prView(ctx: GraphQLContext, pr: GitHubPullRequest): View | null 
     mergedBy: () => actorView(ctx, pr.merged_by_id !== null ? ctx.gh.users.get(pr.merged_by_id) : undefined),
     mergeCommit: () => commitBySha(ctx, repo, pr.merge_commit_sha),
     potentialMergeCommit: null,
-    mergeable: pr.state !== "open" ? "UNKNOWN" : pr.mergeable === false ? "CONFLICTING" : "MERGEABLE",
+    mergeable: mergeable(pr),
     mergeStateStatus: () => mergeStateStatus(ctx, pr),
     isInMergeQueue: false,
     isMergeQueueEnabled: false,
