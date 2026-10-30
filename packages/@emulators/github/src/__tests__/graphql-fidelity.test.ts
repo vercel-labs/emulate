@@ -332,9 +332,43 @@ describe("GitHub GraphQL fidelity", () => {
       expect((await send("GET", REPO)).res.headers.get("X-RateLimit-Used")).toBe("2");
     });
 
+    it("rejects queries over 500,000 possible nodes without charging them", async () => {
+      const repo = `repository(owner: "octocat", name: "hello-world")`;
+      const deep = await graphql(
+        `{ ${repo} { pullRequests(first: 100) { nodes { commits(first: 100) { nodes { commit { authors(first: 100) { totalCount } } } } } } } }`,
+      );
+      expect(deep.res.status).toBe(200);
+      expect(deep.data).toBeUndefined();
+      expect(deep.errors).toEqual([
+        {
+          type: "MAX_NODE_LIMIT_EXCEEDED",
+          locations: [{ line: 1, column: 129 }],
+          message:
+            "By the time this query traverses to the authors connection, it is requesting up to 1,000,000 possible nodes which exceeds the maximum limit of 500,000.",
+        },
+      ]);
+      expect(deep.res.headers.get("X-RateLimit-Used")).toBe("0");
+
+      const wide = await graphql(
+        `{ ${repo} { pullRequests(first: 100) { nodes { commits(first: 100) { nodes { commit { authors(first: 49) { nodes { name } } } } } } } } }`,
+      );
+      expect(wide.errors).toEqual([
+        {
+          type: "MAX_NODE_LIMIT_EXCEEDED",
+          message: "This query requests up to 500,100 possible nodes which exceeds the maximum limit of 500,000.",
+        },
+      ]);
+
+      const fits = await graphql(
+        `{ rateLimit { nodeCount } ${repo} { pullRequests(first: 100) { nodes { commits(first: 100) { nodes { commit { authors(first: 48) { nodes { name } } } } } } } } }`,
+      );
+      expect(fits.errors).toBeUndefined();
+      expect(fits.data.rateLimit.nodeCount).toBe(490_100);
+    });
+
     it("answers RATE_LIMITED once the graphql budget is spent", async () => {
       const expensive = `repository(owner: "octocat", name: "hello-world") { pullRequests(first: 100) { nodes {
-        commits(first: 100) { nodes { commit { authors(first: 100) { nodes { name } } } } }
+        commits(first: 100) { nodes { commit { authors(first: 40) { nodes { name } } } } }
         labels(first: 100) { nodes { name } } comments(first: 100) { nodes { id } } } } }`;
       const dryRun = await graphql(`{ rateLimit(dryRun: true) { cost } ${expensive} }`, {}, "hubot-token");
       expect(dryRun.data.rateLimit.cost).toBe(103);

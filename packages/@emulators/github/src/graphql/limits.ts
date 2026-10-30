@@ -1,5 +1,6 @@
 import {
   Kind,
+  getLocation,
   getNamedType,
   isAbstractType,
   isObjectType,
@@ -10,10 +11,12 @@ import {
   type GraphQLSchema,
   type OperationDefinitionNode,
   type SelectionSetNode,
+  type SourceLocation,
 } from "graphql";
 import { GitHubGraphQLError } from "./context.js";
 
 const MAX_PAGE_SIZE = 100;
+const MAX_NODE_LIMIT = 500_000;
 
 export function isConnectionField(args: readonly { name: string }[]): boolean {
   const names = new Set(args.map((a) => a.name));
@@ -80,7 +83,10 @@ export function selectsPage(
 export interface QueryCost {
   cost: number;
   nodeCount: number;
+  nodeLimitError: { type: "MAX_NODE_LIMIT_EXCEEDED"; message: string; locations?: SourceLocation[] } | null;
 }
+
+const formatCount = (n: number) => n.toLocaleString("en-US");
 
 /**
  * GitHub's primary rate limit cost: each connection costs one request per possible parent
@@ -95,6 +101,7 @@ export function queryCost(
 ): QueryCost {
   let requests = 0;
   let nodeCount = 0;
+  let nodeLimitError: QueryCost["nodeLimitError"] = null;
 
   const walk = (
     set: SelectionSetNode | undefined,
@@ -144,6 +151,13 @@ export function queryCost(
         const pageSize = typeof size === "number" ? size : 0;
         childMultiplier = multiplier * (typeof size === "number" ? size : MAX_PAGE_SIZE);
         nodeCount += nodeMultiplier * pageSize;
+        if (!nodeLimitError && nodeMultiplier * pageSize > MAX_NODE_LIMIT) {
+          nodeLimitError = {
+            type: "MAX_NODE_LIMIT_EXCEEDED",
+            ...(selection.loc ? { locations: [getLocation(selection.loc.source, selection.loc.start)] } : {}),
+            message: `By the time this query traverses to the ${field.name} connection, it is requesting up to ${formatCount(nodeMultiplier * pageSize)} possible nodes which exceeds the maximum limit of ${formatCount(MAX_NODE_LIMIT)}.`,
+          };
+        }
         childNodeMultiplier = nodeMultiplier * Math.max(1, pageSize);
       }
       const named = getNamedType(field.type);
@@ -153,9 +167,15 @@ export function queryCost(
   };
 
   const root = operation.operation === "subscription" ? schema.getSubscriptionType() : schema.getQueryType();
-  if (operation.operation === "mutation") return { cost: 1, nodeCount: 0 };
+  if (operation.operation === "mutation") return { cost: 1, nodeCount: 0, nodeLimitError: null };
   if (root) walk(operation.selectionSet, [root], 1, 1, new Set());
-  return { cost: Math.max(1, Math.round(requests / 100)), nodeCount };
+  if (!nodeLimitError && nodeCount > MAX_NODE_LIMIT) {
+    nodeLimitError = {
+      type: "MAX_NODE_LIMIT_EXCEEDED",
+      message: `This query requests up to ${formatCount(nodeCount)} possible nodes which exceeds the maximum limit of ${formatCount(MAX_NODE_LIMIT)}.`,
+    };
+  }
+  return { cost: Math.max(1, Math.round(requests / 100)), nodeCount, nodeLimitError };
 }
 
 function narrow(schema: GraphQLSchema, types: readonly GraphQLObjectType[], condition: string): GraphQLObjectType[] {

@@ -207,9 +207,10 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     }
 
     const variables = request.variables ?? {};
-    const { cost, nodeCount } = operation
+    const { cost, nodeCount, nodeLimitError } = operation
       ? queryCost(schema, operation, fragmentsOf(document), variables)
-      : { cost: 1, nodeCount: 0 };
+      : { cost: 1, nodeCount: 0, nodeLimitError: null };
+    if (nodeLimitError) return c.json({ errors: [nodeLimitError] });
     const kind = operation ? rateLimitQuery(operation, variables) : "none";
     if (kind === "none") {
       const limited = charge(cost);
