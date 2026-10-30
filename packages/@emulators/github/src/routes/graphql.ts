@@ -1,6 +1,5 @@
 import {
   RateLimiter,
-  internalRequest,
   remaining,
   setRateLimitHeaders,
   type Context,
@@ -253,13 +252,5 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
   for (const path of GRAPHQL_PATHS) {
     app.get(path, get);
     app.post(path, post);
-  }
-
-  for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
-    app.on(method, "/api/v3/:path{.*}", (c) => {
-      const url = new URL(c.req.url);
-      url.pathname = url.pathname.slice("/api/v3".length) || "/";
-      return app.fetch(internalRequest(url.toString(), c.req.raw));
-    });
   }
 }

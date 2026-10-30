@@ -460,6 +460,32 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  describe("/api/v3", () => {
+    it("prefixes REST API URLs and leaves web URLs alone", async () => {
+      await seedPr();
+      const { body } = await send("GET", "/api/v3/repos/octocat/hello-world/pulls/1");
+      expect(body.url).toBe(`${base}/api/v3/repos/octocat/hello-world/pulls/1`);
+      expect(body.user.url).toBe(`${base}/api/v3/users/octocat`);
+      expect(body.html_url).toBe(`${base}/octocat/hello-world/pull/1`);
+      expect(body._links.self.href).toBe(`${base}/api/v3/repos/octocat/hello-world/pulls/1`);
+      expect(body._links.html.href).toBe(`${base}/octocat/hello-world/pull/1`);
+    });
+
+    it("prefixes Link headers", async () => {
+      await seedPr("one");
+      await seedPr("two");
+      const { res } = await send("GET", "/api/v3/repos/octocat/hello-world/pulls?per_page=1");
+      expect(res.headers.get("Link")).toContain(`<${base}/api/v3/repos/octocat/hello-world/pulls?`);
+    });
+
+    it("serves the API root document at /api/v3", async () => {
+      const { status, body } = await send("GET", "/api/v3");
+      expect(status).toBe(200);
+      expect(body.current_user_url).toBe(`${base}/api/v3/user`);
+      expect(body.repository_url).toBe(`${base}/api/v3/repos/{owner}/{repo}`);
+    });
+  });
+
   describe("reviews and check runs", () => {
     it("reports latestReviews ids and commit oids", async () => {
       const pr = await seedPr();

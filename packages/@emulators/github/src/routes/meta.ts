@@ -1,6 +1,46 @@
 import type { RouteContext } from "@emulators/core";
 
+export function rootDocument(baseUrl: string) {
+  return {
+    current_user_url: `${baseUrl}/user`,
+    current_user_authorizations_html_url: `${baseUrl}/settings/connections/applications{/client_id}`,
+    authorizations_url: `${baseUrl}/authorizations`,
+    code_search_url: `${baseUrl}/search/code?q={query}{&page,per_page,sort,order}`,
+    commit_search_url: `${baseUrl}/search/commits?q={query}{&page,per_page,sort,order}`,
+    emails_url: `${baseUrl}/user/emails`,
+    emojis_url: `${baseUrl}/emojis`,
+    events_url: `${baseUrl}/events`,
+    feeds_url: `${baseUrl}/feeds`,
+    followers_url: `${baseUrl}/user/followers`,
+    following_url: `${baseUrl}/user/following{/target}`,
+    gists_url: `${baseUrl}/gists{/gist_id}`,
+    hub_url: `${baseUrl}/hub`,
+    issue_search_url: `${baseUrl}/search/issues?q={query}{&page,per_page,sort,order}`,
+    issues_url: `${baseUrl}/issues`,
+    keys_url: `${baseUrl}/user/keys`,
+    label_search_url: `${baseUrl}/search/labels?q={query}&repository_id={repository_id}{&page,per_page}`,
+    notifications_url: `${baseUrl}/notifications`,
+    organization_url: `${baseUrl}/orgs/{org}`,
+    organization_repositories_url: `${baseUrl}/orgs/{org}/repos{?type,page,per_page,sort}`,
+    organization_teams_url: `${baseUrl}/orgs/{org}/teams`,
+    public_gists_url: `${baseUrl}/gists/public`,
+    rate_limit_url: `${baseUrl}/rate_limit`,
+    repository_url: `${baseUrl}/repos/{owner}/{repo}`,
+    repository_search_url: `${baseUrl}/search/repositories?q={query}{&page,per_page,sort,order}`,
+    current_user_repositories_url: `${baseUrl}/user/repos{?type,page,per_page,sort}`,
+    starred_url: `${baseUrl}/user/starred{/owner}{/repo}`,
+    starred_gists_url: `${baseUrl}/gists/starred`,
+    topic_search_url: `${baseUrl}/search/topics?q={query}{&page,per_page}`,
+    user_url: `${baseUrl}/users/{user}`,
+    user_organizations_url: `${baseUrl}/user/orgs`,
+    user_repositories_url: `${baseUrl}/users/{user}/repos{?type,page,per_page,sort}`,
+    user_search_url: `${baseUrl}/search/users?q={query}{&page,per_page,sort,order}`,
+  };
+}
+
 export function metaRoutes({ app, baseUrl }: RouteContext): void {
+  app.get("/", (c) => c.json(rootDocument(baseUrl)));
+
   app.get("/meta", (c) => {
     return c.json({
       verifiable_password_authentication: true,
