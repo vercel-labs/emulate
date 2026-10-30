@@ -2,6 +2,7 @@ import type { Context, Next } from "../http.js";
 import { createPublicKey } from "crypto";
 import { jwtVerify } from "jose";
 import { debug } from "../debug.js";
+import type { RateLimiter } from "../rate-limit.js";
 
 export interface AuthUser {
   login: string;
@@ -65,6 +66,7 @@ export type AppEnv = {
     authToken?: string;
     authScopes?: string[];
     docsUrl?: string;
+    rateLimiter?: RateLimiter;
   };
 };
 
