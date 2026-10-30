@@ -38,9 +38,12 @@
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "graphql": "^17.0.2"
   },
   "devDependencies": {
+    "@octokit/graphql": "^9.0.5",
+    "@octokit/graphql-schema": "^15.26.1",
     "tsup": "^8",
     "typescript": "^5.7",
     "vitest": "^4.1.0"

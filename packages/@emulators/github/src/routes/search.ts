@@ -344,7 +344,7 @@ function resolveRepoQualifier(gh: GitHubStore, spec: string): GitHubRepo | null 
   return lookupRepo(gh, trimmed.split("/")[0]!, trimmed.split("/")[1]!) ?? null;
 }
 
-function issuePrMatchesFilters(
+export function issuePrMatchesFilters(
   gh: GitHubStore,
   parsed: ParsedSearchQuery,
   repo: GitHubRepo,

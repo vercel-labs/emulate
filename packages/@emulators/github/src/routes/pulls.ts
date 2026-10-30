@@ -131,7 +131,7 @@ function countCommitsBetween(gh: GitHubStore, repo: GitHubRepo, headSha: string,
   return chain.length;
 }
 
-function walkCommitsToBase(gh: GitHubStore, repo: GitHubRepo, headSha: string, baseSha: string): GitHubCommit[] {
+export function walkCommitsToBase(gh: GitHubStore, repo: GitHubRepo, headSha: string, baseSha: string): GitHubCommit[] {
   const out: GitHubCommit[] = [];
   const seen = new Set<string>();
   let cur: string | undefined = headSha;
@@ -262,7 +262,7 @@ function sortPulls(
   return sorted;
 }
 
-function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
+export function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
   const baseRepo = gh.repos.get(pr.base_repo_id);
   if (!baseRepo) throw new ApiError(422, "Base repository not found");
 
