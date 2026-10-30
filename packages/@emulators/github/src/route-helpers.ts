@@ -3,7 +3,14 @@ import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
 import type { RepoPermissions } from "./helpers.js";
-import { formatRepo, generateNodeId, repoAccessLevel, repoPermissionFlags, repoPermissionLevel } from "./helpers.js";
+import {
+  formatRepo,
+  generateNodeId,
+  isOrgOwner,
+  repoAccessLevel,
+  repoPermissionFlags,
+  repoPermissionLevel,
+} from "./helpers.js";
 
 export { notFound as notFoundResponse };
 
@@ -184,11 +191,7 @@ function hasBranchProtectionBypass(gh: GitHubStore, user: GitHubUser, repo: GitH
   if (user.site_admin) return true;
   if (repo.owner_type === "User") return repo.owner_id === user.id;
 
-  const isOrgAdmin = gh.teamMembers.findBy("user_id", user.id).some((membership) => {
-    const team = gh.teams.get(membership.team_id);
-    return team?.org_id === repo.owner_id && team.slug === "members" && membership.role === "maintainer";
-  });
-  if (isOrgAdmin) return true;
+  if (isOrgOwner(gh, repo.owner_id, user.id)) return true;
 
   return gh.collaborators
     .findBy("repo_id", repo.id)

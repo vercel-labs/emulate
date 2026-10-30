@@ -63,7 +63,7 @@ export interface GitHubTeamMember extends Entity {
 export interface GitHubTeamRepo extends Entity {
   team_id: number;
   repo_id: number;
-  permission: "pull" | "triage" | "push" | "maintain" | "admin";
+  permission?: "pull" | "triage" | "push" | "maintain" | "admin";
 }
 
 export interface GitHubRepo extends Entity {

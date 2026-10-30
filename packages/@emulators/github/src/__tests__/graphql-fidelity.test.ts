@@ -1216,5 +1216,19 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await reposCount()).toBe(0);
       expect(gh.teamRepos.all()).toEqual([]);
     });
+
+    it("treats a stored team grant without a permission as the team's permission", async () => {
+      await seedOrg("read");
+      const link = gh.teamRepos.all()[0]!;
+      const { permission: _dropped, ...legacy } = link;
+      gh.teamRepos.delete(link.id);
+      gh.teamRepos.insert({ team_id: legacy.team_id, repo_id: legacy.repo_id });
+
+      expect(
+        (await graphql(viewerPermissionQuery("widgets"), {}, "teammate-token")).data.repository.viewerPermission,
+      ).toBe("WRITE");
+      const repos = await send("GET", "/orgs/acme/teams/devs/repos", undefined, "owner-token");
+      expect(repos.body[0]).toMatchObject({ role_name: "write", permissions: { push: true, maintain: false } });
+    });
   });
 });

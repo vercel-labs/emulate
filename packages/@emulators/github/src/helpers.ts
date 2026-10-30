@@ -10,6 +10,7 @@ import type {
   GitHubComment,
   GitHubRelease,
   GitHubTeam,
+  GitHubTeamRepo,
   GitHubBranch,
   GitHubCommit,
   GitHubCheckRun,
@@ -165,24 +166,33 @@ function permissionRank(permission: string): number {
   return PERMISSION_LEVELS.indexOf(permission as RepoPermissionLevel);
 }
 
+export function isOrgOwner(store: GitHubStore, orgId: number, userId: number): boolean {
+  return store.teamMembers.findBy("user_id", userId).some((membership) => {
+    const team = store.teams.get(membership.team_id);
+    return team?.org_id === orgId && team.slug === "members" && membership.role === "maintainer";
+  });
+}
+
+/** Rows stored before grants carried a permission fall back to the team's permission, as an empty PUT does. */
+export function teamRepoPermission(link: GitHubTeamRepo, team: GitHubTeam): RepoPermissionLevel {
+  return link.permission ?? (isRepoPermissionLevel(team.permission) ? team.permission : "pull");
+}
+
 /** Highest of: owner, org owner, the org base permission, team grants, and a collaborator role. */
 export function repoPermissionLevel(store: GitHubStore, repo: GitHubRepo, userId: number): RepoPermissionLevel | null {
   if (repo.owner_type === "User") {
     if (repo.owner_id === userId) return "admin";
   } else {
-    const memberships = store.teamMembers.findBy("user_id", userId).flatMap((membership) => {
+    if (isOrgOwner(store, repo.owner_id, userId)) return "admin";
+    const teams = store.teamMembers.findBy("user_id", userId).flatMap((membership) => {
       const team = store.teams.get(membership.team_id);
-      return team?.org_id === repo.owner_id ? [{ team, membership }] : [];
+      return team?.org_id === repo.owner_id ? [team] : [];
     });
-    if (memberships.some(({ team, membership }) => team.slug === "members" && membership.role === "maintainer")) {
-      return "admin";
-    }
     let rank = -1;
-    if (memberships.length)
-      rank = permissionRank(store.orgs.get(repo.owner_id)?.default_repository_permission ?? "read");
-    for (const { team } of memberships) {
+    if (teams.length) rank = permissionRank(store.orgs.get(repo.owner_id)?.default_repository_permission ?? "read");
+    for (const team of teams) {
       const link = store.teamRepos.findBy("team_id", team.id).find((l) => l.repo_id === repo.id);
-      if (link) rank = Math.max(rank, permissionRank(link.permission));
+      if (link) rank = Math.max(rank, permissionRank(teamRepoPermission(link, team)));
     }
     const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === userId);
     if (collab) rank = Math.max(rank, permissionRank(collab.permission));

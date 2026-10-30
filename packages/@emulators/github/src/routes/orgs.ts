@@ -16,6 +16,7 @@ import {
   lookupRepo,
   repoPermissionFlags,
   ROLE_NAMES,
+  teamRepoPermission,
 } from "../helpers.js";
 
 const MEMBERS_TEAM_SLUG = "members";
@@ -586,7 +587,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       .findBy("team_id", team.id)
       .flatMap((link) => {
         const repo = gh.repos.get(link.repo_id);
-        return repo ? [{ repo, permission: link.permission }] : [];
+        return repo ? [{ repo, permission: teamRepoPermission(link, team) }] : [];
       })
       .sort((a, b) => a.repo.id - b.repo.id);
 
