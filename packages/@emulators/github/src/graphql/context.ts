@@ -10,11 +10,19 @@ import {
   hasRepoContentsWrite,
 } from "../route-helpers.js";
 
-export type GitHubErrorType = "NOT_FOUND" | "FORBIDDEN" | "UNPROCESSABLE" | "INTERNAL";
+export type GitHubErrorType =
+  | "NOT_FOUND"
+  | "FORBIDDEN"
+  | "UNPROCESSABLE"
+  | "INTERNAL"
+  | "INVALID_CURSOR_ARGUMENTS"
+  | "INVALID_PAGINATION"
+  | "EXCESSIVE_PAGINATION"
+  | "MISSING_PAGINATION_BOUNDARIES";
 
 export class GitHubGraphQLError extends Error {
   constructor(
-    readonly type: GitHubErrorType,
+    readonly type: GitHubErrorType | undefined,
     message: string,
   ) {
     super(message);

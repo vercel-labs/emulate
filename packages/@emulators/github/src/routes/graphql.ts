@@ -2,10 +2,12 @@ import type { Context, RouteContext } from "@emulators/core";
 import {
   GraphQLError,
   buildSchema,
+  defaultFieldResolver,
   execute,
   parse,
   getOperationAST,
   isLeafType,
+  isObjectType,
   specifiedRules,
   validate,
   type DocumentNode,
@@ -15,8 +17,22 @@ import { getGitHubStore } from "../store.js";
 import { typeDefs } from "../graphql/schema.js";
 import { GitHubGraphQLError, createContext } from "../graphql/context.js";
 import { createMutationRoot, createQueryRoot } from "../graphql/resolvers.js";
+import { isConnectionField, paginationError, selectsPage } from "../graphql/limits.js";
 
 const schema = buildSchema(typeDefs);
+
+// GitHub checks `first`/`last` on every connection before resolving it.
+for (const type of Object.values(schema.getTypeMap())) {
+  if (!isObjectType(type) || type.name.startsWith("__")) continue;
+  for (const field of Object.values(type.getFields())) {
+    if (!isConnectionField(field.args)) continue;
+    field.resolve = (source, args, context, info) => {
+      const error = paginationError(info.fieldName, args, selectsPage(info.fieldNodes, info.fragments));
+      if (error) throw error;
+      return defaultFieldResolver(source, args, context, info);
+    };
+  }
+}
 
 const NULLABILITY_CONFLICT = /^Fields "\w+" conflict because they return conflicting types "(\w+)!?" and "(\w+)!?"\./;
 
@@ -67,7 +83,7 @@ function formatResult(result: ExecutionResult) {
     errors: result.errors.map((error: GraphQLError) => {
       const json = { ...error.toJSON(), message: githubMessage(error.message) };
       const original = error.originalError;
-      return original instanceof GitHubGraphQLError ? { ...json, type: original.type } : json;
+      return original instanceof GitHubGraphQLError && original.type ? { ...json, type: original.type } : json;
     }),
   };
 }

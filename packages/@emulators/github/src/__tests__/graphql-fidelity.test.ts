@@ -82,6 +82,99 @@ describe("GitHub GraphQL fidelity", () => {
   const prQuery = (fields: string) =>
     `{ repository(owner: "octocat", name: "hello-world") { pullRequest(number: 1) { ${fields} } } }`;
 
+  describe("pagination", () => {
+    it("rejects page sizes outside 0..100 with GitHub's errors", async () => {
+      await seedPr();
+      const cases: Array<[string, string, string]> = [
+        [
+          "first: 101",
+          "EXCESSIVE_PAGINATION",
+          "Requesting 101 records on the `pullRequests` connection exceeds the `first` limit of 100 records.",
+        ],
+        [
+          "last: 101",
+          "EXCESSIVE_PAGINATION",
+          "Requesting 101 records on the `pullRequests` connection exceeds the `last` limit of 100 records.",
+        ],
+        ["first: -1", "INVALID_PAGINATION", "`first` on the `pullRequests` connection cannot be less than zero."],
+      ];
+      for (const [args, type, message] of cases) {
+        const { data, errors } = await graphql(
+          `{ repository(owner: "octocat", name: "hello-world") { pullRequests(${args}) { nodes { number } } } }`,
+        );
+        expect(data).toEqual({ repository: null });
+        expect(errors).toEqual([expect.objectContaining({ type, message, path: ["repository", "pullRequests"] })]);
+      }
+    });
+
+    it("rejects first and last together", async () => {
+      const { errors } = await graphql(`
+        {
+          repository(owner: "octocat", name: "hello-world") {
+            pullRequests(first: 1, last: 1) {
+              totalCount
+            }
+          }
+        }
+      `);
+      expect(errors![0].message).toBe(
+        "Passing both `first` and `last` to paginate the `pullRequests` connection is not supported.",
+      );
+      expect(errors![0].type).toBeUndefined();
+    });
+
+    it("requires first or last to read a page, but not to count", async () => {
+      await seedPr();
+      const counted = await graphql(`
+        {
+          repository(owner: "octocat", name: "hello-world") {
+            pullRequests {
+              totalCount
+            }
+          }
+        }
+      `);
+      expect(counted.errors).toBeUndefined();
+      expect(counted.data.repository.pullRequests.totalCount).toBe(1);
+
+      const paged = await graphql(
+        prQuery(`labels { ...Page }`) + ` fragment Page on LabelConnection { nodes { name } }`,
+      );
+      expect(paged.data).toEqual({ repository: { pullRequest: { labels: null } } });
+      expect(paged.errors).toEqual([
+        expect.objectContaining({
+          type: "MISSING_PAGINATION_BOUNDARIES",
+          message: "You must provide a `first` or `last` value to properly paginate the `labels` connection.",
+          path: ["repository", "pullRequest", "labels"],
+        }),
+      ]);
+    });
+
+    it("reports an invalid cursor instead of restarting from the first item", async () => {
+      await seedPr();
+      const { data, errors } = await graphql(`
+        {
+          repository(owner: "octocat", name: "hello-world") {
+            pullRequests(first: 1, after: "garbage") {
+              totalCount
+              nodes {
+                number
+              }
+            }
+          }
+        }
+      `);
+      expect(data).toEqual({ repository: { pullRequests: { totalCount: 1, nodes: null } } });
+      expect(errors).toEqual([
+        expect.objectContaining({
+          type: "INVALID_CURSOR_ARGUMENTS",
+          message: "`garbage` does not appear to be a valid cursor.",
+          path: ["repository", "pullRequests", "nodes"],
+        }),
+      ]);
+    });
+  });
+
   describe("mergeability", () => {
     it("reports UNKNOWN while mergeability has not been computed", async () => {
       const pr = await seedPr();

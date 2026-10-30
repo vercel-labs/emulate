@@ -26,7 +26,7 @@ import { assertAuthenticatedActor, hasRepoAdmin, hasRepoContentsWrite, ownerLogi
 import { checkMergeRequirements, reviewCounts } from "../routes/pulls.js";
 import { insertIssueEvent } from "../routes/issues.js";
 import { issuePrMatchesFilters, parseSearchQuery } from "../routes/search.js";
-import { connectionFromArray, type ConnectionArgs } from "./connection.js";
+import { connectionFromArray, encodeCursor, type ConnectionArgs } from "./connection.js";
 import {
   GitHubGraphQLError,
   assertCanRead,
@@ -1206,9 +1206,11 @@ export function createMutationRoot(ctx: GraphQLContext) {
         .findBy("repo_id", target.repo.id)
         .filter((c) => c.comment_type === "issue" && c.issue_number === target.number)
         .sort((a, b) => a.id - b.id);
-      const edge = connectionFromArray(all, { first: all.length }).edges.find((e) => e.node.id === comment.id)!;
       return payload(input, {
-        commentEdge: { cursor: edge.cursor, node: commentView(ctx, comment) },
+        commentEdge: {
+          cursor: encodeCursor(all.findIndex((c) => c.id === comment.id)),
+          node: commentView(ctx, comment),
+        },
         subject: target.view,
       });
     },
