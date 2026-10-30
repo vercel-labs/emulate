@@ -134,6 +134,25 @@ describe("GitHub GraphQL API", () => {
     expect(error.errors[0].message).toBe("Field 'projectItems' doesn't exist on type 'User'");
   });
 
+  it("lists assignees through assignedActors, which gh pr edit reads", async () => {
+    await seedBranch("feature");
+    const pr = await createPr("feature");
+    await gql(
+      `mutation($input: ReplaceActorsForAssignableInput!) { replaceActorsForAssignable(input: $input) { clientMutationId } }`,
+      { input: { assignableId: pr.id, actorLogins: ["hubot"] } },
+    );
+    const data = await gql(
+      `query($id: ID!) { node(id: $id) { ... on PullRequest {
+        assignedActors(first: 10) { nodes { ... on User { id login name __typename } ... on Bot { id login __typename } } totalCount }
+      } } }`,
+      { id: pr.id },
+    );
+    expect(data.node.assignedActors).toEqual({
+      nodes: [{ id: gh.users.findOneBy("login", "hubot")!.node_id, login: "hubot", name: null, __typename: "User" }],
+      totalCount: 1,
+    });
+  });
+
   it("accepts fragments whose fields differ only in nullability, as GitHub does", async () => {
     await seedBranch("feature");
     const pr = await createPr("feature");

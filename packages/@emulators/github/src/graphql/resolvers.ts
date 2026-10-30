@@ -341,6 +341,13 @@ function repoMembers(ctx: GraphQLContext, repo: GitHubRepo): GitHubUser[] {
   return users(ctx, [...ids]).sort((a, b) => a.login.localeCompare(b.login));
 }
 
+function assigneesConnection(ctx: GraphQLContext, ids: number[], args: ConnectionArgs) {
+  return connectionFromArray(
+    users(ctx, ids).map((u) => actorView(ctx, u)),
+    args,
+  );
+}
+
 function usersConnection(ctx: GraphQLContext, list: GitHubUser[], args: Args) {
   const q = typeof args.query === "string" ? args.query.toLowerCase() : "";
   const filtered = q
@@ -551,6 +558,7 @@ function issueView(ctx: GraphQLContext, issue: GitHubIssue): View | null {
     resourcePath: `/${repo.full_name}/issues/${issue.number}`,
     repository: () => repoView(ctx, repo),
     labels: (args: Args) => labelsConnection(ctx, repo, issue.label_ids, args),
+    assignedActors: (args: ConnectionArgs) => assigneesConnection(ctx, issue.assignee_ids, args),
   };
 }
 
@@ -669,11 +677,8 @@ export function prView(ctx: GraphQLContext, pr: GitHubPullRequest): View | null 
       return head ? statusCheckRollupView(ctx, repo, head) : null;
     },
     labels: (args: Args) => labelsConnection(ctx, repo, pr.label_ids, args),
-    assignees: (args: ConnectionArgs) =>
-      connectionFromArray(
-        users(ctx, pr.assignee_ids).map((u) => actorView(ctx, u)),
-        args,
-      ),
+    assignees: (args: ConnectionArgs) => assigneesConnection(ctx, pr.assignee_ids, args),
+    assignedActors: (args: ConnectionArgs) => assigneesConnection(ctx, pr.assignee_ids, args),
     milestone: () => {
       const m = pr.milestone_id !== null ? ctx.gh.milestones.get(pr.milestone_id) : undefined;
       return m ? milestoneView(ctx, repo, m) : null;

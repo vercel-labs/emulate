@@ -19,6 +19,10 @@ const github = buildSchema(githubSchema.idl, { assumeValidSDL: true });
 
 const EMULATOR_ONLY = new Map([
   ["Mutation", new Set(["replaceActorsForAssignable", "requestReviewsByLogin"])],
+  ["PullRequest", new Set(["assignedActors"])],
+  ["Issue", new Set(["assignedActors"])],
+  ["AssigneeConnection", null],
+  ["AssigneeEdge", null],
   ["ReplaceActorsForAssignableInput", null],
   ["ReplaceActorsForAssignablePayload", null],
   ["RequestReviewsByLoginInput", null],

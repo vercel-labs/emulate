@@ -42,7 +42,10 @@ describe.skipIf(!hasGh)("gh CLI against the GitHub emulator", () => {
 
   beforeEach(async () => {
     emu = await startGhEmulator({
-      users: [{ login: "octocat", name: "The Octocat" }],
+      users: [
+        { login: "octocat", name: "The Octocat" },
+        { login: "hubot", name: "Hubot" },
+      ],
       repos: [{ owner: "octocat", name: "hello-world" }],
     });
   });
@@ -142,6 +145,35 @@ describe.skipIf(!hasGh)("gh CLI against the GitHub emulator", () => {
     expect(stdout).toMatch(/^build\tpass\t/m);
     expect(await viewJson(url, "statusCheckRollup")).toMatchObject({
       statusCheckRollup: [{ __typename: "CheckRun", name: "build", status: "COMPLETED", conclusion: "SUCCESS" }],
+    });
+  });
+
+  it("pr-edit: edits title, body, labels, assignees, and reviewers", async () => {
+    await emu.rest("POST", "/repos/octocat/hello-world/labels", { name: "bug", color: "d73a4a" });
+    await emu.rest("PUT", "/repos/octocat/hello-world/collaborators/hubot", { permission: "push" });
+    await pushBranch("feature");
+    const url = await createPr("feature");
+    await emu.gh(
+      "pr",
+      "edit",
+      url,
+      "--title",
+      "Edited title",
+      "--body",
+      "Edited body",
+      "--add-label",
+      "bug",
+      "--add-assignee",
+      "@me",
+      "--add-reviewer",
+      "hubot",
+    );
+    expect(await viewJson(url, "title,body,labels,assignees,reviewRequests")).toMatchObject({
+      title: "Edited title",
+      body: "Edited body",
+      labels: [{ name: "bug" }],
+      assignees: [{ login: "octocat" }],
+      reviewRequests: [{ login: "hubot" }],
     });
   });
 

@@ -45,6 +45,8 @@ export const typeDefs = /* GraphQL */ `
     pullRequestReview: PullRequestReview
   }
 
+  union Assignee = Bot | Organization | User
+
   type AutoMergeRequest {
     authorEmail: String
     commitBody: String
@@ -1161,6 +1163,26 @@ export const typeDefs = /* GraphQL */ `
     id: ID!
     workflow: Workflow!
   }
+  extend type PullRequest {
+    assignedActors(after: String, before: String, first: Int, last: Int): AssigneeConnection!
+  }
+
+  extend type Issue {
+    assignedActors(after: String, before: String, first: Int, last: Int): AssigneeConnection!
+  }
+
+  type AssigneeConnection {
+    edges: [AssigneeEdge]
+    nodes: [Assignee]
+    pageInfo: PageInfo!
+    totalCount: Int!
+  }
+
+  type AssigneeEdge {
+    cursor: String!
+    node: Assignee
+  }
+
   extend type Mutation {
     replaceActorsForAssignable(input: ReplaceActorsForAssignableInput!): ReplaceActorsForAssignablePayload
     requestReviewsByLogin(input: RequestReviewsByLoginInput!): RequestReviewsByLoginPayload

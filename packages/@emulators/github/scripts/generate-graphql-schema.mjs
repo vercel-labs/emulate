@@ -324,10 +324,31 @@ export const manifest = {
   UpdateIssueCommentPayload: ["clientMutationId", "issueComment"],
   UpdatePullRequestPayload: ["actor", "clientMutationId", "pullRequest"],
   Labelable: ["labels"],
+  Assignee: [],
 };
 
-// Operations gh sends to github.com-class hosts that are missing from the public schema.
+// Fields and operations gh sends to github.com-class hosts that are missing from the public schema.
 export const extensions = `
+extend type PullRequest {
+  assignedActors(after: String, before: String, first: Int, last: Int): AssigneeConnection!
+}
+
+extend type Issue {
+  assignedActors(after: String, before: String, first: Int, last: Int): AssigneeConnection!
+}
+
+type AssigneeConnection {
+  edges: [AssigneeEdge]
+  nodes: [Assignee]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type AssigneeEdge {
+  cursor: String!
+  node: Assignee
+}
+
 extend type Mutation {
   replaceActorsForAssignable(input: ReplaceActorsForAssignableInput!): ReplaceActorsForAssignablePayload
   requestReviewsByLogin(input: RequestReviewsByLoginInput!): RequestReviewsByLoginPayload
