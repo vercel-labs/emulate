@@ -507,8 +507,8 @@ describe("GitHub GraphQL API", () => {
         input: { pullRequestId: pr.id, userLogins: [], union: false },
       },
     );
-    const rest1 = await rest("GET", "/repos/octocat/hello-world/pulls/1");
-    expect(rest1.body.requested_reviewers).toEqual([]);
+    const pull = await rest("GET", "/repos/octocat/hello-world/pulls/1");
+    expect(pull.body.requested_reviewers).toEqual([]);
   });
 
   it("reports check runs through statusCheckRollup", async () => {

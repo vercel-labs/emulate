@@ -1,8 +1,3 @@
-// Prunes GitHub's public GraphQL schema to the subset the emulator implements and
-// writes it to src/graphql/schema.ts. Field signatures are copied from GitHub, so
-// names, arguments, and nullability match the real API by construction.
-//
-// Usage: node scripts/generate-graphql-schema.mjs [--check]
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

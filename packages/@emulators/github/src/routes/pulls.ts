@@ -131,7 +131,7 @@ function countCommitsBetween(gh: GitHubStore, repo: GitHubRepo, headSha: string,
   return chain.length;
 }
 
-export function walkCommitsToBase(gh: GitHubStore, repo: GitHubRepo, headSha: string, baseSha: string): GitHubCommit[] {
+function walkCommitsToBase(gh: GitHubStore, repo: GitHubRepo, headSha: string, baseSha: string): GitHubCommit[] {
   const out: GitHubCommit[] = [];
   const seen = new Set<string>();
   let cur: string | undefined = headSha;

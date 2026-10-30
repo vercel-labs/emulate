@@ -30,11 +30,7 @@ export async function ghAvailable(): Promise<boolean> {
   }
 }
 
-/**
- * Serves the GitHub emulator on a free port and runs the real gh binary against it.
- * gh talks plain HTTP only to the host github.localhost (http://api.github.localhost/...),
- * so HTTP_PROXY routes those requests to the emulator without TLS.
- */
+// gh uses plain HTTP only for the host github.localhost, so HTTP_PROXY can reach the emulator without TLS.
 export async function startGhEmulator(seed: GitHubSeedConfig): Promise<GhEmulator> {
   const baseUrl = `http://${GH_HOST}`;
   const { app, store } = createServer(githubPlugin, {

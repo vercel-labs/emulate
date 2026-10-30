@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ghAvailable, startGhEmulator, type GhEmulator } from "./gh-cli-harness.js";
 
-// Scenarios adapted from cli/cli acceptance/testdata/pr/*.txtar. Git clone and push
-// steps are replaced by REST seeding: a branch ref plus a commit through the contents API.
 const hasGh = await ghAvailable();
 const REPO = ["--repo", "octocat/hello-world"];
 

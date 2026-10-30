@@ -484,7 +484,7 @@ function reviewView(ctx: GraphQLContext, review: GitHubReview): View | null {
   const repo = ctx.gh.repos.get(review.repo_id);
   const pr = repo && ctx.gh.pullRequests.findBy("repo_id", repo.id).find((p) => p.number === review.pull_number);
   if (!repo || !pr) return null;
-  const url = `${repoUrl(ctx, repo)}/pull/${pr.number}#pullrequestreview-${review.id}`;
+  const resourcePath = `/${repo.full_name}/pull/${pr.number}#pullrequestreview-${review.id}`;
   return {
     __typename: "PullRequestReview",
     id: review.node_id,
@@ -502,8 +502,8 @@ function reviewView(ctx: GraphQLContext, review: GitHubReview): View | null {
     minimizedReason: null,
     reactionGroups: [],
     viewerDidAuthor: ctx.viewer?.id === review.user_id,
-    url,
-    resourcePath: new URL(url).pathname + new URL(url).hash,
+    url: `${ctx.baseUrl}${resourcePath}`,
+    resourcePath,
     repository: () => repoView(ctx, repo),
     pullRequest: () => prView(ctx, pr),
   };
@@ -704,14 +704,14 @@ export function prView(ctx: GraphQLContext, pr: GitHubPullRequest): View | null 
     reviewRequests: (args: ConnectionArgs) => {
       const requested = [
         ...users(ctx, pr.requested_reviewer_ids).map((u) => ({
-          id: generateNodeId("ReviewRequest", pr.id * 1000 + u.id),
+          id: Buffer.from(`0:ReviewRequest${pr.id}:User${u.id}`).toString("base64"),
           requestedReviewer: actorView(ctx, u),
         })),
         ...pr.requested_team_ids
           .map((id) => ctx.gh.teams.get(id))
           .filter((t): t is GitHubTeam => t !== undefined)
           .map((t) => ({
-            id: generateNodeId("ReviewRequest", pr.id * 1000 + t.id),
+            id: Buffer.from(`0:ReviewRequest${pr.id}:Team${t.id}`).toString("base64"),
             requestedReviewer: teamView(ctx, t),
           })),
       ];
