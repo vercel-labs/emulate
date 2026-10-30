@@ -1199,6 +1199,92 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await grant({ permission: "owner" })).toMatchObject({ status: 422 });
     });
 
+    it("keeps team management to org owners, team maintainers, and repository admins", async () => {
+      await seedOrg("read");
+      seedFromConfig(server.store, base, {
+        users: [{ login: "outsider" }],
+        orgs: [{ login: "acme", teams: [{ name: "QA", permission: "pull" }] }],
+        repos: [{ owner: "acme", name: "vault", private: true }],
+      });
+      server.tokenMap.set("outsider-token", {
+        login: "outsider",
+        id: gh.users.findOneBy("login", "outsider")!.id,
+        scopes: ["repo"],
+      });
+      const vaultAdmin = { permission: "admin" };
+      const notFound = { status: 404, body: { message: "Not Found" } };
+      const noRepoAdmin = { status: 403, body: { message: "You must have administrative rights on this repository." } };
+
+      expect(await send("PUT", "/orgs/acme/teams/qa/repos/acme/vault", vaultAdmin, "member-token")).toMatchObject(
+        noRepoAdmin,
+      );
+      expect(await send("PATCH", "/repos/acme/vault", { description: "taken" }, "member-token")).toMatchObject({
+        status: 403,
+      });
+      expect(await send("PUT", "/orgs/acme/teams/devs/repos/acme/vault", vaultAdmin, "outsider-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", {}, "outsider-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("PUT", "/orgs/acme/teams/devs/memberships/member", {}, "teammate-token")).toMatchObject({
+        status: 403,
+        body: { message: "You must be an organization owner or team maintainer to add a team membership." },
+      });
+      expect(
+        await send("DELETE", "/orgs/acme/teams/devs/memberships/teammate", undefined, "member-token"),
+      ).toMatchObject({
+        status: 403,
+        body: { message: "You must be an organization owner or team maintainer to remove a team membership." },
+      });
+      expect(await send("PATCH", "/orgs/acme/teams/devs", { permission: "admin" }, "teammate-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("DELETE", "/orgs/acme/teams/devs", undefined, "member-token")).toMatchObject(notFound);
+      expect(await send("DELETE", "/orgs/acme/teams/devs/repos/acme/widgets", undefined, "member-token")).toMatchObject(
+        {
+          status: 403,
+          body: {
+            message:
+              "You must have administrative rights on a repository or team in order to remove the repository from that team",
+          },
+        },
+      );
+      expect(await send("GET", "/orgs/acme/teams", undefined, "outsider-token")).toMatchObject({
+        status: 403,
+        body: { message: "Must have admin rights to Repository." },
+      });
+      expect(await send("GET", "/orgs/acme/teams/devs", undefined, "outsider-token")).toMatchObject(notFound);
+      expect((await app.request(`${base}/orgs/acme/teams/devs`)).status).toBe(401);
+      expect(gh.teamRepos.all().map((link) => link.repo_id)).toEqual([
+        gh.repos.findOneBy("full_name", "acme/widgets")!.id,
+      ]);
+
+      const created = await send("POST", "/orgs/acme/teams", { name: "Docs" }, "member-token");
+      expect(created).toMatchObject({ status: 201, body: { slug: "docs", members_count: 1 } });
+      expect(await send("PUT", "/orgs/acme/teams/docs/memberships/writer", {}, "member-token")).toMatchObject({
+        status: 200,
+      });
+      expect((await send("GET", "/orgs/acme/memberships/member", undefined, "member-token")).body.role).toBe("member");
+      expect(await send("PATCH", "/orgs/acme", { description: "taken" }, "member-token")).toMatchObject({
+        status: 403,
+      });
+      expect(await send("PATCH", "/orgs/acme/teams/docs", { description: "d" }, "member-token")).toMatchObject({
+        status: 200,
+      });
+      expect(await send("PUT", "/orgs/acme/teams/docs/repos/acme/widgets", {}, "member-token")).toMatchObject(
+        noRepoAdmin,
+      );
+      expect(await send("POST", "/orgs/acme/teams", { name: "Rogue" }, "outsider-token")).toMatchObject({
+        status: 403,
+        body: { message: "Must have admin rights to Repository." },
+      });
+      expect(await send("PUT", "/orgs/acme/teams/qa/repos/acme/vault", vaultAdmin, "owner-token")).toMatchObject({
+        status: 204,
+      });
+      expect(await send("DELETE", "/orgs/acme/teams/docs", undefined, "member-token")).toMatchObject({ status: 204 });
+    });
+
     it("drops team grants when a repository is deleted or leaves the organization", async () => {
       await seedOrg("read");
       await send("POST", "/orgs/acme/repos", { name: "gadgets" }, "owner-token");

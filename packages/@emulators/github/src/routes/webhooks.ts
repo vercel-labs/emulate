@@ -22,7 +22,7 @@ function listOrgMembersDeduped(gh: GitHubStore, orgId: number): { user: GitHubUs
     for (const m of gh.teamMembers.findBy("team_id", team.id)) {
       const user = gh.users.get(m.user_id);
       if (!user) continue;
-      const isAdmin = m.role === "maintainer";
+      const isAdmin = team.slug === "members" && m.role === "maintainer";
       const prev = byUser.get(user.id);
       if (!prev) {
         byUser.set(user.id, { user, isAdmin });

@@ -2,7 +2,8 @@ import type { RouteContext, AuthUser } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized, forbidden } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
-import type { GitHubOrg, GitHubTeam, GitHubUser } from "../entities.js";
+import type { GitHubOrg, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
+import { canAccessRepo, getActorUser, hasRepoAdmin, isOrgMember } from "../route-helpers.js";
 import {
   formatOrgBrief,
   formatOrgFull,
@@ -11,8 +12,8 @@ import {
   formatTeamFull,
   formatUser,
   generateNodeId,
+  isOrgOwner,
   isRepoPermissionLevel,
-  lookupOwner,
   lookupRepo,
   repoPermissionFlags,
   ROLE_NAMES,
@@ -20,6 +21,12 @@ import {
 } from "../helpers.js";
 
 const MEMBERS_TEAM_SLUG = "members";
+const ADMIN_RIGHTS = "Must have admin rights to Repository.";
+
+function isMemberOf(gh: GitHubStore, auth: AuthUser, org: GitHubOrg): boolean {
+  const user = auth.installation ? undefined : getActorUser(gh, auth);
+  return Boolean(user && isOrgMember(gh, user.id, org.id));
+}
 
 function notFound() {
   return new ApiError(404, "Not Found");
@@ -90,7 +97,7 @@ function listOrgMembersDeduped(gh: GitHubStore, orgId: number): OrgMemberRow[] {
     for (const m of gh.teamMembers.findBy("team_id", team.id)) {
       const user = gh.users.get(m.user_id);
       if (!user) continue;
-      const isAdmin = m.role === "maintainer";
+      const isAdmin = team.slug === MEMBERS_TEAM_SLUG && m.role === "maintainer";
       const prev = byUser.get(user.id);
       if (!prev) {
         byUser.set(user.id, { user, isAdmin });
@@ -110,6 +117,47 @@ function listOrgMembersDeduped(gh: GitHubStore, orgId: number): OrgMemberRow[] {
 function orgRoleForUser(gh: GitHubStore, orgId: number, userId: number): "admin" | "member" | null {
   const row = listOrgMembersDeduped(gh, orgId).find((r) => r.user.id === userId);
   return row?.orgRole ?? null;
+}
+
+type TeamAccess = { user?: GitHubUser; visible: boolean; manage: boolean };
+
+function teamAccess(gh: GitHubStore, auth: AuthUser, org: GitHubOrg, team: GitHubTeam): TeamAccess {
+  if (auth.installation) {
+    const installation = auth.installation;
+    const level =
+      installation.accountType === "Organization" && installation.accountId === org.id
+        ? installation.permissions.members
+        : undefined;
+    return { visible: level === "read" || level === "write", manage: level === "write" };
+  }
+  const user = getActorUser(gh, auth);
+  if (!user) return { visible: false, manage: false };
+  const owner = isOrgOwner(gh, org.id, user.id);
+  const membership = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
+  const visible = owner || (isOrgMember(gh, user.id, org.id) && (team.privacy === "closed" || Boolean(membership)));
+  return { user, visible, manage: owner || membership?.role === "maintainer" };
+}
+
+/** GitHub answers 404 for a team the caller cannot see. */
+function visibleTeam(
+  c: { get: (k: "authUser") => AuthUser | undefined },
+  gh: GitHubStore,
+  orgLogin: string,
+  slug: string,
+) {
+  const auth = requireAuthUser(c);
+  const org = getOrgByLogin(gh, orgLogin);
+  if (!org) throw notFound();
+  const team = getTeamByOrgSlug(gh, org, slug);
+  if (!team) throw notFound();
+  const access = teamAccess(gh, auth, org, team);
+  if (!access.visible) throw notFound();
+  return { auth, org, team, access };
+}
+
+function hasTeamRepoAdmin(gh: GitHubStore, auth: AuthUser, access: TeamAccess, repo: GitHubRepo): boolean {
+  if (auth.installation) return access.manage;
+  return Boolean(access.user && hasRepoAdmin(gh, access.user, repo));
 }
 
 function findTeamRepo(gh: GitHubStore, teamId: number, repoId: number) {
@@ -197,6 +245,11 @@ function formatTeamMembership(
 
 export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
+
+  const visibleTeamById = (c: { get: (k: "authUser") => AuthUser | undefined }, id: string | undefined) => {
+    const team = gh.teams.get(parseInt(id ?? "", 10));
+    return visibleTeam(c, gh, (team && gh.orgs.get(team.org_id)?.login) ?? "", team?.slug ?? "").team;
+  };
 
   app.get("/organizations", (c) => {
     const since = Math.max(0, parseInt(c.req.query("since") ?? "0", 10) || 0);
@@ -378,10 +431,14 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.get("/orgs/:org/teams", (c) => {
+    const auth = requireAuthUser(c);
     const org = getOrgByLogin(gh, c.req.param("org")!);
     if (!org) throw notFound();
+    const all = teamsForOrg(gh, org.id)
+      .filter((team) => teamAccess(gh, auth, org, team).visible)
+      .sort((a, b) => a.id - b.id);
+    if (!all.length && !isMemberOf(gh, auth, org)) throw new ApiError(403, ADMIN_RIGHTS);
 
-    const all = teamsForOrg(gh, org.id).sort((a, b) => a.id - b.id);
     const { page, per_page } = parsePagination(c);
     const total = all.length;
     const start = (page - 1) * per_page;
@@ -392,9 +449,16 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.post("/orgs/:org/teams", async (c) => {
-    requireAuthUser(c);
+    const auth = requireAuthUser(c);
     const org = getOrgByLogin(gh, c.req.param("org")!);
     if (!org) throw notFound();
+    const creator = auth.installation ? undefined : getActorUser(gh, auth);
+    const allowed = auth.installation
+      ? auth.installation.accountType === "Organization" &&
+        auth.installation.accountId === org.id &&
+        auth.installation.permissions.members === "write"
+      : Boolean(creator && isOrgMember(gh, creator.id, org.id));
+    if (!allowed) throw new ApiError(403, ADMIN_RIGHTS);
 
     const body = await parseJsonBody(c);
     const name = body.name;
@@ -429,23 +493,18 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       parent_id: parentId,
     });
     const fixed = gh.teams.update(team.id, { node_id: generateNodeId("Team", team.id) });
+    if (creator) gh.teamMembers.insert({ team_id: team.id, user_id: creator.id, role: "maintainer" });
     return c.json(formatTeamFull(fixed ?? team, gh, baseUrl), 201);
   });
 
   app.get("/orgs/:org/teams/:team_slug", (c) => {
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { team } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     return c.json(formatTeamFull(team, gh, baseUrl));
   });
 
   app.patch("/orgs/:org/teams/:team_slug", async (c) => {
-    requireAuthUser(c);
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    if (!access.manage) throw notFound();
 
     const body = await parseJsonBody(c);
     const patch: Partial<GitHubTeam> = {};
@@ -483,20 +542,14 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.delete("/orgs/:org/teams/:team_slug", (c) => {
-    requireAuthUser(c);
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    if (!access.manage) throw notFound();
     deleteTeamCascade(gh, team);
     return c.body(null, 204);
   });
 
   app.get("/orgs/:org/teams/:team_slug/members", (c) => {
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { team } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
 
     const roleQ = (c.req.query("role") ?? "all").toLowerCase();
     if (roleQ !== "all" && roleQ !== "member" && roleQ !== "maintainer") {
@@ -526,11 +579,10 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.put("/orgs/:org/teams/:team_slug/memberships/:username", async (c) => {
-    requireAuthUser(c);
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    if (!access.manage) {
+      throw new ApiError(403, "You must be an organization owner or team maintainer to add a team membership.");
+    }
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
 
@@ -548,13 +600,12 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.delete("/orgs/:org/teams/:team_slug/memberships/:username", (c) => {
-    requireAuthUser(c);
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
+    if (!access.manage && access.user?.id !== user.id) {
+      throw new ApiError(403, "You must be an organization owner or team maintainer to remove a team membership.");
+    }
 
     const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
     if (existing) {
@@ -564,10 +615,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.get("/orgs/:org/teams/:team_slug/memberships/:username", (c) => {
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { org, team } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
 
@@ -578,16 +626,13 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.get("/orgs/:org/teams/:team_slug/repos", (c) => {
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
+    const { auth, team } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
 
     const grants = gh.teamRepos
       .findBy("team_id", team.id)
       .flatMap((link) => {
         const repo = gh.repos.get(link.repo_id);
-        return repo ? [{ repo, permission: teamRepoPermission(link, team) }] : [];
+        return repo && canAccessRepo(gh, auth, repo) ? [{ repo, permission: teamRepoPermission(link, team) }] : [];
       })
       .sort((a, b) => a.repo.id - b.repo.id);
 
@@ -606,19 +651,15 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.put("/orgs/:org/teams/:team_slug/repos/:owner/:repo", async (c) => {
-    requireAuthUser(c);
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
-
-    const ownerLogin = c.req.param("owner")!;
-    const ownerInfo = lookupOwner(gh, ownerLogin);
-    if (!ownerInfo || ownerInfo.type !== "Organization" || ownerInfo.id !== org.id) {
+    const { auth, org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
+    if (!repo || !canAccessRepo(gh, auth, repo)) throw notFound();
+    if (!hasTeamRepoAdmin(gh, auth, access, repo)) {
+      throw new ApiError(403, "You must have administrative rights on this repository.");
+    }
+    if (repo.owner_type !== "Organization" || repo.owner_id !== org.id) {
       throw new ApiError(422, "Repository must belong to this organization");
     }
-    const repo = lookupRepo(gh, ownerLogin, c.req.param("repo")!);
-    if (!repo) throw notFound();
 
     const body = (await c.req.raw.clone().text()).trim() ? await parseJsonBody(c) : {};
     const permission = body.permission === undefined ? team.permission : body.permission;
@@ -631,19 +672,15 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.delete("/orgs/:org/teams/:team_slug/repos/:owner/:repo", (c) => {
-    requireAuthUser(c);
-    const org = getOrgByLogin(gh, c.req.param("org")!);
-    if (!org) throw notFound();
-    const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
-    if (!team) throw notFound();
-
-    const ownerLogin = c.req.param("owner")!;
-    const ownerInfo = lookupOwner(gh, ownerLogin);
-    if (!ownerInfo || ownerInfo.type !== "Organization" || ownerInfo.id !== org.id) {
-      throw new ApiError(422, "Repository must belong to this organization");
+    const { auth, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
+    if (!repo || !canAccessRepo(gh, auth, repo)) throw notFound();
+    if (!access.manage && !hasTeamRepoAdmin(gh, auth, access, repo)) {
+      throw new ApiError(
+        403,
+        "You must have administrative rights on a repository or team in order to remove the repository from that team",
+      );
     }
-    const repo = lookupRepo(gh, ownerLogin, c.req.param("repo")!);
-    if (!repo) throw notFound();
 
     const tr = findTeamRepo(gh, team.id, repo.id);
     if (tr) {
@@ -653,18 +690,12 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.get("/teams/:team_id", (c) => {
-    const tid = parseInt(c.req.param("team_id") ?? "", 10);
-    if (Number.isNaN(tid)) throw notFound();
-    const team = gh.teams.get(tid);
-    if (!team) throw notFound();
+    const team = visibleTeamById(c, c.req.param("team_id"));
     return c.json(formatTeamFull(team, gh, baseUrl));
   });
 
   app.get("/teams/:team_id/members", (c) => {
-    const tid = parseInt(c.req.param("team_id") ?? "", 10);
-    if (Number.isNaN(tid)) throw notFound();
-    const team = gh.teams.get(tid);
-    if (!team) throw notFound();
+    const team = visibleTeamById(c, c.req.param("team_id"));
 
     const roleQ = (c.req.query("role") ?? "all").toLowerCase();
     if (roleQ !== "all" && roleQ !== "member" && roleQ !== "maintainer") {
