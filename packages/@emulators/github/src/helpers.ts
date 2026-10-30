@@ -161,10 +161,7 @@ function permissionRank(permission: string): number {
   return PERMISSION_LEVELS.indexOf(permission as RepoPermissionLevel);
 }
 
-/**
- * The highest role a user holds on a repository: owner, organization owner, the organization's base
- * permission for members, team grants on the repository, and a direct collaborator role.
- */
+/** Highest of: owner, org owner, the org base permission, team grants, and a collaborator role. */
 export function repoPermissionLevel(store: GitHubStore, repo: GitHubRepo, userId: number): RepoPermissionLevel | null {
   if (repo.owner_type === "User") {
     if (repo.owner_id === userId) return "admin";
