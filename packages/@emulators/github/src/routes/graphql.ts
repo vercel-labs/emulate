@@ -1,10 +1,11 @@
 import type { Context, RouteContext } from "@emulators/core";
 import {
   GraphQLError,
-  OverlappingFieldsCanBeMergedRule,
   buildSchema,
   execute,
   parse,
+  getOperationAST,
+  isLeafType,
   specifiedRules,
   validate,
   type DocumentNode,
@@ -17,9 +18,14 @@ import { createMutationRoot, createQueryRoot } from "../graphql/resolvers.js";
 
 const schema = buildSchema(typeDefs);
 
-// GitHub accepts selections such as `...on User{name} ...on Team{name}` where the
-// two fields differ only in nullability; gh relies on that, graphql-js rejects it.
-const rules = specifiedRules.filter((rule) => rule !== OverlappingFieldsCanBeMergedRule);
+const NULLABILITY_CONFLICT = /^Fields "\w+" conflict because they return conflicting types "(\w+)!?" and "(\w+)!?"\./;
+
+// GitHub accepts `...on User{name} ...on Team{name}`, where the two leaf fields differ only in
+// nullability, and gh sends it. graphql-js rejects it; every other overlap conflict stays an error.
+function isNullabilityOnlyConflict(error: GraphQLError): boolean {
+  const match = NULLABILITY_CONFLICT.exec(error.message);
+  return match !== null && match[1] === match[2] && isLeafType(schema.getType(match[1]));
+}
 
 interface GraphQLRequest {
   query: string;
@@ -69,7 +75,7 @@ function formatResult(result: ExecutionResult) {
 export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
-  const run = async (c: Context, request: GraphQLRequest) => {
+  const run = async (c: Context, request: GraphQLRequest, method: "GET" | "POST") => {
     const authUser = c.get("authUser");
     if (!authUser) {
       return c.json(
@@ -98,8 +104,13 @@ export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
     } catch (error) {
       return c.json(formatResult({ errors: [error as GraphQLError] }));
     }
-    const validationErrors = validate(schema, document, rules);
+    const validationErrors = validate(schema, document, specifiedRules).filter(
+      (error) => !isNullabilityOnlyConflict(error),
+    );
     if (validationErrors.length > 0) return c.json(formatResult({ errors: validationErrors }));
+    if (method === "GET" && getOperationAST(document, request.operationName)?.operation === "mutation") {
+      return c.json({ errors: [{ message: "Mutations are not allowed over GET. Use POST instead." }] }, 405);
+    }
     const result = await execute({
       schema,
       document,
@@ -113,12 +124,16 @@ export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
   };
 
   const get = (c: Context) =>
-    run(c, {
-      query: c.req.query("query") ?? "",
-      variables: parseVariables(c.req.query("variables")),
-      operationName: c.req.query("operationName") ?? undefined,
-    });
-  const post = async (c: Context) => run(c, await readBody(c));
+    run(
+      c,
+      {
+        query: c.req.query("query") ?? "",
+        variables: parseVariables(c.req.query("variables")),
+        operationName: c.req.query("operationName") ?? undefined,
+      },
+      "GET",
+    );
+  const post = async (c: Context) => run(c, await readBody(c), "POST");
 
   for (const path of ["/graphql", "/api/graphql"]) {
     app.get(path, get);

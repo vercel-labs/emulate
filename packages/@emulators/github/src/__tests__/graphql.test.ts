@@ -595,4 +595,38 @@ describe("GitHub GraphQL API", () => {
     ).catch((e) => e);
     expect(error.status).toBe(401);
   });
+
+  describe("request validation", () => {
+    const post = (query: string) =>
+      app.request(`${base}/graphql`, {
+        method: "POST",
+        headers: { Authorization: "token test-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+
+    it("rejects aliases that merge different fields, as GitHub does", async () => {
+      for (const query of ["{ a: viewer { login } a: rateLimit { limit } }", "{ viewer { x: login x: name } }"]) {
+        const body = (await (await post(query)).json()) as any;
+        expect(body.data).toBeUndefined();
+        expect(body.errors[0].message).toMatch(/conflict/);
+      }
+    });
+
+    it("tolerates nullability-only conflicts on leaf fields only, the case gh sends", async () => {
+      const query = `{ nodes(ids: []) { ... on IssueComment { repository { name } } ... on User { repository(name: "x") { name } } } }`;
+      const body = (await (await post(query)).json()) as any;
+      expect(body.errors[0].message).toMatch(/conflict/);
+    });
+
+    it("refuses mutations sent over GET", async () => {
+      await seedBranch("feature");
+      const pr = await createPr("feature");
+      const mutation = `mutation { addComment(input: { subjectId: "${pr.id}", body: "csrf" }) { clientMutationId } }`;
+      const res = await app.request(`${base}/graphql?query=${encodeURIComponent(mutation)}`, {
+        headers: { Authorization: "token test-token" },
+      });
+      expect(res.status).toBe(405);
+      expect(gh.comments.all().filter((c) => c.body === "csrf")).toEqual([]);
+    });
+  });
 });
