@@ -2,6 +2,7 @@ import type { AppEnv, AuthUser, Hono, WebhookDispatcher } from "@emulators/core"
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
 import {
+  assertAuthenticatedActor,
   canAccessRepo,
   canAccessRepoWithPermission,
   getActorUser,
@@ -43,7 +44,7 @@ export function createContext(opts: {
     webhooks,
     baseUrl,
     authUser,
-    viewer: getActorUser(gh, authUser),
+    viewer: authUser.installation ? assertAuthenticatedActor(gh, authUser) : getActorUser(gh, authUser),
     rest: async (method, path, body) => {
       const res = await app.fetch(
         new Request(`http://localhost${path}`, {

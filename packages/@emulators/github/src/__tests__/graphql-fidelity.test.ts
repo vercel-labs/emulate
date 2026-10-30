@@ -166,4 +166,62 @@ describe("GitHub GraphQL fidelity", () => {
       expect(data.repository.pullRequest.mergeStateStatus).toBe("UNSTABLE");
     });
   });
+
+  describe("installation tokens", () => {
+    it("act as the App bot for viewer and pending reviews", async () => {
+      const pr = await seedPr();
+      const viewer = await graphql(
+        `
+          {
+            viewer {
+              login
+            }
+          }
+        `,
+        {},
+        "app-11-token",
+      );
+      const bot = gh.users.all().find((u) => u.type === "Bot")!;
+      expect(viewer.data.viewer.login).toBe(bot.login);
+
+      const pending = await graphql(
+        `
+          mutation ($input: AddPullRequestReviewInput!) {
+            addPullRequestReview(input: $input) {
+              pullRequestReview {
+                state
+                author {
+                  login
+                }
+                viewerDidAuthor
+              }
+            }
+          }
+        `,
+        { input: { pullRequestId: pr.node_id, body: "draft" } },
+        "app-11-token",
+      );
+      expect(pending.data.addPullRequestReview.pullRequestReview).toEqual({
+        state: "PENDING",
+        author: { login: bot.login },
+        viewerDidAuthor: true,
+      });
+
+      const submitted = await graphql(
+        `
+          mutation ($input: SubmitPullRequestReviewInput!) {
+            submitPullRequestReview(input: $input) {
+              pullRequestReview {
+                state
+              }
+            }
+          }
+        `,
+        { input: { pullRequestId: pr.node_id, event: "COMMENT" } },
+        "app-11-token",
+      );
+      expect(submitted.errors).toBeUndefined();
+      expect(submitted.data.submitPullRequestReview.pullRequestReview.state).toBe("COMMENTED");
+    });
+  });
 });
