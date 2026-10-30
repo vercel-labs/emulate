@@ -58,6 +58,7 @@ github:
   users:
     - login: octocat
       name: The Octocat
+    - login: hubot
   orgs:
     - login: my-org
       name: My Organization
@@ -79,7 +80,7 @@ github:
 
 Organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, and `admin` creates an organization owner. Unknown users are ignored. Seeded memberships use the synthetic `members` team and grant private organization repository access.
 
-A member's role on an organization repository follows GitHub: organization owners are admins, every other member gets `default_repository_permission` (`read` by default, or `write`, `admin`, or `none`), and team grants and direct collaborator roles add to it. With the default `read`, a member can open issues and pull requests and comment, but can't label, close others' work, or merge. `teams` creates teams with a `permission` (`pull`, `triage`, `push`, `maintain`, or `admin`, default `pull`) on the listed `repos`, which are names of the organization's repositories.
+A member's role on an organization repository follows GitHub: organization owners are admins, every other member gets `default_repository_permission` (`read` by default, or `write`, `admin`, or `none`), and team grants and direct collaborator roles add to it. With the default `read`, a member can open issues and pull requests and comment, but can't label, close others' work, or merge. `teams` creates teams with a `permission` (`pull`, `triage`, `push`, `maintain`, or `admin`, default `pull`) on the listed `repos`, which are names of the organization's repositories. As with `members`, team members and repositories that aren't seeded are ignored. Whoever creates an organization repository, or forks into the organization, becomes its admin, as on GitHub.
 
 ## Users
 
