@@ -129,6 +129,25 @@ describe("GitHub GraphQL API", () => {
     expect(((await get.json()) as any).data.viewer.login).toBe("octocat");
   });
 
+  it("reports unknown fields in GitHub's wording so gh can ignore optional ones", async () => {
+    const error = await gql(`{ viewer { projectItems { totalCount } } }`).catch((e) => e);
+    expect(error.errors[0].message).toBe("Field 'projectItems' doesn't exist on type 'User'");
+  });
+
+  it("accepts fragments whose fields differ only in nullability, as GitHub does", async () => {
+    await seedBranch("feature");
+    const pr = await createPr("feature");
+    const hubot = gh.users.findOneBy("login", "hubot")!;
+    await rest("POST", "/repos/octocat/hello-world/pulls/1/requested_reviewers", { reviewers: [hubot.login] });
+    const data = await gql(
+      `query($id: ID!) { node(id: $id) { ... on PullRequest { reviewRequests(first: 5) { nodes { requestedReviewer {
+        ... on User { name } ... on Team { name }
+      } } } } } }`,
+      { id: pr.id },
+    );
+    expect(data.node.reviewRequests.nodes).toEqual([{ requestedReviewer: { name: null } }]);
+  });
+
   it("aliases /api/v3 to the REST API", async () => {
     const res = await app.request(`${base}/api/v3/repos/octocat/hello-world`, {
       headers: { Authorization: "token test-token" },
