@@ -1,7 +1,13 @@
-import type { AppEnv, AuthUser, Hono } from "@emulators/core";
+import type { AppEnv, AuthUser, Hono, WebhookDispatcher } from "@emulators/core";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
-import { canAccessRepo, getActorUser } from "../route-helpers.js";
+import {
+  canAccessRepo,
+  canAccessRepoWithPermission,
+  getActorUser,
+  hasRepoAdmin,
+  hasRepoContentsWrite,
+} from "../route-helpers.js";
 
 export type GitHubErrorType = "NOT_FOUND" | "FORBIDDEN" | "UNPROCESSABLE" | "INTERNAL";
 
@@ -16,6 +22,7 @@ export class GitHubGraphQLError extends Error {
 
 export interface GraphQLContext {
   gh: GitHubStore;
+  webhooks: WebhookDispatcher;
   baseUrl: string;
   authUser: AuthUser;
   viewer: GitHubUser | undefined;
@@ -25,13 +32,15 @@ export interface GraphQLContext {
 export function createContext(opts: {
   app: Hono<AppEnv>;
   gh: GitHubStore;
+  webhooks: WebhookDispatcher;
   baseUrl: string;
   authUser: AuthUser;
   authorization: string;
 }): GraphQLContext {
-  const { app, gh, baseUrl, authUser, authorization } = opts;
+  const { app, gh, webhooks, baseUrl, authUser, authorization } = opts;
   return {
     gh,
+    webhooks,
     baseUrl,
     authUser,
     viewer: getActorUser(gh, authUser),
@@ -72,4 +81,36 @@ export function notFound(message: string): GitHubGraphQLError {
 
 export function canSeeRepo(ctx: GraphQLContext, repo: GitHubRepo | undefined): repo is GitHubRepo {
   return repo !== undefined && canAccessRepo(ctx.gh, ctx.authUser, repo);
+}
+
+export type RepoPermission = "checks" | "contents" | "issues" | "pull_requests";
+
+export function canRead(
+  ctx: GraphQLContext,
+  repo: GitHubRepo | undefined,
+  permissions: RepoPermission[],
+): repo is GitHubRepo {
+  return repo !== undefined && canAccessRepoWithPermission(ctx.gh, ctx.authUser, repo, permissions, "read");
+}
+
+export function assertCanRead(ctx: GraphQLContext, repo: GitHubRepo, permissions: RepoPermission[]): void {
+  if (!canRead(ctx, repo, permissions)) {
+    throw new GitHubGraphQLError("FORBIDDEN", "Resource not accessible by integration");
+  }
+}
+
+export function assertCanTriage(ctx: GraphQLContext, repo: GitHubRepo): void {
+  const { gh, authUser, viewer } = ctx;
+  const allowed = authUser.installation
+    ? canAccessRepoWithPermission(gh, authUser, repo, ["issues", "pull_requests"], "write")
+    : viewer !== undefined &&
+      (hasRepoAdmin(gh, viewer, repo) ||
+        hasRepoContentsWrite(gh, viewer, repo) ||
+        gh.collaborators.findBy("repo_id", repo.id).some((c) => c.user_id === viewer.id && c.permission === "triage"));
+  if (!allowed) {
+    throw new GitHubGraphQLError(
+      "FORBIDDEN",
+      `${authUser.login} does not have permission to update metadata on ${repo.full_name}.`,
+    );
+  }
 }

@@ -12,13 +12,32 @@ import type {
   GitHubTeam,
   GitHubUser,
 } from "../entities.js";
-import { computeAuthorAssociation, generateNodeId, lookupRepo } from "../helpers.js";
+import {
+  computeAuthorAssociation,
+  formatMilestone,
+  formatPullRequest,
+  formatRepo,
+  formatUser,
+  generateNodeId,
+  lookupRepo,
+} from "../helpers.js";
 import { diffTrees, findCommitBySha, listAncestors } from "../git-helpers.js";
 import { assertAuthenticatedActor, hasRepoAdmin, hasRepoContentsWrite, ownerLoginOf } from "../route-helpers.js";
 import { checkMergeRequirements } from "../routes/pulls.js";
+import { insertIssueEvent } from "../routes/issues.js";
 import { issuePrMatchesFilters, parseSearchQuery } from "../routes/search.js";
 import { connectionFromArray, type ConnectionArgs } from "./connection.js";
-import { GitHubGraphQLError, canSeeRepo, decodeNodeId, notFound, type GraphQLContext } from "./context.js";
+import {
+  GitHubGraphQLError,
+  assertCanRead,
+  assertCanTriage,
+  canRead,
+  canSeeRepo,
+  decodeNodeId,
+  notFound,
+  type GraphQLContext,
+  type RepoPermission,
+} from "./context.js";
 
 type Args = Record<string, any>;
 type View = Record<string, unknown>;
@@ -263,6 +282,7 @@ function latestCheckRuns(ctx: GraphQLContext, repo: GitHubRepo, sha: string): Gi
 }
 
 function statusCheckRollupView(ctx: GraphQLContext, repo: GitHubRepo, commit: GitHubCommit): View | null {
+  if (!canRead(ctx, repo, ["checks"])) return null;
   const runs = latestCheckRuns(ctx, repo, commit.sha);
   if (runs.length === 0) return null;
   const countsByState = new Map<string, number>();
@@ -313,7 +333,7 @@ function refView(ctx: GraphQLContext, repo: GitHubRepo, branchName: string): Vie
     name: branch.name,
     prefix: "refs/heads/",
     repository: () => repoView(ctx, repo),
-    target: () => commitBySha(ctx, repo, branch.sha),
+    target: () => (canRead(ctx, repo, ["contents"]) ? commitBySha(ctx, repo, branch.sha) : null),
     branchProtectionRule: () => branchProtectionView(ctx, repo, branch.name),
   };
 }
@@ -408,10 +428,12 @@ export function repoView(ctx: GraphQLContext, repo: GitHubRepo): View {
     assignableUsers: (args: Args) => usersConnection(ctx, repoMembers(ctx, repo), args),
     mentionableUsers: (args: Args) => usersConnection(ctx, repoMembers(ctx, repo), args),
     label: ({ name }: Args) => {
+      assertCanRead(ctx, repo, ["issues", "pull_requests"]);
       const label = ctx.gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
       return label ? labelView(ctx, repo, label) : null;
     },
     labels: (args: Args) => {
+      assertCanRead(ctx, repo, ["issues", "pull_requests"]);
       const q = typeof args.query === "string" ? args.query.toLowerCase() : "";
       const ids = ctx.gh.labels
         .findBy("repo_id", repo.id)
@@ -420,10 +442,12 @@ export function repoView(ctx: GraphQLContext, repo: GitHubRepo): View {
       return labelsConnection(ctx, repo, ids, args);
     },
     milestone: ({ number }: Args) => {
+      assertCanRead(ctx, repo, ["issues", "pull_requests"]);
       const m = ctx.gh.milestones.findBy("repo_id", repo.id).find((x) => x.number === number);
       return m ? milestoneView(ctx, repo, m) : null;
     },
     milestones: (args: Args) => {
+      assertCanRead(ctx, repo, ["issues", "pull_requests"]);
       const states: string[] | undefined = args.states;
       const list = ctx.gh.milestones
         .findBy("repo_id", repo.id)
@@ -434,11 +458,13 @@ export function repoView(ctx: GraphQLContext, repo: GitHubRepo): View {
       );
     },
     pullRequest: ({ number }: Args) => {
+      assertCanRead(ctx, repo, ["pull_requests"]);
       const pr = pulls().find((p) => p.number === number);
       if (!pr) throw notFound(`Could not resolve to a PullRequest with the number of ${number}.`);
       return prView(ctx, pr);
     },
     pullRequests: (args: Args) => {
+      assertCanRead(ctx, repo, ["pull_requests"]);
       const states: string[] | undefined = args.states;
       const labels: string[] | undefined = args.labels;
       const list = pulls().filter((pr) => {
@@ -541,7 +567,7 @@ function commentView(ctx: GraphQLContext, comment: GitHubComment): View | null {
     resourcePath: `/${repo.full_name}/${pr ? "pull" : "issues"}/${number}#issuecomment-${comment.id}`,
     repository: () => repoView(ctx, repo),
     issue: () => (issue ? issueView(ctx, issue) : null),
-    pullRequest: () => (pr ? prView(ctx, pr) : null),
+    pullRequest: () => (pr && canRead(ctx, repo, ["pull_requests"]) ? prView(ctx, pr) : null),
   };
 }
 
@@ -598,7 +624,9 @@ function mergeStateStatus(ctx: GraphQLContext, pr: GitHubPullRequest): string {
     return "BLOCKED";
   }
   const repo = ctx.gh.repos.get(pr.base_repo_id);
-  if (repo && rollupState(latestCheckRuns(ctx, repo, pr.head_sha)) !== "SUCCESS") return "UNSTABLE";
+  if (repo && canRead(ctx, repo, ["checks"]) && rollupState(latestCheckRuns(ctx, repo, pr.head_sha)) !== "SUCCESS") {
+    return "UNSTABLE";
+  }
   return "CLEAN";
 }
 
@@ -730,12 +758,15 @@ export function prView(ctx: GraphQLContext, pr: GitHubPullRequest): View | null 
 function pullRequestFromNodeId(ctx: GraphQLContext, id: string): GitHubPullRequest | undefined {
   const decoded = decodeNodeId(id);
   if (decoded?.type !== "PullRequest") return undefined;
-  const pr = ctx.gh.pullRequests.get(decoded.id);
-  return pr && canSeeRepo(ctx, ctx.gh.repos.get(pr.repo_id)) ? pr : undefined;
+  return repoScoped(ctx, ctx.gh.pullRequests.get(decoded.id), ["pull_requests"]);
 }
 
-function repoScoped<T extends { repo_id: number }>(ctx: GraphQLContext, row: T | undefined): T | undefined {
-  return row && canSeeRepo(ctx, ctx.gh.repos.get(row.repo_id)) ? row : undefined;
+function repoScoped<T extends { repo_id: number }>(
+  ctx: GraphQLContext,
+  row: T | undefined,
+  permissions: RepoPermission[],
+): T | undefined {
+  return row && canRead(ctx, ctx.gh.repos.get(row.repo_id), permissions) ? row : undefined;
 }
 
 export function nodeById(ctx: GraphQLContext, id: string): View | null {
@@ -744,11 +775,12 @@ export function nodeById(ctx: GraphQLContext, id: string): View | null {
   const { gh } = ctx;
   switch (decoded.type) {
     case "PullRequest": {
-      const pr = repoScoped(ctx, gh.pullRequests.get(decoded.id));
+      const pr = repoScoped(ctx, gh.pullRequests.get(decoded.id), ["pull_requests"]);
       return pr ? prView(ctx, pr) : null;
     }
     case "Issue": {
-      const issue = repoScoped(ctx, gh.issues.get(decoded.id));
+      const row = gh.issues.get(decoded.id);
+      const issue = repoScoped(ctx, row, [row?.is_pull_request ? "pull_requests" : "issues"]);
       if (!issue) return null;
       const pr = issue.is_pull_request
         ? gh.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number)
@@ -771,27 +803,27 @@ export function nodeById(ctx: GraphQLContext, id: string): View | null {
       return team ? teamView(ctx, team) : null;
     }
     case "IssueComment": {
-      const comment = repoScoped(ctx, gh.comments.get(decoded.id));
+      const comment = repoScoped(ctx, gh.comments.get(decoded.id), ["issues", "pull_requests"]);
       return comment ? commentView(ctx, comment) : null;
     }
     case "PullRequestReview": {
-      const review = repoScoped(ctx, gh.reviews.get(decoded.id));
+      const review = repoScoped(ctx, gh.reviews.get(decoded.id), ["pull_requests"]);
       return review ? reviewView(ctx, review) : null;
     }
     case "Label": {
-      const label = repoScoped(ctx, gh.labels.get(decoded.id));
+      const label = repoScoped(ctx, gh.labels.get(decoded.id), ["issues", "pull_requests"]);
       return label ? { __typename: "Label", ...labelView(ctx, gh.repos.get(label.repo_id)!, label) } : null;
     }
     case "Milestone": {
-      const m = repoScoped(ctx, gh.milestones.get(decoded.id));
+      const m = repoScoped(ctx, gh.milestones.get(decoded.id), ["issues", "pull_requests"]);
       return m ? { __typename: "Milestone", ...milestoneView(ctx, gh.repos.get(m.repo_id)!, m) } : null;
     }
     case "Commit": {
-      const commit = repoScoped(ctx, gh.commits.get(decoded.id));
+      const commit = repoScoped(ctx, gh.commits.get(decoded.id), ["contents"]);
       return commit ? commitView(ctx, gh.repos.get(commit.repo_id)!, commit) : null;
     }
     case "CheckRun": {
-      const run = repoScoped(ctx, gh.checkRuns.get(decoded.id));
+      const run = repoScoped(ctx, gh.checkRuns.get(decoded.id), ["checks"]);
       return run ? checkRunView(ctx, gh.repos.get(run.repo_id)!, run) : null;
     }
     default:
@@ -808,7 +840,7 @@ function search(ctx: GraphQLContext, args: Args) {
   const issues = [...ctx.gh.issues.all()].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id);
   for (const issue of issues) {
     const repo = ctx.gh.repos.get(issue.repo_id);
-    if (!canSeeRepo(ctx, repo)) continue;
+    if (!canRead(ctx, repo, [issue.is_pull_request ? "pull_requests" : "issues"])) continue;
     const pr = issue.is_pull_request
       ? (ctx.gh.pullRequests.findBy("repo_id", repo.id).find((p) => p.number === issue.number) ?? null)
       : null;
@@ -888,16 +920,90 @@ function idsOfType(ids: string[] | undefined, type: string): number[] {
   });
 }
 
-function setPullAssignees(ctx: GraphQLContext, pr: GitHubPullRequest, assigneeIds: number[]): void {
-  ctx.gh.pullRequests.update(pr.id, { assignee_ids: assigneeIds });
-  const issue = ctx.gh.issues.findBy("repo_id", pr.repo_id).find((i) => i.number === pr.number && i.is_pull_request);
-  if (issue) ctx.gh.issues.update(issue.id, { assignee_ids: assigneeIds });
+function unresolvable(id: string | number): GitHubGraphQLError {
+  return notFound(`Could not resolve to a node with the global id of '${id}'`);
 }
 
-function setPullMilestone(ctx: GraphQLContext, pr: GitHubPullRequest, milestoneId: number | null): void {
-  ctx.gh.pullRequests.update(pr.id, { milestone_id: milestoneId });
+function assigneesByNodeId(ctx: GraphQLContext, ids: string[]): GitHubUser[] {
+  return ids.map((id) => {
+    const decoded = decodeNodeId(id);
+    const user = decoded?.type === "User" || decoded?.type === "Bot" ? ctx.gh.users.get(decoded.id) : undefined;
+    if (!user) throw unresolvable(id);
+    return user;
+  });
+}
+
+function milestoneInRepo(ctx: GraphQLContext, repo: GitHubRepo, id: string): GitHubMilestone {
+  const decoded = decodeNodeId(id);
+  const milestone = decoded?.type === "Milestone" ? ctx.gh.milestones.get(decoded.id) : undefined;
+  if (!milestone || milestone.repo_id !== repo.id) throw unresolvable(id);
+  return milestone;
+}
+
+function labelInRepo(ctx: GraphQLContext, repo: GitHubRepo, id: number): GitHubLabel {
+  const label = ctx.gh.labels.get(id);
+  if (!label || label.repo_id !== repo.id) throw notFound(`Could not resolve to a Label with the id of '${id}'.`);
+  return label;
+}
+
+function dispatchPullRequestEvent(ctx: GraphQLContext, repo: GitHubRepo, prId: number, action: string, extra: View) {
+  const { gh, baseUrl } = ctx;
+  const sender = assertAuthenticatedActor(gh, ctx.authUser);
+  ctx.webhooks.dispatch(
+    "pull_request",
+    action,
+    {
+      action,
+      pull_request: formatPullRequest(gh.pullRequests.get(prId)!, gh, baseUrl),
+      ...extra,
+      repository: formatRepo(repo, gh, baseUrl),
+      sender: formatUser(sender, baseUrl),
+    },
+    ownerLoginOf(gh, repo),
+    repo.name,
+  );
+}
+
+function updatePullAndIssue(ctx: GraphQLContext, pr: GitHubPullRequest, patch: Partial<GitHubIssue>): void {
+  ctx.gh.pullRequests.update(pr.id, patch as Partial<GitHubPullRequest>);
   const issue = ctx.gh.issues.findBy("repo_id", pr.repo_id).find((i) => i.number === pr.number && i.is_pull_request);
-  if (issue) ctx.gh.issues.update(issue.id, { milestone_id: milestoneId });
+  if (issue) ctx.gh.issues.update(issue.id, patch);
+}
+
+function setPullAssignees(ctx: GraphQLContext, pr: GitHubPullRequest, repo: GitHubRepo, assignees: GitHubUser[]) {
+  const actor = assertAuthenticatedActor(ctx.gh, ctx.authUser);
+  const ids = [...new Set(assignees.map((u) => u.id))];
+  const before = ctx.gh.pullRequests.get(pr.id)!.assignee_ids;
+  updatePullAndIssue(ctx, pr, { assignee_ids: ids });
+  const changes = [
+    ...before.filter((id) => !ids.includes(id)).map((id) => ["unassigned", id] as const),
+    ...ids.filter((id) => !before.includes(id)).map((id) => ["assigned", id] as const),
+  ];
+  for (const [action, id] of changes) {
+    insertIssueEvent(ctx.gh, repo, pr.number, action, actor.id, { assignee_id: id });
+    const user = ctx.gh.users.get(id);
+    dispatchPullRequestEvent(ctx, repo, pr.id, action, {
+      assignee: user ? formatUser(user, ctx.baseUrl) : null,
+    });
+  }
+}
+
+function setPullMilestone(ctx: GraphQLContext, pr: GitHubPullRequest, repo: GitHubRepo, next: GitHubMilestone | null) {
+  const actor = assertAuthenticatedActor(ctx.gh, ctx.authUser);
+  const previousId = ctx.gh.pullRequests.get(pr.id)!.milestone_id;
+  if (previousId === (next?.id ?? null)) return;
+  updatePullAndIssue(ctx, pr, { milestone_id: next?.id ?? null });
+  const previous = previousId !== null ? ctx.gh.milestones.get(previousId) : undefined;
+  for (const [action, milestone] of [
+    ["demilestoned", previous],
+    ["milestoned", next ?? undefined],
+  ] as const) {
+    if (!milestone) continue;
+    insertIssueEvent(ctx.gh, repo, pr.number, action, actor.id, { milestone_title: milestone.title });
+    dispatchPullRequestEvent(ctx, repo, pr.id, action, {
+      milestone: formatMilestone(milestone, repo, ctx.gh, ctx.baseUrl),
+    });
+  }
 }
 
 function requireLabelable(
@@ -910,20 +1016,15 @@ function requireLabelable(
     return { number: pr.number, repo, view: () => freshPr(ctx, pr) };
   }
   if (node?.type === "Issue") {
-    const issue = repoScoped(ctx, ctx.gh.issues.get(node.id));
+    const issue = repoScoped(ctx, ctx.gh.issues.get(node.id), ["issues"]);
     const repo = issue && ctx.gh.repos.get(issue.repo_id);
     if (issue && repo) return { number: issue.number, repo, view: () => nodeById(ctx, id) };
   }
   throw notFound(`Could not resolve to a node with the global id of '${id}'`);
 }
 
-async function replaceLabels(ctx: GraphQLContext, repo: GitHubRepo, number: number, labelIds: number[]) {
-  const names = labelIds.map((id) => {
-    const label = repoScoped(ctx, ctx.gh.labels.get(id));
-    if (!label) throw notFound(`Could not resolve to a Label with the id of '${id}'.`);
-    return label.name;
-  });
-  await ctx.rest("PUT", `${restRepoPath(repo)}/issues/${number}/labels`, { labels: names });
+async function replaceLabels(ctx: GraphQLContext, repo: GitHubRepo, number: number, labels: GitHubLabel[]) {
+  await ctx.rest("PUT", `${restRepoPath(repo)}/issues/${number}/labels`, { labels: labels.map((l) => l.name) });
 }
 
 async function setReviewRequests(
@@ -996,12 +1097,15 @@ export function createMutationRoot(ctx: GraphQLContext) {
       if (input.body !== undefined) patch.body = input.body;
       if (input.baseRefName != null) patch.base = input.baseRefName;
       if (input.state != null) patch.state = String(input.state).toLowerCase();
+      const labels = input.labelIds && idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, repo, id));
+      const assignees = input.assigneeIds && assigneesByNodeId(ctx, input.assigneeIds);
+      const milestone = input.milestoneId ? milestoneInRepo(ctx, repo, input.milestoneId) : null;
+      const setsMilestone = input.milestoneId !== undefined;
+      if (assignees || setsMilestone) assertCanTriage(ctx, repo);
       if (Object.keys(patch).length) await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, patch);
-      if (input.labelIds) await replaceLabels(ctx, repo, pr.number, idsOfType(input.labelIds, "Label"));
-      if (input.assigneeIds) setPullAssignees(ctx, pr, idsOfType(input.assigneeIds, "User"));
-      if (input.milestoneId !== undefined) {
-        setPullMilestone(ctx, pr, input.milestoneId === null ? null : idsOfType([input.milestoneId], "Milestone")[0]);
-      }
+      if (labels) await replaceLabels(ctx, repo, pr.number, labels);
+      if (assignees) setPullAssignees(ctx, pr, repo, assignees);
+      if (setsMilestone) setPullMilestone(ctx, pr, repo, milestone);
       return payload(input, { actor, pullRequest: freshPr(ctx, pr) });
     },
 
@@ -1063,7 +1167,10 @@ export function createMutationRoot(ctx: GraphQLContext) {
       let review: GitHubReview | undefined;
       if (input.pullRequestReviewId) {
         const decoded = decodeNodeId(input.pullRequestReviewId);
-        review = decoded?.type === "PullRequestReview" ? repoScoped(ctx, gh.reviews.get(decoded.id)) : undefined;
+        review =
+          decoded?.type === "PullRequestReview"
+            ? repoScoped(ctx, gh.reviews.get(decoded.id), ["pull_requests"])
+            : undefined;
         if (!review) throw notFound(`Could not resolve to a node with the global id of '${input.pullRequestReviewId}'`);
       } else if (input.pullRequestId) {
         review = pendingReviewFor(ctx, requirePullRequest(ctx, input.pullRequestId).pr);
@@ -1097,8 +1204,11 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     updateIssueComment: async ({ input }: Args) => {
       const decoded = decodeNodeId(input.id);
-      const comment = decoded?.type === "IssueComment" ? repoScoped(ctx, gh.comments.get(decoded.id)) : undefined;
-      if (!comment) throw notFound(`Could not resolve to a node with the global id of '${input.id}'`);
+      const comment =
+        decoded?.type === "IssueComment"
+          ? repoScoped(ctx, gh.comments.get(decoded.id), ["issues", "pull_requests"])
+          : undefined;
+      if (!comment) throw unresolvable(input.id);
       const repo = gh.repos.get(comment.repo_id)!;
       await ctx.rest("PATCH", `${restRepoPath(repo)}/issues/comments/${comment.id}`, { body: input.body });
       return payload(input, { issueComment: commentView(ctx, gh.comments.get(comment.id)!) });
@@ -1106,8 +1216,11 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     deleteIssueComment: async ({ input }: Args) => {
       const decoded = decodeNodeId(input.id);
-      const comment = decoded?.type === "IssueComment" ? repoScoped(ctx, gh.comments.get(decoded.id)) : undefined;
-      if (!comment) throw notFound(`Could not resolve to a node with the global id of '${input.id}'`);
+      const comment =
+        decoded?.type === "IssueComment"
+          ? repoScoped(ctx, gh.comments.get(decoded.id), ["issues", "pull_requests"])
+          : undefined;
+      if (!comment) throw unresolvable(input.id);
       const repo = gh.repos.get(comment.repo_id)!;
       await ctx.rest("DELETE", `${restRepoPath(repo)}/issues/comments/${comment.id}`);
       return payload(input, {});
@@ -1115,20 +1228,15 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     addLabelsToLabelable: async ({ input }: Args) => {
       const target = requireLabelable(ctx, input.labelableId);
-      const names = idsOfType(input.labelIds, "Label").map((id) => {
-        const label = repoScoped(ctx, gh.labels.get(id));
-        if (!label) throw notFound(`Could not resolve to a Label with the id of '${id}'.`);
-        return label.name;
-      });
+      const names = idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, target.repo, id).name);
       await ctx.rest("POST", `${restRepoPath(target.repo)}/issues/${target.number}/labels`, { labels: names });
       return payload(input, { labelable: target.view });
     },
 
     removeLabelsFromLabelable: async ({ input }: Args) => {
       const target = requireLabelable(ctx, input.labelableId);
-      for (const id of idsOfType(input.labelIds, "Label")) {
-        const label = repoScoped(ctx, gh.labels.get(id));
-        if (!label) continue;
+      const labels = idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, target.repo, id));
+      for (const label of labels) {
         await ctx.rest(
           "DELETE",
           `${restRepoPath(target.repo)}/issues/${target.number}/labels/${encodeURIComponent(label.name)}`,
@@ -1154,13 +1262,14 @@ export function createMutationRoot(ctx: GraphQLContext) {
     },
 
     replaceActorsForAssignable: async ({ input }: Args) => {
-      const { pr } = requirePullRequest(ctx, input.assignableId);
-      const ids = (input.actorLogins as string[]).map((login) => {
+      const { pr, repo } = requirePullRequest(ctx, input.assignableId);
+      const assignees = (input.actorLogins as string[]).map((login) => {
         const user = gh.users.findOneBy("login", login);
         if (!user) throw notFound(`Could not resolve to a User with the login of '${login}'.`);
-        return user.id;
+        return user;
       });
-      setPullAssignees(ctx, pr, ids);
+      assertCanTriage(ctx, repo);
+      setPullAssignees(ctx, pr, repo, assignees);
       return payload(input, {});
     },
   };

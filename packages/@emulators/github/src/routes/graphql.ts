@@ -72,7 +72,7 @@ function formatResult(result: ExecutionResult) {
   };
 }
 
-export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
+export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
   const run = async (c: Context, request: GraphQLRequest, method: "GET" | "POST") => {
@@ -94,6 +94,7 @@ export function graphqlRoutes({ app, store, baseUrl }: RouteContext): void {
     const context = createContext({
       app,
       gh,
+      webhooks,
       baseUrl,
       authUser,
       authorization: c.req.header("Authorization") ?? "",

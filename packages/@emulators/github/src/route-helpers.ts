@@ -90,7 +90,7 @@ function hasInstallationPermission(authUser: AuthUser, permissions: string[], re
   });
 }
 
-function canAccessRepoWithPermission(
+export function canAccessRepoWithPermission(
   gh: GitHubStore,
   authUser: AuthUser | undefined,
   repo: GitHubRepo,

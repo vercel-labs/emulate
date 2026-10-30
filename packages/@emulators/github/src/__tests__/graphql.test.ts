@@ -13,7 +13,6 @@ function createTestApp() {
   tokenMap.set("test-token", { login: "octocat", id: 1, scopes: ["repo", "user"] });
   tokenMap.set("hubot-token", { login: "hubot", id: 2, scopes: ["repo", "user"] });
   tokenMap.set("outsider-token", { login: "outsider", id: 3, scopes: ["repo", "user"] });
-
   const app = new Hono();
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
@@ -28,6 +27,29 @@ function createTestApp() {
     ],
   });
   const gh = getGitHubStore(store);
+  const octocat = gh.users.findOneBy("login", "octocat")!;
+  const installation = (permissions: Record<string, string>) => ({
+    installationId: 1,
+    appId: 1,
+    accountId: octocat.id,
+    accountType: "User" as const,
+    permissions,
+    repositoryIds: [],
+    repositorySelection: "all" as const,
+  });
+  tokenMap.set("metadata-app-token", {
+    login: "metadata-app[bot]",
+    id: 4,
+    scopes: [],
+    installation: installation({ metadata: "read" }),
+  });
+  tokenMap.set("pulls-reader-app-token", {
+    login: "pulls-reader-app[bot]",
+    id: 5,
+    scopes: [],
+    installation: installation({ metadata: "read", pull_requests: "read" }),
+  });
+
   const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
   gh.collaborators.insert({ repo_id: repo.id, user_id: gh.users.findOneBy("login", "hubot")!.id, permission: "push" });
   return { app, store, webhooks, gh };
@@ -611,7 +633,7 @@ describe("GitHub GraphQL API", () => {
     expect(data.reviewRequested.issueCount).toBe(0);
   });
 
-  it("rejects writes from users without access", async () => {
+  it("rejects unauthenticated mutations", async () => {
     await seedBranch("feature");
     const pr = await createPr("feature");
     const error = await gql(
@@ -620,6 +642,169 @@ describe("GitHub GraphQL API", () => {
       "missing-token",
     ).catch((e) => e);
     expect(error.status).toBe(401);
+  });
+
+  describe("authorization", () => {
+    async function privateMilestone() {
+      const created = await rest("POST", "/repos/octocat/secret/milestones", { title: "secret-ms" });
+      expect(created.status).toBe(201);
+      return created.body.node_id as string;
+    }
+
+    async function privatePr() {
+      const main = await rest("GET", "/repos/octocat/secret/git/ref/heads/main");
+      await rest("POST", "/repos/octocat/secret/git/refs", { ref: "refs/heads/hidden", sha: main.body.object.sha });
+      await rest("PUT", "/repos/octocat/secret/contents/hidden.txt", {
+        message: "Add hidden",
+        content: Buffer.from("hidden\n").toString("base64"),
+        branch: "hidden",
+      });
+      const pr = await rest("POST", "/repos/octocat/secret/pulls", { title: "Hidden", head: "hidden", base: "main" });
+      expect(pr.status).toBe(201);
+      return pr.body.node_id as string;
+    }
+
+    const updatePr = (input: Record<string, unknown>, token: string) =>
+      gql(
+        `mutation($input: UpdatePullRequestInput!) { updatePullRequest(input: $input) { pullRequest { milestone { title } } } }`,
+        { input },
+        token,
+      ).catch((e) => e);
+
+    it("rejects metadata writes from a user without triage access", async () => {
+      await seedBranch("feature");
+      const pr = await createPr("feature");
+      const milestone = await rest("POST", "/repos/octocat/hello-world/milestones", { title: "v1" });
+
+      const milestoneError = await updatePr(
+        { pullRequestId: pr.id, milestoneId: milestone.body.node_id },
+        "outsider-token",
+      );
+      expect(milestoneError.errors[0]).toMatchObject({ type: "FORBIDDEN" });
+
+      const assignError = await gql(
+        `mutation($input: ReplaceActorsForAssignableInput!) { replaceActorsForAssignable(input: $input) { clientMutationId } }`,
+        { input: { assignableId: pr.id, actorLogins: ["outsider"] } },
+        "outsider-token",
+      ).catch((e) => e);
+      expect(assignError.errors[0]).toMatchObject({ type: "FORBIDDEN" });
+
+      const stored = gh.pullRequests.findOneBy("node_id", pr.id)!;
+      expect(stored.milestone_id).toBeNull();
+      expect(stored.assignee_ids).toEqual([]);
+    });
+
+    it("refuses milestones, labels, and assignees from another repository", async () => {
+      await seedBranch("feature");
+      const pr = await createPr("feature");
+      const secretMilestone = await privateMilestone();
+      const secretLabel = await rest("POST", "/repos/octocat/secret/labels", { name: "secret-label", color: "000000" });
+
+      for (const token of ["outsider-token", "test-token"]) {
+        const error = await updatePr({ pullRequestId: pr.id, milestoneId: secretMilestone }, token);
+        expect(error.errors[0]).toMatchObject({ type: "NOT_FOUND" });
+        expect(JSON.stringify(error.data ?? null)).not.toContain("secret-ms");
+      }
+      const labelError = await gql(
+        `mutation($input: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $input) { clientMutationId } }`,
+        { input: { labelableId: pr.id, labelIds: [secretLabel.body.node_id] } },
+      ).catch((e) => e);
+      expect(labelError.errors[0]).toMatchObject({ type: "NOT_FOUND" });
+
+      const assigneeError = await updatePr({ pullRequestId: pr.id, assigneeIds: [secretMilestone] }, "test-token");
+      expect(assigneeError.errors[0]).toMatchObject({ type: "NOT_FOUND" });
+      expect(gh.pullRequests.findOneBy("node_id", pr.id)!.milestone_id).toBeNull();
+    });
+
+    it("fires assigned and milestoned webhooks and records issue events like REST", async () => {
+      await seedBranch("feature");
+      const pr = await createPr("feature");
+      const milestone = await rest("POST", "/repos/octocat/hello-world/milestones", { title: "v1" });
+      const before = gh.pullRequests.findOneBy("node_id", pr.id)!.updated_at;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const dispatch = vi.spyOn(webhooks, "dispatch");
+
+      await updatePr({ pullRequestId: pr.id, milestoneId: milestone.body.node_id }, "test-token");
+      await gql(
+        `mutation($input: ReplaceActorsForAssignableInput!) { replaceActorsForAssignable(input: $input) { clientMutationId } }`,
+        { input: { assignableId: pr.id, actorLogins: ["hubot"] } },
+      );
+
+      expect(dispatch).toHaveBeenCalledWith(
+        "pull_request",
+        "milestoned",
+        expect.objectContaining({ milestone: expect.objectContaining({ title: "v1" }) }),
+        "octocat",
+        "hello-world",
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        "pull_request",
+        "assigned",
+        expect.objectContaining({ assignee: expect.objectContaining({ login: "hubot" }) }),
+        "octocat",
+        "hello-world",
+      );
+      const events = gh.issueEvents.findBy("issue_number", 1).map((e) => e.event);
+      expect(events).toEqual(expect.arrayContaining(["milestoned", "assigned"]));
+      expect(gh.pullRequests.findOneBy("node_id", pr.id)!.updated_at > before).toBe(true);
+    });
+
+    it("hides another user's private pull requests and milestones", async () => {
+      const prId = await privatePr();
+      const milestoneId = await privateMilestone();
+      const data = await gql(
+        `query($ids: [ID!]!) { nodes(ids: $ids) { id } }`,
+        { ids: [prId, milestoneId] },
+        "outsider-token",
+      );
+      expect(data.nodes).toEqual([null, null]);
+    });
+
+    it("requires the pull_requests permission for installation tokens, like REST", async () => {
+      await seedBranch("feature");
+      const pr = await createPr("feature");
+      await rest("POST", "/repos/octocat/hello-world/issues/1/comments", { body: "hi" });
+      const prId = await privatePr();
+
+      const restRead = await rest("GET", "/repos/octocat/secret/pulls/1", undefined, "metadata-app-token");
+      expect(restRead.status).toBe(403);
+
+      const listed = await gql(
+        `{ repository(owner: "octocat", name: "secret") { pullRequests(first: 5) { nodes { title } } } }`,
+        {},
+        "metadata-app-token",
+      ).catch((e) => e);
+      expect(listed.errors[0]).toMatchObject({ type: "FORBIDDEN", path: ["repository", "pullRequests"] });
+
+      const viaNode = await gql(`query($id: ID!) { node(id: $id) { id } }`, { id: prId }, "metadata-app-token");
+      expect(viaNode.node).toBeNull();
+
+      const search = await gql(
+        `{ search(query: "is:pr", type: ISSUE, first: 10) { issueCount } }`,
+        {},
+        "metadata-app-token",
+      );
+      expect(search.search.issueCount).toBe(1);
+
+      const reader = await gql(
+        `{ repository(owner: "octocat", name: "secret") { pullRequest(number: 1) { title } } }`,
+        {},
+        "pulls-reader-app-token",
+      );
+      expect(reader.repository.pullRequest.title).toBe("Hidden");
+      expect(pr.number).toBe(1);
+    });
+
+    it("rejects metadata writes from installation tokens without write permission", async () => {
+      const prId = await privatePr();
+      const milestone = await rest("POST", "/repos/octocat/secret/milestones", { title: "v1" });
+      const error = await updatePr(
+        { pullRequestId: prId, milestoneId: milestone.body.node_id },
+        "pulls-reader-app-token",
+      );
+      expect(error.errors[0]).toMatchObject({ type: "FORBIDDEN" });
+      expect(gh.pullRequests.findOneBy("node_id", prId)!.milestone_id).toBeNull();
+    });
   });
 
   describe("request validation", () => {

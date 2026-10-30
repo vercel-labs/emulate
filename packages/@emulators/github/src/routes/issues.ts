@@ -74,7 +74,7 @@ function lookupUserByLogin(gh: GitHubStore, login: string): GitHubUser {
   return u;
 }
 
-function insertIssueEvent(
+export function insertIssueEvent(
   gh: GitHubStore,
   repo: GitHubRepo,
   issueNumber: number,
