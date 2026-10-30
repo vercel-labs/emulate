@@ -197,6 +197,15 @@ describe.skipIf(!hasGh)("gh CLI against the GitHub emulator", () => {
     expect(await numbers("--search", "draft:false")).toEqual([1, 3]);
   });
 
+  it("prints gh search prs results as a table", async () => {
+    await pushBranch("feature");
+    await createPr("feature");
+    const { stdout } = await emu.gh("search", "prs", ...REPO, "--state", "open");
+    expect(stdout).toMatch(/^octocat\/hello-world\t1\topen\tfeature\t/m);
+    const { stdout: issues } = await emu.gh("search", "issues", ...REPO, "--include-prs", "feature");
+    expect(issues).toMatch(/^pr\toctocat\/hello-world\t1\topen\tfeature\t/m);
+  });
+
   it("shows pull requests created by the viewer in pr status", async () => {
     await pushBranch("feature");
     await createPr("feature");

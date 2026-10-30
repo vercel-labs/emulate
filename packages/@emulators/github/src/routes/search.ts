@@ -11,7 +11,7 @@ import type {
   GitHubRepo,
   GitHubUser,
 } from "../entities.js";
-import { formatIssue, formatOrgBrief, formatPullRequest, formatRepo, formatUser, lookupRepo } from "../helpers.js";
+import { formatIssue, formatOrgBrief, formatRepo, formatUser, lookupRepo } from "../helpers.js";
 import { canAccessRepo, canReadRepoContents } from "../route-helpers.js";
 import {
   commitIdentityMatches,
@@ -806,6 +806,43 @@ function loginMatchesCommitAuthor(
   return commitIdentityMatches(gh, email, login);
 }
 
+function formatSearchIssue(issue: GitHubIssue, gh: GitHubStore, baseUrl: string) {
+  const { closed_by: _closedBy, ...item } = formatIssue(issue, gh, baseUrl)!;
+  return item;
+}
+
+/** GitHub returns a pull request search hit in the issue shape, with `draft` and `pull_request` links. */
+function formatPullRequestAsIssue(gh: GitHubStore, issue: GitHubIssue, pr: GitHubPullRequest, baseUrl: string) {
+  const repo = gh.repos.get(pr.repo_id)!;
+  const fields = {
+    title: pr.title,
+    body: pr.body,
+    state: pr.state,
+    locked: pr.locked,
+    user_id: pr.user_id,
+    assignee_ids: pr.assignee_ids,
+    label_ids: pr.label_ids,
+    milestone_id: pr.milestone_id,
+    comments: pr.comments,
+    closed_at: pr.closed_at,
+    created_at: pr.created_at,
+    updated_at: pr.updated_at,
+  };
+  const html = `${baseUrl}/${repo.full_name}/pull/${pr.number}`;
+  return {
+    ...formatSearchIssue({ ...issue, ...fields }, gh, baseUrl),
+    html_url: html,
+    draft: pr.draft,
+    pull_request: {
+      url: `${baseUrl}/repos/${repo.full_name}/pulls/${pr.number}`,
+      html_url: html,
+      diff_url: `${html}.diff`,
+      patch_url: `${html}.patch`,
+      merged_at: pr.merged_at,
+    },
+  };
+}
+
 export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
@@ -867,7 +904,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     const order = (c.req.query("order") ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
 
     const authUser = c.get("authUser");
-    type Hit = { kind: "issue"; issue: GitHubIssue } | { kind: "pr"; pr: GitHubPullRequest };
+    type Hit = { kind: "issue"; issue: GitHubIssue } | { kind: "pr"; issue: GitHubIssue; pr: GitHubPullRequest };
     const hits: Hit[] = [];
 
     for (const issue of gh.issues.all()) {
@@ -878,7 +915,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
         const pr = gh.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number);
         if (!pr) continue;
         if (!matches(repo, issue, pr)) continue;
-        hits.push({ kind: "pr", pr });
+        hits.push({ kind: "pr", issue, pr });
       } else {
         if (!matches(repo, issue, null)) continue;
         hits.push({ kind: "issue", issue });
@@ -926,16 +963,15 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     setLinkHeader(c, total, page, per_page);
 
     const items = slice.map((h) => {
-      if (h.kind === "issue") {
-        return formatIssue(h.issue, gh, baseUrl);
-      }
-      return formatPullRequest(h.pr, gh, baseUrl);
+      const score = Math.max(1, relevance(h));
+      if (h.kind === "issue") return { ...formatSearchIssue(h.issue, gh, baseUrl), score };
+      return { ...formatPullRequestAsIssue(gh, h.issue, h.pr, baseUrl), score };
     });
 
     return c.json({
       total_count: total,
       incomplete_results: false,
-      items: items.filter(Boolean),
+      items,
     });
   });
 

@@ -694,6 +694,35 @@ describe("GitHub GraphQL fidelity", () => {
       ]);
     });
 
+    it("returns REST search hits in GitHub's issue shape", async () => {
+      const { body } = await rest(`${scope} is:open sort:created-asc`, false);
+      const origin = `${base}/repos/octocat/hello-world`;
+      const pr = body.items.find((item: { number: number }) => item.number === 2);
+      expect(pr).toMatchObject({
+        url: `${origin}/issues/2`,
+        repository_url: origin,
+        html_url: `${base}/octocat/hello-world/pull/2`,
+        draft: true,
+        score: 1,
+        pull_request: {
+          url: `${origin}/pulls/2`,
+          html_url: `${base}/octocat/hello-world/pull/2`,
+          diff_url: `${base}/octocat/hello-world/pull/2.diff`,
+          patch_url: `${base}/octocat/hello-world/pull/2.patch`,
+          merged_at: null,
+        },
+      });
+      expect(pr).not.toHaveProperty("head");
+      const issue = body.items.find((item: { number: number }) => item.number === 4);
+      expect(issue).toMatchObject({
+        repository_url: origin,
+        html_url: `${base}/octocat/hello-world/issues/4`,
+        score: 1,
+      });
+      expect(issue).not.toHaveProperty("pull_request");
+      expect(issue).not.toHaveProperty("draft");
+    });
+
     it("filters by draft:true, draft:false, and is:draft", async () => {
       for (const type of ["ISSUE", "ISSUE_ADVANCED"]) {
         expect(await count(`draft:true ${scope} state:open type:pr`, type)).toBe(1);
