@@ -131,6 +131,18 @@ npm install @emulators/github
 - Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
 
+### GraphQL
+- `POST /graphql` and `GET /graphql` (also at `/api/graphql`, the GitHub Enterprise Server path)
+- `/api/v3/*` serves the REST routes under the GitHub Enterprise Server prefix
+- Queries: `viewer`, `user`, `organization`, `repositoryOwner`, `repository`, `node`, `nodes`, `search` (issues and pull requests), `rateLimit`
+- `Repository`: metadata, `defaultBranchRef`, `ref`, `pullRequest(number)`, `pullRequests(states, headRefName, baseRefName, labels, orderBy)`, labels, milestones, assignable users
+- `PullRequest`: the fields `gh pr view --json` reads, including `state`, `isDraft`, `mergeable`, `mergeStateStatus`, `reviewDecision`, `commits`, `files`, `reviews`, `latestReviews`, `reviewRequests`, `comments`, `labels`, `assignees`, and `statusCheckRollup` built from check runs
+- Mutations: `createPullRequest`, `updatePullRequest`, `closePullRequest`, `reopenPullRequest`, `mergePullRequest`, `markPullRequestReadyForReview`, `convertPullRequestToDraft`, `addPullRequestReview`, `submitPullRequestReview`, `requestReviews`, `addComment`, `updateIssueComment`, `deleteIssueComment`, `addLabelsToLabelable`, `removeLabelsFromLabelable`
+- Relay connections with opaque cursors, `pageInfo`, `edges`, `nodes`, and `totalCount`
+- Errors carry GitHub's `type` (`NOT_FOUND`, `FORBIDDEN`, `UNPROCESSABLE`)
+
+The schema is a subset of GitHub's public schema, so field names, arguments, and nullability match the real API. GraphQL and REST share one store: a pull request created through one API is visible through the other, and mutations fire the same webhooks as the matching REST calls.
+
 ### Misc
 - `GET /_emulate/installation-tokens` — inspect secret-free GitHub App installation-token metadata
 - `GET /rate_limit` — rate limit status

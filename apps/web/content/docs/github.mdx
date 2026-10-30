@@ -210,6 +210,44 @@ Check-run lists by ref and suite support `page` and `per_page` (default 30, maxi
 
 Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
 
+## GraphQL
+- `POST /graphql` and `GET /graphql` (also at `/api/graphql`, the GitHub Enterprise Server path)
+- `/api/v3/*` serves the REST routes under the GitHub Enterprise Server prefix
+- Queries: `viewer`, `user`, `organization`, `repositoryOwner`, `repository`, `node`, `nodes`, `search` (issues and pull requests), `rateLimit`
+- `Repository`: metadata, `defaultBranchRef`, `ref`, `pullRequest(number)`, `pullRequests(states, headRefName, baseRefName, labels, orderBy)`, labels, milestones, assignable users
+- `PullRequest`: the fields `gh pr view --json` reads, including `state`, `isDraft`, `mergeable`, `mergeStateStatus`, `reviewDecision`, `commits`, `files`, `reviews`, `latestReviews`, `reviewRequests`, `comments`, `labels`, `assignees`, and `statusCheckRollup` built from check runs
+- Mutations: `createPullRequest`, `updatePullRequest`, `closePullRequest`, `reopenPullRequest`, `mergePullRequest`, `markPullRequestReadyForReview`, `convertPullRequestToDraft`, `addPullRequestReview`, `submitPullRequestReview`, `requestReviews`, `addComment`, `updateIssueComment`, `deleteIssueComment`, `addLabelsToLabelable`, `removeLabelsFromLabelable`
+- Relay connections with opaque cursors, `pageInfo`, `edges`, `nodes`, and `totalCount`
+- Errors carry GitHub's `type` (`NOT_FOUND`, `FORBIDDEN`, `UNPROCESSABLE`)
+
+The schema is a subset of GitHub's public schema, so field names, arguments, and nullability match the real API. GraphQL and REST share one store: a pull request created through one API is visible through the other, and mutations fire the same webhooks as the matching REST calls.
+
+### Use the gh CLI
+
+`gh` uses plain HTTP only for the host `github.localhost`. Advertise that host and route `gh` to the emulator with `HTTP_PROXY`:
+
+```bash
+npx emulate start --service github --port 4001 --base-url http://github.localhost
+
+export GH_HOST=github.localhost GH_TOKEN=test_token_admin HTTP_PROXY=http://127.0.0.1:4001
+gh api user/repos -f name=demo -F auto_init=true
+gh api repos/admin/demo/git/refs -f ref=refs/heads/feature \
+  -f sha="$(gh api repos/admin/demo/git/ref/heads/main --jq .object.sha)"
+gh api -X PUT repos/admin/demo/contents/feature.txt -f message="Add feature" -f branch=feature \
+  -f content="$(printf 'hello\n' | base64)"
+gh pr create --repo admin/demo --head feature --title "Add feature" --body "Details"
+gh pr merge 1 --repo admin/demo --squash --delete-branch
+```
+
+To use HTTPS and the GitHub Enterprise Server paths instead, put the emulator behind [portless](https://portless.sh) and set `GH_ENTERPRISE_TOKEN`:
+
+```bash
+portless alias github-emulator 4001
+GH_HOST=github-emulator.localhost GH_ENTERPRISE_TOKEN=test_token_admin gh pr list --repo admin/demo
+```
+
+`gh` cannot push branches to the emulator because it does not serve the Git protocol. Create the head branch through the REST API, as above, and pass `--head` to `gh pr create`.
+
 ## Misc
 
 - `GET /rate_limit` - rate limit status

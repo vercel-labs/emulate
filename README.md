@@ -965,6 +965,18 @@ Check-run lists by ref and suite support `page` and `per_page` (default 30, maxi
 
 Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
 
+### GraphQL
+- `POST /graphql` and `GET /graphql` (also at `/api/graphql`, the GitHub Enterprise Server path)
+- `/api/v3/*` serves the REST routes under the GitHub Enterprise Server prefix
+- Queries: `viewer`, `user`, `organization`, `repositoryOwner`, `repository`, `node`, `nodes`, `search` (issues and pull requests), `rateLimit`
+- `Repository`: metadata, `defaultBranchRef`, `ref`, `pullRequest(number)`, `pullRequests(states, headRefName, baseRefName, labels, orderBy)`, labels, milestones, assignable users
+- `PullRequest`: the fields `gh pr view --json` reads, including `state`, `isDraft`, `mergeable`, `mergeStateStatus`, `reviewDecision`, `commits`, `files`, `reviews`, `latestReviews`, `reviewRequests`, `comments`, `labels`, `assignees`, and `statusCheckRollup` built from check runs
+- Mutations: `createPullRequest`, `updatePullRequest`, `closePullRequest`, `reopenPullRequest`, `mergePullRequest`, `markPullRequestReadyForReview`, `convertPullRequestToDraft`, `addPullRequestReview`, `submitPullRequestReview`, `requestReviews`, `addComment`, `updateIssueComment`, `deleteIssueComment`, `addLabelsToLabelable`, `removeLabelsFromLabelable`
+- Relay connections with opaque cursors, `pageInfo`, `edges`, `nodes`, and `totalCount`
+- Errors carry GitHub's `type` (`NOT_FOUND`, `FORBIDDEN`, `UNPROCESSABLE`)
+
+The schema is a subset of GitHub's public schema, so field names, arguments, and nullability match the real API. GraphQL and REST share one store: a pull request created through one API is visible through the other, and mutations fire the same webhooks as the matching REST calls.
+
 ### Misc
 - `GET /rate_limit` - rate limit status
 - `GET /meta` - server metadata

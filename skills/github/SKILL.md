@@ -127,6 +127,31 @@ const octokit = new Octokit({
 })
 ```
 
+### GraphQL and the gh CLI
+
+The emulator serves GitHub's GraphQL API for pull requests at `POST /graphql` (and `/api/graphql`). `@octokit/graphql` works with `baseUrl` set to the emulator URL:
+
+```typescript
+import { graphql } from '@octokit/graphql'
+
+const gql = graphql.defaults({
+  baseUrl: process.env.GITHUB_EMULATOR_URL,
+  headers: { authorization: 'token test_token_admin' },
+})
+const { repository } = await gql(`{ repository(owner: "admin", name: "demo") { pullRequests(states: OPEN, first: 10) { nodes { number title } } } }`)
+```
+
+Point the real `gh` CLI at the emulator with the `github.localhost` host, which `gh` reaches over plain HTTP, and an HTTP proxy:
+
+```bash
+npx emulate start --service github --port 4001 --base-url http://github.localhost
+export GH_HOST=github.localhost GH_TOKEN=test_token_admin HTTP_PROXY=http://127.0.0.1:4001
+gh pr create --repo admin/demo --head feature --title "Add feature" --body "Details"
+gh pr view 1 --repo admin/demo --json state,reviewDecision,statusCheckRollup
+```
+
+`gh pr create`, `view`, `list`, `status`, `checks`, `comment`, `review`, `ready`, `close`, `reopen`, and `merge` work. `gh` cannot push branches, so create the head branch through REST first (`POST /repos/:owner/:repo/git/refs`, then `PUT /repos/:owner/:repo/contents/:path` with `branch`). GraphQL and REST share one store and fire the same webhooks. `/api/v3/*` serves the REST routes for GitHub Enterprise Server style clients.
+
 ### OAuth URL Mapping
 
 | Real GitHub URL | Emulator URL |
