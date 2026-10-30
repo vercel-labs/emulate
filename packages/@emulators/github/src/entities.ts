@@ -52,8 +52,6 @@ export interface GitHubTeam extends Entity {
   permission: string;
   org_id: number;
   parent_id: number | null;
-  members_count: number;
-  repos_count: number;
 }
 
 export interface GitHubTeamMember extends Entity {
@@ -65,6 +63,7 @@ export interface GitHubTeamMember extends Entity {
 export interface GitHubTeamRepo extends Entity {
   team_id: number;
   repo_id: number;
+  permission: "pull" | "triage" | "push" | "maintain" | "admin";
 }
 
 export interface GitHubRepo extends Entity {

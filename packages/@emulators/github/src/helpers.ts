@@ -181,9 +181,8 @@ export function repoPermissionLevel(store: GitHubStore, repo: GitHubRepo, userId
     if (memberships.length)
       rank = permissionRank(store.orgs.get(repo.owner_id)?.default_repository_permission ?? "read");
     for (const { team } of memberships) {
-      if (store.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id)) {
-        rank = Math.max(rank, permissionRank(team.permission));
-      }
+      const link = store.teamRepos.findBy("team_id", team.id).find((l) => l.repo_id === repo.id);
+      if (link) rank = Math.max(rank, permissionRank(link.permission));
     }
     const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === userId);
     if (collab) rank = Math.max(rank, permissionRank(collab.permission));
@@ -649,6 +648,18 @@ export function formatTeamBrief(team: GitHubTeam, store: GitHubStore, baseUrl: s
     permission: team.permission,
     members_url: `${baseUrl}/teams/${team.id}/members{/member}`,
     repositories_url: `${baseUrl}/teams/${team.id}/repos`,
+  };
+}
+
+export function formatTeamFull(team: GitHubTeam, store: GitHubStore, baseUrl: string) {
+  const org = store.orgs.get(team.org_id);
+  return {
+    ...formatTeamBrief(team, store, baseUrl),
+    members_count: store.teamMembers.findBy("team_id", team.id).length,
+    repos_count: store.teamRepos.findBy("team_id", team.id).length,
+    created_at: team.created_at,
+    updated_at: team.updated_at,
+    organization: org ? formatOrgFull(org, baseUrl) : null,
   };
 }
 

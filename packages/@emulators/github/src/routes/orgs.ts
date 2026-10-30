@@ -2,16 +2,20 @@ import type { RouteContext, AuthUser } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized, forbidden } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
-import type { GitHubOrg, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
+import type { GitHubOrg, GitHubTeam, GitHubUser } from "../entities.js";
 import {
   formatOrgBrief,
   formatOrgFull,
   formatRepo,
   formatTeamBrief,
+  formatTeamFull,
   formatUser,
   generateNodeId,
+  isRepoPermissionLevel,
   lookupOwner,
   lookupRepo,
+  repoPermissionFlags,
+  ROLE_NAMES,
 } from "../helpers.js";
 
 const MEMBERS_TEAM_SLUG = "members";
@@ -107,16 +111,6 @@ function orgRoleForUser(gh: GitHubStore, orgId: number, userId: number): "admin"
   return row?.orgRole ?? null;
 }
 
-function syncTeamMemberCount(gh: GitHubStore, teamId: number) {
-  const n = gh.teamMembers.findBy("team_id", teamId).length;
-  gh.teams.update(teamId, { members_count: n });
-}
-
-function syncTeamRepoCount(gh: GitHubStore, teamId: number) {
-  const n = gh.teamRepos.findBy("team_id", teamId).length;
-  gh.teams.update(teamId, { repos_count: n });
-}
-
 function findTeamRepo(gh: GitHubStore, teamId: number, repoId: number) {
   return gh.teamRepos.findBy("team_id", teamId).find((r) => r.repo_id === repoId);
 }
@@ -134,8 +128,6 @@ export function getOrCreateTeam(gh: GitHubStore, org: GitHubOrg, name: string, p
     permission,
     org_id: org.id,
     parent_id: null,
-    members_count: 0,
-    repos_count: 0,
   });
   return gh.teams.update(team.id, { node_id: generateNodeId("Team", team.id) }) ?? team;
 }
@@ -152,8 +144,6 @@ export function getOrCreateMembersTeam(gh: GitHubStore, org: GitHubOrg): GitHubT
     permission: "pull",
     org_id: org.id,
     parent_id: null,
-    members_count: 0,
-    repos_count: 0,
   });
   const fixed = gh.teams.update(team.id, { node_id: generateNodeId("Team", team.id) });
   return fixed ?? team;
@@ -178,7 +168,6 @@ function removeUserFromAllOrgTeams(gh: GitHubStore, orgId: number, userId: numbe
     for (const m of memberships) {
       gh.teamMembers.delete(m.id);
     }
-    syncTeamMemberCount(gh, team.id);
   }
 }
 
@@ -375,7 +364,6 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     } else {
       gh.teamMembers.insert({ team_id: membersTeam.id, user_id: user.id, role: teamRole });
     }
-    syncTeamMemberCount(gh, membersTeam.id);
 
     const orgRole = orgRoleForUser(gh, org.id, user.id)!;
     return c.json({
@@ -438,11 +426,9 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       permission,
       org_id: org.id,
       parent_id: parentId,
-      members_count: 0,
-      repos_count: 0,
     });
     const fixed = gh.teams.update(team.id, { node_id: generateNodeId("Team", team.id) });
-    return c.json(formatTeamBrief(fixed ?? team, gh, baseUrl), 201);
+    return c.json(formatTeamFull(fixed ?? team, gh, baseUrl), 201);
   });
 
   app.get("/orgs/:org/teams/:team_slug", (c) => {
@@ -450,7 +436,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!org) throw notFound();
     const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
     if (!team) throw notFound();
-    return c.json(formatTeamBrief(team, gh, baseUrl));
+    return c.json(formatTeamFull(team, gh, baseUrl));
   });
 
   app.patch("/orgs/:org/teams/:team_slug", async (c) => {
@@ -492,7 +478,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
 
     const updated = gh.teams.update(team.id, patch);
     if (!updated) throw notFound();
-    return c.json(formatTeamBrief(updated, gh, baseUrl));
+    return c.json(formatTeamFull(updated, gh, baseUrl));
   });
 
   app.delete("/orgs/:org/teams/:team_slug", (c) => {
@@ -556,7 +542,6 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     } else {
       gh.teamMembers.insert({ team_id: team.id, user_id: user.id, role });
     }
-    syncTeamMemberCount(gh, team.id);
 
     return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, role));
   });
@@ -573,7 +558,6 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
     if (existing) {
       gh.teamMembers.delete(existing.id);
-      syncTeamMemberCount(gh, team.id);
     }
     return c.body(null, 204);
   });
@@ -598,22 +582,29 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const team = getTeamByOrgSlug(gh, org, c.req.param("team_slug")!);
     if (!team) throw notFound();
 
-    const links = gh.teamRepos.findBy("team_id", team.id);
-    const repos = links
-      .map((l) => gh.repos.get(l.repo_id))
-      .filter((r): r is GitHubRepo => Boolean(r))
-      .sort((a, b) => a.id - b.id);
+    const grants = gh.teamRepos
+      .findBy("team_id", team.id)
+      .flatMap((link) => {
+        const repo = gh.repos.get(link.repo_id);
+        return repo ? [{ repo, permission: link.permission }] : [];
+      })
+      .sort((a, b) => a.repo.id - b.repo.id);
 
     const { page, per_page } = parsePagination(c);
-    const total = repos.length;
+    const total = grants.length;
     const start = (page - 1) * per_page;
-    const slice = repos.slice(start, start + per_page);
+    const slice = grants.slice(start, start + per_page);
 
     setLinkHeader(c, total, page, per_page);
-    return c.json(slice.map((r) => formatRepo(r, gh, baseUrl)));
+    return c.json(
+      slice.map(({ repo, permission }) => ({
+        ...formatRepo(repo, gh, baseUrl, repoPermissionFlags(permission)),
+        role_name: ROLE_NAMES[permission],
+      })),
+    );
   });
 
-  app.put("/orgs/:org/teams/:team_slug/repos/:owner/:repo", (c) => {
+  app.put("/orgs/:org/teams/:team_slug/repos/:owner/:repo", async (c) => {
     requireAuthUser(c);
     const org = getOrgByLogin(gh, c.req.param("org")!);
     if (!org) throw notFound();
@@ -628,10 +619,13 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const repo = lookupRepo(gh, ownerLogin, c.req.param("repo")!);
     if (!repo) throw notFound();
 
-    if (!findTeamRepo(gh, team.id, repo.id)) {
-      gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id });
-      syncTeamRepoCount(gh, team.id);
-    }
+    const body = (await c.req.raw.clone().text()).trim() ? await parseJsonBody(c) : {};
+    const permission = body.permission === undefined ? team.permission : body.permission;
+    if (!isRepoPermissionLevel(permission)) throw new ApiError(422, "Validation Failed");
+
+    const existing = findTeamRepo(gh, team.id, repo.id);
+    if (existing) gh.teamRepos.update(existing.id, { permission });
+    else gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id, permission });
     return c.body(null, 204);
   });
 
@@ -653,7 +647,6 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const tr = findTeamRepo(gh, team.id, repo.id);
     if (tr) {
       gh.teamRepos.delete(tr.id);
-      syncTeamRepoCount(gh, team.id);
     }
     return c.body(null, 204);
   });
@@ -663,7 +656,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (Number.isNaN(tid)) throw notFound();
     const team = gh.teams.get(tid);
     if (!team) throw notFound();
-    return c.json(formatTeamBrief(team, gh, baseUrl));
+    return c.json(formatTeamFull(team, gh, baseUrl));
   });
 
   app.get("/teams/:team_id/members", (c) => {

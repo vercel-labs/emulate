@@ -1169,5 +1169,34 @@ describe("GitHub GraphQL fidelity", () => {
         },
       });
     });
+
+    it("counts team members and repositories", async () => {
+      await seedOrg("read");
+      expect((await send("GET", "/orgs/acme/teams/devs", undefined, "owner-token")).body).toMatchObject({
+        members_count: 1,
+        repos_count: 1,
+        organization: { login: "acme" },
+      });
+      await send("PUT", "/orgs/acme/teams/devs/memberships/member", {}, "owner-token");
+      expect((await send("GET", "/orgs/acme/teams/devs", undefined, "owner-token")).body.members_count).toBe(2);
+    });
+
+    it("grants a team the permission sent when adding a repository", async () => {
+      await seedOrg("read");
+      const grant = (body?: unknown) => send("PUT", `/orgs/acme/teams/devs/repos/acme/widgets`, body, "owner-token");
+      const teammateRole = async () =>
+        (await graphql(viewerPermissionQuery("widgets"), {}, "teammate-token")).data.repository.viewerPermission;
+
+      expect(await grant({ permission: "triage" })).toMatchObject({ status: 204 });
+      expect(await teammateRole()).toBe("TRIAGE");
+      const repos = await send("GET", "/orgs/acme/teams/devs/repos", undefined, "owner-token");
+      expect(repos.body[0]).toMatchObject({ role_name: "triage", permissions: { triage: true, push: false } });
+
+      expect(await grant({ permission: "admin" })).toMatchObject({ status: 204 });
+      expect(await teammateRole()).toBe("ADMIN");
+      expect(await grant()).toMatchObject({ status: 204 });
+      expect(await teammateRole()).toBe("WRITE");
+      expect(await grant({ permission: "owner" })).toMatchObject({ status: 422 });
+    });
   });
 });

@@ -380,10 +380,6 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           gh.teamMembers.insert({ team_id: membersTeam.id, user_id: user.id, role });
         }
       }
-
-      gh.teams.update(membersTeam.id, {
-        members_count: gh.teamMembers.findBy("team_id", membersTeam.id).length,
-      });
     }
   }
 
@@ -498,7 +494,8 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     const org = gh.orgs.findOneBy("login", orgConfig.login);
     if (!org) continue;
     for (const teamConfig of orgConfig.teams ?? []) {
-      const team = getOrCreateTeam(gh, org, teamConfig.name, teamConfig.permission ?? "pull");
+      const permission = teamConfig.permission ?? "pull";
+      const team = getOrCreateTeam(gh, org, teamConfig.name, permission);
       for (const login of teamConfig.members ?? []) {
         const user = gh.users.findOneBy("login", login);
         if (user && !gh.teamMembers.findBy("team_id", team.id).some((m) => m.user_id === user.id)) {
@@ -508,13 +505,9 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
       for (const name of teamConfig.repos ?? []) {
         const repo = gh.repos.findOneBy("full_name", `${org.login}/${name}`);
         if (repo && !gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id)) {
-          gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id });
+          gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id, permission });
         }
       }
-      gh.teams.update(team.id, {
-        members_count: gh.teamMembers.findBy("team_id", team.id).length,
-        repos_count: gh.teamRepos.findBy("team_id", team.id).length,
-      });
     }
   }
 
