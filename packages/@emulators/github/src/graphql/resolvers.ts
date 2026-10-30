@@ -26,7 +26,7 @@ import { assertAuthenticatedActor, hasRepoAdmin, hasRepoContentsWrite, ownerLogi
 import { checkMergeRequirements, resolveRequestedReviewers, reviewCounts } from "../routes/pulls.js";
 import { assertIssueLabelsWritable } from "../routes/labels.js";
 import { insertIssueEvent } from "../routes/issues.js";
-import { issuePrMatchesFilters, parseSearchQuery } from "../routes/search.js";
+import { SearchSyntaxError, issueSearchMatcher } from "../routes/search.js";
 import { connectionFromArray, encodeCursor, type ConnectionArgs } from "./connection.js";
 import {
   GitHubGraphQLError,
@@ -845,10 +845,15 @@ export function nodeById(ctx: GraphQLContext, id: string): View | null {
 }
 
 function search(ctx: GraphQLContext, args: Args) {
-  if (args.type !== "ISSUE") return connectionFromArray([], args, { issueCount: 0 });
+  if (args.type !== "ISSUE" && args.type !== "ISSUE_ADVANCED") return connectionFromArray([], args, { issueCount: 0 });
   const login = ctx.viewer?.login ?? "";
-  const parsed = parseSearchQuery(String(args.query).replace(/@me\b/g, login));
-  const reviewRequested = parsed.qualifiers.get("review-requested") ?? [];
+  let matches: ReturnType<typeof issueSearchMatcher>;
+  try {
+    matches = issueSearchMatcher(ctx.gh, String(args.query).replace(/@me\b/g, login), args.type === "ISSUE_ADVANCED");
+  } catch (error) {
+    if (error instanceof SearchSyntaxError) return connectionFromArray([], args, { issueCount: 0 });
+    throw error;
+  }
   const hits: View[] = [];
   const issues = [...ctx.gh.issues.all()].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id);
   for (const issue of issues) {
@@ -858,12 +863,7 @@ function search(ctx: GraphQLContext, args: Args) {
       ? (ctx.gh.pullRequests.findBy("repo_id", repo.id).find((p) => p.number === issue.number) ?? null)
       : null;
     if (issue.is_pull_request && !pr) continue;
-    if (!issuePrMatchesFilters(ctx.gh, parsed, repo, issue, pr)) continue;
-    if (reviewRequested.length) {
-      const ids = pr?.requested_reviewer_ids ?? [];
-      const wanted = reviewRequested.map((l) => ctx.gh.users.findOneBy("login", l)?.id);
-      if (!wanted.every((id) => id !== undefined && ids.includes(id))) continue;
-    }
+    if (!matches(repo, issue, pr)) continue;
     const view = pr ? prView(ctx, pr) : issueView(ctx, issue);
     if (view) hits.push(view);
   }

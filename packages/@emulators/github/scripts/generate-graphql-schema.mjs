@@ -329,6 +329,10 @@ export const manifest = {
 
 // Fields and operations gh sends to github.com-class hosts that are missing from the public schema.
 export const extensions = `
+extend enum SearchType {
+  ISSUE_ADVANCED
+}
+
 extend type PullRequest {
   assignedActors(after: String, before: String, first: Int, last: Int): AssigneeConnection!
 }

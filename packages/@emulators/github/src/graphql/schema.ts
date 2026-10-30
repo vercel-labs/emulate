@@ -1163,6 +1163,10 @@ export const typeDefs = /* GraphQL */ `
     id: ID!
     workflow: Workflow!
   }
+  extend enum SearchType {
+    ISSUE_ADVANCED
+  }
+
   extend type PullRequest {
     assignedActors(after: String, before: String, first: Int, last: Int): AssigneeConnection!
   }

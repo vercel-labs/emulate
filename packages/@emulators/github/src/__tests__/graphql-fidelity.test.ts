@@ -627,4 +627,83 @@ describe("GitHub GraphQL fidelity", () => {
       expect(submitted.data.submitPullRequestReview.pullRequestReview.state).toBe("COMMENTED");
     });
   });
+
+  describe("issue search", () => {
+    beforeEach(async () => {
+      await send("POST", `${REPO}/labels`, { name: "bug", color: "d73a4a" });
+      const one = await seedPr("one");
+      await send("POST", `${REPO}/issues/${one.number}/labels`, { labels: ["bug"] });
+      const two = await seedPr("two");
+      await graphql(
+        `
+          mutation ($id: ID!) {
+            convertPullRequestToDraft(input: { pullRequestId: $id }) {
+              clientMutationId
+            }
+          }
+        `,
+        {
+          id: two.node_id,
+        },
+      );
+      await seedPr("three");
+      await send("POST", `${REPO}/issues`, { title: "an issue", labels: ["bug"] });
+    });
+
+    const count = async (query: string, type = "ISSUE_ADVANCED") => {
+      const { data, errors } = await graphql(
+        `
+          query ($q: String!, $t: SearchType!) {
+            search(query: $q, type: $t, first: 10) {
+              issueCount
+            }
+          }
+        `,
+        { q: query, t: type },
+      );
+      expect(errors).toBeUndefined();
+      return data.search.issueCount;
+    };
+    const rest = (query: string, advanced: boolean) =>
+      send("GET", `/search/issues?q=${encodeURIComponent(query)}${advanced ? "&advanced_search=true" : ""}`);
+    const scope = "repo:octocat/hello-world";
+
+    it("groups terms with parentheses, AND, OR, and NOT in the advanced syntax", async () => {
+      expect(await count(`( is:open ) ${scope} type:pr`)).toBe(3);
+      expect(await count(`( label:bug ) ${scope} type:pr`)).toBe(1);
+      expect(await count(`${scope} ( label:bug OR is:draft ) type:pr`)).toBe(2);
+      expect(await count(`${scope} label:bug OR is:draft`)).toBe(3);
+      expect(await count(`${scope} type:pr is:open AND label:bug`)).toBe(1);
+      expect(await count(`${scope} type:pr NOT three`)).toBe(2);
+      expect(await count(`${scope} type:pr NOT label:bug`)).toBe(0);
+      expect(await count(`${scope} type:pr ( is:open`)).toBe(0);
+    });
+
+    it("treats parentheses as text in the legacy syntax, as GitHub does", async () => {
+      expect(await count(`is:open ${scope} type:pr`, "ISSUE")).toBe(3);
+      expect(await count(`( is:open ) ${scope} type:pr`, "ISSUE")).toBe(0);
+      expect((await rest(`( is:open ) ${scope} type:pr`, false)).body.total_count).toBe(0);
+      expect((await rest(`( is:open ) ${scope} type:pr`, true)).body.total_count).toBe(3);
+    });
+
+    it("rejects unbalanced parentheses in REST advanced search", async () => {
+      const { status, body } = await rest(`${scope} type:pr ( is:open`, true);
+      expect(status).toBe(422);
+      expect(body.errors).toEqual([
+        { message: "The search query contains invalid syntax.", resource: "Search", field: "q", code: "invalid" },
+      ]);
+    });
+
+    it("filters by draft:true, draft:false, and is:draft", async () => {
+      for (const type of ["ISSUE", "ISSUE_ADVANCED"]) {
+        expect(await count(`draft:true ${scope} state:open type:pr`, type)).toBe(1);
+        expect(await count(`draft:false ${scope} state:open type:pr`, type)).toBe(2);
+        expect(await count(`is:draft ${scope} state:open type:pr`, type)).toBe(1);
+        expect(await count(`-is:draft ${scope} state:open type:pr`, type)).toBe(2);
+        expect(await count(`-draft:true ${scope} type:pr`, type)).toBe(2);
+        expect(await count(`draft:true ${scope} type:issue`, type)).toBe(0);
+        expect(await count(`draft:false ${scope} type:issue`, type)).toBe(0);
+      }
+    });
+  });
 });

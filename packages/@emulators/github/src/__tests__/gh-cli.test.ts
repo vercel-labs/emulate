@@ -177,6 +177,26 @@ describe.skipIf(!hasGh)("gh CLI against the GitHub emulator", () => {
     });
   });
 
+  it("filters pr list with --search and --draft like github.com", async () => {
+    await emu.rest("POST", "/repos/octocat/hello-world/labels", { name: "bug", color: "d73a4a" });
+    for (const branch of ["one", "two", "three"]) await pushBranch(branch);
+    await createPr("one", "--label", "bug");
+    await createPr("two", "--draft");
+    await createPr("three");
+    const numbers = async (...args: string[]) =>
+      JSON.parse((await emu.gh("pr", "list", ...REPO, ...args, "--json", "number")).stdout)
+        .map((pr: { number: number }) => pr.number)
+        .sort();
+
+    expect(await numbers("--search", "label:bug")).toEqual([1]);
+    expect(await numbers("--search", "is:open")).toEqual([1, 2, 3]);
+    expect(await numbers("--search", "label:bug OR is:draft")).toEqual([1, 2]);
+    expect(await numbers("--search", "NOT three")).toEqual([1, 2]);
+    expect(await numbers("--search", "NOT label:bug")).toEqual([]);
+    expect(await numbers("--draft")).toEqual([2]);
+    expect(await numbers("--search", "draft:false")).toEqual([1, 3]);
+  });
+
   it("shows pull requests created by the viewer in pr status", async () => {
     await pushBranch("feature");
     await createPr("feature");

@@ -20,6 +20,7 @@ const github = buildSchema(githubSchema.idl, { assumeValidSDL: true });
 const EMULATOR_ONLY = new Map([
   ["Mutation", new Set(["replaceActorsForAssignable", "requestReviewsByLogin"])],
   ["PullRequest", new Set(["assignedActors"])],
+  ["SearchType", new Set(["ISSUE_ADVANCED"])],
   ["Issue", new Set(["assignedActors"])],
   ["AssigneeConnection", null],
   ["AssigneeEdge", null],
@@ -78,7 +79,10 @@ describe("GitHub GraphQL schema conformance", () => {
         ).toEqual(Object.fromEntries(Object.values(realFields).map((f) => [f.name, String(f.type)])));
       } else if (isEnumType(type)) {
         expect(
-          type.getValues().map((v) => v.name),
+          type
+            .getValues()
+            .map((v) => v.name)
+            .filter((name) => !exempt?.has(name)),
           `${type.name} values`,
         ).toEqual((real as typeof type).getValues().map((v) => v.name));
       } else if (isUnionType(type)) {
