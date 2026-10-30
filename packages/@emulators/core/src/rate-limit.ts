@@ -43,7 +43,10 @@ export function setRateLimitHeaders(c: Context<any>, bucket: RateLimitBucket): v
   c.header("X-RateLimit-Resource", bucket.resource);
 }
 
-const internalRequests = new WeakSet<Request>();
+// Bundlers can inline several copies of this module, so the registry lives on globalThis under a registered symbol.
+const REGISTRY = Symbol.for("@emulators/core/internal-requests");
+const internalRequests: WeakSet<Request> = ((globalThis as Record<symbol, WeakSet<Request>>)[REGISTRY] ??=
+  new WeakSet<Request>());
 
 /** Marks a request a plugin dispatches to its own routes, so it is not charged a second time. */
 export function internalRequest(input: string, init?: RequestInit): Request {
