@@ -15,7 +15,13 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoParticipant,
+  assertRepoPermission,
+  assertRepoWrite,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -138,7 +144,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
@@ -247,14 +253,14 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
     if (!Number.isFinite(pullNumber) || !Number.isFinite(reviewId)) throw notFoundResponse();
 
     const existing = findReview(gh, repo, pullNumber, reviewId);
-    if (!existing) throw notFoundResponse();
+    if (!existing || existing.user_id !== actor.id) throw notFoundResponse();
     if (existing.state !== "PENDING") {
       throw new ApiError(422, "Validation failed");
     }
@@ -279,7 +285,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
@@ -289,7 +295,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!pr) throw notFoundResponse();
 
     const review = findReview(gh, repo, pullNumber, reviewId);
-    if (!review) throw notFoundResponse();
+    if (!review || review.user_id !== actor.id) throw notFoundResponse();
     if (review.state !== "PENDING") {
       throw new ApiError(422, "Validation failed");
     }

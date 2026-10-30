@@ -13,8 +13,7 @@ import {
   canAccessRepo,
   canAccessRepoWithPermission,
   getActorUser,
-  hasRepoAdmin,
-  hasRepoContentsWrite,
+  hasRepoRole,
 } from "../route-helpers.js";
 
 export type GitHubErrorType =
@@ -159,17 +158,20 @@ export function assertCanRead(ctx: GraphQLContext, repo: GitHubRepo, permissions
 }
 
 export function assertCanTriage(ctx: GraphQLContext, repo: GitHubRepo): void {
-  const { gh, authUser, viewer } = ctx;
-  const allowed = authUser.installation
-    ? canAccessRepoWithPermission(gh, authUser, repo, ["issues", "pull_requests"], "write")
-    : viewer !== undefined &&
-      (hasRepoAdmin(gh, viewer, repo) ||
-        hasRepoContentsWrite(gh, viewer, repo) ||
-        gh.collaborators.findBy("repo_id", repo.id).some((c) => c.user_id === viewer.id && c.permission === "triage"));
-  if (!allowed) {
+  if (!hasRepoRole(ctx.gh, ctx.authUser, repo, "triage", ["issues", "pull_requests"])) {
     throw new GitHubGraphQLError(
       "FORBIDDEN",
-      `${authUser.login} does not have permission to update metadata on ${repo.full_name}.`,
+      `${ctx.authUser.login} does not have permission to update metadata on ${repo.full_name}.`,
     );
   }
+}
+
+/** GitHub refuses a mutation the viewer may not run with FORBIDDEN, before it looks at the input. */
+export function assertMayRun(ctx: GraphQLContext, mutation: string, allowed: boolean): void {
+  if (allowed) return;
+  const name = mutation[0]!.toUpperCase() + mutation.slice(1);
+  throw new GitHubGraphQLError(
+    "FORBIDDEN",
+    `${ctx.viewer?.login ?? ctx.authUser.login} does not have the correct permissions to execute \`${name}\``,
+  );
 }

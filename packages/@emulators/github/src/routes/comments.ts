@@ -16,7 +16,9 @@ import {
 import {
   assertRepoContentsRead,
   assertRepoPermission,
-  assertRepoWrite,
+  assertRepoParticipant,
+  isAuthorOrHasRole,
+  missingIssueRole,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -111,13 +113,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     let comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", ["issues", "pull_requests"])) {
+      throw missingIssueRole();
+    }
 
     const body = await parseJsonBody(c);
     if (typeof body.body !== "string") {
@@ -155,13 +160,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     const comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", ["issues", "pull_requests"])) {
+      throw missingIssueRole();
+    }
 
     const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
@@ -241,13 +249,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     let comment = getCommentForRepo(gh, repo, commentId, "review");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "pull_requests")) {
+      throw notFoundResponse();
+    }
 
     const body = await parseJsonBody(c);
     if (typeof body.body !== "string") {
@@ -283,13 +294,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     const comment = getCommentForRepo(gh, repo, commentId, "review");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "pull_requests")) {
+      throw notFoundResponse();
+    }
 
     const pr = comment.pull_number !== null ? findPull(gh, repo.id, comment.pull_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
@@ -363,13 +377,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
+    assertRepoParticipant(gh, c.get("authUser"), repo, "contents");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     let comment = getCommentForRepo(gh, repo, commentId, "commit");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "contents")) {
+      throw notFoundResponse();
+    }
 
     const body = await parseJsonBody(c);
     if (typeof body.body !== "string") {
@@ -388,13 +405,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
+    assertRepoParticipant(gh, c.get("authUser"), repo, "contents");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     const comment = getCommentForRepo(gh, repo, commentId, "commit");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "contents")) {
+      throw notFoundResponse();
+    }
 
     gh.comments.delete(comment.id);
     return c.body(null, 204);
@@ -462,7 +482,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
@@ -553,7 +573,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
@@ -687,7 +707,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "contents");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "contents");
 
     const commitShaParam = c.req.param("commit_sha")!;
     const commit = findCommitInRepo(gh, repo.id, commitShaParam);

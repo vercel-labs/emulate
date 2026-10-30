@@ -2,7 +2,16 @@ import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoParticipant,
+  assertRepoPermission,
+  assertRepoRole,
+  hasRepoRole,
+  isAuthorOrHasRole,
+  missingIssueRole,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubIssue, GitHubIssueEvent, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
 import {
@@ -285,8 +294,14 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const actor = assertRepoParticipant(gh, authUser, repo, "issues");
     const body = await parseJsonBody(c);
+    if (!hasRepoRole(gh, authUser, repo, "triage", "issues")) {
+      delete body.labels;
+      delete body.assignees;
+      delete body.milestone;
+    }
 
     const title = body.title;
     if (typeof title !== "string" || !title.trim()) {
@@ -382,17 +397,24 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const actor = assertRepoParticipant(gh, authUser, repo, "issues");
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, authUser, repo, issue.user_id, "triage", "issues")) throw missingIssueRole();
 
     const beforePatch = issue;
 
     const body = await parseJsonBody(c);
+    if (!hasRepoRole(gh, authUser, repo, "triage", "issues")) {
+      delete body.labels;
+      delete body.assignees;
+      delete body.milestone;
+    }
     const patch: Partial<GitHubIssue> = {};
 
     if (typeof body.title === "string") patch.title = body.title;
@@ -670,7 +692,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingIssueRole);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
@@ -715,7 +737,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingIssueRole);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
@@ -778,7 +800,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
@@ -826,7 +848,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 

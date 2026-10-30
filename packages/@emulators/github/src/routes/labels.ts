@@ -23,7 +23,13 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoPermission,
+  assertRepoRole,
+  missingIssueRole,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -115,7 +121,7 @@ export function assertIssueLabelsWritable(
   authUser: AuthUser | undefined,
   repo: GitHubRepo,
 ): GitHubUser {
-  const actor = assertIssueWrite(gh, authUser, repo);
+  const actor = assertRepoRole(gh, authUser, repo, "triage", "issues", missingIssueRole);
   if (!repo.has_issues) throw notFoundResponse();
   return actor;
 }
@@ -211,7 +217,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
 
     const body = await parseJsonBody(c);
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -270,7 +276,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
 
     const name = c.req.param("name")!;
     let label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
@@ -319,7 +325,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
 
     const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
@@ -371,7 +377,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -494,7 +500,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -539,7 +545,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertIssueWrite(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -590,7 +596,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const body = await parseJsonBody(c);
@@ -672,7 +678,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);
@@ -759,7 +765,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);

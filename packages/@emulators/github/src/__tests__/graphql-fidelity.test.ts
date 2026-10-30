@@ -18,9 +18,10 @@ const installation = (appId: number, accountId: number) => ({
 describe("GitHub GraphQL fidelity", () => {
   let app: Hono<any>;
   let gh: ReturnType<typeof getGitHubStore>;
+  let server: ReturnType<typeof createServer>;
 
   beforeEach(() => {
-    const server = createServer(githubPlugin, {
+    server = createServer(githubPlugin, {
       baseUrl: base,
       tokens: {
         "test-token": { login: "octocat", id: 1 },
@@ -733,6 +734,192 @@ describe("GitHub GraphQL fidelity", () => {
         expect(await count(`draft:true ${scope} type:issue`, type)).toBe(0);
         expect(await count(`draft:false ${scope} type:issue`, type)).toBe(0);
       }
+    });
+  });
+
+  describe("public repository permissions", () => {
+    const close = (id: string, token: string) =>
+      graphql(
+        `
+          mutation ($id: ID!) {
+            closePullRequest(input: { pullRequestId: $id }) {
+              pullRequest {
+                state
+              }
+            }
+          }
+        `,
+        { id },
+        token,
+      );
+
+    beforeEach(() => {
+      const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+      const { id: _id, created_at: _c, updated_at: _u, ...outsider } = gh.users.findOneBy("login", "outsider")!;
+      const triager = gh.users.insert({ ...outsider, login: "triager" });
+      gh.collaborators.insert({ repo_id: repo.id, user_id: triager.id, permission: "triage" });
+    });
+
+    it("lets anyone open and comment, and authors change only their own work over REST", async () => {
+      await send("POST", `${REPO}/labels`, { name: "bug", color: "d73a4a" });
+      const opened = await send("POST", `${REPO}/issues`, { title: "mine", labels: ["bug"] }, "outsider-token");
+      expect(opened.status).toBe(201);
+      expect(opened.body.labels).toEqual([]);
+      const theirs = await send("POST", `${REPO}/issues`, { title: "theirs" });
+
+      const comment = await send(
+        "POST",
+        `${REPO}/issues/${theirs.body.number}/comments`,
+        { body: "hi" },
+        "outsider-token",
+      );
+      expect(comment.status).toBe(201);
+      const ownerComment = await send("POST", `${REPO}/issues/${theirs.body.number}/comments`, { body: "owner" });
+
+      const denied = { message: "Must have admin rights to Repository." };
+      expect(
+        await send("PATCH", `${REPO}/issues/comments/${comment.body.id}`, { body: "edited" }, "outsider-token"),
+      ).toMatchObject({ status: 200 });
+      expect(
+        await send("PATCH", `${REPO}/issues/comments/${ownerComment.body.id}`, { body: "x" }, "outsider-token"),
+      ).toMatchObject({ status: 403, body: denied });
+      expect(
+        await send("DELETE", `${REPO}/issues/comments/${ownerComment.body.id}`, undefined, "outsider-token"),
+      ).toMatchObject({ status: 403, body: denied });
+
+      expect(
+        await send("PATCH", `${REPO}/issues/${opened.body.number}`, { state: "closed" }, "outsider-token"),
+      ).toMatchObject({ status: 200 });
+      expect(
+        await send("PATCH", `${REPO}/issues/${theirs.body.number}`, { state: "closed" }, "outsider-token"),
+      ).toMatchObject({ status: 403, body: denied });
+      expect(
+        await send("POST", `${REPO}/issues/${theirs.body.number}/labels`, { labels: ["bug"] }, "outsider-token"),
+      ).toMatchObject({ status: 403, body: denied });
+      expect(
+        await send(
+          "POST",
+          `${REPO}/issues/${theirs.body.number}/assignees`,
+          { assignees: ["outsider"] },
+          "outsider-token",
+        ),
+      ).toMatchObject({ status: 403, body: denied });
+      expect(await send("PUT", `${REPO}/issues/${theirs.body.number}/lock`, {}, "outsider-token")).toMatchObject({
+        status: 403,
+        body: denied,
+      });
+      expect(await send("POST", `${REPO}/labels`, { name: "x", color: "ffffff" }, "outsider-token")).toMatchObject({
+        status: 404,
+      });
+      expect(await send("POST", `${REPO}/milestones`, { title: "v1" }, "outsider-token")).toMatchObject({
+        status: 404,
+      });
+      expect((await send("GET", `${REPO}/issues/${theirs.body.number}`)).body).toMatchObject({
+        state: "open",
+        labels: [],
+      });
+    });
+
+    it("keeps pull request triage and writes to collaborators over REST", async () => {
+      const pr = await seedPr();
+      const main = await send("GET", `${REPO}/git/ref/heads/main`);
+      await send("POST", `${REPO}/git/refs`, { ref: "refs/heads/outside", sha: main.body.object.sha });
+      await send("PUT", `${REPO}/contents/outside.txt`, { message: "o", content: "bw==", branch: "outside" });
+      const own = await send(
+        "POST",
+        `${REPO}/pulls`,
+        { title: "outside", head: "outside", base: "main" },
+        "outsider-token",
+      );
+      expect(own.status).toBe(201);
+      expect(
+        await send("PATCH", `${REPO}/pulls/${own.body.number}`, { title: "renamed" }, "outsider-token"),
+      ).toMatchObject({ status: 200 });
+      const review = await send(
+        "POST",
+        `${REPO}/pulls/${pr.number}/reviews`,
+        { event: "COMMENT", body: "looks fine" },
+        "outsider-token",
+      );
+      expect(review.body).toMatchObject({ state: "COMMENTED", user: { login: "outsider" } });
+
+      const notFound = { status: 404, body: { message: "Not Found" } };
+      expect(await send("PATCH", `${REPO}/pulls/${pr.number}`, { state: "closed" }, "outsider-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("PATCH", `${REPO}/pulls/${pr.number}`, { title: "x" }, "outsider-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("PUT", `${REPO}/pulls/${pr.number}/merge`, {}, "outsider-token")).toMatchObject(notFound);
+      expect(
+        await send(
+          "POST",
+          `${REPO}/pulls/${pr.number}/requested_reviewers`,
+          { reviewers: ["hubot"] },
+          "outsider-token",
+        ),
+      ).toMatchObject(notFound);
+
+      const triager = gh.users.findOneBy("login", "triager")!;
+      server.tokenMap.set("triager-token", { login: triager.login, id: triager.id, scopes: ["repo"] });
+      expect(await send("PATCH", `${REPO}/pulls/${pr.number}`, { title: "x" }, "triager-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("PUT", `${REPO}/pulls/${pr.number}/merge`, {}, "triager-token")).toMatchObject(notFound);
+      const requested = await send(
+        "POST",
+        `${REPO}/pulls/${pr.number}/requested_reviewers`,
+        { reviewers: ["hubot"] },
+        "triager-token",
+      );
+      expect(requested.body.requested_reviewers).toMatchObject([{ login: "hubot" }]);
+      expect(await send("PATCH", `${REPO}/pulls/${pr.number}`, { state: "closed" }, "triager-token")).toMatchObject({
+        status: 200,
+      });
+      expect(gh.pullRequests.findOneBy("node_id", pr.node_id)!.title).toBe("feature");
+    });
+
+    it("refuses GraphQL mutations an outsider may not run, with GitHub's error", async () => {
+      const pr = await seedPr();
+      const forbidden = (name: string) => [
+        {
+          type: "FORBIDDEN",
+          path: [name],
+          locations: expect.any(Array),
+          message: `outsider does not have the correct permissions to execute \`${name[0]!.toUpperCase()}${name.slice(1)}\``,
+        },
+      ];
+      expect((await close(pr.node_id, "outsider-token")).errors).toEqual(forbidden("closePullRequest"));
+      const update = await graphql(
+        `
+          mutation ($id: ID!) {
+            updatePullRequest(input: { pullRequestId: $id, title: "x" }) {
+              clientMutationId
+            }
+          }
+        `,
+        { id: pr.node_id },
+        "outsider-token",
+      );
+      expect(update.errors).toEqual(forbidden("updatePullRequest"));
+      const merge = await graphql(
+        `
+          mutation ($id: ID!) {
+            mergePullRequest(input: { pullRequestId: $id }) {
+              clientMutationId
+            }
+          }
+        `,
+        { id: pr.node_id },
+        "outsider-token",
+      );
+      expect(merge.errors).toEqual(forbidden("mergePullRequest"));
+      const stored = gh.pullRequests.findOneBy("node_id", pr.node_id)!;
+      expect(stored).toMatchObject({ state: "open", title: "feature", merged: false });
+
+      const triager = gh.users.findOneBy("login", "triager")!;
+      server.tokenMap.set("triager-token", { login: triager.login, id: triager.id, scopes: ["repo"] });
+      expect((await close(pr.node_id, "triager-token")).data.closePullRequest.pullRequest.state).toBe("CLOSED");
     });
   });
 });

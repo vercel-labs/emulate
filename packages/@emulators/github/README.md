@@ -169,7 +169,7 @@ GH_HOST=github-emulator.localhost GH_ENTERPRISE_TOKEN=test_token_admin gh pr lis
 
 ## Auth
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Pagination uses `page`/`per_page` with `Link` headers.
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 

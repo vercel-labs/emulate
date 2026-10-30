@@ -22,7 +22,15 @@ import {
   lookupRepo,
 } from "../helpers.js";
 import { diffTrees, findCommitBySha, listAncestors } from "../git-helpers.js";
-import { assertAuthenticatedActor, hasRepoAdmin, hasRepoContentsWrite, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertAuthenticatedActor,
+  hasRepoAdmin,
+  hasRepoContentsWrite,
+  hasRepoRole,
+  isAuthorOrHasRole,
+  ownerLoginOf,
+  type RepoRole,
+} from "../route-helpers.js";
 import { checkMergeRequirements, resolveRequestedReviewers, reviewCounts } from "../routes/pulls.js";
 import { assertIssueLabelsWritable } from "../routes/labels.js";
 import { insertIssueEvent } from "../routes/issues.js";
@@ -32,6 +40,7 @@ import {
   GitHubGraphQLError,
   assertCanRead,
   assertCanTriage,
+  assertMayRun,
   canRead,
   canSeeRepo,
   decodeNodeId,
@@ -1067,6 +1076,17 @@ function pendingReviewFor(ctx: GraphQLContext, pr: GitHubPullRequest): GitHubRev
   return review;
 }
 
+/** The author of an issue, pull request, or comment may change it; anyone else needs `role`. */
+function mayChange(
+  ctx: GraphQLContext,
+  repo: GitHubRepo,
+  subject: { user_id: number },
+  role: RepoRole,
+  permissions: string[] = ["pull_requests"],
+): boolean {
+  return isAuthorOrHasRole(ctx.gh, ctx.authUser, repo, subject.user_id, role, permissions);
+}
+
 export function createMutationRoot(ctx: GraphQLContext) {
   const { gh } = ctx;
   const payload = (input: Args, rest: View) => ({ clientMutationId: input.clientMutationId ?? null, ...rest });
@@ -1108,6 +1128,8 @@ export function createMutationRoot(ctx: GraphQLContext) {
       const assignees = input.assigneeIds && assigneesByNodeId(ctx, input.assigneeIds);
       const milestone = input.milestoneId ? milestoneInRepo(ctx, repo, input.milestoneId) : null;
       const setsMilestone = input.milestoneId !== undefined;
+      const editsContent = input.title != null || input.body !== undefined || input.baseRefName != null;
+      assertMayRun(ctx, "updatePullRequest", mayChange(ctx, repo, pr, editsContent ? "write" : "triage"));
       if (labels || assignees || setsMilestone) assertCanTriage(ctx, repo);
       if (labels) preflight(() => assertIssueLabelsWritable(gh, ctx.authUser, repo));
       if (Object.keys(patch).length) await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, patch);
@@ -1119,12 +1141,14 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     closePullRequest: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "closePullRequest", mayChange(ctx, repo, pr, "triage"));
       await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, { state: "closed" });
       return payload(input, { pullRequest: freshPr(ctx, pr) });
     },
 
     reopenPullRequest: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "reopenPullRequest", mayChange(ctx, repo, pr, "triage"));
       if (pr.merged) throw new GitHubGraphQLError("UNPROCESSABLE", "Could not reopen a merged pull request.");
       await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, { state: "open" });
       return payload(input, { pullRequest: freshPr(ctx, pr) });
@@ -1132,18 +1156,21 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     markPullRequestReadyForReview: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "markPullRequestReadyForReview", mayChange(ctx, repo, pr, "write"));
       await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, { draft: false });
       return payload(input, { pullRequest: freshPr(ctx, pr) });
     },
 
     convertPullRequestToDraft: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "convertPullRequestToDraft", mayChange(ctx, repo, pr, "write"));
       await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, { draft: true });
       return payload(input, { pullRequest: freshPr(ctx, pr) });
     },
 
     mergePullRequest: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "mergePullRequest", hasRepoRole(gh, ctx.authUser, repo, "write", "contents"));
       await ctx.rest("PUT", `${restRepoPath(repo)}/pulls/${pr.number}/merge`, {
         merge_method: String(input.mergeMethod ?? "MERGE").toLowerCase(),
         commit_title: input.commitHeadline ?? undefined,
@@ -1220,6 +1247,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
           : undefined;
       if (!comment) throw unresolvable(input.id);
       const repo = gh.repos.get(comment.repo_id)!;
+      assertMayRun(ctx, "updateIssueComment", mayChange(ctx, repo, comment, "write", ["issues", "pull_requests"]));
       await ctx.rest("PATCH", `${restRepoPath(repo)}/issues/comments/${comment.id}`, { body: input.body });
       return payload(input, { issueComment: commentView(ctx, gh.comments.get(comment.id)!) });
     },
@@ -1232,6 +1260,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
           : undefined;
       if (!comment) throw unresolvable(input.id);
       const repo = gh.repos.get(comment.repo_id)!;
+      assertMayRun(ctx, "deleteIssueComment", mayChange(ctx, repo, comment, "write", ["issues", "pull_requests"]));
       await ctx.rest("DELETE", `${restRepoPath(repo)}/issues/comments/${comment.id}`);
       return payload(input, {});
     },
@@ -1257,6 +1286,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     requestReviews: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "requestReviews", hasRepoRole(gh, ctx.authUser, repo, "triage", "pull_requests"));
       const logins = users(ctx, idsOfType(input.userIds, "User")).map((u) => u.login);
       const slugs = idsOfType(input.teamIds, "Team").map((id) => gh.teams.get(id)?.slug ?? "");
       await setReviewRequests(ctx, pr, repo, logins, slugs, input.union ?? false);
@@ -1265,6 +1295,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     requestReviewsByLogin: async ({ input }: Args) => {
       const { pr, repo } = requirePullRequest(ctx, input.pullRequestId);
+      assertMayRun(ctx, "requestReviewsByLogin", hasRepoRole(gh, ctx.authUser, repo, "triage", "pull_requests"));
       const logins = [...(input.userLogins ?? []), ...(input.botLogins ?? [])];
       const slugs = (input.teamSlugs ?? []).map((s: string) => s.split("/").pop()!);
       await setReviewRequests(ctx, pr, repo, logins, slugs, input.union);

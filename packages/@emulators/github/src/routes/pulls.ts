@@ -4,7 +4,10 @@ import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedActor,
   assertRepoPermission,
+  assertRepoParticipant,
+  assertRepoRole,
   assertRepoWrite,
+  isAuthorOrHasRole,
   hasRepoAdmin,
   hasRepoContentsWrite,
   notFoundResponse,
@@ -389,7 +392,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
     const body = await parseJsonBody(c);
 
     const title = body.title;
@@ -529,7 +532,8 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const authUser = c.get("authUser");
+    const actor = assertRepoParticipant(gh, authUser, repo, "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -537,6 +541,9 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     if (!pr) throw notFoundResponse();
 
     const body = await parseJsonBody(c);
+    const editsContent = ["title", "body", "base", "draft"].some((key) => key in body);
+    const role = editsContent ? "write" : "triage";
+    if (!isAuthorOrHasRole(gh, authUser, repo, pr.user_id, role, "pull_requests")) throw notFoundResponse();
     const patch: Partial<GitHubPullRequest> = {};
     const issuePatch: Partial<GitHubIssue> = {};
 
@@ -831,7 +838,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -882,7 +889,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    assertRepoRole(gh, c.get("authUser"), repo, "triage", "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 

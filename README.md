@@ -1699,7 +1699,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Vercel**: All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
 
-**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Pagination uses `page`/`per_page` with `Link` headers.
 
 **Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued tokens. Configure clients in the seed config.
 

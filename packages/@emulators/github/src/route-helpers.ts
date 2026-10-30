@@ -310,7 +310,8 @@ export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined,
   throw forbidden();
 }
 
-export function assertRepoWrite(
+/** Anyone who can see a repository may open issues and pull requests on it, comment, and review. */
+export function assertRepoParticipant(
   gh: GitHubStore,
   authUser: AuthUser | undefined,
   repo: GitHubRepo,
@@ -322,12 +323,79 @@ export function assertRepoWrite(
   }
 
   const user = assertAuthenticatedUser(gh, authUser);
-  if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
   return user;
 }
 
-export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  assertRepoPermission(gh, authUser, repo, "issues", "write");
-  return assertAuthenticatedActor(gh, authUser);
+export type RepoRole = "triage" | "write";
+
+function hasRepoTriage(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
+  return (
+    hasRepoAdmin(gh, user, repo) ||
+    hasRepoContentsWrite(gh, user, repo) ||
+    gh.collaborators.findBy("repo_id", repo.id).some((c) => c.user_id === user.id && c.permission === "triage")
+  );
+}
+
+/** A user needs the repository role; an installation token needs write on one of `permissions`. */
+export function hasRepoRole(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  role: RepoRole,
+  permissions: string | string[],
+): boolean {
+  if (!authUser) return false;
+  const accepted = Array.isArray(permissions) ? permissions : [permissions];
+  if (authUser.installation) return canAccessRepoWithPermission(gh, authUser, repo, accepted, "write");
+  const user = getActorUser(gh, authUser);
+  if (!user || !canAccessRepo(gh, authUser, repo)) return false;
+  return role === "write" ? hasRepoContentsWrite(gh, user, repo) : hasRepoTriage(gh, user, repo);
+}
+
+/** Authors may edit, close, and reopen their own issues, pull requests, and comments without a repository role. */
+export function isAuthorOrHasRole(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  authorId: number,
+  role: RepoRole,
+  permissions: string | string[],
+): boolean {
+  if (authUser && !authUser.installation && canAccessRepo(gh, authUser, repo)) {
+    if (getActorUser(gh, authUser)?.id === authorId) return true;
+  }
+  return hasRepoRole(gh, authUser, repo, role, permissions);
+}
+
+/** GitHub's issue routes refuse a caller without the role with this 403. */
+export function missingIssueRole(): ApiError {
+  return new ApiError(403, "Must have admin rights to Repository.");
+}
+
+/**
+ * Requires the repository role. A user who can see the repository but lacks the role gets `denied`: GitHub
+ * answers 404 on most routes and `missingIssueRole` on the issue routes.
+ */
+export function assertRepoRole(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  role: RepoRole,
+  permissions: string | string[],
+  denied: () => ApiError = notFound,
+): GitHubUser {
+  if (hasRepoRole(gh, authUser, repo, role, permissions)) return assertAuthenticatedActor(gh, authUser);
+  if (!authUser) throw unauthorized();
+  if (authUser.installation || !canAccessRepo(gh, authUser, repo)) throw forbidden();
+  throw denied();
+}
+
+export function assertRepoWrite(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  permissions: string | string[],
+): GitHubUser {
+  return assertRepoRole(gh, authUser, repo, "write", permissions);
 }
