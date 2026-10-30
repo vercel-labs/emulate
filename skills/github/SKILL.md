@@ -77,7 +77,7 @@ curl http://localhost:4001/user \
 
 Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. When no token is provided, requests fall back to the first seeded user.
 
-Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Whoever creates an organization repository, or forks into the organization, is its admin.
+Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Organization owners and team maintainers manage teams, and adding a repository to a team needs admin on it. Whoever creates an organization repository, or forks into the organization, is its admin.
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 
@@ -457,28 +457,34 @@ curl -X PUT http://localhost:4001/orgs/my-org/memberships/octocat \
   -H "Content-Type: application/json" \
   -d '{"role": "admin"}'
 
-# Teams: CRUD
-curl http://localhost:4001/orgs/my-org/teams
+# Teams: CRUD. Org members see teams; org owners and team maintainers manage them,
+# and adding a repository to a team needs admin on that repository.
+curl http://localhost:4001/orgs/my-org/teams \
+  -H "Authorization: Bearer $TOKEN"
 curl -X POST http://localhost:4001/orgs/my-org/teams \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "engineering", "privacy": "closed"}'
 
 # Team members and memberships
-curl http://localhost:4001/orgs/my-org/teams/engineering/members
+curl http://localhost:4001/orgs/my-org/teams/engineering/members \
+  -H "Authorization: Bearer $TOKEN"
 curl -X PUT http://localhost:4001/orgs/my-org/teams/engineering/memberships/octocat \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"role": "maintainer"}'
 
 # Team repos: list, add, remove
-curl http://localhost:4001/orgs/my-org/teams/engineering/repos
+curl http://localhost:4001/orgs/my-org/teams/engineering/repos \
+  -H "Authorization: Bearer $TOKEN"
 curl -X PUT http://localhost:4001/orgs/my-org/teams/engineering/repos/my-org/org-repo \
   -H "Authorization: Bearer $TOKEN"
 
 # Legacy team endpoints by ID
-curl http://localhost:4001/teams/1
-curl http://localhost:4001/teams/1/members
+curl http://localhost:4001/teams/1 \
+  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:4001/teams/1/members \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### GitHub Apps
