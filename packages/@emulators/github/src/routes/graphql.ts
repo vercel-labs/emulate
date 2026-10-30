@@ -1,6 +1,15 @@
-import type { Context, RouteContext } from "@emulators/core";
+import {
+  RateLimiter,
+  internalRequest,
+  remaining,
+  setRateLimitHeaders,
+  type Context,
+  type RateLimitBucket,
+  type RouteContext,
+} from "@emulators/core";
 import {
   GraphQLError,
+  Kind,
   buildSchema,
   defaultFieldResolver,
   execute,
@@ -10,14 +19,17 @@ import {
   isObjectType,
   specifiedRules,
   validate,
+  valueFromAST,
   type DocumentNode,
   type ExecutionResult,
+  type FragmentDefinitionNode,
+  type OperationDefinitionNode,
 } from "graphql";
 import { getGitHubStore } from "../store.js";
 import { typeDefs } from "../graphql/schema.js";
-import { GitHubGraphQLError, createContext } from "../graphql/context.js";
+import { GitHubGraphQLError, createContext, type RateLimitView } from "../graphql/context.js";
 import { createMutationRoot, createQueryRoot } from "../graphql/resolvers.js";
-import { isConnectionField, paginationError, selectsPage } from "../graphql/limits.js";
+import { isConnectionField, paginationError, queryCost, selectsPage } from "../graphql/limits.js";
 
 const schema = buildSchema(typeDefs);
 
@@ -33,6 +45,8 @@ for (const type of Object.values(schema.getTypeMap())) {
     };
   }
 }
+
+export const GRAPHQL_PATHS = ["/graphql", "/api/graphql"];
 
 const NULLABILITY_CONFLICT = /^Fields "\w+" conflict because they return conflicting types "(\w+)!?" and "(\w+)!?"\./;
 
@@ -76,6 +90,60 @@ function githubMessage(message: string): string {
   return match ? `Field '${match[1]}' doesn't exist on type '${match[2]}'` : message;
 }
 
+function fragmentsOf(document: DocumentNode): Record<string, FragmentDefinitionNode> {
+  const fragments: Record<string, FragmentDefinitionNode> = {};
+  for (const definition of document.definitions) {
+    if (definition.kind === Kind.FRAGMENT_DEFINITION) fragments[definition.name.value] = definition;
+  }
+  return fragments;
+}
+
+type RateLimitQuery = "none" | "only" | "dryRun";
+
+// GitHub does not charge a query that only reads `rateLimit`, and `rateLimit(dryRun: true)` answers
+// with the cost alone, without running the rest of the query.
+function rateLimitQuery(operation: OperationDefinitionNode, variables: Record<string, unknown>): RateLimitQuery {
+  if (operation.operation !== "query") return "none";
+  const fields = operation.selectionSet.selections.filter((s) => s.kind === Kind.FIELD);
+  const rateLimit = fields.filter((f) => f.name.value === "rateLimit");
+  if (rateLimit.length === 0) return "none";
+  const dryRunArg = schema
+    .getQueryType()!
+    .getFields()
+    .rateLimit.args.find((a) => a.name === "dryRun")!;
+  const dryRun = rateLimit.some((f) => {
+    const node = f.arguments?.find((a) => a.name.value === "dryRun");
+    return node !== undefined && valueFromAST(node.value, dryRunArg.type, variables) === true;
+  });
+  if (dryRun) return "dryRun";
+  return fields.length === operation.selectionSet.selections.length && fields.length === rateLimit.length
+    ? "only"
+    : "none";
+}
+
+function onlyRateLimit(document: DocumentNode, operation: OperationDefinitionNode): DocumentNode {
+  const selections = operation.selectionSet.selections.filter(
+    (s) => s.kind === Kind.FIELD && s.name.value === "rateLimit",
+  );
+  return {
+    ...document,
+    definitions: document.definitions.map((d) =>
+      d === operation ? { ...operation, selectionSet: { ...operation.selectionSet, selections } } : d,
+    ),
+  };
+}
+
+function rateLimitView(bucket: RateLimitBucket, cost: number, nodeCount: number): RateLimitView {
+  return {
+    cost,
+    nodeCount,
+    limit: bucket.limit,
+    used: bucket.used,
+    remaining: remaining(bucket),
+    resetAt: new Date(bucket.resetAt * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"),
+  };
+}
+
 function formatResult(result: ExecutionResult) {
   if (!result.errors) return result;
   return {
@@ -91,8 +159,13 @@ function formatResult(result: ExecutionResult) {
 export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
+  const fallbackLimiter = new RateLimiter();
+
   const run = async (c: Context, request: GraphQLRequest, method: "GET" | "POST") => {
     const authUser = c.get("authUser");
+    const limiter = c.get("rateLimiter") ?? fallbackLimiter;
+    const bucket = limiter.bucket(c.get("authToken") ?? "__anonymous__", "graphql");
+    setRateLimitHeaders(c, bucket);
     if (!authUser) {
       return c.json(
         {
@@ -107,6 +180,43 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       return c.json({ errors: [{ message: "A query attribute must be specified and must be a string." }] }, 400);
     }
 
+    const charge = (cost: number): Response | null => {
+      const charged = limiter.charge(bucket, cost);
+      setRateLimitHeaders(c, bucket);
+      if (charged) return null;
+      const subject = authUser.installation
+        ? `installation ID ${authUser.installation.installationId}`
+        : `user ID ${authUser.id}`;
+      return c.json({
+        errors: [{ type: "RATE_LIMITED", message: `API rate limit already exceeded for ${subject}.` }],
+      });
+    };
+
+    let document: DocumentNode;
+    try {
+      document = parse(request.query);
+    } catch (error) {
+      return charge(1) ?? c.json(formatResult({ errors: [error as GraphQLError] }));
+    }
+    const validationErrors = validate(schema, document, specifiedRules).filter(
+      (error) => !isNullabilityOnlyConflict(error),
+    );
+    if (validationErrors.length > 0) return charge(1) ?? c.json(formatResult({ errors: validationErrors }));
+    const operation = getOperationAST(document, request.operationName);
+    if (method === "GET" && operation?.operation === "mutation") {
+      return c.json({ errors: [{ message: "Mutations are not allowed over GET. Use POST instead." }] }, 405);
+    }
+
+    const variables = request.variables ?? {};
+    const { cost, nodeCount } = operation
+      ? queryCost(schema, operation, fragmentsOf(document), variables)
+      : { cost: 1, nodeCount: 0 };
+    const kind = operation ? rateLimitQuery(operation, variables) : "none";
+    if (kind === "none") {
+      const limited = charge(cost);
+      if (limited) return limited;
+    }
+
     const context = createContext({
       app,
       gh,
@@ -114,23 +224,11 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       baseUrl,
       authUser,
       authorization: c.req.header("Authorization") ?? "",
+      rateLimit: () => rateLimitView(bucket, cost, nodeCount),
     });
-    let document: DocumentNode;
-    try {
-      document = parse(request.query);
-    } catch (error) {
-      return c.json(formatResult({ errors: [error as GraphQLError] }));
-    }
-    const validationErrors = validate(schema, document, specifiedRules).filter(
-      (error) => !isNullabilityOnlyConflict(error),
-    );
-    if (validationErrors.length > 0) return c.json(formatResult({ errors: validationErrors }));
-    if (method === "GET" && getOperationAST(document, request.operationName)?.operation === "mutation") {
-      return c.json({ errors: [{ message: "Mutations are not allowed over GET. Use POST instead." }] }, 405);
-    }
     const result = await execute({
       schema,
-      document,
+      document: kind === "dryRun" && operation ? onlyRateLimit(document, operation) : document,
       rootValue: { ...createQueryRoot(context), ...createMutationRoot(context) },
       contextValue: context,
       variableValues: request.variables,
@@ -152,7 +250,7 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     );
   const post = async (c: Context) => run(c, await readBody(c), "POST");
 
-  for (const path of ["/graphql", "/api/graphql"]) {
+  for (const path of GRAPHQL_PATHS) {
     app.get(path, get);
     app.post(path, post);
   }
@@ -161,7 +259,7 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     app.on(method, "/api/v3/:path{.*}", (c) => {
       const url = new URL(c.req.url);
       url.pathname = url.pathname.slice("/api/v3".length) || "/";
-      return app.fetch(new Request(url, c.req.raw));
+      return app.fetch(internalRequest(url.toString(), c.req.raw));
     });
   }
 }

@@ -212,6 +212,169 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  describe("rate limit", () => {
+    it("charges GraphQL to the graphql resource and reports it in rateLimit", async () => {
+      const first = await graphql(`
+        {
+          viewer {
+            login
+          }
+        }
+      `);
+      expect(first.res.headers.get("X-RateLimit-Resource")).toBe("graphql");
+      expect(first.res.headers.get("X-RateLimit-Used")).toBe("1");
+
+      const { res, data } = await graphql(`
+        {
+          viewer {
+            login
+          }
+          rateLimit {
+            cost
+            limit
+            used
+            remaining
+            resetAt
+          }
+        }
+      `);
+      expect(data.rateLimit).toMatchObject({ cost: 1, limit: 5000, used: 2, remaining: 4998 });
+      expect(data.rateLimit.resetAt).toBe(
+        new Date(Number(res.headers.get("X-RateLimit-Reset")) * 1000).toISOString().replace(".000Z", "Z"),
+      );
+
+      const rest = await send("GET", "/rate_limit");
+      expect(rest.body.resources.graphql).toMatchObject({ used: 2, resource: "graphql" });
+      expect(rest.body.resources.core.used).toBe(1);
+    });
+
+    it("charges by connection size like GitHub, and not for rateLimit-only or dry-run queries", async () => {
+      const cost = async (query: string) =>
+        (await graphql(`{ rateLimit(dryRun: true) { cost } ${query} }`)).data.rateLimit.cost;
+      const repo = `repository(owner: "octocat", name: "hello-world")`;
+      expect(
+        await cost(`${repo} { pullRequests(first: 100) { nodes { labels(first: 100) { nodes { name } } } } }`),
+      ).toBe(1);
+      expect(
+        await cost(
+          `${repo} { pullRequests(first: 100) { nodes { labels(first: 100) { nodes { name } } comments(first: 100) { nodes { id } } } } }`,
+        ),
+      ).toBe(2);
+      expect(
+        await cost(
+          `${repo} { pullRequests(first: 50) { nodes { commits(first: 20) { nodes { commit { authors(first: 5) { nodes { name } } } } } } } }`,
+        ),
+      ).toBe(11);
+
+      expect(
+        (
+          await graphql(`
+            {
+              rateLimit {
+                used
+              }
+            }
+          `)
+        ).data.rateLimit.used,
+      ).toBe(0);
+      const charged = await graphql(`
+        {
+          repository(owner: "octocat", name: "hello-world") {
+            pullRequests(first: 100) {
+              nodes {
+                labels(first: 100) {
+                  nodes {
+                    name
+                  }
+                }
+                comments(first: 100) {
+                  nodes {
+                    id
+                  }
+                }
+              }
+            }
+          }
+        }
+      `);
+      expect(charged.res.headers.get("X-RateLimit-Used")).toBe("2");
+    });
+
+    it("charges a mutation once, however many REST calls it makes", async () => {
+      await seedPr();
+      const label = await send("POST", `${REPO}/labels`, { name: "triaged", color: "ff0000" });
+      const pullRequestId = (await send("GET", `${REPO}/pulls/1`)).body.node_id;
+      const coreUsed = async () => Number((await send("GET", REPO)).res.headers.get("X-RateLimit-Used"));
+      const before = await coreUsed();
+      const { res, errors } = await graphql(
+        `
+          mutation ($input: UpdatePullRequestInput!) {
+            updatePullRequest(input: $input) {
+              pullRequest {
+                title
+              }
+            }
+          }
+        `,
+        { input: { pullRequestId, title: "x", labelIds: [label.body.node_id] } },
+      );
+      expect(errors).toBeUndefined();
+      expect(res.headers.get("X-RateLimit-Used")).toBe("1");
+      expect((await coreUsed()) - before).toBe(1);
+    });
+
+    it("charges /api/v3 once, like the plain REST route", async () => {
+      const res = (await send("GET", "/api/v3/repos/octocat/hello-world")).res;
+      expect(res.headers.get("X-RateLimit-Used")).toBe("1");
+      expect(res.headers.get("X-RateLimit-Resource")).toBe("core");
+      expect((await send("GET", REPO)).res.headers.get("X-RateLimit-Used")).toBe("2");
+    });
+
+    it("answers RATE_LIMITED once the graphql budget is spent", async () => {
+      const expensive = `repository(owner: "octocat", name: "hello-world") { pullRequests(first: 100) { nodes {
+        commits(first: 100) { nodes { commit { authors(first: 100) { nodes { name } } } } }
+        labels(first: 100) { nodes { name } } comments(first: 100) { nodes { id } } } } }`;
+      const dryRun = await graphql(`{ rateLimit(dryRun: true) { cost } ${expensive} }`, {}, "hubot-token");
+      expect(dryRun.data.rateLimit.cost).toBe(103);
+      for (let i = 0; i < 50; i++)
+        await graphql(
+          `
+            {
+              viewer {
+                login
+              }
+            }
+          `,
+          {},
+          "hubot-token",
+        );
+      for (let i = 0; i < 48; i++)
+        expect((await graphql(`{ ${expensive} }`, {}, "hubot-token")).errors).toBeUndefined();
+
+      const limited = await graphql(`{ ${expensive} }`, {}, "hubot-token");
+      expect(limited.res.status).toBe(200);
+      expect(limited.errors).toEqual([
+        { type: "RATE_LIMITED", message: "API rate limit already exceeded for user ID 2." },
+      ]);
+      expect(limited.res.headers.get("X-RateLimit-Used")).toBe("4994");
+      expect(
+        (
+          await graphql(
+            `
+              {
+                viewer {
+                  login
+                }
+              }
+            `,
+            {},
+            "hubot-token",
+          )
+        ).errors,
+      ).toBeUndefined();
+    });
+  });
+
   describe("errors from delegated REST calls", () => {
     it("reports REST's validation detail as GitHub's GraphQL message", async () => {
       const repositoryId = gh.repos.findOneBy("full_name", "octocat/hello-world")!.node_id;

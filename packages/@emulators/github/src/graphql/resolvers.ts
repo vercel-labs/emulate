@@ -898,14 +898,7 @@ export function createQueryRoot(ctx: GraphQLContext) {
     node: ({ id }: Args) => nodeById(ctx, id),
     nodes: ({ ids }: Args) => (ids as string[]).map((id) => nodeById(ctx, id)),
     search: (args: Args) => search(ctx, args),
-    rateLimit: () => ({
-      cost: 1,
-      limit: 5000,
-      nodeCount: 1,
-      remaining: 4999,
-      used: 1,
-      resetAt: new Date(Date.now() + 3600_000).toISOString(),
-    }),
+    rateLimit: () => ctx.rateLimit(),
   };
 }
 

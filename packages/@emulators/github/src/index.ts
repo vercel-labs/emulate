@@ -34,7 +34,7 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { installationTokenRoutes } from "./routes/installation-tokens.js";
-import { graphqlRoutes } from "./routes/graphql.js";
+import { GRAPHQL_PATHS, graphqlRoutes } from "./routes/graphql.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
@@ -685,6 +685,9 @@ export const githubPlugin: ServicePlugin = {
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
+  },
+  chargesOwnRateLimit(request: Request): boolean {
+    return GRAPHQL_PATHS.includes(new URL(request.url).pathname);
   },
 };
 
