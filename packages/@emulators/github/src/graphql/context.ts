@@ -166,7 +166,7 @@ export function assertCanTriage(ctx: GraphQLContext, repo: GitHubRepo): void {
   }
 }
 
-/** GitHub refuses a mutation the viewer may not run with FORBIDDEN, before it looks at the input. */
+/** GitHub refuses a mutation the viewer may not run with FORBIDDEN, once its node IDs resolve. */
 export function assertMayRun(ctx: GraphQLContext, mutation: string, allowed: boolean): void {
   if (allowed) return;
   const name = mutation[0]!.toUpperCase() + mutation.slice(1);

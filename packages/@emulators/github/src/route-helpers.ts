@@ -337,7 +337,6 @@ function hasRepoTriage(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boo
   );
 }
 
-/** A user needs the repository role; an installation token needs write on one of `permissions`. */
 export function hasRepoRole(
   gh: GitHubStore,
   authUser: AuthUser | undefined,
@@ -373,10 +372,7 @@ export function missingIssueRole(): ApiError {
   return new ApiError(403, "Must have admin rights to Repository.");
 }
 
-/**
- * Requires the repository role. A user who can see the repository but lacks the role gets `denied`: GitHub
- * answers 404 on most routes and `missingIssueRole` on the issue routes.
- */
+/** A user who can see the repository but lacks the role gets `denied`: 404 on most GitHub routes. */
 export function assertRepoRole(
   gh: GitHubStore,
   authUser: AuthUser | undefined,

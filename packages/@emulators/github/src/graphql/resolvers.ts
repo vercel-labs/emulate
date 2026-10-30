@@ -1076,7 +1076,6 @@ function pendingReviewFor(ctx: GraphQLContext, pr: GitHubPullRequest): GitHubRev
   return review;
 }
 
-/** The author of an issue, pull request, or comment may change it; anyone else needs `role`. */
 function mayChange(
   ctx: GraphQLContext,
   repo: GitHubRepo,

@@ -152,7 +152,7 @@ export function parseSearchQuery(q: string): ParsedSearchQuery {
 type SearchToken = { kind: "(" | ")" } | { kind: "word"; value: string; quoted: boolean };
 
 /** A query in GitHub's advanced issue search syntax: terms joined by AND, OR, NOT, and parentheses. */
-export type SearchExpression =
+type SearchExpression =
   | { kind: "term"; parsed: ParsedSearchQuery; qualifier: boolean }
   | { kind: "and" | "or"; children: SearchExpression[] }
   | { kind: "not"; child: SearchExpression };
@@ -198,15 +198,8 @@ function tokenizeAdvancedQuery(q: string): SearchToken[] {
   return tokens;
 }
 
-const EMPTY_QUERY = (): ParsedSearchQuery => ({
-  text: "",
-  qualifiers: new Map(),
-  negations: new Map(),
-  ranges: new Map(),
-});
-
 /** Parses GitHub's advanced issue search syntax. Bare OR binds looser than the implicit AND between terms. */
-export function parseAdvancedSearchQuery(q: string): SearchExpression {
+function parseAdvancedSearchQuery(q: string): SearchExpression {
   const tokens = tokenizeAdvancedQuery(q);
   let i = 0;
   const isOperator = (token: SearchToken | undefined, op: string) =>
@@ -246,8 +239,9 @@ export function parseAdvancedSearchQuery(q: string): SearchExpression {
       return inner;
     }
     if (token.value === "-") throw new SearchSyntaxError();
-    if (token.quoted) return { kind: "term", parsed: { ...EMPTY_QUERY(), text: token.value }, qualifier: false };
-    const parsed = parseSearchQuery(token.value.includes(" ") ? `"${token.value}"` : token.value);
+    const parsed: ParsedSearchQuery = token.quoted
+      ? { text: token.value, qualifiers: new Map(), negations: new Map(), ranges: new Map() }
+      : parseSearchQuery(token.value);
     return { kind: "term", parsed, qualifier: parsed.text === "" };
   };
 
@@ -263,7 +257,7 @@ function hasQualifier(expression: SearchExpression): boolean {
 }
 
 /** GitHub applies NOT to text only: a NOT over a qualifier matches nothing. */
-export function evaluateSearchExpression(
+function evaluateSearchExpression(
   expression: SearchExpression,
   matches: (parsed: ParsedSearchQuery) => boolean,
 ): boolean {
