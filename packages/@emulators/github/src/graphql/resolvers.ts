@@ -1048,7 +1048,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
       }
       const comments = [
         ...(input.comments ?? []).map((c: Args) => ({ path: c.path, position: c.position, body: c.body })),
-        ...(input.threads ?? []).map((t: Args) => ({ path: t.path, position: t.line, body: t.body })),
+        ...(input.threads ?? []).map((t: Args) => ({ path: t.path, line: t.line, side: t.side, body: t.body })),
       ];
       const review = await ctx.rest("POST", `${restRepoPath(repo)}/pulls/${pr.number}/reviews`, {
         body: input.body ?? null,

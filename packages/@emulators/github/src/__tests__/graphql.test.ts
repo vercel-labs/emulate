@@ -505,6 +505,32 @@ describe("GitHub GraphQL API", () => {
     expect(submitted.submitPullRequestReview.pullRequestReview).toEqual({ state: "COMMENTED", body: "draft" });
   });
 
+  it("anchors review threads on the line and side they name", async () => {
+    await seedBranch("feature");
+    const pr = await createPr("feature");
+    await gql(
+      `mutation($input: AddPullRequestReviewInput!) { addPullRequestReview(input: $input) { clientMutationId } }`,
+      {
+        input: {
+          pullRequestId: pr.id,
+          event: "COMMENT",
+          threads: [
+            { path: "feature.txt", line: 7, body: "right side" },
+            { path: "feature.txt", line: 3, side: "LEFT", body: "left side" },
+          ],
+        },
+      },
+      "hubot-token",
+    );
+    const comments = await rest("GET", "/repos/octocat/hello-world/pulls/1/comments");
+    expect(comments.body.map((c: any) => ({ body: c.body, line: c.line, side: c.side, position: c.position }))).toEqual(
+      [
+        { body: "right side", line: 7, side: "RIGHT", position: null },
+        { body: "left side", line: 3, side: "LEFT", position: null },
+      ],
+    );
+  });
+
   it("requests reviewers by id and by login", async () => {
     await seedBranch("feature");
     const pr = await createPr("feature");

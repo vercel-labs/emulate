@@ -184,9 +184,12 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       if (!entry || typeof entry !== "object") throw new ApiError(422, "Validation failed");
       const o = entry as Record<string, unknown>;
       if (typeof o.path !== "string" || !o.path.trim()) throw new ApiError(422, "Validation failed");
-      const pos =
-        typeof o.position === "number" && Number.isFinite(o.position) ? o.position : parseInt(String(o.position), 10);
-      if (!Number.isFinite(pos)) throw new ApiError(422, "Validation failed");
+      const byLine = o.position === undefined && o.line !== undefined;
+      const anchor = byLine ? o.line : o.position;
+      const num = typeof anchor === "number" && Number.isFinite(anchor) ? anchor : parseInt(String(anchor), 10);
+      if (!Number.isFinite(num)) throw new ApiError(422, "Validation failed");
+      const side = o.side ?? "RIGHT";
+      if (side !== "LEFT" && side !== "RIGHT") throw new ApiError(422, "Validation failed");
       if (typeof o.body !== "string") throw new ApiError(422, "Validation failed");
 
       const cRow = gh.comments.insert({
@@ -199,9 +202,9 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         user_id: actor.id,
         in_reply_to_id: null,
         path: o.path,
-        position: pos,
-        line: null,
-        side: "RIGHT",
+        position: byLine ? null : num,
+        line: byLine ? num : null,
+        side,
         subject_type: "line",
         comment_type: "review",
         review_id: review.id,
