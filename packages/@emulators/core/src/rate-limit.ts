@@ -12,10 +12,15 @@ export interface RateLimitBucket {
 
 export class RateLimiter {
   private readonly buckets = new Map<string, RateLimitBucket>();
+  private lastPruneAt = Math.floor(Date.now() / 1000);
 
   bucket(token: string, resource: string): RateLimitBucket {
     const key = `${resource}:${token}`;
     const now = Math.floor(Date.now() / 1000);
+    if (now - this.lastPruneAt >= WINDOW_SECONDS) {
+      for (const [k, expired] of this.buckets) if (expired.resetAt <= now) this.buckets.delete(k);
+      this.lastPruneAt = now;
+    }
     let bucket = this.buckets.get(key);
     if (!bucket || bucket.resetAt <= now) {
       bucket = { resource, limit: DEFAULT_LIMIT, used: 0, resetAt: now + WINDOW_SECONDS };
