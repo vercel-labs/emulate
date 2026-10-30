@@ -255,6 +255,7 @@ function deleteRepoCascade(gh: GitHubStore, repo: GitHubRepo) {
   };
 
   delByRepo(gh.collaborators);
+  delByRepo(gh.teamRepos);
   delByRepo(gh.issues);
   delByRepo(gh.pullRequests);
   delByRepo(gh.labels);
@@ -891,6 +892,10 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const newFull = `${newOwner.login}/${repo.name}`;
     if (newFull !== repo.full_name && gh.repos.findOneBy("full_name", newFull)) {
       throw new ApiError(422, "Repository already exists");
+    }
+
+    if (newOwner.type !== repo.owner_type || newOwner.id !== repo.owner_id) {
+      for (const link of gh.teamRepos.findBy("repo_id", repo.id)) gh.teamRepos.delete(link.id);
     }
 
     const updated = gh.repos.update(repo.id, {

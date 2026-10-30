@@ -1198,5 +1198,23 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await teammateRole()).toBe("WRITE");
       expect(await grant({ permission: "owner" })).toMatchObject({ status: 422 });
     });
+
+    it("drops team grants when a repository is deleted or leaves the organization", async () => {
+      await seedOrg("read");
+      await send("POST", "/orgs/acme/repos", { name: "gadgets" }, "owner-token");
+      await send("PUT", "/orgs/acme/teams/devs/repos/acme/gadgets", {}, "owner-token");
+      const reposCount = async () =>
+        (await send("GET", "/orgs/acme/teams/devs", undefined, "owner-token")).body.repos_count;
+      expect(await reposCount()).toBe(2);
+
+      expect(await send("DELETE", "/repos/acme/gadgets", undefined, "owner-token")).toMatchObject({ status: 204 });
+      expect(await reposCount()).toBe(1);
+
+      expect(await send("POST", `${ORG_REPO}/transfer`, { new_owner: "owner" }, "owner-token")).toMatchObject({
+        status: 200,
+      });
+      expect(await reposCount()).toBe(0);
+      expect(gh.teamRepos.all()).toEqual([]);
+    });
   });
 });
