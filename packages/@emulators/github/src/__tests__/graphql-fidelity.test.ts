@@ -212,6 +212,91 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  describe("errors from delegated REST calls", () => {
+    it("reports REST's validation detail as GitHub's GraphQL message", async () => {
+      const repositoryId = gh.repos.findOneBy("full_name", "octocat/hello-world")!.node_id;
+      const { errors } = await graphql(
+        `
+          mutation ($input: CreatePullRequestInput!) {
+            createPullRequest(input: $input) {
+              pullRequest {
+                number
+              }
+            }
+          }
+        `,
+        { input: { repositoryId, baseRefName: "main", headRefName: "main", title: "x" } },
+      );
+      expect(errors![0]).toMatchObject({ type: "UNPROCESSABLE", message: "No commits between main and main" });
+    });
+
+    it("validates every step of updatePullRequest before writing", async () => {
+      const pr = await seedPr();
+      const label = await send("POST", `${REPO}/labels`, { name: "triaged", color: "ff0000" });
+      const repo = gh.repos.findOneBy("full_name", "octocat/hello-world")!;
+      gh.repos.update(repo.id, { has_issues: false });
+      const { errors } = await graphql(
+        `
+          mutation ($input: UpdatePullRequestInput!) {
+            updatePullRequest(input: $input) {
+              pullRequest {
+                title
+              }
+            }
+          }
+        `,
+        { input: { pullRequestId: pr.node_id, title: "renamed", labelIds: [label.body.node_id] } },
+      );
+      expect(errors![0].type).toBe("NOT_FOUND");
+      expect(gh.pullRequests.findOneBy("node_id", pr.node_id)!.title).toBe("feature");
+    });
+
+    it("validates requested reviewers before removing the current ones", async () => {
+      const pr = await seedPr();
+      await send("POST", `${REPO}/pulls/1/requested_reviewers`, { reviewers: ["hubot"] });
+      const { errors } = await graphql(
+        `
+          mutation ($input: RequestReviewsByLoginInput!) {
+            requestReviewsByLogin(input: $input) {
+              clientMutationId
+            }
+          }
+        `,
+        { input: { pullRequestId: pr.node_id, userLogins: ["nobody"], union: false } },
+      );
+      expect(errors![0].type).toBe("UNPROCESSABLE");
+      const hubot = gh.users.findOneBy("login", "hubot")!;
+      expect(gh.pullRequests.findOneBy("node_id", pr.node_id)!.requested_reviewer_ids).toEqual([hubot.id]);
+    });
+
+    it("ignores labels that are not on the pull request when removing labels", async () => {
+      const pr = await seedPr();
+      const bug = await send("POST", `${REPO}/labels`, { name: "triaged", color: "ff0000" });
+      const docs = await send("POST", `${REPO}/labels`, { name: "wontfix-later", color: "0000ff" });
+      await send("POST", `${REPO}/issues/1/labels`, { labels: ["triaged"] });
+      const { data, errors } = await graphql(
+        `
+          mutation ($input: RemoveLabelsFromLabelableInput!) {
+            removeLabelsFromLabelable(input: $input) {
+              labelable {
+                ... on PullRequest {
+                  labels(first: 10) {
+                    nodes {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `,
+        { input: { labelableId: pr.node_id, labelIds: [docs.body.node_id, bug.body.node_id] } },
+      );
+      expect(errors).toBeUndefined();
+      expect(data.removeLabelsFromLabelable.labelable.labels.nodes).toEqual([]);
+    });
+  });
+
   describe("reviews and check runs", () => {
     it("reports latestReviews ids and commit oids", async () => {
       const pr = await seedPr();

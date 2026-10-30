@@ -1,4 +1,4 @@
-import type { Context } from "@emulators/core";
+import type { AuthUser, Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
@@ -108,6 +108,16 @@ function getOrCreateLabel(gh: GitHubStore, repo: GitHubRepo, name: string): GitH
   } as Omit<GitHubLabel, "id" | "created_at" | "updated_at">);
   gh.labels.update(label.id, { node_id: generateNodeId("Label", label.id) });
   return gh.labels.get(label.id)!;
+}
+
+export function assertIssueLabelsWritable(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+): GitHubUser {
+  const actor = assertIssueWrite(gh, authUser, repo);
+  if (!repo.has_issues) throw notFoundResponse();
+  return actor;
 }
 
 async function parseLabelNamesFromBody(c: Context): Promise<string[]> {
@@ -415,8 +425,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
-    if (!repo.has_issues) throw notFoundResponse();
+    const actor = assertIssueLabelsWritable(gh, c.get("authUser"), repo);
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();

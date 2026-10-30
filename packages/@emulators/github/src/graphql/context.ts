@@ -1,4 +1,4 @@
-import type { AppEnv, AuthUser, Hono, WebhookDispatcher } from "@emulators/core";
+import { ApiError, type AppEnv, type AuthUser, type Hono, type WebhookDispatcher } from "@emulators/core";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
 import {
@@ -62,12 +62,42 @@ export function createContext(opts: {
         }),
       );
       const text = await res.text();
-      const json = text ? JSON.parse(text) : null;
+      const json = parseJson(text);
       if (res.ok) return json;
-      const message = typeof json?.message === "string" ? json.message : `Request failed with status ${res.status}`;
-      throw new GitHubGraphQLError(errorTypeForStatus(res.status), message);
+      throw restError(res.status, json);
     },
   };
+}
+
+function parseJson(text: string): any {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** GitHub reports a REST validation failure's `errors[]` messages, joined, as the GraphQL error message. */
+export function restError(status: number, body: { message?: unknown; errors?: unknown } | null): GitHubGraphQLError {
+  const details = Array.isArray(body?.errors)
+    ? body.errors.map((e: { message?: unknown }) => e?.message).filter((m): m is string => typeof m === "string")
+    : [];
+  const message =
+    details.length > 0
+      ? details.join(", ")
+      : typeof body?.message === "string"
+        ? body.message
+        : `Request failed with status ${status}`;
+  return new GitHubGraphQLError(errorTypeForStatus(status), message);
+}
+
+export function preflight<T>(check: () => T): T {
+  try {
+    return check();
+  } catch (error) {
+    if (error instanceof ApiError) throw restError(error.status, error);
+    throw error;
+  }
 }
 
 function errorTypeForStatus(status: number): GitHubErrorType {

@@ -23,7 +23,8 @@ import {
 } from "../helpers.js";
 import { diffTrees, findCommitBySha, listAncestors } from "../git-helpers.js";
 import { assertAuthenticatedActor, hasRepoAdmin, hasRepoContentsWrite, ownerLoginOf } from "../route-helpers.js";
-import { checkMergeRequirements, reviewCounts } from "../routes/pulls.js";
+import { checkMergeRequirements, resolveRequestedReviewers, reviewCounts } from "../routes/pulls.js";
+import { assertIssueLabelsWritable } from "../routes/labels.js";
 import { insertIssueEvent } from "../routes/issues.js";
 import { issuePrMatchesFilters, parseSearchQuery } from "../routes/search.js";
 import { connectionFromArray, encodeCursor, type ConnectionArgs } from "./connection.js";
@@ -35,6 +36,7 @@ import {
   canSeeRepo,
   decodeNodeId,
   notFound,
+  preflight,
   type GraphQLContext,
   type RepoPermission,
 } from "./context.js";
@@ -1047,6 +1049,7 @@ async function setReviewRequests(
   union: boolean,
 ) {
   const path = `${restRepoPath(repo)}/pulls/${pr.number}/requested_reviewers`;
+  preflight(() => resolveRequestedReviewers(ctx.gh, repo, logins, teamSlugs));
   if (!union) {
     const dropUsers = users(ctx, pr.requested_reviewer_ids)
       .map((u) => u.login)
@@ -1113,6 +1116,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
       const milestone = input.milestoneId ? milestoneInRepo(ctx, repo, input.milestoneId) : null;
       const setsMilestone = input.milestoneId !== undefined;
       if (labels || assignees || setsMilestone) assertCanTriage(ctx, repo);
+      if (labels) preflight(() => assertIssueLabelsWritable(gh, ctx.authUser, repo));
       if (Object.keys(patch).length) await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, patch);
       if (labels) await replaceLabels(ctx, repo, pr.number, labels);
       if (assignees) setPullAssignees(ctx, pr, repo, assignees);
@@ -1249,14 +1253,12 @@ export function createMutationRoot(ctx: GraphQLContext) {
 
     removeLabelsFromLabelable: async ({ input }: Args) => {
       const target = requireLabelable(ctx, input.labelableId);
-      const labels = idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, target.repo, id));
+      const removed = new Set(idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, target.repo, id).id));
       assertCanTriage(ctx, target.repo);
-      for (const label of labels) {
-        await ctx.rest(
-          "DELETE",
-          `${restRepoPath(target.repo)}/issues/${target.number}/labels/${encodeURIComponent(label.name)}`,
-        );
-      }
+      const issue = gh.issues.findBy("repo_id", target.repo.id).find((i) => i.number === target.number);
+      const current = (issue?.label_ids ?? []).map((id) => gh.labels.get(id)).filter((l) => l !== undefined);
+      const kept = current.filter((l) => !removed.has(l.id));
+      if (kept.length < current.length) await replaceLabels(ctx, target.repo, target.number, kept);
       return payload(input, { labelable: target.view });
     },
 

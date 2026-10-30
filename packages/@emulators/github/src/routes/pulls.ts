@@ -315,6 +315,20 @@ function lookupUserByLogin(gh: GitHubStore, login: string): GitHubUser {
   return u;
 }
 
+export function resolveRequestedReviewers(
+  gh: GitHubStore,
+  repo: GitHubRepo,
+  logins: string[],
+  teamSlugs: string[],
+): { userIds: number[]; teamIds: number[] } {
+  const userIds = logins.map((login) => lookupUserByLogin(gh, login).id);
+  if (teamSlugs.length === 0) return { userIds, teamIds: [] };
+  if (repo.owner_type !== "Organization") {
+    throw new ApiError(422, "Team reviewers are only supported for organization repositories.");
+  }
+  return { userIds, teamIds: teamSlugs.map((slug) => lookupTeamSlug(gh, repo.owner_id, slug).id) };
+}
+
 function lookupTeamSlug(gh: GitHubStore, orgId: number, slug: string) {
   const t = gh.teams.findBy("org_id", orgId).find((x) => x.slug === slug);
   if (!t) throw new ApiError(422, "Validation failed");
@@ -391,7 +405,9 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const baseRef = baseRaw.trim();
 
     if (headRef === baseRef && headRepo.id === repo.id) {
-      throw new ApiError(422, "Validation failed");
+      throw new ApiError(422, "Validation failed", [
+        { resource: "PullRequest", code: "custom", message: `No commits between ${baseRef} and ${headRef}` },
+      ]);
     }
 
     const prBody = typeof body.body === "string" || body.body === null ? (body.body as string | null) : null;
@@ -834,14 +850,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       ? body.team_reviewers.filter((x): x is string => typeof x === "string")
       : [];
 
-    const newUserIds = reviewerLogins.map((login) => lookupUserByLogin(gh, login).id);
-    let newTeamIds: number[] = [];
-    if (teamSlugs.length > 0) {
-      if (repo.owner_type !== "Organization") {
-        throw new ApiError(422, "Team reviewers are only supported for organization repositories.");
-      }
-      newTeamIds = teamSlugs.map((slug) => lookupTeamSlug(gh, repo.owner_id, slug).id);
-    }
+    const { userIds: newUserIds, teamIds: newTeamIds } = resolveRequestedReviewers(gh, repo, reviewerLogins, teamSlugs);
 
     const requested_reviewer_ids = [...new Set([...pr.requested_reviewer_ids, ...newUserIds])];
     const requested_team_ids = [...new Set([...pr.requested_team_ids, ...newTeamIds])];
