@@ -245,7 +245,9 @@ describe("GitHub GraphQL fidelity", () => {
 
       const rest = await send("GET", "/rate_limit");
       expect(rest.body.resources.graphql).toMatchObject({ used: 2, resource: "graphql" });
-      expect(rest.body.resources.core.used).toBe(1);
+      expect(rest.body.resources.core.used).toBe(0);
+      expect(rest.res.headers.get("X-RateLimit-Resource")).toBe("core");
+      expect((await send("GET", "/api/v3/rate_limit")).body.resources.core.used).toBe(0);
     });
 
     it("charges by connection size like GitHub, and not for rateLimit-only or dry-run queries", async () => {

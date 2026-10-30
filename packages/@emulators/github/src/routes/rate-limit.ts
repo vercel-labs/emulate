@@ -1,4 +1,4 @@
-import { RateLimiter, remaining, type RateLimitBucket, type RouteContext } from "@emulators/core";
+import { RateLimiter, remaining, setRateLimitHeaders, type RateLimitBucket, type RouteContext } from "@emulators/core";
 
 function view(bucket: RateLimitBucket) {
   return {
@@ -16,7 +16,9 @@ export function rateLimitRoutes({ app }: RouteContext): void {
   app.get("/rate_limit", (c) => {
     const limiter = c.get("rateLimiter") ?? fallbackLimiter;
     const token = c.get("authToken") ?? "__anonymous__";
-    const core = view(limiter.bucket(token, "core"));
+    const coreBucket = limiter.bucket(token, "core");
+    setRateLimitHeaders(c, coreBucket);
+    const core = view(coreBucket);
     const reset = core.reset;
 
     return c.json({

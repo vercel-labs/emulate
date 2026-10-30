@@ -689,7 +689,8 @@ export const githubPlugin: ServicePlugin = {
     seedDefaults(store, baseUrl);
   },
   chargesOwnRateLimit(request: Request): boolean {
-    return GRAPHQL_PATHS.includes(new URL(request.url).pathname);
+    const path = new URL(request.url).pathname;
+    return GRAPHQL_PATHS.includes(path) || path === "/rate_limit" || path === "/api/v3/rate_limit";
   },
 };
 
