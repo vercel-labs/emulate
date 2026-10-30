@@ -2,7 +2,7 @@ import type { AuthUser } from "@emulators/core";
 import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
-import { generateNodeId } from "./helpers.js";
+import { generateNodeId, repoPermissionLevel } from "./helpers.js";
 
 export { notFound as notFoundResponse };
 
@@ -70,9 +70,7 @@ export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, r
   if (authUser.installation) return installationCanAccessRepo(authUser, repo);
   const user = getActorUser(gh, authUser);
   if (!user) return false;
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-  if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  return Boolean(gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id));
+  return repoPermissionLevel(gh, repo, user.id) !== null;
 }
 
 export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
@@ -140,43 +138,13 @@ export function assertAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | u
 }
 
 export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-  if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  const collab = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
-  return collab?.permission === "admin" || collab?.permission === "maintain";
-}
-
-function grantsRepoWrite(permission: string): boolean {
-  return permission === "push" || permission === "write" || permission === "maintain" || permission === "admin";
+  const level = repoPermissionLevel(gh, repo, user.id);
+  return level === "admin" || level === "maintain";
 }
 
 export function hasRepoContentsWrite(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-
-  const collaborator = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
-  if (collaborator && grantsRepoWrite(collaborator.permission)) return true;
-
-  if (repo.owner_type !== "Organization") return false;
-  const memberships = gh.teamMembers.findBy("user_id", user.id).filter((membership) => {
-    return gh.teams.get(membership.team_id)?.org_id === repo.owner_id;
-  });
-  if (!memberships.length) return false;
-
-  // Organization administrators are represented as maintainers of the members team by the emulator.
-  const isOrgAdmin = memberships.some((membership) => {
-    const team = gh.teams.get(membership.team_id);
-    return team?.slug === "members" && membership.role === "maintainer";
-  });
-  if (isOrgAdmin) return true;
-
-  const org = gh.orgs.get(repo.owner_id);
-  if (org && grantsRepoWrite(org.default_repository_permission)) return true;
-
-  return memberships.some((membership) => {
-    const team = gh.teams.get(membership.team_id);
-    if (!team || !grantsRepoWrite(team.permission)) return false;
-    return gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id);
-  });
+  const level = repoPermissionLevel(gh, repo, user.id);
+  return level === "push" || level === "maintain" || level === "admin";
 }
 
 export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
@@ -330,11 +298,8 @@ export function assertRepoParticipant(
 export type RepoRole = "triage" | "write";
 
 function hasRepoTriage(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  return (
-    hasRepoAdmin(gh, user, repo) ||
-    hasRepoContentsWrite(gh, user, repo) ||
-    gh.collaborators.findBy("repo_id", repo.id).some((c) => c.user_id === user.id && c.permission === "triage")
-  );
+  const level = repoPermissionLevel(gh, repo, user.id);
+  return level !== null && level !== "pull";
 }
 
 export function hasRepoRole(

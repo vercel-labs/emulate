@@ -121,6 +121,25 @@ function findTeamRepo(gh: GitHubStore, teamId: number, repoId: number) {
   return gh.teamRepos.findBy("team_id", teamId).find((r) => r.repo_id === repoId);
 }
 
+export function getOrCreateTeam(gh: GitHubStore, org: GitHubOrg, name: string, permission: string): GitHubTeam {
+  const slug = slugifyFromName(name);
+  const existing = getTeamByOrgSlug(gh, org, slug);
+  if (existing) return gh.teams.update(existing.id, { permission }) ?? existing;
+  const team = gh.teams.insert({
+    node_id: "pending",
+    name,
+    slug,
+    description: null,
+    privacy: "closed",
+    permission,
+    org_id: org.id,
+    parent_id: null,
+    members_count: 0,
+    repos_count: 0,
+  });
+  return gh.teams.update(team.id, { node_id: generateNodeId("Team", team.id) }) ?? team;
+}
+
 export function getOrCreateMembersTeam(gh: GitHubStore, org: GitHubOrg): GitHubTeam {
   const existing = teamsForOrg(gh, org.id).find((t) => t.slug === MEMBERS_TEAM_SLUG);
   if (existing) return existing;

@@ -14,6 +14,7 @@ import type {
 } from "../entities.js";
 import {
   computeAuthorAssociation,
+  repoPermissionLevel,
   formatMilestone,
   formatPullRequest,
   formatRepo,
@@ -24,8 +25,6 @@ import {
 import { diffTrees, findCommitBySha, listAncestors } from "../git-helpers.js";
 import {
   assertAuthenticatedActor,
-  hasRepoAdmin,
-  hasRepoContentsWrite,
   hasRepoRole,
   isAuthorOrHasRole,
   ownerLoginOf,
@@ -353,13 +352,9 @@ function refView(ctx: GraphQLContext, repo: GitHubRepo, branchName: string): Vie
 
 function viewerPermission(ctx: GraphQLContext, repo: GitHubRepo): string | null {
   const viewer = ctx.viewer;
-  if (!viewer) return repo.private ? null : "READ";
-  if (hasRepoAdmin(ctx.gh, viewer, repo)) return "ADMIN";
-  const collab = ctx.gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === viewer.id);
-  if (collab?.permission === "maintain") return "MAINTAIN";
-  if (collab?.permission === "triage") return "TRIAGE";
-  if (hasRepoContentsWrite(ctx.gh, viewer, repo)) return "WRITE";
-  return "READ";
+  const level = viewer ? repoPermissionLevel(ctx.gh, repo, viewer.id) : null;
+  if (!level) return repo.private ? null : "READ";
+  return { pull: "READ", triage: "TRIAGE", push: "WRITE", maintain: "MAINTAIN", admin: "ADMIN" }[level];
 }
 
 function repoMembers(ctx: GraphQLContext, repo: GitHubRepo): GitHubUser[] {

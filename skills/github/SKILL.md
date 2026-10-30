@@ -77,6 +77,8 @@ curl http://localhost:4001/user \
 
 Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. When no token is provided, requests fall back to the first seeded user.
 
+Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants.
+
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 
 ### GitHub App JWT

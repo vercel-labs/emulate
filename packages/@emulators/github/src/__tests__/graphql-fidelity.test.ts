@@ -922,4 +922,152 @@ describe("GitHub GraphQL fidelity", () => {
       expect((await close(pr.node_id, "triager-token")).data.closePullRequest.pullRequest.state).toBe("CLOSED");
     });
   });
+
+  describe("organization repository roles", () => {
+    const ORG_REPO = "/repos/acme/widgets";
+    const tokens = ["owner", "member", "writer", "teammate"] as const;
+
+    async function seedOrg(basePermission: "read" | "write") {
+      seedFromConfig(server.store, base, {
+        users: tokens.map((login) => ({ login })),
+        orgs: [
+          {
+            login: "acme",
+            default_repository_permission: basePermission,
+            members: [
+              { login: "owner", role: "admin" },
+              { login: "member" },
+              { login: "writer" },
+              { login: "teammate" },
+            ],
+            teams: [{ name: "Devs", permission: "push", members: ["teammate"], repos: ["widgets"] }],
+          },
+        ],
+        repos: [{ owner: "acme", name: "widgets" }],
+      });
+      const repo = gh.repos.findOneBy("full_name", "acme/widgets")!;
+      gh.collaborators.insert({
+        repo_id: repo.id,
+        user_id: gh.users.findOneBy("login", "writer")!.id,
+        permission: "push",
+      });
+      for (const login of tokens) {
+        const user = gh.users.findOneBy("login", login)!;
+        server.tokenMap.set(`${login}-token`, { login, id: user.id, scopes: ["repo"] });
+      }
+      const main = await send("GET", `${ORG_REPO}/git/ref/heads/main`, undefined, "owner-token");
+      await send(
+        "POST",
+        `${ORG_REPO}/git/refs`,
+        { ref: "refs/heads/feature", sha: main.body.object.sha },
+        "owner-token",
+      );
+      await send(
+        "PUT",
+        `${ORG_REPO}/contents/feature.txt`,
+        { message: "f", content: "Zg==", branch: "feature" },
+        "owner-token",
+      );
+      await send("POST", `${ORG_REPO}/labels`, { name: "bug", color: "d73a4a" }, "owner-token");
+      const pr = await send(
+        "POST",
+        `${ORG_REPO}/pulls`,
+        { title: "feature", head: "feature", base: "main" },
+        "owner-token",
+      );
+      const issue = await send("POST", `${ORG_REPO}/issues`, { title: "owner issue" }, "owner-token");
+      return { pr: pr.body as { number: number; node_id: string }, issue: issue.body as { number: number } };
+    }
+
+    const mergeMutation = `mutation($id: ID!) { mergePullRequest(input: { pullRequestId: $id }) { pullRequest { state } } }`;
+
+    it("gives members with the default read base permission only read access", async () => {
+      const { pr, issue } = await seedOrg("read");
+      const notFound = { status: 404, body: { message: "Not Found" } };
+      const denied = { status: 403, body: { message: "Must have admin rights to Repository." } };
+
+      expect(await send("PATCH", `${ORG_REPO}/pulls/${pr.number}`, { state: "closed" }, "member-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("PUT", `${ORG_REPO}/pulls/${pr.number}/merge`, {}, "member-token")).toMatchObject(notFound);
+      expect(
+        await send("POST", `${ORG_REPO}/issues/${issue.number}/labels`, { labels: ["bug"] }, "member-token"),
+      ).toMatchObject(denied);
+      expect(
+        await send("PATCH", `${ORG_REPO}/issues/${issue.number}`, { state: "closed" }, "member-token"),
+      ).toMatchObject(denied);
+      const close = await graphql(
+        `
+          mutation ($id: ID!) {
+            closePullRequest(input: { pullRequestId: $id }) {
+              clientMutationId
+            }
+          }
+        `,
+        { id: pr.node_id },
+        "member-token",
+      );
+      expect(close.errors?.[0]).toMatchObject({
+        type: "FORBIDDEN",
+        message: "member does not have the correct permissions to execute `ClosePullRequest`",
+      });
+      const viewer = await graphql(
+        `
+          {
+            repository(owner: "acme", name: "widgets") {
+              viewerPermission
+            }
+          }
+        `,
+        {},
+        "member-token",
+      );
+      expect(viewer.data.repository.viewerPermission).toBe("READ");
+      expect(gh.pullRequests.findOneBy("node_id", pr.node_id)!.state).toBe("open");
+    });
+
+    it("lets org owners, write collaborators, and push teams triage and merge", async () => {
+      const { pr, issue } = await seedOrg("read");
+      expect(
+        await send("POST", `${ORG_REPO}/issues/${issue.number}/labels`, { labels: ["bug"] }, "teammate-token"),
+      ).toMatchObject({ status: 200 });
+      expect(
+        await send("PATCH", `${ORG_REPO}/issues/${issue.number}`, { state: "closed" }, "writer-token"),
+      ).toMatchObject({ status: 200 });
+      const owner = await graphql(
+        `
+          {
+            repository(owner: "acme", name: "widgets") {
+              viewerPermission
+            }
+          }
+        `,
+        {},
+        "owner-token",
+      );
+      expect(owner.data.repository.viewerPermission).toBe("ADMIN");
+      const merged = await graphql(mergeMutation, { id: pr.node_id }, "teammate-token");
+      expect(merged.errors).toBeUndefined();
+      expect(merged.data.mergePullRequest.pullRequest.state).toBe("MERGED");
+    });
+
+    it("gives every member write access when the base permission is write", async () => {
+      const { pr } = await seedOrg("write");
+      const viewer = await graphql(
+        `
+          {
+            repository(owner: "acme", name: "widgets") {
+              viewerPermission
+            }
+          }
+        `,
+        {},
+        "member-token",
+      );
+      expect(viewer.data.repository.viewerPermission).toBe("WRITE");
+      expect(await send("PUT", `${ORG_REPO}/pulls/${pr.number}/merge`, {}, "member-token")).toMatchObject({
+        status: 200,
+      });
+    });
+  });
 });

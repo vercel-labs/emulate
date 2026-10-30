@@ -152,39 +152,56 @@ export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
   };
 }
 
-function permissionsFromLevel(level: string) {
-  const levels = ["pull", "triage", "push", "maintain", "admin"];
-  const idx = levels.indexOf(level);
-  return {
-    admin: idx >= 4,
-    maintain: idx >= 3,
-    push: idx >= 2,
-    triage: idx >= 1,
-    pull: idx >= 0,
-  };
+const PERMISSION_LEVELS = ["pull", "triage", "push", "maintain", "admin"] as const;
+export type RepoPermissionLevel = (typeof PERMISSION_LEVELS)[number];
+
+function permissionRank(permission: string): number {
+  if (permission === "read") return 0;
+  if (permission === "write") return 2;
+  return PERMISSION_LEVELS.indexOf(permission as RepoPermissionLevel);
+}
+
+/**
+ * The highest role a user holds on a repository: owner, organization owner, the organization's base
+ * permission for members, team grants on the repository, and a direct collaborator role.
+ */
+export function repoPermissionLevel(store: GitHubStore, repo: GitHubRepo, userId: number): RepoPermissionLevel | null {
+  if (repo.owner_type === "User") {
+    if (repo.owner_id === userId) return "admin";
+  } else {
+    const memberships = store.teamMembers.findBy("user_id", userId).flatMap((membership) => {
+      const team = store.teams.get(membership.team_id);
+      return team?.org_id === repo.owner_id ? [{ team, membership }] : [];
+    });
+    if (memberships.some(({ team, membership }) => team.slug === "members" && membership.role === "maintainer")) {
+      return "admin";
+    }
+    let rank = -1;
+    if (memberships.length)
+      rank = permissionRank(store.orgs.get(repo.owner_id)?.default_repository_permission ?? "read");
+    for (const { team } of memberships) {
+      if (store.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id)) {
+        rank = Math.max(rank, permissionRank(team.permission));
+      }
+    }
+    const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === userId);
+    if (collab) rank = Math.max(rank, permissionRank(collab.permission));
+    return rank >= 0 ? PERMISSION_LEVELS[rank]! : null;
+  }
+  const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === userId);
+  return collab ? collab.permission : null;
 }
 
 function computeRepoPermissions(store: GitHubStore, repo: GitHubRepo, authUserId: number) {
-  if (repo.owner_type === "User" && repo.owner_id === authUserId) {
-    return { admin: true, maintain: true, push: true, triage: true, pull: true };
-  }
-  if (repo.owner_type === "Organization") {
-    for (const team of store.teams.all()) {
-      if (team.org_id !== repo.owner_id) continue;
-      const member = store.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === authUserId);
-      if (member) {
-        return { admin: true, maintain: true, push: true, triage: true, pull: true };
-      }
-    }
-  }
-  const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === authUserId);
-  if (collab) {
-    return permissionsFromLevel(collab.permission);
-  }
-  if (!repo.private) {
-    return { admin: false, maintain: false, push: false, triage: false, pull: true };
-  }
-  return { admin: false, maintain: false, push: false, triage: false, pull: false };
+  const level = repoPermissionLevel(store, repo, authUserId);
+  const rank = level ? permissionRank(level) : repo.private ? -1 : 0;
+  return {
+    admin: rank >= 4,
+    maintain: rank >= 3,
+    push: rank >= 2,
+    triage: rank >= 1,
+    pull: rank >= 0,
+  };
 }
 
 export function computeAuthorAssociation(store: GitHubStore, userId: number, repoId: number): string {

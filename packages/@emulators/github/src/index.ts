@@ -23,7 +23,7 @@ import { labelsAndMilestonesRoutes } from "./routes/labels.js";
 import { branchesAndGitRoutes } from "./routes/branches.js";
 import { contentsRoutes } from "./routes/contents.js";
 import { commitsRoutes } from "./routes/commits.js";
-import { getOrCreateMembersTeam, orgsAndTeamsRoutes } from "./routes/orgs.js";
+import { getOrCreateMembersTeam, getOrCreateTeam, orgsAndTeamsRoutes } from "./routes/orgs.js";
 import { releasesRoutes } from "./routes/releases.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { searchRoutes } from "./routes/search.js";
@@ -59,9 +59,17 @@ export interface GitHubSeedConfig {
     name?: string;
     description?: string;
     email?: string;
+    /** Role every member gets on the organization's repositories. GitHub's default is `read`. */
+    default_repository_permission?: "read" | "write" | "admin" | "none";
     members?: Array<{
       login: string;
       role?: "member" | "admin";
+    }>;
+    teams?: Array<{
+      name: string;
+      permission?: "pull" | "triage" | "push" | "maintain" | "admin";
+      members?: string[];
+      repos?: string[];
     }>;
   }>;
   tokens?: Record<string, { login: string; scopes?: string[] }>;
@@ -347,7 +355,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         followers: 0,
         following: 0,
         members_can_create_repositories: true,
-        default_repository_permission: "read",
+        default_repository_permission: o.default_repository_permission ?? "read",
         billing_email: null,
       });
       gh.orgs.update(org.id, { node_id: generateNodeId("Org", org.id) });
@@ -483,6 +491,30 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           gh.orgs.update(org.id, { public_repos: org.public_repos + 1 });
         }
       }
+    }
+  }
+
+  for (const orgConfig of config.orgs ?? []) {
+    const org = gh.orgs.findOneBy("login", orgConfig.login);
+    if (!org) continue;
+    for (const teamConfig of orgConfig.teams ?? []) {
+      const team = getOrCreateTeam(gh, org, teamConfig.name, teamConfig.permission ?? "pull");
+      for (const login of teamConfig.members ?? []) {
+        const user = gh.users.findOneBy("login", login);
+        if (user && !gh.teamMembers.findBy("team_id", team.id).some((m) => m.user_id === user.id)) {
+          gh.teamMembers.insert({ team_id: team.id, user_id: user.id, role: "member" });
+        }
+      }
+      for (const name of teamConfig.repos ?? []) {
+        const repo = gh.repos.findOneBy("full_name", `${org.login}/${name}`);
+        if (repo && !gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id)) {
+          gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id });
+        }
+      }
+      gh.teams.update(team.id, {
+        members_count: gh.teamMembers.findBy("team_id", team.id).length,
+        repos_count: gh.teamRepos.findBy("team_id", team.id).length,
+      });
     }
   }
 
