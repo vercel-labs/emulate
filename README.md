@@ -977,6 +977,21 @@ Checks created with installation tokens include their GitHub App in API response
 
 The schema is a subset of GitHub's public schema, so field names, arguments, and nullability match the real API. GraphQL and REST share one store: a pull request created through one API is visible through the other, and mutations fire the same webhooks as the matching REST calls.
 
+`gh` uses plain HTTP only for the host `github.localhost`. Advertise that host and route `gh` to the emulator with `HTTP_PROXY`:
+
+```bash
+npx emulate start --service github --port 4001 --base-url http://github.localhost
+export GH_HOST=github.localhost GH_TOKEN=test_token_admin HTTP_PROXY=http://127.0.0.1:4001
+gh pr create --repo admin/demo --head feature --title "Add feature" --body "Details"
+```
+
+`gh` reaches the emulator over HTTPS when it sits behind [portless](https://portless.sh), which also serves the GitHub Enterprise Server paths (`/api/graphql`, `/api/v3`). `gh` treats such a host as GitHub Enterprise and reads the token from `GH_ENTERPRISE_TOKEN`; with `GH_TOKEN` alone it gets a 401:
+
+```bash
+portless alias github-emulator 4001
+GH_HOST=github-emulator.localhost GH_ENTERPRISE_TOKEN=test_token_admin gh pr list --repo admin/demo
+```
+
 ### Misc
 - `GET /rate_limit` - rate limit status
 - `GET /meta` - server metadata

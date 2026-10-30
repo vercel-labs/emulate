@@ -236,10 +236,11 @@ gh api repos/admin/demo/git/refs -f ref=refs/heads/feature \
 gh api -X PUT repos/admin/demo/contents/feature.txt -f message="Add feature" -f branch=feature \
   -f content="$(printf 'hello\n' | base64)"
 gh pr create --repo admin/demo --head feature --title "Add feature" --body "Details"
+gh pr edit 1 --repo admin/demo --title "Add feature (edited)" --add-assignee @me
 gh pr merge 1 --repo admin/demo --squash --delete-branch
 ```
 
-To use HTTPS and the GitHub Enterprise Server paths instead, put the emulator behind [portless](https://portless.sh) and set `GH_ENTERPRISE_TOKEN`:
+To use HTTPS and the GitHub Enterprise Server paths instead, put the emulator behind [portless](https://portless.sh). `gh` treats that host as GitHub Enterprise and reads the token from `GH_ENTERPRISE_TOKEN`; with `GH_TOKEN` alone it gets a 401:
 
 ```bash
 portless alias github-emulator 4001
