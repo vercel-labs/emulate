@@ -1101,7 +1101,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
       const assignees = input.assigneeIds && assigneesByNodeId(ctx, input.assigneeIds);
       const milestone = input.milestoneId ? milestoneInRepo(ctx, repo, input.milestoneId) : null;
       const setsMilestone = input.milestoneId !== undefined;
-      if (assignees || setsMilestone) assertCanTriage(ctx, repo);
+      if (labels || assignees || setsMilestone) assertCanTriage(ctx, repo);
       if (Object.keys(patch).length) await ctx.rest("PATCH", `${restRepoPath(repo)}/pulls/${pr.number}`, patch);
       if (labels) await replaceLabels(ctx, repo, pr.number, labels);
       if (assignees) setPullAssignees(ctx, pr, repo, assignees);
@@ -1229,6 +1229,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
     addLabelsToLabelable: async ({ input }: Args) => {
       const target = requireLabelable(ctx, input.labelableId);
       const names = idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, target.repo, id).name);
+      assertCanTriage(ctx, target.repo);
       await ctx.rest("POST", `${restRepoPath(target.repo)}/issues/${target.number}/labels`, { labels: names });
       return payload(input, { labelable: target.view });
     },
@@ -1236,6 +1237,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
     removeLabelsFromLabelable: async ({ input }: Args) => {
       const target = requireLabelable(ctx, input.labelableId);
       const labels = idsOfType(input.labelIds, "Label").map((id) => labelInRepo(ctx, target.repo, id));
+      assertCanTriage(ctx, target.repo);
       for (const label of labels) {
         await ctx.rest(
           "DELETE",

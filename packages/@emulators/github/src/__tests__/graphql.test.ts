@@ -689,9 +689,18 @@ describe("GitHub GraphQL API", () => {
       ).catch((e) => e);
       expect(assignError.errors[0]).toMatchObject({ type: "FORBIDDEN" });
 
+      const label = await rest("POST", "/repos/octocat/hello-world/labels", { name: "bug", color: "d73a4a" });
+      const labelError = await gql(
+        `mutation($input: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $input) { clientMutationId } }`,
+        { input: { labelableId: pr.id, labelIds: [label.body.node_id] } },
+        "outsider-token",
+      ).catch((e) => e);
+      expect(labelError.errors[0]).toMatchObject({ type: "FORBIDDEN" });
+
       const stored = gh.pullRequests.findOneBy("node_id", pr.id)!;
       expect(stored.milestone_id).toBeNull();
       expect(stored.assignee_ids).toEqual([]);
+      expect(stored.label_ids).toEqual([]);
     });
 
     it("refuses milestones, labels, and assignees from another repository", async () => {
