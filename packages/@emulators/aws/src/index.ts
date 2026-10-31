@@ -6,6 +6,13 @@ import { s3Routes } from "./routes/s3.js";
 import { sqsRoutes } from "./routes/sqs.js";
 import { iamRoutes } from "./routes/iam.js";
 import { inspectorRoutes } from "./routes/inspector.js";
+import { cognitoIdpRoutes } from "./routes/cognito-idp.js";
+import { cognitoIdentityRoutes } from "./routes/cognito-identity.js";
+import { cognitoOAuthRoutes } from "./routes/cognito-oauth.js";
+import { seedCognito, seedCognitoDefaults, type CognitoSeedConfig } from "./cognito/seed.js";
+
+export { getCognitoStore } from "./cognito/store.js";
+export type { CognitoSeedConfig } from "./cognito/seed.js";
 
 export { getAwsStore, type AwsStore } from "./store.js";
 export * from "./entities.js";
@@ -14,6 +21,7 @@ export interface AwsSeedConfig {
   port?: number;
   region?: string;
   account_id?: string;
+  cognito?: CognitoSeedConfig;
   s3?: {
     buckets?: Array<{
       name: string;
@@ -46,6 +54,8 @@ function seedDefaults(store: Store, baseUrl: string): void {
   const aws = getAwsStore(store);
   const accountId = getAccountId();
   const region = getDefaultRegion();
+
+  seedCognitoDefaults(store);
 
   // Create a default S3 bucket
   aws.s3Buckets.insert({
@@ -91,6 +101,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: AwsSeedCon
   const aws = getAwsStore(store);
   const accountId = getAccountId();
   const region = config.region ?? getDefaultRegion();
+  if (config.cognito) seedCognito(store, config.cognito);
 
   if (config.s3?.buckets) {
     for (const b of config.s3.buckets) {
@@ -181,6 +192,9 @@ export const awsPlugin: ServicePlugin = {
     // Register inspector and service-specific routes first (static paths),
     // then S3 last since its routes use wildcard path params (/:bucket, /:bucket/:key)
     inspectorRoutes(ctx);
+    cognitoIdpRoutes(ctx);
+    cognitoIdentityRoutes(ctx);
+    cognitoOAuthRoutes(ctx);
     sqsRoutes(ctx);
     iamRoutes(ctx);
     s3Routes(ctx);

@@ -1,6 +1,151 @@
 # Changelog
 
+## 0.13.0
+
 <!-- release:start -->
+
+### New Features
+
+- Added **local MCP server** with `npx emulate mcp` so agents can list services, create configurations, and start or stop emulators through shared CLI tools (#331)
+
+### Improvements
+
+- Centralized **CLI commands and startup lifecycle** to keep options, startup readiness, and shutdown behavior consistent across CLI and MCP entry points (#332)
+
+### Contributors
+
+- @lahfir
+
+<!-- release:end -->
+
+## 0.12.3
+
+### New Features
+
+- Added **AWS Cognito** User Pools, signed tokens, local OAuth flows, and Identity Pool credentials with SDK coverage
+- Added **Slack interactivity** with signed button and modal callbacks, response URLs, and modal acknowledgements
+- Added **Slack lifecycle and event simulation** for app uninstall, event retries, Slack Connect fixtures, channel privacy changes, and app-mention callbacks (#307)
+- Added **Resend recipient restrictions** with persisted send attempts while preserving idempotency and batch behavior
+
+### Improvements
+
+- Added **Google OAuth credential validation** with opt-in token and scope checks that preserve permissive defaults
+- Added **SQS JSON protocol** support for current AWS SDK clients (#305)
+- Improved **Slack event payloads** with routing fields, bot identity, and bot departure events
+- Added **GitHub check-run pagination** (#308)
+
+### Bug Fixes
+
+- Fixed **GitHub check App identity** preservation (#306)
+- Fixed **Vercel Blob direct HTTP behavior** for uploads, listings, deletes, and multipart requests (#304)
+- Protected **Resend authentication cookies** in the magic-link example and documented authentication rate limiting (#303)
+
+### Contributors
+
+- @ctate
+- @scotttrinh
+- @ikatkov
+- @marcusschiesser
+- @aneiasovbb
+
+## 0.12.2
+
+### Improvements
+
+- **Vercel Blob route organization** splits uploads, listings, deletes, content delivery, and shared helpers into focused modules while preserving existing behavior (#299)
+
+### Testing
+
+- Expanded **Vercel Blob coverage** for multipart uploads, browser tokens, private stores, content delivery, authentication, and legacy compatibility, with expected failures documenting unsupported behavior (#278)
+
+### Contributors
+
+- @scotttrinh
+
+## 0.12.1
+
+### Bug Fixes
+
+- Fixed **emulator network exposure** by binding built-in and custom HTTP listeners to IPv4 loopback (`127.0.0.1`) by default. Container and remote workflows can opt into network access with `--host 0.0.0.0` or `hostname: '0.0.0.0'` (#276)
+
+## 0.12.0
+
+### New Features
+
+- **Custom stateful HTTP APIs** let projects define typed emulators with seeds, reset, snapshots, and optional persistence, then reuse the same definitions in tests and Next.js or Nuxt adapters (#268)
+- **Custom API development workflow** adds `npx emulate init --custom inventory`, TypeScript and JavaScript configuration, watch mode, and request, route, and state inspection alongside built-in services (#268)
+
+### Improvements
+
+- **Slack event signatures** use the configured `slack.signing_secret` to send Slack-compatible timestamp and signature headers (#266)
+- **Slack event envelopes** include the installation team, unique event ID, and event timestamp for routing and deduplication (#267)
+
+### Contributors
+
+- @ctate
+- @K-Mistele
+- @Railly
+
+## 0.11.2
+
+### New Features
+
+- **GitHub raw media negotiation** adds Accept-based binary responses for Contents and README endpoints (#237)
+- **Google Calendar discovery** adds an unauthenticated Calendar v3 discovery document for local clients (#238)
+- **GitHub organization membership seeding** adds `orgs[].members` configuration with member and admin roles (#240)
+- **Resend idempotency keys** make email and batch sends replayable without duplicate records or webhooks (#239)
+
+### Improvements
+
+- **Slack message limits** enforce Slack's 40,000-character limit with safe truncation and warning metadata (#244)
+- **Google OIDC verification** issues RS256-signed ID tokens and exposes the matching JWKS endpoint (#247)
+- **Configuration examples and service docs** now reflect the current emulator registry and CLI options (#248)
+
+### Bug Fixes
+
+- Fixed **GitHub Checks** list endpoints for slash-containing branch and tag refs (#246)
+- Fixed **GitHub App installation writes** to authenticate as the App bot for organization installations (#242)
+- Fixed **AWS S3** uploads, copies, and downloads to preserve arbitrary binary payloads (#241, #245)
+- Fixed **Microsoft refresh tokens** to remain bound to the OAuth client that issued them (#243)
+
+## 0.11.1
+
+### Improvements
+
+- **Vercel v7 deployment listing** adds authenticated `GET /v7/deployments` with commit-SHA filtering across projects, team scoping, and pagination (#234)
+
+## 0.11.0
+
+### New Features
+
+- **Persistent adapter runtime** shares state handling across the Next.js and Nuxt adapters, including atomic initialization and generated GitHub App key persistence across cold starts
+- **Linear issue priority labels** expose the derived `priorityLabel` alongside numeric issue priority in queries and mutations
+- **GitHub installation-token inspection** exposes secret-free metadata for minted App installation tokens, including permissions, repository access, expiry, and lifecycle status
+
+### Contributors
+
+- @ctate
+- @Railly
+
+## 0.10.0
+
+### New Features
+
+- **Expanded GitHub repository APIs** add stateful contents, README, commits, comparisons, raw file downloads, Git Data shapes, branch isolation, and commit-producing file writes (#191)
+- **Generated GitHub App keys** let `createEmulator` generate RSA private keys for GitHub Apps that omit `private_key`, expose generated material through `generatedSecrets`, and preserve it across resets (#200)
+
+### Bug Fixes
+
+- Fixed **Stripe webhook signatures** to send Stripe-compatible `Stripe-Signature` headers over the raw request body (#198)
+- Fixed **GitHub App JWT verification** for documented PKCS#1 keys and PKCS#8 keys by deriving public key material before verification (#199)
+
+### Contributors
+
+- @ctate
+- @EfeDurmaz16
+- @Railly
+- @sidpalas
+
 ## 0.9.0
 
 ### New Features
@@ -15,8 +160,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.8.0
 

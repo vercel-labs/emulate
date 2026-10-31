@@ -1,3 +1,9 @@
+/*!
+ * This HTTP compatibility layer builds on Hono's API and design.
+ * https://github.com/honojs/hono
+ * Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
+ * MIT license: see THIRD_PARTY_NOTICES.md in the repository and npm packages.
+ */
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 type BodyInit = ConstructorParameters<typeof Response>[0];
@@ -21,6 +27,18 @@ export type MiddlewareHandler<E = unknown> = Handler<E>;
 export type ErrorHandler<E = unknown> = (err: unknown, c: Context<E>) => Response | Promise<Response>;
 export type FetchHandler = (request: Request) => Response | Promise<Response>;
 
+export interface HttpOptions {
+  strictRoutes?: boolean;
+  strictJson?: boolean;
+  onError?: (error: unknown, request: Request) => void;
+}
+
+export interface RouteInfo {
+  method: string;
+  path: string;
+  source?: string;
+}
+
 interface CompiledPath {
   pattern: string;
   regex: RegExp;
@@ -31,6 +49,7 @@ interface Route<E> {
   method: string;
   compiled: CompiledPath;
   handlers: Handler<E>[];
+  source?: string;
 }
 
 interface MatchedHandler<E> {
@@ -41,6 +60,7 @@ interface MatchedHandler<E> {
 export interface ServeOptions {
   fetch: FetchHandler;
   port?: number;
+  /** Listening address. Defaults to IPv4 loopback (127.0.0.1). */
   hostname?: string;
 }
 
@@ -61,6 +81,7 @@ export class HonoRequest<P extends string = string> {
   constructor(
     request: Request,
     private readonly params: Record<string, string>,
+    private readonly strictJson = false,
   ) {
     this.raw = request;
     this.url = request.url;
@@ -95,8 +116,13 @@ export class HonoRequest<P extends string = string> {
     return this.params[name] ?? "";
   }
 
-  json<T = any>(): Promise<T> {
-    return this.raw.json() as Promise<T>;
+  async json<T = any>(): Promise<T> {
+    try {
+      return (await this.raw.json()) as T;
+    } catch (error) {
+      if (!this.strictJson) throw error;
+      throw Object.assign(new Error("Invalid JSON request body", { cause: error }), { status: 400 });
+    }
   }
 
   text(): Promise<string> {
@@ -121,7 +147,7 @@ export class HonoRequest<P extends string = string> {
       return out;
     }
     if (contentType.includes("application/json")) {
-      const body = await this.raw.json().catch(() => ({}));
+      const body = this.strictJson ? await this.json() : await this.raw.json().catch(() => ({}));
       return body && typeof body === "object" && !Array.isArray(body)
         ? (body as Record<string, FormDataEntryValue | FormDataEntryValue[]>)
         : {};
@@ -134,14 +160,17 @@ export class Context<E = unknown, P extends string = string> {
   readonly req: HonoRequest<P>;
   private readonly vars = new Map<string, unknown>();
   private readonly responseHeaders = new Headers();
+  private readonly headerOperations: Array<{ name: string; value: string; append: boolean }> = [];
+  private readonly appliedHeaders = new WeakMap<Response, number>();
   private responseStatus = 200;
 
   constructor(
     request: Request,
     params: Record<string, string>,
     private readonly notFoundHandler: (c: Context<E>) => Response | Promise<Response>,
+    strictJson = false,
   ) {
-    this.req = new HonoRequest<P>(request, params);
+    this.req = new HonoRequest<P>(request, params, strictJson);
   }
 
   get<K extends keyof VariablesOf<E> & string>(key: K): VariablesOf<E>[K] | undefined {
@@ -152,8 +181,10 @@ export class Context<E = unknown, P extends string = string> {
     this.vars.set(key, value);
   }
 
-  header(name: string, value: string): void {
-    this.responseHeaders.set(name, value);
+  header(name: string, value: string, options?: { append?: boolean }): void {
+    if (options?.append) this.responseHeaders.append(name, value);
+    else this.responseHeaders.set(name, value);
+    this.headerOperations.push({ name, value, append: options?.append === true });
   }
 
   status(status: number): void {
@@ -185,11 +216,10 @@ export class Context<E = unknown, P extends string = string> {
   }
 
   finalize(response: Response): Response {
-    if (!hasHeaders(this.responseHeaders)) return response;
+    const applied = this.appliedHeaders.get(response) ?? 0;
+    if (applied === this.headerOperations.length) return response;
     const headers = new Headers(response.headers);
-    this.responseHeaders.forEach((value, key) => {
-      headers.set(key, value);
-    });
+    mergeHeaders(headers, this.headerOperations.slice(applied));
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -199,17 +229,36 @@ export class Context<E = unknown, P extends string = string> {
 
   private response(body: BodyInit | null, status?: ContentfulStatusCode, headers?: HeadersInit): Response {
     const merged = new Headers(headers);
-    this.responseHeaders.forEach((value, key) => {
-      merged.set(key, value);
-    });
-    return new Response(body, {
+    mergeHeaders(merged, this.headerOperations);
+    const response = new Response(body, {
       status: status ?? this.responseStatus,
       headers: merged,
     });
+    this.appliedHeaders.set(response, this.headerOperations.length);
+    return response;
+  }
+}
+
+function mergeHeaders(target: Headers, operations: Array<{ name: string; value: string; append: boolean }>): void {
+  for (const { name, value, append } of operations) {
+    if (append) target.append(name, value);
+    else target.set(name, value);
   }
 }
 
 export class Hono<E = unknown> {
+  constructor(private readonly options: HttpOptions = {}) {}
+
+  get routeTable(): RouteInfo[] {
+    return this.routes.map((r) => ({ method: r.method, path: r.compiled.pattern, source: r.source }));
+  }
+
+  matchedRoute(method: string, path: string): RouteInfo | undefined {
+    const route =
+      this.routes.find((r) => r.method === method && matchPath(r.compiled, path)) ??
+      (method === "HEAD" ? this.routes.find((r) => r.method === "GET" && matchPath(r.compiled, path)) : undefined);
+    return route && { method: route.method, path: route.compiled.pattern, source: route.source };
+  }
   private readonly middleware: Route<E>[] = [];
   private readonly routes: Route<E>[] = [];
   private errorHandler: ErrorHandler<E> = (err) => {
@@ -231,7 +280,20 @@ export class Hono<E = unknown> {
   }
 
   on<P extends string = string>(method: string, path: string, ...handlers: Handler<E, P>[]): this {
-    this.routes.push({ method: method.toUpperCase(), compiled: compilePath(path), handlers: handlers as Handler<E>[] });
+    const compiled = compilePath(path);
+    const source = this.options.strictRoutes ? new Error().stack?.split("\n").slice(2).join("\n") : undefined;
+    if (this.options.strictRoutes) {
+      if (path === "/_emulate" || path.startsWith("/_emulate/"))
+        throw new Error(`Route ${method} ${path} uses the reserved /_emulate namespace`);
+      const existing = this.routes.find(
+        (r) => r.method === method.toUpperCase() && r.compiled.regex.source === compiled.regex.source,
+      );
+      if (existing)
+        throw new Error(
+          `Duplicate route ${method} ${path}\nFirst registration:${existing.source}\nSecond registration:${source}`,
+        );
+    }
+    this.routes.push({ method: method.toUpperCase(), compiled, handlers: handlers as Handler<E>[], source });
     return this;
   }
 
@@ -276,12 +338,13 @@ export class Hono<E = unknown> {
     const path = url.pathname;
     const method = request.method.toUpperCase();
     const matched = this.match(method, path);
-    const context = new Context<E>(request, matched.params, this.notFoundHandler);
+    const context = new Context<E>(request, matched.params, this.notFoundHandler, this.options.strictJson);
 
     try {
       const response = await this.dispatch(context, matched.handlers);
       return context.finalize(response ?? (await this.notFoundHandler(context)));
     } catch (err) {
+      this.options.onError?.(err, request);
       return context.finalize(await this.errorHandler(err, context));
     }
   };
@@ -379,7 +442,7 @@ export function serve(options: ServeOptions): Server {
       res.end(message);
     }
   });
-  server.listen(port, options.hostname);
+  server.listen(port, options.hostname ?? "127.0.0.1");
   return server;
 }
 
@@ -440,11 +503,6 @@ function decodePathParam(value: string): string {
 
 function escapeRegex(value: string): string {
   return value.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
-}
-
-function hasHeaders(headers: Headers): boolean {
-  for (const _ of headers) return true;
-  return false;
 }
 
 function defaultContentType(headers: HeadersInit | undefined, contentType: string): Headers {

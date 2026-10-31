@@ -10,6 +10,10 @@ Exception: End-user install instructions should use `npm` (e.g. `npx emulate`, `
 
 `emulate` is a zsh built-in command (it sets shell emulation mode). Running bare `emulate` in zsh invokes the shell built-in, not the npm binary. Always use `npx emulate` in user-facing CLI examples, docs, skills, help output, and post-command messages. The only exception is when `emulate` appears as a subprocess argument to another tool (e.g. `portless github.emulate emulate start`), where the binary is resolved by the parent process rather than the shell.
 
+## MCP Maintenance
+
+MCP tools and inputs must come from the shared CLI command and option definitions; protocol and behavioral regression tests gate changes to that mapping. MCP runs the CLI in child processes and returns their output. Keep startup readiness and cleanup working when changing long-running commands.
+
 ## Dependencies
 
 Always check for the latest npm version when adding dependencies. Use `pnpm add <package>` (without version) to get the latest, or verify with `npm view <package> version` first.
@@ -20,7 +24,7 @@ Do not use emojis anywhere in this repository (code, comments, output, docs).
 
 ## Dashes
 
-Never use `--` as a dash in prose, comments, or user-facing output. Use an em dash (\u2014) when a dash is needed, but prefer rephrasing to avoid dashes entirely. The only exception is CLI flags (e.g. `--port`).
+Never use `--` or em dashes as dashes in prose, comments, or user-facing output. Rephrase the sentence instead. The only exception is CLI flags (e.g. `--port`).
 
 ## Emulator UI Design System
 
@@ -46,7 +50,9 @@ When a change affects how humans or agents use emulate (new/changed/removed comm
 1. `README.md`
 2. `skills/*/SKILL.md` (agent skills for each service)
 3. `apps/web/` (docs site pages)
-4. CLI `--help` output in `packages/emulate/src/index.ts`
+4. CLI `--help` output in `packages/emulate/src/program.ts`
+
+Use the `technical-writer` skill (`.agents/skills/technical-writer/SKILL.md`) when you write or edit prose for this repo, including docs pages, READMEs, changelog entries, commit messages, PR descriptions, and issues.
 
 ## Releasing
 

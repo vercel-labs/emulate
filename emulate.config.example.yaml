@@ -1,10 +1,10 @@
 tokens:
-  gho_test_token_admin:
+  test_token_admin:
     login: admin
     scopes: [repo, user, admin:org, admin:repo_hook]
-  gho_test_token_octocat:
+  test_token_user1:
     login: octocat
-    scopes: [repo, user, read:user, "user:email", workflow]
+    scopes: [repo, user]
 
 github:
   users:
@@ -33,24 +33,6 @@ github:
       description: An organization repository
       language: TypeScript
       auto_init: true
-  apps:
-    - app_id: 12345
-      slug: my-github-app
-      name: My GitHub App
-      private_key: |
-        -----BEGIN RSA PRIVATE KEY-----
-        ...your PEM key...
-        -----END RSA PRIVATE KEY-----
-      permissions:
-        contents: read
-        issues: write
-      events: [push, pull_request, issues]
-      webhook_url: http://localhost:3000/webhooks/github
-      webhook_secret: my-webhook-secret
-      installations:
-        - installation_id: 100
-          account: octocat
-          repository_selection: all
   oauth_apps:
     - client_id: emu_github_client_id
       client_secret: emu_github_client_secret
@@ -128,3 +110,272 @@ google:
       mime_type: application/vnd.google-apps.folder
       parent_ids:
         - root
+
+slack:
+  team:
+    name: My Workspace
+    domain: my-workspace
+  users:
+    - name: developer
+      real_name: Developer
+      email: dev@example.com
+      profile:
+        title: Local Developer
+        status_text: Testing locally
+        status_emoji: ":computer:"
+      presence: active
+  channels:
+    - name: general
+      topic: General discussion
+    - name: random
+      topic: Random stuff
+  bots:
+    - name: my-bot
+  oauth_apps:
+    - client_id: "12345.67890"
+      client_secret: example_client_secret
+      app_id: A000000001
+      name: My Slack App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/slack
+      scopes:
+        - chat:write
+        - channels:read
+        - channels:history
+        - channels:join
+        - channels:manage
+        - channels:write
+        - groups:read
+        - groups:history
+        - groups:write
+        - im:read
+        - im:history
+        - im:write
+        - mpim:read
+        - mpim:history
+        - mpim:write
+        - users:read
+        - users:read.email
+        - users.profile:read
+        - users.profile:write
+        - users:write
+        - files:read
+        - files:write
+        - pins:read
+        - pins:write
+        - bookmarks:read
+        - bookmarks:write
+        - reactions:read
+        - reactions:write
+        - team:read
+      user_scopes:
+        - users:read
+        - users.profile:read
+      bot_name: my-bot
+  strict_scopes: false
+
+apple:
+  users:
+    - email: testuser@icloud.com
+      name: Test User
+  oauth_clients:
+    - client_id: com.example.app
+      team_id: TEAM001
+      name: My Apple App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/apple
+
+microsoft:
+  users:
+    - email: testuser@outlook.com
+      name: Test User
+  oauth_clients:
+    - client_id: example-client-id
+      client_secret: example-client-secret
+      name: My Microsoft App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/microsoft-entra-id
+
+okta:
+  users:
+    - login: testuser@okta.local
+      email: testuser@okta.local
+      first_name: Test
+      last_name: User
+  groups:
+    - name: Everyone
+      description: All users
+      type: BUILT_IN
+      okta_id: 00g_everyone
+  authorization_servers:
+    - id: default
+      name: default
+      audiences:
+        - api://default
+  oauth_clients:
+    - client_id: okta-test-client
+      client_secret: okta-test-secret
+      name: Sample OIDC Client
+      redirect_uris:
+        - http://localhost:3000/callback
+      auth_server_id: default
+
+aws:
+  region: us-east-1
+  s3:
+    buckets:
+      - name: my-app-bucket
+      - name: my-app-uploads
+  sqs:
+    queues:
+      - name: my-app-events
+      - name: my-app-dlq
+  iam:
+    users:
+      - user_name: developer
+        create_access_key: true
+    roles:
+      - role_name: lambda-execution-role
+        description: Role for Lambda function execution
+
+resend:
+  domains:
+    - name: example.com
+      region: us-east-1
+  contacts:
+    - email: test@example.com
+      first_name: Test
+      last_name: User
+
+stripe:
+  customers:
+    - email: test@example.com
+      name: Test Customer
+  products:
+    - name: Pro Plan
+      description: Monthly pro subscription
+  prices:
+    - product_name: Pro Plan
+      currency: usd
+      unit_amount: 2000
+
+mongoatlas:
+  projects:
+    - name: Project0
+  clusters:
+    - name: Cluster0
+      project: Project0
+  database_users:
+    - username: admin
+      project: Project0
+  databases:
+    - cluster: Cluster0
+      name: test
+      collections:
+        - items
+
+clerk:
+  users:
+    - first_name: Test
+      last_name: User
+      email_addresses:
+        - test@example.com
+      password: clerk_test_password
+  organizations:
+    - name: My Company
+      slug: my-company
+      members:
+        - email: test@example.com
+          role: admin
+  oauth_applications:
+    - client_id: clerk_emulate_client
+      client_secret: clerk_emulate_secret
+      name: Emulate App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/clerk
+
+linear:
+  organization:
+    name: Acme
+    url_key: acme
+  users:
+    - email: admin@example.com
+      name: Admin User
+      admin: true
+    - email: dev@example.com
+      name: Developer
+  teams:
+    - key: ENG
+      name: Engineering
+      states:
+        - name: Backlog
+          type: backlog
+        - name: Todo
+          type: unstarted
+        - name: In Progress
+          type: started
+        - name: Done
+          type: completed
+  labels:
+    - name: Bug
+      color: "#d92d20"
+      team: ENG
+    - name: Feature
+      color: "#2563eb"
+      team: ENG
+  issues:
+    - team: ENG
+      title: Fix local checkout test
+      description: Reproduce and fix the checkout failure.
+      state: Todo
+      assignee: dev@example.com
+      labels:
+        - Bug
+  oauth_apps:
+    - client_id: lin_example_client_id
+      client_secret: example_client_secret
+      name: My Linear App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/linear
+      scopes:
+        - read
+        - write
+        - issues:create
+        - comments:create
+      actor: user
+  tokens:
+    - token: lin_test_admin
+      user: admin@example.com
+      scopes:
+        - read
+        - write
+        - issues:create
+        - comments:create
+        - admin
+  strict_scopes: false
+
+twilio:
+  account:
+    sid: AC00000000000000000000000000000000
+    auth_token: twilio_test_auth_token
+    friendly_name: Local Twilio Account
+  api_keys:
+    - sid: SK00000000000000000000000000000000
+      secret: twilio_test_api_secret
+      friendly_name: Local API Key
+  phone_numbers:
+    - phone_number: "+15551234567"
+      friendly_name: Local SMS and Voice Number
+      sms_url: http://localhost:3000/api/twilio/sms
+      voice_url: http://localhost:3000/api/twilio/voice
+  messaging_services:
+    - friendly_name: Local Messaging Service
+      phone_numbers:
+        - "+15551234567"
+  verify_services:
+    - friendly_name: Local Verify Service
+      code: "123456"
+      default_channel: sms
+  conversations:
+    services:
+      - friendly_name: Local Conversations

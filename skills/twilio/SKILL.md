@@ -10,6 +10,8 @@ Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, inco
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 npx emulate --service twilio
 ```
@@ -71,3 +73,7 @@ HTTP Basic auth accepts either:
 ## Current Limits
 
 No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, SendGrid, Studio, Flex, TaskRouter, Video, Sync, Segment, Conversations SDK websocket behavior, or complete TwiML interpreter behavior is implemented.
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "twilio" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

@@ -1,7 +1,7 @@
 ---
 name: next
 description: Next.js adapter for embedding emulators directly in a Next.js app via @emulators/adapter-next. Use when the user needs to embed emulators in Next.js, set up same-origin OAuth for Vercel preview deployments, create an emulate catch-all route handler, configure Auth.js/NextAuth with embedded emulators, add persistence to embedded emulators, or wrap next.config with withEmulate. Triggers include "Next.js emulator", "adapter-next", "embedded emulator", "same-origin OAuth", "Vercel preview", "createEmulateHandler", "withEmulate", or any task requiring emulators inside a Next.js app.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
+allowed-tools: Bash(npx emulate:*)
 ---
 
 # Next.js Integration
@@ -26,7 +26,7 @@ import { createEmulateHandler } from '@emulators/adapter-next'
 import * as github from '@emulators/github'
 import * as google from '@emulators/google'
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateHandler({
   services: {
     github: {
       emulator: github,
@@ -49,6 +49,8 @@ This creates the following routes:
 
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
+
+GitHub installation-token metadata is available server-side at `/emulate/github/_emulate/installation-tokens`.
 
 ## Auth.js / NextAuth Configuration
 
@@ -106,7 +108,7 @@ const kvAdapter = {
   async save(data: string) { await kv.set('emulate-state', data) },
 }
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateHandler({
   services: { github: { emulator: github } },
   persistence: kvAdapter,
 })
@@ -122,6 +124,8 @@ import { filePersistence } from '@emulators/core'
 // persists to a JSON file
 persistence: filePersistence('.emulate/state.json'),
 ```
+
+GitHub App seeds may omit `private_key`. Retain the handler and call server-only `generatedSecrets()`; explicit keys are excluded. Keep persisted snapshots private and implement `initialize` atomically.
 
 ### How Persistence Works
 
@@ -140,7 +144,7 @@ persistence: filePersistence('.emulate/state.json'),
 ## Limitations
 
 - Requires the Node.js runtime (not Edge) since emulators use `crypto.randomBytes`
-- Concurrent serverless instances writing to the same persistence adapter use last-write-wins semantics (acceptable for dev/preview traffic)
+- Concurrent mutations use last-write-wins semantics. Generated identities require `initialize` to select the initial snapshot atomically across cold starts.
 
 ## Config Reference
 
@@ -172,7 +176,12 @@ Wraps a Next.js config to include emulator font files in the serverless output t
 interface PersistenceAdapter {
   load(): Promise<string | null>
   save(data: string): Promise<void>
+  initialize?(data: string): Promise<string>
 }
 ```
 
-The built-in `filePersistence(path)` from `@emulators/core` provides a file-based adapter for local development.
+`initialize` must atomically create the initial value or return the value another instance created first. Implement it with compare-and-set semantics such as Redis `SET NX`. The built-in `filePersistence(path)` from `@emulators/core` provides this behavior for local development.
+
+## Custom emulators
+
+The adapter accepts definitions created with `defineEmulator` from `emulate` in `services[name].emulator`. Reuse the definition from CLI/tests; custom inspector is opt-in. Root-relative redirect locations stay under the service mount, while custom HTML bodies pass through unchanged. Await the returned handler's `close()` in test teardown. Install `emulate` as a runtime dependency for deployed definitions. See https://emulate.dev/docs/custom-emulators for seeds, snapshots, persistence, and lifecycle rules.

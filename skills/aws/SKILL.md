@@ -1,14 +1,16 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+description: Emulated AWS cloud services (S3, SQS, Cognito, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test Cognito sign-up, sign-in, JWTs, or Identity Pools, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
+S3, SQS, Cognito, IAM, and STS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query. All state is in-memory.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # AWS only
@@ -170,7 +172,16 @@ curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
 
 ### SQS
 
-All SQS operations use `POST /sqs/` with `Action` as a form-urlencoded parameter.
+Current AWS SDK clients use the `/sqs` endpoint shown above. SQS accepts AWS JSON 1.0 requests at `POST /sqs/` with `Content-Type: application/x-amz-json-1.0` and `X-Amz-Target: AmazonSQS.<Action>`, returning JSON results and errors. XML Query requests with an `Action` form parameter remain supported. Queue operations also accept the returned `QueueUrl` as the endpoint.
+
+```bash
+# List queues using AWS JSON 1.0
+curl -X POST http://localhost:4006/sqs/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/x-amz-json-1.0" \
+  -H "X-Amz-Target: AmazonSQS.ListQueues" \
+  -d '{}'
+```
 
 ```bash
 # Create queue
@@ -297,6 +308,56 @@ curl -X POST http://localhost:4006/iam/ \
   -d "Action=DeleteRole&RoleName=my-role"
 ```
 
+### Cognito
+
+Use `CognitoIdentityProviderClient` with endpoint `/cognito-idp` and `CognitoIdentityClient` with `/cognito-identity`. Both accept AWS JSON 1.1 and work with the official AWS SDK v3:
+
+```typescript
+import { CognitoIdentityProviderClient, InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
+
+const cognito = new CognitoIdentityProviderClient({
+  endpoint: "http://localhost:4007/cognito-idp",
+  region: "us-east-1",
+  credentials: { accessKeyId: "local-access-key", secretAccessKey: "local-secret" },
+});
+const result = await cognito.send(new InitiateAuthCommand({
+  ClientId: "emulateclient",
+  AuthFlow: "USER_PASSWORD_AUTH",
+  AuthParameters: { USERNAME: "developer", PASSWORD: "LocalPass123!" },
+}));
+```
+
+A default User Pool `us-east-1_emulate`, public app client `emulateclient`, and Identity Pool `us-east-1:00000000-0000-4000-8000-000000000001` are created without users. Seed a confirmed account for the example above:
+
+```yaml
+aws:
+  cognito:
+    user_pools:
+      - id: us-east-1_emulate
+        confirmation_code: "123456"
+        users:
+          - username: developer
+            password: LocalPass123!
+            attributes:
+              email: dev@example.com
+              email_verified: "true"
+              name: Developer
+```
+
+User pools also accept `name` and `clients` with `client_id`, optional `client_secret`, exact `redirect_uris`, and allowed `scopes`. Users accept `status` (`CONFIRMED`, `UNCONFIRMED`, or `FORCE_CHANGE_PASSWORD`) and `enabled`. Passwords require at least eight characters and are stored as salted hashes. Confidential clients require Cognito's HMAC `SecretHash` or `SECRET_HASH` for SDK flows.
+
+- `SignUp`, `ConfirmSignUp`, `ResendConfirmationCode`, `ForgotPassword`, and `ConfirmForgotPassword` model account confirmation and recovery. Codes expire after ten minutes and use the pool's `confirmation_code` fixture, default `123456`. No email or SMS is sent. Inspect active codes at `/_inspector?tab=cognito`; seeded unconfirmed users can request a code with `ResendConfirmationCode`.
+- `InitiateAuth` supports `USER_PASSWORD_AUTH`, `REFRESH_TOKEN_AUTH`, and `REFRESH_TOKEN`. `AdminInitiateAuth` also supports `ADMIN_USER_PASSWORD_AUTH`. Admin-created temporary passwords return `NEW_PASSWORD_REQUIRED`, completed with `RespondToAuthChallenge` or `AdminRespondToAuthChallenge`. Challenge sessions expire after three minutes and are bound to the user and client.
+- `GetUser`, `ChangePassword`, `GlobalSignOut`, and `RevokeToken` use issued tokens. `AdminCreateUser` (with `TemporaryPassword`), `AdminGetUser`, `AdminConfirmSignUp`, `AdminSetUserPassword`, `AdminEnableUser`, `AdminDisableUser`, `AdminDeleteUser`, and paginated `ListUsers` support test setup and administration.
+
+Tokens are RS256 JWTs with Cognito `token_use` claims. ID tokens identify the app client in `aud`; access tokens use `client_id`. ID and access tokens expire after one hour; refresh tokens after thirty days. Sign-out, revocation, disabling, deletion, and password resets invalidate affected sessions. Users, sessions, identities, and signing keys participate in snapshots, restore, and reset.
+
+The local issuer is `http://localhost:4007/cognito-idp/USER_POOL_ID`. Discovery and public keys are served at `ISSUER/.well-known/openid-configuration` and `ISSUER/.well-known/jwks.json`. Configure token verifiers with this local issuer and JWKS. `ISSUER/oauth2/authorize` presents a local user picker, `ISSUER/oauth2/token` exchanges authorization codes or refresh tokens, and `ISSUER/oauth2/userInfo` returns scoped profile claims. Authorization codes expire after five minutes, are single-use, and bind the client, exact redirect URI, and optional S256 PKCE challenge. Client authentication accepts `client_secret_basic` or `client_secret_post`. The default client permits `http://localhost:3000/callback`.
+
+Identity Pools support `GetId` and `GetCredentialsForIdentity`. Supply the ID token in `Logins` under `cognito-idp.REGION.amazonaws.com/USER_POOL_ID`. The default Identity Pool accepts the default User Pool and app client. Custom `aws.cognito.identity_pools` entries take `id`, optional `name`, `providers: [{ user_pool_id, client_id }]`, and `allow_unauthenticated_identities` (default `false`). Identities remain stable for the same authenticated subject. Credentials expire after one hour; login signatures, expiry, audience, and identity ownership are checked.
+
+SRP, MFA, external identity providers, Lambda triggers, pool/client management APIs, `ListUsers` filters, and Identity Pool role selection are not simulated. Administrative requests follow the AWS emulator's permissive credential behavior: SigV4 signatures and IAM policies are not evaluated. Identity Pool credentials are generated test credentials, without role or policy evaluation.
+
 ### STS
 
 All STS operations use `POST /sts/` with `Action` as a form-urlencoded parameter.
@@ -383,3 +444,7 @@ curl -X POST $BASE/iam/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=CreateAccessKey&UserName=ci-user"
 ```
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "aws" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

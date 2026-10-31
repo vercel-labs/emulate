@@ -11,6 +11,7 @@ export async function sendCodeAction(_prev: { error: string } | null, formData: 
 
   const code = generateCode();
   const expiresAt = Date.now() + 10 * 60 * 1000;
+  const pendingCookie = encodePendingSignIn({ email, code, expiresAt });
 
   const { error } = await resend.emails.send({
     from: "auth@example.com",
@@ -35,8 +36,10 @@ export async function sendCodeAction(_prev: { error: string } | null, formData: 
   if (error) return { error: error.message };
 
   const cookieStore = await cookies();
-  cookieStore.set("pending_signin", encodePendingSignIn({ email, code, expiresAt }), {
+  cookieStore.set("pending_signin", pendingCookie, {
     httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
     path: "/",
     maxAge: 600,
   });
@@ -57,6 +60,8 @@ export async function verifyCodeAction(_prev: { error: string } | null, formData
   cookieStore.delete("pending_signin");
   cookieStore.set("session", encodeSession({ email: pending.email, signedInAt: new Date().toISOString() }), {
     httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
     path: "/",
     maxAge: 86400,
   });

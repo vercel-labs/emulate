@@ -1,7 +1,7 @@
 ---
 name: google
 description: Emulated Google OAuth 2.0, OpenID Connect, Gmail, Calendar, and Drive for local development and testing. Use when the user needs to test Google sign-in locally, emulate OIDC discovery, handle Google token exchange, configure Google OAuth clients, work with Gmail messages/drafts/threads/labels, manage Calendar events, upload or list Drive files, or work with Google userinfo without hitting real Google APIs. Triggers include "Google OAuth", "emulate Google", "mock Google login", "test Google sign-in", "OIDC emulator", "Google OIDC", "Gmail API", "Google Calendar", "Google Drive", "local Google auth", or any task requiring a local Google API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Google OAuth 2.0 / OIDC + Gmail, Calendar & Drive Emulator
@@ -9,6 +9,8 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE support, ID tokens, OIDC discovery, refresh tokens, plus Gmail, Google Calendar, and Google Drive REST API surfaces.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # Google only
@@ -179,6 +181,8 @@ google:
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
 
+Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
+
 ### Hosted domain (hd) claim
 
 Google Workspace accounts include an `hd` claim in ID tokens and userinfo responses identifying the user's hosted domain. The emulator derives this automatically from the user's email domain. Consumer domains (`gmail.com`, `googlemail.com`) omit the claim, matching real Google behavior.
@@ -199,7 +203,7 @@ curl http://localhost:4002/.well-known/openid-configuration
 curl http://localhost:4002/oauth2/v3/certs
 ```
 
-Returns `{ "keys": [] }`. ID tokens are signed with HS256 using an internal secret.
+Returns the RSA public key used to verify the ID tokens issued by the emulator. Google ID tokens use RS256, and the discovery document advertises the same algorithm.
 
 ### Authorization
 
@@ -469,6 +473,14 @@ curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
 
 ## Google Calendar API
 
+### Discovery
+
+The Calendar discovery document is public and describes the Calendar v3 methods supported by the emulator:
+
+```bash
+curl http://localhost:4002/discovery/v1/apis/calendar/v3/rest
+```
+
 ### Calendar List
 
 ```bash
@@ -598,3 +610,7 @@ curl -X POST $BASE/gmail/v1/users/me/messages/send \
 curl "$BASE/gmail/v1/users/me/threads?labelIds=INBOX" \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "google" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.
