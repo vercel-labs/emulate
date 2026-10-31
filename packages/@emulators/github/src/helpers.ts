@@ -29,6 +29,7 @@ import type {
   GitHubApp,
 } from "./entities.js";
 import type { GitHubStore } from "./store.js";
+import type { WebhookDispatcher } from "@emulators/core";
 
 export function generateNodeId(type: string, id: number): string {
   return Buffer.from(`0:${type}${id}`).toString("base64").replace(/=+$/, "");
@@ -410,6 +411,85 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     timeline_url: `${repoUrl}/issues/${issue.number}/timeline`,
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
+  };
+}
+
+/** A change to an issue, or to a pull request through an issue route, fires the webhook GitHub sends for that kind. */
+export function dispatchIssueEvent(
+  store: GitHubStore,
+  webhooks: WebhookDispatcher,
+  baseUrl: string,
+  issue: GitHubIssue,
+  action: string,
+  payload: Record<string, unknown>,
+  owner: string,
+  repoName: string,
+) {
+  const pr = findPullForIssue(store, issue);
+  return pr
+    ? webhooks.dispatch(
+        "pull_request",
+        action,
+        { action, number: pr.number, pull_request: formatPullRequest(pr, store, baseUrl), ...payload },
+        owner,
+        repoName,
+      )
+    : webhooks.dispatch(
+        "issues",
+        action,
+        { action, issue: formatIssueOrPullRequest(issue, store, baseUrl), ...payload },
+        owner,
+        repoName,
+      );
+}
+
+/** Fields a pull request's own row owns; its issue row mirrors them. */
+export const PULL_REQUEST_FIELDS = [
+  "title",
+  "body",
+  "state",
+  "locked",
+  "assignee_ids",
+  "label_ids",
+  "milestone_id",
+  "comments",
+  "closed_at",
+] as const;
+
+function findPullForIssue(store: GitHubStore, issue: GitHubIssue) {
+  return issue.is_pull_request
+    ? store.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number)
+    : undefined;
+}
+
+/** A pull request's issue row with the current values from its pull request row. */
+export function issueView(store: GitHubStore, issue: GitHubIssue): GitHubIssue {
+  const pr = findPullForIssue(store, issue);
+  if (!pr) return issue;
+  const fields = Object.fromEntries(PULL_REQUEST_FIELDS.map((key) => [key, pr[key]]));
+  return { ...issue, ...fields, user_id: pr.user_id, created_at: pr.created_at, updated_at: pr.updated_at };
+}
+
+/** An issue, or a pull request in the issue shape with `draft` and `pull_request` links, as GitHub's issue routes return it. */
+export function formatIssueOrPullRequest(issue: GitHubIssue, store: GitHubStore, baseUrl: string) {
+  const pr = findPullForIssue(store, issue);
+  if (!pr) return issue.is_pull_request ? null : formatIssue(issue, store, baseUrl);
+  const repo = store.repos.get(issue.repo_id);
+  const formatted = repo && formatIssue(issueView(store, issue), store, baseUrl);
+  if (!repo || !formatted) return null;
+  const html = `${baseUrl}/${repo.full_name}/pull/${pr.number}`;
+  return {
+    ...formatted,
+    node_id: pr.node_id,
+    html_url: html,
+    draft: pr.draft,
+    pull_request: {
+      url: `${baseUrl}/repos/${repo.full_name}/pulls/${pr.number}`,
+      html_url: html,
+      diff_url: `${html}.diff`,
+      patch_url: `${html}.patch`,
+      merged_at: pr.merged_at,
+    },
   };
 }
 

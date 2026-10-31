@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createServer, type Hono } from "@emulators/core";
 import { githubPlugin, seedFromConfig, getGitHubStore } from "../index.js";
 
@@ -956,6 +956,54 @@ describe("GitHub GraphQL fidelity", () => {
       headers: { Authorization: "token not-a-seeded-token" },
     });
     expect(login.status).not.toBe(401);
+  });
+
+  it("serves and edits a pull request through the issue routes, as GitHub does", async () => {
+    const pr = await seedPr();
+    const issue = await send("GET", `${REPO}/issues/${pr.number}`);
+    expect(issue).toMatchObject({
+      status: 200,
+      body: {
+        number: pr.number,
+        node_id: pr.node_id,
+        html_url: `${base}/octocat/hello-world/pull/${pr.number}`,
+        draft: false,
+        pull_request: { url: `${base}${REPO}/pulls/${pr.number}`, merged_at: null },
+      },
+    });
+    const list = await send("GET", `${REPO}/issues?state=all`);
+    expect(list.body.map((i: { number: number }) => i.number)).toContain(pr.number);
+
+    const dispatch = vi.spyOn(server.webhooks, "dispatch");
+    expect(await send("PATCH", `${REPO}/issues/${pr.number}`, { title: "Renamed", state: "closed" })).toMatchObject({
+      status: 200,
+      body: { title: "Renamed", state: "closed", pull_request: expect.any(Object) },
+    });
+    expect(await send("GET", `${REPO}/pulls/${pr.number}`)).toMatchObject({
+      body: { title: "Renamed", state: "closed" },
+    });
+    expect(dispatch).toHaveBeenCalledWith(
+      "pull_request",
+      "closed",
+      expect.objectContaining({ number: pr.number, pull_request: expect.objectContaining({ state: "closed" }) }),
+      "octocat",
+      "hello-world",
+    );
+    expect(dispatch.mock.calls.some(([event]) => event === "issues")).toBe(false);
+
+    expect(await send("POST", `${REPO}/issues/${pr.number}/assignees`, { assignees: ["hubot"] })).toMatchObject({
+      status: 201,
+    });
+    expect(await send("PUT", `${REPO}/issues/${pr.number}/lock`, {})).toMatchObject({ status: 204 });
+    const pull = await send("GET", `${REPO}/pulls/${pr.number}`);
+    expect(pull.body).toMatchObject({ locked: true, assignees: [{ login: "hubot" }] });
+    expect(await send("DELETE", `${REPO}/issues/${pr.number}/lock`)).toMatchObject({ status: 204 });
+    expect(await send("GET", `${REPO}/issues/${pr.number}/events`)).toMatchObject({ status: 200 });
+    expect(await send("POST", `${REPO}/issues/${pr.number}/labels`, { labels: ["bug"] })).toMatchObject({
+      status: 200,
+    });
+    expect(dispatch).toHaveBeenCalledWith("pull_request", "labeled", expect.anything(), "octocat", "hello-world");
+    dispatch.mockRestore();
   });
 
   describe("organization repository roles", () => {

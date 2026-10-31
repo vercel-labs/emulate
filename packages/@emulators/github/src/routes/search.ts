@@ -11,7 +11,7 @@ import type {
   GitHubRepo,
   GitHubUser,
 } from "../entities.js";
-import { formatIssue, formatOrgBrief, formatRepo, formatUser, lookupRepo } from "../helpers.js";
+import { formatIssueOrPullRequest, formatOrgBrief, formatRepo, formatUser, lookupRepo } from "../helpers.js";
 import { canAccessRepo, canReadRepoContents, formatRepoForCaller } from "../route-helpers.js";
 import {
   commitIdentityMatches,
@@ -800,41 +800,10 @@ function loginMatchesCommitAuthor(
   return commitIdentityMatches(gh, email, login);
 }
 
+/** Search hits leave out `closed_by`, as GitHub's do. */
 function formatSearchIssue(issue: GitHubIssue, gh: GitHubStore, baseUrl: string) {
-  const { closed_by: _closedBy, ...item } = formatIssue(issue, gh, baseUrl)!;
+  const { closed_by: _closedBy, ...item } = formatIssueOrPullRequest(issue, gh, baseUrl)!;
   return item;
-}
-
-/** GitHub returns a pull request search hit in the issue shape, with `draft` and `pull_request` links. */
-function formatPullRequestAsIssue(gh: GitHubStore, issue: GitHubIssue, pr: GitHubPullRequest, baseUrl: string) {
-  const repo = gh.repos.get(pr.repo_id)!;
-  const fields = {
-    title: pr.title,
-    body: pr.body,
-    state: pr.state,
-    locked: pr.locked,
-    user_id: pr.user_id,
-    assignee_ids: pr.assignee_ids,
-    label_ids: pr.label_ids,
-    milestone_id: pr.milestone_id,
-    comments: pr.comments,
-    closed_at: pr.closed_at,
-    created_at: pr.created_at,
-    updated_at: pr.updated_at,
-  };
-  const html = `${baseUrl}/${repo.full_name}/pull/${pr.number}`;
-  return {
-    ...formatSearchIssue({ ...issue, ...fields }, gh, baseUrl),
-    html_url: html,
-    draft: pr.draft,
-    pull_request: {
-      url: `${baseUrl}/repos/${repo.full_name}/pulls/${pr.number}`,
-      html_url: html,
-      diff_url: `${html}.diff`,
-      patch_url: `${html}.patch`,
-      merged_at: pr.merged_at,
-    },
-  };
 }
 
 export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
@@ -958,8 +927,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const items = slice.map((h) => {
       const score = Math.max(1, relevance(h));
-      if (h.kind === "issue") return { ...formatSearchIssue(h.issue, gh, baseUrl), score };
-      return { ...formatPullRequestAsIssue(gh, h.issue, h.pr, baseUrl), score };
+      return { ...formatSearchIssue(h.issue, gh, baseUrl), score };
     });
 
     return c.json({
