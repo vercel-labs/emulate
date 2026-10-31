@@ -604,7 +604,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const { team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
-    if (!access.manage && access.user?.id !== user.id) {
+    if (!access.manage) {
       throw new ApiError(403, "You must be an organization owner or team maintainer to remove a team membership.");
     }
 

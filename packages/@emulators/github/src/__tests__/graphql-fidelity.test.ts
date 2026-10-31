@@ -1227,6 +1227,12 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", {}, "outsider-token")).toMatchObject(
         notFound,
       );
+      expect(
+        await send("DELETE", "/orgs/acme/teams/devs/memberships/teammate", undefined, "teammate-token"),
+      ).toMatchObject({
+        status: 403,
+        body: { message: "You must be an organization owner or team maintainer to remove a team membership." },
+      });
       expect(await send("PUT", "/orgs/acme/teams/devs/memberships/member", {}, "teammate-token")).toMatchObject({
         status: 403,
         body: { message: "You must be an organization owner or team maintainer to add a team membership." },
