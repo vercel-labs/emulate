@@ -459,6 +459,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       body: prBody,
       state: "open",
       locked: false,
+      active_lock_reason: null,
       user_id: actor.id,
       assignee_ids: [],
       label_ids: [],

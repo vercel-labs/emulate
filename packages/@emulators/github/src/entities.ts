@@ -139,6 +139,8 @@ export interface GitHubPullRequest extends Entity {
   body: string | null;
   state: "open" | "closed";
   locked: boolean;
+  /** Absent on rows stored before pull requests tracked it. */
+  active_lock_reason?: string | null;
   user_id: number;
   assignee_ids: number[];
   label_ids: number[];

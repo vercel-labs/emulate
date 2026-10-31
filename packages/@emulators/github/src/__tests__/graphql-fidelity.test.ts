@@ -1006,6 +1006,31 @@ describe("GitHub GraphQL fidelity", () => {
     dispatch.mockRestore();
   });
 
+  it("reports a pull request's lock reason on the pull request route and webhook", async () => {
+    const pr = await seedPr();
+    expect((await send("GET", `${REPO}/pulls/${pr.number}`)).body).toMatchObject({ active_lock_reason: null });
+    const dispatch = vi.spyOn(server.webhooks, "dispatch");
+    await send("PUT", `${REPO}/issues/${pr.number}/lock`, { lock_reason: "too heated" });
+    expect((await send("GET", `${REPO}/pulls/${pr.number}`)).body).toMatchObject({
+      locked: true,
+      active_lock_reason: "too heated",
+    });
+    expect((await send("GET", `${REPO}/issues/${pr.number}`)).body.active_lock_reason).toBe("too heated");
+    expect(dispatch).toHaveBeenCalledWith(
+      "pull_request",
+      "locked",
+      expect.objectContaining({ pull_request: expect.objectContaining({ active_lock_reason: "too heated" }) }),
+      "octocat",
+      "hello-world",
+    );
+    dispatch.mockRestore();
+    await send("DELETE", `${REPO}/issues/${pr.number}/lock`);
+    expect((await send("GET", `${REPO}/pulls/${pr.number}`)).body).toMatchObject({
+      locked: false,
+      active_lock_reason: null,
+    });
+  });
+
   it("counts a pull request's comments the same on every route", async () => {
     const pr = await seedPr();
     const first = await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "one" });
