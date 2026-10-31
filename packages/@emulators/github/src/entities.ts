@@ -241,6 +241,7 @@ export interface GitHubIssueEvent extends Entity {
   assignee_id: number | null;
   milestone_title: string | null;
   rename: { from: string; to: string } | null;
+  lock_reason?: string | null;
 }
 
 export interface GitHubBranch extends Entity {

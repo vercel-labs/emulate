@@ -107,7 +107,10 @@ export function insertIssueEvent(
   event: string,
   actorId: number,
   extra?: Partial<
-    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
+    Pick<
+      GitHubIssueEvent,
+      "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename" | "lock_reason"
+    >
   >,
 ): GitHubIssueEvent {
   const row = gh.issueEvents.insert({
@@ -136,8 +139,7 @@ function formatIssueEventApi(
   baseUrl: string,
 ) {
   const actor = gh.users.get(ev.actor_id);
-  const issueJson = formatIssueOrPullRequest(issue, gh, baseUrl);
-  return {
+  const common = {
     id: ev.id,
     node_id: ev.node_id,
     url: `${baseUrl}/repos/${repo.full_name}/issues/events/${ev.id}`,
@@ -146,6 +148,13 @@ function formatIssueEventApi(
     commit_id: ev.commit_id,
     commit_url: ev.commit_url,
     created_at: ev.created_at,
+  };
+  if (ev.event === "locked") {
+    return { ...common, performed_via_github_app: null, lock_reason: ev.lock_reason ?? null };
+  }
+  const issueJson = formatIssueOrPullRequest(issue, gh, baseUrl);
+  return {
+    ...common,
     label:
       ev.label_name !== null
         ? gh.labels.findBy("repo_id", repo.id).find((l) => l.name === ev.label_name)
@@ -739,7 +748,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       active_lock_reason: lockReason,
     })!;
 
-    insertIssueEvent(gh, repo, issue.number, "locked", actor.id);
+    insertIssueEvent(gh, repo, issue.number, "locked", actor.id, { lock_reason: lockReason });
     const ownerLogin = ownerLoginOf(gh, repo);
     dispatchIssueEvent(
       gh,

@@ -1101,6 +1101,28 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  it("reports the lock reason on locked issue events, as GitHub does", async () => {
+    const issue = await send("POST", `${REPO}/issues`, { title: "heated" });
+    const path = `${REPO}/issues/${issue.body.number}`;
+    await send("PUT", `${path}/lock`, { lock_reason: "too heated" });
+    await send("DELETE", `${path}/lock`);
+    await send("PUT", `${path}/lock`);
+    const locked = (await send("GET", `${path}/events`)).body.filter((e: { event: string }) => e.event === "locked");
+    expect(locked.map((e: { lock_reason: string | null }) => e.lock_reason)).toEqual(["too heated", null]);
+    expect(Object.keys(locked[0]).sort()).toEqual([
+      "actor",
+      "commit_id",
+      "commit_url",
+      "created_at",
+      "event",
+      "id",
+      "lock_reason",
+      "node_id",
+      "performed_via_github_app",
+      "url",
+    ]);
+  });
+
   it("locks issues and pull requests through Lockable, as gh pr lock does", async () => {
     const pr = await seedPr();
     const issue = await send("POST", `${REPO}/issues`, { title: "plain" });
