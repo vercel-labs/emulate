@@ -1,6 +1,14 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { formatSlackMessage, generateTs, hasSlackMessageContent, parseSlackRichMessageFields } from "../helpers.js";
+import { dispatchSlackEvent } from "../events.js";
+import {
+  formatSlackMessage,
+  generateTs,
+  hasSlackMessageContent,
+  normalizeSlackMessageText,
+  parseSlackRichMessageFields,
+  slackBotMessageFields,
+} from "../helpers.js";
 
 export function webhookRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
@@ -40,6 +48,7 @@ export function webhookRoutes(ctx: RouteContext): void {
     }
 
     const text = typeof body.text === "string" ? body.text : "";
+    const normalizedText = normalizeSlackMessageText(text);
     const channelName = typeof body.channel === "string" ? body.channel : "";
     const threadTs = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
@@ -77,12 +86,12 @@ export function webhookRoutes(ctx: RouteContext): void {
       ts,
       channel_id: targetChannel.channel_id,
       user: botId,
-      text,
+      text: normalizedText.text,
       type: "message" as const,
       subtype: "bot_message",
       thread_ts: threadTs,
       ...richMessage.fields,
-      bot_id: botId,
+      ...slackBotMessageFields(store, botId, targetChannel.team_id),
       reply_count: 0,
       reply_users: [],
       reactions: [],
@@ -90,21 +99,13 @@ export function webhookRoutes(ctx: RouteContext): void {
 
     const { user: _user, ...eventMessage } = formatSlackMessage(msg);
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      {
-        type: "event_callback",
-        event: {
-          ...eventMessage,
-          type: "message",
-          subtype: "bot_message",
-          channel: targetChannel.channel_id,
-          bot_id: botId,
-        },
-      },
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, webhook?.team_id ?? targetChannel.team_id, {
+      ...eventMessage,
+      type: "message",
+      subtype: "bot_message",
+      channel: targetChannel.channel_id,
+      bot_id: botId,
+    });
 
     return c.text("ok");
   });

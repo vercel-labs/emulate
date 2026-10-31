@@ -12,7 +12,14 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import { formatIssue, formatOrgBrief, formatPullRequest, formatRepo, formatUser, lookupRepo } from "../helpers.js";
-import { canAccessRepo } from "../route-helpers.js";
+import { canAccessRepo, canReadRepoContents } from "../route-helpers.js";
+import {
+  commitIdentityMatches,
+  encodeContentPath,
+  flattenTree,
+  resolveBranchToCommit,
+  resolveCommitUser,
+} from "../git-helpers.js";
 
 /** Parsed GitHub-style search query (q parameter). */
 export interface ParsedSearchQuery {
@@ -595,32 +602,10 @@ function blobText(blob: GitHubBlob): string {
   return blob.content;
 }
 
-function buildBlobPathIndex(gh: GitHubStore): Map<string, string> {
-  const byRepo = new Map<number, Map<string, string>>();
-  for (const tree of gh.trees.all()) {
-    let map = byRepo.get(tree.repo_id);
-    if (!map) {
-      map = new Map();
-      byRepo.set(tree.repo_id, map);
-    }
-    for (const e of tree.tree) {
-      if (e.type === "blob") {
-        if (!map.has(e.sha)) map.set(e.sha, e.path);
-      }
-    }
-  }
-  const key = (repoId: number, sha: string) => `${repoId}:${sha}`;
-  const flat = new Map<string, string>();
-  for (const [repoId, m] of byRepo) {
-    for (const [sha, path] of m) {
-      flat.set(key(repoId, sha), path);
-    }
-  }
-  return flat;
-}
-
 function formatSearchCommit(gh: GitHubStore, commit: GitHubCommit, repo: GitHubRepo, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
+  const author = resolveCommitUser(gh, commit.author_email);
+  const committer = resolveCommitUser(gh, commit.committer_email);
   return {
     sha: commit.sha,
     node_id: commit.node_id,
@@ -642,8 +627,8 @@ function formatSearchCommit(gh: GitHubStore, commit: GitHubCommit, repo: GitHubR
       },
       message: commit.message,
     },
-    author: null as null,
-    committer: null as null,
+    author: author ? formatUser(author, baseUrl) : null,
+    committer: committer ? formatUser(committer, baseUrl) : null,
     parents: commit.parent_shas.map((sha) => ({
       sha,
       url: `${repoUrl}/commits/${sha}`,
@@ -657,14 +642,8 @@ function loginMatchesCommitAuthor(
   commit: GitHubCommit,
   role: "author" | "committer",
 ): boolean {
-  const u = gh.users.findOneBy("login", login);
-  const email = (role === "author" ? commit.author_email : commit.committer_email).toLowerCase();
-  if (u) {
-    if (u.email && u.email.toLowerCase() === email) return true;
-    if (commit.user_id != null && commit.user_id === u.id) return true;
-  }
-  const expect = `${login.toLowerCase()}@users.noreply.github.com`;
-  return email === expect || email.startsWith(`${login.toLowerCase()}+`);
+  const email = role === "author" ? commit.author_email : commit.committer_email;
+  return commitIdentityMatches(gh, email, login);
 }
 
 export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
@@ -875,17 +854,6 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     const parsed = parseSearchQuery(q);
     const { page, per_page } = parsePagination(c);
     const authUser = c.get("authUser");
-    const blobs = gh.blobs.all();
-    if (blobs.length === 0) {
-      setLinkHeader(c, 0, 1, per_page);
-      return c.json({
-        total_count: 0,
-        incomplete_results: false,
-        items: [],
-      });
-    }
-
-    const pathIdx = buildBlobPathIndex(gh);
     const text = parsed.text.trim();
     const repoSpecs = parsed.qualifiers.get("repo") ?? [];
     const langs = parsed.qualifiers.get("language") ?? [];
@@ -901,10 +869,8 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       repo: GitHubRepo;
     }> = [];
 
-    for (const blob of blobs) {
-      const repo = gh.repos.get(blob.repo_id);
-      if (!repo) continue;
-      if (!repoVisibleForSearch(repo, gh, authUser)) continue;
+    for (const repo of gh.repos.all()) {
+      if (!canReadRepoContents(gh, authUser, repo)) continue;
       if (repoSpecs.length) {
         const ok = repoSpecs.some((rs) => {
           const r = resolveRepoQualifier(gh, rs);
@@ -917,31 +883,36 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
         if (!lang || !langs.some((l) => l.toLowerCase() === lang.toLowerCase())) continue;
       }
 
-      const path = pathIdx.get(`${blob.repo_id}:${blob.sha}`) ?? `unknown/${blob.sha.slice(0, 7)}`;
-      const base = path.split("/").pop() ?? path;
-      if (paths.length && !paths.some((p) => path.toLowerCase().includes(p.toLowerCase()))) continue;
-      if (filenames.length && !filenames.some((p) => base.toLowerCase().includes(p.toLowerCase()))) continue;
+      const head = resolveBranchToCommit(gh, repo, repo.default_branch);
+      if (!head) continue;
+      for (const [path, entry] of flattenTree(gh, repo.id, head.tree_sha).blobs) {
+        const blob = gh.blobs.findBy("repo_id", repo.id).find((candidate) => candidate.sha === entry.sha);
+        if (!blob) continue;
+        const base = path.split("/").pop() ?? path;
+        if (paths.length && !paths.some((p) => path.toLowerCase().includes(p.toLowerCase()))) continue;
+        if (filenames.length && !filenames.some((p) => base.toLowerCase().includes(p.toLowerCase()))) continue;
 
-      const content = blobText(blob);
-      if (text.length) {
-        const inFile = content.toLowerCase().includes(text.toLowerCase());
-        const inPath = path.toLowerCase().includes(text.toLowerCase());
-        let hit = false;
-        if (!inScopes.length) hit = inFile || inPath;
-        else {
-          if (inScopes.includes("file") && inFile) hit = true;
-          if (inScopes.includes("path") && inPath) hit = true;
+        const content = blobText(blob);
+        if (text.length) {
+          const inFile = content.toLowerCase().includes(text.toLowerCase());
+          const inPath = path.toLowerCase().includes(text.toLowerCase());
+          let hit = false;
+          if (!inScopes.length) hit = inFile || inPath;
+          else {
+            if (inScopes.includes("file") && inFile) hit = true;
+            if (inScopes.includes("path") && inPath) hit = true;
+          }
+          if (!hit) continue;
         }
-        if (!hit) continue;
-      }
 
-      matches.push({
-        name: path.split("/").pop() ?? blob.sha,
-        path,
-        sha: blob.sha,
-        score: text.length ? (content.toLowerCase().includes(text.toLowerCase()) ? 2 : 1) : 1,
-        repo,
-      });
+        matches.push({
+          name: path.split("/").pop() ?? blob.sha,
+          path,
+          sha: blob.sha,
+          score: text.length ? (content.toLowerCase().includes(text.toLowerCase()) ? 2 : 1) : 1,
+          repo,
+        });
+      }
     }
 
     matches.sort((a, b) => b.score - a.score);
@@ -951,13 +922,14 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
 
     const items = slice.map((m) => {
       const repoUrl = `${baseUrl}/repos/${m.repo.full_name}`;
+      const encodedPath = encodeContentPath(m.path);
       return {
         name: m.name,
         path: m.path,
         sha: m.sha,
-        url: `${repoUrl}/contents/${m.path}?ref=HEAD`,
+        url: `${repoUrl}/contents/${encodedPath}?ref=HEAD`,
         git_url: `${repoUrl}/git/blobs/${m.sha}`,
-        html_url: `${baseUrl}/${m.repo.full_name}/blob/HEAD/${m.path}`,
+        html_url: `${baseUrl}/${m.repo.full_name}/blob/HEAD/${encodedPath}`,
         repository: formatRepo(m.repo, gh, baseUrl),
         score: 1,
       };
@@ -990,7 +962,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     for (const commit of gh.commits.all()) {
       const repo = gh.repos.get(commit.repo_id);
       if (!repo) continue;
-      if (!repoVisibleForSearch(repo, gh, authUser)) continue;
+      if (!canReadRepoContents(gh, authUser, repo)) continue;
       if (repoSpecs.length) {
         const ok = repoSpecs.some((rs) => {
           const r = resolveRepoQualifier(gh, rs);

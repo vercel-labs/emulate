@@ -1,0 +1,86 @@
+---
+title: "MCP Server"
+---
+
+`npx emulate mcp` lets your coding agent list services, create a config, and start or stop local emulators. It runs over stdio and executes the CLI in child processes.
+
+## Setup
+
+Run your agent from the project root so emulate finds the right config and resolves file paths correctly. Only use projects you trust: TypeScript and JavaScript configs execute local code.
+
+### Claude Code
+
+Run this in your project:
+
+```bash
+claude mcp add --transport stdio --scope project emulate -- npx -y emulate mcp
+```
+
+This saves the server in `.mcp.json`. Open Claude Code, approve the project server when prompted, and use `/mcp` to check its status.
+
+### Codex
+
+Add this to your project's `.codex/config.toml`:
+
+```toml
+[mcp_servers.emulate]
+command = "npx"
+args = ["-y", "emulate", "mcp"]
+cwd = "/absolute/path/to/your/project"
+```
+
+Replace `cwd` with your project root. Codex loads project config after you trust the project. Use `/mcp` to check the connection.
+
+### fx
+
+Open fx in your project and run:
+
+```text
+/mcp add --project emulate -- npx -y emulate mcp
+/mcp approve emulate
+/mcp show emulate
+```
+
+The server is saved in `.mcp.json`. The last command connects and lists its tools.
+
+### Other clients
+
+For clients that use `mcpServers`, add:
+
+```json
+{
+  "mcpServers": {
+    "emulate": {
+      "command": "npx",
+      "args": ["-y", "emulate", "mcp"]
+    }
+  }
+}
+```
+
+Set the server's working directory to your project root using your client's settings. To keep the version fixed, install emulate in the project with `npm install --save-dev --save-exact emulate`.
+
+## Try it
+
+Ask your agent: **"List the available emulate services, then start Resend."**
+
+| Tool | What it does |
+| --- | --- |
+| `list` | Lists available services. |
+| `init` | Creates a starter config. Custom scaffolding can update an existing config. |
+| `start` | Starts emulators and returns their URLs once ready. |
+| `stop` | Stops the run owned by this connection. |
+
+Each connection owns one run. Call `stop` before starting another; it also cancels a pending start. A failed start can be retried. Closing the connection also stops its emulators. In watch mode, later reload errors go to stderr. If the CLI process exits, you can start another run.
+
+Cancellation cannot undo writes already issued by a custom persistence adapter.
+
+Inputs follow the CLI flags in camelCase: `--base-url` becomes `baseUrl`. Value flags take strings, including `port`; switches take booleans. Your client may prefix tool names with `emulate`.
+
+## CLI and MCP
+
+Tools and their inputs come from the shared CLI definitions, so supported commands and options appear automatically. Unsupported command forms fail discovery. The `mcp` command, help, and version flags are excluded.
+
+Results contain the CLI's text output with terminal escapes removed and URL credentials and sensitive query values redacted. Clean URLs retain their original spelling. Stdout, stderr, and the exit code are available as structured metadata. `start` returns when its child process reports readiness; its exit code is `null` while running. Commands and startup time out after 30 seconds. A ready emulator keeps running until stopped.
+
+This local server controls emulators. The website's MCP endpoint only searches documentation.

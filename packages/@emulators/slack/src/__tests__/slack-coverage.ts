@@ -10,6 +10,33 @@ export interface SlackCoverageEntry {
 }
 
 export const slackCoverageMatrix: SlackCoverageEntry[] = [
+  ...(["convertToPrivate", "convertToPublic"] as const).map((method) => ({
+    family: "admin.conversations",
+    method: `admin.conversations.${method}`,
+    route: `POST /api/admin.conversations.${method}`,
+    status: "partial" as const,
+    testedBy: ["channel-privacy.test.ts"],
+    notes:
+      "Admin user tokens change channel privacy, file shares, and visibility with conversion message events. Enterprise plan and organization policies are not simulated.",
+  })),
+  {
+    family: "events",
+    method: "events.retry_simulation",
+    route: "POST /_slack/simulate/event-retry",
+    status: "supported",
+    testedBy: ["event-retries.test.ts"],
+    notes:
+      "Explicit redelivery to the latest recipient with the same event ID, retry headers, fresh signing, and recorded results.",
+  },
+  {
+    family: "apps",
+    method: "apps.uninstall",
+    route: "POST /api/apps.uninstall",
+    status: "supported",
+    testedBy: ["apps-uninstall.test.ts"],
+    notes:
+      "Removes one workspace installation, revokes its OAuth tokens, and dispatches app_uninstalled and tokens_revoked events.",
+  },
   {
     family: "auth",
     method: "auth.test",
@@ -23,24 +50,31 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "chat.postMessage",
     route: "POST /api/chat.postMessage",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    testedBy: [
+      "event-payloads.test.ts",
+      "slack-connect.test.ts",
+      "slack.test.ts",
+      "slack-sdk.test.ts",
+      "slack-events.test.ts",
+    ],
     notes:
-      "Text, thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, client message ids, and DM user id posting round trip. Full membership checks are future work.",
+      "Text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, client message ids, and DM user id posting round trip. Bot messages persist bot_id, app_id, and bot_profile; callbacks include recipient app authorization, channel_type, and event_ts. Full membership checks are future work.",
   },
   {
     family: "chat",
     method: "chat.update",
     route: "POST /api/chat.update",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Stored text and rich message fields are updated and message_changed events are dispatched.",
+    testedBy: ["event-payloads.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    notes:
+      "Stored text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Rich message fields are updated and message_changed events are dispatched.",
   },
   {
     family: "chat",
     method: "chat.delete",
     route: "POST /api/chat.delete",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    testedBy: ["event-payloads.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes: "Stored messages are deleted and message_deleted events are dispatched.",
   },
   {
@@ -57,7 +91,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/chat.postEphemeral",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
-    notes: "Stores ephemeral messages outside channel history and validates target channel membership.",
+    notes:
+      "Stores ephemeral messages outside channel history, truncates text at 40,000 Unicode code points with Slack warning metadata, and validates target channel membership.",
   },
   {
     family: "chat",
@@ -65,7 +100,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/chat.scheduleMessage",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
-    notes: "Stores pending scheduled messages with rich payload fields and validates post_at bounds.",
+    notes:
+      "Stores pending messages with text limited to 40,000 Unicode code points and warning metadata, preserves rich payload fields, and validates post_at bounds.",
   },
   {
     family: "chat",
@@ -96,7 +132,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.list",
     route: "POST /api/conversations.list",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes:
       "Lists conversations with simple cursor pagination, exclude_archived, and basic public/private/IM/MPIM type filtering.",
   },
@@ -105,7 +141,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.info",
     route: "POST /api/conversations.info",
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded channel metadata.",
   },
   {
@@ -166,7 +202,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.history",
     route: "POST /api/conversations.history",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["event-payloads.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns top level messages for a channel, including rich message fields. Time filtering is future work.",
   },
   {
@@ -174,7 +210,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.replies",
     route: "POST /api/conversations.replies",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["event-payloads.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns parent and replies for a thread, including rich message fields.",
   },
   {
@@ -182,7 +218,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.join",
     route: "POST /api/conversations.join",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Adds the auth user to channel membership.",
   },
   {
@@ -190,8 +226,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.leave",
     route: "POST /api/conversations.leave",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
-    notes: "Removes the auth user from channel membership.",
+    testedBy: ["event-payloads.test.ts", "slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
+    notes: "Removes the auth user from channel membership and emits channel_left or group_left for installed bots.",
   },
   {
     family: "conversations",
@@ -206,7 +242,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.invite",
     route: "POST /api/conversations.invite",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
       "Adds users to public/private channels and MPIMs, with basic membership errors and member_joined_channel events.",
   },
@@ -215,8 +251,15 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "conversations.kick",
     route: "POST /api/conversations.kick",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Removes users from public/private channels and MPIMs, with basic errors and member_left_channel events.",
+    testedBy: [
+      "event-payloads.test.ts",
+      "slack-connect.test.ts",
+      "slack.test.ts",
+      "slack-sdk.test.ts",
+      "slack-events.test.ts",
+    ],
+    notes:
+      "Removes users from public/private channels and MPIMs, with basic errors and member_left_channel events, plus channel_left or group_left for removed installed bots.",
   },
   {
     family: "conversations",
@@ -247,7 +290,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "users.list",
     route: "POST /api/users.list",
     status: "partial",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Lists active users with simple cursor pagination.",
   },
   {
@@ -255,7 +298,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "users.info",
     route: "POST /api/users.info",
     status: "supported",
-    testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
+    testedBy: ["slack-connect.test.ts", "slack.test.ts", "slack-sdk.test.ts"],
     notes: "Returns seeded user profile data.",
   },
   {
@@ -466,7 +509,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /services/:teamId/:botId/:token",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-events.test.ts"],
-    notes: "Posts text and rich webhook messages with blocks, attachments, and common formatting fields preserved.",
+    notes:
+      "Posts text limited to 40,000 Unicode code points and rich webhook messages with blocks, attachments, and common formatting fields preserved.",
   },
   {
     family: "inspector",
@@ -491,7 +535,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/files.completeUploadExternal",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Completes uploaded bytes into file records, optional file_share messages, and file events.",
+    notes:
+      "Completes uploaded bytes into file records, truncates initial comments at 40,000 Unicode code points with Slack warning metadata, and emits optional file_share messages and file events.",
   },
   {
     family: "files",
@@ -554,10 +599,23 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
   {
     family: "views",
     method: "views.interaction_simulation",
-    route: "POST /api/views.interactions",
+    route: [
+      "POST /_slack/simulate/block-actions",
+      "POST /_slack/simulate/view-submission",
+      "POST /_slack/response/:id",
+    ],
+    status: "supported",
+    testedBy: ["interactions.test.ts"],
+    notes: "Signed button actions, modal submissions and acknowledgement handling, and expiring response URLs.",
+  },
+  {
+    family: "interactions",
+    method: "interactions.other",
+    route: "N/A",
     status: "not_started",
     testedBy: [],
-    notes: "Future local simulation helpers for slash commands, block actions, shortcuts, and submissions.",
+    notes:
+      "Future simulation support for slash commands, shortcuts, view_closed, block_suggestion, and other interactive elements.",
   },
   {
     family: "usergroups",

@@ -1,7 +1,7 @@
 ---
 name: stripe
 description: Emulated Stripe API for local development and testing. Use when the user needs to process payments locally, test checkout flows, create customers, manage products and prices, handle payment intents, work with webhooks, or use the Stripe SDK without hitting real Stripe servers. Triggers include "Stripe API", "emulate Stripe", "test payments locally", "checkout flow", "payment intent", "Stripe webhook", "Stripe SDK", "STRIPE_API_KEY", or any task requiring a local Stripe API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Stripe API Emulator
@@ -11,6 +11,8 @@ Fully stateful Stripe API emulation. Customers, products, prices, checkout sessi
 No real payments are processed. Every Stripe SDK call hits the emulator and produces realistic responses.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # Stripe only
@@ -291,6 +293,7 @@ curl http://localhost:4000/v1/payment_methods
 ## Webhooks
 
 The emulator dispatches webhook events when state changes. Register webhooks via seed config or programmatically.
+Webhooks configured with a `secret` include `Stripe-Signature: t=<timestamp>,v1=<signature>`. The signature is an HMAC SHA-256 over `<timestamp>.<raw body>`.
 
 ### Events dispatched
 
@@ -383,3 +386,7 @@ const pi = await stripe.paymentIntents.create({
 const confirmed = await stripe.paymentIntents.confirm(pi.id)
 console.log(confirmed.status) // 'succeeded'
 ```
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "stripe" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

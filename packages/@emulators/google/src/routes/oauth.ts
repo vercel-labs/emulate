@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { SignJWT } from "jose";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
@@ -15,8 +15,11 @@ import {
 } from "@emulators/core";
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
+import { getRefreshTokens, issueAccessToken, revokeToken } from "../oauth-tokens.js";
 
-const JWT_SECRET = new TextEncoder().encode("emulate-google-jwt-secret");
+// RSA key pair generated at module load for signing ID tokens.
+const keyPairPromise = generateKeyPair("RS256");
+const KID = "emulate-google-1";
 
 type PendingCode = {
   email: string;
@@ -31,26 +34,11 @@ type PendingCode = {
 
 const PENDING_CODE_TTL_MS = 10 * 60 * 1000;
 
-type RefreshTokenRecord = {
-  email: string;
-  scope: string;
-  clientId: string;
-};
-
 function getPendingCodes(store: Store): Map<string, PendingCode> {
   let map = store.getData<Map<string, PendingCode>>("google.oauth.pendingCodes");
   if (!map) {
     map = new Map();
     store.setData("google.oauth.pendingCodes", map);
-  }
-  return map;
-}
-
-function getRefreshTokens(store: Store): Map<string, RefreshTokenRecord> {
-  let map = store.getData<Map<string, RefreshTokenRecord>>("google.oauth.refreshTokens");
-  if (!map) {
-    map = new Map();
-    store.setData("google.oauth.refreshTokens", map);
   }
   return map;
 }
@@ -67,6 +55,8 @@ async function createIdToken(
   nonce: string | null,
   baseUrl: string,
 ): Promise<string> {
+  const { privateKey } = await keyPairPromise;
+
   const builder = new SignJWT({
     sub: user.uid,
     email: user.email,
@@ -79,13 +69,13 @@ async function createIdToken(
     ...(user.hd ? { hd: user.hd } : {}),
     ...(nonce ? { nonce } : {}),
   })
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setProtectedHeader({ alg: "RS256", kid: KID, typ: "JWT" })
     .setIssuer(baseUrl)
     .setAudience(clientId)
     .setIssuedAt()
     .setExpirationTime("1h");
 
-  return builder.sign(JWT_SECRET);
+  return builder.sign(privateKey);
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
@@ -103,7 +93,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       jwks_uri: `${baseUrl}/oauth2/v3/certs`,
       response_types_supported: ["code"],
       subject_types_supported: ["public"],
-      id_token_signing_alg_values_supported: ["HS256"],
+      id_token_signing_alg_values_supported: ["RS256"],
       scopes_supported: ["openid", "email", "profile"],
       token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
       claims_supported: [
@@ -121,10 +111,21 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
-  // ---------- JWKS (stub) ----------
+  // ---------- JWKS ----------
 
-  app.get("/oauth2/v3/certs", (c) => {
-    return c.json({ keys: [] });
+  app.get("/oauth2/v3/certs", async (c) => {
+    const { publicKey } = await keyPairPromise;
+    const jwk = await exportJWK(publicKey);
+    return c.json({
+      keys: [
+        {
+          ...jwk,
+          kid: KID,
+          use: "sig",
+          alg: "RS256",
+        },
+      ],
+    });
   });
 
   // ---------- Authorization page ----------
@@ -278,12 +279,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
       }
 
-      const accessToken = "google_" + randomBytes(20).toString("base64url");
-      const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : [];
-
-      if (tokenMap) {
-        tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
-      }
+      const accessToken = issueAccessToken(store, tokenMap, user, record.scope, refreshToken);
 
       return c.json({
         access_token: accessToken,
@@ -339,13 +335,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.json({ error: "invalid_grant", error_description: "User not found." }, 400);
     }
 
-    const accessToken = "google_" + randomBytes(20).toString("base64url");
     const refreshToken = "google_refresh_" + randomBytes(24).toString("base64url");
-    const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : [];
-
-    if (tokenMap) {
-      tokenMap.set(accessToken, { login: user.email, id: user.id, scopes });
-    }
+    const accessToken = issueAccessToken(store, tokenMap, user, pending.scope, refreshToken);
     getRefreshTokens(store).set(refreshToken, {
       email: user.email,
       scope: pending.scope,
@@ -377,6 +368,27 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const user = gs.users.findOneBy("email", authUser.login as GoogleUser["email"]);
     if (!user) {
       return c.json({ error: "invalid_token", error_description: "User not found." }, 401);
+    }
+
+    if (store.getData<boolean>("google.strict_scopes") === true) {
+      const scopes = c.get("authScopes") ?? [];
+      const email = scopes.includes("email") || scopes.includes("https://www.googleapis.com/auth/userinfo.email");
+      const profile = scopes.includes("profile") || scopes.includes("https://www.googleapis.com/auth/userinfo.profile");
+      return c.json({
+        sub: user.uid,
+        ...(email
+          ? { email: user.email, email_verified: user.email_verified, ...(user.hd ? { hd: user.hd } : {}) }
+          : {}),
+        ...(profile
+          ? {
+              name: user.name,
+              given_name: user.given_name,
+              family_name: user.family_name,
+              picture: user.picture,
+              locale: user.locale,
+            }
+          : {}),
+      });
     }
 
     return c.json({
@@ -411,11 +423,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       token = params.get("token") ?? "";
     }
 
-    if (token && tokenMap) {
-      tokenMap.delete(token);
-    }
     if (token) {
-      getRefreshTokens(store).delete(token);
+      revokeToken(store, tokenMap, token);
     }
 
     return c.body(null, 200);

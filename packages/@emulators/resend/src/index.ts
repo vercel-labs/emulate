@@ -13,6 +13,7 @@ export * from "./entities.js";
 
 export interface ResendSeedConfig {
   port?: number;
+  allowlist?: string[];
   domains?: Array<{
     name: string;
     region?: string;
@@ -26,6 +27,18 @@ export interface ResendSeedConfig {
 }
 
 export function seedFromConfig(store: Store, _baseUrl: string, config: ResendSeedConfig): void {
+  if (config.allowlist !== undefined) {
+    if (
+      !Array.isArray(config.allowlist) ||
+      config.allowlist.some((address) => typeof address !== "string" || !address.trim())
+    ) {
+      throw new Error("Resend allowlist must be an array of non-empty email addresses");
+    }
+    store.setData(
+      "resend.allowlist",
+      config.allowlist.map((address) => address.trim()),
+    );
+  }
   const rs = getResendStore(store);
 
   if (config.domains) {

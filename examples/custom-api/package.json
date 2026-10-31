@@ -1,0 +1,16 @@
+{
+  "name": "custom-api-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx emulate start --watch",
+    "build": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "test": "node --test emulators/inventory.test.ts"
+  },
+  "devDependencies": {
+    "emulate": "workspace:*",
+    "typescript": "^5.7"
+  }
+}

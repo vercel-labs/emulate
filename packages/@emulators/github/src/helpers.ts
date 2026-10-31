@@ -25,6 +25,7 @@ import type {
   GitHubTag,
   GitHubBlob,
   GitHubTree,
+  GitHubApp,
 } from "./entities.js";
 import type { GitHubStore } from "./store.js";
 
@@ -38,6 +39,23 @@ export function generateSha(): string {
 
 export function timestamp(): string {
   return new Date().toISOString();
+}
+
+export function formatApp(app: GitHubApp, baseUrl: string) {
+  return {
+    id: app.app_id,
+    slug: app.slug,
+    node_id: generateNodeId("App", app.app_id),
+    name: app.name,
+    description: app.description,
+    external_url: `${baseUrl}/apps/${app.slug}`,
+    html_url: `${baseUrl}/apps/${app.slug}`,
+    created_at: app.created_at,
+    updated_at: app.updated_at,
+    permissions: app.permissions,
+    events: app.events,
+    owner: null,
+  };
 }
 
 export function userUrl(baseUrl: string, login: string) {

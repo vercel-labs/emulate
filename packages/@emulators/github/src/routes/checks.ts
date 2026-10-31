@@ -10,8 +10,8 @@ import type {
   GitHubUser,
   GitHubCheckAnnotation,
 } from "../entities.js";
-import { formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
-import { assertRepoRead, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { formatApp, formatRepo, formatUser, generateNodeId, lookupRepo, timestamp } from "../helpers.js";
+import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 const CONCLUSION_RANK: Record<string, number> = {
   success: 0,
@@ -50,9 +50,12 @@ function getOrCreateCheckSuite(
   gh: GitHubStore,
   repo: GitHubRepo,
   headSha: string,
+  appId: number | null,
   headBranch?: string | null,
 ): GitHubCheckSuite {
-  const existing = gh.checkSuites.findBy("repo_id", repo.id).find((s) => s.head_sha === headSha);
+  const existing = gh.checkSuites
+    .findBy("repo_id", repo.id)
+    .find((s) => s.head_sha === headSha && (s.app_id ?? null) === appId);
   if (existing) return existing;
 
   const hb = headBranch?.trim() || headBranchForSha(gh, repo, headSha);
@@ -65,7 +68,7 @@ function getOrCreateCheckSuite(
     conclusion: null,
     before: "",
     after: headSha,
-    app_id: null,
+    app_id: appId,
   } as Omit<GitHubCheckSuite, "id" | "created_at" | "updated_at">);
   gh.checkSuites.update(row.id, { node_id: generateNodeId("CheckSuite", row.id) });
   return gh.checkSuites.get(row.id)!;
@@ -195,6 +198,7 @@ function formatRepoBrief(repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
 function formatCheckRun(run: GitHubCheckRun, repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
   const suite = run.check_suite_id ? gh.checkSuites.get(run.check_suite_id) : null;
+  const ghApp = run.app_id == null ? undefined : gh.apps.findOneBy("app_id", run.app_id);
   return {
     id: run.id,
     node_id: run.node_id,
@@ -215,13 +219,14 @@ function formatCheckRun(run: GitHubCheckRun, repo: GitHubRepo, gh: GitHubStore, 
       annotations_count: run.output.annotations_count,
     },
     check_suite: suite ? formatCheckSuiteBrief(suite, repo, baseUrl) : null,
-    app: null,
+    app: ghApp ? formatApp(ghApp, baseUrl) : null,
     pull_requests: [] as unknown[],
   };
 }
 
 function formatCheckSuite(suite: GitHubCheckSuite, repo: GitHubRepo, gh: GitHubStore, baseUrl: string) {
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
+  const ghApp = suite.app_id == null ? undefined : gh.apps.findOneBy("app_id", suite.app_id);
   return {
     id: suite.id,
     node_id: suite.node_id,
@@ -233,7 +238,7 @@ function formatCheckSuite(suite: GitHubCheckSuite, repo: GitHubRepo, gh: GitHubS
     before: suite.before,
     after: suite.after,
     pull_requests: [],
-    app: null,
+    app: ghApp ? formatApp(ghApp, baseUrl) : null,
     repository: formatRepoBrief(repo, gh, baseUrl),
     created_at: suite.created_at,
     updated_at: suite.updated_at,
@@ -297,7 +302,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoWrite(gh, c.get("authUser"), repo, "checks");
     const body = await parseJsonBody(c);
     const auto =
       Array.isArray(body.auto_trigger_checks) && body.auto_trigger_checks.every((x) => x && typeof x === "object")
@@ -315,7 +320,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "checks");
     const body = await parseJsonBody(c);
     if (typeof body.head_sha !== "string" || !body.head_sha.trim()) {
       throw new ApiError(422, "head_sha is required");
@@ -323,7 +328,8 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const headSha = body.head_sha.trim();
     const headBranch = typeof body.head_branch === "string" && body.head_branch.trim() ? body.head_branch.trim() : null;
 
-    const suite = getOrCreateCheckSuite(gh, repo, headSha, headBranch);
+    const appId = c.get("authUser")?.installation?.appId ?? null;
+    const suite = getOrCreateCheckSuite(gh, repo, headSha, appId, headBranch);
     if (headBranch && suite.head_branch !== headBranch) {
       gh.checkSuites.update(suite.id, { head_branch: headBranch });
     }
@@ -337,7 +343,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const suiteId = parseInt(c.req.param("check_suite_id")!, 10);
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
@@ -349,7 +355,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const suiteId = parseInt(c.req.param("check_suite_id")!, 10);
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
@@ -370,7 +376,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "checks");
     const suiteId = parseInt(c.req.param("check_suite_id")!, 10);
     const suite = gh.checkSuites.get(suiteId);
     if (!suite || suite.repo_id !== repo.id) throw notFoundResponse();
@@ -392,12 +398,12 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     return c.body(null, 201);
   });
 
-  app.get("/repos/:owner/:repo/commits/:ref/check-suites", (c) => {
+  app.get("/repos/:owner/:repo/commits/:ref{.+}/check-suites", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const ref = c.req.param("ref")!;
     const headSha = resolveRefToHeadSha(gh, repo, ref);
     if (!headSha) throw notFoundResponse();
@@ -417,7 +423,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "checks");
     const body = await parseJsonBody(c);
 
     if (typeof body.name !== "string" || !body.name.trim()) {
@@ -491,7 +497,8 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       if (actions.length === 0) actions = null;
     }
 
-    const suite = getOrCreateCheckSuite(gh, repo, headSha, null);
+    const appId = c.get("authUser")?.installation?.appId ?? null;
+    const suite = getOrCreateCheckSuite(gh, repo, headSha, appId);
 
     const row = gh.checkRuns.insert({
       node_id: "",
@@ -507,7 +514,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       actions,
       output,
       check_suite_id: suite.id,
-      app_id: typeof body.app_id === "number" ? body.app_id : null,
+      app_id: appId,
     } as Omit<GitHubCheckRun, "id" | "created_at" | "updated_at">);
     gh.checkRuns.update(row.id, { node_id: generateNodeId("CheckRun", row.id) });
     const run = gh.checkRuns.get(row.id)!;
@@ -523,7 +530,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "checks");
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const prev = gh.checkRuns.get(runId);
     if (!prev || prev.repo_id !== repo.id) throw notFoundResponse();
@@ -560,9 +567,6 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (body.completed_at !== undefined) {
       patch.completed_at =
         body.completed_at === null ? null : typeof body.completed_at === "string" ? body.completed_at : null;
-    }
-    if (body.app_id !== undefined) {
-      patch.app_id = typeof body.app_id === "number" ? body.app_id : null;
     }
     if (body.actions !== undefined) {
       if (body.actions === null) {
@@ -602,7 +606,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       patch.conclusion !== undefined ? patch.conclusion : prev.conclusion;
 
     if (patch.head_sha && patch.head_sha !== prev.head_sha) {
-      const newSuite = getOrCreateCheckSuite(gh, repo, patch.head_sha, null);
+      const newSuite = getOrCreateCheckSuite(gh, repo, patch.head_sha, prev.app_id ?? null);
       patch.check_suite_id = newSuite.id;
     }
 
@@ -639,7 +643,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const run = gh.checkRuns.get(runId);
     if (!run || run.repo_id !== repo.id) throw notFoundResponse();
@@ -651,7 +655,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const run = gh.checkRuns.get(runId);
     if (!run || run.repo_id !== repo.id) throw notFoundResponse();
@@ -687,7 +691,7 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "checks");
     const runId = parseInt(c.req.param("check_run_id")!, 10);
     const prev = gh.checkRuns.get(runId);
     if (!prev || prev.repo_id !== repo.id) throw notFoundResponse();
@@ -708,12 +712,12 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     return c.body(null, 201);
   });
 
-  app.get("/repos/:owner/:repo/commits/:ref/check-runs", (c) => {
+  app.get("/repos/:owner/:repo/commits/:ref{.+}/check-runs", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "checks");
     const ref = c.req.param("ref")!;
     const headSha = resolveRefToHeadSha(gh, repo, ref);
     if (!headSha) throw notFoundResponse();
@@ -733,16 +737,21 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     runs = runs.sort((a, b) => b.id - a.id);
 
     if (filter === "latest") {
-      const byName = new Map<string, GitHubCheckRun>();
+      const byAppAndName = new Map<string, GitHubCheckRun>();
       for (const r of runs.sort((a, b) => a.id - b.id)) {
-        byName.set(r.name, r);
+        byAppAndName.set(JSON.stringify([r.app_id ?? null, r.name]), r);
       }
-      runs = [...byName.values()].sort((a, b) => b.id - a.id);
+      runs = [...byAppAndName.values()].sort((a, b) => b.id - a.id);
     }
 
+    const { page, per_page } = parsePagination(c);
+    const total = runs.length;
+    const slice = runs.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
+    setLinkHeader(c, total, page, per_page);
+
     return c.json({
-      total_count: runs.length,
-      check_runs: runs.map((r) => formatCheckRun(r, repo, gh, baseUrl)),
+      total_count: total,
+      check_runs: slice.map((r) => formatCheckRun(r, repo, gh, baseUrl)),
     });
   });
 }

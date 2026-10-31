@@ -1,6 +1,6 @@
 # @emulators/microsoft
 
-Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, and OIDC discovery.
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, client-bound refresh tokens, RS256 ID tokens, and OIDC discovery.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -25,7 +25,20 @@ npm install @emulators/microsoft
 
 ## Auth
 
-OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
+OIDC authorization code flow with PKCE support. Also supports client credentials grants. When OAuth clients are configured, refresh tokens can only be used with the client that received them and valid client credentials. Legacy refresh records without a stored client binding remain supported. Microsoft Graph `/v1.0/me` available.
+
+## Refresh Tokens
+
+```bash
+curl -X POST http://localhost:4005/oauth2/v2.0/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "refresh_token=r_microsoft_...&\
+client_id=example-client-id&\
+client_secret=example-client-secret&\
+grant_type=refresh_token"
+```
+
+Refresh requests require the `client_id` and `client_secret` of the client that received the refresh token. The token rotates after a successful request. `Authorization: Basic` may be used for the client credentials.
 
 ## Seed Configuration
 

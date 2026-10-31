@@ -1,11 +1,13 @@
 import type { Context, Next } from "../http.js";
-import { jwtVerify, importPKCS8 } from "jose";
+import { createPublicKey } from "crypto";
+import { jwtVerify } from "jose";
 import { debug } from "../debug.js";
 
 export interface AuthUser {
   login: string;
   id: number;
   scopes: string[];
+  installation?: AuthInstallation;
 }
 
 export interface AuthApp {
@@ -17,6 +19,8 @@ export interface AuthApp {
 export interface AuthInstallation {
   installationId: number;
   appId: number;
+  accountId: number;
+  accountType: "User" | "Organization";
   permissions: Record<string, string>;
   repositoryIds: number[];
   repositorySelection: "all" | "selected";
@@ -29,6 +33,7 @@ export interface TokenEntry {
   login: string;
   id: number;
   scopes: string[];
+  installation?: AuthInstallation;
 }
 
 export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
@@ -37,13 +42,19 @@ export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
     login: user.login,
     id: user.id,
     scopes: user.scopes,
+    ...(user.installation ? { installation: user.installation } : {}),
   }));
 }
 
 export function restoreTokenMap(tokenMap: TokenMap, tokens: TokenEntry[]): void {
   tokenMap.clear();
   for (const t of tokens) {
-    tokenMap.set(t.token, { login: t.login, id: t.id, scopes: t.scopes });
+    tokenMap.set(t.token, {
+      login: t.login,
+      id: t.id,
+      scopes: t.scopes,
+      ...(t.installation ? { installation: t.installation } : {}),
+    });
   }
 }
 
@@ -82,8 +93,8 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
           if (typeof appId === "number" && !isNaN(appId)) {
             const appInfo = appKeyResolver(appId);
             if (appInfo) {
-              const key = await importPKCS8(appInfo.privateKey, "RS256");
-              await jwtVerify(token, key, { algorithms: ["RS256"] });
+              const publicKey = createPublicKey(appInfo.privateKey);
+              await jwtVerify(token, publicKey, { algorithms: ["RS256"] });
               c.set("authApp", {
                 appId,
                 slug: appInfo.slug,

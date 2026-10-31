@@ -10,19 +10,10 @@ import {
   ownerLoginOf,
 } from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
-import type {
-  GitHubBlob,
-  GitHubBranch,
-  GitHubCollaborator,
-  GitHubCommit,
-  GitHubRef,
-  GitHubRepo,
-  GitHubTag,
-  GitHubTree,
-  GitHubUser,
-} from "../entities.js";
+import type { GitHubBranch, GitHubCollaborator, GitHubRef, GitHubRepo, GitHubTag, GitHubUser } from "../entities.js";
 import type { Collection, Entity } from "@emulators/core";
-import { formatRepo, formatUser, generateNodeId, generateSha, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import { formatRepo, formatUser, generateNodeId, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "../git-helpers.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
   mit: { key: "mit", name: "MIT License", spdx_id: "MIT" },
@@ -57,34 +48,15 @@ function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | n
   const readme = `# ${readmeTitle ?? repo.name}\n`;
   const size = Buffer.byteLength(readme, "utf8");
 
-  const blob = gh.blobs.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
-    content: readme,
-    encoding: "utf-8",
-    size,
-  } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-  gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-
-  const tree = gh.trees.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
-    tree: [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha }],
-    truncated: false,
-  } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-  gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
+  const blob = findOrCreateBlob(gh, repoId, Buffer.from(readme, "utf8"));
+  const tree = findOrCreateTree(gh, repoId, [{ path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size }]);
 
   const authorName = actor?.name ?? actor?.login ?? "User";
   const login = actor?.login ?? "user";
   const email = actor?.email ?? `${login}@users.noreply.github.com`;
   const now = timestamp();
 
-  const commit = gh.commits.insert({
-    repo_id: repoId,
-    sha: generateSha(),
-    node_id: "",
+  const commit = findOrCreateCommit(gh, repoId, {
     message: "Initial commit",
     author_name: authorName,
     author_email: email,
@@ -95,8 +67,7 @@ function seedInitialGit(gh: GitHubStore, repo: GitHubRepo, actor: GitHubUser | n
     tree_sha: tree.sha,
     parent_shas: [],
     user_id: actor?.id ?? null,
-  } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-  gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
+  });
 
   gh.branches.insert({
     repo_id: repoId,
@@ -312,6 +283,15 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
+    if (!repo) throw notFoundResponse();
+    assertRepoRead(gh, c.get("authUser"), repo);
+    return c.json(formatRepo(repo, gh, baseUrl));
+  });
+
+  app.get("/repositories/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) throw notFoundResponse();
+    const repo = gh.repos.get(id);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
     return c.json(formatRepo(repo, gh, baseUrl));
