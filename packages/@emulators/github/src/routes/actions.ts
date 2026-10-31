@@ -15,9 +15,10 @@ import type {
 import { formatRepo, formatUser, generateNodeId, generateSha, lookupRepo, timestamp } from "../helpers.js";
 import {
   assertAuthenticatedActor,
-  assertRepoAdmin,
   assertRepoPermission,
+  assertRepoRole,
   getActorUser,
+  missingAdminRights,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -57,6 +58,13 @@ function assertOrgAdmin(gh: GitHubStore, authUser: AuthUser | undefined, org: Gi
   if (orgRoleForUser(gh, org.id, user.id) === "admin") return;
   throw forbidden();
 }
+
+const missingPushAccess = () => new ApiError(403, "You must have push access to this repository.");
+const missingSecretsWrite = () =>
+  new ApiError(
+    403,
+    "You must have repository write permissions or have the repository secrets fine-grained permission.",
+  );
 
 function getOrgByLogin(gh: GitHubStore, login: string): GitHubOrg | undefined {
   return gh.orgs.findOneBy("login", login);
@@ -311,7 +319,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoAdmin(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "write", "actions", missingAdminRights);
     const w = resolveWorkflow(gh, repo.id, c.req.param("workflow_id")!);
     if (!w) throw notFoundResponse();
     gh.workflows.update(w.id, { state: "disabled_manually" });
@@ -323,7 +331,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoAdmin(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "write", "actions", missingAdminRights);
     const w = resolveWorkflow(gh, repo.id, c.req.param("workflow_id")!);
     if (!w) throw notFoundResponse();
     gh.workflows.update(w.id, { state: "active" });
@@ -531,7 +539,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoAdmin(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "write", "actions", missingAdminRights);
     const runId = parseInt(c.req.param("run_id")!, 10);
     const run = gh.workflowRuns.get(runId);
     if (!run || run.repo_id !== repo.id) throw notFoundResponse();
@@ -647,7 +655,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoAdmin(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "write", "actions", missingPushAccess);
     const artifactId = parseInt(c.req.param("artifact_id")!, 10);
     const a = gh.artifacts.get(artifactId);
     if (!a || a.repo_id !== repo.id) throw notFoundResponse();
@@ -694,7 +702,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoAdmin(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "write", "secrets", missingSecretsWrite);
     await parseJsonBody(c);
     const name = c.req.param("secret_name")!;
     const existing = findRepoSecret(gh, repo.id, name);
@@ -716,7 +724,7 @@ export function actionsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoAdmin(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "write", "secrets", missingSecretsWrite);
     const name = c.req.param("secret_name")!;
     const s = findRepoSecret(gh, repo.id, name);
     if (!s) throw notFoundResponse();

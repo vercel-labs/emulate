@@ -1218,9 +1218,9 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await send("PUT", "/orgs/acme/teams/qa/repos/acme/vault", vaultAdmin, "member-token")).toMatchObject(
         noRepoAdmin,
       );
-      expect(await send("PATCH", "/repos/acme/vault", { description: "taken" }, "member-token")).toMatchObject({
-        status: 403,
-      });
+      expect(await send("PATCH", "/repos/acme/vault", { description: "taken" }, "member-token")).toMatchObject(
+        notFound,
+      );
       expect(await send("PUT", "/orgs/acme/teams/devs/repos/acme/vault", vaultAdmin, "outsider-token")).toMatchObject(
         notFound,
       );
@@ -1301,6 +1301,79 @@ describe("GitHub GraphQL fidelity", () => {
       });
       expect(await reposCount()).toBe(0);
       expect(gh.teamRepos.all()).toEqual([]);
+    });
+
+    it("keeps admin-only actions from maintainers and maintainer actions from writers", async () => {
+      await seedOrg("read");
+      seedFromConfig(server.store, base, { repos: [{ owner: "acme", name: "vault", private: true }] });
+      const vault = gh.repos.findOneBy("full_name", "acme/vault")!;
+      gh.collaborators.insert({
+        repo_id: vault.id,
+        user_id: gh.users.findOneBy("login", "member")!.id,
+        permission: "maintain",
+      });
+      gh.collaborators.insert({
+        repo_id: vault.id,
+        user_id: gh.users.findOneBy("login", "writer")!.id,
+        permission: "push",
+      });
+      const workflow = gh.workflows.insert({
+        node_id: "W_1",
+        repo_id: vault.id,
+        name: "CI",
+        path: ".github/workflows/ci.yml",
+        state: "active",
+        badge_url: "",
+      });
+      const notFound = { status: 404, body: { message: "Not Found" } };
+      const noAdmin = { status: 403, body: { message: "Must have admin rights to Repository." } };
+      const V = "/repos/acme/vault";
+
+      expect(await send("POST", "/orgs/acme/teams", { name: "Mine" }, "member-token")).toMatchObject({ status: 201 });
+      expect(
+        await send("PUT", `/orgs/acme/teams/mine/repos/acme/vault`, { permission: "admin" }, "member-token"),
+      ).toMatchObject({
+        status: 403,
+        body: { message: "You must have administrative rights on this repository." },
+      });
+      expect((await send("GET", V, undefined, "member-token")).body.permissions).toMatchObject({
+        admin: false,
+        maintain: true,
+      });
+      expect(await send("DELETE", V, undefined, "member-token")).toMatchObject(noAdmin);
+      expect(await send("POST", `${V}/transfer`, { new_owner: "member" }, "member-token")).toMatchObject(noAdmin);
+      expect(await send("PATCH", V, { description: "mine" }, "member-token")).toMatchObject(notFound);
+      expect(await send("PUT", `${V}/collaborators/outsider`, { permission: "admin" }, "member-token")).toMatchObject(
+        notFound,
+      );
+      expect(await send("DELETE", `${V}/collaborators/writer`, undefined, "member-token")).toMatchObject(notFound);
+      expect(await send("GET", `${V}/hooks`, undefined, "member-token")).toMatchObject(notFound);
+      expect(await send("PUT", `${V}/branches/main/protection`, {}, "member-token")).toMatchObject(notFound);
+      expect(await send("PUT", `${V}/topics`, { names: ["mine"] }, "member-token")).toMatchObject({
+        status: 200,
+        body: { names: ["mine"] },
+      });
+
+      expect(await send("PUT", `${V}/topics`, { names: ["w"] }, "writer-token")).toMatchObject(notFound);
+      expect(
+        await send("PUT", `${V}/actions/workflows/${workflow.id}/disable`, undefined, "writer-token"),
+      ).toMatchObject({ status: 204 });
+      expect(await send("PUT", `${V}/actions/secrets/TOKEN`, {}, "writer-token")).toMatchObject({ status: 201 });
+      expect(await send("DELETE", `${V}/collaborators/writer`, undefined, "writer-token")).toMatchObject({
+        status: 204,
+      });
+      expect(
+        await send("PUT", `${V}/actions/workflows/${workflow.id}/enable`, undefined, "teammate-token"),
+      ).toMatchObject(noAdmin);
+      expect(await send("DELETE", `${V}/actions/secrets/TOKEN`, undefined, "teammate-token")).toMatchObject({
+        status: 403,
+        body: {
+          message: "You must have repository write permissions or have the repository secrets fine-grained permission.",
+        },
+      });
+
+      expect(await send("PATCH", V, { description: "owned" }, "owner-token")).toMatchObject({ status: 200 });
+      expect(await send("DELETE", V, undefined, "owner-token")).toMatchObject({ status: 204 });
     });
 
     it("treats a stored team grant without a permission as the team's permission", async () => {

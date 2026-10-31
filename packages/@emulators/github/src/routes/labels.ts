@@ -26,7 +26,7 @@ import {
 import {
   assertRepoPermission,
   assertRepoRole,
-  missingIssueRole,
+  missingAdminRights,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -121,7 +121,7 @@ export function assertIssueLabelsWritable(
   authUser: AuthUser | undefined,
   repo: GitHubRepo,
 ): GitHubUser {
-  const actor = assertRepoRole(gh, authUser, repo, "triage", "issues", missingIssueRole);
+  const actor = assertRepoRole(gh, authUser, repo, "triage", "issues", missingAdminRights);
   if (!repo.has_issues) throw notFoundResponse();
   return actor;
 }
@@ -377,7 +377,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -500,7 +500,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -545,7 +545,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
+    assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);

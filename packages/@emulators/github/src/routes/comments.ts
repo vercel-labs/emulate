@@ -18,7 +18,7 @@ import {
   assertRepoPermission,
   assertRepoParticipant,
   isAuthorOrHasRole,
-  missingIssueRole,
+  missingAdminRights,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -121,7 +121,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     let comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
     if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", ["issues", "pull_requests"])) {
-      throw missingIssueRole();
+      throw missingAdminRights();
     }
 
     const body = await parseJsonBody(c);
@@ -168,7 +168,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
     if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", ["issues", "pull_requests"])) {
-      throw missingIssueRole();
+      throw missingAdminRights();
     }
 
     const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;

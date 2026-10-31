@@ -3,10 +3,14 @@ import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } fr
 import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
+  assertRepoAdmin,
   assertRepoRead,
+  assertRepoRole,
+  canAccessRepo,
   formatRepoForCaller,
-  hasRepoAdmin,
+  getActorUser,
   hasRepoContentsWrite,
+  missingAdminRights,
   isOrgMember,
   notFoundResponse,
   ownerLoginOf,
@@ -450,10 +454,8 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
+    const user = assertRepoAdmin(gh, authUser, repo);
 
     const body = await parseJsonBody(c);
     const patch: Partial<GitHubRepo> = {};
@@ -547,8 +549,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
+    const user = assertRepoAdmin(gh, authUser, repo, missingAdminRights);
 
     webhooks.dispatch(
       "repository",
@@ -576,9 +577,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
+    assertRepoRole(gh, c.get("authUser"), repo, "maintain", "administration");
 
     const body = (await parseJsonBody(c)) as { names?: unknown };
     const names = Array.isArray(body.names) ? body.names.filter((n): n is string => typeof n === "string") : [];
@@ -808,9 +807,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const username = c.req.param("username")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
+    assertRepoAdmin(gh, c.get("authUser"), repo);
 
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
@@ -839,10 +836,9 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
-
     const target = gh.users.findOneBy("login", username);
+    const actor = authUser && !authUser.installation ? getActorUser(gh, authUser) : undefined;
+    if (!actor || actor.id !== target?.id || !canAccessRepo(gh, authUser, repo)) assertRepoAdmin(gh, authUser, repo);
     if (!target) throw notFoundResponse();
 
     const existing = gh.collaborators.findBy("repo_id", repo.id).find((col) => col.user_id === target.id);
@@ -878,8 +874,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
+    const actor = assertRepoAdmin(gh, authUser, repo, missingAdminRights);
 
     const body = (await parseJsonBody(c)) as { new_owner?: unknown };
     if (typeof body.new_owner !== "string" || !body.new_owner.trim()) {

@@ -8,7 +8,7 @@ import {
   assertRepoRole,
   hasRepoRole,
   isAuthorOrHasRole,
-  missingIssueRole,
+  missingAdminRights,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -405,7 +405,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
-    if (!isAuthorOrHasRole(gh, authUser, repo, issue.user_id, "triage", "issues")) throw missingIssueRole();
+    if (!isAuthorOrHasRole(gh, authUser, repo, issue.user_id, "triage", "issues")) throw missingAdminRights();
 
     const beforePatch = issue;
 
@@ -692,7 +692,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingIssueRole);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
@@ -737,7 +737,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingIssueRole);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
@@ -800,7 +800,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
@@ -848,7 +848,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingIssueRole);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 

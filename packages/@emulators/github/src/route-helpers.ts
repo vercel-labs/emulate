@@ -3,14 +3,7 @@ import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
 import type { RepoPermissions } from "./helpers.js";
-import {
-  formatRepo,
-  generateNodeId,
-  isOrgOwner,
-  repoAccessLevel,
-  repoPermissionFlags,
-  repoPermissionLevel,
-} from "./helpers.js";
+import { formatRepo, generateNodeId, repoAccessLevel, repoPermissionFlags, repoPermissionLevel } from "./helpers.js";
 
 export { notFound as notFoundResponse };
 
@@ -165,8 +158,7 @@ export function assertAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | u
 }
 
 export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  const level = repoPermissionLevel(gh, repo, user.id);
-  return level === "admin" || level === "maintain";
+  return repoPermissionLevel(gh, repo, user.id) === "admin";
 }
 
 export function hasRepoContentsWrite(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
@@ -188,14 +180,7 @@ export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | un
 }
 
 function hasBranchProtectionBypass(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (user.site_admin) return true;
-  if (repo.owner_type === "User") return repo.owner_id === user.id;
-
-  if (isOrgOwner(gh, repo.owner_id, user.id)) return true;
-
-  return gh.collaborators
-    .findBy("repo_id", repo.id)
-    .some((collaborator) => collaborator.user_id === user.id && collaborator.permission === "admin");
+  return user.site_admin || hasRepoAdmin(gh, user, repo);
 }
 
 function branchRestrictionsAllow(
@@ -290,15 +275,13 @@ export function assertBranchUpdateAllowed(
   }
 }
 
-export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  if (authUser?.installation) {
-    assertRepoPermission(gh, authUser, repo, "administration", "write");
-    return assertAuthenticatedActor(gh, authUser);
-  }
-
-  const user = assertAuthenticatedUser(gh, authUser);
-  if (hasRepoAdmin(gh, user, repo)) return user;
-  throw forbidden();
+export function assertRepoAdmin(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  denied: () => ApiError = notFound,
+): GitHubUser {
+  return assertRepoRole(gh, authUser, repo, "admin", "administration", denied);
 }
 
 /** Anyone who can see a repository may open issues and pull requests on it, comment, and review. */
@@ -318,11 +301,12 @@ export function assertRepoParticipant(
   return user;
 }
 
-export type RepoRole = "triage" | "write";
+export type RepoRole = "triage" | "write" | "maintain" | "admin";
 
-function hasRepoTriage(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  const level = repoPermissionLevel(gh, repo, user.id);
-  return level !== null && level !== "pull";
+const ROLE_FLAGS = { triage: "triage", write: "push", maintain: "maintain", admin: "admin" } as const;
+
+function userHasRepoRole(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo, role: RepoRole): boolean {
+  return repoPermissionFlags(repoPermissionLevel(gh, repo, user.id))[ROLE_FLAGS[role]];
 }
 
 export function hasRepoRole(
@@ -337,7 +321,7 @@ export function hasRepoRole(
   if (authUser.installation) return canAccessRepoWithPermission(gh, authUser, repo, accepted, "write");
   const user = getActorUser(gh, authUser);
   if (!user || !canAccessRepo(gh, authUser, repo)) return false;
-  return role === "write" ? hasRepoContentsWrite(gh, user, repo) : hasRepoTriage(gh, user, repo);
+  return userHasRepoRole(gh, user, repo, role);
 }
 
 /** Authors may edit, close, and reopen their own issues, pull requests, and comments without a repository role. */
@@ -355,8 +339,8 @@ export function isAuthorOrHasRole(
   return hasRepoRole(gh, authUser, repo, role, permissions);
 }
 
-/** GitHub's issue routes refuse a caller without the role with this 403. */
-export function missingIssueRole(): ApiError {
+/** GitHub's issue, delete, transfer, and workflow routes refuse a caller without the role with this 403. */
+export function missingAdminRights(): ApiError {
   return new ApiError(403, "Must have admin rights to Repository.");
 }
 
