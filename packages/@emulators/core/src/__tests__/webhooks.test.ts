@@ -176,7 +176,7 @@ describe("WebhookDispatcher", () => {
       expect(mockFetch.mock.calls.map((c) => c[0])).toEqual(["https://hooks.example/1", "https://hooks.example/2"]);
     });
 
-    it("respects event filtering (and allows ping for any subscription)", async () => {
+    it("respects event filtering, and delivers a ping to the one subscription named", async () => {
       const d = new WebhookDispatcher();
       d.register({
         url: "https://hooks.example/push-only",
@@ -202,14 +202,33 @@ describe("WebhookDispatcher", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
       mockFetch.mockClear();
-      d.register({
+      const pinged = d.register({
         url: "https://hooks.example/ping",
         events: ["push"],
         active: true,
         owner: "o3",
       });
-      await d.dispatch("ping", undefined, {}, "o3");
+      d.register({ url: "https://hooks.example/other", events: ["*"], active: true, owner: "o3" });
+      await d.deliverTo(pinged.id, "ping", undefined, {});
       expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0]![0]).toBe("https://hooks.example/ping");
+    });
+
+    it("delivers repository events to owner-level subscriptions too, and owner events only to them", async () => {
+      const d = new WebhookDispatcher();
+      d.register({ url: "https://hooks.example/org", events: ["*"], active: true, owner: "acme" });
+      d.register({ url: "https://hooks.example/repo", events: ["*"], active: true, owner: "acme", repo: "widgets" });
+      d.register({ url: "https://hooks.example/other-repo", events: ["*"], active: true, owner: "acme", repo: "vault" });
+
+      await d.dispatch("issues", "opened", {}, "acme", "widgets");
+      expect(mockFetch.mock.calls.map(([url]) => url).sort()).toEqual([
+        "https://hooks.example/org",
+        "https://hooks.example/repo",
+      ]);
+
+      mockFetch.mockClear();
+      await d.dispatch("organization", "member_added", {}, "acme");
+      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(["https://hooks.example/org"]);
     });
 
     it("skips inactive subscriptions", async () => {

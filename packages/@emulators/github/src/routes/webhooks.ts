@@ -10,7 +10,6 @@ import {
   assertRepoAdmin,
   getActorUser,
   notFoundResponse,
-  ownerLoginOf,
 } from "../route-helpers.js";
 
 function teamsForOrg(gh: GitHubStore, orgId: number) {
@@ -268,17 +267,11 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!wh) throw notFoundResponse();
 
     const ownerPath = `${owner}/${repoName}`;
-    await webhooks.dispatch(
-      "ping",
-      undefined,
-      {
-        zen: "Keep it logically awesome.",
-        hook_id: wh.id,
-        hook: formatWebhook(wh, baseUrl, ownerPath),
-      },
-      owner,
-      repo.name,
-    );
+    await webhooks.deliverTo(wh.id, "ping", undefined, {
+      zen: "Keep it logically awesome.",
+      hook_id: wh.id,
+      hook: formatWebhook(wh, baseUrl, ownerPath),
+    });
     return c.body(null, 204);
   });
 
@@ -294,7 +287,6 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const wh = findRepoHook(gh, repo.id, hookId);
     if (!wh) throw notFoundResponse();
 
-    const ownerLogin = ownerLoginOf(gh, repo);
     const actor = assertAuthenticatedActor(gh, c.get("authUser"));
     const testPayload = {
       ref: "refs/heads/main",
@@ -304,7 +296,9 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       pusher: actor ? formatUser(actor, baseUrl) : null,
       sender: actor ? formatUser(actor, baseUrl) : null,
     };
-    await webhooks.dispatch("push", undefined, testPayload, ownerLogin, repo.name);
+    if (wh.events.includes("push") || wh.events.includes("*")) {
+      await webhooks.deliverTo(wh.id, "push", undefined, testPayload);
+    }
     return c.body(null, 204);
   });
 
@@ -479,17 +473,11 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const wh = findOrgHook(gh, org.id, hookId);
     if (!wh) throw notFoundResponse();
 
-    await webhooks.dispatch(
-      "ping",
-      undefined,
-      {
-        zen: "Keep it logically awesome.",
-        hook_id: wh.id,
-        hook: formatWebhook(wh, baseUrl, org.login),
-      },
-      org.login,
-      undefined,
-    );
+    await webhooks.deliverTo(wh.id, "ping", undefined, {
+      zen: "Keep it logically awesome.",
+      hook_id: wh.id,
+      hook: formatWebhook(wh, baseUrl, org.login),
+    });
     return c.body(null, 204);
   });
 }

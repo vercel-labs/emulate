@@ -115,17 +115,18 @@ export class WebhookDispatcher {
     const matchingSubs = this.subscriptions.filter((s) => {
       if (!s.active) return false;
       if (s.owner !== owner) return false;
-      if (repo !== undefined) {
-        if (s.repo !== repo) return false;
-      } else if (s.repo !== undefined) {
-        return false;
-      }
-      return event === "ping" || s.events.includes("*") || s.events.includes(event);
+      if (s.repo !== undefined && s.repo !== repo) return false;
+      return s.events.includes("*") || s.events.includes(event);
     });
 
     for (const sub of matchingSubs) {
       await this.deliver(sub, event, action, payload);
     }
+  }
+
+  async deliverTo(id: number, event: string, action: string | undefined, payload: unknown): Promise<void> {
+    const sub = this.getSubscription(id);
+    if (sub?.active) await this.deliver(sub, event, action, payload);
   }
 
   async redeliver(
