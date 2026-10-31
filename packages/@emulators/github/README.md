@@ -97,7 +97,8 @@ npm install @emulators/github
 
 ### Organizations & Teams
 - Orgs: get, update, list
-- Org members: list, check, remove, get/set membership
+- Org members: list, check, remove, get/set/remove membership
+- Invitations: list, cancel, list an invitation's teams, list a team's invitations, get and accept your own (`/user/memberships/orgs/:org`)
 - Teams: full CRUD, members, repos
 
 ### Releases
@@ -171,7 +172,7 @@ GH_HOST=github-emulator.localhost GH_ENTERPRISE_TOKEN=test_token_admin gh pr lis
 
 Public repo endpoints work without auth. Private repos and write operations require a valid token. A token that isn't seeded or minted gets `401 Bad credentials` on every API route, public ones included, as on GitHub. Basic credentials carry a token when the password, or the username with an empty password, looks like a GitHub token (`ghp_`, `gho_`, `ghu_`, `ghs_`, `github_pat_`, or 40 hex characters) or is a seeded token, and that token is checked the same way. Any other Basic credentials are ignored, so a wrong password on a public route still gets a 200, as on GitHub. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Pagination uses `page`/`per_page` with `Link` headers.
 
-Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Organization owners and team maintainers manage teams, and adding a repository to a team needs admin on it. Whoever creates an organization repository, or forks into the organization, is its admin.
+Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Organization owners and team maintainers manage teams, and adding a repository to a team needs admin on it. Adding a user who isn't an organization member to the organization or to a team creates a pending invitation, as on GitHub: the membership reads `state: pending` and grants nothing until the user accepts it with `PATCH /user/memberships/orgs/:org`. Only organization owners can invite to a team. Whoever creates an organization repository, or forks into the organization, is its admin.
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 

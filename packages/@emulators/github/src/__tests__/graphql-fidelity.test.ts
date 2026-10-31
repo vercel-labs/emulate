@@ -1388,6 +1388,75 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await grant({ permission: "owner" })).toMatchObject({ status: 422 });
     });
 
+    it("invites a user outside the organization to a team, as GitHub does", async () => {
+      await seedOrg("read");
+      seedFromConfig(server.store, base, { users: [{ login: "outsider" }] });
+      const outsider = gh.users.findOneBy("login", "outsider")!;
+      server.tokenMap.set("outsider-token", { login: "outsider", id: outsider.id, scopes: ["repo"] });
+      await send("PUT", "/orgs/acme/teams/devs/memberships/teammate", { role: "maintainer" }, "owner-token");
+
+      expect(
+        await send("PUT", "/orgs/acme/teams/devs/memberships/member", { role: "lead" }, "owner-token"),
+      ).toMatchObject({
+        status: 422,
+        body: { message: 'Invalid request.\n\nlead is not a member of ["member", "maintainer"].' },
+      });
+      expect(await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", {}, "teammate-token")).toMatchObject({
+        status: 403,
+        body: { message: "You must be an organization owner or team maintainer to add a team membership." },
+      });
+
+      const invited = await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", {}, "owner-token");
+      expect(invited).toMatchObject({ status: 200, body: { role: "member", state: "pending" } });
+      expect(
+        (await send("GET", "/orgs/acme/teams/devs/memberships/outsider", undefined, "owner-token")).body,
+      ).toMatchObject({ state: "pending" });
+      expect((await send("GET", "/orgs/acme/teams/devs", undefined, "owner-token")).body.members_count).toBe(1);
+      expect(await send("GET", "/orgs/acme/members/outsider", undefined, "owner-token")).toMatchObject({
+        status: 404,
+      });
+      expect(await send("GET", `${ORG_REPO}/issues`, undefined, "outsider-token")).toMatchObject({ status: 200 });
+      expect(await send("POST", `${ORG_REPO}/labels`, { name: "x" }, "outsider-token")).toMatchObject({
+        status: 404,
+      });
+      const listed = await send("GET", "/orgs/acme/teams/devs/invitations", undefined, "owner-token");
+      expect(listed.body).toMatchObject([{ login: "outsider", role: "direct_member", team_count: 1 }]);
+      expect(await send("GET", "/orgs/acme/invitations", undefined, "member-token")).toMatchObject({
+        status: 403,
+        body: { message: "You must be an admin to view organization pending invitations." },
+      });
+      expect((await send("GET", "/user/memberships/orgs/acme", undefined, "outsider-token")).body).toMatchObject({
+        state: "pending",
+        role: "member",
+      });
+
+      expect(await send("PATCH", "/user/memberships/orgs/acme", { state: "active" }, "outsider-token")).toMatchObject({
+        status: 200,
+        body: { state: "active", role: "member" },
+      });
+      expect(
+        (await send("GET", "/orgs/acme/teams/devs/memberships/outsider", undefined, "owner-token")).body,
+      ).toMatchObject({ state: "active", role: "member" });
+      expect((await send("GET", "/orgs/acme/invitations", undefined, "owner-token")).body).toEqual([]);
+      expect(
+        (await graphql(viewerPermissionQuery("widgets"), {}, "outsider-token")).data.repository.viewerPermission,
+      ).toBe("WRITE");
+
+      expect((await send("PUT", "/orgs/acme/memberships/hubot", { role: "admin" }, "owner-token")).body).toMatchObject({
+        state: "pending",
+        role: "admin",
+      });
+      expect(await send("PUT", "/orgs/acme/memberships/hubot", { role: "owner" }, "owner-token")).toMatchObject({
+        status: 422,
+      });
+      expect(await send("DELETE", "/orgs/acme/memberships/hubot", undefined, "owner-token")).toMatchObject({
+        status: 204,
+      });
+      expect(await send("GET", "/orgs/acme/memberships/hubot", undefined, "owner-token")).toMatchObject({
+        status: 404,
+      });
+    });
+
     it("keeps team management to org owners, team maintainers, and repository admins", async () => {
       await seedOrg("read");
       seedFromConfig(server.store, base, {

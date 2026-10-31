@@ -60,6 +60,16 @@ export interface GitHubTeamMember extends Entity {
   role: "member" | "maintainer";
 }
 
+/** An invitation to join an organization, with the teams the invitee joins on accepting. */
+export interface GitHubOrgInvitation extends Entity {
+  node_id: string;
+  org_id: number;
+  invitee_id: number;
+  inviter_id: number | null;
+  role: "admin" | "direct_member";
+  teams: Array<{ team_id: number; role: "member" | "maintainer" }>;
+}
+
 export interface GitHubTeamRepo extends Entity {
   team_id: number;
   repo_id: number;

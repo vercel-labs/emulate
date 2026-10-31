@@ -1,9 +1,9 @@
-import type { RouteContext, AuthUser } from "@emulators/core";
+import type { Context, RouteContext, AuthUser } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized, forbidden } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
-import type { GitHubOrg, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
+import type { GitHubOrg, GitHubOrgInvitation, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
 import { canAccessRepo, getActorUser, hasRepoAdmin, isOrgMember } from "../route-helpers.js";
 import {
   formatOrgBrief,
@@ -22,6 +22,8 @@ import {
 } from "../helpers.js";
 
 const MEMBERS_TEAM_SLUG = "members";
+const ORG_ROLES = ["admin", "member"] as const;
+const TEAM_ROLES = ["member", "maintainer"] as const;
 const ADMIN_RIGHTS = "Must have admin rights to Repository.";
 
 function isMemberOf(gh: GitHubStore, auth: AuthUser, org: GitHubOrg): boolean {
@@ -209,7 +211,54 @@ function deleteTeamCascade(gh: GitHubStore, team: GitHubTeam) {
   for (const tr of gh.teamRepos.findBy("team_id", team.id)) {
     gh.teamRepos.delete(tr.id);
   }
+  for (const invitation of gh.orgInvitations.findBy("org_id", team.org_id)) {
+    if (invitation.teams.some((t) => t.team_id === team.id)) {
+      gh.orgInvitations.update(invitation.id, { teams: invitation.teams.filter((t) => t.team_id !== team.id) });
+    }
+  }
   gh.teams.delete(team.id);
+}
+
+function findInvitation(gh: GitHubStore, orgId: number, userId: number): GitHubOrgInvitation | undefined {
+  return gh.orgInvitations.findBy("org_id", orgId).find((i) => i.invitee_id === userId);
+}
+
+/** Creates or updates the invitation GitHub sends when an owner adds a non-member to the organization or a team. */
+function inviteToOrg(
+  gh: GitHubStore,
+  org: GitHubOrg,
+  invitee: GitHubUser,
+  inviter: GitHubUser | undefined,
+  change: { role?: GitHubOrgInvitation["role"]; team?: GitHubOrgInvitation["teams"][number] },
+): GitHubOrgInvitation {
+  const existing = findInvitation(gh, org.id, invitee.id);
+  const teams = (existing?.teams ?? []).filter((t) => t.team_id !== change.team?.team_id);
+  if (change.team) teams.push(change.team);
+  const role = change.role ?? existing?.role ?? "direct_member";
+  if (existing) return gh.orgInvitations.update(existing.id, { role, teams }) ?? existing;
+  const row = gh.orgInvitations.insert({
+    node_id: "",
+    org_id: org.id,
+    invitee_id: invitee.id,
+    inviter_id: inviter?.id ?? null,
+    role,
+    teams,
+  });
+  return gh.orgInvitations.update(row.id, { node_id: generateNodeId("OrganizationInvitation", row.id) }) ?? row;
+}
+
+function acceptInvitation(gh: GitHubStore, org: GitHubOrg, invitation: GitHubOrgInvitation) {
+  const membersTeam = getOrCreateMembersTeam(gh, org);
+  const joins = [
+    { team_id: membersTeam.id, role: invitation.role === "admin" ? ("maintainer" as const) : ("member" as const) },
+    ...invitation.teams,
+  ];
+  for (const join of joins) {
+    const existing = gh.teamMembers.findBy("team_id", join.team_id).find((m) => m.user_id === invitation.invitee_id);
+    if (existing) gh.teamMembers.update(existing.id, { role: join.role });
+    else gh.teamMembers.insert({ team_id: join.team_id, user_id: invitation.invitee_id, role: join.role });
+  }
+  gh.orgInvitations.delete(invitation.id);
 }
 
 function removeUserFromAllOrgTeams(gh: GitHubStore, orgId: number, userId: number) {
@@ -235,17 +284,71 @@ function formatTeamMembership(
   teamSlug: string,
   user: GitHubUser,
   role: "member" | "maintainer",
+  state: "active" | "pending" = "active",
 ) {
   return {
     url: membershipUrl(baseUrl, orgLogin, teamSlug, user.login),
     role,
-    state: "active" as const,
+    state,
     user: formatUser(user, baseUrl),
   };
 }
 
+function formatOrgMembership(
+  baseUrl: string,
+  org: GitHubOrg,
+  user: GitHubUser,
+  role: "admin" | "member",
+  state: "active" | "pending",
+) {
+  return {
+    url: orgMembershipUrl(baseUrl, org.login, user.login),
+    state,
+    role,
+    organization_url: `${baseUrl}/orgs/${org.login}`,
+    user: formatUser(user, baseUrl),
+    organization: formatOrgBrief(org, baseUrl),
+  };
+}
+
+function formatInvitation(gh: GitHubStore, baseUrl: string, org: GitHubOrg, invitation: GitHubOrgInvitation) {
+  const invitee = gh.users.get(invitation.invitee_id);
+  const inviter = invitation.inviter_id !== null ? gh.users.get(invitation.inviter_id) : undefined;
+  return {
+    id: invitation.id,
+    node_id: invitation.node_id,
+    login: invitee?.login ?? null,
+    email: null,
+    role: invitation.role,
+    created_at: invitation.created_at,
+    failed_at: null,
+    failed_reason: null,
+    inviter: inviter ? formatUser(inviter, baseUrl) : null,
+    team_count: invitation.teams.length,
+    invitation_teams_url: `${baseUrl}/organizations/${org.id}/invitations/${invitation.id}/teams`,
+    invitation_source: "member",
+  };
+}
+
+/** GitHub's schema validation message for a value outside an enum. */
+function notAMemberOf(value: unknown, allowed: readonly string[]): ApiError {
+  const shown = typeof value === "string" ? value : JSON.stringify(value);
+  return new ApiError(
+    422,
+    `Invalid request.\n\n${shown} is not a member of ${JSON.stringify(allowed).replace(/,/g, ", ")}.`,
+  );
+}
+
 export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
+
+  const paginatedInvitations = (c: Context, org: GitHubOrg, invitations: GitHubOrgInvitation[]) => {
+    const { page, per_page } = parsePagination(c);
+    const sorted = [...invitations].sort((a, b) => a.id - b.id);
+    setLinkHeader(c, sorted.length, page, per_page);
+    const slice = sorted.slice((page - 1) * per_page, page * per_page);
+    return c.json(slice.map((invitation) => formatInvitation(gh, baseUrl, org, invitation)));
+  };
 
   const visibleTeamById = (c: { get: (k: "authUser") => AuthUser | undefined }, id: string | undefined) => {
     const team = gh.teams.get(parseInt(id ?? "", 10));
@@ -386,15 +489,10 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
     const role = orgRoleForUser(gh, org.id, user.id);
-    if (!role) throw notFound();
-    return c.json({
-      url: orgMembershipUrl(baseUrl, org.login, user.login),
-      state: "active",
-      role,
-      organization_url: `${baseUrl}/orgs/${org.login}`,
-      user: formatUser(user, baseUrl),
-      organization: formatOrgBrief(org, baseUrl),
-    });
+    if (role) return c.json(formatOrgMembership(baseUrl, org, user, role, "active"));
+    const invitation = findInvitation(gh, org.id, user.id);
+    if (!invitation) throw notFound();
+    return c.json(formatOrgMembership(baseUrl, org, user, invitation.role === "admin" ? "admin" : "member", "pending"));
   });
 
   app.put("/orgs/:org/memberships/:username", async (c) => {
@@ -406,13 +504,17 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!user) throw notFound();
 
     const body = await parseOptionalJsonBody(c);
-    const roleRaw = body.role;
-    if (roleRaw !== "admin" && roleRaw !== "member") {
-      throw new ApiError(422, "role must be admin or member");
+    const roleRaw = body.role ?? "member";
+    if (roleRaw !== "admin" && roleRaw !== "member") throw notAMemberOf(roleRaw, ORG_ROLES);
+
+    if (!isOrgMember(gh, user.id, org.id)) {
+      const inviter = getActorUser(gh, auth);
+      inviteToOrg(gh, org, user, inviter, { role: roleRaw === "admin" ? "admin" : "direct_member" });
+      return c.json(formatOrgMembership(baseUrl, org, user, roleRaw, "pending"));
     }
-    const teamRole: "member" | "maintainer" = roleRaw === "admin" ? "maintainer" : "member";
 
     const membersTeam = getOrCreateMembersTeam(gh, org);
+    const teamRole: "member" | "maintainer" = roleRaw === "admin" ? "maintainer" : "member";
     const existing = gh.teamMembers.findBy("team_id", membersTeam.id).find((m) => m.user_id === user.id);
     if (existing) {
       gh.teamMembers.update(existing.id, { role: teamRole });
@@ -420,15 +522,80 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       gh.teamMembers.insert({ team_id: membersTeam.id, user_id: user.id, role: teamRole });
     }
 
-    const orgRole = orgRoleForUser(gh, org.id, user.id)!;
-    return c.json({
-      url: orgMembershipUrl(baseUrl, org.login, user.login),
-      state: "active",
-      role: orgRole,
-      organization_url: `${baseUrl}/orgs/${org.login}`,
-      user: formatUser(user, baseUrl),
-      organization: formatOrgBrief(org, baseUrl),
-    });
+    return c.json(formatOrgMembership(baseUrl, org, user, orgRoleForUser(gh, org.id, user.id)!, "active"));
+  });
+
+  app.delete("/orgs/:org/memberships/:username", (c) => {
+    const auth = requireAuthUser(c);
+    const org = getOrgByLogin(gh, c.req.param("org")!);
+    if (!org) throw notFound();
+    requireOrgAdmin(gh, org, auth);
+    const user = gh.users.findOneBy("login", c.req.param("username")!);
+    if (!user) throw notFound();
+    const invitation = findInvitation(gh, org.id, user.id);
+    if (invitation) gh.orgInvitations.delete(invitation.id);
+    else if (isOrgMember(gh, user.id, org.id)) removeUserFromAllOrgTeams(gh, org.id, user.id);
+    else throw notFound();
+    return c.body(null, 204);
+  });
+
+  app.get("/orgs/:org/invitations", (c) => {
+    const auth = requireAuthUser(c);
+    const org = getOrgByLogin(gh, c.req.param("org")!);
+    if (!org) throw notFound();
+    const caller = getActorUser(gh, auth);
+    if (!caller || !isOrgOwner(gh, org.id, caller.id)) {
+      throw new ApiError(403, "You must be an admin to view organization pending invitations.");
+    }
+    return paginatedInvitations(c, org, gh.orgInvitations.findBy("org_id", org.id));
+  });
+
+  app.delete("/orgs/:org/invitations/:invitation_id", (c) => {
+    const auth = requireAuthUser(c);
+    const org = getOrgByLogin(gh, c.req.param("org")!);
+    if (!org) throw notFound();
+    requireOrgAdmin(gh, org, auth);
+    const invitation = gh.orgInvitations.get(parseInt(c.req.param("invitation_id")!, 10));
+    if (!invitation || invitation.org_id !== org.id) throw notFound();
+    gh.orgInvitations.delete(invitation.id);
+    return c.body(null, 204);
+  });
+
+  app.get("/orgs/:org/invitations/:invitation_id/teams", (c) => {
+    const auth = requireAuthUser(c);
+    const org = getOrgByLogin(gh, c.req.param("org")!);
+    if (!org) throw notFound();
+    requireOrgAdmin(gh, org, auth);
+    const invitation = gh.orgInvitations.get(parseInt(c.req.param("invitation_id")!, 10));
+    if (!invitation || invitation.org_id !== org.id) throw notFound();
+    const teams = invitation.teams.flatMap(({ team_id }) => gh.teams.get(team_id) ?? []);
+    return c.json(teams.map((team) => formatTeamBrief(team, gh, baseUrl)));
+  });
+
+  app.get("/user/memberships/orgs/:org", (c) => {
+    const auth = requireAuthUser(c);
+    const org = getOrgByLogin(gh, c.req.param("org")!);
+    const user = getActorUser(gh, auth);
+    if (!org || !user) throw notFound();
+    const role = orgRoleForUser(gh, org.id, user.id);
+    if (role) return c.json(formatOrgMembership(baseUrl, org, user, role, "active"));
+    const invitation = findInvitation(gh, org.id, user.id);
+    if (!invitation) throw notFound();
+    return c.json(formatOrgMembership(baseUrl, org, user, invitation.role === "admin" ? "admin" : "member", "pending"));
+  });
+
+  app.patch("/user/memberships/orgs/:org", async (c) => {
+    const auth = requireAuthUser(c);
+    const org = getOrgByLogin(gh, c.req.param("org")!);
+    const user = getActorUser(gh, auth);
+    if (!org || !user) throw notFound();
+    const body = await parseJsonBody(c);
+    if (body.state !== "active") throw notAMemberOf(body.state, ["active"]);
+    const invitation = findInvitation(gh, org.id, user.id);
+    if (invitation) acceptInvitation(gh, org, invitation);
+    const role = orgRoleForUser(gh, org.id, user.id);
+    if (!role) throw notFound();
+    return c.json(formatOrgMembership(baseUrl, org, user, role, "active"));
   });
 
   app.get("/orgs/:org/teams", (c) => {
@@ -588,7 +755,18 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!user) throw notFound();
 
     const body = await parseOptionalJsonBody(c);
-    const role: "member" | "maintainer" = body.role === "maintainer" ? "maintainer" : "member";
+    const role = body.role ?? "member";
+    if (role !== "member" && role !== "maintainer") throw notAMemberOf(role, TEAM_ROLES);
+
+    if (!isOrgMember(gh, user.id, org.id)) {
+      const auth = c.get("authUser")!;
+      const owner = auth.installation ? access.manage : Boolean(access.user && isOrgOwner(gh, org.id, access.user.id));
+      if (!owner) {
+        throw new ApiError(403, "You must be an organization owner or team maintainer to add a team membership.");
+      }
+      inviteToOrg(gh, org, user, access.user, { team: { team_id: team.id, role } });
+      return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, role, "pending"));
+    }
 
     const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
     if (existing) {
@@ -598,6 +776,17 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     }
 
     return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, role));
+  });
+
+  app.get("/orgs/:org/teams/:team_slug/invitations", (c) => {
+    const { org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    if (!access.manage) {
+      throw new ApiError(403, "You must be an organization owner or team maintainer to list team invitations.");
+    }
+    const invitations = gh.orgInvitations
+      .findBy("org_id", org.id)
+      .filter((i) => i.teams.some((t) => t.team_id === team.id));
+    return paginatedInvitations(c, org, invitations);
   });
 
   app.delete("/orgs/:org/teams/:team_slug/memberships/:username", (c) => {
@@ -612,6 +801,10 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (existing) {
       gh.teamMembers.delete(existing.id);
     }
+    const invitation = findInvitation(gh, team.org_id, user.id);
+    if (invitation?.teams.some((t) => t.team_id === team.id)) {
+      gh.orgInvitations.update(invitation.id, { teams: invitation.teams.filter((t) => t.team_id !== team.id) });
+    }
     return c.body(null, 204);
   });
 
@@ -621,9 +814,10 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!user) throw notFound();
 
     const m = gh.teamMembers.findBy("team_id", team.id).find((x) => x.user_id === user.id);
-    if (!m) throw notFound();
-
-    return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, m.role));
+    if (m) return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, m.role));
+    const invited = findInvitation(gh, org.id, user.id)?.teams.find((t) => t.team_id === team.id);
+    if (!invited) throw notFound();
+    return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, invited.role, "pending"));
   });
 
   app.get("/orgs/:org/teams/:team_slug/repos", (c) => {
