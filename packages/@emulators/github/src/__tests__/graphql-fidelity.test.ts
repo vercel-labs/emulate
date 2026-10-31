@@ -958,6 +958,36 @@ describe("GitHub GraphQL fidelity", () => {
     expect(login.status).not.toBe(401);
   });
 
+  it("reads a token from Basic credentials only where GitHub does", async () => {
+    const basic = async (path: string, credentials: string) => {
+      const res = await app.request(`${base}${path}`, {
+        headers: { Authorization: `Basic ${Buffer.from(credentials).toString("base64")}` },
+      });
+      return { status: res.status, body: await res.json() };
+    };
+    const badCredentials = { status: 401, body: { message: "Bad credentials" } };
+    const unknownToken = `ghp_${"0".repeat(36)}`;
+
+    expect(await basic(REPO, "octocat:definitely-wrong")).toMatchObject({ status: 200 });
+    expect(await basic(REPO, "octocat:")).toMatchObject({ status: 200 });
+    expect(await basic(REPO, `${unknownToken}:wrong`)).toMatchObject({ status: 200 });
+    expect(await basic("/user", "octocat:definitely-wrong")).toMatchObject({
+      status: 401,
+      body: { message: "Requires authentication" },
+    });
+    expect(await basic(REPO, `octocat:${unknownToken}`)).toMatchObject(badCredentials);
+    expect(await basic(REPO, `${unknownToken}:`)).toMatchObject(badCredentials);
+    expect(await basic(REPO, `${unknownToken}:x-oauth-basic`)).toMatchObject(badCredentials);
+    expect(await basic(REPO, `x:gho_${"a".repeat(36)}`)).toMatchObject(badCredentials);
+    expect(await basic(REPO, `x:${"0123456789abcdef".repeat(2)}01234567`)).toMatchObject(badCredentials);
+    expect(await basic("/graphql", `x:${unknownToken}`)).toMatchObject(badCredentials);
+    const malformed = await app.request(`${base}${REPO}`, { headers: { Authorization: "Basic !!!notbase64" } });
+    expect(malformed.status).toBe(401);
+
+    expect(await basic("/user", "octocat:test-token")).toMatchObject({ status: 200, body: { login: "octocat" } });
+    expect(await basic("/user", "test-token:x-oauth-basic")).toMatchObject({ status: 200, body: { login: "octocat" } });
+  });
+
   it("serves and edits a pull request through the issue routes, as GitHub does", async () => {
     const pr = await seedPr();
     const issue = await send("GET", `${REPO}/issues/${pr.number}`);

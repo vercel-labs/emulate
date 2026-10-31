@@ -726,7 +726,20 @@ export const githubPlugin: ServicePlugin = {
       401,
     );
   },
+  basicAuthToken(username, password, isKnown) {
+    const isToken = (value: string) => isKnown(value) || GITHUB_TOKEN_SHAPES.some((shape) => shape.test(value));
+    if (isToken(password)) return password;
+    if ((password === "" || password === "x-oauth-basic") && isToken(username)) return username;
+    return undefined;
+  },
 };
+
+/** Token formats api.github.com recognises in Basic credentials; anything else there is a password and is ignored. */
+const GITHUB_TOKEN_SHAPES = [
+  /^gh[opsu]_[A-Za-z0-9]{36}$/i,
+  /^github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}$/,
+  /^[0-9a-f]{40}$/,
+];
 
 /** github.com pages and emulator tooling, which don't authenticate API tokens. */
 const WEB_PATH_PREFIXES = ["/login/", "/settings/", "/_emulate"];

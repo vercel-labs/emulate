@@ -50,7 +50,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
   const unknownToken: UnknownTokenPolicy | undefined = plugin.rejectUnknownToken
-    ? { kind: "reject", respond: (c) => plugin.rejectUnknownToken!(c) }
+    ? { kind: "reject", respond: (c) => plugin.rejectUnknownToken!(c), basicToken: plugin.basicAuthToken }
     : options.fallbackUser && { kind: "fallback", user: options.fallbackUser };
   app.use("*", authMiddleware(tokenMap, options.appKeyResolver, unknownToken));
 
