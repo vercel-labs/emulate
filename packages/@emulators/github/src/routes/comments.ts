@@ -6,7 +6,7 @@ import type { GitHubStore } from "../store.js";
 import type { GitHubComment, GitHubCommit, GitHubIssue, GitHubPullRequest, GitHubRepo } from "../entities.js";
 import {
   formatComment,
-  formatIssue,
+  formatIssueOrPullRequest,
   formatPullRequest,
   formatRepo,
   formatUser,
@@ -124,7 +124,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     comment = gh.comments.update(comment.id, { body: body.body })!;
     const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
     const ownerLogin = ownerLoginOf(gh, repo);
-    const issueFmt = issue ? formatIssue(issue, gh, baseUrl) : null;
+    const issueFmt = issue ? formatIssueOrPullRequest(issue, gh, baseUrl) : null;
     const commentFmt = formatComment(comment, gh, baseUrl);
     if (!commentFmt) throw notFoundResponse();
 
@@ -165,7 +165,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
 
     const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
-    const issueFmt = issue ? formatIssue(issue, gh, baseUrl) : null;
+    const issueFmt = issue ? formatIssueOrPullRequest(issue, gh, baseUrl) : null;
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
@@ -514,7 +514,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       {
         action: "created",
         comment: commentFmt,
-        issue: formatIssue(issue, gh, baseUrl),
+        issue: formatIssueOrPullRequest(issue, gh, baseUrl),
         repository: formatRepo(repo, gh, baseUrl),
         sender: formatUser(actor, baseUrl),
       },

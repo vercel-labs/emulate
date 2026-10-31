@@ -1031,6 +1031,27 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  it("sends a pull request in the issue shape with issue_comment webhooks", async () => {
+    const pr = await seedPr();
+    const dispatch = vi.spyOn(server.webhooks, "dispatch");
+    const created = await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "hi" });
+    expect(created.body.html_url).toBe(`${base}/octocat/hello-world/pull/${pr.number}#issuecomment-${created.body.id}`);
+    await send("PATCH", `${REPO}/issues/comments/${created.body.id}`, { body: "edited" });
+    await send("DELETE", `${REPO}/issues/comments/${created.body.id}`);
+    const issuePayloads = dispatch.mock.calls
+      .filter(([event]) => event === "issue_comment")
+      .map(([, action, payload]) => [action, (payload as { issue: Record<string, unknown> }).issue]);
+    expect(issuePayloads.map(([action]) => action)).toEqual(["created", "edited", "deleted"]);
+    for (const [, issue] of issuePayloads) {
+      expect(issue).toMatchObject({
+        number: pr.number,
+        html_url: `${base}/octocat/hello-world/pull/${pr.number}`,
+        pull_request: { url: `${base}${REPO}/pulls/${pr.number}` },
+      });
+    }
+    dispatch.mockRestore();
+  });
+
   it("counts a pull request's comments the same on every route", async () => {
     const pr = await seedPr();
     const first = await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "one" });

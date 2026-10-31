@@ -468,6 +468,10 @@ export const PULL_REQUEST_FIELDS = [
   "closed_at",
 ] as const;
 
+function isPullRequestNumber(store: GitHubStore, repoId: number, number: number | null): boolean {
+  return store.pullRequests.findBy("repo_id", repoId).some((p) => p.number === number);
+}
+
 function findPullForIssue(store: GitHubStore, issue: GitHubIssue) {
   return issue.is_pull_request
     ? store.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number)
@@ -650,9 +654,10 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
 
   if (comment.comment_type === "issue") {
+    const page = isPullRequestNumber(store, repo.id, comment.issue_number) ? "pull" : "issues";
     return {
       url: `${repoUrl}/issues/comments/${comment.id}`,
-      html_url: `${baseUrl}/${repo.full_name}/issues/${comment.issue_number}#issuecomment-${comment.id}`,
+      html_url: `${baseUrl}/${repo.full_name}/${page}/${comment.issue_number}#issuecomment-${comment.id}`,
       issue_url: `${repoUrl}/issues/${comment.issue_number}`,
       id: comment.id,
       node_id: comment.node_id,
