@@ -721,7 +721,10 @@ export const githubPlugin: ServicePlugin = {
     if (WEB_PATH_PREFIXES.some((prefix) => c.req.path.startsWith(prefix)) || RAW_CONTENT_PATH.test(c.req.path)) {
       return undefined;
     }
-    return c.json({ message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" }, 401);
+    return c.json(
+      { message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" },
+      401,
+    );
   },
 };
 
