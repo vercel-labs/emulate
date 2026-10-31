@@ -440,7 +440,7 @@ GitHub organization `members` are optional. Entries reference seeded users by `l
 
 Tokens map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`. When no tokens are configured, a default `test_token_admin` is created for the `admin` user.
 
-Each service also has a fallback user. If no token is provided, requests authenticate as the first seeded user.
+Each service also has a fallback user: a token the seed doesn't define authenticates as the first seeded user. Requests without a token are anonymous.
 
 ## HTTPS with portless
 

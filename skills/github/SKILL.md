@@ -75,7 +75,13 @@ curl http://localhost:4001/user \
   -H "Authorization: Bearer test_token_admin"
 ```
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. When no token is provided, requests fall back to the first seeded user.
+The examples below use `$TOKEN` for `octocat`, who owns `hello-world` and `my-org` in the [seed config](#seed-config):
+
+```bash
+export TOKEN=test_token_octocat
+```
+
+Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Requests without a token are anonymous, as on GitHub. A token that the seed doesn't define authenticates as the first seeded user.
 
 Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Organization owners and team maintainers manage teams, and adding a repository to a team needs admin on it. Whoever creates an organization repository, or forks into the organization, is its admin.
 
@@ -196,6 +202,9 @@ tokens:
   test_token_admin:
     login: admin
     scopes: [repo, user, admin:org, admin:repo_hook]
+  test_token_octocat:
+    login: octocat
+    scopes: [repo, user, admin:org, admin:repo_hook]
 
 github:
   users:
@@ -216,6 +225,7 @@ github:
       members:
         - login: octocat
           role: admin
+        - login: admin
   repos:
     - owner: octocat
       name: hello-world
@@ -310,7 +320,7 @@ curl -X PATCH http://localhost:4001/repos/octocat/hello-world \
   -d '{"description": "Updated description"}'
 
 # Delete repo (cascades issues, PRs, etc.)
-curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
+curl -X DELETE http://localhost:4001/repos/octocat/new-repo \
   -H "Authorization: Bearer $TOKEN"
 
 # Topics, languages, contributors, forks, collaborators, tags, transfer
@@ -338,7 +348,7 @@ curl -X PUT http://localhost:4001/repos/octocat/hello-world/contents/notes.txt \
 # List commits, get a commit with file stats, or compare refs
 curl http://localhost:4001/repos/octocat/hello-world/commits
 curl http://localhost:4001/repos/octocat/hello-world/commits/main
-curl http://localhost:4001/repos/octocat/hello-world/compare/v1.0.0...main
+curl http://localhost:4001/repos/octocat/hello-world/compare/main...main
 ```
 
 ### Issues
@@ -362,14 +372,22 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
 # List PRs
 curl "http://localhost:4001/repos/octocat/hello-world/pulls?state=open"
 
-# Create PR
+# Create a branch with a commit, then open a PR from it
+curl -X POST http://localhost:4001/repos/octocat/hello-world/git/refs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"ref\": \"refs/heads/feature-branch\", \"sha\": \"$(curl -s http://localhost:4001/repos/octocat/hello-world/git/ref/heads/main | jq -r .object.sha)\"}"
+curl -X PUT http://localhost:4001/repos/octocat/hello-world/contents/feature.txt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Add feature", "content": "ZmVhdHVyZQo=", "branch": "feature-branch"}'
 curl -X POST http://localhost:4001/repos/octocat/hello-world/pulls \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": "Feature", "head": "feature-branch", "base": "main"}'
 
-# Merge PR (enforces branch protection)
-curl -X PUT http://localhost:4001/repos/octocat/hello-world/pulls/1/merge \
+# Merge PR #2 (the issue above took #1; enforces branch protection)
+curl -X PUT http://localhost:4001/repos/octocat/hello-world/pulls/2/merge \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"merge_method": "squash"}'
@@ -391,10 +409,10 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues/1/comments \
 curl http://localhost:4001/repos/octocat/hello-world/issues/comments/1
 
 # PR review comments
-curl http://localhost:4001/repos/octocat/hello-world/pulls/1/comments
+curl http://localhost:4001/repos/octocat/hello-world/pulls/2/comments
 
 # Commit comments
-curl http://localhost:4001/repos/octocat/hello-world/commits/abc123/comments
+curl http://localhost:4001/repos/octocat/hello-world/commits/$(curl -s http://localhost:4001/repos/octocat/hello-world/commits/main | jq -r .sha)/comments
 
 # Repo-wide comment listings
 curl http://localhost:4001/repos/octocat/hello-world/issues/comments
@@ -406,8 +424,8 @@ curl http://localhost:4001/repos/octocat/hello-world/comments
 
 ```bash
 # List / create / get / update / submit / dismiss reviews
-curl http://localhost:4001/repos/octocat/hello-world/pulls/1/reviews
-curl -X POST http://localhost:4001/repos/octocat/hello-world/pulls/1/reviews \
+curl http://localhost:4001/repos/octocat/hello-world/pulls/2/reviews
+curl -X POST http://localhost:4001/repos/octocat/hello-world/pulls/2/reviews \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"event": "APPROVE", "body": "LGTM"}'
@@ -447,7 +465,7 @@ curl -X PATCH http://localhost:4001/orgs/my-org \
 # Org members: list, get, remove
 curl http://localhost:4001/orgs/my-org/members
 curl http://localhost:4001/orgs/my-org/members/octocat
-curl -X DELETE http://localhost:4001/orgs/my-org/members/octocat \
+curl -X DELETE http://localhost:4001/orgs/my-org/members/admin \
   -H "Authorization: Bearer $TOKEN"
 
 # Org memberships: get, set (invite/update role)
@@ -508,7 +526,7 @@ curl -X POST http://localhost:4001/app/installations/100/access_tokens \
   -H "Content-Type: application/json" \
   -d '{"permissions": {"contents": "read"}}'
 
-# Find installation for repo / org / user
+# Find installation for repo / org / user (404 when the account has none, like octocat here)
 curl http://localhost:4001/repos/my-org/org-repo/installation
 curl http://localhost:4001/orgs/my-org/installation
 curl http://localhost:4001/users/octocat/installation
@@ -527,12 +545,11 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/releases \
 
 # List, get, latest, by tag, generate notes
 
-# Release assets: list, upload
+# Release assets: list, upload (the asset name goes in the query, as in the release's upload_url)
 curl http://localhost:4001/repos/octocat/hello-world/releases/1/assets
-curl -X POST http://localhost:4001/repos/octocat/hello-world/releases/1/assets \
+curl -X POST "http://localhost:4001/repos/octocat/hello-world/releases/1/assets?name=binary.zip" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/octet-stream" \
-  -H "name: binary.zip" \
   --data-binary @binary.zip
 ```
 
@@ -604,7 +621,7 @@ curl -X POST http://localhost:4001/login/oauth/access_token \
 # User emails
 curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
 
-# OAuth app management (settings)
+# OAuth app management (settings). The connection page and revoke need a grant from the authorize flow above.
 curl http://localhost:4001/settings/applications -H "Authorization: Bearer $TOKEN"
 curl http://localhost:4001/settings/connections/applications/Iv1.abc123 -H "Authorization: Bearer $TOKEN"
 
@@ -632,11 +649,11 @@ curl http://localhost:4001/zen
 TOKEN="test_token_admin"
 BASE="http://localhost:4001"
 
-# Create repo
+# Create repo with an initial commit on main
 curl -X POST $BASE/user/repos \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-project"}'
+  -d '{"name": "my-project", "auto_init": true}'
 
 # Create issue
 curl -X POST $BASE/repos/admin/my-project/issues \
@@ -644,7 +661,15 @@ curl -X POST $BASE/repos/admin/my-project/issues \
   -H "Content-Type: application/json" \
   -d '{"title": "First issue"}'
 
-# Create PR
+# Commit to a new feature branch, then open a PR from it
+curl -X POST $BASE/repos/admin/my-project/git/refs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"ref\": \"refs/heads/feature\", \"sha\": \"$(curl -s $BASE/repos/admin/my-project/git/ref/heads/main | jq -r .object.sha)\"}"
+curl -X PUT $BASE/repos/admin/my-project/contents/feature.txt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Add feature", "content": "ZmVhdHVyZQo=", "branch": "feature"}'
 curl -X POST $BASE/repos/admin/my-project/pulls \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -659,7 +684,7 @@ curl -X POST $BASE/repos/admin/my-project/pulls \
 curl -X POST $BASE/app/installations/100/access_tokens \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
-  -d '{"permissions": {"contents": "read", "issues": "write"}}'
+  -d '{"permissions": {"contents": "read"}}'
 # Returns { "token": "ghs_...", ... }
 
 # 3. Use the installation token to call API endpoints
