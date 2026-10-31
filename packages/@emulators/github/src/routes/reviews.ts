@@ -2,6 +2,7 @@ import type { Context } from "@emulators/core";
 import type { RouteContext, WebhookDispatcher } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubComment, GitHubPullRequest, GitHubRepo, GitHubReview, GitHubUser } from "../entities.js";
 import {
@@ -152,7 +153,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const raw = await parseJsonBody(c);
+    const raw = await parseOptionalJsonBody(c);
 
     const eventRaw = raw.event;
     const hasEvent = eventRaw === "APPROVE" || eventRaw === "REQUEST_CHANGES" || eventRaw === "COMMENT";

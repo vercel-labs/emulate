@@ -2,6 +2,7 @@ import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import {
   assertRepoParticipant,
   assertRepoPermission,
@@ -409,7 +410,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
 
     const beforePatch = issue;
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     if (!hasRepoRole(gh, authUser, repo, "triage", "issues")) {
       delete body.labels;
       delete body.assignees;
@@ -699,7 +700,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const lockReason =
       typeof body.lock_reason === "string"
         ? body.lock_reason
@@ -807,7 +808,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as { assignees?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { assignees?: unknown };
     const logins = Array.isArray(body.assignees)
       ? body.assignees.filter((x): x is string => typeof x === "string")
       : [];
@@ -855,7 +856,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
     if (!issue || issue.is_pull_request) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as { assignees?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { assignees?: unknown };
     const logins = Array.isArray(body.assignees)
       ? body.assignees.filter((x): x is string => typeof x === "string")
       : [];

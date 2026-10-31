@@ -2,6 +2,7 @@ import type { AuthUser, Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type {
   GitHubIssue,
@@ -283,7 +284,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!label) throw notFoundResponse();
     const labelId = label.id;
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubLabel> = {};
     if (typeof body.new_name === "string" && body.new_name.trim()) {
       const nn = body.new_name.trim();
@@ -687,7 +688,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     let m = gh.milestones.findBy("repo_id", repo.id).find((x) => x.number === n);
     if (!m) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubMilestone> = {};
 
     if (typeof body.title === "string") patch.title = body.title;

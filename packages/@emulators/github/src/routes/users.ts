@@ -1,7 +1,8 @@
 import type { RouteContext } from "@emulators/core";
-import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
+import { ApiError, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
 import { assertAuthenticatedUser, canAccessRepo, formatRepoForCaller, notFoundResponse } from "../route-helpers.js";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
 import { formatOrgBrief, formatUser, formatUserFull } from "../helpers.js";
@@ -81,7 +82,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
       throw notFoundResponse();
     }
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubUser> = {};
 
     if ("name" in body) {

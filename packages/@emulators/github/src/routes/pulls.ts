@@ -1,6 +1,7 @@
 import type { AuthUser, RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import {
   assertAuthenticatedActor,
   assertRepoPermission,
@@ -540,7 +541,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const editsContent = ["title", "body", "base", "draft"].some((key) => key in body);
     const role = editsContent ? "write" : "triage";
     if (!isAuthorOrHasRole(gh, authUser, repo, pr.user_id, role, "pull_requests")) throw notFoundResponse();
@@ -661,7 +662,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       throw new ApiError(422, "Draft pull requests cannot be merged.");
     }
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     if (typeof body.sha === "string" && body.sha !== pr.head_sha) {
       throw new ApiError(422, "Head sha is out of date");
     }
@@ -845,7 +846,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as {
+    const body = (await parseOptionalJsonBody(c)) as {
       reviewers?: unknown;
       team_reviewers?: unknown;
     };
@@ -938,7 +939,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       throw new ApiError(422, "Cannot update a closed pull request");
     }
 
-    const body = (await parseJsonBody(c)) as { expected_head_sha?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { expected_head_sha?: unknown };
     if (typeof body.expected_head_sha === "string" && body.expected_head_sha !== pr.head_sha) {
       throw new ApiError(422, "Head sha is out of date");
     }

@@ -1,6 +1,7 @@
 import type { AuthUser, RouteContext } from "@emulators/core";
 import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import {
   assertAuthenticatedUser,
   assertRepoAdmin,
@@ -457,7 +458,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const authUser = c.get("authUser");
     const user = assertRepoAdmin(gh, authUser, repo);
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubRepo> = {};
 
     if (typeof body.name === "string") {
@@ -659,7 +660,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const user = assertAuthenticatedUser(gh, authUser);
     assertRepoRead(gh, authUser, parent);
 
-    const body = (await parseJsonBody(c)) as {
+    const body = (await parseOptionalJsonBody(c)) as {
       organization?: unknown;
       name?: unknown;
     };
@@ -812,7 +813,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as { permission?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { permission?: unknown };
     const permission = parsePermission(body.permission) ?? "push";
 
     const existing = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === target.id);

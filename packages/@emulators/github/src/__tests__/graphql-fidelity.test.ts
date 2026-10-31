@@ -1262,9 +1262,12 @@ describe("GitHub GraphQL fidelity", () => {
 
       const created = await send("POST", "/orgs/acme/teams", { name: "Docs" }, "member-token");
       expect(created).toMatchObject({ status: 201, body: { slug: "docs", members_count: 1 } });
-      expect(await send("PUT", "/orgs/acme/teams/docs/memberships/writer", {}, "member-token")).toMatchObject({
-        status: 200,
+      const added = await app.request(`${base}/orgs/acme/teams/docs/memberships/writer`, {
+        method: "PUT",
+        headers: { Authorization: "token member-token" },
       });
+      expect(added.status).toBe(200);
+      expect(await added.json()).toMatchObject({ role: "member", state: "active" });
       expect((await send("GET", "/orgs/acme/memberships/member", undefined, "member-token")).body.role).toBe("member");
       expect(await send("PATCH", "/orgs/acme", { description: "taken" }, "member-token")).toMatchObject({
         status: 403,
@@ -1374,6 +1377,22 @@ describe("GitHub GraphQL fidelity", () => {
 
       expect(await send("PATCH", V, { description: "owned" }, "owner-token")).toMatchObject({ status: 200 });
       expect(await send("DELETE", V, undefined, "owner-token")).toMatchObject({ status: 204 });
+    });
+
+    it("accepts an empty body where GitHub's request body is optional", async () => {
+      await seedOrg("read");
+      const request = (method: string, path: string, body?: string) =>
+        app.request(`${base}${path}`, { method, headers: { Authorization: "token owner-token" }, body });
+
+      const membership = await request("PUT", "/orgs/acme/teams/devs/memberships/member");
+      expect(membership.status).toBe(200);
+      expect(await membership.json()).toMatchObject({ role: "member" });
+      expect((await request("PATCH", ORG_REPO)).status).toBe(200);
+      expect((await request("PUT", "/orgs/acme/teams/devs/repos/acme/widgets")).status).toBe(204);
+      expect((await request("PATCH", "/orgs/acme/teams/devs")).status).toBe(200);
+      const invalid = await request("PUT", "/orgs/acme/teams/devs/memberships/member", "{bad");
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ message: "Problems parsing JSON" });
     });
 
     it("treats a stored team grant without a permission as the team's permission", async () => {

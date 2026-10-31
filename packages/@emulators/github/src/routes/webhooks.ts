@@ -1,6 +1,7 @@
 import type { RouteContext, AuthUser, WebhookDelivery } from "@emulators/core";
 import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubOrg, GitHubRepo, GitHubUser, GitHubWebhook } from "../entities.js";
 import { formatRepo, formatUser, formatWebhook, lookupRepo } from "../helpers.js";
@@ -155,7 +156,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "web";
     const events = Array.isArray(body.events)
       ? (body.events as unknown[]).filter((e): e is string => typeof e === "string")
@@ -431,7 +432,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const existing = findOrgHook(gh, org.id, hookId);
     if (!existing) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const name = typeof body.name === "string" ? body.name.trim() : existing.name;
     const events = Array.isArray(body.events)
       ? (body.events as unknown[]).filter((e): e is string => typeof e === "string")

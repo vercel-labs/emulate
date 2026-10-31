@@ -1,6 +1,7 @@
 import type { RouteContext, AuthUser } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized, forbidden } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubOrg, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
 import { canAccessRepo, getActorUser, hasRepoAdmin, isOrgMember } from "../route-helpers.js";
@@ -292,7 +293,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!org) throw notFound();
     requireOrgAdmin(gh, org, auth);
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubOrg> = {};
 
     if ("billing_email" in body) {
@@ -404,7 +405,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const roleRaw = body.role;
     if (roleRaw !== "admin" && roleRaw !== "member") {
       throw new ApiError(422, "role must be admin or member");
@@ -506,7 +507,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const { org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     if (!access.manage) throw notFound();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubTeam> = {};
 
     if ("name" in body && typeof body.name === "string" && body.name.trim()) {
@@ -586,7 +587,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const role: "member" | "maintainer" = body.role === "maintainer" ? "maintainer" : "member";
 
     const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
@@ -661,7 +662,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       throw new ApiError(422, "Repository must belong to this organization");
     }
 
-    const body = (await c.req.raw.clone().text()).trim() ? await parseJsonBody(c) : {};
+    const body = await parseOptionalJsonBody(c);
     const permission = body.permission === undefined ? team.permission : body.permission;
     if (!isRepoPermissionLevel(permission)) throw new ApiError(422, "Validation Failed");
 
