@@ -16,6 +16,7 @@ import type {
   VercelIntegration,
   VercelApiKey,
   VercelBlob,
+  VercelBlobUpload,
 } from "./entities.js";
 
 export interface VercelStore {
@@ -35,6 +36,7 @@ export interface VercelStore {
   apiKeys: Collection<VercelApiKey>;
   integrations: Collection<VercelIntegration>;
   blobs: Collection<VercelBlob>;
+  blobUploads: Collection<VercelBlobUpload>;
 }
 
 export function getVercelStore(store: Store): VercelStore {
@@ -58,5 +60,6 @@ export function getVercelStore(store: Store): VercelStore {
     apiKeys: store.collection<VercelApiKey>("vercel.api_keys", ["uid", "teamId", "userId"]),
     integrations: store.collection<VercelIntegration>("vercel.integrations", ["client_id"]),
     blobs: store.collection<VercelBlob>("vercel.blobs", ["pathname", "storeId"]),
+    blobUploads: store.collection<VercelBlobUpload>("vercel.blob_uploads", ["uploadId", "storeId"]),
   };
 }

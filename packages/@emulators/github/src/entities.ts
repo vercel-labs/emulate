@@ -297,7 +297,7 @@ export interface GitHubTree extends Entity {
   tree: Array<{
     path: string;
     mode: string;
-    type: "blob" | "tree";
+    type: "blob" | "tree" | "commit";
     sha: string;
     size?: number;
   }>;
@@ -507,6 +507,21 @@ export interface GitHubAppInstallation extends Entity {
   permissions: Record<string, string>;
   events: string[];
   suspended_at: string | null;
+}
+
+export interface GitHubInstallationTokenMetadata extends Entity {
+  app_id: number;
+  app_slug: string;
+  app_name: string;
+  installation_id: number;
+  account_id: number;
+  account_login: string;
+  account_type: "User" | "Organization";
+  permissions: Record<string, string>;
+  repository_ids: number[];
+  repository_selection: "all" | "selected";
+  issued_at: string;
+  expires_at: string;
 }
 
 export interface GitHubOAuthGrant extends Entity {

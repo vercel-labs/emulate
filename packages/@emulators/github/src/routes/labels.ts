@@ -23,7 +23,7 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertIssueWrite, assertRepoRead, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -184,7 +184,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const { page, per_page } = parsePagination(c);
     const list = gh.labels.findBy("repo_id", repo.id).slice();
@@ -247,10 +247,9 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
-    const rawName = c.req.param("name")!;
-    const name = decodeURIComponent(rawName);
+    const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
     return c.json(formatLabel(label, repo, baseUrl));
@@ -263,8 +262,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!repo) throw notFoundResponse();
     const actor = assertIssueWrite(gh, c.get("authUser"), repo);
 
-    const rawName = c.req.param("name")!;
-    const name = decodeURIComponent(rawName);
+    const name = c.req.param("name")!;
     let label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
     const labelId = label.id;
@@ -313,8 +311,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     if (!repo) throw notFoundResponse();
     const actor = assertIssueWrite(gh, c.get("authUser"), repo);
 
-    const rawName = c.req.param("name")!;
-    const name = decodeURIComponent(rawName);
+    const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
 
@@ -343,7 +340,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -497,8 +494,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const issue = findIssueByNumber(gh, repo.id, issueNumber);
     if (!issue) throw notFoundResponse();
 
-    const rawLabelName = c.req.param("name")!;
-    const labelName = decodeURIComponent(rawLabelName);
+    const labelName = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === labelName);
     if (!label || !issue.label_ids.includes(label.id)) throw notFoundResponse();
 
@@ -552,7 +548,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const stateQ = c.req.query("state") ?? "open";
@@ -650,7 +646,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);
@@ -794,7 +790,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);

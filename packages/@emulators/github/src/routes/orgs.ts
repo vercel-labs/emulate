@@ -121,7 +121,7 @@ function findTeamRepo(gh: GitHubStore, teamId: number, repoId: number) {
   return gh.teamRepos.findBy("team_id", teamId).find((r) => r.repo_id === repoId);
 }
 
-function getOrCreateMembersTeam(gh: GitHubStore, org: GitHubOrg): GitHubTeam {
+export function getOrCreateMembersTeam(gh: GitHubStore, org: GitHubOrg): GitHubTeam {
   const existing = teamsForOrg(gh, org.id).find((t) => t.slug === MEMBERS_TEAM_SLUG);
   if (existing) return existing;
   const team = gh.teams.insert({

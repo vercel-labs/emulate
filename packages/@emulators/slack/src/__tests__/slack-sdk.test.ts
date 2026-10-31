@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebClient } from "@slack/web-api";
 import { getSlackStore } from "../index.js";
+import { SLACK_MESSAGE_TEXT_LIMIT } from "../helpers.js";
 import { slackTestToken, startSlackTestEmulator, type SlackTestEmulator } from "./helpers.js";
 
 describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
@@ -167,6 +168,19 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(message.blocks).toEqual(blocks);
     expect(message.attachments).toEqual(attachments);
     expect(message.metadata).toEqual(metadata);
+  });
+
+  it("exposes Slack truncation warnings through the WebClient", async () => {
+    expect(emulator).toBeDefined();
+    const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;
+    const normalized = "x".repeat(SLACK_MESSAGE_TEXT_LIMIT);
+
+    const posted = await client.chat.postMessage({ channel, text: `${normalized}tail` });
+    const postedResponse = posted as any;
+    expect(posted.ok).toBe(true);
+    expect(postedResponse.warning).toBe("message_truncated");
+    expect(postedResponse.response_metadata?.warnings).toEqual(["message_truncated"]);
+    expect(posted.message?.text).toBe(normalized);
   });
 
   it("exercises ephemeral and scheduled messages through the Slack SDK", async () => {

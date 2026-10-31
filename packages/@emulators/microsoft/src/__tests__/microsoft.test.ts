@@ -24,6 +24,12 @@ function createTestApp() {
         name: "Test App",
         redirect_uris: ["http://localhost:3000/callback"],
       },
+      {
+        client_id: "other-client",
+        client_secret: "other-secret",
+        name: "Other App",
+        redirect_uris: ["http://localhost:3000/callback"],
+      },
     ],
   });
 
@@ -253,6 +259,23 @@ describe("Microsoft plugin integration", () => {
     const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
     const refreshToken = tokenBody.refresh_token as string;
 
+    const wrongClientFormData = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: "other-client",
+      client_secret: "other-secret",
+    });
+
+    const wrongClientRes = await app.request(`${base}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: wrongClientFormData.toString(),
+    });
+
+    expect(wrongClientRes.status).toBe(400);
+    const wrongClientBody = (await wrongClientRes.json()) as Record<string, unknown>;
+    expect(wrongClientBody.error).toBe("invalid_grant");
+
     const refreshFormData = new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
@@ -276,6 +299,66 @@ describe("Microsoft plugin integration", () => {
     // Microsoft rotates refresh tokens
     expect(refreshBody.refresh_token).toBeDefined();
     expect(refreshBody.refresh_token).not.toBe(refreshToken);
+  });
+
+  it("accepts refresh_token client credentials via Authorization Basic header", async () => {
+    const { code } = await getAuthCode(app);
+    const tokenRes = await exchangeCode(app, code);
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
+    const credentials = Buffer.from("test-client:test-secret").toString("base64");
+    const refreshFormData = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokenBody.refresh_token as string,
+    });
+
+    const refreshRes = await app.request(`${base}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${credentials}`,
+      },
+      body: refreshFormData.toString(),
+    });
+
+    expect(refreshRes.status).toBe(200);
+    const refreshBody = (await refreshRes.json()) as Record<string, unknown>;
+    expect(refreshBody.access_token).toBeDefined();
+    expect(refreshBody.refresh_token).toBeDefined();
+  });
+
+  it("accepts legacy refresh tokens without a client binding", async () => {
+    const legacyRefreshToken = "r_microsoft_legacy";
+    store.setData(
+      "microsoft.oauth.refreshTokens",
+      new Map([
+        [
+          legacyRefreshToken,
+          {
+            email: "testuser@example.com",
+            scope: "openid email profile",
+            nonce: null,
+          },
+        ],
+      ]),
+    );
+
+    const refreshFormData = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: legacyRefreshToken,
+      client_id: "test-client",
+      client_secret: "test-secret",
+    });
+
+    const refreshRes = await app.request(`${base}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: refreshFormData.toString(),
+    });
+
+    expect(refreshRes.status).toBe(200);
+    const refreshBody = (await refreshRes.json()) as Record<string, unknown>;
+    expect(refreshBody.access_token).toBeDefined();
+    expect(refreshBody.refresh_token).toBeDefined();
   });
 
   // --- Authorization code is single-use ---

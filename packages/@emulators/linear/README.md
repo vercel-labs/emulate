@@ -20,6 +20,7 @@ npx emulate --service linear
 
 - `POST /graphql` for a focused Linear GraphQL subset.
 - Queries for viewer, organization, users, teams, workflow states, issues, comments, labels, projects, cycles, webhooks, and agent sessions.
+- Issue selections include numeric `priority` and the derived `priorityLabel`.
 - Mutations for issues, comments, labels, webhooks, and basic agent sessions and activities.
 - OAuth authorize, token, refresh, revoke, PKCE, client credentials, and app actor tokens.
 - Personal API key and OAuth bearer token auth.

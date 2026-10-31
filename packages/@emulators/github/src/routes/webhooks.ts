@@ -4,7 +4,13 @@ import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubOrg, GitHubRepo, GitHubUser, GitHubWebhook } from "../entities.js";
 import { formatRepo, formatUser, formatWebhook, lookupRepo } from "../helpers.js";
-import { assertRepoAdmin, getActorUser, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertAuthenticatedActor,
+  assertRepoAdmin,
+  getActorUser,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 function teamsForOrg(gh: GitHubStore, orgId: number) {
   return gh.teams.findBy("org_id", orgId);
@@ -288,7 +294,7 @@ export function webhooksRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!wh) throw notFoundResponse();
 
     const ownerLogin = ownerLoginOf(gh, repo);
-    const actor = getActorUser(gh, c.get("authUser")!) ?? gh.users.get(repo.owner_id) ?? gh.users.all()[0];
+    const actor = assertAuthenticatedActor(gh, c.get("authUser"));
     const testPayload = {
       ref: "refs/heads/main",
       before: "0000000000000000000000000000000000000000",

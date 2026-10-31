@@ -22,9 +22,21 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - run: sudo apt-get update && sudo apt-get install -y acl
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build
+
+      - name: Check packaged license notices
+        shell: bash
+        run: |
+          package_dir=$(mktemp -d)
+          pnpm --filter "./packages/**" -r pack --pack-destination "$package_dir"
+          for archive in "$package_dir"/*.tgz; do
+            tar -xOf "$archive" package/LICENSE | cmp LICENSE -
+            tar -xOf "$archive" package/THIRD_PARTY_NOTICES.md | cmp THIRD_PARTY_NOTICES.md -
+          done
 
       - run: node scripts/sync-versions.mjs --check
 
@@ -35,3 +47,50 @@ jobs:
       - run: pnpm lint
 
       - run: pnpm test
+
+  docs:
+    name: Docs (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [production, preview]
+    env:
+      VERCEL_ENV: ${{ matrix.environment }}
+      DOCS_EXPECT_NOINDEX: ${{ matrix.environment == 'preview' && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run build --filter=web
+      - run: pnpm --filter web test:routes
+
+  custom-consumer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 24
+          - os: macos-latest
+            node-version: 24
+          - os: windows-latest
+            node-version: 24
+          - os: ubuntu-latest
+            node-version: 26
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y acl
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter emulate... build
+      - run: pnpm test:custom-consumer

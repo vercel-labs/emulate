@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import type { RouteContext, AuthApp } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { generateNodeId } from "../helpers.js";
+import { formatApp } from "../helpers.js";
 
 export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const gh = getGitHubStore(store);
@@ -35,19 +35,8 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     const installations = gh.appInstallations.findBy("app_id", ghApp.app_id);
 
     return c.json({
-      id: ghApp.app_id,
-      slug: ghApp.slug,
-      node_id: generateNodeId("App", ghApp.app_id),
-      name: ghApp.name,
-      description: ghApp.description,
-      external_url: `${baseUrl}/apps/${ghApp.slug}`,
-      html_url: `${baseUrl}/apps/${ghApp.slug}`,
-      created_at: ghApp.created_at,
-      updated_at: ghApp.updated_at,
-      permissions: ghApp.permissions,
-      events: ghApp.events,
+      ...formatApp(ghApp, baseUrl),
       installations_count: installations.length,
-      owner: null,
     });
   });
 
@@ -117,29 +106,112 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
 
     let requestedPermissions = inst.permissions;
     let requestedRepoIds = inst.repository_ids;
+    let tokenRepositorySelection = inst.repository_selection;
 
     try {
       const body = (await c.req.json()) as Record<string, unknown>;
       if (body.permissions && typeof body.permissions === "object") {
-        requestedPermissions = body.permissions as Record<string, string>;
-      }
-      if (Array.isArray(body.repository_ids)) {
-        requestedRepoIds = (body.repository_ids as number[]).filter(
-          (id) => inst.repository_selection === "all" || inst.repository_ids.includes(id),
+        const requested = body.permissions as Record<string, unknown>;
+        requestedPermissions = Object.fromEntries(
+          Object.entries(requested).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         );
+      }
+
+      if (body.repositories !== undefined && body.repository_ids !== undefined) {
+        return c.json({ message: "Only one of repositories or repository_ids may be specified." }, 422);
+      }
+
+      if (body.repositories !== undefined) {
+        if (
+          !Array.isArray(body.repositories) ||
+          body.repositories.length > 500 ||
+          body.repositories.some((name) => typeof name !== "string")
+        ) {
+          return c.json({ message: "The repositories field must contain up to 500 repository names." }, 422);
+        }
+
+        const accountRepos = gh.repos
+          .all()
+          .filter((repo) => repo.owner_id === inst.account_id && repo.owner_type === inst.account_type);
+        const resolvedIds: number[] = [];
+        for (const name of body.repositories as string[]) {
+          const repo = accountRepos.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+          if (!repo) {
+            return c.json({ message: "The repositories requested are not accessible to this installation." }, 422);
+          }
+          resolvedIds.push(repo.id);
+        }
+        requestedRepoIds = [...new Set(resolvedIds)];
+        tokenRepositorySelection = "selected";
+      }
+
+      if (body.repository_ids !== undefined) {
+        if (
+          !Array.isArray(body.repository_ids) ||
+          body.repository_ids.length > 500 ||
+          body.repository_ids.some((id) => typeof id !== "number")
+        ) {
+          return c.json({ message: "The repository_ids field must contain up to 500 repository IDs." }, 422);
+        }
+        requestedRepoIds = [...new Set(body.repository_ids as number[])];
+        tokenRepositorySelection = "selected";
       }
     } catch {
       // No body or invalid JSON, use installation defaults
     }
 
+    const permissionRank = (permission: string | undefined) =>
+      permission === "write" ? 2 : permission === "read" ? 1 : 0;
+    const invalidPermission = Object.entries(requestedPermissions).some(
+      ([name, permission]) =>
+        permissionRank(permission) === 0 || permissionRank(permission) > permissionRank(inst.permissions[name]),
+    );
+    if (invalidPermission) {
+      return c.json({ message: "The permissions requested are not granted to this installation." }, 422);
+    }
+
+    const unavailableRepo = requestedRepoIds.some((id) => {
+      const repo = gh.repos.get(id);
+      if (!repo || repo.owner_id !== inst.account_id || repo.owner_type !== inst.account_type) return true;
+      return inst.repository_selection === "selected" && !inst.repository_ids.includes(id);
+    });
+    if (unavailableRepo) {
+      return c.json({ message: "The repositories requested are not accessible to this installation." }, 422);
+    }
+
     const token = "ghs_" + randomBytes(20).toString("base64url");
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const issuedAt = new Date().toISOString();
+    const expiresAt = new Date(Date.parse(issuedAt) + 60 * 60 * 1000).toISOString();
+
+    getGitHubStore(store).installationTokenMetadata.insert({
+      app_id: authApp.appId,
+      app_slug: authApp.slug,
+      app_name: authApp.name,
+      installation_id: inst.installation_id,
+      account_id: inst.account_id,
+      account_login: inst.account_login,
+      account_type: inst.account_type,
+      permissions: { ...requestedPermissions },
+      repository_ids: [...requestedRepoIds],
+      repository_selection: tokenRepositorySelection,
+      issued_at: issuedAt,
+      expires_at: expiresAt,
+    });
 
     if (tokenMap) {
       tokenMap.set(token, {
         login: inst.account_login,
         id: inst.account_id,
         scopes: Object.entries(requestedPermissions).map(([k, v]) => `${k}:${v}`),
+        installation: {
+          installationId: inst.installation_id,
+          appId: inst.app_id,
+          accountId: inst.account_id,
+          accountType: inst.account_type,
+          permissions: { ...requestedPermissions },
+          repositoryIds: [...requestedRepoIds],
+          repositorySelection: tokenRepositorySelection,
+        },
       });
     }
 
@@ -159,8 +231,8 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
         token,
         expires_at: expiresAt,
         permissions: requestedPermissions,
-        repository_selection: inst.repository_selection,
-        ...(inst.repository_selection === "selected" ? { repositories: repos } : {}),
+        repository_selection: tokenRepositorySelection,
+        ...(tokenRepositorySelection === "selected" ? { repositories: repos } : {}),
       },
       201,
     );
@@ -175,10 +247,12 @@ export function appsRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       return c.json({ message: "Not Found", documentation_url: "https://docs.github.com/rest" }, 404);
     }
 
-    const ownerEntity = gh.users.findOneBy("login", owner) ?? gh.orgs.findOneBy("login", owner);
-
     for (const inst of gh.appInstallations.all()) {
-      if (inst.repository_selection === "all" && ownerEntity && inst.account_id === ownerEntity.id) {
+      if (
+        inst.repository_selection === "all" &&
+        inst.account_id === repo.owner_id &&
+        inst.account_type === repo.owner_type
+      ) {
         const ghApp = gh.apps.all().find((a) => a.app_id === inst.app_id);
         return c.json(formatInstallation(inst, ghApp, baseUrl));
       }

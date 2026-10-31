@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import type { Context } from "@emulators/core";
 import type { ContentfulStatusCode } from "@emulators/core";
 import type { Store } from "@emulators/core";
+import { getSlackStore } from "./store.js";
 import type {
   SlackChannel,
   SlackFile,
@@ -12,6 +13,22 @@ import type {
 } from "./entities.js";
 
 export type SlackScopeRequirement = string | string[];
+
+export const SLACK_MESSAGE_TEXT_LIMIT = 40_000;
+export const SLACK_MESSAGE_TRUNCATED_WARNING = "message_truncated";
+
+const SLACK_MESSAGE_TRUNCATED_MESSAGE = "[WARN] Your message was truncated but still posted";
+
+export interface SlackResponseMetadata {
+  warnings: string[];
+  messages: string[];
+}
+
+export interface SlackMessageTextResult {
+  text: string;
+  warning?: typeof SLACK_MESSAGE_TRUNCATED_WARNING;
+  responseMetadata?: SlackResponseMetadata;
+}
 
 let tsCounter = 0;
 
@@ -61,6 +78,28 @@ export function slackOk<T extends Record<string, unknown>>(c: Context, data: T) 
 
 export function slackError(c: Context, error: string, status: ContentfulStatusCode = 200) {
   return c.json({ ok: false, error }, status);
+}
+
+export function normalizeSlackMessageText(text: string): SlackMessageTextResult {
+  const characters = Array.from(text);
+  if (characters.length <= SLACK_MESSAGE_TEXT_LIMIT) return { text };
+
+  return {
+    text: characters.slice(0, SLACK_MESSAGE_TEXT_LIMIT).join(""),
+    warning: SLACK_MESSAGE_TRUNCATED_WARNING,
+    responseMetadata: {
+      warnings: [SLACK_MESSAGE_TRUNCATED_WARNING],
+      messages: [SLACK_MESSAGE_TRUNCATED_MESSAGE],
+    },
+  };
+}
+
+export function slackMessageTextResponseMetadata(result: SlackMessageTextResult | undefined) {
+  if (!result?.warning || !result.responseMetadata) return {};
+  return {
+    warning: result.warning,
+    response_metadata: result.responseMetadata,
+  };
 }
 
 export function isSlackStrictScopes(store: Store): boolean {
@@ -148,6 +187,37 @@ export async function parseSlackBody(c: Context): Promise<Record<string, unknown
   return result;
 }
 
+export function slackBotMessageFields(
+  store: Store,
+  botId: string,
+  teamId: string,
+  appId?: string,
+): Partial<SlackMessage> {
+  const bot = getSlackStore(store).bots.findOneBy("bot_id", botId);
+  const resolvedAppId = appId ?? bot?.app_id;
+  return {
+    bot_id: botId,
+    ...(resolvedAppId ? { app_id: resolvedAppId } : {}),
+    ...(bot
+      ? {
+          bot_profile: {
+            id: botId,
+            ...(resolvedAppId ? { app_id: resolvedAppId } : {}),
+            name: bot.name,
+            deleted: bot.deleted,
+            updated: Math.floor(Date.parse(bot.updated_at) / 1000),
+            team_id: teamId,
+            icons: {
+              image_36: bot.icons.image_48,
+              image_48: bot.icons.image_48,
+              image_72: bot.icons.image_48,
+            },
+          },
+        }
+      : {}),
+  };
+}
+
 export function formatSlackMessage(msg: SlackMessage) {
   return {
     type: msg.type,
@@ -157,6 +227,7 @@ export function formatSlackMessage(msg: SlackMessage) {
     ...(msg.subtype ? { subtype: msg.subtype } : {}),
     ...(msg.bot_id ? { bot_id: msg.bot_id } : {}),
     ...(msg.app_id ? { app_id: msg.app_id } : {}),
+    ...(msg.bot_profile ? { bot_profile: msg.bot_profile } : {}),
     ...(msg.username ? { username: msg.username } : {}),
     ...(msg.icon_url ? { icon_url: msg.icon_url } : {}),
     ...(msg.icon_emoji ? { icon_emoji: msg.icon_emoji } : {}),

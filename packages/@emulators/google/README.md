@@ -17,7 +17,7 @@ npm install @emulators/google
 - `POST /oauth2/token` — token exchange
 - `GET /oauth2/v2/userinfo` — get user info
 - `GET /.well-known/openid-configuration` — OIDC discovery document
-- `GET /oauth2/v3/certs` — JSON Web Key Set (JWKS)
+- `GET /oauth2/v3/certs` — JSON Web Key Set (JWKS) with the RSA public key for ID token verification
 
 ### Gmail
 - `GET /gmail/v1/users/:userId/messages` — list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
@@ -61,6 +61,7 @@ npm install @emulators/google
 - `GET /gmail/v1/users/:userId/settings/sendAs` — list send-as aliases
 
 ### Calendar
+- `GET /discovery/v1/apis/calendar/v3/rest` — public Calendar v3 REST discovery document
 - `GET /calendar/v3/users/:userId/calendarList` — list calendars
 - `GET /calendar/v3/calendars/:calendarId/events` — list events
 - `POST /calendar/v3/calendars/:calendarId/events` — create event
@@ -77,7 +78,7 @@ npm install @emulators/google
 
 ## Auth
 
-Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
+Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. Configure clients in the seed config. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued ID tokens.
 
 ## Seed Configuration
 

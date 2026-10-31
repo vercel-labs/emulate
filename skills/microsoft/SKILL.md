@@ -1,7 +1,7 @@
 ---
 name: microsoft
 description: Emulated Microsoft Entra ID (Azure AD) OAuth 2.0 / OpenID Connect for local development and testing. Use when the user needs to test Microsoft sign-in locally, emulate Entra ID OIDC discovery, handle Microsoft token exchange, configure Azure AD OAuth clients, work with Microsoft Graph /me, or test PKCE/client credentials flows without hitting real Microsoft APIs. Triggers include "Microsoft OAuth", "Entra ID", "Azure AD", "emulate Microsoft", "mock Microsoft login", "test Microsoft sign-in", "Microsoft OIDC", "local Microsoft auth", or any task requiring a local Microsoft OAuth/OIDC provider.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Microsoft Entra ID Emulator
@@ -9,6 +9,8 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # Microsoft only
@@ -240,10 +242,11 @@ curl -X POST http://localhost:4005/oauth2/v2.0/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "refresh_token=r_microsoft_...&\
 client_id=example-client-id&\
+client_secret=example-client-secret&\
 grant_type=refresh_token"
 ```
 
-Returns a new `access_token`, rotated `refresh_token`, and new `id_token`.
+Returns a new `access_token`, rotated `refresh_token`, and new `id_token`. The presenting `client_id` and `client_secret` must belong to the client that received the refresh token. Legacy refresh records without a stored client binding remain supported.
 
 ### User Info
 
@@ -360,3 +363,7 @@ const client = new microsoftIssuer.Client({
   redirect_uris: ['http://localhost:3000/api/auth/callback/microsoft-entra-id'],
 })
 ```
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "microsoft" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

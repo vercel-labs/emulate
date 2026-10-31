@@ -10,6 +10,8 @@ Stateful Linear GraphQL API emulation with organizations, users, teams, workflow
 
 ## Start
 
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
+
 ```bash
 # Linear only
 npx emulate --service linear
@@ -103,6 +105,8 @@ Supported mutations:
 
 Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
 
+Issue selections expose both numeric `priority` and Linear's derived `priorityLabel` values: `No priority`, `Urgent`, `High`, `Medium`, and `Low`.
+
 ## OAuth
 
 - `GET /oauth/authorize` - authorization endpoint with local user picker
@@ -123,3 +127,7 @@ Open `GET /` in the Linear emulator to inspect issues, teams, users, projects, a
 ## Current Limits
 
 Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and full production agent behavior are not implemented.
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "linear" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.
