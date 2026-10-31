@@ -218,7 +218,13 @@ describe("WebhookDispatcher", () => {
       const d = new WebhookDispatcher();
       d.register({ url: "https://hooks.example/org", events: ["*"], active: true, owner: "acme" });
       d.register({ url: "https://hooks.example/repo", events: ["*"], active: true, owner: "acme", repo: "widgets" });
-      d.register({ url: "https://hooks.example/other-repo", events: ["*"], active: true, owner: "acme", repo: "vault" });
+      d.register({
+        url: "https://hooks.example/other-repo",
+        events: ["*"],
+        active: true,
+        owner: "acme",
+        repo: "vault",
+      });
 
       await d.dispatch("issues", "opened", {}, "acme", "widgets");
       expect(mockFetch.mock.calls.map(([url]) => url).sort()).toEqual([

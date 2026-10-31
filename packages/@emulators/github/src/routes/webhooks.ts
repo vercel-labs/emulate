@@ -5,12 +5,7 @@ import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubOrg, GitHubRepo, GitHubUser, GitHubWebhook } from "../entities.js";
 import { formatRepo, formatUser, formatWebhook, lookupRepo } from "../helpers.js";
-import {
-  assertAuthenticatedActor,
-  assertRepoAdmin,
-  getActorUser,
-  notFoundResponse,
-} from "../route-helpers.js";
+import { assertAuthenticatedActor, assertRepoAdmin, getActorUser, notFoundResponse } from "../route-helpers.js";
 
 function teamsForOrg(gh: GitHubStore, orgId: number) {
   return gh.teams.findBy("org_id", orgId);
