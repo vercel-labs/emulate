@@ -269,7 +269,8 @@ export const typeDefs = /* GraphQL */ `
 
   scalar GitTimestamp
 
-  type Issue implements Labelable & Node {
+  type Issue implements Labelable & Lockable & Node {
+    activeLockReason: LockReason
     id: ID!
     labels(
       after: String
@@ -278,6 +279,7 @@ export const typeDefs = /* GraphQL */ `
       last: Int
       orderBy: LabelOrder = { field: CREATED_AT, direction: ASC }
     ): LabelConnection
+    locked: Boolean!
     number: Int!
     repository: Repository!
     resourcePath: URI!
@@ -339,6 +341,8 @@ export const typeDefs = /* GraphQL */ `
     node: Issue
   }
 
+  union IssueOrPullRequest = Issue | PullRequest
+
   input IssueOrder {
     direction: OrderDirection!
     field: IssueOrderField!
@@ -394,6 +398,30 @@ export const typeDefs = /* GraphQL */ `
       last: Int
       orderBy: LabelOrder = { field: CREATED_AT, direction: ASC }
     ): LabelConnection
+  }
+
+  input LockLockableInput {
+    clientMutationId: String
+    lockReason: LockReason
+    lockableId: ID!
+  }
+
+  type LockLockablePayload {
+    actor: Actor
+    clientMutationId: String
+    lockedRecord: Lockable
+  }
+
+  enum LockReason {
+    OFF_TOPIC
+    RESOLVED
+    SPAM
+    TOO_HEATED
+  }
+
+  interface Lockable {
+    activeLockReason: LockReason
+    locked: Boolean!
   }
 
   input MarkPullRequestReadyForReviewInput {
@@ -489,12 +517,14 @@ export const typeDefs = /* GraphQL */ `
     convertPullRequestToDraft(input: ConvertPullRequestToDraftInput!): ConvertPullRequestToDraftPayload
     createPullRequest(input: CreatePullRequestInput!): CreatePullRequestPayload
     deleteIssueComment(input: DeleteIssueCommentInput!): DeleteIssueCommentPayload
+    lockLockable(input: LockLockableInput!): LockLockablePayload
     markPullRequestReadyForReview(input: MarkPullRequestReadyForReviewInput!): MarkPullRequestReadyForReviewPayload
     mergePullRequest(input: MergePullRequestInput!): MergePullRequestPayload
     removeLabelsFromLabelable(input: RemoveLabelsFromLabelableInput!): RemoveLabelsFromLabelablePayload
     reopenPullRequest(input: ReopenPullRequestInput!): ReopenPullRequestPayload
     requestReviews(input: RequestReviewsInput!): RequestReviewsPayload
     submitPullRequestReview(input: SubmitPullRequestReviewInput!): SubmitPullRequestReviewPayload
+    unlockLockable(input: UnlockLockableInput!): UnlockLockablePayload
     updateIssueComment(input: UpdateIssueCommentInput!): UpdateIssueCommentPayload
     updatePullRequest(input: UpdatePullRequestInput!): UpdatePullRequestPayload
   }
@@ -561,7 +591,8 @@ export const typeDefs = /* GraphQL */ `
     RENAMED
   }
 
-  type PullRequest implements Labelable & Node {
+  type PullRequest implements Labelable & Lockable & Node {
+    activeLockReason: LockReason
     additions: Int!
     assignees(after: String, before: String, first: Int, last: Int): UserConnection!
     author: Actor
@@ -878,6 +909,7 @@ export const typeDefs = /* GraphQL */ `
     isInOrganization: Boolean!
     isPrivate: Boolean!
     isTemplate: Boolean!
+    issueOrPullRequest(number: Int!): IssueOrPullRequest
     label(name: String!): Label
     labels(
       after: String
@@ -1083,6 +1115,17 @@ export const typeDefs = /* GraphQL */ `
   }
 
   scalar URI
+
+  input UnlockLockableInput {
+    clientMutationId: String
+    lockableId: ID!
+  }
+
+  type UnlockLockablePayload {
+    actor: Actor
+    clientMutationId: String
+    unlockedRecord: Lockable
+  }
 
   input UpdateIssueCommentInput {
     body: String!

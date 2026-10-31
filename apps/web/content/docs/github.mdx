@@ -225,9 +225,9 @@ Checks created with installation tokens include their GitHub App in API response
 - `POST /graphql` and `GET /graphql` (also at `/api/graphql`, the GitHub Enterprise Server path)
 - `/api/v3/*` serves the REST routes under the GitHub Enterprise Server prefix
 - Queries: `viewer`, `user`, `organization`, `repositoryOwner`, `repository`, `node`, `nodes`, `search` (issues and pull requests), `rateLimit`
-- `Repository`: metadata, `defaultBranchRef`, `ref`, `pullRequest(number)`, `pullRequests(states, headRefName, baseRefName, labels, orderBy)`, labels, milestones, assignable users
+- `Repository`: metadata, `defaultBranchRef`, `ref`, `pullRequest(number)`, `issueOrPullRequest(number)`, `pullRequests(states, headRefName, baseRefName, labels, orderBy)`, labels, milestones, assignable users
 - `PullRequest`: the fields `gh pr view --json` reads, including `state`, `isDraft`, `mergeable`, `mergeStateStatus`, `reviewDecision`, `commits`, `files`, `reviews`, `latestReviews`, `reviewRequests`, `comments`, `labels`, `assignees`, and `statusCheckRollup` built from check runs
-- Mutations: `createPullRequest`, `updatePullRequest`, `closePullRequest`, `reopenPullRequest`, `mergePullRequest`, `markPullRequestReadyForReview`, `convertPullRequestToDraft`, `addPullRequestReview`, `submitPullRequestReview`, `requestReviews`, `addComment`, `updateIssueComment`, `deleteIssueComment`, `addLabelsToLabelable`, `removeLabelsFromLabelable`
+- Mutations: `createPullRequest`, `updatePullRequest`, `closePullRequest`, `reopenPullRequest`, `mergePullRequest`, `markPullRequestReadyForReview`, `convertPullRequestToDraft`, `addPullRequestReview`, `submitPullRequestReview`, `requestReviews`, `addComment`, `updateIssueComment`, `deleteIssueComment`, `addLabelsToLabelable`, `removeLabelsFromLabelable`, `lockLockable`, `unlockLockable`
 - Relay connections with opaque cursors, `pageInfo`, `edges`, `nodes`, and `totalCount`
 - Errors carry GitHub's `type` (`NOT_FOUND`, `FORBIDDEN`, `UNPROCESSABLE`)
 

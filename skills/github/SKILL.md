@@ -158,7 +158,7 @@ gh pr create --repo admin/demo --head feature --title "Add feature" --body "Deta
 gh pr view 1 --repo admin/demo --json state,reviewDecision,statusCheckRollup
 ```
 
-`gh pr create`, `view`, `list`, `status`, `checks`, `edit`, `comment`, `review`, `ready`, `close`, `reopen`, and `merge` work. `gh` cannot push branches, so create the head branch through REST first (`POST /repos/:owner/:repo/git/refs`, then `PUT /repos/:owner/:repo/contents/:path` with `branch`). GraphQL and REST share one store and fire the same webhooks. `/api/v3/*` serves the REST routes for GitHub Enterprise Server style clients.
+`gh pr create`, `view`, `list`, `status`, `checks`, `edit`, `comment`, `review`, `ready`, `close`, `reopen`, `lock`, `unlock`, and `merge` work. `gh` cannot push branches, so create the head branch through REST first (`POST /repos/:owner/:repo/git/refs`, then `PUT /repos/:owner/:repo/contents/:path` with `branch`). GraphQL and REST share one store and fire the same webhooks. `/api/v3/*` serves the REST routes for GitHub Enterprise Server style clients.
 
 `gh` reaches the emulator over HTTPS when it sits behind [portless](https://portless.sh), which also serves the GitHub Enterprise Server paths (`/api/graphql`, `/api/v3`). `gh` treats such a host as GitHub Enterprise and reads the token from `GH_ENTERPRISE_TOKEN`; with `GH_TOKEN` alone it gets a 401:
 

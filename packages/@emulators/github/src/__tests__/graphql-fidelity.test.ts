@@ -1101,6 +1101,53 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  it("locks issues and pull requests through Lockable, as gh pr lock does", async () => {
+    const pr = await seedPr();
+    const issue = await send("POST", `${REPO}/issues`, { title: "plain" });
+    const lookup = `query($n: Int!) { repository(owner: "octocat", name: "hello-world") {
+      issue: issueOrPullRequest(number: $n) { __typename
+        ... on Issue { activeLockReason id locked number }
+        ... on PullRequest { activeLockReason id locked number } } } }`;
+    const find = async (n: number) => (await graphql(lookup, { n })).data.repository.issue;
+    const lock = `mutation($id: ID!, $reason: LockReason) {
+      lockLockable(input: { lockableId: $id, lockReason: $reason }) { lockedRecord { locked activeLockReason } } }`;
+    const unlock = `mutation($id: ID!) { unlockLockable(input: { lockableId: $id }) { unlockedRecord { locked } } }`;
+
+    const prNode = await find(pr.number);
+    expect(prNode).toMatchObject({ __typename: "PullRequest", locked: false, activeLockReason: null });
+    expect((await find(issue.body.number)).__typename).toBe("Issue");
+    expect(await graphql(lookup, { n: 999 })).toMatchObject({
+      errors: [{ type: "NOT_FOUND", message: "Could not resolve to an issue or pull request with the number of 999." }],
+    });
+
+    expect((await graphql(lock, { id: prNode.id, reason: "TOO_HEATED" })).data.lockLockable.lockedRecord).toEqual({
+      locked: true,
+      activeLockReason: "TOO_HEATED",
+    });
+    expect((await send("GET", `${REPO}/pulls/${pr.number}`)).body.active_lock_reason).toBe("too heated");
+    await graphql(unlock, { id: prNode.id });
+    expect((await send("GET", `${REPO}/pulls/${pr.number}`)).body.locked).toBe(false);
+
+    const issueNode = await find(issue.body.number);
+    await graphql(lock, { id: issueNode.id, reason: "OFF_TOPIC" });
+    expect(await find(issue.body.number)).toMatchObject({ locked: true, activeLockReason: "OFF_TOPIC" });
+    await graphql(unlock, { id: issueNode.id });
+    await graphql(lock, { id: issueNode.id });
+    expect(await find(issue.body.number)).toMatchObject({ locked: true, activeLockReason: null });
+
+    seedFromConfig(server.store, base, { users: [{ login: "reader" }] });
+    server.tokenMap.set("reader-token", {
+      login: "reader",
+      id: gh.users.findOneBy("login", "reader")!.id,
+      scopes: ["repo"],
+    });
+    expect(await graphql(unlock, { id: issueNode.id }, "reader-token")).toMatchObject({
+      errors: [
+        { type: "FORBIDDEN", message: "reader does not have the correct permissions to execute `UnlockLockable`" },
+      ],
+    });
+  });
+
   it("counts a pull request's comments the same on every route", async () => {
     const pr = await seedPr();
     const first = await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "one" });

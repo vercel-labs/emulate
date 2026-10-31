@@ -466,6 +466,12 @@ export function repoView(ctx: GraphQLContext, repo: GitHubRepo): View {
         args,
       );
     },
+    issueOrPullRequest: ({ number }: Args) => {
+      const row = ctx.gh.issues.findBy("repo_id", repo.id).find((i) => i.number === number);
+      const view = row && nodeById(ctx, row.node_id);
+      if (!view) throw notFound(`Could not resolve to an issue or pull request with the number of ${number}.`);
+      return view;
+    },
     pullRequest: ({ number }: Args) => {
       assertCanRead(ctx, repo, ["pull_requests"]);
       const pr = pulls().find((p) => p.number === number);
@@ -585,6 +591,12 @@ function commentView(ctx: GraphQLContext, comment: GitHubComment): View | null {
   };
 }
 
+const LOCK_REASONS = { OFF_TOPIC: "off-topic", RESOLVED: "resolved", SPAM: "spam", TOO_HEATED: "too heated" } as const;
+
+function lockReason(reason: string | null | undefined): string | null {
+  return (Object.keys(LOCK_REASONS) as (keyof typeof LOCK_REASONS)[]).find((k) => LOCK_REASONS[k] === reason) ?? null;
+}
+
 function issueView(ctx: GraphQLContext, issue: GitHubIssue): View | null {
   const repo = ctx.gh.repos.get(issue.repo_id);
   if (!repo) return null;
@@ -594,6 +606,8 @@ function issueView(ctx: GraphQLContext, issue: GitHubIssue): View | null {
     number: issue.number,
     title: issue.title,
     state: upper(issue.state),
+    locked: issue.locked,
+    activeLockReason: lockReason(issue.active_lock_reason),
     url: `${repoUrl(ctx, repo)}/issues/${issue.number}`,
     resourcePath: `/${repo.full_name}/issues/${issue.number}`,
     repository: () => repoView(ctx, repo),
@@ -677,6 +691,7 @@ export function prView(ctx: GraphQLContext, pr: GitHubPullRequest): View | null 
     createdAt: pr.created_at,
     updatedAt: pr.updated_at,
     locked: pr.locked,
+    activeLockReason: lockReason(pr.active_lock_reason),
     isDraft: pr.draft,
     merged: pr.merged,
     mergedAt: pr.merged_at,
@@ -1074,6 +1089,10 @@ function pendingReviewFor(ctx: GraphQLContext, pr: GitHubPullRequest): GitHubRev
   return review;
 }
 
+function canLock(ctx: GraphQLContext, repo: GitHubRepo): boolean {
+  return hasRepoRole(ctx.gh, ctx.authUser, repo, "write", "issues");
+}
+
 function mayChange(
   ctx: GraphQLContext,
   repo: GitHubRepo,
@@ -1260,6 +1279,21 @@ export function createMutationRoot(ctx: GraphQLContext) {
       assertMayRun(ctx, "deleteIssueComment", mayChange(ctx, repo, comment, "write", ["issues", "pull_requests"]));
       await ctx.rest("DELETE", `${restRepoPath(repo)}/issues/comments/${comment.id}`);
       return payload(input, {});
+    },
+
+    lockLockable: async ({ input }: Args) => {
+      const target = requireLabelable(ctx, input.lockableId);
+      assertMayRun(ctx, "lockLockable", canLock(ctx, target.repo));
+      const reason = input.lockReason ? LOCK_REASONS[input.lockReason as keyof typeof LOCK_REASONS] : undefined;
+      await ctx.rest("PUT", `${restRepoPath(target.repo)}/issues/${target.number}/lock`, { lock_reason: reason });
+      return payload(input, { actor, lockedRecord: target.view });
+    },
+
+    unlockLockable: async ({ input }: Args) => {
+      const target = requireLabelable(ctx, input.lockableId);
+      assertMayRun(ctx, "unlockLockable", canLock(ctx, target.repo));
+      await ctx.rest("DELETE", `${restRepoPath(target.repo)}/issues/${target.number}/lock`);
+      return payload(input, { actor, unlockedRecord: target.view });
     },
 
     addLabelsToLabelable: async ({ input }: Args) => {

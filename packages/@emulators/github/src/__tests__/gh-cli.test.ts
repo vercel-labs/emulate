@@ -206,6 +206,25 @@ describe.skipIf(!hasGh)("gh CLI against the GitHub emulator", () => {
     expect(issues).toMatch(/^pr\toctocat\/hello-world\t1\topen\tfeature\t/m);
   });
 
+  it("pr-lock: locks with a reason and unlocks a pull request", async () => {
+    await pushBranch("feature");
+    await createPr("feature");
+    const lockState = async () => {
+      const pr = await emu.rest("GET", "/repos/octocat/hello-world/pulls/1");
+      return [pr.locked, pr.active_lock_reason];
+    };
+
+    await emu.gh("pr", "lock", "1", ...REPO, "--reason", "off_topic");
+    expect(await lockState()).toEqual([true, "off-topic"]);
+    const relock = emu.gh("pr", "lock", "1", ...REPO, "--reason", "spam");
+    await expect(relock).rejects.toThrow(/already locked/);
+
+    await emu.gh("pr", "unlock", "1", ...REPO);
+    expect(await lockState()).toEqual([false, null]);
+    await emu.gh("pr", "lock", "1", ...REPO);
+    expect(await lockState()).toEqual([true, null]);
+  });
+
   it("shows pull requests created by the viewer in pr status", async () => {
     await pushBranch("feature");
     await createPr("feature");
