@@ -591,10 +591,16 @@ function commentView(ctx: GraphQLContext, comment: GitHubComment): View | null {
   };
 }
 
-const LOCK_REASONS = { OFF_TOPIC: "off-topic", RESOLVED: "resolved", SPAM: "spam", TOO_HEATED: "too heated" } as const;
+const LOCK_REASONS: Record<string, string> = {
+  OFF_TOPIC: "off-topic",
+  RESOLVED: "resolved",
+  SPAM: "spam",
+  TOO_HEATED: "too heated",
+};
+const LOCK_REASON_ENUM = Object.fromEntries(Object.entries(LOCK_REASONS).map(([value, rest]) => [rest, value]));
 
 function lockReason(reason: string | null | undefined): string | null {
-  return (Object.keys(LOCK_REASONS) as (keyof typeof LOCK_REASONS)[]).find((k) => LOCK_REASONS[k] === reason) ?? null;
+  return (reason && LOCK_REASON_ENUM[reason]) ?? null;
 }
 
 function issueView(ctx: GraphQLContext, issue: GitHubIssue): View | null {
@@ -1284,7 +1290,7 @@ export function createMutationRoot(ctx: GraphQLContext) {
     lockLockable: async ({ input }: Args) => {
       const target = requireLabelable(ctx, input.lockableId);
       assertMayRun(ctx, "lockLockable", canLock(ctx, target.repo));
-      const reason = input.lockReason ? LOCK_REASONS[input.lockReason as keyof typeof LOCK_REASONS] : undefined;
+      const reason = input.lockReason ? LOCK_REASONS[input.lockReason] : undefined;
       await ctx.rest("PUT", `${restRepoPath(target.repo)}/issues/${target.number}/lock`, { lock_reason: reason });
       return payload(input, { actor, lockedRecord: target.view });
     },
