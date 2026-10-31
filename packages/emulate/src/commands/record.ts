@@ -163,7 +163,7 @@ export async function recordCommand(options: RecordOptions): Promise<void> {
   const app = new Hono();
   app.use("*", cors());
 
-  app.all("*", async (c) => {
+  app.use("*", async (c) => {
     const path = c.req.path;
     const method = c.req.method;
 
