@@ -169,7 +169,7 @@ GH_HOST=github-emulator.localhost GH_ENTERPRISE_TOKEN=test_token_admin gh pr lis
 
 ## Auth
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Pagination uses `page`/`per_page` with `Link` headers.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. A token that isn't seeded or minted gets `401 Bad credentials` on every API route, public ones included, as on GitHub. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Pagination uses `page`/`per_page` with `Link` headers.
 
 Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Organization owners and team maintainers manage teams, and adding a repository to a team needs admin on it. Whoever creates an organization repository, or forks into the organization, is its admin.
 
