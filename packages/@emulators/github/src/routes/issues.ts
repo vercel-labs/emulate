@@ -731,14 +731,12 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!issue) throw notFoundResponse();
 
     const body = await parseOptionalJsonBody(c);
-    const lockReason = body.lock_reason ?? null;
-    if (lockReason !== null && !LOCK_REASONS.includes(lockReason as (typeof LOCK_REASONS)[number])) {
-      throw enumValidationError(lockReason, LOCK_REASONS);
-    }
+    const lockReason = LOCK_REASONS.find((reason) => reason === body.lock_reason) ?? null;
+    if (body.lock_reason != null && !lockReason) throw enumValidationError(body.lock_reason, LOCK_REASONS);
 
     issue = updateIssue(gh, issue, {
       locked: true,
-      active_lock_reason: lockReason as string | null,
+      active_lock_reason: lockReason,
     })!;
 
     insertIssueEvent(gh, repo, issue.number, "locked", actor.id);
