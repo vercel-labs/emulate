@@ -12,7 +12,7 @@ export {
   serializeValue,
   deserializeValue,
 } from "./store.js";
-export { createServer, type ServerOptions } from "./server.js";
+export { createServer, type ServerOptions, type RequestLogEntry } from "./server.js";
 export {
   Hono,
   Context,
