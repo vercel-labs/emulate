@@ -11,7 +11,14 @@ import type {
   GitHubRepo,
   GitHubUser,
 } from "../entities.js";
-import { formatIssueOrPullRequest, formatOrgBrief, formatRepo, formatUser, lookupRepo } from "../helpers.js";
+import {
+  formatIssueOrPullRequest,
+  formatOrgBrief,
+  formatRepo,
+  formatUser,
+  issueCommentCount,
+  lookupRepo,
+} from "../helpers.js";
 import { canAccessRepo, canReadRepoContents, formatRepoForCaller } from "../route-helpers.js";
 import {
   commitIdentityMatches,
@@ -641,7 +648,7 @@ export function issuePrMatchesFilters(
 
   const commentRanges = parsed.ranges.get("comments") ?? [];
   const commentEq = parsed.qualifiers.get("comments") ?? [];
-  const n = isPr && pr ? pr.comments : (issue?.comments ?? 0);
+  const n = issue ? issueCommentCount(gh, issue.repo_id, issue.number) : 0;
   if (!matchesNumericPredicate(n, commentRanges, commentEq)) return false;
   for (const nv of parsed.negations.get("comments") ?? []) {
     const r = parseRangeToken(nv);
@@ -913,8 +920,8 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       });
     } else if (sortRaw === "comments") {
       sorted.sort((a, b) => {
-        const ca = a.kind === "issue" ? a.issue.comments : a.pr.comments;
-        const cb = b.kind === "issue" ? b.issue.comments : b.pr.comments;
+        const ca = issueCommentCount(gh, a.issue.repo_id, a.issue.number);
+        const cb = issueCommentCount(gh, b.issue.repo_id, b.issue.number);
         return order === "desc" ? cb - ca : ca - cb;
       });
     } else {

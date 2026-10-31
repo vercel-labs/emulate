@@ -1006,6 +1006,36 @@ describe("GitHub GraphQL fidelity", () => {
     dispatch.mockRestore();
   });
 
+  it("counts a pull request's comments the same on every route", async () => {
+    const pr = await seedPr();
+    const first = await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "one" });
+    await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "two" });
+    await send("DELETE", `${REPO}/issues/comments/${first.body.id}`);
+    await send("POST", `${REPO}/pulls/${pr.number}/comments`, {
+      body: "line",
+      commit_id: pr.head.sha,
+      path: "feature.txt",
+      line: 1,
+    });
+    await send("POST", `${REPO}/pulls/${pr.number}/reviews`, {
+      event: "COMMENT",
+      comments: [{ path: "feature.txt", line: 1, body: "in review" }],
+    });
+
+    expect((await send("GET", `${REPO}/issues/${pr.number}`)).body.comments).toBe(1);
+    expect((await send("GET", `${REPO}/pulls/${pr.number}`)).body).toMatchObject({ comments: 1, review_comments: 2 });
+    const query = `query($n: Int!) { repository(owner: "octocat", name: "hello-world") {
+      pullRequest(number: $n) { comments(first: 10) { totalCount } } } }`;
+    expect((await graphql(query, { n: pr.number })).data.repository.pullRequest.comments.totalCount).toBe(1);
+
+    const issue = await send("POST", `${REPO}/issues`, { title: "plain" });
+    await send("POST", `${REPO}/issues/${issue.body.number}/comments`, { body: "a" });
+    await send("POST", `${REPO}/issues/${issue.body.number}/comments`, { body: "b" });
+    expect((await send("GET", `${REPO}/issues/${issue.body.number}`)).body.comments).toBe(2);
+    const byComments = await send("GET", `${REPO}/issues?state=all&sort=comments&direction=desc`);
+    expect(byComments.body.map((i: { number: number }) => i.number)).toEqual([issue.body.number, pr.number]);
+  });
+
   describe("organization repository roles", () => {
     const ORG_REPO = "/repos/acme/widgets";
     const tokens = ["owner", "member", "writer", "teammate"] as const;

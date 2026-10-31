@@ -31,7 +31,9 @@ import {
   generateNodeId,
   generateSha,
   getNextIssueNumber,
+  issueCommentCount,
   lookupRepo,
+  reviewCommentCount,
   timestamp,
 } from "../helpers.js";
 import { findOrCreateCommit } from "../git-helpers.js";
@@ -242,6 +244,7 @@ function matchesHeadFilter(gh: GitHubStore, pr: GitHubPullRequest, headParam: st
 }
 
 function sortPulls(
+  gh: GitHubStore,
   list: GitHubPullRequest[],
   sort: "created" | "updated" | "popularity" | "long-running",
   direction: "asc" | "desc",
@@ -259,8 +262,8 @@ function sortPulls(
     if (sort === "created") {
       return a.created_at.localeCompare(b.created_at) * mul;
     }
-    const av = a.comments + a.review_comments;
-    const bv = b.comments + b.review_comments;
+    const av = issueCommentCount(gh, a.repo_id, a.number) + reviewCommentCount(gh, a.repo_id, a.number);
+    const bv = issueCommentCount(gh, b.repo_id, b.number) + reviewCommentCount(gh, b.repo_id, b.number);
     if (av < bv) return -1 * mul;
     if (av > bv) return 1 * mul;
     return 0;
@@ -374,7 +377,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       list = list.filter((p) => matchesHeadFilter(gh, p, headQ));
     }
 
-    list = sortPulls(list, sort, direction);
+    list = sortPulls(gh, list, sort, direction);
 
     const { page, per_page } = parsePagination(c);
     const total = list.length;
@@ -440,7 +443,6 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       assignee_ids: [],
       label_ids: [],
       milestone_id: null,
-      comments: 0,
       closed_at: null,
       closed_by_id: null,
       is_pull_request: true,
@@ -473,8 +475,6 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       merge_commit_sha: null,
       mergeable: true,
       mergeable_state: "clean",
-      comments: 0,
-      review_comments: 0,
       commits: Math.max(1, commitCount),
       additions: 0,
       deletions: 0,

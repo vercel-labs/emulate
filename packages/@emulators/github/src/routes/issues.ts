@@ -24,6 +24,7 @@ import {
   formatUser,
   generateNodeId,
   getNextIssueNumber,
+  issueCommentCount,
   lookupRepo,
   timestamp,
 } from "../helpers.js";
@@ -163,16 +164,22 @@ function formatIssueEventApi(
 }
 
 function sortIssues(
+  gh: GitHubStore,
   issues: GitHubIssue[],
   sort: "created" | "updated" | "comments",
   direction: "asc" | "desc",
 ): GitHubIssue[] {
   const mul = direction === "asc" ? 1 : -1;
-  const field = sort === "created" ? "created_at" : sort === "updated" ? "updated_at" : "comments";
+  const key = (issue: GitHubIssue) =>
+    sort === "comments"
+      ? issueCommentCount(gh, issue.repo_id, issue.number)
+      : sort === "created"
+        ? issue.created_at
+        : issue.updated_at;
   const sorted = [...issues];
   sorted.sort((a, b) => {
-    const av = a[field];
-    const bv = b[field];
+    const av = key(a);
+    const bv = key(b);
     if (typeof av === "number" && typeof bv === "number") {
       return av < bv ? -1 * mul : av > bv ? 1 * mul : 0;
     }
@@ -290,7 +297,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       list = list.filter((i) => i.updated_at >= sinceQ);
     }
 
-    list = sortIssues(list, sort, direction);
+    list = sortIssues(gh, list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
     const start = (page - 1) * per_page;
@@ -355,7 +362,6 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       assignee_ids: assigneeIds,
       label_ids: labelIds,
       milestone_id: milestoneId,
-      comments: 0,
       closed_at: null,
       closed_by_id: null,
       is_pull_request: false,

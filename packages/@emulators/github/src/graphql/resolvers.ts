@@ -20,6 +20,7 @@ import {
   formatRepo,
   formatUser,
   generateNodeId,
+  issueCommentCount,
   lookupRepo,
 } from "../helpers.js";
 import { diffTrees, findCommitBySha, listAncestors } from "../git-helpers.js";
@@ -486,7 +487,9 @@ export function repoView(ctx: GraphQLContext, repo: GitHubRepo): View {
         return true;
       });
       return connectionFromArray(
-        byOrder(list, args.orderBy, (pr) => pr.comments).map((pr) => prView(ctx, pr)),
+        byOrder(list, args.orderBy, (pr) => issueCommentCount(ctx.gh, pr.repo_id, pr.number)).map((pr) =>
+          prView(ctx, pr),
+        ),
         args,
       );
     },

@@ -74,14 +74,6 @@ function parseCommentSort(c: Context, defaultDirection: "asc" | "desc") {
   return { sort, direction };
 }
 
-function adjustIssueCommentCount(gh: GitHubStore, issue: GitHubIssue, delta: number) {
-  gh.issues.update(issue.id, { comments: Math.max(0, issue.comments + delta) });
-}
-
-function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delta: number) {
-  gh.pullRequests.update(pr.id, { review_comments: Math.max(0, pr.review_comments + delta) });
-}
-
 export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
@@ -177,7 +169,6 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
-    if (issue) adjustIssueCommentCount(gh, issue, -1);
 
     webhooks.dispatch(
       "issue_comment",
@@ -310,7 +301,6 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
-    if (pr) adjustPrReviewCommentCount(gh, pr, -1);
 
     webhooks.dispatch(
       "pull_request_review_comment",
@@ -515,8 +505,6 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     gh.comments.update(row.id, { node_id: generateNodeId("IssueComment", row.id) });
     const comment = gh.comments.get(row.id)!;
 
-    adjustIssueCommentCount(gh, issue, 1);
-
     const ownerLogin = ownerLoginOf(gh, repo);
     const commentFmt = formatComment(comment, gh, baseUrl)!;
 
@@ -650,8 +638,6 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     } as Omit<GitHubComment, "id" | "created_at" | "updated_at">);
     gh.comments.update(row.id, { node_id: generateNodeId("PullRequestReviewComment", row.id) });
     const comment = gh.comments.get(row.id)!;
-
-    adjustPrReviewCommentCount(gh, pr, 1);
 
     const ownerLogin = ownerLoginOf(gh, repo);
     const commentFmt = formatComment(comment, gh, baseUrl)!;

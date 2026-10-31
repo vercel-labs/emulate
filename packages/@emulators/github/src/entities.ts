@@ -126,7 +126,6 @@ export interface GitHubIssue extends Entity {
   assignee_ids: number[];
   label_ids: number[];
   milestone_id: number | null;
-  comments: number;
   closed_at: string | null;
   closed_by_id: number | null;
   is_pull_request: boolean;
@@ -156,8 +155,6 @@ export interface GitHubPullRequest extends Entity {
   merge_commit_sha: string | null;
   mergeable: boolean | null;
   mergeable_state: string;
-  comments: number;
-  review_comments: number;
   commits: number;
   additions: number;
   deletions: number;

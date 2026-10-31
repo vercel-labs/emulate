@@ -401,7 +401,7 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     assignee: assignees[0] ?? null,
     assignees,
     milestone: milestone ? formatMilestone(milestone, repo, store, baseUrl) : null,
-    comments: issue.comments,
+    comments: issueCommentCount(store, issue.repo_id, issue.number),
     created_at: issue.created_at,
     updated_at: issue.updated_at,
     closed_at: issue.closed_at,
@@ -412,6 +412,18 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
   };
+}
+
+export function issueCommentCount(store: GitHubStore, repoId: number, number: number): number {
+  return store.comments
+    .findBy("repo_id", repoId)
+    .filter((c) => c.comment_type === "issue" && c.issue_number === number).length;
+}
+
+export function reviewCommentCount(store: GitHubStore, repoId: number, number: number): number {
+  return store.comments
+    .findBy("repo_id", repoId)
+    .filter((c) => c.comment_type === "review" && c.pull_number === number).length;
 }
 
 /** A change to an issue, or to a pull request through an issue route, fires the webhook GitHub sends for that kind. */
@@ -452,7 +464,6 @@ export const PULL_REQUEST_FIELDS = [
   "assignee_ids",
   "label_ids",
   "milestone_id",
-  "comments",
   "closed_at",
 ] as const;
 
@@ -586,8 +597,8 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
     rebaseable: true,
     mergeable_state: pr.mergeable_state,
     merged_by: mergedBy ? formatUser(mergedBy, baseUrl) : null,
-    comments: pr.comments,
-    review_comments: pr.review_comments,
+    comments: issueCommentCount(store, pr.repo_id, pr.number),
+    review_comments: reviewCommentCount(store, pr.repo_id, pr.number),
     maintainer_can_modify: true,
     commits: pr.commits,
     additions: pr.additions,

@@ -34,10 +34,6 @@ function findReview(gh: GitHubStore, repo: GitHubRepo, pullNumber: number, revie
   return r;
 }
 
-function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delta: number) {
-  gh.pullRequests.update(pr.id, { review_comments: Math.max(0, pr.review_comments + delta) });
-}
-
 function sortComments(
   comments: GitHubComment[],
   sort: "created" | "updated",
@@ -217,7 +213,6 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         review_id: review.id,
       } as Omit<GitHubComment, "id" | "created_at" | "updated_at">);
       gh.comments.update(cRow.id, { node_id: generateNodeId("PullRequestReviewComment", cRow.id) });
-      adjustPrReviewCommentCount(gh, pr, 1);
     }
 
     if (event) {
