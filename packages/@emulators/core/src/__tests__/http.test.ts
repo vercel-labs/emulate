@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { Hono, cors } from "../http.js";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import { Hono, cors, serve } from "../http.js";
+
+describe("HTTP listener", () => {
+  it.each([
+    { hostname: undefined, address: "127.0.0.1" },
+    { hostname: "0.0.0.0", address: "0.0.0.0" },
+  ])("binds to $address with hostname $hostname", async ({ hostname, address }) => {
+    const server = serve({ fetch: () => new Response("ready"), port: 0, hostname });
+    try {
+      await once(server, "listening");
+      const bound = server.address() as AddressInfo;
+      expect(bound.address).toBe(address);
+      expect(await (await fetch(`http://localhost:${bound.port}`)).text()).toBe("ready");
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
+    }
+  });
+});
 
 describe("internal http layer", () => {
   it("dispatches middleware and route handlers with params", async () => {

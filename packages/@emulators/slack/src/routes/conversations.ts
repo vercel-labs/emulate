@@ -1,6 +1,9 @@
-import type { RouteContext } from "@emulators/core";
+import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackFile, SlackFileShare, SlackMessage, SlackUser } from "../entities.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
+import { isSlackConnectChannel } from "../connect.js";
 import { getSlackStore } from "../store.js";
+import { slackRequestToken } from "../tokens.js";
 import {
   formatSlackMessage,
   generateSlackId,
@@ -20,6 +23,10 @@ import {
 export function conversationsRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const ss = () => getSlackStore(store);
+  const formatChannel = (channel: SlackChannel, viewer?: string, viewerName?: string) => {
+    const shared = isSlackConnectChannel(store, channel);
+    return { ...formatConversation(channel, viewer, viewerName), is_ext_shared: shared, is_shared: shared };
+  };
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
@@ -69,18 +76,16 @@ export function conversationsRoutes(ctx: RouteContext): void {
           }
         : {}),
     });
-  const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
-    await webhooks.dispatch(
-      type,
-      undefined,
-      {
-        type: "event_callback",
-        event: { type, ...event },
-      },
-      "slack",
-    );
+  const dispatchConversationEvent = async (
+    c: Context,
+    channel: SlackChannel,
+    type: string,
+    event: Record<string, unknown>,
+  ) => {
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, channel.team_id), { type, ...event });
   };
   const insertAndDispatchMessageEvent = async (
+    c: Context,
     channel: SlackChannel,
     user: string,
     message: Pick<SlackMessage, "subtype" | "text"> &
@@ -97,23 +102,15 @@ export function conversationsRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      {
-        type: "event_callback",
-        event: {
-          ...formatSlackMessage(msg),
-          channel: channel.channel_id,
-          event_ts: msg.ts,
-        },
-      },
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, channel.team_id), {
+      ...formatSlackMessage(msg),
+      channel: channel.channel_id,
+      event_ts: msg.ts,
+    });
     return msg;
   };
-  const dispatchMemberJoined = async (channel: SlackChannel, user: string, inviter?: string) => {
-    await dispatchConversationEvent("member_joined_channel", {
+  const dispatchMemberJoined = async (c: Context, channel: SlackChannel, user: string, inviter?: string) => {
+    await dispatchConversationEvent(c, channel, "member_joined_channel", {
       user,
       channel: channel.channel_id,
       channel_type: channelTypeLetter(channel),
@@ -121,14 +118,96 @@ export function conversationsRoutes(ctx: RouteContext): void {
       ...(inviter ? { inviter } : {}),
     });
   };
-  const dispatchMemberLeft = async (channel: SlackChannel, user: string) => {
-    await dispatchConversationEvent("member_left_channel", {
+  const dispatchMemberLeft = async (c: Context, channel: SlackChannel, user: string) => {
+    const eventTs = generateTs();
+    await dispatchConversationEvent(c, channel, "member_left_channel", {
       user,
       channel: channel.channel_id,
       channel_type: channelTypeLetter(channel),
       team: channel.team_id,
+      event_ts: eventTs,
     });
+    for (const installation of ss().installations.findBy("team_id", channel.team_id)) {
+      if (installation.bot_user_id !== user) continue;
+      await dispatchSlackEvent(
+        store,
+        webhooks,
+        channel.team_id,
+        {
+          type: channel.is_private ? "group_left" : "channel_left",
+          channel: channel.channel_id,
+          actor_id: getAuthUserId(c.get("authUser")!),
+          event_ts: eventTs,
+        },
+        installation,
+      );
+    }
   };
+
+  for (const [method, isPrivate] of [
+    ["convertToPrivate", true],
+    ["convertToPublic", false],
+  ] as const) {
+    app.post(`/api/admin.conversations.${method}`, async (c) => {
+      const authUser = c.get("authUser");
+      if (!authUser) return slackError(c, "not_authed");
+
+      const token = slackRequestToken(c);
+      const tokenRecord = token ? ss().tokens.findOneBy("token", token) : undefined;
+      const user = getAuthSlackUser(authUser);
+      const isUserToken = tokenRecord ? tokenRecord.token_type === "user" : token?.startsWith("xoxp-");
+      if (!isUserToken || user?.is_bot) return slackError(c, "not_allowed_token_type");
+
+      const scopeError = requireSlackScopes(c, store, ["admin.conversations:write"]);
+      if (scopeError) return scopeError;
+      if (!user?.is_admin || user.deleted) {
+        return c.json({
+          ok: false,
+          error: "missing_scope",
+          needed: "admin.conversations:write",
+          provided: (c.get("authScopes") ?? authUser.scopes ?? []).join(","),
+        });
+      }
+
+      const body = await parseSlackBody(c);
+      const channelId = typeof body.channel_id === "string" ? body.channel_id : "";
+      const channel = ss().channels.findOneBy("channel_id", channelId);
+      if (!channel) return slackError(c, "channel_not_found");
+      if (
+        isDirectConversation(channel) ||
+        channel.is_private === isPrivate ||
+        (isPrivate && isGeneralChannel(channel))
+      ) {
+        return slackError(c, isPrivate ? "channel_type_not_supported" : "not_supported");
+      }
+
+      const updated = ss().channels.update(channel.id, { is_private: isPrivate, is_channel: !isPrivate })!;
+      for (const file of ss().files.all()) {
+        if (!file.channels.includes(channelId) && !file.groups.includes(channelId)) continue;
+        const channels = file.channels.filter((id) => id !== channelId);
+        const groups = file.groups.filter((id) => id !== channelId);
+        (isPrivate ? groups : channels).push(channelId);
+        const shares = { ...file.shares };
+        const source = isPrivate ? "public" : "private";
+        const target = isPrivate ? "private" : "public";
+        const channelShares = shares[source]?.[channelId];
+        if (channelShares) {
+          shares[source] = { ...shares[source] };
+          delete shares[source]![channelId];
+          if (Object.keys(shares[source]!).length === 0) delete shares[source];
+          shares[target] = { ...shares[target], [channelId]: channelShares };
+        }
+        ss().files.update(file.id, { channels, groups, shares, is_public: channels.length > 0 });
+      }
+      await insertAndDispatchMessageEvent(c, updated, user.user_id, {
+        subtype: isPrivate ? "channel_convert_to_private" : "channel_convert_to_public",
+        text: isPrivate
+          ? "made this channel *private*. Now, it can only be viewed or joined by invitation."
+          : "made this channel *public*. Any member in this workspace can see and join it.",
+      });
+      return slackOk(c, {});
+    });
+  }
 
   // conversations.list
   app.post("/api/conversations.list", async (c) => {
@@ -251,11 +330,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
     if (!isChannelMember(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
 
     const updated = ss().channels.update(ch.id, { is_archived: true })!;
-    await dispatchConversationEvent(lifecycleEventType(updated, "archive"), {
+    await dispatchConversationEvent(c, updated, lifecycleEventType(updated, "archive"), {
       channel: updated.channel_id,
       user: authUserId,
     });
-    await insertAndDispatchMessageEvent(updated, authUserId, {
+    await insertAndDispatchMessageEvent(c, updated, authUserId, {
       subtype: lifecycleEventType(updated, "archive"),
       text: `<@${authUserId}> archived the ${conversationNoun(updated)}`,
     });
@@ -291,11 +370,11 @@ export function conversationsRoutes(ctx: RouteContext): void {
       num_members: members.length,
     })!;
 
-    await dispatchConversationEvent(lifecycleEventType(updated, "unarchive"), {
+    await dispatchConversationEvent(c, updated, lifecycleEventType(updated, "unarchive"), {
       channel: updated.channel_id,
       user: authUserId,
     });
-    await insertAndDispatchMessageEvent(updated, authUserId, {
+    await insertAndDispatchMessageEvent(c, updated, authUserId, {
       subtype: lifecycleEventType(updated, "unarchive"),
       text: `<@${authUserId}> unarchived the ${conversationNoun(updated)}`,
     });
@@ -336,14 +415,14 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const oldName = ch.name;
     const updated = ss().channels.update(ch.id, { name })!;
-    await dispatchConversationEvent(lifecycleEventType(updated, "rename"), {
+    await dispatchConversationEvent(c, updated, lifecycleEventType(updated, "rename"), {
       channel: {
         id: updated.channel_id,
         name: updated.name,
         created: createdSeconds(updated),
       },
     });
-    await insertAndDispatchMessageEvent(updated, authUserId, {
+    await insertAndDispatchMessageEvent(c, updated, authUserId, {
       subtype: lifecycleMessageSubtype(updated, "name"),
       text: `<@${authUserId}> renamed the ${conversationNoun(updated)} from "${oldName}" to "${updated.name}"`,
       old_name: oldName,
@@ -381,7 +460,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       topic: { value: topic, creator: authUserId, last_set: now },
     })!;
 
-    await insertAndDispatchMessageEvent(updated, authUserId, {
+    await insertAndDispatchMessageEvent(c, updated, authUserId, {
       subtype: lifecycleMessageSubtype(updated, "topic"),
       text: `<@${authUserId}> set the ${conversationNoun(updated)} topic: ${topic}`,
       topic,
@@ -418,7 +497,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
       purpose: { value: purpose, creator: authUserId, last_set: now },
     })!;
 
-    await insertAndDispatchMessageEvent(updated, authUserId, {
+    await insertAndDispatchMessageEvent(c, updated, authUserId, {
       subtype: lifecycleMessageSubtype(updated, "purpose"),
       text: `<@${authUserId}> set the ${conversationNoun(updated)} purpose: ${purpose}`,
       purpose,
@@ -526,7 +605,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
         members: [...ch.members, authUserId],
         num_members: ch.num_members + 1,
       })!;
-      await dispatchMemberJoined(updated, authUserId);
+      await dispatchMemberJoined(c, updated, authUserId);
     }
 
     const updated = ss().channels.findOneBy("channel_id", channel)!;
@@ -559,9 +638,10 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
+      is_ext_shared: isSlackConnectChannel(store, ch),
       num_members: updatedMembers.length,
     })!;
-    await dispatchMemberLeft(updated, authUserId);
+    await dispatchMemberLeft(c, updated, authUserId);
 
     return slackOk(c, {});
   });
@@ -611,11 +691,12 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const updatedMembers = [...ch.members, ...validUsers];
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
+      is_ext_shared: isSlackConnectChannel(store, ch),
       num_members: updatedMembers.length,
     })!;
 
     for (const user of validUsers) {
-      await dispatchMemberJoined(updated, user, authUserId);
+      await dispatchMemberJoined(c, updated, user, authUserId);
     }
 
     return slackOk(c, { channel: formatChannel(updated, authUserId, authSlackUser?.name) });
@@ -653,9 +734,10 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const updatedMembers = ch.members.filter((member) => !targetAliases.has(member));
     const updated = ss().channels.update(ch.id, {
       members: updatedMembers,
+      is_ext_shared: isSlackConnectChannel(store, ch),
       num_members: updatedMembers.length,
     })!;
-    await dispatchMemberLeft(updated, user);
+    await dispatchMemberLeft(c, updated, user);
 
     return slackOk(c, { errors: {} });
   });
@@ -683,7 +765,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
       const updated = alreadyOpen
         ? existing
         : ss().channels.update(existing.id, setSlackConversationOpenState(existing, authUserId, true))!;
-      if (!alreadyOpen) await dispatchConversationEvent(openEventType(updated), { channel: updated.channel_id });
+      if (!alreadyOpen)
+        await dispatchConversationEvent(c, updated, openEventType(updated), { channel: updated.channel_id });
       return slackOk(c, {
         ...(alreadyOpen ? { no_op: true, already_open: true } : {}),
         channel: returnIm ? formatChannel(updated, authUserId, authSlackUser?.name) : { id: updated.channel_id },
@@ -712,7 +795,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
       const updated = alreadyOpen
         ? existing
         : ss().channels.update(existing.id, setSlackConversationOpenState(existing, authUserId, true))!;
-      if (!alreadyOpen) await dispatchConversationEvent(openEventType(updated), { channel: updated.channel_id });
+      if (!alreadyOpen)
+        await dispatchConversationEvent(c, updated, openEventType(updated), { channel: updated.channel_id });
       return slackOk(c, {
         ...(alreadyOpen ? { no_op: true, already_open: true } : {}),
         channel: returnIm ? formatChannel(updated, authUserId, authSlackUser?.name) : { id: updated.channel_id },
@@ -743,10 +827,10 @@ export function conversationsRoutes(ctx: RouteContext): void {
       last_read: {},
     });
 
-    await dispatchConversationEvent(created.is_im ? "im_created" : "group_joined", {
+    await dispatchConversationEvent(c, created, created.is_im ? "im_created" : "group_joined", {
       channel: formatChannel(created, authUserId, authSlackUser?.name),
     });
-    await dispatchConversationEvent(openEventType(created), { channel: created.channel_id });
+    await dispatchConversationEvent(c, created, openEventType(created), { channel: created.channel_id });
 
     return slackOk(c, {
       channel: returnIm ? formatChannel(created, authUserId, authSlackUser?.name) : { id: created.channel_id },
@@ -774,7 +858,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     }
 
     const updated = ss().channels.update(ch.id, setSlackConversationOpenState(ch, authUserId, false))!;
-    await dispatchConversationEvent(closeEventType(updated), { channel: updated.channel_id });
+    await dispatchConversationEvent(c, updated, closeEventType(updated), { channel: updated.channel_id });
     return slackOk(c, {});
   });
 
@@ -801,7 +885,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
     ss().channels.update(ch.id, {
       last_read: { ...(ch.last_read ?? {}), [authUserId]: ts },
     });
-    await dispatchConversationEvent(markEventType(ch), { channel: ch.channel_id, ts });
+    await dispatchConversationEvent(c, ch, markEventType(ch), { channel: ch.channel_id, ts });
 
     return slackOk(c, {});
   });
@@ -829,7 +913,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
   });
 }
 
-function formatChannel(ch: SlackChannel, viewer?: string, viewerName?: string) {
+function formatConversation(ch: SlackChannel, viewer?: string, viewerName?: string) {
   const imUser = ch.is_im && viewer ? ch.members.find((member) => member !== viewer) : ch.user;
   const isMember = viewer
     ? ch.members.includes(viewer) || (viewerName !== undefined && ch.members.includes(viewerName))

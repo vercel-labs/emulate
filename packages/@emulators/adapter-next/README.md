@@ -26,7 +26,7 @@ import { createEmulateHandler } from '@emulators/adapter-next'
 import * as github from '@emulators/github'
 import * as google from '@emulators/google'
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const emulator = createEmulateHandler({
   services: {
     github: {
       emulator: github,
@@ -43,7 +43,13 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
     },
   },
 })
+
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = emulator
 ```
+
+GitHub App seeds may omit `private_key`. Read generated keys with the handler's server-only `generatedSecrets()` method. Explicit keys are excluded; persisted snapshots contain generated keys and require a private backend with atomic `initialize`.
+
+Inspect minted installation-token metadata at `/emulate/github/_emulate/installation-tokens`.
 
 ## Auth.js / NextAuth configuration
 
@@ -99,7 +105,7 @@ const kvAdapter = {
   async save(data: string) { await kv.set('emulate-state', data) },
 }
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+export const { GET, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateHandler({
   services: { github: { emulator: github } },
   persistence: kvAdapter,
 })
@@ -118,3 +124,7 @@ persistence: filePersistence('.emulate/state.json'),
 
 - [Full documentation](https://emulate.dev)
 - [GitHub](https://github.com/vercel-labs/emulate)
+
+## Custom emulators
+
+Pass a definition created with `defineEmulator` from `emulate` to `services[name].emulator` in framework adapters. The same definition runs through the CLI and `createEmulator({ service: definition, listen: false })` in tests. Custom entries accept an optional inspector and persistence adapter. Export `OPTIONS` so preflight requests and custom OPTIONS routes reach the emulator. Root-relative redirects stay under the service mount, while custom HTML bodies pass through unchanged. Keep state inside the definition's state factory, and await the handler's `close()` in tests. See the [custom emulator guide](https://emulate.dev/docs/custom-emulators).

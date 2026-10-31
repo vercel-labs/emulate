@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { generateKeyPairSync, sign } from "crypto";
 import { Hono } from "../http.js";
-import { authMiddleware, requireAuth, requireAppAuth, type TokenMap, type AppEnv } from "../middleware/auth.js";
+import {
+  authMiddleware,
+  requireAuth,
+  requireAppAuth,
+  restoreTokenMap,
+  serializeTokenMap,
+  type TokenMap,
+  type AppEnv,
+} from "../middleware/auth.js";
 
 describe("authMiddleware", () => {
   let tokenMap: TokenMap;
@@ -55,6 +64,51 @@ describe("authMiddleware", () => {
     const body = (await res.json()) as { user: unknown };
     expect(body.user).toBeNull();
   });
+
+  it("preserves installation credentials when token maps are serialized", () => {
+    tokenMap.set("installation-token", {
+      login: "acme",
+      id: 7,
+      scopes: ["contents:write"],
+      installation: {
+        installationId: 42,
+        appId: 9,
+        accountId: 7,
+        accountType: "Organization",
+        permissions: { contents: "write" },
+        repositoryIds: [12],
+        repositorySelection: "selected",
+      },
+    });
+
+    const restored: TokenMap = new Map();
+    restoreTokenMap(restored, serializeTokenMap(tokenMap));
+    expect(restored.get("installation-token")).toEqual(tokenMap.get("installation-token"));
+  });
+
+  it.each(["pkcs8", "pkcs1"] as const)("sets authApp for a valid GitHub App JWT signed with %s", async (format) => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: format, format: "pem" }).toString();
+    const jwt = createAppJwt("42", privateKeyPem);
+
+    const app = new Hono<AppEnv>();
+    app.use(
+      "*",
+      authMiddleware(tokenMap, (appId) => {
+        if (appId !== 42) return null;
+        return { privateKey: privateKeyPem, slug: "my-app", name: "My App" };
+      }),
+    );
+    app.get("/test", (c) => c.json({ app: c.get("authApp") }));
+
+    const res = await app.request("/test", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { app: { appId: number; slug: string; name: string } };
+    expect(body.app).toEqual({ appId: 42, slug: "my-app", name: "My App" });
+  });
 });
 
 describe("requireAuth", () => {
@@ -94,6 +148,18 @@ describe("requireAuth", () => {
     expect(body.user?.login).toBe("alice");
   });
 });
+
+function createAppJwt(appId: string, privateKey: string): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = { iat: nowSeconds - 60, exp: nowSeconds + 9 * 60, iss: appId };
+  const unsigned = `${base64UrlJson(header)}.${base64UrlJson(payload)}`;
+  return `${unsigned}.${sign("RSA-SHA256", Buffer.from(unsigned), privateKey).toString("base64url")}`;
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
 
 describe("requireAppAuth", () => {
   it("returns 401 when authApp is not set", async () => {

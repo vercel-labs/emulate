@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "@emulators/core";
-import { decodeJwt } from "jose";
+import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify, type JWK } from "jose";
 import {
   Store,
   WebhookDispatcher,
@@ -214,6 +214,31 @@ describe("Google plugin integration", () => {
 
   beforeEach(() => {
     app = createTestApp().app;
+  });
+
+  it("returns Google OIDC discovery metadata for RS256 tokens", async () => {
+    const res = await app.request(`${base}/.well-known/openid-configuration`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.issuer).toBe(base);
+    expect(body.jwks_uri).toBe(`${base}/oauth2/v3/certs`);
+    expect(body.id_token_signing_alg_values_supported).toEqual(["RS256"]);
+  });
+
+  it("returns the RSA public key used to sign ID tokens", async () => {
+    const res = await app.request(`${base}/oauth2/v3/certs`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { keys: Array<Record<string, unknown>> };
+    expect(body.keys).toHaveLength(1);
+    const key = body.keys[0];
+    expect(key.kty).toBe("RSA");
+    expect(key.kid).toBe("emulate-google-1");
+    expect(key.use).toBe("sig");
+    expect(key.alg).toBe("RS256");
+    expect(key.n).toBeDefined();
+    expect(key.e).toBe("AQAB");
   });
 
   it("returns user info for a valid token", async () => {
@@ -875,10 +900,24 @@ describe("Google plugin integration", () => {
     const tokenBody = (await tokenRes.json()) as {
       access_token: string;
       refresh_token: string;
+      id_token: string;
       scope: string;
     };
     expect(tokenBody.access_token).toMatch(/^google_/);
     expect(tokenBody.refresh_token).toMatch(/^google_refresh_/);
+    expect(tokenBody.id_token).toBeDefined();
+
+    const header = decodeProtectedHeader(tokenBody.id_token);
+    expect(header).toMatchObject({ alg: "RS256", kid: "emulate-google-1", typ: "JWT" });
+
+    const jwksRes = await app.request(`${base}/oauth2/v3/certs`);
+    const jwksBody = (await jwksRes.json()) as { keys: JWK[] };
+    const { payload } = await jwtVerify(tokenBody.id_token, await importJWK(jwksBody.keys[0], "RS256"), {
+      issuer: base,
+      audience: "emu_google_client_id",
+    });
+    expect(payload.email).toBe("testuser@example.com");
+    expect(payload.hd).toBe("example.com");
 
     const refreshRes = await formRequest(app, "/oauth2/token", {
       grant_type: "refresh_token",
@@ -931,6 +970,97 @@ describe("Google plugin integration", () => {
     });
     expect(userinfoRes.status).toBe(200);
     expect(((await userinfoRes.json()) as { hd?: string }).hd).toBe("override.io");
+  });
+
+  it("returns the Calendar v3 discovery document without authentication", async () => {
+    const res = await app.request(`${base}/discovery/v1/apis/calendar/v3/rest`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      kind: string;
+      discoveryVersion: string;
+      id: string;
+      name: string;
+      version: string;
+      protocol: string;
+      rootUrl: string;
+      baseUrl: string;
+      servicePath: string;
+      basePath: string;
+      parameters: Record<string, { location: string }>;
+      auth: { oauth2: { scopes: Record<string, { description: string }> } };
+      resources: {
+        calendarList: {
+          methods: {
+            list: {
+              path: string;
+              httpMethod: string;
+              parameters: Record<string, unknown>;
+            };
+          };
+        };
+        events: {
+          methods: {
+            list: { path: string; httpMethod: string; scopes: string[] };
+            insert: { path: string; httpMethod: string };
+            delete: { path: string; httpMethod: string };
+          };
+        };
+        freebusy: { methods: { query: { path: string; httpMethod: string } } };
+      };
+    };
+
+    expect(body).toMatchObject({
+      kind: "discovery#restDescription",
+      discoveryVersion: "v1",
+      id: "calendar:v3",
+      name: "calendar",
+      version: "v3",
+      protocol: "rest",
+      rootUrl: `${base}/`,
+      baseUrl: `${base}/calendar/v3/`,
+      servicePath: "calendar/v3/",
+      basePath: "/calendar/v3/",
+    });
+    expect(body.parameters).toHaveProperty("prettyPrint");
+    expect(body.parameters).toHaveProperty("fields");
+    expect(body.auth.oauth2.scopes["https://www.googleapis.com/auth/calendar"]).toEqual({
+      description: expect.any(String),
+    });
+    expect(body.resources.calendarList.methods.list.parameters).not.toHaveProperty("maxResults");
+    expect(body.resources.calendarList.methods.list.parameters).not.toHaveProperty("pageToken");
+    expect(body.resources.events.methods.list.scopes).toContain(
+      "https://www.googleapis.com/auth/calendar.events.freebusy",
+    );
+
+    expect({
+      calendarListList: {
+        path: body.resources.calendarList.methods.list.path,
+        httpMethod: body.resources.calendarList.methods.list.httpMethod,
+      },
+      eventsList: {
+        path: body.resources.events.methods.list.path,
+        httpMethod: body.resources.events.methods.list.httpMethod,
+      },
+      eventsInsert: {
+        path: body.resources.events.methods.insert.path,
+        httpMethod: body.resources.events.methods.insert.httpMethod,
+      },
+      eventsDelete: {
+        path: body.resources.events.methods.delete.path,
+        httpMethod: body.resources.events.methods.delete.httpMethod,
+      },
+      freebusyQuery: {
+        path: body.resources.freebusy.methods.query.path,
+        httpMethod: body.resources.freebusy.methods.query.httpMethod,
+      },
+    }).toEqual({
+      calendarListList: { path: "users/{userId}/calendarList", httpMethod: "GET" },
+      eventsList: { path: "calendars/{calendarId}/events", httpMethod: "GET" },
+      eventsInsert: { path: "calendars/{calendarId}/events", httpMethod: "POST" },
+      eventsDelete: { path: "calendars/{calendarId}/events/{eventId}", httpMethod: "DELETE" },
+      freebusyQuery: { path: "freeBusy", httpMethod: "POST" },
+    });
   });
 
   it("lists calendar resources, creates events, queries freebusy, and deletes events", async () => {

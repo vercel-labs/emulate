@@ -1,10 +1,18 @@
-import { createHmac } from "crypto";
+import { createHmac, generateKeyPair } from "crypto";
 import type { Hono } from "@emulators/core";
-import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
+import type {
+  ServicePlugin,
+  Store,
+  WebhookDispatcher,
+  TokenMap,
+  AppEnv,
+  RouteContext,
+  AppKeyResolver,
+} from "@emulators/core";
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
-import { generateNodeId, generateSha } from "./helpers.js";
+import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -13,7 +21,9 @@ import { commentsRoutes } from "./routes/comments.js";
 import { reviewsRoutes } from "./routes/reviews.js";
 import { labelsAndMilestonesRoutes } from "./routes/labels.js";
 import { branchesAndGitRoutes } from "./routes/branches.js";
-import { orgsAndTeamsRoutes } from "./routes/orgs.js";
+import { contentsRoutes } from "./routes/contents.js";
+import { commitsRoutes } from "./routes/commits.js";
+import { getOrCreateMembersTeam, orgsAndTeamsRoutes } from "./routes/orgs.js";
 import { releasesRoutes } from "./routes/releases.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { searchRoutes } from "./routes/search.js";
@@ -23,6 +33,8 @@ import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
+import { installationTokenRoutes } from "./routes/installation-tokens.js";
+import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -45,6 +57,10 @@ export interface GitHubSeedConfig {
     name?: string;
     description?: string;
     email?: string;
+    members?: Array<{
+      login: string;
+      role?: "member" | "admin";
+    }>;
   }>;
   tokens?: Record<string, { login: string; scopes?: string[] }>;
   repos?: Array<{
@@ -67,7 +83,7 @@ export interface GitHubSeedConfig {
     app_id: number;
     slug: string;
     name: string;
-    private_key: string;
+    private_key?: string;
     permissions?: Record<string, string>;
     events?: string[];
     webhook_url?: string;
@@ -82,6 +98,142 @@ export interface GitHubSeedConfig {
       events?: string[];
     }>;
   }>;
+}
+
+export interface GeneratedGitHubAppPrivateKey {
+  app_id: number;
+  slug: string;
+  name: string;
+  private_key: string;
+}
+
+export interface MaterializedGitHubSeedConfig {
+  config: GitHubSeedConfig;
+  generatedPrivateKeys: GeneratedGitHubAppPrivateKey[];
+}
+
+export interface PreparedGitHubSeedConfig {
+  config: Record<string, unknown>;
+  generatedSecrets: Array<{
+    kind: string;
+    id: string;
+    label: string;
+    value: string;
+  }>;
+}
+
+function generateAppPrivateKey(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    generateKeyPair(
+      "rsa",
+      {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: "pkcs1", format: "pem" },
+        publicKeyEncoding: { type: "pkcs1", format: "pem" },
+      },
+      (error, _publicKey, privateKey) => {
+        if (error) reject(error);
+        else resolve(privateKey);
+      },
+    );
+  });
+}
+
+export async function materializeGitHubSeedConfig(config: GitHubSeedConfig): Promise<MaterializedGitHubSeedConfig> {
+  const appIds = new Set<number>();
+  const slugs = new Set<string>();
+  for (const app of config.apps ?? []) {
+    if (app.private_key === "") {
+      throw new Error(`GitHub App "${app.slug}" private_key must not be empty`);
+    }
+    if (appIds.has(app.app_id)) {
+      throw new Error(`Duplicate GitHub App app_id: ${app.app_id}`);
+    }
+    if (slugs.has(app.slug)) {
+      throw new Error(`Duplicate GitHub App slug: "${app.slug}"`);
+    }
+    appIds.add(app.app_id);
+    slugs.add(app.slug);
+  }
+
+  const generatedPrivateKeys: GeneratedGitHubAppPrivateKey[] = [];
+  const apps = [];
+  for (const app of config.apps ?? []) {
+    if (app.private_key !== undefined) {
+      apps.push({ ...app });
+      continue;
+    }
+
+    const privateKey = await generateAppPrivateKey();
+    generatedPrivateKeys.push({
+      app_id: app.app_id,
+      slug: app.slug,
+      name: app.name,
+      private_key: privateKey,
+    });
+    apps.push({ ...app, private_key: privateKey });
+  }
+
+  return {
+    config: config.apps ? { ...config, apps } : { ...config },
+    generatedPrivateKeys,
+  };
+}
+
+export async function prepareSeed(
+  config: Record<string, unknown>,
+  generatedSecrets: PreparedGitHubSeedConfig["generatedSecrets"] = [],
+): Promise<PreparedGitHubSeedConfig> {
+  const restoredKeys = new Map(
+    generatedSecrets
+      .filter((secret) => secret.kind === "github.app_private_key")
+      .map((secret) => [secret.id, secret.value]),
+  );
+  const restoredConfig: GitHubSeedConfig = {
+    ...config,
+    apps: (config.apps as GitHubSeedConfig["apps"] | undefined)?.map((app) => {
+      if (app.private_key !== undefined) return app;
+      const privateKey = restoredKeys.get(String(app.app_id));
+      if (!privateKey) return app;
+      return { ...app, private_key: privateKey };
+    }),
+  };
+  const materialized = await materializeGitHubSeedConfig(restoredConfig);
+  const nextGeneratedSecrets = generatedSecrets.map((secret) => ({ ...secret }));
+  const generatedIds = new Set(
+    nextGeneratedSecrets.filter((secret) => secret.kind === "github.app_private_key").map((secret) => secret.id),
+  );
+  for (const key of materialized.generatedPrivateKeys) {
+    const id = String(key.app_id);
+    if (generatedIds.has(id)) continue;
+    nextGeneratedSecrets.push({
+      kind: "github.app_private_key",
+      id,
+      label: key.name,
+      value: key.private_key,
+    });
+  }
+  return {
+    config: materialized.config as Record<string, unknown>,
+    generatedSecrets: nextGeneratedSecrets,
+  };
+}
+
+export function needsGeneratedSecrets(config: Record<string, unknown>): boolean {
+  return ((config.apps as GitHubSeedConfig["apps"] | undefined) ?? []).some((app) => app.private_key === undefined);
+}
+
+export function createAppKeyResolver(store: Store): AppKeyResolver {
+  return (appId: number) => {
+    try {
+      const gh = getGitHubStore(store);
+      const ghApp = gh.apps.all().find((app) => app.app_id === appId);
+      if (!ghApp) return null;
+      return { privateKey: ghApp.private_key, slug: ghApp.slug, name: ghApp.name };
+    } catch {
+      return null;
+    }
+  };
 }
 
 function seedDefaults(store: Store, baseUrl: string): void {
@@ -133,6 +285,14 @@ function seedDefaults(store: Store, baseUrl: string): void {
 }
 
 export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  for (const app of config.apps ?? []) {
+    if (!app.private_key) {
+      throw new Error(
+        `GitHub App "${app.slug}" requires private_key when seedFromConfig is called directly; use createEmulator to generate one`,
+      );
+    }
+  }
+
   const gh = getGitHubStore(store);
 
   if (config.users) {
@@ -192,6 +352,31 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     }
   }
 
+  if (config.orgs) {
+    for (const orgConfig of config.orgs) {
+      const org = gh.orgs.findOneBy("login", orgConfig.login);
+      if (!org) continue;
+
+      const membersTeam = getOrCreateMembersTeam(gh, org);
+      for (const memberConfig of orgConfig.members ?? []) {
+        const user = gh.users.findOneBy("login", memberConfig.login);
+        if (!user) continue;
+
+        const role: "member" | "maintainer" = memberConfig.role === "admin" ? "maintainer" : "member";
+        const existing = gh.teamMembers.findBy("team_id", membersTeam.id).find((member) => member.user_id === user.id);
+        if (existing) {
+          gh.teamMembers.update(existing.id, { role });
+        } else {
+          gh.teamMembers.insert({ team_id: membersTeam.id, user_id: user.id, role });
+        }
+      }
+
+      gh.teams.update(membersTeam.id, {
+        members_count: gh.teamMembers.findBy("team_id", membersTeam.id).length,
+      });
+    }
+  }
+
   if (config.repos) {
     for (const r of config.repos) {
       const ownerUser = gh.users.findOneBy("login", r.owner);
@@ -247,13 +432,14 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
       gh.repos.update(repo.id, { node_id: generateNodeId("Repository", repo.id) });
 
       if (r.auto_init !== false) {
-        const sha = generateSha();
-        const treeSha = generateSha();
+        const readme = `# ${r.name}\n${r.description ? `\n${r.description}\n` : ""}`;
+        const readmeSize = Buffer.byteLength(readme, "utf8");
+        const blob = findOrCreateBlob(gh, repo.id, Buffer.from(readme, "utf8"));
+        const tree = findOrCreateTree(gh, repo.id, [
+          { path: "README.md", mode: "100644", type: "blob", sha: blob.sha, size: readmeSize },
+        ]);
 
-        const commit = gh.commits.insert({
-          repo_id: repo.id,
-          sha,
-          node_id: "",
+        const commit = findOrCreateCommit(gh, repo.id, {
           message: "Initial commit",
           author_name: r.owner,
           author_email: `${r.owner}@localhost`,
@@ -261,32 +447,22 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           committer_name: r.owner,
           committer_email: `${r.owner}@localhost`,
           committer_date: repo.created_at,
-          tree_sha: treeSha,
+          tree_sha: tree.sha,
           parent_shas: [],
           user_id: owner.id,
         });
-        gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-
-        const tree = gh.trees.insert({
-          repo_id: repo.id,
-          sha: treeSha,
-          node_id: "",
-          tree: [{ path: "README.md", mode: "100644", type: "blob", sha: generateSha(), size: 20 }],
-          truncated: false,
-        });
-        gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
 
         gh.branches.insert({
           repo_id: repo.id,
           name: defaultBranch,
-          sha,
+          sha: commit.sha,
           protected: false,
         });
 
         const refRow = gh.refs.insert({
           repo_id: repo.id,
           ref: `refs/heads/${defaultBranch}`,
-          sha,
+          sha: commit.sha,
           node_id: "",
         });
         gh.refs.update(refRow.id, { node_id: generateNodeId("Ref", refRow.id) });
@@ -325,12 +501,16 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     for (const a of config.apps) {
       const existingApp = gh.apps.findOneBy("slug", a.slug);
       if (existingApp) continue;
+      const privateKey = a.private_key;
+      if (!privateKey) {
+        throw new Error(`GitHub App "${a.slug}" requires private_key`);
+      }
 
       gh.apps.insert({
         app_id: a.app_id,
         slug: a.slug,
         name: a.name,
-        private_key: a.private_key,
+        private_key: privateKey,
         permissions: a.permissions ?? {},
         events: a.events ?? [],
         webhook_url: a.webhook_url ?? null,
@@ -378,14 +558,16 @@ function findInstallationsForRepo(
   repoName: string | undefined,
   event: string,
 ): GitHubAppInstallation[] {
-  const ownerEntity = gh.users.findOneBy("login", ownerLogin) ?? gh.orgs.findOneBy("login", ownerLogin);
-  if (!ownerEntity) return [];
-
   const repoEntity = repoName ? gh.repos.findOneBy("full_name", `${ownerLogin}/${repoName}`) : null;
+  const ownerUser = gh.users.findOneBy("login", ownerLogin);
+  const ownerOrg = gh.orgs.findOneBy("login", ownerLogin);
+  const ownerId = repoEntity?.owner_id ?? ownerUser?.id ?? ownerOrg?.id;
+  const ownerType = repoEntity?.owner_type ?? (ownerUser ? "User" : ownerOrg ? "Organization" : undefined);
+  if (ownerId === undefined || ownerType === undefined) return [];
 
   const results: GitHubAppInstallation[] = [];
   for (const inst of gh.appInstallations.all()) {
-    if (inst.account_id !== ownerEntity.id) continue;
+    if (inst.account_id !== ownerId || inst.account_type !== ownerType) continue;
     if (inst.suspended_at) continue;
 
     const ghApp = gh.apps.all().find((a) => a.app_id === inst.app_id);
@@ -493,6 +675,11 @@ export const githubPlugin: ServicePlugin = {
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);
+    installationTokenRoutes(ctx);
+    contentsRoutes(ctx);
+    // Registered last: the catch-all /commits/:ref{.+} route must not shadow
+    // /commits/:sha/comments (comments.ts) or /commits/:ref/check-* (checks.ts).
+    commitsRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

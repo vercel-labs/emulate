@@ -7,6 +7,12 @@ export function escapeAttr(s: string): string {
 }
 
 const CSS = `
+.inspector-json{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8125rem;line-height:1.6;max-height:70vh;overflow:auto}
+.inspector-detail{padding:14px 0;border-bottom:1px solid #0a3300}
+.inspector-detail summary{cursor:pointer;overflow-wrap:anywhere}
+.inspector-action{display:inline-block;margin-top:12px;padding:8px 12px;border:1px solid #0a3300;border-radius:6px;background:#001a00;color:#33ff00;font:inherit;font-size:.8125rem;cursor:pointer}
+.inspector-action:hover{background:#0a3300}
+.inspector-scroll{overflow-x:auto}
 @font-face{
   font-family:'Geist';font-style:normal;font-weight:100 900;font-display:swap;
   src:url('/_emulate/fonts/geist-sans.woff2') format('woff2');
@@ -350,6 +356,37 @@ export interface InspectorTab {
   id: string;
   label: string;
   href: string;
+}
+
+export function renderJsonDetails(label: string, value: unknown, open = false): string {
+  const text = JSON.stringify(value, null, 2) ?? "";
+  const bounded = text.length > 65536 ? `${text.slice(0, 65536)}\n[remaining data omitted from preview]` : text;
+  return `<details class="inspector-detail"${open ? " open" : ""}><summary>${escapeHtml(label)}</summary><pre class="inspector-json">${escapeHtml(bounded)}</pre></details>`;
+}
+
+export function renderStateView(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return renderJsonDetails("Current state", value, true);
+  return Object.entries(value)
+    .map(([key, item]) => {
+      if (
+        Array.isArray(item) &&
+        item.length &&
+        item.every((row) => row && typeof row === "object" && !Array.isArray(row))
+      ) {
+        const columns = [...new Set(item.slice(0, 100).flatMap(Object.keys))].slice(0, 12);
+        const rows = item
+          .slice(0, 100)
+          .map(
+            (row) =>
+              `<tr>${columns.map((column) => `<td>${escapeHtml((typeof row[column] === "string" ? row[column] : JSON.stringify(row[column]))?.slice(0, 500) ?? "")}</td>`).join("")}</tr>`,
+          )
+          .join("");
+        return `<div class="s-card"><h2 class="section-heading">${escapeHtml(key)} <span class="badge">${item.length}</span></h2><div class="inspector-scroll"><table class="inspector-table"><thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>${item.length > 100 ? '<p class="s-subtitle">Showing the first 100 records.</p>' : ""}</div>`;
+      }
+      return renderJsonDetails(key, item, true);
+    })
+    .join("");
 }
 
 export function renderInspectorPage(

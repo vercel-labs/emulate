@@ -1,7 +1,7 @@
 ---
 name: apple
 description: Emulated Sign in with Apple / Apple OIDC for local development and testing. Use when the user needs to test Apple sign-in locally, emulate Apple OIDC discovery, handle Apple token exchange, configure Apple OAuth clients, or work with Apple userinfo without hitting real Apple APIs. Triggers include "Apple OAuth", "emulate Apple", "mock Apple login", "test Apple sign-in", "Sign in with Apple", "Apple OIDC", "local Apple auth", or any task requiring a local Apple OAuth/OIDC provider.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Apple Sign In Emulator
@@ -9,6 +9,8 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # Apple only
@@ -239,3 +241,7 @@ curl -X POST $APPLE_URL/auth/token \
 ### Private Relay Email
 
 When a user has `is_private_email: true` in the seed config, the `id_token` will contain a generated `@privaterelay.appleid.com` email instead of the user's real email. This matches Apple's Hide My Email behavior.
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "apple" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

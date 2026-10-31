@@ -1,9 +1,20 @@
 import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
 
+export interface PreparedServiceSeed {
+  config: Record<string, unknown>;
+  generatedSecrets: Array<{
+    kind: string;
+    id: string;
+    label: string;
+    value: string;
+  }>;
+}
+
 export interface LoadedService {
   plugin: ServicePlugin;
   seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
+  prepareSeed?(config: Record<string, unknown>): Promise<PreparedServiceSeed>;
 }
 
 export interface ServiceEntry {
@@ -72,18 +83,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       return {
         plugin: mod.githubPlugin,
         seedFromConfig: mod.seedFromConfig,
-        createAppKeyResolver(store: Store): AppKeyResolver {
-          return (appId: number) => {
-            try {
-              const gh = mod.getGitHubStore(store);
-              const ghApp = gh.apps.all().find((a) => a.app_id === appId);
-              if (!ghApp) return null;
-              return { privateKey: ghApp.private_key, slug: ghApp.slug, name: ghApp.name };
-            } catch {
-              return null;
-            }
-          };
-        },
+        prepareSeed: mod.prepareSeed,
+        createAppKeyResolver: mod.createAppKeyResolver,
       };
     },
     defaultFallback(cfg) {
@@ -102,7 +103,14 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             location: "San Francisco",
           },
         ],
-        orgs: [{ login: "my-org", name: "My Organization", description: "A test organization" }],
+        orgs: [
+          {
+            login: "my-org",
+            name: "My Organization",
+            description: "A test organization",
+            members: [{ login: "octocat", role: "admin" }],
+          },
+        ],
         repos: [
           {
             owner: "octocat",
@@ -135,7 +143,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   google: {
     label: "Google OAuth 2.0 / OpenID Connect + Gmail, Calendar, and Drive emulator",
     endpoints:
-      "OAuth authorize, token exchange, userinfo, OIDC discovery, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar lists/events/freebusy, Drive files/uploads",
+      "OAuth authorize, token exchange, userinfo, RS256 OIDC discovery and JWKS, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar discovery/lists/events/freebusy, Drive files/uploads",
     async load() {
       const mod = await import("@emulators/google");
       return { plugin: mod.googlePlugin, seedFromConfig: mod.seedFromConfig };
@@ -387,7 +395,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   aws: {
     label: "AWS cloud service emulator",
     endpoints:
-      "S3 (buckets, objects), SQS (queues, messages), IAM (users, roles, access keys), STS (assume role, caller identity)",
+      "S3 (buckets, objects), SQS (queues, messages), Cognito (User Pools, OAuth, JWTs, Identity Pools), IAM (users, roles, access keys), STS (assume role, caller identity)",
     async load() {
       const mod = await import("@emulators/aws");
       return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
@@ -409,7 +417,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   resend: {
     label: "Resend email API emulator",
-    endpoints: "emails, domains, contacts, API keys, inbox UI",
+    endpoints: "emails with idempotency, recipient restrictions, send attempts, domains, contacts, API keys, inbox UI",
     async load() {
       const mod = await import("@emulators/resend");
       return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };

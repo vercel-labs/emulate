@@ -24,6 +24,7 @@ npm install @emulators/github
 
 ### Repositories
 - `GET /repos/:owner/:repo` — get repo
+- `GET /repositories/:id` — get repo by numeric ID
 - `POST /user/repos` — create user repo
 - `POST /orgs/:org/repos` — create org repo
 - `PATCH /repos/:owner/:repo` — update repo
@@ -37,6 +38,16 @@ npm install @emulators/github
 - `GET /repos/:owner/:repo/collaborators/:username/permission`
 - `POST /repos/:owner/:repo/transfer` — transfer repo
 - `GET /repos/:owner/:repo/tags` — list tags
+
+### Contents & Commit History
+- `GET /repos/:owner/:repo/readme` — get the repository README
+- `GET /repos/:owner/:repo/contents/:path` — get a file or list a directory at a ref
+- Send `Accept: application/vnd.github.raw` or `application/vnd.github.raw+json` to file Contents and README requests to receive raw bytes; directory and submodule responses remain JSON
+- `GET /:owner/:repo/raw/:ref/:path` — download file content from advertised raw URLs; this is separate from Accept negotiation
+- `PUT/DELETE /repos/:owner/:repo/contents/:path` — create, update, or delete a file and commit the change
+- `GET /repos/:owner/:repo/commits` — list commits with ref, path, author, and date filters
+- `GET /repos/:owner/:repo/commits/:ref` — get a commit with file diffs and stats
+- `GET /repos/:owner/:repo/compare/:base...:head` — compare two refs
 
 ### Issues
 - `GET /repos/:owner/:repo/issues` — list (filter by state, labels, assignee, milestone, creator, since)
@@ -116,11 +127,12 @@ npm install @emulators/github
 - Secrets: repo + org CRUD
 
 ### Checks
-- Check runs: create, update, get, annotations, rerequest, list by ref/suite
-- Check suites: create, get, preferences, rerequest, list by ref
+- Check runs: create, update, get, annotations, rerequest, list by ref/suite. Ref based lookups accept branch and tag refs containing slashes.
+- Check suites: create, get, preferences, rerequest, list by ref. Ref based lookups accept branch and tag refs containing slashes.
 - Automatic suite status rollup from check run results
 
 ### Misc
+- `GET /_emulate/installation-tokens` — inspect secret-free GitHub App installation-token metadata
 - `GET /rate_limit` — rate limit status
 - `GET /meta` — server metadata
 - `GET /octocat` — ASCII art
@@ -131,6 +143,8 @@ npm install @emulators/github
 ## Auth
 
 Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+
+Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 
 ## Seed Configuration
 
@@ -143,6 +157,9 @@ github:
   orgs:
     - login: my-org
       name: My Organization
+      members:
+        - login: octocat
+          role: admin
   repos:
     - owner: octocat
       name: hello-world
@@ -171,6 +188,32 @@ github:
           account: my-org
           repository_selection: all
 ```
+
+Organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, while `admin` creates an organization administrator. Unknown users are ignored. Memberships are backed by the synthetic `members` team, so they also appear through team membership endpoints and grant access to private organization repositories.
+
+The `private_key` field is required when calling `seedFromConfig` directly. To generate omitted keys before seeding, use `materializeGitHubSeedConfig` and retain the returned key material:
+
+```typescript
+import { materializeGitHubSeedConfig, seedFromConfig } from '@emulators/github'
+
+const materialized = await materializeGitHubSeedConfig({
+  apps: [{ app_id: 12345, slug: 'my-github-app', name: 'My GitHub App' }],
+})
+
+seedFromConfig(store, baseUrl, materialized.config)
+const privateKey = materialized.generatedPrivateKeys[0]?.private_key
+```
+
+The `emulate` package performs this materialization automatically in `createEmulator` and exposes generated keys through `generatedSecrets`. The CLI can do the same when a private delivery file is requested:
+
+The Next.js and Nuxt adapters also materialize omitted keys. Their returned server handlers expose `generatedSecrets()`, and persistence restores the same identity across cold starts. Keep persisted snapshots private because they contain the signing key. A custom persistence backend must implement atomic `initialize()` semantics when generated identities are used.
+
+```bash
+npx emulate start --service github --seed emulate.config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Explicit keys are excluded from the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files continue requiring `private_key`.
 
 ## Links
 

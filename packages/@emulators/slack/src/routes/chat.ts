@@ -1,5 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import type { SlackChannel, SlackMessage, SlackUser } from "../entities.js";
+import { dispatchSlackEvent, resolveSlackEventTeamId } from "../events.js";
 import { getSlackStore } from "../store.js";
 import {
   formatSlackMessage,
@@ -10,11 +11,14 @@ import {
   generateTs,
   getSlackConversationOpenState,
   hasSlackMessageContent,
+  normalizeSlackMessageText,
   parseSlackBody,
   parseSlackRichMessageFields,
   requireSlackScopes,
   setSlackConversationOpenState,
   slackError,
+  slackBotMessageFields,
+  slackMessageTextResponseMetadata,
   slackOk,
 } from "../helpers.js";
 
@@ -26,6 +30,15 @@ export function chatRoutes(ctx: RouteContext): void {
     ss()
       .channels.all()
       .find((ch) => !ch.is_im && !ch.is_mpim && ch.name === channel);
+  const messageAppId = (c: Context) => {
+    const token = c.get("authToken");
+    const record = token ? ss().tokens.findOneBy("token", token) : undefined;
+    return (
+      record?.app_id ??
+      (record?.client_id ? ss().oauthApps.findOneBy("client_id", record.client_id)?.app_id : undefined) ??
+      (ss().oauthApps.all().length === 1 ? ss().oauthApps.all()[0]?.app_id : undefined)
+    );
+  };
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
   const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
@@ -49,18 +62,44 @@ export function chatRoutes(ctx: RouteContext): void {
       ss().pins.delete(pin.id);
     }
   };
-  const dispatchConversationEvent = async (type: string, event: Record<string, unknown>) => {
-    await webhooks.dispatch(
-      type,
-      undefined,
-      {
-        type: "event_callback",
-        event: { type, ...event },
-      },
-      "slack",
-    );
+  const dispatchConversationEvent = async (
+    c: Context,
+    type: string,
+    event: Record<string, unknown>,
+    teamId?: string,
+  ) => {
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, teamId), { type, ...event });
   };
-  const findOrCreateDirectMessage = async (authUser: { login: string }, userId: string) => {
+  const dispatchAppMentions = async (c: Context, channel: SlackChannel, message: SlackMessage) => {
+    if (channel.is_im || channel.is_mpim) return;
+
+    const mentionedUsers = new Set([...message.text.matchAll(/<@([^<>\s|]+)(?:\|[^<>]*)?>/g)].map((match) => match[1]));
+    if (mentionedUsers.size === 0) return;
+
+    const teamId = resolveSlackEventTeamId(c, store, channel.team_id);
+    for (const installation of ss().installations.findBy("team_id", teamId)) {
+      if (!mentionedUsers.has(installation.bot_user_id)) continue;
+      const botUser = ss().users.findOneBy("user_id", installation.bot_user_id);
+      const bot = ss().bots.findOneBy("bot_id", installation.bot_id);
+      if (!botUser || !botUser.is_bot || botUser.deleted || !bot || bot.deleted || !isChannelMember(channel, botUser)) {
+        continue;
+      }
+
+      await dispatchSlackEvent(
+        store,
+        webhooks,
+        teamId,
+        {
+          ...formatSlackMessage(message),
+          type: "app_mention",
+          channel: channel.channel_id,
+          event_ts: message.ts,
+        },
+        installation,
+      );
+    }
+  };
+  const findOrCreateDirectMessage = async (c: Context, authUser: { login: string }, userId: string) => {
     const targetUser = ss().users.findOneBy("user_id", userId);
     if (!targetUser || targetUser.deleted) return undefined;
 
@@ -77,7 +116,7 @@ export function chatRoutes(ctx: RouteContext): void {
     if (existing) {
       if (!getSlackConversationOpenState(existing, authUserId)) {
         const updated = ss().channels.update(existing.id, setSlackConversationOpenState(existing, authUserId, true));
-        if (updated) await dispatchConversationEvent("im_open", { channel: updated.channel_id });
+        if (updated) await dispatchConversationEvent(c, "im_open", { channel: updated.channel_id }, updated.team_id);
         return updated;
       }
       return existing;
@@ -103,14 +142,17 @@ export function chatRoutes(ctx: RouteContext): void {
       num_members: members.length,
       last_read: {},
     });
-    await dispatchConversationEvent("im_created", {
-      channel: formatDirectMessageChannel(created, authUserId, targetUser.user_id),
-    });
-    await dispatchConversationEvent("im_open", { channel: created.channel_id });
+    await dispatchConversationEvent(
+      c,
+      "im_created",
+      { channel: formatDirectMessageChannel(created, authUserId, targetUser.user_id) },
+      created.team_id,
+    );
+    await dispatchConversationEvent(c, "im_open", { channel: created.channel_id }, created.team_id);
     return created;
   };
-  const findWritableConversation = async (authUser: { login: string }, channel: string) =>
-    findChannel(channel) ?? (await findOrCreateDirectMessage(authUser, channel));
+  const findWritableConversation = async (c: Context, authUser: { login: string }, channel: string) =>
+    findChannel(channel) ?? (await findOrCreateDirectMessage(c, authUser, channel));
 
   // chat.postMessage
   app.post("/api/chat.postMessage", async (c) => {
@@ -122,6 +164,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
     const text = typeof body.text === "string" ? body.text : "";
+    const normalizedText = normalizeSlackMessageText(text);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
@@ -129,21 +172,32 @@ export function chatRoutes(ctx: RouteContext): void {
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");
 
-    const ch = await findWritableConversation(authUser, channel);
+    const ch = await findWritableConversation(c, authUser, channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
     if (!canAccessConversation(ch, authUser)) return slackError(c, "not_in_channel");
     const authUserId = getAuthUserId(authUser);
 
     const ts = generateTs();
+    const token = c.get("authToken");
+    const authToken = token ? ss().tokens.findOneBy("token", token) : undefined;
+    const bot =
+      authToken?.token_type === "bot"
+        ? ss()
+            .bots.all()
+            .find((bot) => bot.bot_id === authToken.bot_id || bot.user_id === authUserId)
+        : undefined;
+    const botId = authToken?.token_type === "bot" ? (authToken.bot_id ?? bot?.bot_id) : undefined;
     const msg = ss().messages.insert({
       ts,
+      interaction_app_id: messageAppId(c),
       channel_id: ch.channel_id,
       user: authUserId,
-      text,
+      text: normalizedText.text,
       type: "message" as const,
       thread_ts,
       ...richMessage.fields,
+      ...(botId ? slackBotMessageFields(store, botId, ch.team_id, authToken?.app_id) : {}),
       reply_count: 0,
       reply_users: [],
       reactions: [],
@@ -165,24 +219,18 @@ export function chatRoutes(ctx: RouteContext): void {
       }
     }
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      {
-        type: "event_callback",
-        event: {
-          ...formatSlackMessage(msg),
-          type: "message",
-          channel: ch.channel_id,
-        },
-      },
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch.team_id), {
+      ...formatSlackMessage(msg),
+      type: "message",
+      channel: ch.channel_id,
+    });
+    await dispatchAppMentions(c, ch, msg);
 
     return slackOk(c, {
       channel: ch.channel_id,
       ts,
       message: formatSlackMessage(msg),
+      ...slackMessageTextResponseMetadata(normalizedText),
     });
   });
 
@@ -197,6 +245,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const channel = typeof body.channel === "string" ? body.channel : "";
     const user = typeof body.user === "string" ? body.user : "";
     const text = typeof body.text === "string" ? body.text : "";
+    const normalizedText = normalizeSlackMessageText(text);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
@@ -218,10 +267,11 @@ export function chatRoutes(ctx: RouteContext): void {
     const ts = generateTs();
     ss().ephemeralMessages.insert({
       ts,
+      interaction_app_id: messageAppId(c),
       channel_id: ch.channel_id,
       user: authUserId,
       target_user: targetUser.user_id,
-      text,
+      text: normalizedText.text,
       type: "message" as const,
       thread_ts,
       ...richMessage.fields,
@@ -230,7 +280,7 @@ export function chatRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    return slackOk(c, { message_ts: ts });
+    return slackOk(c, { message_ts: ts, ...slackMessageTextResponseMetadata(normalizedText) });
   });
 
   // chat.update
@@ -245,6 +295,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const ts = typeof body.ts === "string" ? body.ts : "";
     const hasText = typeof body.text === "string";
     const text = hasText ? (body.text as string) : "";
+    const normalizedText = hasText ? normalizeSlackMessageText(text) : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
 
@@ -261,13 +312,17 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const updates: Partial<SlackMessage> = { ...richMessage.fields };
     if (hasText) {
-      updates.text = text;
+      updates.text = normalizedText!.text;
       if (!richMessage.providedFields.includes("blocks")) updates.blocks = undefined;
       if (!richMessage.providedFields.includes("attachments")) updates.attachments = undefined;
     }
 
     if (!hasText && Object.keys(updates).length === 0) {
       return slackError(c, "no_text");
+    }
+    if (msg.bot_id) {
+      updates.bot_id = msg.bot_id;
+      updates.app_id = msg.app_id;
     }
 
     const authUserId = getAuthUserId(authUser);
@@ -277,30 +332,23 @@ export function chatRoutes(ctx: RouteContext): void {
       edited: { user: authUserId, ts: eventTs },
     })!;
 
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "message",
-          subtype: "message_changed",
-          hidden: true,
-          channel,
-          ts: eventTs,
-          event_ts: eventTs,
-          message: formatSlackMessage(updated),
-          previous_message: formatSlackMessage(msg),
-        },
-      },
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch?.team_id), {
+      type: "message",
+      subtype: "message_changed",
+      hidden: true,
+      channel,
+      ts: eventTs,
+      event_ts: eventTs,
+      message: formatSlackMessage(updated),
+      previous_message: formatSlackMessage(msg),
+    });
 
     return slackOk(c, {
       channel,
       ts,
       text: updated.text,
       message: formatSlackMessage(updated),
+      ...slackMessageTextResponseMetadata(normalizedText),
     });
   });
 
@@ -330,24 +378,16 @@ export function chatRoutes(ctx: RouteContext): void {
     deletePinsForMessage(channel, ts);
 
     const eventTs = generateTs();
-    await webhooks.dispatch(
-      "message",
-      undefined,
-      {
-        type: "event_callback",
-        event: {
-          type: "message",
-          subtype: "message_deleted",
-          hidden: true,
-          channel,
-          ts: eventTs,
-          event_ts: eventTs,
-          deleted_ts: ts,
-          previous_message: formatSlackMessage(msg),
-        },
-      },
-      "slack",
-    );
+    await dispatchSlackEvent(store, webhooks, resolveSlackEventTeamId(c, store, ch?.team_id), {
+      type: "message",
+      subtype: "message_deleted",
+      hidden: true,
+      channel,
+      ts: eventTs,
+      event_ts: eventTs,
+      deleted_ts: ts,
+      previous_message: formatSlackMessage(msg),
+    });
 
     return slackOk(c, { channel, ts });
   });
@@ -392,6 +432,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
     const text = typeof body.text === "string" ? body.text : "";
+    const normalizedText = normalizeSlackMessageText(text);
     const postAt = Number(body.post_at);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
@@ -416,7 +457,7 @@ export function chatRoutes(ctx: RouteContext): void {
       scheduled_message_id: generateSlackId("Q"),
       channel_id: ch.channel_id,
       user: authUserId,
-      text,
+      text: normalizedText.text,
       type: "delayed_message" as const,
       subtype: "bot_message" as const,
       thread_ts,
@@ -430,6 +471,7 @@ export function chatRoutes(ctx: RouteContext): void {
       scheduled_message_id: scheduled.scheduled_message_id,
       post_at: scheduled.post_at,
       message: formatSlackScheduledMessage(scheduled),
+      ...slackMessageTextResponseMetadata(normalizedText),
     });
   });
 
@@ -529,6 +571,7 @@ export function chatRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
     const text = typeof body.text === "string" ? body.text : "";
+    const normalizedText = normalizeSlackMessageText(text);
 
     if (!channel) return slackError(c, "channel_not_found");
 
@@ -543,7 +586,7 @@ export function chatRoutes(ctx: RouteContext): void {
       ts,
       channel_id: ch.channel_id,
       user: authUserId,
-      text,
+      text: normalizedText.text,
       type: "message" as const,
       subtype: "me_message",
       reply_count: 0,
@@ -551,7 +594,7 @@ export function chatRoutes(ctx: RouteContext): void {
       reactions: [],
     });
 
-    return slackOk(c, { channel: ch.channel_id, ts });
+    return slackOk(c, { channel: ch.channel_id, ts, ...slackMessageTextResponseMetadata(normalizedText) });
   });
 }
 

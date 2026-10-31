@@ -1,6 +1,6 @@
 {
   "name": "emulate",
-  "version": "0.9.0",
+  "version": "0.13.0",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,13 +37,15 @@
     "local-development"
   ],
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "bin": {
     "emulate": "./dist/index.js"
   },
   "scripts": {
-    "prepack": "cp ../../README.md .",
+    "prepack": "node ../../scripts/prepare-package.mjs",
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
