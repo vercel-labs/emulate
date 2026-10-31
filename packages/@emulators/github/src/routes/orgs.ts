@@ -1,7 +1,7 @@
 import type { Context, RouteContext, AuthUser } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized, forbidden } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { parseOptionalJsonBody } from "../request-body.js";
+import { enumValidationError, parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubOrg, GitHubOrgInvitation, GitHubRepo, GitHubTeam, GitHubUser } from "../entities.js";
 import { canAccessRepo, getActorUser, hasRepoAdmin, isOrgMember } from "../route-helpers.js";
@@ -327,14 +327,6 @@ function formatInvitation(gh: GitHubStore, baseUrl: string, org: GitHubOrg, invi
     invitation_teams_url: `${baseUrl}/organizations/${org.id}/invitations/${invitation.id}/teams`,
     invitation_source: "member",
   };
-}
-
-function enumValidationError(value: unknown, allowed: readonly string[]): ApiError {
-  const shown = typeof value === "string" ? value : JSON.stringify(value);
-  return new ApiError(
-    422,
-    `Invalid request.\n\n${shown} is not a member of ${JSON.stringify(allowed).replace(/,/g, ", ")}.`,
-  );
 }
 
 export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void {

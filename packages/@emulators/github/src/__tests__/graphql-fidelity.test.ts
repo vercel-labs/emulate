@@ -1082,6 +1082,24 @@ describe("GitHub GraphQL fidelity", () => {
     dispatch.mockRestore();
   });
 
+  it("locks without a reason and rejects an unknown reason, as GitHub does", async () => {
+    const issue = await send("POST", `${REPO}/issues`, { title: "locked" });
+    const lock = (body?: unknown) => send("PUT", `${REPO}/issues/${issue.body.number}/lock`, body);
+
+    expect(await lock({ lock_reason: "x" })).toMatchObject({
+      status: 422,
+      body: { message: 'Invalid request.\n\nx is not a member of ["off-topic", "too heated", "resolved", "spam"].' },
+    });
+    expect((await send("GET", `${REPO}/issues/${issue.body.number}`)).body.locked).toBe(false);
+    expect(await send("PUT", `${REPO}/issues/9999/lock`, { lock_reason: "x" })).toMatchObject({ status: 404 });
+
+    expect(await lock()).toMatchObject({ status: 204 });
+    expect((await send("GET", `${REPO}/issues/${issue.body.number}`)).body).toMatchObject({
+      locked: true,
+      active_lock_reason: null,
+    });
+  });
+
   it("counts a pull request's comments the same on every route", async () => {
     const pr = await seedPr();
     const first = await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "one" });

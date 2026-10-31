@@ -2,7 +2,7 @@ import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { parseOptionalJsonBody } from "../request-body.js";
+import { enumValidationError, parseOptionalJsonBody } from "../request-body.js";
 import {
   assertRepoParticipant,
   assertRepoPermission,
@@ -28,6 +28,8 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
+
+const LOCK_REASONS = ["off-topic", "too heated", "resolved", "spam"] as const;
 
 function findIssueForRepo(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -729,16 +731,14 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!issue) throw notFoundResponse();
 
     const body = await parseOptionalJsonBody(c);
-    const lockReason =
-      typeof body.lock_reason === "string"
-        ? body.lock_reason
-        : typeof body.active_lock_reason === "string"
-          ? body.active_lock_reason
-          : "resolved";
+    const lockReason = body.lock_reason ?? null;
+    if (lockReason !== null && !LOCK_REASONS.includes(lockReason as (typeof LOCK_REASONS)[number])) {
+      throw enumValidationError(lockReason, LOCK_REASONS);
+    }
 
     issue = updateIssue(gh, issue, {
       locked: true,
-      active_lock_reason: lockReason,
+      active_lock_reason: lockReason as string | null,
     })!;
 
     insertIssueEvent(gh, repo, issue.number, "locked", actor.id);
