@@ -742,6 +742,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const body = await parseOptionalJsonBody(c);
     const lockReason = LOCK_REASONS.find((reason) => reason === body.lock_reason) ?? null;
     if (body.lock_reason != null && !lockReason) throw enumValidationError(body.lock_reason, LOCK_REASONS);
+    if (issueView(gh, issue).locked) return c.body(null, 204);
 
     issue = updateIssue(gh, issue, {
       locked: true,

@@ -1101,6 +1101,39 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  it("ignores a lock request on a conversation that is already locked, as GitHub does", async () => {
+    const pr = await seedPr();
+    const issue = await send("POST", `${REPO}/issues`, { title: "heated" });
+    const dispatch = vi.spyOn(server.webhooks, "dispatch");
+    const lockedHooks = () => dispatch.mock.calls.filter(([, action]) => action === "locked").length;
+    const lockedEvents = async (n: number) =>
+      (await send("GET", `${REPO}/issues/${n}/events`)).body
+        .filter((e: { event: string }) => e.event === "locked")
+        .map((e: { lock_reason: string | null }) => e.lock_reason);
+
+    await send("PUT", `${REPO}/issues/${issue.body.number}/lock`, { lock_reason: "spam" });
+    expect(await send("PUT", `${REPO}/issues/${issue.body.number}/lock`, { lock_reason: "resolved" })).toMatchObject({
+      status: 204,
+    });
+    expect((await send("GET", `${REPO}/issues/${issue.body.number}`)).body.active_lock_reason).toBe("spam");
+    expect(await lockedEvents(issue.body.number)).toEqual(["spam"]);
+    expect(await send("PUT", `${REPO}/issues/${issue.body.number}/lock`, { lock_reason: "x" })).toMatchObject({
+      status: 422,
+    });
+
+    const node = (await send("GET", `${REPO}/pulls/${pr.number}`)).body.node_id;
+    const lock = `mutation($id: ID!, $reason: LockReason) {
+      lockLockable(input: { lockableId: $id, lockReason: $reason }) { lockedRecord { locked activeLockReason } } }`;
+    await graphql(lock, { id: node, reason: "TOO_HEATED" });
+    expect((await graphql(lock, { id: node, reason: "SPAM" })).data.lockLockable.lockedRecord).toEqual({
+      locked: true,
+      activeLockReason: "TOO_HEATED",
+    });
+    expect(await lockedEvents(pr.number)).toEqual(["too heated"]);
+    expect(lockedHooks()).toBe(2);
+    dispatch.mockRestore();
+  });
+
   it("reports the lock reason on locked issue events, as GitHub does", async () => {
     const issue = await send("POST", `${REPO}/issues`, { title: "heated" });
     const path = `${REPO}/issues/${issue.body.number}`;
