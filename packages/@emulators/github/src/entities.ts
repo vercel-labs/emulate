@@ -60,7 +60,6 @@ export interface GitHubTeamMember extends Entity {
   role: "member" | "maintainer";
 }
 
-/** An invitation to join an organization, with the teams the invitee joins on accepting. */
 export interface GitHubOrgInvitation extends Entity {
   node_id: string;
   org_id: number;
@@ -149,7 +148,6 @@ export interface GitHubPullRequest extends Entity {
   body: string | null;
   state: "open" | "closed";
   locked: boolean;
-  /** Absent on rows stored before pull requests tracked it. */
   active_lock_reason?: string | null;
   user_id: number;
   assignee_ids: number[];

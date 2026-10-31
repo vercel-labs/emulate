@@ -103,7 +103,6 @@ function decodeBasic(encoded: string): { username: string; password: string } | 
     : { username: decoded.slice(0, colon), password: decoded.slice(colon + 1) };
 }
 
-/** The token a request presents, "" for credentials that cannot carry one, or undefined when it presents none. */
 function presentedToken(header: string, tokens: TokenMap, policy: UnknownTokenPolicy | undefined): string | undefined {
   if (/^(Bearer|token)(?:\s+|$)/i.test(header) || policy?.kind !== "reject") {
     return header.replace(/^(Bearer|token)\s+/i, "").trim();

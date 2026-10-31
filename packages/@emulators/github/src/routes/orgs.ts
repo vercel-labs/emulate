@@ -223,7 +223,6 @@ function findInvitation(gh: GitHubStore, orgId: number, userId: number): GitHubO
   return gh.orgInvitations.findBy("org_id", orgId).find((i) => i.invitee_id === userId);
 }
 
-/** Creates or updates the invitation GitHub sends when an owner adds a non-member to the organization or a team. */
 function inviteToOrg(
   gh: GitHubStore,
   org: GitHubOrg,
@@ -330,8 +329,7 @@ function formatInvitation(gh: GitHubStore, baseUrl: string, org: GitHubOrg, invi
   };
 }
 
-/** GitHub's schema validation message for a value outside an enum. */
-function notAMemberOf(value: unknown, allowed: readonly string[]): ApiError {
+function enumValidationError(value: unknown, allowed: readonly string[]): ApiError {
   const shown = typeof value === "string" ? value : JSON.stringify(value);
   return new ApiError(
     422,
@@ -505,7 +503,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
 
     const body = await parseOptionalJsonBody(c);
     const roleRaw = body.role ?? "member";
-    if (roleRaw !== "admin" && roleRaw !== "member") throw notAMemberOf(roleRaw, ORG_ROLES);
+    if (roleRaw !== "admin" && roleRaw !== "member") throw enumValidationError(roleRaw, ORG_ROLES);
 
     if (!isOrgMember(gh, user.id, org.id)) {
       const inviter = getActorUser(gh, auth);
@@ -590,7 +588,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const user = getActorUser(gh, auth);
     if (!org || !user) throw notFound();
     const body = await parseJsonBody(c);
-    if (body.state !== "active") throw notAMemberOf(body.state, ["active"]);
+    if (body.state !== "active") throw enumValidationError(body.state, ["active"]);
     const invitation = findInvitation(gh, org.id, user.id);
     if (invitation) acceptInvitation(gh, org, invitation);
     const role = orgRoleForUser(gh, org.id, user.id);
@@ -747,7 +745,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.put("/orgs/:org/teams/:team_slug/memberships/:username", async (c) => {
-    const { org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    const { auth, org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     if (!access.manage) {
       throw new ApiError(403, "You must be an organization owner or team maintainer to add a team membership.");
     }
@@ -756,10 +754,9 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
 
     const body = await parseOptionalJsonBody(c);
     const role = body.role ?? "member";
-    if (role !== "member" && role !== "maintainer") throw notAMemberOf(role, TEAM_ROLES);
+    if (role !== "member" && role !== "maintainer") throw enumValidationError(role, TEAM_ROLES);
 
     if (!isOrgMember(gh, user.id, org.id)) {
-      const auth = c.get("authUser")!;
       const owner = auth.installation ? access.manage : Boolean(access.user && isOrgOwner(gh, org.id, access.user.id));
       if (!owner) {
         throw new ApiError(403, "You must be an organization owner or team maintainer to add a team membership.");
