@@ -717,6 +717,16 @@ export const githubPlugin: ServicePlugin = {
     const path = new URL(request.url).pathname;
     return GRAPHQL_PATHS.includes(path) || path === "/rate_limit" || path === "/api/v3/rate_limit";
   },
+  rejectUnknownToken(c) {
+    if (WEB_PATH_PREFIXES.some((prefix) => c.req.path.startsWith(prefix)) || RAW_CONTENT_PATH.test(c.req.path)) {
+      return undefined;
+    }
+    return c.json({ message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" }, 401);
+  },
 };
+
+/** github.com pages and emulator tooling, which don't authenticate API tokens. */
+const WEB_PATH_PREFIXES = ["/login/", "/settings/", "/_emulate"];
+const RAW_CONTENT_PATH = /^\/[^/]+\/[^/]+\/raw\//;
 
 export default githubPlugin;

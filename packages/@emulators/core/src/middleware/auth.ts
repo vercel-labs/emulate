@@ -80,10 +80,24 @@ export interface AuthFallback {
   scopes: string[];
 }
 
-export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver, fallbackUser?: AuthFallback) {
+/** How an emulator treats a bearer token it does not recognise. */
+export type UnknownTokenPolicy =
+  | { kind: "fallback"; user: AuthFallback }
+  | { kind: "reject"; respond: (c: Context) => Response | undefined };
+
+export function authMiddleware(
+  tokens: TokenMap,
+  appKeyResolver?: AppKeyResolver,
+  unknownTokenOrFallback?: UnknownTokenPolicy | AuthFallback,
+) {
+  const unknownToken: UnknownTokenPolicy | undefined =
+    unknownTokenOrFallback && !("kind" in unknownTokenOrFallback)
+      ? { kind: "fallback", user: unknownTokenOrFallback }
+      : unknownTokenOrFallback;
   return async (c: Context, next: Next) => {
     const authHeader = c.req.header("Authorization");
-    if (authHeader) {
+    const scheme = authHeader?.match(/^(Bearer|token)(?:\s+|$)/i);
+    if (authHeader && (scheme || unknownToken?.kind !== "reject")) {
       const token = authHeader.replace(/^(Bearer|token)\s+/i, "").trim();
 
       if (token.startsWith("eyJ") && appKeyResolver) {
@@ -107,12 +121,17 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
         } catch {
           // JWT verification failed
         }
+        const rejected = !c.get("authApp") && unknownToken?.kind === "reject" ? unknownToken.respond(c) : undefined;
+        if (rejected) return rejected;
       } else {
         let user = tokens.get(token);
-        if (!user && fallbackUser && token.length > 0) {
+        if (!user && unknownToken?.kind === "fallback" && token.length > 0) {
+          const fallbackUser = unknownToken.user;
           debug("auth", "fallback user for unknown token", { login: fallbackUser.login, id: fallbackUser.id });
           user = { login: fallbackUser.login, id: fallbackUser.id, scopes: fallbackUser.scopes };
         }
+        const rejected = !user && unknownToken?.kind === "reject" ? unknownToken.respond(c) : undefined;
+        if (rejected) return rejected;
         if (user) {
           c.set("authUser", user);
           c.set("authToken", token);

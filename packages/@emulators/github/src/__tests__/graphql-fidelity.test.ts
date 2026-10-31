@@ -933,6 +933,31 @@ describe("GitHub GraphQL fidelity", () => {
     expect(await send("GET", `${REPO}/pulls/${pr.number}`)).toMatchObject({ status: 200 });
   });
 
+  it("answers an unknown token with GitHub's Bad credentials 401 on every API route", async () => {
+    const badCredentials = {
+      message: "Bad credentials",
+      documentation_url: "https://docs.github.com/rest",
+      status: "401",
+    };
+    for (const [method, path, body] of [
+      ["GET", "/user"],
+      ["GET", REPO],
+      ["GET", "/api/v3/user"],
+      ["POST", "/graphql", { query: "{ viewer { login } }" }],
+    ] as const) {
+      expect(await send(method, path, body, "not-a-seeded-token")).toMatchObject({ status: 401, body: badCredentials });
+    }
+    expect(await send("GET", "/user")).toMatchObject({ status: 200, body: { login: "octocat" } });
+    const raw = await app.request(`${base}/octocat/hello-world/raw/main/README.md`, {
+      headers: { Authorization: "token not-a-seeded-token" },
+    });
+    expect(raw.status).toBe(200);
+    const login = await app.request(`${base}/login/oauth/authorize?client_id=none`, {
+      headers: { Authorization: "token not-a-seeded-token" },
+    });
+    expect(login.status).not.toBe(401);
+  });
+
   describe("organization repository roles", () => {
     const ORG_REPO = "/repos/acme/widgets";
     const tokens = ["owner", "member", "writer", "teammate"] as const;

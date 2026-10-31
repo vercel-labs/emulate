@@ -8,6 +8,7 @@ import {
   type TokenMap,
   type AppKeyResolver,
   type AppEnv,
+  type UnknownTokenPolicy,
 } from "./middleware/auth.js";
 import type { ServicePlugin } from "./plugin.js";
 import { registerFontRoutes } from "./fonts.js";
@@ -48,7 +49,10 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   app.onError(createApiErrorHandler(docsUrl));
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
-  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
+  const unknownToken: UnknownTokenPolicy | undefined = plugin.rejectUnknownToken
+    ? { kind: "reject", respond: (c) => plugin.rejectUnknownToken!(c) }
+    : options.fallbackUser && { kind: "fallback", user: options.fallbackUser };
+  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, unknownToken));
 
   const rateLimiter = new RateLimiter();
 

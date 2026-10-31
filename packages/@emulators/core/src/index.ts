@@ -57,6 +57,7 @@ export {
   type AuthApp,
   type AuthInstallation,
   type AuthFallback,
+  type UnknownTokenPolicy,
   type TokenMap,
   type TokenEntry,
   type AppKeyResolver,

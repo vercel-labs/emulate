@@ -131,15 +131,12 @@ describe("createEmulator", () => {
     const resetTokenUser = await fetch(`${github.url}/user`, {
       headers: { Authorization: `Bearer ${firstTokenValue}` },
     });
-    expect(resetTokenUser.status).toBe(200);
-    expect(await resetTokenUser.json()).toMatchObject({ login: "octocat", type: "User" });
-    expect(
-      (
-        await fetch(`${github.url}/repos/acme/private-repo`, {
-          headers: { Authorization: `Bearer ${firstTokenValue}` },
-        })
-      ).status,
-    ).toBe(403);
+    expect(resetTokenUser.status).toBe(401);
+    expect(await resetTokenUser.json()).toEqual({
+      message: "Bad credentials",
+      documentation_url: "https://docs.github.com/rest",
+      status: "401",
+    });
     expect(
       (
         await fetch(`${github.url}/user`, {
@@ -267,6 +264,41 @@ describe("createEmulator", () => {
     ).rejects.toThrow(message);
 
     await expect(fetch("http://localhost:14044/user")).rejects.toThrow();
+  });
+
+  it("rejects unknown GitHub tokens while other services keep their fallback user", async () => {
+    const [github, vercel] = await Promise.all([
+      createEmulator({ service: "github", port: 14050 }),
+      createEmulator({ service: "vercel", port: 14051 }),
+    ]);
+    try {
+      const badCredentials = {
+        message: "Bad credentials",
+        documentation_url: "https://docs.github.com/rest",
+        status: "401",
+      };
+      for (const request of [
+        fetch(`${github.url}/user`, { headers: { Authorization: "Bearer not-a-seeded-token" } }),
+        fetch(`${github.url}/graphql`, {
+          method: "POST",
+          headers: { Authorization: "Bearer not-a-seeded-token", "Content-Type": "application/json" },
+          body: JSON.stringify({ query: "{ viewer { login } }" }),
+        }),
+      ]) {
+        const response = await request;
+        expect(response.status).toBe(401);
+        expect(await response.json()).toEqual(badCredentials);
+      }
+      const seeded = await fetch(`${github.url}/user`, { headers: { Authorization: "Bearer test_token_admin" } });
+      expect(await seeded.json()).toMatchObject({ login: "admin" });
+
+      const vercelUser = await fetch(`${vercel.url}/v2/user`, {
+        headers: { Authorization: "Bearer not-a-seeded-token" },
+      });
+      expect(vercelUser.status).toBe(200);
+    } finally {
+      await Promise.all([github.close(), vercel.close()]);
+    }
   });
 
   it("does not grant Slack fallback scopes in strict mode", async () => {
