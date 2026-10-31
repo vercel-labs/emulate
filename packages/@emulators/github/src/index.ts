@@ -12,7 +12,7 @@ import type {
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
-import { generateNodeId } from "./helpers.js";
+import { formatOrgBrief, generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -23,7 +23,7 @@ import { labelsAndMilestonesRoutes } from "./routes/labels.js";
 import { branchesAndGitRoutes } from "./routes/branches.js";
 import { contentsRoutes } from "./routes/contents.js";
 import { commitsRoutes } from "./routes/commits.js";
-import { getOrCreateMembersTeam, orgsAndTeamsRoutes } from "./routes/orgs.js";
+import { getOrCreateMembersTeam, getOrCreateTeam, orgsAndTeamsRoutes } from "./routes/orgs.js";
 import { releasesRoutes } from "./routes/releases.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { searchRoutes } from "./routes/search.js";
@@ -34,6 +34,8 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { installationTokenRoutes } from "./routes/installation-tokens.js";
+import { GRAPHQL_PATHS, graphqlRoutes } from "./routes/graphql.js";
+import { apiV3Routes } from "./routes/api-v3.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
@@ -57,9 +59,17 @@ export interface GitHubSeedConfig {
     name?: string;
     description?: string;
     email?: string;
+    /** Role every member gets on the organization's repositories. GitHub's default is `read`. */
+    default_repository_permission?: "read" | "write" | "admin" | "none";
     members?: Array<{
       login: string;
       role?: "member" | "admin";
+    }>;
+    teams?: Array<{
+      name: string;
+      permission?: "pull" | "triage" | "push" | "maintain" | "admin";
+      members?: string[];
+      repos?: string[];
     }>;
   }>;
   tokens?: Record<string, { login: string; scopes?: string[] }>;
@@ -345,7 +355,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
         followers: 0,
         following: 0,
         members_can_create_repositories: true,
-        default_repository_permission: "read",
+        default_repository_permission: o.default_repository_permission ?? "read",
         billing_email: null,
       });
       gh.orgs.update(org.id, { node_id: generateNodeId("Org", org.id) });
@@ -370,10 +380,6 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
           gh.teamMembers.insert({ team_id: membersTeam.id, user_id: user.id, role });
         }
       }
-
-      gh.teams.update(membersTeam.id, {
-        members_count: gh.teamMembers.findBy("team_id", membersTeam.id).length,
-      });
     }
   }
 
@@ -484,6 +490,27 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     }
   }
 
+  for (const orgConfig of config.orgs ?? []) {
+    const org = gh.orgs.findOneBy("login", orgConfig.login);
+    if (!org) continue;
+    for (const teamConfig of orgConfig.teams ?? []) {
+      const permission = teamConfig.permission ?? "pull";
+      const team = getOrCreateTeam(gh, org, teamConfig.name, permission);
+      for (const login of teamConfig.members ?? []) {
+        const user = gh.users.findOneBy("login", login);
+        if (user && !gh.teamMembers.findBy("team_id", team.id).some((m) => m.user_id === user.id)) {
+          gh.teamMembers.insert({ team_id: team.id, user_id: user.id, role: "member" });
+        }
+      }
+      for (const name of teamConfig.repos ?? []) {
+        const repo = gh.repos.findOneBy("full_name", `${org.login}/${name}`);
+        if (repo && !gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id)) {
+          gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id, permission });
+        }
+      }
+    }
+  }
+
   if (config.oauth_apps) {
     for (const oa of config.oauth_apps) {
       const existing = gh.oauthApps.findOneBy("client_id", oa.client_id);
@@ -583,6 +610,12 @@ function findInstallationsForRepo(
   return results;
 }
 
+function withOrganization(gh: GitHubStore, payload: unknown, ownerLogin: string, baseUrl: string): unknown {
+  const org = gh.orgs.findOneBy("login", ownerLogin);
+  if (!org || !payload || typeof payload !== "object") return payload;
+  return { ...(payload as Record<string, unknown>), organization: formatOrgBrief(org, baseUrl) };
+}
+
 function enrichPayloadWithInstallation(payload: unknown, installation: GitHubAppInstallation): unknown {
   if (!payload || typeof payload !== "object") return payload;
   return {
@@ -648,12 +681,13 @@ export const githubPlugin: ServicePlugin = {
       repo?: string,
     ): Promise<void> => {
       const installations = findInstallationsForRepo(gh, owner, repo, event);
+      const withOrg = withOrganization(gh, payload, owner, baseUrl);
 
       const enrichedPayload =
-        installations.length > 0 ? enrichPayloadWithInstallation(payload, installations[0]) : payload;
+        installations.length > 0 ? enrichPayloadWithInstallation(withOrg, installations[0]) : withOrg;
 
       await originalDispatch(event, action, enrichedPayload, owner, repo);
-      await deliverToAppWebhookUrls(gh, event, action, payload, owner, repo);
+      await deliverToAppWebhookUrls(gh, event, action, withOrg, owner, repo);
     };
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
@@ -676,6 +710,8 @@ export const githubPlugin: ServicePlugin = {
     oauthRoutes(ctx);
     appsRoutes(ctx);
     installationTokenRoutes(ctx);
+    graphqlRoutes(ctx);
+    apiV3Routes(ctx);
     contentsRoutes(ctx);
     // Registered last: the catch-all /commits/:ref{.+} route must not shadow
     // /commits/:sha/comments (comments.ts) or /commits/:ref/check-* (checks.ts).
@@ -684,6 +720,36 @@ export const githubPlugin: ServicePlugin = {
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
   },
+  chargesOwnRateLimit(request: Request): boolean {
+    const path = new URL(request.url).pathname;
+    return GRAPHQL_PATHS.includes(path) || path === "/rate_limit" || path === "/api/v3/rate_limit";
+  },
+  rejectUnknownToken(c) {
+    if (WEB_PATH_PREFIXES.some((prefix) => c.req.path.startsWith(prefix)) || RAW_CONTENT_PATH.test(c.req.path)) {
+      return undefined;
+    }
+    return c.json(
+      { message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" },
+      401,
+    );
+  },
+  basicAuthToken(username, password, isKnown) {
+    const isToken = (value: string) => isKnown(value) || GITHUB_TOKEN_SHAPES.some((shape) => shape.test(value));
+    if (isToken(password)) return password;
+    if ((password === "" || password === "x-oauth-basic") && isToken(username)) return username;
+    return undefined;
+  },
 };
+
+/** Token formats api.github.com recognises in Basic credentials; anything else there is a password and is ignored. */
+const GITHUB_TOKEN_SHAPES = [
+  /^gh[opsu]_[A-Za-z0-9]{36}$/i,
+  /^github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}$/,
+  /^[0-9a-f]{40}$/,
+];
+
+/** github.com pages and emulator tooling, which don't authenticate API tokens. */
+const WEB_PATH_PREFIXES = ["/login/", "/settings/", "/_emulate"];
+const RAW_CONTENT_PATH = /^\/[^/]+\/[^/]+\/raw\//;
 
 export default githubPlugin;

@@ -1,10 +1,11 @@
 import type { RouteContext } from "@emulators/core";
-import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
-import { assertAuthenticatedUser, canAccessRepo, notFoundResponse } from "../route-helpers.js";
+import { ApiError, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
+import { assertAuthenticatedUser, canAccessRepo, formatRepoForCaller, notFoundResponse } from "../route-helpers.js";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
-import { formatOrgBrief, formatRepo, formatUser, formatUserFull } from "../helpers.js";
+import { formatOrgBrief, formatUser, formatUserFull } from "../helpers.js";
 
 function listReposForUser(gh: GitHubStore, user: GitHubUser, type: "all" | "owner" | "member"): GitHubRepo[] {
   const owned = gh.repos.all().filter((r) => r.owner_id === user.id && r.owner_type === "User");
@@ -81,7 +82,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
       throw notFoundResponse();
     }
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubUser> = {};
 
     if ("name" in body) {
@@ -154,7 +155,9 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     );
     const total = allRepos.length;
     const start = (page - 1) * per_page;
-    const items = allRepos.slice(start, start + per_page).map((r) => formatRepo(r, gh, baseUrl));
+    const items = allRepos
+      .slice(start, start + per_page)
+      .map((r) => formatRepoForCaller(gh, r, baseUrl, c.get("authUser")));
 
     setLinkHeader(c, total, page, per_page);
     return c.json(items);
@@ -211,7 +214,9 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     const allRepos = sortRepos(listReposForUser(gh, user, type), sort, direction);
     const total = allRepos.length;
     const start = (page - 1) * per_page;
-    const items = allRepos.slice(start, start + per_page).map((r) => formatRepo(r, gh, baseUrl));
+    const items = allRepos
+      .slice(start, start + per_page)
+      .map((r) => formatRepoForCaller(gh, r, baseUrl, c.get("authUser")));
 
     setLinkHeader(c, total, page, per_page);
     return c.json(items);

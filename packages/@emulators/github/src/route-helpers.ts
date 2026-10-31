@@ -2,7 +2,8 @@ import type { AuthUser } from "@emulators/core";
 import { ApiError, notFound, unauthorized, forbidden } from "@emulators/core";
 import type { GitHubStore } from "./store.js";
 import type { GitHubRepo, GitHubUser } from "./entities.js";
-import { generateNodeId } from "./helpers.js";
+import type { RepoPermissions } from "./helpers.js";
+import { formatRepo, generateNodeId, repoAccessLevel, repoPermissionFlags, repoPermissionLevel } from "./helpers.js";
 
 export { notFound as notFoundResponse };
 
@@ -70,9 +71,26 @@ export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, r
   if (authUser.installation) return installationCanAccessRepo(authUser, repo);
   const user = getActorUser(gh, authUser);
   if (!user) return false;
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-  if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  return Boolean(gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id));
+  return repoPermissionLevel(gh, repo, user.id) !== null;
+}
+
+function callerRepoPermissions(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+): RepoPermissions | undefined {
+  if (!authUser || authUser.installation) return undefined;
+  const user = getActorUser(gh, authUser);
+  return user ? repoPermissionFlags(repoAccessLevel(gh, repo, user.id)) : undefined;
+}
+
+export function formatRepoForCaller(
+  gh: GitHubStore,
+  repo: GitHubRepo,
+  baseUrl: string,
+  authUser: AuthUser | undefined,
+) {
+  return formatRepo(repo, gh, baseUrl, callerRepoPermissions(gh, authUser, repo));
 }
 
 export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
@@ -90,7 +108,7 @@ function hasInstallationPermission(authUser: AuthUser, permissions: string[], re
   });
 }
 
-function canAccessRepoWithPermission(
+export function canAccessRepoWithPermission(
   gh: GitHubStore,
   authUser: AuthUser | undefined,
   repo: GitHubRepo,
@@ -140,43 +158,12 @@ export function assertAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | u
 }
 
 export function hasRepoAdmin(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-  if (repo.owner_type === "Organization" && isOrgMember(gh, user.id, repo.owner_id)) return true;
-  const collab = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
-  return collab?.permission === "admin" || collab?.permission === "maintain";
-}
-
-function grantsRepoWrite(permission: string): boolean {
-  return permission === "push" || permission === "write" || permission === "maintain" || permission === "admin";
+  return repoPermissionLevel(gh, repo, user.id) === "admin";
 }
 
 export function hasRepoContentsWrite(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (repo.owner_type === "User" && repo.owner_id === user.id) return true;
-
-  const collaborator = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id);
-  if (collaborator && grantsRepoWrite(collaborator.permission)) return true;
-
-  if (repo.owner_type !== "Organization") return false;
-  const memberships = gh.teamMembers.findBy("user_id", user.id).filter((membership) => {
-    return gh.teams.get(membership.team_id)?.org_id === repo.owner_id;
-  });
-  if (!memberships.length) return false;
-
-  // Organization administrators are represented as maintainers of the members team by the emulator.
-  const isOrgAdmin = memberships.some((membership) => {
-    const team = gh.teams.get(membership.team_id);
-    return team?.slug === "members" && membership.role === "maintainer";
-  });
-  if (isOrgAdmin) return true;
-
-  const org = gh.orgs.get(repo.owner_id);
-  if (org && grantsRepoWrite(org.default_repository_permission)) return true;
-
-  return memberships.some((membership) => {
-    const team = gh.teams.get(membership.team_id);
-    if (!team || !grantsRepoWrite(team.permission)) return false;
-    return gh.teamRepos.findBy("team_id", team.id).some((link) => link.repo_id === repo.id);
-  });
+  const level = repoPermissionLevel(gh, repo, user.id);
+  return level === "push" || level === "maintain" || level === "admin";
 }
 
 export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
@@ -193,18 +180,7 @@ export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | un
 }
 
 function hasBranchProtectionBypass(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo): boolean {
-  if (user.site_admin) return true;
-  if (repo.owner_type === "User") return repo.owner_id === user.id;
-
-  const isOrgAdmin = gh.teamMembers.findBy("user_id", user.id).some((membership) => {
-    const team = gh.teams.get(membership.team_id);
-    return team?.org_id === repo.owner_id && team.slug === "members" && membership.role === "maintainer";
-  });
-  if (isOrgAdmin) return true;
-
-  return gh.collaborators
-    .findBy("repo_id", repo.id)
-    .some((collaborator) => collaborator.user_id === user.id && collaborator.permission === "admin");
+  return user.site_admin || hasRepoAdmin(gh, user, repo);
 }
 
 function branchRestrictionsAllow(
@@ -299,18 +275,17 @@ export function assertBranchUpdateAllowed(
   }
 }
 
-export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  if (authUser?.installation) {
-    assertRepoPermission(gh, authUser, repo, "administration", "write");
-    return assertAuthenticatedActor(gh, authUser);
-  }
-
-  const user = assertAuthenticatedUser(gh, authUser);
-  if (hasRepoAdmin(gh, user, repo)) return user;
-  throw forbidden();
+export function assertRepoAdmin(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  denied: () => ApiError = notFound,
+): GitHubUser {
+  return assertRepoRole(gh, authUser, repo, "admin", "administration", denied);
 }
 
-export function assertRepoWrite(
+/** Anyone who can see a repository may open issues and pull requests on it, comment, and review. */
+export function assertRepoParticipant(
   gh: GitHubStore,
   authUser: AuthUser | undefined,
   repo: GitHubRepo,
@@ -322,12 +297,73 @@ export function assertRepoWrite(
   }
 
   const user = assertAuthenticatedUser(gh, authUser);
-  if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
   return user;
 }
 
-export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
-  assertRepoPermission(gh, authUser, repo, "issues", "write");
-  return assertAuthenticatedActor(gh, authUser);
+export type RepoRole = "triage" | "write" | "maintain" | "admin";
+
+const ROLE_FLAGS = { triage: "triage", write: "push", maintain: "maintain", admin: "admin" } as const;
+
+function userHasRepoRole(gh: GitHubStore, user: GitHubUser, repo: GitHubRepo, role: RepoRole): boolean {
+  return repoPermissionFlags(repoPermissionLevel(gh, repo, user.id))[ROLE_FLAGS[role]];
+}
+
+export function hasRepoRole(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  role: RepoRole,
+  permissions: string | string[],
+): boolean {
+  if (!authUser) return false;
+  const accepted = Array.isArray(permissions) ? permissions : [permissions];
+  if (authUser.installation) return canAccessRepoWithPermission(gh, authUser, repo, accepted, "write");
+  const user = getActorUser(gh, authUser);
+  if (!user || !canAccessRepo(gh, authUser, repo)) return false;
+  return userHasRepoRole(gh, user, repo, role);
+}
+
+/** Authors may edit, close, and reopen their own issues, pull requests, and comments without a repository role. */
+export function isAuthorOrHasRole(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  authorId: number,
+  role: RepoRole,
+  permissions: string | string[],
+): boolean {
+  if (authUser && !authUser.installation && canAccessRepo(gh, authUser, repo)) {
+    if (getActorUser(gh, authUser)?.id === authorId) return true;
+  }
+  return hasRepoRole(gh, authUser, repo, role, permissions);
+}
+
+/** GitHub's issue, delete, transfer, and workflow routes refuse a caller without the role with this 403. */
+export function missingAdminRights(): ApiError {
+  return new ApiError(403, "Must have admin rights to Repository.");
+}
+
+/** A user who can see the repository but lacks the role gets `denied`: 404 on most GitHub routes. */
+export function assertRepoRole(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  role: RepoRole,
+  permissions: string | string[],
+  denied: () => ApiError = notFound,
+): GitHubUser {
+  if (hasRepoRole(gh, authUser, repo, role, permissions)) return assertAuthenticatedActor(gh, authUser);
+  if (!authUser) throw unauthorized();
+  if (authUser.installation || !canAccessRepo(gh, authUser, repo)) throw forbidden();
+  throw denied();
+}
+
+export function assertRepoWrite(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+  permissions: string | string[],
+): GitHubUser {
+  return assertRepoRole(gh, authUser, repo, "write", permissions);
 }

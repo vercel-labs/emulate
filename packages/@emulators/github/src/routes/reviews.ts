@@ -2,6 +2,7 @@ import type { Context } from "@emulators/core";
 import type { RouteContext, WebhookDispatcher } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubComment, GitHubPullRequest, GitHubRepo, GitHubReview, GitHubUser } from "../entities.js";
 import {
@@ -15,7 +16,13 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertRepoPermission, assertRepoWrite, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoParticipant,
+  assertRepoPermission,
+  assertRepoWrite,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 function findPull(gh: GitHubStore, repoId: number, pullNumber: number): GitHubPullRequest | undefined {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === pullNumber);
@@ -25,10 +32,6 @@ function findReview(gh: GitHubStore, repo: GitHubRepo, pullNumber: number, revie
   const r = gh.reviews.get(reviewId);
   if (!r || r.repo_id !== repo.id || r.pull_number !== pullNumber) return undefined;
   return r;
-}
-
-function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delta: number) {
-  gh.pullRequests.update(pr.id, { review_comments: Math.max(0, pr.review_comments + delta) });
 }
 
 function sortComments(
@@ -138,7 +141,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
@@ -146,7 +149,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const raw = await parseJsonBody(c);
+    const raw = await parseOptionalJsonBody(c);
 
     const eventRaw = raw.event;
     const hasEvent = eventRaw === "APPROVE" || eventRaw === "REQUEST_CHANGES" || eventRaw === "COMMENT";
@@ -184,9 +187,12 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       if (!entry || typeof entry !== "object") throw new ApiError(422, "Validation failed");
       const o = entry as Record<string, unknown>;
       if (typeof o.path !== "string" || !o.path.trim()) throw new ApiError(422, "Validation failed");
-      const pos =
-        typeof o.position === "number" && Number.isFinite(o.position) ? o.position : parseInt(String(o.position), 10);
-      if (!Number.isFinite(pos)) throw new ApiError(422, "Validation failed");
+      const byLine = o.position === undefined && o.line !== undefined;
+      const anchor = byLine ? o.line : o.position;
+      const num = typeof anchor === "number" && Number.isFinite(anchor) ? anchor : parseInt(String(anchor), 10);
+      if (!Number.isFinite(num)) throw new ApiError(422, "Validation failed");
+      const side = o.side ?? "RIGHT";
+      if (side !== "LEFT" && side !== "RIGHT") throw new ApiError(422, "Validation failed");
       if (typeof o.body !== "string") throw new ApiError(422, "Validation failed");
 
       const cRow = gh.comments.insert({
@@ -199,15 +205,14 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
         user_id: actor.id,
         in_reply_to_id: null,
         path: o.path,
-        position: pos,
-        line: null,
-        side: "RIGHT",
+        position: byLine ? null : num,
+        line: byLine ? num : null,
+        side,
         subject_type: "line",
         comment_type: "review",
         review_id: review.id,
       } as Omit<GitHubComment, "id" | "created_at" | "updated_at">);
       gh.comments.update(cRow.id, { node_id: generateNodeId("PullRequestReviewComment", cRow.id) });
-      adjustPrReviewCommentCount(gh, pr, 1);
     }
 
     if (event) {
@@ -244,14 +249,14 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
     if (!Number.isFinite(pullNumber) || !Number.isFinite(reviewId)) throw notFoundResponse();
 
     const existing = findReview(gh, repo, pullNumber, reviewId);
-    if (!existing) throw notFoundResponse();
+    if (!existing || existing.user_id !== actor.id) throw notFoundResponse();
     if (existing.state !== "PENDING") {
       throw new ApiError(422, "Validation failed");
     }
@@ -276,7 +281,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     const reviewId = parseInt(c.req.param("review_id")!, 10);
@@ -286,7 +291,7 @@ export function reviewsRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
     if (!pr) throw notFoundResponse();
 
     const review = findReview(gh, repo, pullNumber, reviewId);
-    if (!review) throw notFoundResponse();
+    if (!review || review.user_id !== actor.id) throw notFoundResponse();
     if (review.state !== "PENDING") {
       throw new ApiError(422, "Validation failed");
     }

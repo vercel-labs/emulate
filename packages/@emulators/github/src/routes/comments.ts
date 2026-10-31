@@ -6,7 +6,7 @@ import type { GitHubStore } from "../store.js";
 import type { GitHubComment, GitHubCommit, GitHubIssue, GitHubPullRequest, GitHubRepo } from "../entities.js";
 import {
   formatComment,
-  formatIssue,
+  formatIssueOrPullRequest,
   formatPullRequest,
   formatRepo,
   formatUser,
@@ -16,7 +16,9 @@ import {
 import {
   assertRepoContentsRead,
   assertRepoPermission,
-  assertRepoWrite,
+  assertRepoParticipant,
+  isAuthorOrHasRole,
+  missingAdminRights,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -72,14 +74,6 @@ function parseCommentSort(c: Context, defaultDirection: "asc" | "desc") {
   return { sort, direction };
 }
 
-function adjustIssueCommentCount(gh: GitHubStore, issue: GitHubIssue, delta: number) {
-  gh.issues.update(issue.id, { comments: Math.max(0, issue.comments + delta) });
-}
-
-function adjustPrReviewCommentCount(gh: GitHubStore, pr: GitHubPullRequest, delta: number) {
-  gh.pullRequests.update(pr.id, { review_comments: Math.max(0, pr.review_comments + delta) });
-}
-
 export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
@@ -111,13 +105,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     let comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", ["issues", "pull_requests"])) {
+      throw missingAdminRights();
+    }
 
     const body = await parseJsonBody(c);
     if (typeof body.body !== "string") {
@@ -127,7 +124,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     comment = gh.comments.update(comment.id, { body: body.body })!;
     const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
     const ownerLogin = ownerLoginOf(gh, repo);
-    const issueFmt = issue ? formatIssue(issue, gh, baseUrl) : null;
+    const issueFmt = issue ? formatIssueOrPullRequest(issue, gh, baseUrl) : null;
     const commentFmt = formatComment(comment, gh, baseUrl);
     if (!commentFmt) throw notFoundResponse();
 
@@ -155,21 +152,23 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     const comment = getCommentForRepo(gh, repo, commentId, "issue");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", ["issues", "pull_requests"])) {
+      throw missingAdminRights();
+    }
 
     const issue = comment.issue_number !== null ? findIssueByNumber(gh, repo.id, comment.issue_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
-    const issueFmt = issue ? formatIssue(issue, gh, baseUrl) : null;
+    const issueFmt = issue ? formatIssueOrPullRequest(issue, gh, baseUrl) : null;
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
-    if (issue) adjustIssueCommentCount(gh, issue, -1);
 
     webhooks.dispatch(
       "issue_comment",
@@ -241,13 +240,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     let comment = getCommentForRepo(gh, repo, commentId, "review");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "pull_requests")) {
+      throw notFoundResponse();
+    }
 
     const body = await parseJsonBody(c);
     if (typeof body.body !== "string") {
@@ -283,20 +285,22 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     const comment = getCommentForRepo(gh, repo, commentId, "review");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "pull_requests")) {
+      throw notFoundResponse();
+    }
 
     const pr = comment.pull_number !== null ? findPull(gh, repo.id, comment.pull_number) : undefined;
     const commentFmt = formatComment(comment, gh, baseUrl);
     const ownerLogin = ownerLoginOf(gh, repo);
 
     gh.comments.delete(comment.id);
-    if (pr) adjustPrReviewCommentCount(gh, pr, -1);
 
     webhooks.dispatch(
       "pull_request_review_comment",
@@ -363,13 +367,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
+    assertRepoParticipant(gh, c.get("authUser"), repo, "contents");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     let comment = getCommentForRepo(gh, repo, commentId, "commit");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "contents")) {
+      throw notFoundResponse();
+    }
 
     const body = await parseJsonBody(c);
     if (typeof body.body !== "string") {
@@ -388,13 +395,16 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
+    assertRepoParticipant(gh, c.get("authUser"), repo, "contents");
 
     const commentId = parseInt(c.req.param("comment_id")!, 10);
     if (!Number.isFinite(commentId)) throw notFoundResponse();
 
     const comment = getCommentForRepo(gh, repo, commentId, "commit");
     if (!comment) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, c.get("authUser"), repo, comment.user_id, "write", "contents")) {
+      throw notFoundResponse();
+    }
 
     gh.comments.delete(comment.id);
     return c.body(null, 204);
@@ -462,7 +472,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
@@ -495,8 +505,6 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     gh.comments.update(row.id, { node_id: generateNodeId("IssueComment", row.id) });
     const comment = gh.comments.get(row.id)!;
 
-    adjustIssueCommentCount(gh, issue, 1);
-
     const ownerLogin = ownerLoginOf(gh, repo);
     const commentFmt = formatComment(comment, gh, baseUrl)!;
 
@@ -506,7 +514,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
       {
         action: "created",
         comment: commentFmt,
-        issue: formatIssue(issue, gh, baseUrl),
+        issue: formatIssueOrPullRequest(issue, gh, baseUrl),
         repository: formatRepo(repo, gh, baseUrl),
         sender: formatUser(actor, baseUrl),
       },
@@ -553,7 +561,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
 
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
@@ -631,8 +639,6 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     gh.comments.update(row.id, { node_id: generateNodeId("PullRequestReviewComment", row.id) });
     const comment = gh.comments.get(row.id)!;
 
-    adjustPrReviewCommentCount(gh, pr, 1);
-
     const ownerLogin = ownerLoginOf(gh, repo);
     const commentFmt = formatComment(comment, gh, baseUrl)!;
 
@@ -687,7 +693,7 @@ export function commentsRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "contents");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "contents");
 
     const commitShaParam = c.req.param("commit_sha")!;
     const commit = findCommitInRepo(gh, repo.id, commitShaParam);

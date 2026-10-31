@@ -1,7 +1,8 @@
-import type { Context } from "@emulators/core";
+import type { AuthUser, Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type {
   GitHubIssue,
@@ -12,10 +13,9 @@ import type {
   GitHubUser,
 } from "../entities.js";
 import {
-  formatIssue,
+  dispatchIssueEvent,
   formatLabel,
   formatMilestone,
-  formatPullRequest,
   formatRepo,
   formatUser,
   generateNodeId,
@@ -23,7 +23,13 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoPermission,
+  assertRepoRole,
+  missingAdminRights,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
   return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
@@ -31,14 +37,6 @@ function findIssueByNumber(gh: GitHubStore, repoId: number, issueNumber: number)
 
 function findPullByNumber(gh: GitHubStore, repoId: number, num: number) {
   return gh.pullRequests.findBy("repo_id", repoId).find((p) => p.number === num);
-}
-
-function formatIssueOrPullPayload(gh: GitHubStore, issue: GitHubIssue, current: GitHubIssue, baseUrl: string) {
-  if (issue.is_pull_request) {
-    const pr = findPullByNumber(gh, issue.repo_id, issue.number);
-    return pr ? formatPullRequest(pr, gh, baseUrl) : null;
-  }
-  return formatIssue(current, gh, baseUrl);
 }
 
 /** Keep issue and pull request rows in sync for label_ids. */
@@ -108,6 +106,16 @@ function getOrCreateLabel(gh: GitHubStore, repo: GitHubRepo, name: string): GitH
   } as Omit<GitHubLabel, "id" | "created_at" | "updated_at">);
   gh.labels.update(label.id, { node_id: generateNodeId("Label", label.id) });
   return gh.labels.get(label.id)!;
+}
+
+export function assertIssueLabelsWritable(
+  gh: GitHubStore,
+  authUser: AuthUser | undefined,
+  repo: GitHubRepo,
+): GitHubUser {
+  const actor = assertRepoRole(gh, authUser, repo, "triage", "issues", missingAdminRights);
+  if (!repo.has_issues) throw notFoundResponse();
+  return actor;
 }
 
 async function parseLabelNamesFromBody(c: Context): Promise<string[]> {
@@ -201,7 +209,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
 
     const body = await parseJsonBody(c);
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -260,14 +268,14 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
 
     const name = c.req.param("name")!;
     let label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
     if (!label) throw notFoundResponse();
     const labelId = label.id;
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubLabel> = {};
     if (typeof body.new_name === "string" && body.new_name.trim()) {
       const nn = body.new_name.trim();
@@ -309,7 +317,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
 
     const name = c.req.param("name")!;
     const label = gh.labels.findBy("repo_id", repo.id).find((l) => l.name === name);
@@ -361,7 +369,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -386,12 +394,13 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         const lbl = gh.labels.get(id);
         if (lbl) {
           insertIssueEvent(gh, repo, issue.number, "labeled", actor.id, { label_name: lbl.name });
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            after,
             "labeled",
             {
-              action: "labeled",
-              issue: formatIssueOrPullPayload(gh, issue, after, baseUrl),
               label: lbl ? { name: lbl.name, color: lbl.color } : null,
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -415,8 +424,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
-    if (!repo.has_issues) throw notFoundResponse();
+    const actor = assertIssueLabelsWritable(gh, c.get("authUser"), repo);
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
@@ -436,12 +444,13 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
       if (!newIds.includes(id)) {
         const lbl = gh.labels.get(id);
         insertIssueEvent(gh, repo, issue.number, "unlabeled", actor.id, { label_name: lbl?.name ?? null });
-        webhooks.dispatch(
-          "issues",
+        dispatchIssueEvent(
+          gh,
+          webhooks,
+          baseUrl,
+          after,
           "unlabeled",
           {
-            action: "unlabeled",
-            issue: formatIssueOrPullPayload(gh, issue, after, baseUrl),
             label: lbl ? { name: lbl.name, color: lbl.color } : null,
             repository: formatRepo(repo, gh, baseUrl),
             sender: formatUser(actor, baseUrl),
@@ -456,12 +465,13 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
         const lbl = gh.labels.get(id);
         if (lbl) {
           insertIssueEvent(gh, repo, issue.number, "labeled", actor.id, { label_name: lbl.name });
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            after,
             "labeled",
             {
-              action: "labeled",
-              issue: formatIssueOrPullPayload(gh, issue, after, baseUrl),
               label: { name: lbl.name, color: lbl.color },
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -485,7 +495,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -504,12 +514,13 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
 
     insertIssueEvent(gh, repo, issue.number, "unlabeled", actor.id, { label_name: label.name });
     const ownerLogin = ownerLoginOf(gh, repo);
-    webhooks.dispatch(
-      "issues",
+    dispatchIssueEvent(
+      gh,
+      webhooks,
+      baseUrl,
+      after,
       "unlabeled",
       {
-        action: "unlabeled",
-        issue: formatIssueOrPullPayload(gh, issue, after, baseUrl),
         label: { name: label.name, color: label.color },
         repository: formatRepo(repo, gh, baseUrl),
         sender: formatUser(actor, baseUrl),
@@ -530,7 +541,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertIssueWrite(gh, c.get("authUser"), repo);
+    assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     if (!repo.has_issues) throw notFoundResponse();
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
@@ -581,7 +592,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const body = await parseJsonBody(c);
@@ -663,7 +674,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);
@@ -672,7 +683,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     let m = gh.milestones.findBy("repo_id", repo.id).find((x) => x.number === n);
     if (!m) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubMilestone> = {};
 
     if (typeof body.title === "string") patch.title = body.title;
@@ -750,7 +761,7 @@ export function labelsAndMilestonesRoutes({ app, store, webhooks, baseUrl }: Rou
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues");
     if (!repo.has_issues) throw notFoundResponse();
 
     const n = parseInt(c.req.param("milestone_number")!, 10);

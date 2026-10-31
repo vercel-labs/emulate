@@ -68,6 +68,9 @@ GitHub API coverage:
   Suites are separated by App and commit; latest runs are grouped by App and check name.
   User-token checks return app: null; request-body app_id cannot change attribution.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
+  GraphQL for pull requests at POST /graphql and /api/graphql; /api/v3/* serves REST for GHES-style clients.
+  Drive it with gh: start with --base-url http://github.localhost, then set GH_HOST=github.localhost,
+  GH_TOKEN, and HTTP_PROXY=http://127.0.0.1:<port>.
 
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.

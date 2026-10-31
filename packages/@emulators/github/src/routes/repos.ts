@@ -1,10 +1,17 @@
-import type { RouteContext } from "@emulators/core";
+import type { AuthUser, RouteContext } from "@emulators/core";
 import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import {
   assertAuthenticatedUser,
+  assertRepoAdmin,
   assertRepoRead,
-  hasRepoAdmin,
+  assertRepoRole,
+  canAccessRepo,
+  formatRepoForCaller,
+  getActorUser,
+  hasRepoContentsWrite,
+  missingAdminRights,
   isOrgMember,
   notFoundResponse,
   ownerLoginOf,
@@ -12,7 +19,20 @@ import {
 import type { GitHubStore } from "../store.js";
 import type { GitHubBranch, GitHubCollaborator, GitHubRef, GitHubRepo, GitHubTag, GitHubUser } from "../entities.js";
 import type { Collection, Entity } from "@emulators/core";
-import { formatRepo, formatUser, generateNodeId, lookupOwner, lookupRepo, timestamp } from "../helpers.js";
+import type { RepoPermissionLevel } from "../helpers.js";
+import {
+  formatRepo,
+  formatUser,
+  generateNodeId,
+  isRepoPermissionLevel,
+  lookupOwner,
+  lookupRepo,
+  repoAccessLevel,
+  repoPermissionFlags,
+  repoPermissionLevel,
+  ROLE_NAMES,
+  timestamp,
+} from "../helpers.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "../git-helpers.js";
 
 const LICENSE_TEMPLATES: Record<string, { key: string; name: string; spdx_id: string }> = {
@@ -125,6 +145,42 @@ type CreateRepoRecordParams = {
   delete_branch_on_merge?: boolean;
 };
 
+const LEGACY_PERMISSIONS: Record<RepoPermissionLevel, string> = {
+  pull: "read",
+  triage: "read",
+  push: "write",
+  maintain: "write",
+  admin: "admin",
+};
+
+function formatCollaborator(user: GitHubUser, level: RepoPermissionLevel | null, baseUrl: string) {
+  return {
+    ...formatUser(user, baseUrl),
+    permissions: repoPermissionFlags(level),
+    role_name: level ? ROLE_NAMES[level] : "",
+  };
+}
+
+function orgMemberIds(gh: GitHubStore, repo: GitHubRepo): number[] {
+  if (repo.owner_type !== "Organization") return [];
+  return gh.teams
+    .findBy("org_id", repo.owner_id)
+    .flatMap((team) => gh.teamMembers.findBy("team_id", team.id).map((member) => member.user_id));
+}
+
+function assertCollaboratorReader(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo, message: string) {
+  assertRepoRead(gh, authUser, repo);
+  if (authUser?.installation) return;
+  const user = assertAuthenticatedUser(gh, authUser);
+  if (!hasRepoContentsWrite(gh, user, repo)) throw new ApiError(403, message);
+}
+
+/** GitHub makes whoever creates an organization repository, or forks into one, a direct admin collaborator. */
+function addCreatorAsAdmin(gh: GitHubStore, repo: GitHubRepo, creator: GitHubUser) {
+  if (repo.owner_type !== "Organization") return;
+  gh.collaborators.insert({ repo_id: repo.id, user_id: creator.id, permission: "admin" });
+}
+
 function createRepoRecord(gh: GitHubStore, params: CreateRepoRecordParams, actor: GitHubUser): GitHubRepo {
   const name = validateRepoName(params.name);
   const fullName = `${params.owner_login}/${name}`;
@@ -183,6 +239,8 @@ function createRepoRecord(gh: GitHubStore, params: CreateRepoRecordParams, actor
     bumpPublicRepos(gh, params.owner_id, params.owner_type, 1);
   }
 
+  addCreatorAsAdmin(gh, repo, actor);
+
   const updated = gh.repos.get(repo.id)!;
   if (params.auto_init) {
     seedInitialGit(gh, updated, actor);
@@ -202,6 +260,7 @@ function deleteRepoCascade(gh: GitHubStore, repo: GitHubRepo) {
   };
 
   delByRepo(gh.collaborators);
+  delByRepo(gh.teamRepos);
   delByRepo(gh.issues);
   delByRepo(gh.pullRequests);
   delByRepo(gh.labels);
@@ -285,7 +344,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    return c.json(formatRepo(repo, gh, baseUrl));
+    return c.json(formatRepoForCaller(gh, repo, baseUrl, c.get("authUser")));
   });
 
   app.get("/repositories/:id", (c) => {
@@ -294,7 +353,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = gh.repos.get(id);
     if (!repo) throw notFoundResponse();
     assertRepoRead(gh, c.get("authUser"), repo);
-    return c.json(formatRepo(repo, gh, baseUrl));
+    return c.json(formatRepoForCaller(gh, repo, baseUrl, c.get("authUser")));
   });
 
   app.post("/user/repos", async (c) => {
@@ -337,7 +396,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       finalRepo.name,
     );
 
-    return c.json(formatRepo(finalRepo, gh, baseUrl), 201);
+    return c.json(formatRepoForCaller(gh, finalRepo, baseUrl, authUser), 201);
   });
 
   app.post("/orgs/:org/repos", async (c) => {
@@ -388,7 +447,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       finalRepo.name,
     );
 
-    return c.json(formatRepo(finalRepo, gh, baseUrl), 201);
+    return c.json(formatRepoForCaller(gh, finalRepo, baseUrl, authUser), 201);
   });
 
   app.patch("/repos/:owner/:repo", async (c) => {
@@ -396,12 +455,10 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
+    const user = assertRepoAdmin(gh, authUser, repo);
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubRepo> = {};
 
     if (typeof body.name === "string") {
@@ -484,7 +541,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       updated.name,
     );
 
-    return c.json(formatRepo(updated, gh, baseUrl));
+    return c.json(formatRepoForCaller(gh, updated, baseUrl, authUser));
   });
 
   app.delete("/repos/:owner/:repo", (c) => {
@@ -493,8 +550,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
+    const user = assertRepoAdmin(gh, authUser, repo, missingAdminRights);
 
     webhooks.dispatch(
       "repository",
@@ -522,9 +578,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, user, repo)) throw forbidden();
+    assertRepoRole(gh, c.get("authUser"), repo, "maintain", "administration");
 
     const body = (await parseJsonBody(c)) as { names?: unknown };
     const names = Array.isArray(body.names) ? body.names.filter((n): n is string => typeof n === "string") : [];
@@ -593,7 +647,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const slice = forks.slice(start, start + per_page);
 
     setLinkHeader(c, total, page, per_page);
-    return c.json(slice.map((r) => formatRepo(r, gh, baseUrl)));
+    return c.json(slice.map((r) => formatRepoForCaller(gh, r, baseUrl, c.get("authUser"))));
   });
 
   app.post("/repos/:owner/:repo/forks", async (c) => {
@@ -606,7 +660,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const user = assertAuthenticatedUser(gh, authUser);
     assertRepoRead(gh, authUser, parent);
 
-    const body = (await parseJsonBody(c)) as {
+    const body = (await parseOptionalJsonBody(c)) as {
       organization?: unknown;
       name?: unknown;
     };
@@ -675,6 +729,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     } as Omit<GitHubRepo, "id" | "created_at" | "updated_at">);
 
     gh.repos.update(repo.id, { node_id: generateNodeId("Repository", repo.id) });
+    addCreatorAsAdmin(gh, repo, user);
 
     if (!isPrivate) {
       bumpPublicRepos(gh, ownerId, ownerType, 1);
@@ -694,7 +749,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       finalRepo.name,
     );
 
-    return c.json(formatRepo(finalRepo, gh, baseUrl), 202);
+    return c.json(formatRepoForCaller(gh, finalRepo, baseUrl, authUser), 202);
   });
 
   app.get("/repos/:owner/:repo/collaborators", (c) => {
@@ -702,25 +757,49 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertCollaboratorReader(gh, c.get("authUser"), repo, "Must have push access to view repository collaborators.");
 
-    const collabs = gh.collaborators.findBy("repo_id", repo.id);
-    const users = collabs
-      .map((col) => {
-        const u = gh.users.get(col.user_id);
-        if (!u) return null;
-        return { user: u, permission: col.permission };
+    const affiliation = c.req.query("affiliation") ?? "all";
+    if (affiliation !== "all" && affiliation !== "direct" && affiliation !== "outside") {
+      throw new ApiError(
+        422,
+        `The affiliation '${affiliation}' is not valid. Supported values are: outside, direct, all.`,
+      );
+    }
+    const minimum = c.req.query("permission");
+    if (minimum !== undefined && !isRepoPermissionLevel(minimum)) {
+      throw new ApiError(
+        422,
+        `The permission '${minimum}' is not valid. Supported values are: pull, triage, push, maintain, admin.`,
+      );
+    }
+
+    const direct = new Set(gh.collaborators.findBy("repo_id", repo.id).map((col) => col.user_id));
+    if (repo.owner_type === "User") direct.add(repo.owner_id);
+    const isMember = (userId: number) => repo.owner_type === "Organization" && isOrgMember(gh, userId, repo.owner_id);
+    const candidates =
+      affiliation === "direct"
+        ? direct
+        : affiliation === "outside"
+          ? new Set([...direct].filter((id) => repo.owner_type === "Organization" && !isMember(id)))
+          : new Set([...direct, ...orgMemberIds(gh, repo)]);
+
+    const collaborators = [...candidates]
+      .flatMap((id) => {
+        const user = gh.users.get(id);
+        const level = user ? repoPermissionLevel(gh, repo, id) : null;
+        return user && level ? [{ user, level }] : [];
       })
-      .filter((x): x is { user: GitHubUser; permission: GitHubCollaborator["permission"] } => Boolean(x))
-      .sort((a, b) => a.user.login.localeCompare(b.user.login));
+      .filter(({ level }) => !minimum || repoPermissionFlags(level)[minimum as RepoPermissionLevel])
+      .sort((a, b) => a.user.id - b.user.id);
 
     const { page, per_page } = parsePagination(c);
-    const total = users.length;
+    const total = collaborators.length;
     const start = (page - 1) * per_page;
-    const slice = users.slice(start, start + per_page);
+    const slice = collaborators.slice(start, start + per_page);
 
     setLinkHeader(c, total, page, per_page);
-    return c.json(slice.map((x) => formatUser(x.user, baseUrl)));
+    return c.json(slice.map(({ user, level }) => formatCollaborator(user, level, baseUrl)));
   });
 
   app.put("/repos/:owner/:repo/collaborators/:username", async (c) => {
@@ -729,14 +808,12 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const username = c.req.param("username")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
+    assertRepoAdmin(gh, c.get("authUser"), repo);
 
     const target = gh.users.findOneBy("login", username);
     if (!target) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as { permission?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { permission?: unknown };
     const permission = parsePermission(body.permission) ?? "push";
 
     const existing = gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === target.id);
@@ -760,10 +837,9 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
-
     const target = gh.users.findOneBy("login", username);
+    const actor = authUser && !authUser.installation ? getActorUser(gh, authUser) : undefined;
+    if (!actor || actor.id !== target?.id || !canAccessRepo(gh, authUser, repo)) assertRepoAdmin(gh, authUser, repo);
     if (!target) throw notFoundResponse();
 
     const existing = gh.collaborators.findBy("repo_id", repo.id).find((col) => col.user_id === target.id);
@@ -780,45 +856,16 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const username = c.req.param("username")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertCollaboratorReader(gh, c.get("authUser"), repo, "Must have push access to view collaborator permission.");
 
     const target = gh.users.findOneBy("login", username);
-    if (!target) throw notFoundResponse();
+    if (!target) throw new ApiError(404, `${username} is not a user`);
 
-    if (repo.owner_type === "User" && repo.owner_id === target.id) {
-      return c.json({
-        permission: "admin",
-        role_name: "admin",
-        user: formatUser(target, baseUrl),
-      });
-    }
-
-    if (repo.owner_type === "Organization" && isOrgMember(gh, target.id, repo.owner_id)) {
-      return c.json({
-        permission: "admin",
-        role_name: "admin",
-        user: formatUser(target, baseUrl),
-      });
-    }
-
-    const collab = gh.collaborators.findBy("repo_id", repo.id).find((col) => col.user_id === target.id);
-    if (!collab) throw notFoundResponse();
-
-    const roleName =
-      collab.permission === "admin"
-        ? "admin"
-        : collab.permission === "maintain"
-          ? "maintain"
-          : collab.permission === "push"
-            ? "write"
-            : collab.permission === "triage"
-              ? "triage"
-              : "read";
-
+    const level = repoAccessLevel(gh, repo, target.id);
     return c.json({
-      permission: collab.permission,
-      role_name: roleName,
-      user: formatUser(target, baseUrl),
+      permission: level ? LEGACY_PERMISSIONS[level] : "none",
+      role_name: level ? ROLE_NAMES[level] : "",
+      user: formatCollaborator(target, level, baseUrl),
     });
   });
 
@@ -828,8 +875,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     const authUser = c.get("authUser");
-    const actor = assertAuthenticatedUser(gh, authUser);
-    if (!hasRepoAdmin(gh, actor, repo)) throw forbidden();
+    const actor = assertRepoAdmin(gh, authUser, repo, missingAdminRights);
 
     const body = (await parseJsonBody(c)) as { new_owner?: unknown };
     if (typeof body.new_owner !== "string" || !body.new_owner.trim()) {
@@ -842,6 +888,10 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const newFull = `${newOwner.login}/${repo.name}`;
     if (newFull !== repo.full_name && gh.repos.findOneBy("full_name", newFull)) {
       throw new ApiError(422, "Repository already exists");
+    }
+
+    if (newOwner.type !== repo.owner_type || newOwner.id !== repo.owner_id) {
+      for (const link of gh.teamRepos.findBy("repo_id", repo.id)) gh.teamRepos.delete(link.id);
     }
 
     const updated = gh.repos.update(repo.id, {
@@ -859,7 +909,7 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       updated.name,
     );
 
-    return c.json(formatRepo(updated, gh, baseUrl));
+    return c.json(formatRepoForCaller(gh, updated, baseUrl, authUser));
   });
 
   app.get("/repos/:owner/:repo/tags", (c) => {

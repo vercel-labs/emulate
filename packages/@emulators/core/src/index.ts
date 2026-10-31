@@ -57,6 +57,8 @@ export {
   type AuthApp,
   type AuthInstallation,
   type AuthFallback,
+  type UnknownTokenPolicy,
+  type BasicAuthToken,
   type TokenMap,
   type TokenEntry,
   type AppKeyResolver,
@@ -79,6 +81,14 @@ export {
   type InspectorTab,
 } from "./ui.js";
 export { registerFontRoutes } from "./fonts.js";
+export {
+  RateLimiter,
+  remaining,
+  setRateLimitHeaders,
+  internalRequest,
+  isInternalRequest,
+  type RateLimitBucket,
+} from "./rate-limit.js";
 export { normalizeUri, matchesRedirectUri, constantTimeSecretEqual, bodyStr, parseCookies } from "./oauth-helpers.js";
 export { debug } from "./debug.js";
 export { type PersistenceAdapter, filePersistence } from "./persistence.js";

@@ -786,8 +786,6 @@ describe("GitHub contents routes", () => {
       permission: "pull",
       org_id: org.id,
       parent_id: null,
-      members_count: 1,
-      repos_count: 0,
     });
     gh.teamMembers.insert({ team_id: team.id, user_id: member.id, role: "member" });
     const request = (path: string) =>
@@ -806,8 +804,7 @@ describe("GitHub contents routes", () => {
     expect((await request("org-default.txt")).status).toBe(201);
 
     gh.orgs.update(org.id, { default_repository_permission: "read" });
-    gh.teams.update(team.id, { permission: "push" });
-    gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id });
+    gh.teamRepos.insert({ team_id: team.id, repo_id: repo.id, permission: "push" });
     expect((await request("team-access.txt")).status).toBe(201);
   });
 

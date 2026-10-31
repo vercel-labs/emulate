@@ -2,21 +2,47 @@ import type { Context } from "@emulators/core";
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { assertIssueWrite, assertRepoPermission, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import { enumValidationError, parseOptionalJsonBody } from "../request-body.js";
+import {
+  assertRepoParticipant,
+  assertRepoPermission,
+  assertRepoRole,
+  hasRepoRole,
+  isAuthorOrHasRole,
+  missingAdminRights,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubIssue, GitHubIssueEvent, GitHubLabel, GitHubRepo, GitHubUser } from "../entities.js";
 import {
-  formatIssue,
+  dispatchIssueEvent,
+  formatIssueOrPullRequest,
+  issueView,
+  PULL_REQUEST_FIELDS,
   formatRepo,
   formatUser,
   generateNodeId,
   getNextIssueNumber,
+  issueCommentCount,
   lookupRepo,
   timestamp,
 } from "../helpers.js";
 
+const LOCK_REASONS = ["off-topic", "too heated", "resolved", "spam"] as const;
+
 function findIssueForRepo(gh: GitHubStore, repoId: number, issueNumber: number): GitHubIssue | undefined {
-  return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber && !i.is_pull_request);
+  return gh.issues.findBy("repo_id", repoId).find((i) => i.number === issueNumber);
+}
+
+/** Updates an issue row, and for a pull request also the fields its pull request row carries. */
+function updateIssue(gh: GitHubStore, issue: GitHubIssue, patch: Partial<GitHubIssue>): GitHubIssue | undefined {
+  const updated = gh.issues.update(issue.id, patch);
+  if (!updated || !issue.is_pull_request) return updated;
+  const pr = gh.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number);
+  const shared = Object.fromEntries(PULL_REQUEST_FIELDS.filter((key) => key in patch).map((key) => [key, patch[key]]));
+  if (pr && Object.keys(shared).length) gh.pullRequests.update(pr.id, shared);
+  return updated;
 }
 
 function adjustRepoOpenIssues(gh: GitHubStore, repoId: number, delta: number) {
@@ -74,14 +100,17 @@ function lookupUserByLogin(gh: GitHubStore, login: string): GitHubUser {
   return u;
 }
 
-function insertIssueEvent(
+export function insertIssueEvent(
   gh: GitHubStore,
   repo: GitHubRepo,
   issueNumber: number,
   event: string,
   actorId: number,
   extra?: Partial<
-    Pick<GitHubIssueEvent, "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename">
+    Pick<
+      GitHubIssueEvent,
+      "commit_id" | "commit_url" | "label_name" | "assignee_id" | "milestone_title" | "rename" | "lock_reason"
+    >
   >,
 ): GitHubIssueEvent {
   const row = gh.issueEvents.insert({
@@ -110,8 +139,7 @@ function formatIssueEventApi(
   baseUrl: string,
 ) {
   const actor = gh.users.get(ev.actor_id);
-  const issueJson = formatIssue(issue, gh, baseUrl);
-  return {
+  const common = {
     id: ev.id,
     node_id: ev.node_id,
     url: `${baseUrl}/repos/${repo.full_name}/issues/events/${ev.id}`,
@@ -120,6 +148,13 @@ function formatIssueEventApi(
     commit_id: ev.commit_id,
     commit_url: ev.commit_url,
     created_at: ev.created_at,
+  };
+  if (ev.event === "locked") {
+    return { ...common, performed_via_github_app: null, lock_reason: ev.lock_reason ?? null };
+  }
+  const issueJson = formatIssueOrPullRequest(issue, gh, baseUrl);
+  return {
+    ...common,
     label:
       ev.label_name !== null
         ? gh.labels.findBy("repo_id", repo.id).find((l) => l.name === ev.label_name)
@@ -140,16 +175,22 @@ function formatIssueEventApi(
 }
 
 function sortIssues(
+  gh: GitHubStore,
   issues: GitHubIssue[],
   sort: "created" | "updated" | "comments",
   direction: "asc" | "desc",
 ): GitHubIssue[] {
   const mul = direction === "asc" ? 1 : -1;
-  const field = sort === "created" ? "created_at" : sort === "updated" ? "updated_at" : "comments";
+  const key = (issue: GitHubIssue) =>
+    sort === "comments"
+      ? issueCommentCount(gh, issue.repo_id, issue.number)
+      : sort === "created"
+        ? issue.created_at
+        : issue.updated_at;
   const sorted = [...issues];
   sorted.sort((a, b) => {
-    const av = a[field];
-    const bv = b[field];
+    const av = key(a);
+    const bv = key(b);
     if (typeof av === "number" && typeof bv === "number") {
       return av < bv ? -1 * mul : av > bv ? 1 * mul : 0;
     }
@@ -213,7 +254,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const { page, per_page } = parsePagination(c);
     const { state, labelNames, sort, direction, milestoneQ, assigneeQ, creatorQ, sinceQ } = parseIssueListFilters(c);
 
-    let list = gh.issues.findBy("repo_id", repo.id).filter((i) => !i.is_pull_request);
+    let list = gh.issues.findBy("repo_id", repo.id).map((i) => issueView(gh, i));
 
     if (state === "open") list = list.filter((i) => i.state === "open");
     else if (state === "closed") list = list.filter((i) => i.state === "closed");
@@ -267,13 +308,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       list = list.filter((i) => i.updated_at >= sinceQ);
     }
 
-    list = sortIssues(list, sort, direction);
+    list = sortIssues(gh, list, sort, direction);
     const total = list.length;
     setLinkHeader(c, total, page, per_page);
     const start = (page - 1) * per_page;
     const pageItems = list.slice(start, start + per_page);
     const body = pageItems
-      .map((i) => formatIssue(i, gh, baseUrl))
+      .map((i) => formatIssueOrPullRequest(i, gh, baseUrl))
       .filter((x): x is NonNullable<typeof x> => x !== null);
     return c.json(body);
   });
@@ -285,8 +326,14 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const actor = assertRepoParticipant(gh, authUser, repo, "issues");
     const body = await parseJsonBody(c);
+    if (!hasRepoRole(gh, authUser, repo, "triage", "issues")) {
+      delete body.labels;
+      delete body.assignees;
+      delete body.milestone;
+    }
 
     const title = body.title;
     if (typeof title !== "string" || !title.trim()) {
@@ -326,7 +373,6 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       assignee_ids: assigneeIds,
       label_ids: labelIds,
       milestone_id: milestoneId,
-      comments: 0,
       closed_at: null,
       closed_by_id: null,
       is_pull_request: false,
@@ -339,7 +385,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     insertIssueEvent(gh, repo, issue.number, "opened", actor.id);
 
     const ownerLogin = ownerLoginOf(gh, repo);
-    const issueFmt = formatIssue(issue, gh, baseUrl)!;
+    const issueFmt = formatIssueOrPullRequest(issue, gh, baseUrl)!;
     webhooks.dispatch(
       "issues",
       "opened",
@@ -356,7 +402,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     return c.json(issueFmt, 201);
   });
 
-  app.get("/repos/:owner/:repo/issues/:issue_number", (c) => {
+  app.get("/repos/:owner/:repo/issues/:issue_number{[0-9]+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
@@ -368,9 +414,9 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     const issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
 
-    const json = formatIssue(issue, gh, baseUrl);
+    const json = formatIssueOrPullRequest(issue, gh, baseUrl);
     if (!json) throw notFoundResponse();
     return c.json(json);
   });
@@ -382,17 +428,24 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    const actor = assertRepoParticipant(gh, authUser, repo, "issues");
 
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
+    if (!isAuthorOrHasRole(gh, authUser, repo, issue.user_id, "triage", "issues")) throw missingAdminRights();
 
     const beforePatch = issue;
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
+    if (!hasRepoRole(gh, authUser, repo, "triage", "issues")) {
+      delete body.labels;
+      delete body.assignees;
+      delete body.milestone;
+    }
     const patch: Partial<GitHubIssue> = {};
 
     if (typeof body.title === "string") patch.title = body.title;
@@ -442,7 +495,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     const prevAssigneeIds = new Set(issue.assignee_ids);
     const prevMilestoneId = issue.milestone_id;
 
-    const updated = gh.issues.update(issue.id, patch);
+    const updated = updateIssue(gh, issue, patch);
     if (!updated) throw notFoundResponse();
     issue = updated;
 
@@ -464,7 +517,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     }
 
     if (Object.keys(statePatch).length > 0) {
-      const again = gh.issues.update(issue.id, statePatch);
+      const again = updateIssue(gh, issue, statePatch);
       if (again) issue = again;
     }
 
@@ -473,12 +526,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (patch.state === "closed" && oldState === "open") {
       adjustRepoOpenIssues(gh, repo.id, -1);
       insertIssueEvent(gh, repo, issue.number, "closed", actor.id);
-      webhooks.dispatch(
-        "issues",
+      dispatchIssueEvent(
+        gh,
+        webhooks,
+        baseUrl,
+        issue,
         "closed",
         {
-          action: "closed",
-          issue: formatIssue(issue, gh, baseUrl)!,
           repository: formatRepo(repo, gh, baseUrl),
           sender: formatUser(actor, baseUrl),
         },
@@ -488,12 +542,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     } else if (patch.state === "open" && oldState === "closed") {
       adjustRepoOpenIssues(gh, repo.id, 1);
       insertIssueEvent(gh, repo, issue.number, "reopened", actor.id);
-      webhooks.dispatch(
-        "issues",
+      dispatchIssueEvent(
+        gh,
+        webhooks,
+        baseUrl,
+        issue,
         "reopened",
         {
-          action: "reopened",
-          issue: formatIssue(issue, gh, baseUrl)!,
           repository: formatRepo(repo, gh, baseUrl),
           sender: formatUser(actor, baseUrl),
         },
@@ -510,12 +565,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           insertIssueEvent(gh, repo, issue.number, "unlabeled", actor.id, {
             label_name: label?.name ?? null,
           });
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            issue,
             "unlabeled",
             {
-              action: "unlabeled",
-              issue: formatIssue(issue, gh, baseUrl)!,
               label: label ? { name: label.name, color: label.color } : null,
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -530,12 +586,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           const label = gh.labels.get(id);
           if (label) {
             insertIssueEvent(gh, repo, issue.number, "labeled", actor.id, { label_name: label.name });
-            webhooks.dispatch(
-              "issues",
+            dispatchIssueEvent(
+              gh,
+              webhooks,
+              baseUrl,
+              issue,
               "labeled",
               {
-                action: "labeled",
-                issue: formatIssue(issue, gh, baseUrl)!,
                 label: { name: label.name, color: label.color },
                 repository: formatRepo(repo, gh, baseUrl),
                 sender: formatUser(actor, baseUrl),
@@ -554,12 +611,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         if (!newAssignees.has(id)) {
           insertIssueEvent(gh, repo, issue.number, "unassigned", actor.id, { assignee_id: id });
           const u = gh.users.get(id);
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            issue,
             "unassigned",
             {
-              action: "unassigned",
-              issue: formatIssue(issue, gh, baseUrl)!,
               assignee: u ? formatUser(u, baseUrl) : null,
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -573,12 +631,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
         if (!prevAssigneeIds.has(id)) {
           insertIssueEvent(gh, repo, issue.number, "assigned", actor.id, { assignee_id: id });
           const u = gh.users.get(id);
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            issue,
             "assigned",
             {
-              action: "assigned",
-              issue: formatIssue(issue, gh, baseUrl)!,
               assignee: u ? formatUser(u, baseUrl) : null,
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -599,12 +658,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           insertIssueEvent(gh, repo, issue.number, "demilestoned", actor.id, {
             milestone_title: oldTitle,
           });
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            issue,
             "demilestoned",
             {
-              action: "demilestoned",
-              issue: formatIssue(issue, gh, baseUrl)!,
               milestone: oldTitle ? { title: oldTitle } : null,
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -617,12 +677,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           insertIssueEvent(gh, repo, issue.number, "milestoned", actor.id, {
             milestone_title: newTitle,
           });
-          webhooks.dispatch(
-            "issues",
+          dispatchIssueEvent(
+            gh,
+            webhooks,
+            baseUrl,
+            issue,
             "milestoned",
             {
-              action: "milestoned",
-              issue: formatIssue(issue, gh, baseUrl)!,
               milestone: newTitle ? { title: newTitle } : null,
               repository: formatRepo(repo, gh, baseUrl),
               sender: formatUser(actor, baseUrl),
@@ -640,12 +701,13 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       (body.body === null ? beforePatch.body !== null : String(body.body) !== (beforePatch.body ?? ""));
     if (titleEdited || bodyEdited) {
       insertIssueEvent(gh, repo, issue.number, "edited", actor.id);
-      webhooks.dispatch(
-        "issues",
+      dispatchIssueEvent(
+        gh,
+        webhooks,
+        baseUrl,
+        issue,
         "edited",
         {
-          action: "edited",
-          issue: formatIssue(issue, gh, baseUrl)!,
           repository: formatRepo(repo, gh, baseUrl),
           sender: formatUser(actor, baseUrl),
           changes: {
@@ -658,7 +720,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       );
     }
 
-    const json = formatIssue(issue, gh, baseUrl);
+    const json = formatIssueOrPullRequest(issue, gh, baseUrl);
     if (!json) throw notFoundResponse();
     return c.json(json);
   });
@@ -670,34 +732,32 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
-    const lockReason =
-      typeof body.lock_reason === "string"
-        ? body.lock_reason
-        : typeof body.active_lock_reason === "string"
-          ? body.active_lock_reason
-          : "resolved";
+    const body = await parseOptionalJsonBody(c);
+    const lockReason = LOCK_REASONS.find((reason) => reason === body.lock_reason) ?? null;
+    if (body.lock_reason != null && !lockReason) throw enumValidationError(body.lock_reason, LOCK_REASONS);
+    if (issueView(gh, issue).locked) return c.body(null, 204);
 
-    issue = gh.issues.update(issue.id, {
+    issue = updateIssue(gh, issue, {
       locked: true,
       active_lock_reason: lockReason,
     })!;
 
-    insertIssueEvent(gh, repo, issue.number, "locked", actor.id);
+    insertIssueEvent(gh, repo, issue.number, "locked", actor.id, { lock_reason: lockReason });
     const ownerLogin = ownerLoginOf(gh, repo);
-    webhooks.dispatch(
-      "issues",
+    dispatchIssueEvent(
+      gh,
+      webhooks,
+      baseUrl,
+      issue,
       "locked",
       {
-        action: "locked",
-        issue: formatIssue(issue, gh, baseUrl)!,
         repository: formatRepo(repo, gh, baseUrl),
         sender: formatUser(actor, baseUrl),
       },
@@ -715,23 +775,24 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "write", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
 
-    issue = gh.issues.update(issue.id, { locked: false, active_lock_reason: null })!;
+    issue = updateIssue(gh, issue, { locked: false, active_lock_reason: null })!;
 
     insertIssueEvent(gh, repo, issue.number, "unlocked", actor.id);
     const ownerLogin = ownerLoginOf(gh, repo);
-    webhooks.dispatch(
-      "issues",
+    dispatchIssueEvent(
+      gh,
+      webhooks,
+      baseUrl,
+      issue,
       "unlocked",
       {
-        action: "unlocked",
-        issue: formatIssue(issue, gh, baseUrl)!,
         repository: formatRepo(repo, gh, baseUrl),
         sender: formatUser(actor, baseUrl),
       },
@@ -754,7 +815,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     const issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
 
     const { page, per_page } = parsePagination(c);
     let events = gh.issueEvents.findBy("repo_id", repo.id).filter((e) => e.issue_number === issueNumber);
@@ -778,33 +839,34 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as { assignees?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { assignees?: unknown };
     const logins = Array.isArray(body.assignees)
       ? body.assignees.filter((x): x is string => typeof x === "string")
       : [];
     const addIds = logins.map((login) => lookupUserByLogin(gh, login).id);
     const prevAssigneeSet = new Set(issue.assignee_ids);
     const merged = [...new Set([...issue.assignee_ids, ...addIds])];
-    issue = gh.issues.update(issue.id, { assignee_ids: merged })!;
+    issue = updateIssue(gh, issue, { assignee_ids: merged })!;
 
     const ownerLogin = ownerLoginOf(gh, repo);
     for (const id of addIds) {
       if (prevAssigneeSet.has(id)) continue;
       insertIssueEvent(gh, repo, issue.number, "assigned", actor.id, { assignee_id: id });
       const u = gh.users.get(id);
-      webhooks.dispatch(
-        "issues",
+      dispatchIssueEvent(
+        gh,
+        webhooks,
+        baseUrl,
+        issue,
         "assigned",
         {
-          action: "assigned",
-          issue: formatIssue(issue, gh, baseUrl)!,
           assignee: u ? formatUser(u, baseUrl) : null,
           repository: formatRepo(repo, gh, baseUrl),
           sender: formatUser(actor, baseUrl),
@@ -814,9 +876,9 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       );
     }
 
-    const json = formatIssue(issue, gh, baseUrl);
+    const json = formatIssueOrPullRequest(issue, gh, baseUrl);
     if (!json) throw notFoundResponse();
-    return c.json(json);
+    return c.json(json, 201);
   });
 
   app.delete("/repos/:owner/:repo/issues/:issue_number/assignees", async (c) => {
@@ -826,33 +888,34 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     if (!repo) throw notFoundResponse();
     if (!repo.has_issues) throw notFoundResponse();
 
-    const actor = assertIssueWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "issues", missingAdminRights);
     const issueNumber = parseInt(c.req.param("issue_number")!, 10);
     if (!Number.isFinite(issueNumber)) throw notFoundResponse();
 
     let issue = findIssueForRepo(gh, repo.id, issueNumber);
-    if (!issue || issue.is_pull_request) throw notFoundResponse();
+    if (!issue) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as { assignees?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { assignees?: unknown };
     const logins = Array.isArray(body.assignees)
       ? body.assignees.filter((x): x is string => typeof x === "string")
       : [];
     const removeIds = new Set(logins.map((login) => lookupUserByLogin(gh, login).id));
     const prevAssignees = new Set(issue.assignee_ids);
     const merged = issue.assignee_ids.filter((id) => !removeIds.has(id));
-    issue = gh.issues.update(issue.id, { assignee_ids: merged })!;
+    issue = updateIssue(gh, issue, { assignee_ids: merged })!;
 
     const ownerLogin = ownerLoginOf(gh, repo);
     for (const id of removeIds) {
       if (prevAssignees.has(id)) {
         insertIssueEvent(gh, repo, issue.number, "unassigned", actor.id, { assignee_id: id });
         const u = gh.users.get(id);
-        webhooks.dispatch(
-          "issues",
+        dispatchIssueEvent(
+          gh,
+          webhooks,
+          baseUrl,
+          issue,
           "unassigned",
           {
-            action: "unassigned",
-            issue: formatIssue(issue, gh, baseUrl)!,
             assignee: u ? formatUser(u, baseUrl) : null,
             repository: formatRepo(repo, gh, baseUrl),
             sender: formatUser(actor, baseUrl),
@@ -863,7 +926,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
       }
     }
 
-    const json = formatIssue(issue, gh, baseUrl);
+    const json = formatIssueOrPullRequest(issue, gh, baseUrl);
     if (!json) throw notFoundResponse();
     return c.json(json);
   });

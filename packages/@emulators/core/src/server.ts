@@ -8,9 +8,11 @@ import {
   type TokenMap,
   type AppKeyResolver,
   type AppEnv,
+  type UnknownTokenPolicy,
 } from "./middleware/auth.js";
 import type { ServicePlugin } from "./plugin.js";
 import { registerFontRoutes } from "./fonts.js";
+import { RateLimiter, isInternalRequest, setRateLimitHeaders } from "./rate-limit.js";
 
 export interface ServerOptions {
   port?: number;
@@ -47,36 +49,21 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   app.onError(createApiErrorHandler(docsUrl));
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
-  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
+  const unknownToken: UnknownTokenPolicy | undefined = plugin.rejectUnknownToken
+    ? { kind: "reject", respond: (c) => plugin.rejectUnknownToken!(c), basicToken: plugin.basicAuthToken }
+    : options.fallbackUser && { kind: "fallback", user: options.fallbackUser };
+  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, unknownToken));
 
-  const rateLimitCounters = new Map<string, { remaining: number; resetAt: number }>();
-  let lastPruneAt = Math.floor(Date.now() / 1000);
+  const rateLimiter = new RateLimiter();
 
   app.use("*", async (c, next) => {
-    const token = c.get("authToken") ?? "__anonymous__";
-    const now = Math.floor(Date.now() / 1000);
+    c.set("rateLimiter", rateLimiter);
+    if (isInternalRequest(c.req.raw) || plugin.chargesOwnRateLimit?.(c.req.raw)) return next();
 
-    if (now - lastPruneAt > 3600) {
-      for (const [key, val] of rateLimitCounters) {
-        if (val.resetAt <= now) rateLimitCounters.delete(key);
-      }
-      lastPruneAt = now;
-    }
-
-    let counter = rateLimitCounters.get(token);
-    if (!counter || counter.resetAt <= now) {
-      counter = { remaining: 5000, resetAt: now + 3600 };
-      rateLimitCounters.set(token, counter);
-    }
-
-    counter.remaining = Math.max(0, counter.remaining - 1);
-
-    c.header("X-RateLimit-Limit", "5000");
-    c.header("X-RateLimit-Remaining", String(counter.remaining));
-    c.header("X-RateLimit-Reset", String(counter.resetAt));
-    c.header("X-RateLimit-Resource", "core");
-
-    if (counter.remaining === 0) {
+    const bucket = rateLimiter.bucket(c.get("authToken") ?? "__anonymous__", "core");
+    const charged = rateLimiter.charge(bucket, 1);
+    setRateLimitHeaders(c, bucket);
+    if (!charged) {
       return c.json(
         {
           message: "API rate limit exceeded",

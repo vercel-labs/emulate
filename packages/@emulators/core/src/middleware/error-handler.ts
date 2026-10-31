@@ -24,9 +24,11 @@ export function createApiErrorHandler(documentationUrl?: string): ErrorHandler {
     }
     const status = errorStatus(err);
     const message = err instanceof Error ? err.message : "Internal Server Error";
+    const errors = err instanceof ApiError ? err.errors : undefined;
     return c.json(
       {
         message,
+        ...(errors ? { errors } : {}),
         documentation_url: getDocsUrl(c),
       },
       status as ContentfulStatusCode,
@@ -50,7 +52,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public errors?: Array<{ resource: string; field: string; code: string }>,
+    public errors?: Array<{ resource: string; code: string; field?: string; message?: string }>,
   ) {
     super(message);
     this.name = "ApiError";
