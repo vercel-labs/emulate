@@ -923,6 +923,16 @@ describe("GitHub GraphQL fidelity", () => {
     });
   });
 
+  it("lists repository-wide issue and review comments", async () => {
+    const pr = await seedPr();
+    await send("POST", `${REPO}/issues/${pr.number}/comments`, { body: "issue comment" });
+    const issueComments = await send("GET", `${REPO}/issues/comments`);
+    expect(issueComments.status).toBe(200);
+    expect(issueComments.body.map((comment: { body: string }) => comment.body)).toEqual(["issue comment"]);
+    expect(await send("GET", `${REPO}/pulls/comments`)).toMatchObject({ status: 200, body: [] });
+    expect(await send("GET", `${REPO}/pulls/${pr.number}`)).toMatchObject({ status: 200 });
+  });
+
   describe("organization repository roles", () => {
     const ORG_REPO = "/repos/acme/widgets";
     const tokens = ["owner", "member", "writer", "teammate"] as const;

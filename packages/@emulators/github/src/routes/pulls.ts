@@ -509,7 +509,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     return c.json(prFmt, 201);
   });
 
-  app.get("/repos/:owner/:repo/pulls/:pull_number", (c) => {
+  app.get("/repos/:owner/:repo/pulls/:pull_number{[0-9]+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);

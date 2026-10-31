@@ -372,7 +372,7 @@ export function issuesRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
     return c.json(issueFmt, 201);
   });
 
-  app.get("/repos/:owner/:repo/issues/:issue_number", (c) => {
+  app.get("/repos/:owner/:repo/issues/:issue_number{[0-9]+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
