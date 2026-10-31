@@ -229,12 +229,13 @@ function inviteToOrg(
   invitee: GitHubUser,
   inviter: GitHubUser | undefined,
   change: { role?: GitHubOrgInvitation["role"]; team?: GitHubOrgInvitation["teams"][number] },
-): GitHubOrgInvitation {
+): { invitation: GitHubOrgInvitation; created: boolean } {
   const existing = findInvitation(gh, org.id, invitee.id);
   const teams = (existing?.teams ?? []).filter((t) => t.team_id !== change.team?.team_id);
   if (change.team) teams.push(change.team);
   const role = change.role ?? existing?.role ?? "direct_member";
-  if (existing) return gh.orgInvitations.update(existing.id, { role, teams }) ?? existing;
+  if (existing)
+    return { invitation: gh.orgInvitations.update(existing.id, { role, teams }) ?? existing, created: false };
   const row = gh.orgInvitations.insert({
     node_id: "",
     org_id: org.id,
@@ -243,10 +244,12 @@ function inviteToOrg(
     role,
     teams,
   });
-  return gh.orgInvitations.update(row.id, { node_id: generateNodeId("OrganizationInvitation", row.id) }) ?? row;
+  const invitation =
+    gh.orgInvitations.update(row.id, { node_id: generateNodeId("OrganizationInvitation", row.id) }) ?? row;
+  return { invitation, created: true };
 }
 
-function acceptInvitation(gh: GitHubStore, org: GitHubOrg, invitation: GitHubOrgInvitation) {
+function acceptInvitation(gh: GitHubStore, org: GitHubOrg, invitation: GitHubOrgInvitation): GitHubTeam[] {
   const membersTeam = getOrCreateMembersTeam(gh, org);
   const joins = [
     { team_id: membersTeam.id, role: invitation.role === "admin" ? ("maintainer" as const) : ("member" as const) },
@@ -258,6 +261,7 @@ function acceptInvitation(gh: GitHubStore, org: GitHubOrg, invitation: GitHubOrg
     else gh.teamMembers.insert({ team_id: join.team_id, user_id: invitation.invitee_id, role: join.role });
   }
   gh.orgInvitations.delete(invitation.id);
+  return invitation.teams.flatMap(({ team_id }) => gh.teams.get(team_id) ?? []);
 }
 
 function removeUserFromAllOrgTeams(gh: GitHubStore, orgId: number, userId: number) {
@@ -329,8 +333,66 @@ function formatInvitation(gh: GitHubStore, baseUrl: string, org: GitHubOrg, invi
   };
 }
 
-export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void {
+export function orgsAndTeamsRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
+
+  const orgEvent = (
+    org: GitHubOrg,
+    event: "organization" | "membership",
+    action: string,
+    sender: GitHubUser | undefined,
+    payload: Record<string, unknown>,
+  ) =>
+    webhooks.dispatch(
+      event,
+      action,
+      {
+        action,
+        ...payload,
+        organization: formatOrgBrief(org, baseUrl),
+        sender: sender ? formatUser(sender, baseUrl) : null,
+      },
+      org.login,
+    );
+
+  const teamMembershipEvent = (
+    org: GitHubOrg,
+    team: GitHubTeam,
+    action: "added" | "removed",
+    member: GitHubUser,
+    sender: GitHubUser | undefined,
+  ) => {
+    if (team.slug === MEMBERS_TEAM_SLUG) return;
+    const parent = team.parent_id !== null ? gh.teams.get(team.parent_id) : undefined;
+    orgEvent(org, "membership", action, sender, {
+      scope: "team",
+      member: formatUser(member, baseUrl),
+      team: { ...formatTeamBrief(team, gh, baseUrl), parent: parent ? formatTeamBrief(parent, gh, baseUrl) : null },
+    });
+  };
+
+  const orgMembershipEvent = (
+    org: GitHubOrg,
+    action: "member_added" | "member_removed",
+    user: GitHubUser,
+    role: "admin" | "member",
+    sender: GitHubUser | undefined,
+  ) => {
+    const { organization: _organization, ...membership } = formatOrgMembership(baseUrl, org, user, role, "active");
+    orgEvent(org, "organization", action, sender, { membership });
+  };
+
+  const invitedEvent = (org: GitHubOrg, invitation: GitHubOrgInvitation, invitee: GitHubUser, sender?: GitHubUser) =>
+    orgEvent(org, "organization", "member_invited", sender, {
+      invitation: formatInvitation(gh, baseUrl, org, invitation),
+      user: formatUser(invitee, baseUrl),
+    });
+
+  const removeFromOrg = (org: GitHubOrg, user: GitHubUser, sender: GitHubUser | undefined) => {
+    const role = orgRoleForUser(gh, org.id, user.id);
+    removeUserFromAllOrgTeams(gh, org.id, user.id);
+    if (role) orgMembershipEvent(org, "member_removed", user, role, sender);
+  };
 
   const paginatedInvitations = (c: Context, org: GitHubOrg, invitations: GitHubOrgInvitation[]) => {
     const { page, per_page } = parsePagination(c);
@@ -469,7 +531,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     requireOrgAdmin(gh, org, auth);
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
-    removeUserFromAllOrgTeams(gh, org.id, user.id);
+    removeFromOrg(org, user, getActorUser(gh, auth));
     return c.body(null, 204);
   });
 
@@ -499,7 +561,8 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
 
     if (!isOrgMember(gh, user.id, org.id)) {
       const inviter = getActorUser(gh, auth);
-      inviteToOrg(gh, org, user, inviter, { role: roleRaw === "admin" ? "admin" : "direct_member" });
+      const invite = inviteToOrg(gh, org, user, inviter, { role: roleRaw === "admin" ? "admin" : "direct_member" });
+      if (invite.created) invitedEvent(org, invite.invitation, user, inviter);
       return c.json(formatOrgMembership(baseUrl, org, user, roleRaw, "pending"));
     }
 
@@ -524,7 +587,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     if (!user) throw notFound();
     const invitation = findInvitation(gh, org.id, user.id);
     if (invitation) gh.orgInvitations.delete(invitation.id);
-    else if (isOrgMember(gh, user.id, org.id)) removeUserFromAllOrgTeams(gh, org.id, user.id);
+    else if (isOrgMember(gh, user.id, org.id)) removeFromOrg(org, user, getActorUser(gh, auth));
     else throw notFound();
     return c.body(null, 204);
   });
@@ -582,9 +645,13 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const body = await parseJsonBody(c);
     if (body.state !== "active") throw enumValidationError(body.state, ["active"]);
     const invitation = findInvitation(gh, org.id, user.id);
-    if (invitation) acceptInvitation(gh, org, invitation);
+    const joined = invitation ? acceptInvitation(gh, org, invitation) : [];
     const role = orgRoleForUser(gh, org.id, user.id);
     if (!role) throw notFound();
+    if (invitation) {
+      orgMembershipEvent(org, "member_added", user, role, user);
+      for (const team of joined) teamMembershipEvent(org, team, "added", user, user);
+    }
     return c.json(formatOrgMembership(baseUrl, org, user, role, "active"));
   });
 
@@ -753,7 +820,8 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       if (!owner) {
         throw new ApiError(403, "You must be an organization owner or team maintainer to add a team membership.");
       }
-      inviteToOrg(gh, org, user, access.user, { team: { team_id: team.id, role } });
+      const invite = inviteToOrg(gh, org, user, access.user, { team: { team_id: team.id, role } });
+      if (invite.created) invitedEvent(org, invite.invitation, user, access.user);
       return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, role, "pending"));
     }
 
@@ -762,6 +830,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
       gh.teamMembers.update(existing.id, { role });
     } else {
       gh.teamMembers.insert({ team_id: team.id, user_id: user.id, role });
+      teamMembershipEvent(org, team, "added", user, access.user);
     }
 
     return c.json(formatTeamMembership(baseUrl, org.login, team.slug, user, role));
@@ -779,7 +848,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
   });
 
   app.delete("/orgs/:org/teams/:team_slug/memberships/:username", (c) => {
-    const { team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
+    const { org, team, access } = visibleTeam(c, gh, c.req.param("org")!, c.req.param("team_slug")!);
     const user = gh.users.findOneBy("login", c.req.param("username")!);
     if (!user) throw notFound();
     if (!access.manage) {
@@ -789,6 +858,7 @@ export function orgsAndTeamsRoutes({ app, store, baseUrl }: RouteContext): void 
     const existing = gh.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === user.id);
     if (existing) {
       gh.teamMembers.delete(existing.id);
+      teamMembershipEvent(org, team, "removed", user, access.user);
     }
     const invitation = findInvitation(gh, team.org_id, user.id);
     if (invitation?.teams.some((t) => t.team_id === team.id)) {

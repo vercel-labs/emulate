@@ -1070,8 +1070,9 @@ describe("GitHub GraphQL fidelity", () => {
     await send("DELETE", `${REPO}/issues/comments/${created.body.id}`);
     const issuePayloads = dispatch.mock.calls
       .filter(([event]) => event === "issue_comment")
-      .map(([, action, payload]) => [action, (payload as { issue: Record<string, unknown> }).issue]);
+      .map(([, action, payload]) => [action, (payload as { issue: Record<string, unknown> }).issue] as const);
     expect(issuePayloads.map(([action]) => action)).toEqual(["created", "edited", "deleted"]);
+    expect(issuePayloads.map(([, issue]) => issue.comments)).toEqual([1, 1, 1]);
     for (const [, issue] of issuePayloads) {
       expect(issue).toMatchObject({
         number: pr.number,
@@ -1473,6 +1474,74 @@ describe("GitHub GraphQL fidelity", () => {
       expect(await send("GET", "/orgs/acme/memberships/hubot", undefined, "owner-token")).toMatchObject({
         status: 404,
       });
+    });
+
+    it("sends GitHub's organization and membership webhooks for invitations and team changes", async () => {
+      await seedOrg("read");
+      seedFromConfig(server.store, base, { users: [{ login: "outsider" }] });
+      const outsider = gh.users.findOneBy("login", "outsider")!;
+      server.tokenMap.set("outsider-token", { login: "outsider", id: outsider.id, scopes: ["repo"] });
+      const dispatch = vi.spyOn(server.webhooks, "dispatch");
+      const orgEvents = () =>
+        dispatch.mock.calls
+          .filter(([event]) => event === "organization" || event === "membership")
+          .map(([event, action, payload, owner, repo]) => ({ event, action, payload: payload as any, owner, repo }));
+
+      await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", {}, "owner-token");
+      await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", { role: "maintainer" }, "owner-token");
+      expect(orgEvents()).toMatchObject([
+        {
+          event: "organization",
+          action: "member_invited",
+          owner: "acme",
+          repo: undefined,
+          payload: {
+            action: "member_invited",
+            invitation: { login: "outsider", role: "direct_member", team_count: 1, inviter: { login: "owner" } },
+            user: { login: "outsider" },
+            organization: { login: "acme" },
+            sender: { login: "owner" },
+          },
+        },
+      ]);
+
+      dispatch.mockClear();
+      await send("PATCH", "/user/memberships/orgs/acme", { state: "active" }, "outsider-token");
+      expect(orgEvents()).toMatchObject([
+        {
+          event: "organization",
+          action: "member_added",
+          payload: {
+            membership: { state: "active", role: "member", user: { login: "outsider" } },
+            organization: { login: "acme" },
+            sender: { login: "outsider" },
+          },
+        },
+        {
+          event: "membership",
+          action: "added",
+          payload: {
+            scope: "team",
+            member: { login: "outsider" },
+            team: { slug: "devs" },
+            sender: { login: "outsider" },
+          },
+        },
+      ]);
+      expect(orgEvents()[0]!.payload.membership).not.toHaveProperty("organization");
+
+      dispatch.mockClear();
+      await send("PUT", "/orgs/acme/teams/devs/memberships/member", {}, "owner-token");
+      await send("PUT", "/orgs/acme/teams/devs/memberships/member", { role: "maintainer" }, "owner-token");
+      await send("DELETE", "/orgs/acme/teams/devs/memberships/member", undefined, "owner-token");
+      await send("DELETE", "/orgs/acme/members/outsider", undefined, "owner-token");
+      expect(orgEvents().map(({ event, action, payload }) => [event, action, payload.member?.login])).toEqual([
+        ["membership", "added", "member"],
+        ["membership", "removed", "member"],
+        ["organization", "member_removed", undefined],
+      ]);
+      expect(orgEvents()[2]!.payload.membership).toMatchObject({ user: { login: "outsider" }, role: "member" });
+      dispatch.mockRestore();
     });
 
     it("keeps team management to org owners, team maintainers, and repository admins", async () => {
