@@ -133,7 +133,6 @@ export function formatOwner(store: GitHubStore, ownerId: number, ownerType: stri
   return formatUser(user, baseUrl);
 }
 
-/** An organization where GitHub shows an account, such as a repository owner or a user search result. */
 export function formatOrgAccount(org: GitHubOrg, baseUrl: string) {
   const urls = userUrl(baseUrl, org.login);
   return {

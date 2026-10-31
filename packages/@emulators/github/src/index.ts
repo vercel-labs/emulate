@@ -610,7 +610,6 @@ function findInstallationsForRepo(
   return results;
 }
 
-/** GitHub adds the organization to every event about an organization or one of its repositories. */
 function withOrganization(gh: GitHubStore, payload: unknown, ownerLogin: string, baseUrl: string): unknown {
   const org = gh.orgs.findOneBy("login", ownerLogin);
   if (!org || !payload || typeof payload !== "object") return payload;
