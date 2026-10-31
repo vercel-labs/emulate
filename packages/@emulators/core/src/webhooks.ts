@@ -20,15 +20,50 @@ export interface WebhookDelivery {
   delivered_at: string;
   duration: number | null;
   success: boolean;
+  redelivery_of?: number;
+  redelivery_count?: number;
 }
+
+export interface WebhookHeaderContext {
+  event: string;
+  action?: string;
+  body: string;
+  subscription: Readonly<WebhookSubscription>;
+  deliveryId: number;
+}
+
+export type WebhookHeaderFactory = (context: WebhookHeaderContext) => Record<string, string>;
 
 const MAX_DELIVERIES = 1000;
 
+function githubHeaders({ event, body, subscription, deliveryId }: WebhookHeaderContext): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-GitHub-Event": event,
+    "X-GitHub-Delivery": String(deliveryId),
+  };
+
+  if (subscription.secret) {
+    const hmac = createHmac("sha256", subscription.secret).update(body).digest("hex");
+    headers["X-Hub-Signature-256"] = `sha256=${hmac}`;
+  }
+
+  return headers;
+}
+
 export class WebhookDispatcher {
+  constructor(private readonly options: { signal?: AbortSignal; neutral?: boolean } = {}) {
+    if (options.neutral) this.headerFactory = () => ({ "Content-Type": "application/json" });
+  }
   private subscriptions: WebhookSubscription[] = [];
   private deliveries: WebhookDelivery[] = [];
   private subscriptionIdCounter = 1;
   private deliveryIdCounter = 1;
+  private headerFactory: WebhookHeaderFactory = githubHeaders;
+
+  setHeaderFactory(factory: WebhookHeaderFactory): void {
+    this.headerFactory = factory;
+  }
 
   register(sub: Omit<WebhookSubscription, "id"> & { id?: number }): WebhookSubscription {
     const { id: explicitId, ...rest } = sub;
@@ -89,52 +124,76 @@ export class WebhookDispatcher {
     });
 
     for (const sub of matchingSubs) {
-      const delivery: WebhookDelivery = {
-        id: this.deliveryIdCounter++,
-        hook_id: sub.id,
-        event,
-        action,
-        payload,
-        status_code: null,
-        delivered_at: new Date().toISOString(),
-        duration: null,
-        success: false,
-      };
-
-      const body = JSON.stringify(payload);
-
-      const signatureHeaders: Record<string, string> = {};
-      if (sub.secret) {
-        const hmac = createHmac("sha256", sub.secret).update(body).digest("hex");
-        signatureHeaders["X-Hub-Signature-256"] = `sha256=${hmac}`;
-      }
-
-      try {
-        const start = Date.now();
-        const response = await fetch(sub.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-GitHub-Event": event,
-            "X-GitHub-Delivery": String(delivery.id),
-            ...signatureHeaders,
-          },
-          body,
-          signal: AbortSignal.timeout(10000),
-        });
-        delivery.duration = Date.now() - start;
-        delivery.status_code = response.status;
-        delivery.success = response.ok;
-      } catch {
-        delivery.duration = 0;
-        delivery.success = false;
-      }
-
-      this.deliveries.push(delivery);
-      if (this.deliveries.length > MAX_DELIVERIES) {
-        this.deliveries.splice(0, this.deliveries.length - MAX_DELIVERIES);
-      }
+      await this.deliver(sub, event, action, payload);
     }
+  }
+
+  async redeliver(
+    deliveryId: number,
+    options: { headers?: Record<string, string> } = {},
+  ): Promise<WebhookDelivery | undefined> {
+    const original = this.deliveries.find((delivery) => delivery.id === deliveryId);
+    if (!original) return undefined;
+    const sub = this.getSubscription(original.hook_id);
+    if (!sub?.active) return undefined;
+    return this.deliver(sub, original.event, original.action, original.payload, {
+      headers: options.headers,
+      redelivery_of: original.id,
+      redelivery_count: (original.redelivery_count ?? 0) + 1,
+    });
+  }
+
+  private async deliver(
+    sub: WebhookSubscription,
+    event: string,
+    action: string | undefined,
+    payload: unknown,
+    options: { headers?: Record<string, string>; redelivery_of?: number; redelivery_count?: number } = {},
+  ): Promise<WebhookDelivery> {
+    const body = JSON.stringify(payload);
+    const delivery: WebhookDelivery = {
+      id: this.deliveryIdCounter++,
+      hook_id: sub.id,
+      event,
+      action,
+      payload: body === undefined ? undefined : JSON.parse(body),
+      status_code: null,
+      delivered_at: new Date().toISOString(),
+      duration: null,
+      success: false,
+      ...(options.redelivery_of !== undefined
+        ? { redelivery_of: options.redelivery_of, redelivery_count: options.redelivery_count }
+        : {}),
+    };
+
+    // Reserve the attempt before sending so concurrent retries can see it.
+    this.deliveries.push(delivery);
+    if (this.deliveries.length > MAX_DELIVERIES) {
+      this.deliveries.splice(0, this.deliveries.length - MAX_DELIVERIES);
+    }
+
+    try {
+      const headers = {
+        ...this.headerFactory({ event, action, body, subscription: sub, deliveryId: delivery.id }),
+        ...options.headers,
+      };
+      const start = Date.now();
+      const response = await fetch(sub.url, {
+        method: "POST",
+        headers,
+        body,
+        signal: this.options.signal
+          ? AbortSignal.any([this.options.signal, AbortSignal.timeout(10000)])
+          : AbortSignal.timeout(10000),
+      });
+      delivery.duration = Date.now() - start;
+      delivery.status_code = response.status;
+      delivery.success = response.ok;
+    } catch {
+      delivery.duration = 0;
+      delivery.success = false;
+    }
+    return delivery;
   }
 
   getDeliveries(hookId?: number): WebhookDelivery[] {

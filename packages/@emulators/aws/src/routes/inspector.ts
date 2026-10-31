@@ -1,5 +1,6 @@
 import type { RouteContext, InspectorTab } from "@emulators/core";
 import { renderInspectorPage } from "@emulators/core";
+import { getCognitoStore } from "../cognito/store.js";
 import { getAwsStore } from "../store.js";
 import { escapeXml } from "../helpers.js";
 
@@ -9,6 +10,7 @@ const TABS: InspectorTab[] = [
   { id: "s3", label: "S3", href: "/_inspector?tab=s3" },
   { id: "sqs", label: "SQS", href: "/_inspector?tab=sqs" },
   { id: "iam", label: "IAM", href: "/_inspector?tab=iam" },
+  { id: "cognito", label: "Cognito", href: "/_inspector?tab=cognito" },
 ];
 
 export function inspectorRoutes(ctx: RouteContext): void {
@@ -130,6 +132,24 @@ export function inspectorRoutes(ctx: RouteContext): void {
             <tbody>${roleRows || `<tr><td colspan="4"><div class="inspector-empty">No roles</div></td></tr>`}</tbody>
           </table>
         </div>`;
+    }
+
+    if (tab === "cognito") {
+      const cognito = getCognitoStore(store);
+      const rows = cognito.users
+        .all()
+        .map(
+          (user) => `<tr>
+        <td>${escapeXml(user.pool_id)}</td><td>${escapeXml(user.username)}</td>
+        <td>${escapeXml(user.status)}</td><td>${user.enabled ? "Yes" : "No"}</td>
+        <td>${user.code_expires_at && user.code_expires_at > Date.now() ? escapeXml(user.confirmation_code ?? "") : ""}</td>
+      </tr>`,
+        )
+        .join("");
+      contentHtml = `<div class="inspector-section"><h2>Cognito Users (${cognito.users.all().length})</h2>
+        <p>${cognito.pools.all().length} user pools, ${cognito.identityPools.all().length} identity pools, ${cognito.identities.all().length} identities</p>
+        <table class="inspector-table"><thead><tr><th>Pool</th><th>Username</th><th>Status</th><th>Enabled</th><th>Local verification code</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="5">No users</td></tr>'}</tbody></table></div>`;
     }
 
     return c.html(renderInspectorPage("Inspector", TABS, tab, contentHtml, SERVICE_LABEL));

@@ -532,7 +532,7 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.json(formatDeployment(dep, vs, baseUrl));
   });
 
-  app.get("/v6/deployments", (c) => {
+  const listDeployments = (c: Context, shaFilter?: string) => {
     const scope = resolveTeamScope(c, vs);
     if (!scope) {
       return vercelErr(c, 401, "not_authenticated", "Authentication required");
@@ -567,6 +567,16 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
       list = list.filter((d) => d.state === stateFilter || d.readyState === stateFilter);
     }
 
+    if (shaFilter) {
+      list = list.filter(
+        (d) =>
+          d.gitSource?.sha === shaFilter ||
+          d.meta.githubCommitSha === shaFilter ||
+          d.meta.gitlabCommitSha === shaFilter ||
+          d.meta.bitbucketCommitSha === shaFilter,
+      );
+    }
+
     const pagination = parseCursorPagination(c);
     const { items, pagination: pageMeta } = applyCursorPagination(list, pagination);
 
@@ -574,6 +584,14 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
       deployments: items.map((d) => formatDeploymentBrief(d, vs)),
       pagination: pageMeta,
     });
+  };
+
+  app.get("/v6/deployments", (c) => listDeployments(c));
+  app.get("/v7/deployments", (c) => {
+    if (!c.get("authUser")) {
+      return vercelErr(c, 401, "not_authenticated", "Authentication required");
+    }
+    return listDeployments(c, c.req.query("sha"));
   });
 
   app.delete("/v13/deployments/:id", (c) => {

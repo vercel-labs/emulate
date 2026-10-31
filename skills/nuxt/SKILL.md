@@ -50,6 +50,8 @@ This creates these routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
+GitHub installation-token metadata is available server-side at `/emulate/github/_emulate/installation-tokens`.
+
 ## Nuxt Config
 
 Emulator UI pages use bundled fonts. Wrap your Nuxt config so Nitro traces the core package assets into production builds:
@@ -112,6 +114,8 @@ import { filePersistence } from '@emulators/core'
 persistence: filePersistence('.emulate/state.json'),
 ```
 
+GitHub App seeds may omit `private_key`. Retain the handler and call server-only `generatedSecrets()`; explicit keys are excluded. Keep persisted snapshots private and implement `initialize` atomically.
+
 ### How Persistence Works
 
 - **Cold start**: The adapter loads state from the persistence adapter. If found, it restores the full Store and token map. If not found, it seeds from config and saves the initial state.
@@ -129,7 +133,7 @@ persistence: filePersistence('.emulate/state.json'),
 ## Limitations
 
 - Requires a Node-compatible Nuxt server runtime since emulators use Node APIs
-- Concurrent serverless instances writing to the same persistence adapter use last write wins semantics, which is acceptable for dev and preview traffic
+- Concurrent mutations use last-write-wins semantics. Generated identities require `initialize` to select the initial snapshot atomically across cold starts.
 
 ## Config Reference
 
@@ -164,5 +168,12 @@ Wraps a Nuxt config to include `@emulators/core` assets in Nitro's production tr
 interface PersistenceAdapter {
   load(): Promise<string | null>
   save(data: string): Promise<void>
+  initialize?(data: string): Promise<string>
 }
 ```
+
+`initialize` must atomically create the initial value or return the value another instance created first. Implement it with compare-and-set semantics such as Redis `SET NX`. The built-in `filePersistence(path)` from `@emulators/core` provides this behavior for local development.
+
+## Custom emulators
+
+The adapter accepts definitions created with `defineEmulator` from `emulate` in `services[name].emulator`. Reuse the definition from CLI/tests; custom inspector is opt-in. Root-relative redirect locations stay under the service mount, while custom HTML bodies pass through unchanged. Await the returned handler's `close()` in test teardown. Install `emulate` as a runtime dependency for deployed definitions. See https://emulate.dev/docs/custom-emulators for seeds, snapshots, persistence, and lifecycle rules.

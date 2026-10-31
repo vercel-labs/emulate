@@ -9,6 +9,9 @@ import {
   slackTestBaseUrl as base,
   type SlackTestApp,
 } from "./helpers.js";
+import { SLACK_MESSAGE_TEXT_LIMIT, normalizeSlackMessageText } from "../helpers.js";
+
+const unicodeCharacter = String.fromCodePoint(0x10437);
 
 function insertSlackTestUser(store: Store, userId: string, name: string) {
   return getSlackStore(store).users.insert({
@@ -57,6 +60,24 @@ describe("Slack plugin - auth.test", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("not_authed");
+  });
+});
+
+describe("Slack message text limits", () => {
+  it("keeps boundary text unchanged and truncates over-limit Unicode text safely", () => {
+    const boundary = "x".repeat(SLACK_MESSAGE_TEXT_LIMIT);
+    const overLimit = `${unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT)}tail`;
+
+    expect(normalizeSlackMessageText(boundary)).toEqual({ text: boundary });
+
+    const normalized = normalizeSlackMessageText(overLimit);
+    expect(Array.from(normalized.text)).toHaveLength(SLACK_MESSAGE_TEXT_LIMIT);
+    expect(normalized.text).toBe(unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT));
+    expect(normalized.warning).toBe("message_truncated");
+    expect(normalized.responseMetadata).toEqual({
+      warnings: ["message_truncated"],
+      messages: ["[WARN] Your message was truncated but still posted"],
+    });
   });
 });
 
@@ -211,6 +232,35 @@ describe("Slack plugin - chat.postMessage", () => {
     });
   });
 
+  it("truncates over-limit text while preserving rich fields and returning a warning", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const blocks = [{ type: "section", text: { type: "plain_text", text: "Keep this block" } }];
+    const attachments = [{ color: "#2eb67d", text: "Keep this attachment" }];
+    const text = `${unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT)}tail`;
+
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, text, blocks, attachments }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.warning).toBe("message_truncated");
+    expect(body.response_metadata).toEqual({
+      warnings: ["message_truncated"],
+      messages: ["[WARN] Your message was truncated but still posted"],
+    });
+    expect(body.message.text).toBe(unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT));
+    expect(body.message.blocks).toEqual(blocks);
+    expect(body.message.attachments).toEqual(attachments);
+    expect(ss.messages.findOneBy("ts", body.ts)).toMatchObject({
+      text: body.message.text,
+      blocks,
+      attachments,
+    });
+  });
+
   it("parses form-encoded rich message fields", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.all()[0];
@@ -283,6 +333,29 @@ describe("Slack plugin - chat.update", () => {
     const updated = (await updateRes.json()) as any;
     expect(updated.ok).toBe(true);
     expect(updated.text).toBe("updated");
+  });
+
+  it("truncates text updates before persistence and response formatting", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const postRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, text: "original" }),
+    });
+    const posted = (await postRes.json()) as any;
+    const text = `${unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT)}tail`;
+
+    const updateRes = await app.request(`${base}/api/chat.update`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, ts: posted.ts, text }),
+    });
+    const updated = (await updateRes.json()) as any;
+    expect(updated.ok).toBe(true);
+    expect(updated.text).toBe(unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT));
+    expect(updated.warning).toBe("message_truncated");
+    expect(ss.messages.findOneBy("ts", posted.ts)?.text).toBe(updated.text);
   });
 
   it("updates rich message fields and returns the full message", async () => {
@@ -597,6 +670,23 @@ describe("Slack plugin - chat.postEphemeral", () => {
     expect(history.messages).toEqual([]);
   });
 
+  it("truncates ephemeral message text and returns warning metadata", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const text = "x".repeat(SLACK_MESSAGE_TEXT_LIMIT + 1);
+
+    const res = await app.request(`${base}/api/chat.postEphemeral`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, user: "U000000001", text }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.warning).toBe("message_truncated");
+    expect(body.response_metadata.warnings).toEqual(["message_truncated"]);
+    expect(ss.ephemeralMessages.findOneBy("ts", body.message_ts)?.text).toBe("x".repeat(SLACK_MESSAGE_TEXT_LIMIT));
+  });
+
   it("accepts channel membership stored by seeded login name", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.all()[0];
@@ -809,6 +899,44 @@ describe("Slack plugin - scheduled messages", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe("invalid_scheduled_message_id");
+  });
+
+  it("truncates scheduled message text and returns warning metadata", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+    const postAt = Math.floor(Date.now() / 1000) + 3600;
+    const text = "x".repeat(SLACK_MESSAGE_TEXT_LIMIT + 1);
+
+    const res = await app.request(`${base}/api/chat.scheduleMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, text, post_at: postAt }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.warning).toBe("message_truncated");
+    expect(body.message.text).toBe("x".repeat(SLACK_MESSAGE_TEXT_LIMIT));
+    expect(ss.scheduledMessages.findOneBy("scheduled_message_id", body.scheduled_message_id)?.text).toBe(
+      body.message.text,
+    );
+  });
+});
+
+describe("Slack plugin - chat.meMessage", () => {
+  it("truncates /me message text and returns warning metadata", async () => {
+    const { app, store } = createTestApp();
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+    const text = "x".repeat(SLACK_MESSAGE_TEXT_LIMIT + 1);
+
+    const res = await app.request(`${base}/api/chat.meMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.warning).toBe("message_truncated");
+    expect(getSlackStore(store).messages.findOneBy("ts", body.ts)?.text).toBe("x".repeat(SLACK_MESSAGE_TEXT_LIMIT));
   });
 });
 
@@ -2800,6 +2928,27 @@ describe("Slack plugin - Incoming Webhooks", () => {
     expect(messages[0].subtype).toBe("bot_message");
   });
 
+  it("truncates over-limit text before storing and dispatching webhook messages", async () => {
+    const { app, store, webhooks } = createTestApp();
+    const ss = getSlackStore(store);
+    const webhook = ss.incomingWebhooks.all()[0];
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["message"]);
+    const text = `${unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT)}tail`;
+
+    const res = await app.request(`${base}${webhook.url}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
+
+    const message = ss.messages.findBy("channel_id", "C000000001")[0];
+    expect(message.text).toBe(unicodeCharacter.repeat(SLACK_MESSAGE_TEXT_LIMIT));
+    expect(capture.jsonBodies()[0]).toMatchObject({ event: { text: message.text } });
+  });
+
   it("preserves rich payloads from incoming webhooks", async () => {
     const ss = getSlackStore(store);
     const webhook = ss.incomingWebhooks.all()[0];
@@ -3100,6 +3249,32 @@ describe("Slack plugin - files", () => {
     const message = getSlackStore(store).messages.findBy("channel_id", channel)[0];
     expect(message.text).toBe("Comment with blocks");
     expect(message.blocks).toBeUndefined();
+  });
+
+  it("truncates initial comments on completed file shares and returns warning metadata", async () => {
+    const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
+    const text = "x".repeat(SLACK_MESSAGE_TEXT_LIMIT + 1);
+    const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "long-comment.txt", length: 5 }),
+    });
+    const upload = (await urlRes.json()) as any;
+    await app.request(upload.upload_url, { method: "POST", body: "hello" });
+
+    const completeRes = await app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ files: [{ id: upload.file_id }], channel_id: channel, initial_comment: text }),
+    });
+    const completed = (await completeRes.json()) as any;
+    expect(completed.ok).toBe(true);
+    expect(completed.warning).toBe("message_truncated");
+    expect(completed.response_metadata.warnings).toEqual(["message_truncated"]);
+
+    const message = getSlackStore(store).messages.findBy("channel_id", channel)[0];
+    expect(message.text).toBe("x".repeat(SLACK_MESSAGE_TEXT_LIMIT));
+    expect(getSlackStore(store).files.findOneBy("file_id", upload.file_id)?.initial_comment).toBe(message.text);
   });
 
   it("supports private completion without sharing to a channel", async () => {

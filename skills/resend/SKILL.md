@@ -1,16 +1,18 @@
 ---
 name: resend
 description: Emulated Resend email API for local development and testing. Use when the user needs to send emails locally, test transactional email flows, implement magic link or verification code auth, inspect sent emails, manage domains/contacts/API keys, or work with the Resend API without sending real emails. Triggers include "Resend API", "emulate Resend", "send email locally", "test email", "magic link", "verification email", "email inbox", "RESEND_BASE_URL", or any task requiring a local email API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Resend Email API Emulator
 
 Fully stateful Resend API emulation. Emails, domains, API keys, audiences, and contacts persist in memory. Sent emails are captured and viewable through the inbox UI or the REST API.
 
-No real emails are sent. Every call to `POST /emails` stores the message locally so you can inspect it programmatically or in the browser.
+No real emails are sent. Accepted calls to `POST /emails` store the message locally so you can inspect it programmatically or in the browser. Validated sends also record attempts, including recipient rejections.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # Resend only
@@ -202,6 +204,37 @@ curl -X POST http://localhost:4000/emails/<id>/cancel \
 
 Supported fields: `from`, `to`, `subject`, `html`, `text`, `cc`, `bcc`, `reply_to`, `headers`, `tags`, `scheduled_at`.
 
+### Idempotent Sends
+
+`POST /emails` and `POST /emails/batch` accept the case-insensitive `Idempotency-Key` header. Keys must be 1 to 256 characters and remain active for 24 hours. A retry with the same key and validated payload returns the original response, email IDs, and status without creating emails or dispatching duplicate `email.sent` and `email.delivered` webhooks. Reusing a key with a different payload or endpoint returns `409 invalid_idempotent_request`; invalid key lengths return `400 invalid_idempotency_key`. Omitting the header preserves normal behavior.
+
+```bash
+curl -X POST http://localhost:4000/emails \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: signup-email-123" \
+  -d '{"from": "hello@example.com", "to": "user@example.com", "subject": "Hello"}'
+```
+
+### Recipient restrictions and send attempts
+
+Set `resend.allowlist` in seed config to test recipient rejection:
+
+```yaml
+resend:
+  allowlist:
+    - allowed@example.com
+    - copy@example.com
+```
+
+Omitting `allowlist` accepts every recipient; `allowlist: []` rejects every recipient. Every address in `to`, `cc`, and `bcc` must be listed. Matching ignores surrounding whitespace and letter case; entries are individual addresses, with no wildcard or domain matching. This is a local testing control, independent of Resend's domain verification and account restrictions.
+
+A rejected send returns `403 validation_error` naming the rejected addresses and configured allowlist. No email ID, email record, idempotency record, or webhook is created. A batch is rejected as a whole if any recipient is disallowed. Retrying a rejected request, even with the same idempotency key, creates a new attempt. Replaying an accepted idempotent request returns its original response even if the allowlist has since changed.
+
+Validated sends append one record per email to the `resend.send_attempts` store collection, including emails in a rejected batch. Each record contains `from`, `to`, `cc`, `bcc`, `subject`, `idempotency_key` (or `null`), and the store's `id`, `created_at`, and `updated_at`. Message bodies are not copied into attempts. Malformed requests, invalid or conflicting idempotency keys, and idempotency replays do not append attempts.
+
+Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/resend`, or inspect the persisted state. Shared adapter snapshots use the key `resend:resend.send_attempts`. Attempts and recipient restrictions survive saved-state restoration, including rejected sends. There is no additional Resend API endpoint for attempts. A rejected send has an attempt without an email; a send that never happened has neither.
+
 ### Domains
 
 ```bash
@@ -337,3 +370,7 @@ const res = await fetch(`${emu.url}/emails`, {
 const { data: emails } = await res.json()
 console.log(emails[0].html) // contains "123456"
 ```
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "resend" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

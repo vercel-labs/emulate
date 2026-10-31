@@ -10,10 +10,17 @@ function hasPortless(): boolean {
   return result.status === 0;
 }
 
-function promptYesNo(question: string): Promise<boolean> {
-  return new Promise((resolve) => {
+function promptYesNo(question: string, signal?: AbortSignal): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
     const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const abort = () => {
+      rl.close();
+      reject(signal!.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
     rl.question(question, (answer) => {
+      signal?.removeEventListener("abort", abort);
       rl.close();
       const normalized = answer.trim().toLowerCase();
       resolve(normalized === "" || normalized === "y" || normalized === "yes");
@@ -26,35 +33,42 @@ function isProxyRunning(): boolean {
   return result.status === 0;
 }
 
-export async function ensurePortless(): Promise<void> {
+function failPortless(message: string, throwOnFailure: boolean): never {
+  if (throwOnFailure) {
+    throw new Error(message);
+  }
+  console.error(message);
+  process.exit(1);
+}
+
+export async function ensurePortless(options: { throwOnFailure?: boolean; signal?: AbortSignal } = {}): Promise<void> {
+  const throwOnFailure = options.throwOnFailure ?? false;
   if (!hasPortless()) {
     if (!isInteractive()) {
-      console.error("portless is required but not installed. Run: npm i -g portless");
-      process.exit(1);
+      failPortless("portless is required but not installed. Run: npm i -g portless", throwOnFailure);
     }
 
-    const yes = await promptYesNo("portless is not installed. Install it now? (npm i -g portless) [Y/n] ");
+    const yes = await promptYesNo(
+      "portless is not installed. Install it now? (npm i -g portless) [Y/n] ",
+      options.signal,
+    );
     if (!yes) {
-      console.error("Cannot continue without portless.");
-      process.exit(1);
+      failPortless("Cannot continue without portless.", throwOnFailure);
     }
 
     try {
       execSync("npm i -g portless", { stdio: "inherit" });
     } catch {
-      console.error("Failed to install portless.");
-      process.exit(1);
+      failPortless("Failed to install portless.", throwOnFailure);
     }
 
     if (!hasPortless()) {
-      console.error("portless was installed but could not be found on PATH.");
-      process.exit(1);
+      failPortless("portless was installed but could not be found on PATH.", throwOnFailure);
     }
   }
 
   if (!isProxyRunning()) {
-    console.error("portless proxy is not running. Start it with: portless proxy start");
-    process.exit(1);
+    failPortless("portless proxy is not running. Start it with: portless proxy start", throwOnFailure);
   }
 }
 
@@ -63,27 +77,43 @@ export interface PortlessAlias {
   port: number;
 }
 
+export function registerAlias({ name, port }: PortlessAlias): void {
+  const result = spawnSync("portless", ["alias", name, String(port), "--force"], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(`Failed to register portless alias: ${name} -> ${port}`);
+  }
+}
+
 export function registerAliases(aliases: PortlessAlias[]): void {
   const registered: PortlessAlias[] = [];
-  for (const { name, port } of aliases) {
-    const result = spawnSync("portless", ["alias", name, String(port), "--force"], {
-      stdio: "inherit",
-    });
-    if (result.status !== 0) {
+  for (const alias of aliases) {
+    try {
+      registerAlias(alias);
+    } catch (error) {
       if (registered.length > 0) {
         removeAliases(registered);
       }
-      throw new Error(`Failed to register portless alias: ${name} -> ${port}`);
+      throw error;
     }
-    registered.push({ name, port });
+    registered.push(alias);
+  }
+}
+
+export function removeAlias({ name }: PortlessAlias): void {
+  const result = spawnSync("portless", ["alias", "--remove", name], { stdio: "ignore" });
+  if (result.status !== 0) {
+    throw new Error(`failed to remove portless alias: ${name}`);
   }
 }
 
 export function removeAliases(aliases: PortlessAlias[]): void {
-  for (const { name } of aliases) {
-    const result = spawnSync("portless", ["alias", "--remove", name], { stdio: "ignore" });
-    if (result.status !== 0) {
-      console.error(`Warning: failed to remove portless alias: ${name}`);
+  for (const alias of aliases) {
+    try {
+      removeAlias(alias);
+    } catch (error) {
+      console.error(`Warning: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

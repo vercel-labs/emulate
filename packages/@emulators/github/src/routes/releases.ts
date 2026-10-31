@@ -12,11 +12,18 @@ import {
   lookupRepo,
   timestamp,
 } from "../helpers.js";
-import { assertRepoRead, assertRepoWrite, getActorUser, notFoundResponse, ownerLoginOf } from "../route-helpers.js";
+import {
+  assertRepoContentsRead,
+  assertRepoPermission,
+  assertRepoWrite,
+  getActorUser,
+  notFoundResponse,
+  ownerLoginOf,
+} from "../route-helpers.js";
 
 /** Draft releases are omitted for anonymous API clients; any authenticated user may see them once repo read is allowed. */
 function isAuthenticatedActor(gh: GitHubStore, authUser: AuthUser | undefined): boolean {
-  return Boolean(authUser && getActorUser(gh, authUser));
+  return Boolean(authUser?.installation || (authUser && getActorUser(gh, authUser)));
 }
 
 function assertReleaseVisible(gh: GitHubStore, authUser: AuthUser | undefined, release: GitHubRelease) {
@@ -87,7 +94,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const authUser = c.get("authUser");
     const showDrafts = isAuthenticatedActor(gh, authUser);
@@ -113,7 +120,9 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    const authUser = c.get("authUser");
+    assertRepoPermission(gh, authUser, repo, "contents", "write");
+    assertRepoWrite(gh, authUser, repo, "contents");
 
     const body = await parseJsonBody(c);
     const tagName = typeof body.tag_name === "string" ? body.tag_name : "";
@@ -130,7 +139,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const candidates = releasesForRepo(gh, repo.id).filter((r) => !r.draft && !r.prerelease && r.published_at);
     if (candidates.length === 0) throw notFoundResponse();
@@ -151,9 +160,9 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
-    const tag = decodeURIComponent(c.req.param("tag")!);
+    const tag = c.req.param("tag")!;
     const release = findReleaseByTag(gh, repo.id, tag);
     if (!release) throw notFoundResponse();
     assertReleaseVisible(gh, c.get("authUser"), release);
@@ -168,7 +177,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const assetId = parseInt(c.req.param("asset_id")!, 10);
     if (!Number.isFinite(assetId)) throw notFoundResponse();
@@ -189,7 +198,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
 
     const assetId = parseInt(c.req.param("asset_id")!, 10);
     if (!Number.isFinite(assetId)) throw notFoundResponse();
@@ -213,7 +222,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
 
     const assetId = parseInt(c.req.param("asset_id")!, 10);
     if (!Number.isFinite(assetId)) throw notFoundResponse();
@@ -231,7 +240,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "contents");
 
     const body = await parseJsonBody(c);
     if (typeof body.tag_name !== "string" || !body.tag_name.trim()) {
@@ -293,7 +302,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const releaseId = parseInt(c.req.param("release_id")!, 10);
     if (!Number.isFinite(releaseId)) throw notFoundResponse();
@@ -313,7 +322,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "contents");
 
     const releaseId = parseInt(c.req.param("release_id")!, 10);
     if (!Number.isFinite(releaseId)) throw notFoundResponse();
@@ -363,7 +372,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoWrite(gh, c.get("authUser"), repo, "contents");
 
     const releaseId = parseInt(c.req.param("release_id")!, 10);
     if (!Number.isFinite(releaseId)) throw notFoundResponse();
@@ -381,7 +390,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
 
     const releaseId = parseInt(c.req.param("release_id")!, 10);
     if (!Number.isFinite(releaseId)) throw notFoundResponse();
@@ -408,7 +417,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "contents");
 
     const releaseId = parseInt(c.req.param("release_id")!, 10);
     if (!Number.isFinite(releaseId)) throw notFoundResponse();

@@ -7,14 +7,11 @@ interface InitOptions {
   service: string;
 }
 
-export function initCommand(options: InitOptions): void {
+export function initCommand(options: InitOptions) {
   const filename = "emulate.config.yaml";
   const fullPath = resolve(filename);
 
-  if (existsSync(fullPath)) {
-    console.error(`Config file already exists: ${filename}`);
-    process.exit(1);
-  }
+  if (existsSync(fullPath)) throw new Error(`Config file already exists: ${filename}`);
 
   let config: Record<string, unknown>;
   if (options.service === "all") {
@@ -23,17 +20,15 @@ export function initCommand(options: InitOptions): void {
       Object.assign(config, SERVICE_REGISTRY[name].initConfig);
     }
   } else {
-    const entry = SERVICE_REGISTRY[options.service as ServiceName];
-    if (!entry) {
-      console.error(`Unknown service: ${options.service}. Available: ${SERVICE_NAMES.join(", ")}, all`);
-      process.exit(1);
+    if (!Object.hasOwn(SERVICE_REGISTRY, options.service)) {
+      throw new Error(`Unknown service: ${options.service}. Available: ${SERVICE_NAMES.join(", ")}, all`);
     }
+    const entry = SERVICE_REGISTRY[options.service as ServiceName];
     config = { ...DEFAULT_TOKENS, ...entry.initConfig };
   }
 
   const content = yamlStringify(config);
-  writeFileSync(fullPath, content, "utf-8");
+  writeFileSync(fullPath, content, { encoding: "utf-8", flag: "wx" });
 
-  console.log(`Created ${filename}`);
-  console.log(`\nRun 'npx emulate' to start the emulator.`);
+  console.log(`Created ${filename}\n\nRun 'npx emulate' to start the emulator.`);
 }

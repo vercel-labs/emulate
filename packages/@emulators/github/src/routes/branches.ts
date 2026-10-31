@@ -3,15 +3,12 @@ import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulat
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type {
-  GitHubBlob,
   GitHubBranch,
   GitHubBranchProtection,
-  GitHubCommit,
   GitHubRef,
   GitHubRepo,
   GitHubTag,
   GitHubTree,
-  GitHubUser,
 } from "../entities.js";
 import {
   formatBranch,
@@ -23,14 +20,21 @@ import {
   timestamp,
 } from "../helpers.js";
 import {
-  assertAuthenticatedUser,
+  assertBranchUpdateAllowed,
   assertRepoAdmin,
-  assertRepoRead,
-  assertRepoWrite,
-  getActorUser,
+  assertRepoContentsRead,
+  assertRepoContentsWrite,
+  assertRepoPermission,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
+import {
+  findOrCreateBlob,
+  findOrCreateCommit,
+  findOrCreateTree,
+  formatGitCommit,
+  resolveRefToCommit,
+} from "../git-helpers.js";
 
 function findBranchByName(gh: GitHubStore, repoId: number, name: string) {
   return gh.branches.findBy("repo_id", repoId).find((b) => b.name === name);
@@ -148,57 +152,124 @@ function expandTreeEntries(
   const out: GitHubTree["tree"] = [];
   for (const e of entries) {
     const path = prefix ? `${prefix}/${e.path}` : e.path;
-    if (e.type === "blob") {
-      out.push({ ...e, path });
-    } else if (e.type === "tree" && recursive) {
+    out.push({ ...e, path });
+    if (e.type === "tree" && recursive) {
       const sub = findTreeBySha(gh, repoId, e.sha);
       if (sub) {
         out.push(...expandTreeEntries(gh, repoId, sub.tree, true, path));
-      } else {
-        out.push({ ...e, path });
       }
-    } else {
-      out.push({ ...e, path });
     }
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-function formatCommitJson(gh: GitHubStore, repo: GitHubRepo, c: GitHubCommit, baseUrl: string) {
-  const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-  const htmlUrl = `${baseUrl}/${repo.full_name}/commit/${c.sha}`;
-  const authorUser = c.user_id ? gh.users.get(c.user_id) : null;
-  return {
-    sha: c.sha,
-    node_id: c.node_id,
-    url: `${repoUrl}/git/commits/${c.sha}`,
-    html_url: htmlUrl,
-    author: authorUser ? formatUser(authorUser, baseUrl) : null,
-    committer: authorUser ? formatUser(authorUser, baseUrl) : null,
-    parents: c.parent_shas.map((sha) => ({
-      sha,
-      url: `${repoUrl}/git/commits/${sha}`,
-    })),
-    stats: { total: 0, additions: 0, deletions: 0 },
-    files: [],
-    commit: {
-      author: {
-        name: c.author_name,
-        email: c.author_email,
-        date: c.author_date,
-      },
-      committer: {
-        name: c.committer_name,
-        email: c.committer_email,
-        date: c.committer_date,
-      },
-      message: c.message,
-      tree: { sha: c.tree_sha, url: `${repoUrl}/git/trees/${c.tree_sha}` },
-      url: `${repoUrl}/git/commits/${c.sha}`,
-      comment_count: 0,
-      verification: { verified: false, reason: "unsigned", signature: null, payload: null, verified_at: null },
-    },
+type GitTreeEntry = GitHubTree["tree"][number];
+type GitTreeUpdate = Omit<GitTreeEntry, "sha"> & { sha: string | null };
+
+interface PendingGitTree {
+  baseSha?: string;
+  mode: string;
+  files: Map<string, GitTreeEntry>;
+  dirs: Map<string, PendingGitTree>;
+  deletions: Set<string>;
+}
+
+function persistGitTreeHierarchy(
+  gh: GitHubStore,
+  repoId: number,
+  baseSha: string | undefined,
+  updates: GitTreeUpdate[],
+): GitHubTree {
+  const root: PendingGitTree = {
+    baseSha,
+    mode: "040000",
+    files: new Map(),
+    dirs: new Map(),
+    deletions: new Set(),
   };
+
+  const baseEntry = (pending: PendingGitTree, name: string) => {
+    if (!pending.baseSha || pending.deletions.has(name)) return undefined;
+    return findTreeBySha(gh, repoId, pending.baseSha)?.tree.find((entry) => entry.path === name);
+  };
+
+  const orderedUpdates = [...updates].sort((left, right) => left.path.split("/").length - right.path.split("/").length);
+  for (const update of orderedUpdates) {
+    const parts = update.path.split("/");
+    let current = root;
+    for (const part of parts.slice(0, -1)) {
+      let child = current.dirs.get(part);
+      if (!child) {
+        const existing = current.files.get(part) ?? baseEntry(current, part);
+        if (existing && existing.type !== "tree") {
+          throw new ApiError(422, `${update.path} conflicts with an existing file`);
+        }
+        child = {
+          baseSha: existing?.type === "tree" ? existing.sha : undefined,
+          mode: existing?.mode ?? "040000",
+          files: new Map(),
+          dirs: new Map(),
+          deletions: new Set(),
+        };
+        current.files.delete(part);
+        current.deletions.delete(part);
+        current.dirs.set(part, child);
+      }
+      current = child;
+    }
+
+    const name = parts.at(-1)!;
+    if (update.sha === null) {
+      const existing =
+        current.files.get(name) ??
+        (current.dirs.has(name) ? { type: "tree" as const } : undefined) ??
+        baseEntry(current, name);
+      if (!existing) throw new ApiError(422, `Cannot delete ${update.path} because it does not exist`);
+      current.files.delete(name);
+      current.dirs.delete(name);
+      current.deletions.add(name);
+      continue;
+    }
+
+    current.deletions.delete(name);
+    if (update.type === "tree") {
+      current.files.delete(name);
+      current.dirs.set(name, {
+        baseSha: update.sha,
+        mode: update.mode,
+        files: new Map(),
+        dirs: new Map(),
+        deletions: new Set(),
+      });
+    } else {
+      current.dirs.delete(name);
+      current.files.set(name, { ...update, path: name, sha: update.sha });
+    }
+  }
+
+  const write = (pending: PendingGitTree): GitHubTree => {
+    if (pending.baseSha && pending.files.size === 0 && pending.dirs.size === 0 && pending.deletions.size === 0) {
+      const unchanged = findTreeBySha(gh, repoId, pending.baseSha);
+      if (!unchanged) throw new ApiError(422, "Invalid tree");
+      return unchanged;
+    }
+    const entries = new Map<string, GitTreeEntry>();
+    if (pending.baseSha) {
+      const base = findTreeBySha(gh, repoId, pending.baseSha);
+      if (!base) throw new ApiError(422, "Invalid tree");
+      for (const entry of base.tree) entries.set(entry.path, entry);
+    }
+    for (const [name, child] of pending.dirs) {
+      const subtree = write(child);
+      entries.set(name, { path: name, mode: child.mode, type: "tree", sha: subtree.sha });
+    }
+    for (const [name, entry] of pending.files) entries.set(name, { ...entry, path: name });
+    for (const name of pending.deletions) entries.delete(name);
+
+    return findOrCreateTree(gh, repoId, [...entries.values()]);
+  };
+
+  return write(root);
 }
 
 function protectionEntityToGitHub(gh: GitHubStore, repo: GitHubRepo, bp: GitHubBranchProtection, baseUrl: string) {
@@ -364,10 +435,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection/required_status_checks", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp || !bp.required_status_checks) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
@@ -388,7 +459,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.patch("/repos/:owner/:repo/branches/:branch{.+}/protection/required_status_checks", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -417,10 +488,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection/enforce_admins", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
@@ -435,10 +506,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection/required_pull_request_reviews", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp || !bp.required_pull_request_reviews) throw notFoundResponse();
     const encBranch = encodeURIComponent(branch);
@@ -456,7 +527,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.patch("/repos/:owner/:repo/branches/:branch{.+}/protection/required_pull_request_reviews", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -493,10 +564,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}/protection", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoPermission(gh, c.get("authUser"), repo, "administration");
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
     return c.json(protectionEntityToGitHub(gh, repo, bp, baseUrl));
@@ -505,7 +576,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.put("/repos/:owner/:repo/branches/:branch{.+}/protection", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -542,7 +613,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.delete("/repos/:owner/:repo/branches/:branch{.+}/protection", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branch = decodeURIComponent(c.req.param("branch")!);
+    const branch = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
     assertRepoAdmin(gh, c.get("authUser"), repo);
@@ -556,10 +627,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
   app.get("/repos/:owner/:repo/branches/:branch{.+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
-    const branchName = decodeURIComponent(c.req.param("branch")!);
+    const branchName = c.req.param("branch")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const branch = findBranchByName(gh, repo.id, branchName);
     if (!branch) throw notFoundResponse();
     const commit = findCommitBySha(gh, repo.id, branch.sha);
@@ -594,7 +665,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     let list = [...gh.branches.findBy("repo_id", repo.id)].sort((a, b) => a.name.localeCompare(b.name));
     const prot = c.req.query("protected");
     if (prot === "true") list = list.filter((b) => b.protected);
@@ -615,7 +686,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
@@ -628,7 +699,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const prefix = fullRefFromParam(refParam);
     const matches = gh.refs
       .findBy("repo_id", repo.id)
@@ -642,7 +713,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = (await parseJsonBody(c)) as { ref?: unknown; sha?: unknown };
     if (typeof body.ref !== "string" || !body.ref.startsWith("refs/")) {
       throw new ApiError(422, "Invalid ref");
@@ -657,6 +728,14 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
     if (gh.refs.findBy("repo_id", repo.id).some((r) => r.ref === fullRef)) {
       throw new ApiError(422, "Reference already exists");
+    }
+    if (fullRef.startsWith("refs/heads/")) {
+      const branchName = fullRef.slice("refs/heads/".length);
+      const commit = findCommitBySha(gh, repo.id, sha);
+      assertBranchUpdateAllowed(gh, user, repo, branchName, {
+        parentCount: commit?.parent_shas.length,
+        targetSha: commit?.sha,
+      });
     }
     const refRow = gh.refs.insert({
       repo_id: repo.id,
@@ -689,7 +768,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    const user = assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
@@ -712,6 +791,16 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       if (!isDescendantOf(gh, repo.id, oldSha, newSha)) {
         throw new ApiError(422, "Update is not a fast-forward");
       }
+    }
+    if (fullRef.startsWith("refs/heads/")) {
+      const branchName = fullRef.slice("refs/heads/".length);
+      const commit = findCommitBySha(gh, repo.id, newSha);
+      assertBranchUpdateAllowed(gh, user, repo, branchName, {
+        force,
+        parentCount: commit?.parent_shas.length,
+        currentSha: oldSha,
+        targetSha: commit?.sha,
+      });
     }
     gh.refs.update(r.id, { sha: newSha });
     syncBranchFromRef(gh, repo, fullRef, newSha);
@@ -738,10 +827,17 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const refParam = c.req.param("ref")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    const user = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const fullRef = fullRefFromParam(refParam);
     const r = gh.refs.findBy("repo_id", repo.id).find((x) => x.ref === fullRef);
     if (!r) throw notFoundResponse();
+    if (fullRef.startsWith("refs/heads/")) {
+      const branchName = fullRef.slice("refs/heads/".length);
+      if (branchName === repo.default_branch) {
+        throw new ApiError(422, "Cannot delete the default branch");
+      }
+      assertBranchUpdateAllowed(gh, user, repo, branchName, { deletion: true });
+    }
     gh.refs.delete(r.id);
     deleteBranchForHeadRef(gh, repo.id, fullRef);
     return c.body(null, 204);
@@ -755,10 +851,10 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const commitSha = c.req.param("commit_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const commit = findCommitBySha(gh, repo.id, commitSha);
     if (!commit) throw notFoundResponse();
-    return c.json(formatCommitJson(gh, repo, commit, baseUrl));
+    return c.json(formatGitCommit(repo, commit, baseUrl));
   });
 
   app.post("/repos/:owner/:repo/git/commits", async (c) => {
@@ -766,7 +862,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    const actor = assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (typeof body.message !== "string") throw new ApiError(422, "message is required");
     if (typeof body.tree !== "string") throw new ApiError(422, "tree is required");
@@ -784,11 +880,13 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     let committer_email: string;
     let committer_date: string;
     const now = timestamp();
-    const actor = getActorUser(gh, c.get("authUser")!);
-    const defaultName = actor?.name ?? actor?.login ?? "user";
-    const defaultEmail = actor?.email ?? `${actor?.login ?? "user"}@users.noreply.github.com`;
+    const defaultName = actor.name ?? actor.login;
+    const defaultEmail = actor.email ?? `${actor.login}@users.noreply.github.com`;
     if (body.author && typeof body.author === "object" && body.author !== null) {
       const a = body.author as Record<string, unknown>;
+      if (a.date !== undefined && (typeof a.date !== "string" || !Number.isFinite(Date.parse(a.date)))) {
+        throw new ApiError(422, "author.date must be an ISO 8601 timestamp");
+      }
       author_name = typeof a.name === "string" ? a.name : defaultName;
       author_email = typeof a.email === "string" ? a.email : defaultEmail;
       author_date = typeof a.date === "string" ? a.date : now;
@@ -799,6 +897,9 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     }
     if (body.committer && typeof body.committer === "object" && body.committer !== null) {
       const a = body.committer as Record<string, unknown>;
+      if (a.date !== undefined && (typeof a.date !== "string" || !Number.isFinite(Date.parse(a.date)))) {
+        throw new ApiError(422, "committer.date must be an ISO 8601 timestamp");
+      }
       committer_name = typeof a.name === "string" ? a.name : defaultName;
       committer_email = typeof a.email === "string" ? a.email : defaultEmail;
       committer_date = typeof a.date === "string" ? a.date : now;
@@ -807,10 +908,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       committer_email = author_email;
       committer_date = author_date;
     }
-    const commit = gh.commits.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
+    const saved = findOrCreateCommit(gh, repo.id, {
       message: body.message as string,
       author_name,
       author_email,
@@ -820,11 +918,9 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
       committer_date,
       tree_sha: treeSha,
       parent_shas: parents,
-      user_id: actor?.id ?? null,
-    } as Omit<GitHubCommit, "id" | "created_at" | "updated_at">);
-    gh.commits.update(commit.id, { node_id: generateNodeId("Commit", commit.id) });
-    const saved = gh.commits.get(commit.id)!;
-    return c.json(formatCommitJson(gh, repo, saved, baseUrl), 201);
+      user_id: actor.id,
+    });
+    return c.json(formatGitCommit(repo, saved, baseUrl), 201);
   });
 
   // --- Git trees ---
@@ -835,10 +931,12 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const treeSha = c.req.param("tree_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
-    const tree = findTreeBySha(gh, repo.id, treeSha);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
+    const commit = resolveRefToCommit(gh, repo, treeSha);
+    const tree =
+      findTreeBySha(gh, repo.id, treeSha) ?? (commit ? findTreeBySha(gh, repo.id, commit.tree_sha) : undefined);
     if (!tree) throw notFoundResponse();
-    const recursive = c.req.query("recursive") === "1" || c.req.query("recursive") === "true";
+    const recursive = c.req.query("recursive") !== undefined;
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
     const entries = recursive
       ? expandTreeEntries(gh, repo.id, tree.tree, true)
@@ -856,73 +954,75 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (!Array.isArray(body.tree)) throw new ApiError(422, "tree array is required");
     const items = body.tree as Array<{
       path?: string;
       mode?: string;
       type?: string;
-      sha?: string;
+      sha?: string | null;
       content?: string;
     }>;
-    const pathMap = new Map<string, { mode: string; type: "blob" | "tree"; sha: string; size?: number }>();
-
     const baseTreeSha = typeof body.base_tree === "string" ? body.base_tree : undefined;
-    if (baseTreeSha) {
-      const base = findTreeBySha(gh, repo.id, baseTreeSha);
-      if (!base) throw new ApiError(422, "Invalid base_tree");
-      for (const e of base.tree) {
-        pathMap.set(e.path, { mode: e.mode, type: e.type, sha: e.sha, size: e.size });
-      }
-    }
+    if (baseTreeSha && !findTreeBySha(gh, repo.id, baseTreeSha)) throw new ApiError(422, "Invalid base_tree");
+
+    const updates: GitTreeUpdate[] = [];
 
     for (const raw of items) {
       if (
         typeof raw.path !== "string" ||
         typeof raw.mode !== "string" ||
-        (raw.type !== "blob" && raw.type !== "tree")
+        (raw.type !== "blob" && raw.type !== "tree" && raw.type !== "commit")
       ) {
-        throw new ApiError(422, "Each tree entry needs path, mode, type (blob|tree)");
+        throw new ApiError(422, "Each tree entry needs path, mode, type (blob|tree|commit)");
+      }
+      if (
+        !raw.path ||
+        raw.path.includes("\0") ||
+        raw.path.split("/").some((part) => part === "" || part === "." || part === "..")
+      ) {
+        throw new ApiError(422, "Invalid tree path");
       }
       if (raw.sha !== undefined && raw.content !== undefined) {
         throw new ApiError(422, "Cannot pass both sha and content");
       }
+      const validMode =
+        (raw.type === "blob" && ["100644", "100755", "120000"].includes(raw.mode)) ||
+        (raw.type === "tree" && raw.mode === "040000") ||
+        (raw.type === "commit" && raw.mode === "160000");
+      if (!validMode) {
+        throw new ApiError(422, "Invalid mode for tree entry type");
+      }
+      if (raw.type !== "blob" && raw.content !== undefined) {
+        throw new ApiError(422, "Only blob entries may specify content");
+      }
+      if (raw.sha === null) {
+        updates.push({ path: raw.path, mode: raw.mode, type: raw.type, sha: null });
+        continue;
+      }
       let sha = raw.sha;
+      let size: number | undefined;
       if (raw.content !== undefined) {
         const buf = Buffer.from(String(raw.content), "utf8");
-        const blob = gh.blobs.insert({
-          repo_id: repo.id,
-          sha: generateSha(),
-          node_id: "",
-          content: String(raw.content),
-          encoding: "utf-8",
-          size: buf.byteLength,
-        } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-        gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
+        const blob = findOrCreateBlob(gh, repo.id, buf);
         sha = blob.sha;
+        size = blob.size;
       }
       if (typeof sha !== "string") throw new ApiError(422, "sha or content required");
-      pathMap.set(raw.path, { mode: raw.mode, type: raw.type, sha });
+      if (raw.type === "blob") {
+        const blob = findBlobBySha(gh, repo.id, sha);
+        if (!blob) throw new ApiError(422, "Invalid blob sha");
+        size ??= blob.size;
+      } else if (raw.type === "tree" && !findTreeBySha(gh, repo.id, sha)) {
+        throw new ApiError(422, "Invalid tree sha");
+      } else if (raw.type === "commit" && !/^[0-9a-f]{40}$/i.test(sha)) {
+        throw new ApiError(422, "Invalid commit sha");
+      }
+      updates.push({ path: raw.path, mode: raw.mode, type: raw.type, sha, size });
     }
 
-    const treeEntries: GitHubTree["tree"] = [...pathMap.entries()].map(([path, v]) => ({
-      path,
-      mode: v.mode,
-      type: v.type,
-      sha: v.sha,
-      size: v.size,
-    }));
-
-    const tree = gh.trees.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
-      tree: treeEntries,
-      truncated: false,
-    } as Omit<GitHubTree, "id" | "created_at" | "updated_at">);
-    gh.trees.update(tree.id, { node_id: generateNodeId("Tree", tree.id) });
-    const saved = gh.trees.get(tree.id)!;
+    const saved = persistGitTreeHierarchy(gh, repo.id, baseTreeSha, updates);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
     return c.json(
       {
@@ -943,7 +1043,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const fileSha = c.req.param("file_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const blob = findBlobBySha(gh, repo.id, fileSha);
     if (!blob) throw notFoundResponse();
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -963,47 +1063,15 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = (await parseJsonBody(c)) as {
       content?: unknown;
       encoding?: unknown;
     };
     if (typeof body.content !== "string") throw new ApiError(422, "content is required");
     const enc = body.encoding === "base64" || body.encoding === "utf-8" ? body.encoding : "utf-8";
-    if (enc === "base64") {
-      const blob = gh.blobs.insert({
-        repo_id: repo.id,
-        sha: generateSha(),
-        node_id: "",
-        content: body.content,
-        encoding: "base64",
-        size: Buffer.from(body.content, "base64").length,
-      } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-      gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-      const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
-      const saved = gh.blobs.get(blob.id)!;
-      return c.json(
-        {
-          sha: saved.sha,
-          node_id: saved.node_id,
-          url: `${repoUrl}/git/blobs/${saved.sha}`,
-          size: saved.size,
-        },
-        201,
-      );
-    }
-    const raw = body.content;
-    const size = Buffer.byteLength(raw, "utf8");
-    const blob = gh.blobs.insert({
-      repo_id: repo.id,
-      sha: generateSha(),
-      node_id: "",
-      content: raw,
-      encoding: "utf-8",
-      size,
-    } as Omit<GitHubBlob, "id" | "created_at" | "updated_at">);
-    gh.blobs.update(blob.id, { node_id: generateNodeId("Blob", blob.id) });
-    const saved = gh.blobs.get(blob.id)!;
+    const content = enc === "base64" ? Buffer.from(body.content, "base64") : Buffer.from(body.content, "utf8");
+    const saved = findOrCreateBlob(gh, repo.id, content);
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
     return c.json(
       {
@@ -1024,7 +1092,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const tagSha = c.req.param("tag_sha")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoRead(gh, c.get("authUser"), repo);
+    assertRepoContentsRead(gh, c.get("authUser"), repo);
     const tag = findTagObjectBySha(gh, repo.id, tagSha);
     if (!tag) throw notFoundResponse();
     const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -1053,7 +1121,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
-    assertRepoWrite(gh, c.get("authUser"), repo);
+    assertRepoContentsWrite(gh, c.get("authUser"), repo);
     const body = await parseJsonBody(c);
     if (typeof body.tag !== "string") throw new ApiError(422, "tag is required");
     if (typeof body.message !== "string") throw new ApiError(422, "message is required");

@@ -1,27 +1,30 @@
 import type { RouteContext } from "@emulators/core";
 import type { Context } from "@emulators/core";
 import { getAwsStore } from "../store.js";
-import {
-  awsXmlResponse,
-  awsErrorXml,
-  generateMessageId,
-  generateReceiptHandle,
-  md5,
-  getAccountId,
-  parseQueryString,
-  escapeXml,
-} from "../helpers.js";
+import { generateMessageId, generateReceiptHandle, md5, getAccountId, parseQueryString } from "../helpers.js";
+import { isSqsJson, parseSqsJson, sqsError, sqsResponse } from "./sqs-protocol.js";
 
 export function sqsRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
   const aws = () => getAwsStore(store);
   const accountId = getAccountId();
 
-  // All SQS actions go through POST with Action parameter
-  app.post("/sqs/", async (c) => {
+  async function handleRequest(c: Context) {
     const body = await c.req.text();
-    const params = parseQueryString(body);
-    const action = params["Action"] ?? c.req.query("Action") ?? "";
+    let params: Record<string, string>;
+    let action: string;
+    if (isSqsJson(c)) {
+      try {
+        params = parseSqsJson(body);
+      } catch {
+        return sqsError(c, "SerializationException", "Could not deserialize the request body.");
+      }
+      const target = c.req.header("X-Amz-Target") ?? "";
+      action = target.startsWith("AmazonSQS.") ? target.slice("AmazonSQS.".length) : "";
+    } else {
+      params = parseQueryString(body);
+      action = params["Action"] ?? c.req.query("Action") ?? "";
+    }
 
     switch (action) {
       case "CreateQueue":
@@ -43,27 +46,24 @@ export function sqsRoutes(ctx: RouteContext): void {
       case "PurgeQueue":
         return purgeQueue(c, params);
       default:
-        return awsErrorXml(c, "InvalidAction", `The action ${action} is not valid for this endpoint.`, 400);
+        return sqsError(c, "InvalidAction", `The action ${action} is not valid for this endpoint.`);
     }
-  });
+  }
+
+  app.post("/sqs/", handleRequest);
+  // SDKs use QueueUrl as the endpoint for queue-specific operations.
+  app.post("/sqs/:accountId/:queueName", handleRequest);
 
   function createQueue(c: Context, params: Record<string, string>) {
     const queueName = params["QueueName"] ?? "";
     if (!queueName) {
-      return awsErrorXml(c, "MissingParameter", "The request must contain the parameter QueueName.", 400);
+      return sqsError(c, "MissingParameter", "The request must contain the parameter QueueName.");
     }
 
     const existing = aws().sqsQueues.findOneBy("queue_name", queueName);
     if (existing) {
       // SQS returns success with existing queue URL if attributes match
-      const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<CreateQueueResponse>
-  <CreateQueueResult>
-    <QueueUrl>${escapeXml(existing.queue_url)}</QueueUrl>
-  </CreateQueueResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</CreateQueueResponse>`;
-      return awsXmlResponse(c, xml);
+      return sqsResponse(c, "CreateQueue", { QueueUrl: existing.queue_url });
     }
 
     const fifo = queueName.endsWith(".fifo");
@@ -88,21 +88,14 @@ export function sqsRoutes(ctx: RouteContext): void {
       fifo,
     });
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<CreateQueueResponse>
-  <CreateQueueResult>
-    <QueueUrl>${escapeXml(queueUrl)}</QueueUrl>
-  </CreateQueueResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</CreateQueueResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "CreateQueue", { QueueUrl: queueUrl });
   }
 
   function deleteQueue(c: Context, params: Record<string, string>) {
     const queueUrl = params["QueueUrl"] ?? "";
     const queue = aws().sqsQueues.findOneBy("queue_url", queueUrl);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
     // Delete all messages in the queue
@@ -112,11 +105,7 @@ export function sqsRoutes(ctx: RouteContext): void {
     }
     aws().sqsQueues.delete(queue.id);
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<DeleteQueueResponse>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</DeleteQueueResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "DeleteQueue");
   }
 
   function listQueues(c: Context, params: Record<string, string>) {
@@ -126,40 +115,24 @@ export function sqsRoutes(ctx: RouteContext): void {
       queues = queues.filter((q) => q.queue_name.startsWith(prefix));
     }
 
-    const queueUrlsXml = queues.map((q) => `    <QueueUrl>${escapeXml(q.queue_url)}</QueueUrl>`).join("\n");
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<ListQueuesResponse>
-  <ListQueuesResult>
-${queueUrlsXml}
-  </ListQueuesResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</ListQueuesResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "ListQueues", { QueueUrls: queues.map((q) => q.queue_url) });
   }
 
   function getQueueUrl(c: Context, params: Record<string, string>) {
     const queueName = params["QueueName"] ?? "";
     const queue = aws().sqsQueues.findOneBy("queue_name", queueName);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<GetQueueUrlResponse>
-  <GetQueueUrlResult>
-    <QueueUrl>${escapeXml(queue.queue_url)}</QueueUrl>
-  </GetQueueUrlResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</GetQueueUrlResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "GetQueueUrl", { QueueUrl: queue.queue_url });
   }
 
   function getQueueAttributes(c: Context, params: Record<string, string>) {
     const queueUrl = params["QueueUrl"] ?? "";
     const queue = aws().sqsQueues.findOneBy("queue_url", queueUrl);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
     const messages = aws().sqsMessages.findBy("queue_name", queue.queue_name);
@@ -167,22 +140,19 @@ ${queueUrlsXml}
     const visibleCount = messages.filter((m) => m.visible_after <= now).length;
     const inFlightCount = messages.filter((m) => m.visible_after > now).length;
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<GetQueueAttributesResponse>
-  <GetQueueAttributesResult>
-    <Attribute><Name>QueueArn</Name><Value>${queue.arn}</Value></Attribute>
-    <Attribute><Name>ApproximateNumberOfMessages</Name><Value>${visibleCount}</Value></Attribute>
-    <Attribute><Name>ApproximateNumberOfMessagesNotVisible</Name><Value>${inFlightCount}</Value></Attribute>
-    <Attribute><Name>VisibilityTimeout</Name><Value>${queue.visibility_timeout}</Value></Attribute>
-    <Attribute><Name>MaximumMessageSize</Name><Value>${queue.max_message_size}</Value></Attribute>
-    <Attribute><Name>MessageRetentionPeriod</Name><Value>${queue.message_retention_period}</Value></Attribute>
-    <Attribute><Name>DelaySeconds</Name><Value>${queue.delay_seconds}</Value></Attribute>
-    <Attribute><Name>ReceiveMessageWaitTimeSeconds</Name><Value>${queue.receive_message_wait_time}</Value></Attribute>
-    <Attribute><Name>FifoQueue</Name><Value>${queue.fifo}</Value></Attribute>
-  </GetQueueAttributesResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</GetQueueAttributesResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "GetQueueAttributes", {
+      Attributes: {
+        QueueArn: queue.arn,
+        ApproximateNumberOfMessages: String(visibleCount),
+        ApproximateNumberOfMessagesNotVisible: String(inFlightCount),
+        VisibilityTimeout: String(queue.visibility_timeout),
+        MaximumMessageSize: String(queue.max_message_size),
+        MessageRetentionPeriod: String(queue.message_retention_period),
+        DelaySeconds: String(queue.delay_seconds),
+        ReceiveMessageWaitTimeSeconds: String(queue.receive_message_wait_time),
+        FifoQueue: String(queue.fifo),
+      },
+    });
   }
 
   function sendMessage(c: Context, params: Record<string, string>) {
@@ -191,20 +161,19 @@ ${queueUrlsXml}
 
     const queue = aws().sqsQueues.findOneBy("queue_url", queueUrl);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
     if (!messageBody) {
-      return awsErrorXml(c, "MissingParameter", "The request must contain the parameter MessageBody.", 400);
+      return sqsError(c, "MissingParameter", "The request must contain the parameter MessageBody.");
     }
 
     const bodyBytes = new TextEncoder().encode(messageBody).byteLength;
     if (bodyBytes > queue.max_message_size) {
-      return awsErrorXml(
+      return sqsError(
         c,
         "InvalidParameterValue",
         `One or more parameters are invalid. Reason: Message must be shorter than ${queue.max_message_size} bytes.`,
-        400,
       );
     }
 
@@ -219,7 +188,8 @@ ${queueUrlsXml}
       const name = params[`MessageAttribute.${attrIndex}.Name`];
       const dataType = params[`MessageAttribute.${attrIndex}.Value.DataType`] ?? "String";
       const stringValue = params[`MessageAttribute.${attrIndex}.Value.StringValue`];
-      messageAttributes[name] = { DataType: dataType, StringValue: stringValue };
+      const binaryValue = params[`MessageAttribute.${attrIndex}.Value.BinaryValue`];
+      messageAttributes[name] = { DataType: dataType, StringValue: stringValue, BinaryValue: binaryValue };
       attrIndex++;
     }
 
@@ -241,15 +211,7 @@ ${queueUrlsXml}
       receive_count: 0,
     });
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<SendMessageResponse>
-  <SendMessageResult>
-    <MessageId>${messageId}</MessageId>
-    <MD5OfMessageBody>${bodyMd5}</MD5OfMessageBody>
-  </SendMessageResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</SendMessageResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "SendMessage", { MessageId: messageId, MD5OfMessageBody: bodyMd5 });
   }
 
   function receiveMessage(c: Context, params: Record<string, string>) {
@@ -259,7 +221,7 @@ ${queueUrlsXml}
 
     const queue = aws().sqsQueues.findOneBy("queue_url", queueUrl);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
     const now = Date.now();
@@ -279,28 +241,19 @@ ${queueUrlsXml}
       msg.receive_count += 1;
     }
 
-    const messagesXml = batch
-      .map(
-        (m) => `    <Message>
-      <MessageId>${m.message_id}</MessageId>
-      <ReceiptHandle>${m.receipt_handle}</ReceiptHandle>
-      <MD5OfBody>${m.md5_of_body}</MD5OfBody>
-      <Body>${escapeXml(m.body)}</Body>
-      <Attribute><Name>SentTimestamp</Name><Value>${m.sent_timestamp}</Value></Attribute>
-      <Attribute><Name>ApproximateReceiveCount</Name><Value>${m.receive_count}</Value></Attribute>
-      <Attribute><Name>ApproximateFirstReceiveTimestamp</Name><Value>${m.sent_timestamp}</Value></Attribute>
-    </Message>`,
-      )
-      .join("\n");
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<ReceiveMessageResponse>
-  <ReceiveMessageResult>
-${messagesXml}
-  </ReceiveMessageResult>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</ReceiveMessageResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "ReceiveMessage", {
+      Messages: batch.map((m) => ({
+        MessageId: m.message_id,
+        ReceiptHandle: m.receipt_handle,
+        MD5OfBody: m.md5_of_body,
+        Body: m.body,
+        Attributes: {
+          SentTimestamp: String(m.sent_timestamp),
+          ApproximateReceiveCount: String(m.receive_count),
+          ApproximateFirstReceiveTimestamp: String(m.sent_timestamp),
+        },
+      })),
+    });
   }
 
   function deleteMessage(c: Context, params: Record<string, string>) {
@@ -309,7 +262,7 @@ ${messagesXml}
 
     const queue = aws().sqsQueues.findOneBy("queue_url", queueUrl);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
     const messages = aws().sqsMessages.findBy("queue_name", queue.queue_name);
@@ -318,18 +271,14 @@ ${messagesXml}
       aws().sqsMessages.delete(msg.id);
     }
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<DeleteMessageResponse>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</DeleteMessageResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "DeleteMessage");
   }
 
   function purgeQueue(c: Context, params: Record<string, string>) {
     const queueUrl = params["QueueUrl"] ?? "";
     const queue = aws().sqsQueues.findOneBy("queue_url", queueUrl);
     if (!queue) {
-      return awsErrorXml(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", 400);
+      return sqsError(c, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.");
     }
 
     const messages = aws().sqsMessages.findBy("queue_name", queue.queue_name);
@@ -337,10 +286,6 @@ ${messagesXml}
       aws().sqsMessages.delete(msg.id);
     }
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<PurgeQueueResponse>
-  <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
-</PurgeQueueResponse>`;
-    return awsXmlResponse(c, xml);
+    return sqsResponse(c, "PurgeQueue");
   }
 }

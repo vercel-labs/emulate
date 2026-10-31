@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { Button } from "@vercel/geistdocs/components/button";
 import { Streamdown } from "streamdown";
 import Link from "next/link";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -150,6 +151,7 @@ export function DocsChat({
   );
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const launcherRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
   const isDraggingRef = useRef(false);
   const [mobileOverrideDone, setMobileOverrideDone] = useState(false);
@@ -173,6 +175,40 @@ export function DocsChat({
       setCookie("docs-chat-open", String(open));
     }
   }, [open, hasMounted]);
+
+  // Keep the launcher above the footer theme switcher when the footer scrolls into view.
+  useEffect(() => {
+    const launcher = launcherRef.current;
+    if (!hasMounted || open || !launcher) return;
+    const footer = document.querySelector("footer");
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const rect = document.querySelector("footer fieldset")?.getBoundingClientRect();
+      const overlap = rect && rect.width > 0 && rect.bottom > 0 ? Math.max(0, window.innerHeight - rect.top) : 0;
+      launcher.style.setProperty("--chat-launcher-bottom", `${24 + overlap}px`);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const resize = new ResizeObserver(schedule);
+    resize.observe(document.body);
+    const mutation = new MutationObserver(schedule);
+    if (footer) {
+      resize.observe(footer);
+      mutation.observe(footer, { childList: true, subtree: true });
+    }
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    update();
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      mutation.disconnect();
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [hasMounted, open]);
 
   useEffect(() => {
     const body = document.body;
@@ -263,7 +299,11 @@ export function DocsChat({
           return !prev;
         });
       }
-      if (e.key === "Escape" && open && isDesktop) {
+      if (
+        e.key === "Escape" &&
+        open &&
+        (isDesktop || (e.target instanceof Element && e.target.closest("#emulate-chat-mobile")))
+      ) {
         setOpen(false);
       }
     };
@@ -467,22 +507,34 @@ export function DocsChat({
   return (
     <>
       {!open && (
-        <button
-          onClick={() => setOpen(true)}
-          className="fixed z-50 bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground shadow-lg hover:opacity-90 transition-opacity text-sm font-medium"
-          aria-label="Ask AI"
+        <div
+          ref={launcherRef}
+          data-docs-chat-launcher
+          className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-1/2 z-30 -translate-x-1/2 min-[640px]:right-6 min-[640px]:bottom-[var(--chat-launcher-bottom,24px)] min-[640px]:left-auto min-[640px]:translate-x-0"
         >
-          Ask AI
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 text-xs opacity-60 font-mono">
-            <span>&#8984;</span>I
-          </kbd>
-        </button>
+          <Button
+            onClick={() => setOpen(true)}
+            size="medium"
+            className="h-10 shadow-lg min-[640px]:h-9"
+            aria-label="Ask AI"
+            aria-expanded={open}
+            aria-controls={isDesktop ? "emulate-chat-desktop" : "emulate-chat-mobile"}
+            aria-keyshortcuts="Meta+I Control+I"
+          >
+            Ask AI
+            <kbd className="ml-2 hidden items-center gap-0.5 font-mono text-xs opacity-60 min-[640px]:inline-flex">
+              <span>&#8984;</span>I
+            </kbd>
+          </Button>
+        </div>
       )}
 
       <aside
+        id="emulate-chat-desktop"
+        inert={!open || !isDesktop}
         className={`hidden sm:flex fixed top-0 right-0 bottom-0 z-40 border-l border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 transition-transform duration-150 ease-in-out ${open ? "translate-x-0" : "translate-x-full"}`}
         style={{ width: desktopWidth }}
-        aria-hidden={!open}
+        aria-hidden={!open || !isDesktop}
       >
         <div
           onPointerDown={handleResizePointerDown}
@@ -494,6 +546,7 @@ export function DocsChat({
       {hasMounted && !isDesktop && (
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetContent
+            id="emulate-chat-mobile"
             side="right"
             showCloseButton={false}
             overlayClassName="bg-white! dark:bg-neutral-950!"

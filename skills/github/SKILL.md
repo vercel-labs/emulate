@@ -1,7 +1,7 @@
 ---
 name: github
 description: Emulated GitHub REST API for local development and testing. Use when the user needs to interact with GitHub API endpoints locally, test GitHub integrations, emulate repos/issues/PRs, set up GitHub OAuth flows, configure GitHub Apps, test webhooks, or work with actions/checks without hitting the real GitHub API. Triggers include "GitHub API", "emulate GitHub", "mock GitHub", "test GitHub OAuth", "GitHub App JWT", "local GitHub", or any task requiring a local GitHub API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # GitHub API Emulator
@@ -9,6 +9,8 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 Fully stateful GitHub REST API emulation. Creates, updates, and deletes persist in memory and affect related entities.
 
 ## Start
+
+Local listeners bind to `127.0.0.1` by default. For access from containers or other machines, pass `--host 0.0.0.0` to the CLI or `hostname: '0.0.0.0'` to `createEmulator`. Configure `--base-url` or `baseUrl` for advertised URLs reachable by those clients.
 
 ```bash
 # GitHub only
@@ -27,6 +29,43 @@ const github = await createEmulator({ service: 'github', port: 4001 })
 // github.url === 'http://localhost:4001'
 ```
 
+For a programmatic GitHub App, omit `private_key` and read the generated RSA key from the instance:
+
+```typescript
+const github = await createEmulator({
+  service: 'github',
+  port: 4001,
+  seed: {
+    github: {
+      users: [{ login: 'octocat' }],
+      apps: [{
+        app_id: 12345,
+        slug: 'my-github-app',
+        name: 'My GitHub App',
+        installations: [{ installation_id: 100, account: 'octocat' }],
+      }],
+    },
+  },
+})
+
+const privateKey = github.generatedSecrets.find(
+  secret => secret.kind === 'github.app_private_key' && secret.id === '12345',
+)?.value
+```
+
+The key remains stable across `github.reset()`. Explicit keys are not included in `generatedSecrets`.
+
+The Next.js and Nuxt adapters also generate omitted keys. Retain the returned handler and call its server-only `generatedSecrets()` method. With persistence configured, the identity survives cold starts. Keep snapshots private because they contain the signing key, and require custom persistence backends to implement atomic `initialize()` semantics.
+
+For the CLI, omit `private_key` only when requesting a private delivery file:
+
+```bash
+npx emulate start --service github --seed emulate.config.yaml \
+  --generated-secrets-file .emulate-secrets.json
+```
+
+The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before any listener or portless alias starts. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Read `generatedSecrets` from the artifact, then keep the file out of source control. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require `private_key`.
+
 ## Auth
 
 Pass tokens as `Authorization: Bearer <token>` or `Authorization: token <token>`.
@@ -38,9 +77,11 @@ curl http://localhost:4001/user \
 
 Public repo endpoints work without auth. Private repos and write operations require a valid token. When no token is provided, requests fall back to the first seeded user.
 
+Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
+
 ### GitHub App JWT
 
-Configure apps in the seed config with a private key. Sign a JWT with `{ iss: "<app_id>" }` using RS256. The emulator verifies the signature and resolves the app.
+Configure apps in the seed config with an explicit, valid private key when using the CLI without generated secrets. Sign a JWT with `{ iss: "<app_id>" }` using RS256. The emulator verifies the signature and resolves the app.
 
 ```yaml
 github:
@@ -48,10 +89,6 @@ github:
     - app_id: 12345
       slug: my-github-app
       name: My GitHub App
-      private_key: |
-        -----BEGIN RSA PRIVATE KEY-----
-        ...
-        -----END RSA PRIVATE KEY-----
       permissions:
         contents: read
         issues: write
@@ -68,6 +105,8 @@ github:
           events: [push]
           repositories: [my-org/org-repo]
 ```
+
+This example intentionally omits `private_key` for programmatic and adapter usage, where the emulator generates an RSA key and exposes it through `generatedSecrets`. For CLI usage, request a private delivery file with `--generated-secrets-file <path>` or provide your own valid key. Without that flag, CLI seed files require `private_key`; do not use a placeholder PEM.
 
 ## Pointing Your App at the Emulator
 
@@ -140,6 +179,9 @@ github:
       name: My Organization
       description: A test organization
       email: org@example.com
+      members:
+        - login: octocat
+          role: admin
   repos:
     - owner: octocat
       name: hello-world
@@ -159,6 +201,8 @@ github:
       redirect_uris:
         - http://localhost:3000/api/auth/callback/github
 ```
+
+Organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, and `admin` maps to the organization administrator role. Unknown users are ignored. Seeded memberships use the synthetic `members` team and grant private organization repository access.
 
 Repos are auto-initialized with a commit, branch, and README unless `auto_init: false` is set.
 
@@ -210,6 +254,9 @@ curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
 # Get repo
 curl http://localhost:4001/repos/octocat/hello-world
 
+# Get repo by numeric ID
+curl http://localhost:4001/repositories/1
+
 # Create user repo
 curl -X POST http://localhost:4001/user/repos \
   -H "Authorization: Bearer $TOKEN" \
@@ -233,6 +280,31 @@ curl -X DELETE http://localhost:4001/repos/octocat/hello-world \
   -H "Authorization: Bearer $TOKEN"
 
 # Topics, languages, contributors, forks, collaborators, tags, transfer
+```
+
+### Contents & Commit History
+
+```bash
+# Read a file or list a directory at a branch, tag, or commit
+curl "http://localhost:4001/repos/octocat/hello-world/contents/README.md?ref=main"
+
+# Request raw bytes from a file Contents or README response with GitHub's raw media type
+curl "http://localhost:4001/repos/octocat/hello-world/contents/README.md?ref=main" \
+  -H "Accept: application/vnd.github.raw+json"
+
+# Download raw file content from the URL advertised by contents and commit responses
+curl http://localhost:4001/octocat/hello-world/raw/main/README.md
+
+# Create or update a file and commit the change
+curl -X PUT http://localhost:4001/repos/octocat/hello-world/contents/notes.txt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Update notes", "content": "aGVsbG8K"}'
+
+# List commits, get a commit with file stats, or compare refs
+curl http://localhost:4001/repos/octocat/hello-world/commits
+curl http://localhost:4001/repos/octocat/hello-world/commits/main
+curl http://localhost:4001/repos/octocat/hello-world/compare/v1.0.0...main
 ```
 
 ### Issues
@@ -468,10 +540,14 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/check-runs \
   -H "Content-Type: application/json" \
   -d '{"name": "CI", "head_sha": "abc123", "status": "completed", "conclusion": "success"}'
 
-# Check suites: create, get, rerequest, preferences, list by ref
-# Check runs: list for suite, annotations
+# Check suites: create, get, rerequest, preferences, list by ref. Ref based lookups accept branch and tag refs containing slashes.
+# Check runs: list for suite, annotations. Ref based lookups accept branch and tag refs containing slashes.
 # Automatic suite status rollup from check run results
 ```
+
+Check-run lists by ref and suite support `page` and `per_page` (default 30, maximum 100) with pagination `Link` headers. Ref lists apply `check_name`, `status`, and `filter` before pagination; `total_count` reports the full filtered count.
+
+Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
 
 ### OAuth
 
@@ -549,7 +625,12 @@ curl -X POST $BASE/app/installations/100/access_tokens \
 # 3. Use the installation token to call API endpoints
 curl $BASE/repos/my-org/org-repo \
   -H "Authorization: Bearer ghs_..."
+
+# Inspect minted installation-token metadata without token values
+curl $BASE/_emulate/installation-tokens
 ```
+
+The inspection route is emulator-specific. It lists App, installation, account, permissions, repository access, issuance, expiry, and lifecycle status without accepting or returning token values or token-derived identifiers. Expiry is informational and does not change authorization behavior.
 
 ### OAuth Flow
 
@@ -558,3 +639,7 @@ curl $BASE/repos/my-org/org-repo \
 3. Emulator redirects back with `?code=...&state=...`
 4. Exchange code for token via `POST /login/oauth/access_token`
 5. Use token to call API endpoints
+
+## Custom emulators alongside built-ins
+
+Use `npx emulate init --custom inventory` to scaffold a third-party API emulator and test. Register it in `emulate.config.ts` with `defineConfig` from `emulate`, alongside built-in entries such as `{ emulator: "github" }`. Run `npx emulate start --watch` to reload imports and inspect custom state at the printed `/_emulate` URL. Successful reloads reset the run to seed. Existing flat seed configs still work; `--config` selects an explicit file. For authoring and testing third-party API emulators, see https://emulate.dev/docs/custom-emulators.

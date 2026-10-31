@@ -12,18 +12,27 @@ No real emails are sent. The emulator captures every email in-memory so you can 
 4. The user retrieves the code from the emulator inbox and enters it
 5. On success, a session cookie is set and the user lands on the dashboard
 
+Pending sign-in and session cookies use AES-256-GCM authenticated encryption with a server-only `AUTH_SECRET`. The pending cookie keeps the code private and binds it to the email and ten-minute expiry. Cookie names are authenticated so a pending challenge cannot be used as a session. Sessions expire after 24 hours, and both expiry times are checked by the server. Unsigned, modified, malformed, and expired cookies are rejected.
+
+This example does not limit verification attempts, and an incorrect code leaves the challenge valid until expiry. Production implementations should rate-limit code requests and verification, and enforce attempt limits using server-side state so replaying an earlier cookie cannot reset the count.
+
 The Resend SDK reads `RESEND_BASE_URL` from the environment at module load time. In `next.config.ts`, this is set to `http://localhost:3000/emulate/resend` so all email traffic hits the local emulator instead of `https://api.resend.com`.
 
 ## Getting started
 
-From the repository root:
+From the repository root, install dependencies and generate a secret for the example:
 
 ```bash
 pnpm install
+node -e 'console.log("AUTH_SECRET=" + require("node:crypto").randomBytes(32).toString("hex"))' > examples/resend-magic-link/.env.local
 pnpm --filter resend-magic-link dev
 ```
 
+`AUTH_SECRET` must be 64 hexadecimal characters (32 random bytes). Keep it on the server and use the same value across app instances; do not put it in `next.config.ts`'s `env` option or prefix it with `NEXT_PUBLIC_`. Authentication fails if it is missing or invalid. Rotating it invalidates existing pending challenges and sessions. Existing cookies from the unsigned format also require a fresh sign-in.
+
 Open [http://localhost:3000](http://localhost:3000).
+
+Run the authentication regression tests with `pnpm --filter resend-magic-link test`.
 
 ## Retrieving emails from the emulator
 

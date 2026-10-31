@@ -3,3 +3,4 @@ dist
 .nuxt
 node_modules
 pnpm-lock.yaml
+.source

@@ -1,30 +1,21 @@
 import type { Context, RouteContext } from "@emulators/core";
-import type { SlackJsonObject, SlackToken, SlackView, SlackViewType } from "../entities.js";
+import type { SlackToken, SlackView } from "../entities.js";
 import { getSlackStore } from "../store.js";
 import { formatSlackView, generateSlackId, generateTs, parseSlackBody, slackError, slackOk } from "../helpers.js";
 
-interface ParsedViewPayload {
-  type: SlackViewType;
-  blocks: SlackJsonObject[];
-  private_metadata: string;
-  callback_id: string;
-  external_id: string;
-  title: SlackJsonObject | null;
-  submit: SlackJsonObject | null;
-  close: SlackJsonObject | null;
-  state: SlackJsonObject;
-  clear_on_close: boolean;
-  notify_on_close: boolean;
-}
+import {
+  createSlackView,
+  createSlackViewTrigger,
+  parseViewPayload,
+  MAX_MODAL_STACK_DEPTH,
+  type ParsedViewPayload,
+} from "../view-state.js";
 
 interface ConsumedTrigger {
   user_id?: string;
   app_id?: string;
   view_id?: string;
 }
-
-const VIEW_TRIGGER_TTL_SECONDS = 3;
-const MAX_MODAL_STACK_DEPTH = 3;
 
 export function viewsRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -175,18 +166,13 @@ export function viewsRoutes(ctx: RouteContext): void {
     const userId = resolveUserId(stringField(body.user_id)) ?? referencedView?.user_id ?? resolveUserId(authUser.login);
     if (!userId || !resolveUserId(userId)) return slackError(c, "user_not_found");
 
-    const triggerId = generateTriggerId();
-    const expiresAt = nowSeconds() + VIEW_TRIGGER_TTL_SECONDS;
-    ss().viewTriggers.insert({
-      trigger_id: triggerId,
+    const trigger = createSlackViewTrigger(store, {
       team_id: teamId(),
       user_id: userId,
       app_id: actor.app_id,
-      expires_at: expiresAt,
-      used: false,
       ...(referencedView ? { view_id: referencedView.view_id } : {}),
     });
-    return slackOk(c, { trigger_id: triggerId, expires_at: expiresAt });
+    return slackOk(c, { trigger_id: trigger.trigger_id, expires_at: trigger.expires_at });
   });
 
   function createView(
@@ -199,21 +185,7 @@ export function viewsRoutes(ctx: RouteContext): void {
       previous_view_id?: string;
     },
   ): SlackView {
-    const now = nowSeconds();
-    const viewId = generateSlackId("V");
-    return ss().views.insert({
-      ...parsed,
-      view_id: viewId,
-      team_id: teamId(),
-      user_id: options.user_id,
-      hash: generateTs(),
-      root_view_id: options.root_view_id ?? viewId,
-      ...(options.previous_view_id ? { previous_view_id: options.previous_view_id } : {}),
-      app_id: options.app_id,
-      bot_id: options.bot_id,
-      created: now,
-      updated: now,
-    });
+    return createSlackView(store, parsed, { ...options, team_id: teamId() });
   }
 
   function findView(viewId: string, externalId: string): SlackView | undefined {
@@ -243,8 +215,15 @@ export function viewsRoutes(ctx: RouteContext): void {
 
   function viewActor(c: Context): { app_id: string; bot_id: string } {
     const token = authTokenRecord(c);
-    const appId = token?.app_id ?? ss().oauthApps.all()[0]?.app_id ?? "A000000001";
-    const botId = token?.bot_id ?? ss().bots.all()[0]?.bot_id ?? "B000000001";
+    const appId =
+      token?.app_id ??
+      (token?.client_id ? ss().oauthApps.findOneBy("client_id", token.client_id)?.app_id : undefined) ??
+      ss().oauthApps.all()[0]?.app_id ??
+      "A000000001";
+    const installation = ss()
+      .installations.findBy("app_id", appId)
+      .find((item) => item.team_id === (token?.team_id ?? teamId()));
+    const botId = token?.bot_id ?? installation?.bot_id ?? ss().bots.all()[0]?.bot_id ?? "B000000001";
     return { app_id: appId, bot_id: botId };
   }
 
@@ -259,71 +238,10 @@ export function viewsRoutes(ctx: RouteContext): void {
     if (!trigger) return { error: "invalid_trigger_id" };
     if (trigger.app_id !== appId) return { error: "invalid_trigger_id" };
     if (trigger.used) return { error: "exchanged_trigger_id" };
-    if (trigger.expires_at <= nowSeconds()) return { error: "expired_trigger_id" };
+    if (trigger.expires_at <= Date.now() / 1000) return { error: "expired_trigger_id" };
     const updated = ss().viewTriggers.update(trigger.id, { used: true }) ?? trigger;
     return { value: { user_id: updated.user_id, app_id: updated.app_id, view_id: updated.view_id } };
   }
-
-  function parseViewPayload(
-    value: unknown,
-    expectedType: SlackViewType,
-    fallbackType?: SlackViewType,
-  ): { view?: ParsedViewPayload; error?: string } {
-    const view = parseViewObject(value);
-    if (!view) return { error: "invalid_view" };
-
-    const type = typeof view.type === "string" ? view.type : fallbackType;
-    if (type !== expectedType) return { error: "invalid_view" };
-
-    const blocks = view.blocks;
-    if (!Array.isArray(blocks) || !blocks.every(isSlackJsonObject)) return { error: "invalid_view" };
-
-    const title = optionalObject(view.title);
-    const submit = optionalObject(view.submit);
-    const close = optionalObject(view.close);
-    const state = optionalObject(view.state) ?? { values: {} };
-    if (title === false || submit === false || close === false || state === false) return { error: "invalid_view" };
-    if (expectedType === "modal" && title === null) return { error: "invalid_view" };
-
-    return {
-      view: {
-        type: expectedType,
-        blocks,
-        private_metadata: stringField(view.private_metadata),
-        callback_id: stringField(view.callback_id),
-        external_id: stringField(view.external_id),
-        title,
-        submit,
-        close,
-        state,
-        clear_on_close: booleanField(view.clear_on_close, false),
-        notify_on_close: booleanField(view.notify_on_close, false),
-      },
-    };
-  }
-}
-
-function parseViewObject(value: unknown): Record<string, unknown> | undefined {
-  let parsed = value;
-  if (typeof parsed === "string") {
-    if (!parsed) return undefined;
-    try {
-      parsed = JSON.parse(parsed) as unknown;
-    } catch {
-      return undefined;
-    }
-  }
-  if (!isSlackJsonObject(parsed)) return undefined;
-  return parsed;
-}
-
-function optionalObject(value: unknown): SlackJsonObject | null | false {
-  if (value === undefined || value === null || value === "") return null;
-  return isSlackJsonObject(value) ? value : false;
-}
-
-function isSlackJsonObject(value: unknown): value is SlackJsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringField(value: unknown): string {
@@ -334,21 +252,6 @@ function viewExchangeId(body: Record<string, unknown>): string {
   return stringField(body.trigger_id) || stringField(body.interactivity_pointer);
 }
 
-function booleanField(value: unknown, fallback: boolean): boolean {
-  if (typeof value === "boolean") return value;
-  if (value === 1 || value === "1" || value === "true") return true;
-  if (value === 0 || value === "0" || value === "false") return false;
-  return fallback;
-}
-
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
-}
-
-function generateTriggerId(): string {
-  const first = Math.floor(Date.now() / 1000);
-  const second = Math.floor(Math.random() * 1_000_000)
-    .toString()
-    .padStart(6, "0");
-  return `${first}.${second}.${generateSlackId("trg").toLowerCase()}`;
 }

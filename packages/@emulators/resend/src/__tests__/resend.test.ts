@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Hono } from "@emulators/core";
 import {
   Store,
@@ -12,9 +12,7 @@ import { resendPlugin, seedFromConfig, getResendStore } from "../index.js";
 
 const base = "http://localhost:4000";
 
-function createTestApp() {
-  const store = new Store();
-  const webhooks = new WebhookDispatcher();
+function createTestApp(store = new Store(), webhooks = new WebhookDispatcher()) {
   const tokenMap: TokenMap = new Map();
   tokenMap.set("re_test_token", {
     login: "testuser@example.com",
@@ -33,6 +31,14 @@ function createTestApp() {
 
 function authHeaders(): Record<string, string> {
   return { Authorization: "Bearer re_test_token", "Content-Type": "application/json" };
+}
+
+function sendEmail(app: Hono, body: unknown, headers: Record<string, string> = {}) {
+  return app.request(`${base}/emails`, {
+    method: "POST",
+    headers: { ...authHeaders(), ...headers },
+    body: JSON.stringify(body),
+  });
 }
 
 describe("Resend plugin - Emails", () => {
@@ -127,6 +133,245 @@ describe("Resend plugin - Emails", () => {
     expect(body.data.length).toBe(2);
     expect(body.data[0].id).toBeDefined();
     expect(body.data[1].id).toBeDefined();
+  });
+
+  it("replays equivalent normalized single-email payloads", async () => {
+    const { app: testApp, store, webhooks } = createTestApp();
+    const dispatch = vi.spyOn(webhooks, "dispatch");
+    const key = { "Idempotency-Key": "normalized-single" };
+
+    const first = await sendEmail(testApp, { from: "a@b.com", to: "c@d.com", subject: "Normalized" }, key);
+    const second = await sendEmail(
+      testApp,
+      {
+        from: "a@b.com",
+        to: ["c@d.com"],
+        subject: "Normalized",
+        html: null,
+        text: null,
+        cc: [],
+        bcc: [],
+        reply_to: [],
+        headers: {},
+        tags: [],
+        scheduled_at: null,
+      },
+      { "idempotency-key": key["Idempotency-Key"] },
+    );
+
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(await first.clone().json());
+    expect(getResendStore(store).emails.all()).toHaveLength(1);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("replays equivalent normalized batch payloads", async () => {
+    const { app: testApp, store, webhooks } = createTestApp();
+    const dispatch = vi.spyOn(webhooks, "dispatch");
+    const key = { "Idempotency-Key": "normalized-batch" };
+    const firstPayload = [
+      { from: "a@b.com", to: "c@d.com", subject: "Batch one" },
+      { from: "a@b.com", to: "d@e.com", subject: "Batch two" },
+    ];
+    const secondPayload = firstPayload.map((email) => ({
+      ...email,
+      to: [email.to],
+      html: null,
+      text: null,
+      cc: [],
+      bcc: [],
+      reply_to: [],
+      headers: {},
+      tags: [],
+      scheduled_at: null,
+    }));
+    const request = (body: unknown, headers: Record<string, string> = key) =>
+      testApp.request(`${base}/emails/batch`, {
+        method: "POST",
+        headers: { ...authHeaders(), ...headers },
+        body: JSON.stringify(body),
+      });
+
+    const first = await request(firstPayload);
+    const firstBody = await first.json();
+    const second = await request(secondPayload, { "idempotency-key": key["Idempotency-Key"] });
+
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(firstBody);
+    expect(getResendStore(store).emails.all()).toHaveLength(2);
+    expect(dispatch).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves per-email insertion and webhook ordering without an idempotency key", async () => {
+    const { app: testApp, store, webhooks } = createTestApp();
+    const emailCountsAtDispatch: number[] = [];
+    vi.spyOn(webhooks, "dispatch").mockImplementation(async () => {
+      emailCountsAtDispatch.push(getResendStore(store).emails.all().length);
+    });
+
+    const response = await testApp.request(`${base}/emails/batch`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify([
+        { from: "a@b.com", to: "c@d.com", subject: "First" },
+        { from: "a@b.com", to: "d@e.com", subject: "Second" },
+      ]),
+    });
+
+    expect(response.status).toBe(200);
+    expect(emailCountsAtDispatch).toEqual([1, 1, 2, 2]);
+  });
+
+  it("POST /emails replays an idempotent request without duplicating emails or webhooks", async () => {
+    const { app: testApp, store, webhooks } = createTestApp();
+    const dispatch = vi.spyOn(webhooks, "dispatch");
+    const payload = { from: "a@b.com", to: "c@d.com", subject: "Idempotent" };
+    const headers = { "Idempotency-Key": "single-send" };
+
+    const first = await sendEmail(testApp, payload, headers);
+    const second = await sendEmail(testApp, payload, { "idempotency-key": headers["Idempotency-Key"] });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(await first.clone().json());
+    expect(getResendStore(store).emails.all()).toHaveLength(1);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("POST /emails/batch replays the complete batch response without duplicating emails or webhooks", async () => {
+    const { app: testApp, store, webhooks } = createTestApp();
+    const dispatch = vi.spyOn(webhooks, "dispatch");
+    const payload = [
+      { from: "a@b.com", to: "c@d.com", subject: "Batch one" },
+      { from: "a@b.com", to: "d@e.com", subject: "Batch two" },
+    ];
+    const headers = { "Idempotency-Key": "batch-send" };
+    const request = (body: unknown) =>
+      testApp.request(`${base}/emails/batch`, {
+        method: "POST",
+        headers: { ...authHeaders(), ...headers },
+        body: JSON.stringify(body),
+      });
+
+    const first = await request(payload);
+    const firstBody = await first.json();
+    const second = await request(payload);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(firstBody);
+    expect((firstBody as { data: Array<{ id: string }> }).data).toHaveLength(2);
+    expect(getResendStore(store).emails.all()).toHaveLength(2);
+    expect(dispatch).toHaveBeenCalledTimes(4);
+  });
+
+  it("without an idempotency key, each email send creates a new email", async () => {
+    const first = await sendEmail(app, { from: "a@b.com", to: "c@d.com", subject: "First" });
+    const second = await sendEmail(app, { from: "a@b.com", to: "c@d.com", subject: "First" });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstBody = (await first.json()) as { id: string };
+    const secondBody = (await second.json()) as { id: string };
+    expect(firstBody.id).not.toBe(secondBody.id);
+
+    const list = await app.request(`${base}/emails`, { headers: authHeaders() });
+    expect(((await list.json()) as { data: unknown[] }).data).toHaveLength(2);
+  });
+
+  it("rejects empty and overlong idempotency keys", async () => {
+    const empty = await sendEmail(
+      app,
+      { from: "a@b.com", to: "c@d.com", subject: "Invalid" },
+      { "Idempotency-Key": "" },
+    );
+    const overlong = await sendEmail(
+      app,
+      { from: "a@b.com", to: "c@d.com", subject: "Invalid" },
+      { "Idempotency-Key": "x".repeat(257) },
+    );
+
+    for (const response of [empty, overlong]) {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        statusCode: 400,
+        name: "invalid_idempotency_key",
+        message: "Idempotency-Key must be between 1 and 256 characters",
+      });
+    }
+  });
+
+  it("rejects a different payload or endpoint for an existing idempotency key", async () => {
+    const headers = { "Idempotency-Key": "conflict" };
+    await sendEmail(app, { from: "a@b.com", to: "c@d.com", subject: "Original" }, headers);
+
+    const changedPayload = await sendEmail(app, { from: "a@b.com", to: "c@d.com", subject: "Changed" }, headers);
+    expect(changedPayload.status).toBe(409);
+    expect(((await changedPayload.json()) as { name: string }).name).toBe("invalid_idempotent_request");
+
+    const changedEndpoint = await app.request(`${base}/emails/batch`, {
+      method: "POST",
+      headers: { ...authHeaders(), ...headers },
+      body: JSON.stringify([{ from: "a@b.com", to: "c@d.com", subject: "Original" }]),
+    });
+    expect(changedEndpoint.status).toBe(409);
+    expect(((await changedEndpoint.json()) as { name: string }).name).toBe("invalid_idempotent_request");
+    const list = await app.request(`${base}/emails`, { headers: authHeaders() });
+    expect(((await list.json()) as { data: unknown[] }).data).toHaveLength(1);
+  });
+
+  it("expires idempotency records after 24 hours", async () => {
+    const { app: testApp, store } = createTestApp();
+    const payload = { from: "a@b.com", to: "c@d.com", subject: "Expired" };
+    const first = await sendEmail(testApp, payload, { "Idempotency-Key": "expires" });
+    const firstId = ((await first.json()) as { id: string }).id;
+    const idempotencyKeys = getResendStore(store).idempotencyKeys;
+    const record = idempotencyKeys.findOneBy("idempotency_key", "expires");
+    expect(record).toBeDefined();
+    idempotencyKeys.update(record!.id, {
+      created_at: new Date(Date.now() - 24 * 60 * 60 * 1000 - 1).toISOString(),
+    });
+
+    const second = await sendEmail(testApp, payload, { "Idempotency-Key": "expires" });
+    expect(((await second.json()) as { id: string }).id).not.toBe(firstId);
+    expect(getResendStore(store).emails.all()).toHaveLength(2);
+    expect(idempotencyKeys.all()).toHaveLength(1);
+  });
+
+  it("supports prototype-named idempotency keys", async () => {
+    const { app: testApp, store } = createTestApp();
+
+    for (const key of ["constructor", "__proto__"]) {
+      const first = await sendEmail(
+        testApp,
+        { from: "a@b.com", to: "c@d.com", subject: key },
+        { "Idempotency-Key": key },
+      );
+      const second = await sendEmail(
+        testApp,
+        { from: "a@b.com", to: "c@d.com", subject: key },
+        { "Idempotency-Key": key },
+      );
+      expect(((await second.json()) as { id: string }).id).toBe(((await first.json()) as { id: string }).id);
+    }
+
+    expect(getResendStore(store).emails.all()).toHaveLength(2);
+    expect(getResendStore(store).idempotencyKeys.all()).toHaveLength(2);
+  });
+
+  it("persists idempotency records in store snapshots", async () => {
+    const { app: testApp, store } = createTestApp();
+    const payload = { from: "a@b.com", to: "c@d.com", subject: "Persistent" };
+    const first = await sendEmail(testApp, payload, { "Idempotency-Key": "persistent" });
+    const firstBody = await first.json();
+
+    const restoredStore = new Store();
+    restoredStore.restore(JSON.parse(JSON.stringify(store.snapshot())));
+    const restoredApp = createTestApp(restoredStore).app;
+    const second = await sendEmail(restoredApp, payload, { "Idempotency-Key": "persistent" });
+
+    expect(await second.json()).toEqual(firstBody);
+    expect(getResendStore(restoredStore).emails.all()).toHaveLength(1);
   });
 
   it("POST /emails/:id/cancel cancels a scheduled email", async () => {

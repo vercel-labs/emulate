@@ -58,6 +58,7 @@ npm install @emulators/stripe
 ## Webhooks
 
 Events are delivered to configured webhook URLs:
+- Webhooks configured with a secret include `Stripe-Signature: t=<timestamp>,v1=<signature>`, signed over `<timestamp>.<raw body>`
 - `checkout.session.completed` — when a checkout session is completed
 - `checkout.session.expired` — when a checkout session expires
 
