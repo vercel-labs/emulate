@@ -108,7 +108,7 @@ npm install @emulators/github
 
 ### Webhooks
 - Repo webhooks: full CRUD, ping, test, deliveries
-- Org webhooks: full CRUD, ping
+- Org webhooks: full CRUD, ping. They receive events from every repository the organization owns as well as organization events, and payloads for an organization's repositories carry `organization`, as on GitHub
 - Real HTTP delivery to registered URLs on all state changes
 
 ### Search

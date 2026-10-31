@@ -1578,16 +1578,83 @@ describe("GitHub GraphQL fidelity", () => {
       });
     });
 
+    it("delivers repository events to organization webhooks, with GitHub's payload objects", async () => {
+      await seedOrg("read");
+      const hookBody = { config: { url: "http://hooks.test/hook" }, events: ["*"] };
+      const orgHook = (await send("POST", "/orgs/acme/hooks", hookBody, "owner-token")).body;
+      const repoHook = (await send("POST", `${ORG_REPO}/hooks`, hookBody, "owner-token")).body;
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+
+      const issue = await send("POST", `${ORG_REPO}/issues`, { title: "seen by the org" }, "owner-token");
+      await send("POST", `${ORG_REPO}/issues/${issue.body.number}/comments`, { body: "hi" }, "owner-token");
+      await send("POST", `/orgs/acme/hooks/${orgHook.id}/pings`, undefined, "owner-token");
+      fetchMock.mockRestore();
+
+      const events = (id: number) => server.webhooks.getDeliveries(id).map((d) => `${d.event}.${d.action ?? ""}`);
+      expect(events(orgHook.id)).toEqual(["issues.opened", "issue_comment.created", "ping."]);
+      expect(events(repoHook.id)).toEqual(["issues.opened", "issue_comment.created"]);
+
+      const payload = server.webhooks.getDeliveries(repoHook.id)[0]!.payload as any;
+      expect(Object.keys(payload.organization).sort()).toEqual([
+        "avatar_url",
+        "description",
+        "events_url",
+        "hooks_url",
+        "id",
+        "issues_url",
+        "login",
+        "members_url",
+        "node_id",
+        "public_members_url",
+        "repos_url",
+        "url",
+      ]);
+      const simpleUser = [
+        "avatar_url",
+        "events_url",
+        "followers_url",
+        "following_url",
+        "gists_url",
+        "gravatar_id",
+        "html_url",
+        "id",
+        "login",
+        "node_id",
+        "organizations_url",
+        "received_events_url",
+        "repos_url",
+        "site_admin",
+        "starred_url",
+        "subscriptions_url",
+        "type",
+        "url",
+        "user_view_type",
+      ];
+      expect(Object.keys(payload.sender).sort()).toEqual(simpleUser);
+      expect(Object.keys(payload.repository.owner).sort()).toEqual(simpleUser);
+      expect(payload.repository.owner).toMatchObject({ type: "Organization", url: `${base}/users/acme` });
+    });
+
     it("sends GitHub's organization and membership webhooks for invitations and team changes", async () => {
       await seedOrg("read");
       seedFromConfig(server.store, base, { users: [{ login: "outsider" }] });
       const outsider = gh.users.findOneBy("login", "outsider")!;
       server.tokenMap.set("outsider-token", { login: "outsider", id: outsider.id, scopes: ["repo"] });
-      const dispatch = vi.spyOn(server.webhooks, "dispatch");
+      const hook = server.webhooks.register({
+        url: "http://hooks.test/acme",
+        events: ["*"],
+        active: true,
+        owner: "acme",
+      });
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      let seen = 0;
       const orgEvents = () =>
-        dispatch.mock.calls
-          .filter(([event]) => event === "organization" || event === "membership")
-          .map(([event, action, payload, owner, repo]) => ({ event, action, payload: payload as any, owner, repo }));
+        server.webhooks
+          .getDeliveries(hook.id)
+          .slice(seen)
+          .filter(({ event }) => event === "organization" || event === "membership")
+          .map(({ event, action, payload }) => ({ event, action, payload: payload as any }));
+      const skipSeen = () => (seen = server.webhooks.getDeliveries(hook.id).length);
 
       await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", {}, "owner-token");
       await send("PUT", "/orgs/acme/teams/devs/memberships/outsider", { role: "maintainer" }, "owner-token");
@@ -1595,8 +1662,6 @@ describe("GitHub GraphQL fidelity", () => {
         {
           event: "organization",
           action: "member_invited",
-          owner: "acme",
-          repo: undefined,
           payload: {
             action: "member_invited",
             invitation: { login: "outsider", role: "direct_member", team_count: 1, inviter: { login: "owner" } },
@@ -1607,7 +1672,7 @@ describe("GitHub GraphQL fidelity", () => {
         },
       ]);
 
-      dispatch.mockClear();
+      skipSeen();
       await send("PATCH", "/user/memberships/orgs/acme", { state: "active" }, "outsider-token");
       expect(orgEvents()).toMatchObject([
         {
@@ -1632,7 +1697,7 @@ describe("GitHub GraphQL fidelity", () => {
       ]);
       expect(orgEvents()[0]!.payload.membership).not.toHaveProperty("organization");
 
-      dispatch.mockClear();
+      skipSeen();
       await send("PUT", "/orgs/acme/teams/devs/memberships/member", {}, "owner-token");
       await send("PUT", "/orgs/acme/teams/devs/memberships/member", { role: "maintainer" }, "owner-token");
       await send("DELETE", "/orgs/acme/teams/devs/memberships/member", undefined, "owner-token");
@@ -1643,7 +1708,7 @@ describe("GitHub GraphQL fidelity", () => {
         ["organization", "member_removed", undefined],
       ]);
       expect(orgEvents()[2]!.payload.membership).toMatchObject({ user: { login: "outsider" }, role: "member" });
-      dispatch.mockRestore();
+      fetchMock.mockRestore();
     });
 
     it("keeps team management to org owners, team maintainers, and repository admins", async () => {

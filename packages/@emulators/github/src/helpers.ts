@@ -126,11 +126,37 @@ export function formatOwner(store: GitHubStore, ownerId: number, ownerType: stri
   if (ownerType === "Organization") {
     const org = store.orgs.get(ownerId);
     if (!org) return null;
-    return formatOrgBrief(org, baseUrl);
+    return formatOrgAccount(org, baseUrl);
   }
   const user = store.users.get(ownerId);
   if (!user) return null;
   return formatUser(user, baseUrl);
+}
+
+/** An organization where GitHub shows an account, such as a repository owner or a user search result. */
+export function formatOrgAccount(org: GitHubOrg, baseUrl: string) {
+  const urls = userUrl(baseUrl, org.login);
+  return {
+    login: org.login,
+    id: org.id,
+    node_id: org.node_id,
+    avatar_url: `${baseUrl}/avatars/o/${org.login}`,
+    gravatar_id: "",
+    url: urls.url,
+    html_url: urls.html_url,
+    followers_url: urls.followers_url,
+    following_url: urls.following_url,
+    gists_url: urls.gists_url,
+    starred_url: urls.starred_url,
+    subscriptions_url: urls.subscriptions_url,
+    organizations_url: urls.organizations_url,
+    repos_url: urls.repos_url,
+    events_url: urls.events_url,
+    received_events_url: urls.received_events_url,
+    type: "Organization",
+    site_admin: false,
+    user_view_type: "public",
+  };
 }
 
 export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
@@ -139,7 +165,6 @@ export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
     id: org.id,
     node_id: org.node_id,
     url: `${baseUrl}/orgs/${org.login}`,
-    html_url: `${baseUrl}/${org.login}`,
     repos_url: `${baseUrl}/orgs/${org.login}/repos`,
     events_url: `${baseUrl}/orgs/${org.login}/events`,
     hooks_url: `${baseUrl}/orgs/${org.login}/hooks`,
@@ -148,9 +173,6 @@ export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
     public_members_url: `${baseUrl}/orgs/${org.login}/public_members{/member}`,
     avatar_url: `${baseUrl}/avatars/o/${org.login}`,
     description: org.description,
-    type: "Organization",
-    site_admin: false,
-    user_view_type: "public",
   };
 }
 
@@ -246,6 +268,8 @@ export function computeAuthorAssociation(store: GitHubStore, userId: number, rep
 export function formatOrgFull(org: GitHubOrg, baseUrl: string) {
   return {
     ...formatOrgBrief(org, baseUrl),
+    html_url: `${baseUrl}/${org.login}`,
+    type: "Organization",
     name: org.name,
     company: org.company,
     blog: org.blog,
@@ -415,15 +439,13 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
 }
 
 export function issueCommentCount(store: GitHubStore, repoId: number, number: number): number {
-  return store.comments
-    .findBy("repo_id", repoId)
-    .filter((c) => c.comment_type === "issue" && c.issue_number === number).length;
+  return store.comments.findBy("repo_id", repoId).filter((c) => c.comment_type === "issue" && c.issue_number === number)
+    .length;
 }
 
 export function reviewCommentCount(store: GitHubStore, repoId: number, number: number): number {
-  return store.comments
-    .findBy("repo_id", repoId)
-    .filter((c) => c.comment_type === "review" && c.pull_number === number).length;
+  return store.comments.findBy("repo_id", repoId).filter((c) => c.comment_type === "review" && c.pull_number === number)
+    .length;
 }
 
 /** A change to an issue, or to a pull request through an issue route, fires the webhook GitHub sends for that kind. */

@@ -349,7 +349,6 @@ export function orgsAndTeamsRoutes({ app, store, webhooks, baseUrl }: RouteConte
       {
         action,
         ...payload,
-        organization: formatOrgBrief(org, baseUrl),
         sender: sender ? formatUser(sender, baseUrl) : null,
       },
       org.login,

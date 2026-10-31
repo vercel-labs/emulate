@@ -13,7 +13,7 @@ import type {
 } from "../entities.js";
 import {
   formatIssueOrPullRequest,
-  formatOrgBrief,
+  formatOrgAccount,
   formatRepo,
   formatUser,
   issueCommentCount,
@@ -1014,7 +1014,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     const slice = list.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
     setLinkHeader(c, total, page, per_page);
 
-    const items = slice.map((h) => (h.kind === "user" ? formatUser(h.u, baseUrl) : formatOrgBrief(h.o, baseUrl)));
+    const items = slice.map((h) => (h.kind === "user" ? formatUser(h.u, baseUrl) : formatOrgAccount(h.o, baseUrl)));
 
     return c.json({
       total_count: total,

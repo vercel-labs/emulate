@@ -12,7 +12,7 @@ import type {
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
-import { generateNodeId } from "./helpers.js";
+import { formatOrgBrief, generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -610,6 +610,13 @@ function findInstallationsForRepo(
   return results;
 }
 
+/** GitHub adds the organization to every event about an organization or one of its repositories. */
+function withOrganization(gh: GitHubStore, payload: unknown, ownerLogin: string, baseUrl: string): unknown {
+  const org = gh.orgs.findOneBy("login", ownerLogin);
+  if (!org || !payload || typeof payload !== "object") return payload;
+  return { ...(payload as Record<string, unknown>), organization: formatOrgBrief(org, baseUrl) };
+}
+
 function enrichPayloadWithInstallation(payload: unknown, installation: GitHubAppInstallation): unknown {
   if (!payload || typeof payload !== "object") return payload;
   return {
@@ -675,12 +682,13 @@ export const githubPlugin: ServicePlugin = {
       repo?: string,
     ): Promise<void> => {
       const installations = findInstallationsForRepo(gh, owner, repo, event);
+      const withOrg = withOrganization(gh, payload, owner, baseUrl);
 
       const enrichedPayload =
-        installations.length > 0 ? enrichPayloadWithInstallation(payload, installations[0]) : payload;
+        installations.length > 0 ? enrichPayloadWithInstallation(withOrg, installations[0]) : withOrg;
 
       await originalDispatch(event, action, enrichedPayload, owner, repo);
-      await deliverToAppWebhookUrls(gh, event, action, payload, owner, repo);
+      await deliverToAppWebhookUrls(gh, event, action, withOrg, owner, repo);
     };
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
