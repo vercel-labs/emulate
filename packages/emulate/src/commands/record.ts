@@ -2,6 +2,7 @@ import { Hono, cors, serve } from "@emulators/core";
 import { writeFileSync } from "fs";
 import { stringify as yamlStringify } from "yaml";
 import pc from "picocolors";
+import { waitForListening } from "../api.js";
 
 export interface RecordOptions {
   port: number;
@@ -211,6 +212,7 @@ export async function recordCommand(options: RecordOptions): Promise<void> {
   });
 
   const httpServer = serve({ fetch: app.fetch, port });
+  await waitForListening(httpServer);
 
   const lines: string[] = [];
   lines.push("");
