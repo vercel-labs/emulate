@@ -152,4 +152,46 @@ describe("GitHub issue artifacts", () => {
     expect((await request("/repos/octocat/private-repo/issues/1/lock", "PUT", {})).status).toBe(204);
     expect((await request(path, "POST", { name: "Locked", body: "Locked" }, "writer")).status).toBe(403);
   });
+
+  it("rejects artifact operations on issues and pull requests when Issues are disabled", async () => {
+    const issue = await request(`${repoPath}/issues`, "POST", { title: "Issue" });
+    expect(issue.status).toBe(201);
+    const { number: issueNumber } = (await issue.json()) as { number: number };
+    const branch = await request(`${repoPath}/branches/main`);
+    const { commit } = (await branch.json()) as { commit: { sha: string } };
+    await request(`${repoPath}/git/refs`, "POST", { ref: "refs/heads/feature", sha: commit.sha });
+    await request(`${repoPath}/contents/notes.md`, "PUT", {
+      branch: "feature",
+      message: "Add notes",
+      content: Buffer.from("Notes\n").toString("base64"),
+    });
+    const pull = await request(`${repoPath}/pulls`, "POST", { title: "Pull request", head: "feature", base: "main" });
+    expect(pull.status).toBe(201);
+    const { number: pullNumber } = (await pull.json()) as { number: number };
+    const artifact = { type: "link", name: "Review", body: "https://example.com/review" };
+    const paths = [issueNumber, pullNumber].map((number) => `${repoPath}/issues/${number}/artifacts`);
+    for (const path of paths) {
+      expect((await request(path, "POST", artifact)).status).toBe(201);
+    }
+
+    expect((await request(repoPath, "PATCH", { has_issues: false })).status).toBe(200);
+    for (const path of paths) {
+      const responses = await Promise.all([
+        request(path),
+        request(path, "POST", artifact),
+        request(`${path}/1`),
+        request(`${path}/1`, "PATCH", { body: "Changed" }),
+        request(`${path}/1`, "DELETE"),
+      ]);
+      for (const response of responses) {
+        expect(response.status).toBe(410);
+        expect(await response.json()).toMatchObject({ message: "Issues are disabled for this repo" });
+      }
+    }
+
+    expect((await request(repoPath, "PATCH", { has_issues: true })).status).toBe(200);
+    for (const path of paths) {
+      expect(await (await request(path)).json()).toMatchObject([{ number: 1, ...artifact }]);
+    }
+  });
 });

@@ -141,6 +141,8 @@ Organization `members` are optional. Each entry references a seeded user by `log
 
 ## Issue artifacts
 
+Artifact requests require Issues to be enabled for the repository. When Issues are disabled, all artifact endpoints return HTTP 410, including those for pull requests.
+
 - `GET/POST /repos/:owner/:repo/issues/:number/artifacts` - list or create artifacts on issues and pull requests
 - `GET/PATCH/DELETE /repos/:owner/:repo/issues/:number/artifacts/:artifact_number` - read with version history, edit, or delete
 
