@@ -74,6 +74,9 @@ GitHub API coverage:
   Installation tokens list paginated repositories within their current installation grants.
   Repository creation uses the installation account and requires repository_creation or administration write.
   Issue, pull-request body, and comment reactions support list/create/delete with derived counts.
+  Issue and pull-request artifacts support list/create/get/edit/delete and stored version history.
+  Artifact lists filter by type and paginate with page/per_page, without Link headers.
+  Artifact writes require issues: write; bodies retain source without generated HTML fields.
   Pull-request issue-comment webhooks include issue.pull_request metadata. Reactions emit no webhooks.
   Pull-request files list actual merge-base diffs, text patches, pagination, and the 3,000-file limit.
   Review comments validate diff paths/lines; replies keep their parent's location.
