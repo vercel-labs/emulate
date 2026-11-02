@@ -712,6 +712,8 @@ JWT authentication: sign a JWT with `{ iss: "<app_id>" }` using the app's privat
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 
+Installation tokens can create repositories with `POST /user/repos` on their personal account or `POST /orgs/:org/repos` on their organization. Creation requires `repository_creation: write` or `administration: write`. New repositories belong to the installation account, commits and webhooks identify the App bot, and selected installations gain access to the repositories they create.
+
 User tokens can discover accessible installations with `GET /user/installations` and their repositories with `GET /user/installations/:installation_id/repositories`. Both endpoints paginate; discovery respects installation repository selection and explicit user access through ownership, collaboration, or organization membership. Public visibility alone does not grant discovery access.
 
 Installation tokens can list their repositories with `GET /installation/repositories`. The endpoint paginates and intersects the token's selection with current installation grants. Removed or suspended installations cannot discover repositories.

@@ -72,6 +72,7 @@ GitHub API coverage:
   User-token checks return app: null; request-body app_id cannot change attribution.
   User installation discovery respects explicit repository access and supports pagination.
   Installation tokens list paginated repositories within their current installation grants.
+  Repository creation uses the installation account and requires repository_creation or administration write.
   Issue, pull-request body, and comment reactions support list/create/delete with derived counts.
   Pull-request issue-comment webhooks include issue.pull_request metadata. Reactions emit no webhooks.
   Pull-request files list actual merge-base diffs, text patches, pagination, and the 3,000-file limit.
