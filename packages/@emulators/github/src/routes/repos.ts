@@ -210,6 +210,7 @@ function deleteRepoCascade(gh: GitHubStore, repo: GitHubRepo) {
   delByRepo(gh.milestones);
   delByRepo(gh.comments);
   delByRepo(gh.reactions);
+  delByRepo(gh.issueArtifacts);
   delByRepo(gh.reviews);
   delByRepo(gh.issueEvents);
   delByRepo(gh.branches);
