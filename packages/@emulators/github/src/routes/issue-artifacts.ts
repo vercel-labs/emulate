@@ -28,6 +28,7 @@ export function issueArtifactsRoutes({ app, store, baseUrl }: RouteContext): voi
     if (!repo) throw notFoundResponse();
     const actor = write ? assertIssueWrite(gh, c.get("authUser"), repo) : undefined;
     if (!write) assertRepoPermission(gh, c.get("authUser"), repo, ["issues", "pull_requests"]);
+    if (!repo.has_issues) throw new ApiError(410, "Issues are disabled for this repo");
     const issue = gh.issues
       .findBy("repo_id", repo.id)
       .find((candidate) => candidate.number === Number(c.req.param("issue_number")));

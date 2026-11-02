@@ -76,6 +76,7 @@ GitHub API coverage:
   Issue, pull-request body, and comment reactions support list/create/delete with derived counts.
   Issue and pull-request artifacts support list/create/get/edit/delete and stored version history.
   Artifact lists filter by type and paginate with page/per_page, without Link headers.
+  Artifact requests return HTTP 410 when repository Issues are disabled, including on pull requests.
   Artifact writes require issues: write; bodies retain source without generated HTML fields.
   Pull-request issue-comment webhooks include issue.pull_request metadata. Reactions emit no webhooks.
   Pull-request files list actual merge-base diffs, text patches, pagination, and the 3,000-file limit.

@@ -898,7 +898,8 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 ### Issue artifacts
 
-Issue artifacts are available on issues and pull requests:
+Issue artifacts are available on issues and pull requests when the repository has Issues enabled.
+Artifact requests return HTTP 410 when Issues are disabled, including requests on pull requests.
 
 - `GET/POST /repos/:owner/:repo/issues/:number/artifacts` - list or create artifacts
 - `GET/PATCH/DELETE /repos/:owner/:repo/issues/:number/artifacts/:artifact_number` - read with version history, edit, or delete
