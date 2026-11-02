@@ -81,7 +81,11 @@ export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, 
   throw forbidden();
 }
 
-function hasInstallationPermission(authUser: AuthUser, permissions: string[], required: "read" | "write"): boolean {
+export function hasInstallationPermission(
+  authUser: AuthUser,
+  permissions: string[],
+  required: "read" | "write",
+): boolean {
   const requiredRank = required === "write" ? 2 : 1;
   return permissions.some((name) => {
     const granted = authUser.installation?.permissions[name];

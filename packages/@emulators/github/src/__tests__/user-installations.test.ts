@@ -24,7 +24,7 @@ function createTestApp() {
   githubPlugin.register(app, store, webhooks, base, tokenMap);
   seedFromConfig(store, base, {
     users: [{ login: "octocat" }, { login: "bob" }, { login: "outsider" }],
-    orgs: [{ login: "acme", members: [{ login: "octocat" }] }],
+    orgs: [{ login: "acme", members: [{ login: "octocat" }] }, { login: "other-org" }],
     repos: [
       { owner: "octocat", name: "owned", private: true },
       { owner: "acme", name: "selected", private: true },
@@ -219,4 +219,78 @@ describe("installation discovery", () => {
       expect((await get(path, "installation-token")).status).toBe(403);
     },
   );
+});
+
+describe("repository creation with installation tokens", () => {
+  it.each([
+    { owner: "octocat", accountType: "User" as const, installationId: 1, path: "/user/repos" },
+    { owner: "acme", accountType: "Organization" as const, installationId: 2, path: "/orgs/acme/repos" },
+  ])(
+    "creates in the $accountType installation's account and grants access",
+    async ({ owner, accountType, installationId, path }) => {
+      const { app, gh, tokenMap } = createTestApp();
+      const accountId =
+        accountType === "User" ? gh.users.findOneBy("login", owner)!.id : gh.orgs.findOneBy("login", owner)!.id;
+      tokenMap.set("create-token", {
+        login: "test-app[bot]",
+        id: 0,
+        scopes: [],
+        installation: {
+          installationId,
+          appId: 100,
+          accountId,
+          accountType,
+          permissions: { repository_creation: "write", contents: "write" },
+          repositoryIds: [],
+          repositorySelection: "all",
+        },
+      });
+      const response = await app.request(`${base}${path}`, {
+        method: "POST",
+        headers: { Authorization: "Bearer create-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "created-by-app", private: true, auto_init: true }),
+      });
+      expect(response.status).toBe(201);
+      const created = (await response.json()) as { id: number; full_name: string; private: boolean };
+      expect(created).toMatchObject({ full_name: `${owner}/created-by-app`, private: true });
+      const accessible = await app.request(`${base}/installation/repositories`, {
+        headers: { Authorization: "Bearer create-token" },
+      });
+      expect(accessible.status).toBe(200);
+      expect(((await accessible.json()) as { repositories: { id: number }[] }).repositories).toContainEqual(
+        expect.objectContaining({ id: created.id }),
+      );
+      const commits = await app.request(`${base}/repos/${owner}/created-by-app/commits`, {
+        headers: { Authorization: "Bearer create-token" },
+      });
+      expect(commits.status).toBe(200);
+      expect(((await commits.json()) as { author: { login: string } }[])[0].author.login).toBe("test-app[bot]");
+      const wrongAccount = await app.request(`${base}/orgs/other-org/repos`, {
+        method: "POST",
+        headers: { Authorization: "Bearer create-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "denied" }),
+      });
+      expect(wrongAccount.status).toBe(403);
+    },
+  );
+
+  it("rejects missing creation permissions and installation-account mismatches", async () => {
+    const { app, gh, tokenMap } = createTestApp();
+    const token = tokenMap.get("installation-token")!;
+    const post = (path: string) =>
+      app.request(`${base}${path}`, {
+        method: "POST",
+        headers: { Authorization: "Bearer installation-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "denied" }),
+      });
+    expect((await post("/user/repos")).status).toBe(403);
+    token.installation!.permissions = { repository_creation: "write" };
+    expect((await post("/orgs/acme/repos")).status).toBe(403);
+    token.installation!.accountType = "Organization";
+    token.installation!.accountId = gh.orgs.findOneBy("login", "acme")!.id;
+    token.installation!.installationId = 2;
+    expect((await post("/user/repos")).status).toBe(403);
+    token.installation!.permissions = { contents: "write" };
+    expect((await post("/orgs/acme/repos")).status).toBe(403);
+  });
 });
