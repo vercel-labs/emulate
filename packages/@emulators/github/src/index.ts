@@ -18,7 +18,6 @@ import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
-import { issueArtifactsRoutes } from "./routes/issue-artifacts.js";
 import { pullsRoutes } from "./routes/pulls.js";
 import { commentsRoutes } from "./routes/comments.js";
 import { reviewsRoutes } from "./routes/reviews.js";
@@ -693,7 +692,6 @@ export const githubPlugin: ServicePlugin = {
     usersRoutes(ctx);
     reposRoutes(ctx);
     issuesRoutes(ctx);
-    issueArtifactsRoutes(ctx);
     pullsRoutes(ctx);
     commentsRoutes(ctx);
     reviewsRoutes(ctx);

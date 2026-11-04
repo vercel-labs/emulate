@@ -906,16 +906,6 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/issues/:number/events` - events
 - `POST/DELETE /repos/:owner/:repo/issues/:number/assignees` - manage assignees
 
-### Issue artifacts
-
-Issue artifacts are available on issues and pull requests when the repository has Issues enabled.
-Artifact requests return HTTP 410 when Issues are disabled, including requests on pull requests.
-
-- `GET/POST /repos/:owner/:repo/issues/:number/artifacts` - list or create artifacts
-- `GET/PATCH/DELETE /repos/:owner/:repo/issues/:number/artifacts/:artifact_number` - read with version history, edit, or delete
-
-Create with `name`, `body`, and optional `type` (`generic`, `link`, `plan`, or `embedded_html`). Lists filter by `type` and support `page` and `per_page`, without `Link` headers. Writes require `issues: write`; reads accept `issues: read` or `pull_requests: read`. Installation writes identify the App bot as creator. Artifact bodies retain their source; rendered HTML fields are not generated.
-
 ### Pull Requests
 - `GET /repos/:owner/:repo/pulls` - list (filter by state, head, base)
 - `POST /repos/:owner/:repo/pulls` - create
