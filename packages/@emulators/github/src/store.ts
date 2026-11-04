@@ -8,7 +8,6 @@ import type {
   GitHubRepo,
   GitHubCollaborator,
   GitHubIssue,
-  GitHubIssueArtifact,
   GitHubPullRequest,
   GitHubLabel,
   GitHubMilestone,
@@ -50,7 +49,6 @@ export interface GitHubStore {
   repos: Collection<GitHubRepo>;
   collaborators: Collection<GitHubCollaborator>;
   issues: Collection<GitHubIssue>;
-  issueArtifacts: Collection<GitHubIssueArtifact>;
   pullRequests: Collection<GitHubPullRequest>;
   labels: Collection<GitHubLabel>;
   milestones: Collection<GitHubMilestone>;
@@ -93,7 +91,6 @@ export function getGitHubStore(store: Store): GitHubStore {
     repos: store.collection<GitHubRepo>("github.repos", ["owner_id", "full_name"]),
     collaborators: store.collection<GitHubCollaborator>("github.collaborators", ["repo_id", "user_id"]),
     issues: store.collection<GitHubIssue>("github.issues", ["repo_id", "number"]),
-    issueArtifacts: store.collection<GitHubIssueArtifact>("github.issue_artifacts", ["repo_id", "issue_number"]),
     pullRequests: store.collection<GitHubPullRequest>("github.pull_requests", ["repo_id", "number"]),
     labels: store.collection<GitHubLabel>("github.labels", ["repo_id"]),
     milestones: store.collection<GitHubMilestone>("github.milestones", ["repo_id", "number"]),

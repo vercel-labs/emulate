@@ -133,18 +133,6 @@ export interface GitHubIssue extends Entity {
   is_pull_request: boolean;
 }
 
-export interface GitHubIssueArtifact extends Entity {
-  repo_id: number;
-  issue_number: number;
-  number: number;
-  type: "generic" | "link" | "plan" | "embedded_html";
-  name: string;
-  body: string;
-  creator_id: number;
-  updated_by_id: number;
-  versions: Array<{ version: number; name: string; body: string; created_at: string; actor_id: number }>;
-}
-
 export interface GitHubPullRequest extends Entity {
   node_id: string;
   number: number;

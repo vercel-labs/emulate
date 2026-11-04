@@ -324,12 +324,6 @@ curl -X POST http://localhost:4001/repos/octocat/hello-world/issues \
 # Get / update / lock / unlock / timeline / events / assignees
 ```
 
-### Issue artifacts
-
-Artifact requests require Issues to be enabled for the repository. When Issues are disabled, all artifact endpoints return HTTP 410, including those for pull requests.
-
-Use `GET/POST /repos/:owner/:repo/issues/:number/artifacts` to list or create artifacts on issues and pull requests. Use `GET/PATCH/DELETE` with `/:artifact_number` to read version history, edit, or delete one. Create with `name`, `body`, and optional `type` (`generic`, `link`, `plan`, or `embedded_html`). Lists filter by `type` and support `page` and `per_page`, without `Link` headers. Writes require `issues: write`; reads accept `issues: read` or `pull_requests: read`. Installation writes identify the App bot as creator. Artifact bodies retain their source; rendered HTML fields are not generated.
-
 ### Pull Requests
 
 ```bash
