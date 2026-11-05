@@ -34,7 +34,7 @@ const MAX_TIMER_MS = 2_147_483_647;
 
 const CONFIG_KEYS = new Set(["port", "baseUrl", "strict", "timing", "random", "models", "rules"]);
 const RANDOM_KEYS = new Set(["seed"]);
-const VARIANT_KEYS = new Set(["reply", "error"]);
+const VARIANT_KEYS = new Set(["reply", "error", "finish", "timing", "fault"]);
 const TIMING_KEYS = new Set(["ttftMs", "chunkDelayMs"]);
 const MATCH_KEYS = new Set(["model", "format", "stream", "textContains", "tool", "hasToolResult", "file"]);
 const RULE_KEYS = new Set(["id", "match", "times", "reply", "variants", "finish", "error", "fault", "timing"]);
@@ -256,7 +256,7 @@ function parseRandom(raw: unknown): { seed: number } {
   return { seed };
 }
 
-function parseVariants(raw: unknown, path: string): RuleVariant[] {
+function parseVariants(raw: unknown, path: string, stream: boolean): RuleVariant[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new AiConfigError("expected a nonempty list of variants", path);
   }
@@ -267,11 +267,28 @@ function parseVariants(raw: unknown, path: string): RuleVariant[] {
     const hasReply = obj.reply !== undefined;
     const hasError = obj.error !== undefined;
     if (hasReply === hasError) throw new AiConfigError("expected exactly one of reply or error", at);
-    if (hasError) return { error: parseError(obj.error, `${at}.error`) };
 
-    const events = parseReply(obj.reply, `${at}.reply`);
-    if (events.length === 0) throw new AiConfigError("a variant needs at least one event", `${at}.reply`);
-    return { reply: events };
+    const parsed: RuleVariant = hasError
+      ? { error: parseError(obj.error, `${at}.error`) }
+      : { reply: parseReply(obj.reply, `${at}.reply`) };
+    if (parsed.reply && parsed.reply.length === 0) {
+      throw new AiConfigError("a variant needs at least one event", `${at}.reply`);
+    }
+
+    if (obj.finish !== undefined) {
+      if (hasError) throw new AiConfigError("finish does not apply to an error variant", `${at}.finish`);
+      parsed.finish = parseFinish(obj.finish, `${at}.finish`);
+    }
+    if (obj.timing !== undefined) {
+      if (hasError) throw new AiConfigError("timing does not apply to an error variant", `${at}.timing`);
+      parsed.timing = parseTimingFields(obj.timing, `${at}.timing`);
+    }
+    if (obj.fault !== undefined) {
+      if (hasError) throw new AiConfigError("fault does not apply to an error variant", `${at}.fault`);
+      if (!stream) throw new AiConfigError("stream faults require match.stream: true", `${at}.fault`);
+      parsed.fault = parseFault(obj.fault, `${at}.fault`);
+    }
+    return parsed;
   });
 }
 
@@ -298,7 +315,7 @@ function parseRule(raw: unknown, path: string): Rule {
   if (hasReply) {
     rule.reply = parseReply(obj.reply, `${path}.reply`);
   } else if (hasVariants) {
-    rule.variants = parseVariants(obj.variants, `${path}.variants`);
+    rule.variants = parseVariants(obj.variants, `${path}.variants`, match.stream === true);
   } else {
     rule.error = parseError(obj.error, `${path}.error`);
   }

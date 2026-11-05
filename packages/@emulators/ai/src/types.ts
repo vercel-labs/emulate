@@ -137,8 +137,14 @@ export type RuleReplyEvent =
   | { type: "tool_call"; name: string; arguments: Json; id?: string }
   | { type: "refusal"; text: string };
 
-/** One alternate rule body: a scripted reply or an injected error. */
-export type RuleVariant = { reply: RuleReplyEvent[] } | { error: HttpFailure };
+/** One alternate rule body: a reply or an error, with optional overrides for the rule-level delivery fields. */
+export interface RuleVariant {
+  reply?: RuleReplyEvent[];
+  error?: HttpFailure;
+  finish?: FinishReason;
+  timing?: Partial<Timing>;
+  fault?: StreamFault;
+}
 
 /** One validated rule. Exactly one of `reply`, `variants`, or `error` is set. */
 export interface Rule {
