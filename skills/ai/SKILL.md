@@ -122,7 +122,9 @@ With no matching rule:
 | Tool result present                | An acknowledgement naming the tool or call                  |
 | Attachments with no text           | `Received N files (names or media types, comma-separated).` |
 
-Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path.
+A strict JSON Schema is checked against OpenAI's documented subset first, and a rejected keyword returns OpenAI's own error, for example `Invalid schema for response_format 'trip': In context=('properties', 'trip'), 'allOf' is not permitted.` with `param: "response_format"`, or `param: "text.format"` on the Responses endpoint. Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected. Non-strict schemas are not checked.
+
+The generator handles `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, common string `format` values, and local `$ref`, with recursion bounded. `pattern` is accepted and ignored. A schema outside that set returns a native 400 naming the schema path. Provider dialects live in `schema-dialects.ts`; Anthropic rejects numeric and string constraints and `oneOf` with its own message, ready for the Messages format.
 
 ## Rules
 

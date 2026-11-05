@@ -170,7 +170,24 @@ With no matching rule:
 | A forced tool choice       | A call with arguments built from the tool schema |
 | A tool result              | `Received the result of <tool>.`                 |
 
-Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, and local `$ref`. Anything else returns a 400 naming the schema path.
+A strict JSON Schema is checked against OpenAI's documented subset before anything is generated, and a rejected keyword returns OpenAI's own error:
+
+```json
+{
+  "error": {
+    "message": "Invalid schema for response_format 'trip': In context=('properties', 'trip'), 'allOf' is not permitted.",
+    "type": "invalid_request_error",
+    "param": "response_format",
+    "code": null
+  }
+}
+```
+
+Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. Non-strict schemas are not checked, matching the API.
+
+The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, string `format` values for the common formats, and local `$ref`. `pattern` is accepted and ignored. A schema outside that set returns a 400 naming the schema path.
+
+Provider subsets differ, so the checks live per provider in `schema-dialects.ts` rather than in the generator. Anthropic rejects numeric and string constraints and `oneOf` and reports them in its own envelope, ready for the Messages format.
 
 Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
 
