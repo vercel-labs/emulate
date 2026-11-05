@@ -60,6 +60,8 @@ export interface ServeOptions {
   port?: number;
   /** Listening address. Defaults to IPv4 loopback (127.0.0.1). */
   hostname?: string;
+  /** Abort each request's signal and stop writing when the client closes the response before it finishes. */
+  abortOnClose?: boolean;
 }
 
 export interface CorsOptions {
@@ -428,15 +430,26 @@ export function cors(options: CorsOptions = {}): MiddlewareHandler {
 export function serve(options: ServeOptions): Server {
   const port = options.port ?? 3000;
   const server = createNodeServer(async (req, res) => {
+    const controller = options.abortOnClose ? new AbortController() : undefined;
+    const onClose = () => {
+      if (!res.writableFinished) controller?.abort();
+    };
+    if (controller) res.once("close", onClose);
     try {
-      const request = nodeRequestToFetchRequest(req);
+      const request = nodeRequestToFetchRequest(req, controller?.signal);
       const response = await options.fetch(request);
-      await writeFetchResponse(res, response, req.method?.toUpperCase() === "HEAD");
+      await writeFetchResponse(res, response, req.method?.toUpperCase() === "HEAD", controller?.signal);
     } catch (err) {
+      if (controller?.signal.aborted) {
+        res.destroy();
+        return;
+      }
       const message = err instanceof Error ? err.message : "Internal Server Error";
       res.statusCode = 500;
       res.setHeader("Content-Type", "text/plain; charset=UTF-8");
       res.end(message);
+    } finally {
+      if (controller) res.off("close", onClose);
     }
   });
   server.listen(port, options.hostname ?? "127.0.0.1");
@@ -529,7 +542,7 @@ function appendBodyValue<T>(target: Record<string, T | T[]>, key: string, value:
   }
 }
 
-function nodeRequestToFetchRequest(req: IncomingMessage): Request {
+function nodeRequestToFetchRequest(req: IncomingMessage, signal?: AbortSignal): Request {
   const host = req.headers.host ?? "localhost";
   const url = new URL(req.url ?? "/", `http://${host}`);
   const headers = new Headers();
@@ -548,11 +561,17 @@ function nodeRequestToFetchRequest(req: IncomingMessage): Request {
     method,
     headers,
     body: hasBody ? (req as unknown as BodyInit) : undefined,
+    signal,
     duplex: "half",
   } as RequestInit & { duplex: string });
 }
 
-async function writeFetchResponse(res: ServerResponse, response: Response, headOnly: boolean): Promise<void> {
+async function writeFetchResponse(
+  res: ServerResponse,
+  response: Response,
+  headOnly: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
 
@@ -572,16 +591,45 @@ async function writeFetchResponse(res: ServerResponse, response: Response, headO
   }
 
   const reader = response.body.getReader();
+  let aborted = signal?.aborted === true;
+  if (aborted) void reader.cancel().catch(() => {});
+  const onAbort = () => {
+    aborted = true;
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    while (true) {
+    while (!aborted) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (!res.write(value)) {
-        await new Promise<void>((resolve) => res.once("drain", resolve));
-      }
+      if (aborted) break;
+      await writeChunk(res, value, signal);
+    }
+    if (aborted) {
+      res.destroy();
+      return;
     }
     res.end();
-  } catch (err) {
-    res.destroy(err instanceof Error ? err : undefined);
+  } catch {
+    if (res.socket) res.socket.end();
+    else res.destroy();
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
+}
+
+function writeChunk(res: ServerResponse, chunk: Uint8Array, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    signal?.addEventListener("abort", done, { once: true });
+    res.write(chunk, (error) => {
+      signal?.removeEventListener("abort", done);
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
