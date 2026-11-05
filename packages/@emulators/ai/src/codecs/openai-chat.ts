@@ -4,7 +4,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
-import { assertOpenAiSchema } from "../schema-dialects.js";
+import { assertSchemaSupported, dialectForModel } from "../schema-dialects.js";
 import type { CompletionUsage } from "openai/resources/completions";
 import type { ErrorObject } from "openai/resources/shared";
 import { decodeChatAttachment } from "../attachments.js";
@@ -301,8 +301,18 @@ function decodeChat(body: unknown): Decoded {
   const tools = decodeTools(body.tools);
   const toolChoice = decodeToolChoice(body.tool_choice, tools.length > 0);
   const output = decodeOutput(body.response_format);
-  if (output?.kind === "json_schema" && output.strict === true) {
-    assertOpenAiSchema(output.schema, output.name ?? "response", "response_format");
+  if (dialectForModel(model) === "anthropic") {
+    if (output !== undefined && output.kind !== "json_schema") {
+      fail("Expected a json_schema format with strict set to true.", "response_format");
+    }
+    if (output?.kind === "json_schema" && output.strict !== true) {
+      fail("Expected strict to be true.", "response_format.json_schema.strict");
+    }
+    if (output?.kind === "json_schema") {
+      assertSchemaSupported("anthropic", output.schema, output.name ?? "response", "response_format");
+    }
+  } else if (output?.kind === "json_schema" && output.strict === true) {
+    assertSchemaSupported("openai", output.schema, output.name ?? "response", "response_format");
   }
 
   const stream = body.stream === undefined || body.stream === null ? false : expectBoolean(body.stream, "stream");
