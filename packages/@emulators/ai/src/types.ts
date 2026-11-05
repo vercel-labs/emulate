@@ -137,14 +137,17 @@ export type RuleReplyEvent =
   | { type: "tool_call"; name: string; arguments: Json; id?: string }
   | { type: "refusal"; text: string };
 
+/** One alternate rule body: a scripted reply or an injected error. */
+export type RuleVariant = { reply: RuleReplyEvent[] } | { error: HttpFailure };
+
 /** One validated rule. Exactly one of `reply`, `variants`, or `error` is set. */
 export interface Rule {
   id: string;
   match: RuleMatch;
   times?: number;
   reply?: RuleReplyEvent[];
-  /** Reply bodies picked in seeded order, so the same seed always yields the same sequence. */
-  variants?: RuleReplyEvent[][];
+  /** Bodies picked in seeded order, so the same seed always yields the same sequence. */
+  variants?: RuleVariant[];
   finish?: FinishReason;
   error?: HttpFailure;
   fault?: StreamFault;

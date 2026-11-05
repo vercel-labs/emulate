@@ -13,6 +13,7 @@ import type {
   Rule,
   RuleMatch,
   RuleReplyEvent,
+  RuleVariant,
   RuleSnapshot,
   StreamFault,
   Timing,
@@ -33,7 +34,7 @@ const MAX_TIMER_MS = 2_147_483_647;
 
 const CONFIG_KEYS = new Set(["port", "baseUrl", "strict", "timing", "random", "models", "rules"]);
 const RANDOM_KEYS = new Set(["seed"]);
-const VARIANT_KEYS = new Set(["reply"]);
+const VARIANT_KEYS = new Set(["reply", "error"]);
 const TIMING_KEYS = new Set(["ttftMs", "chunkDelayMs"]);
 const MATCH_KEYS = new Set(["model", "format", "stream", "textContains", "tool", "hasToolResult", "file"]);
 const RULE_KEYS = new Set(["id", "match", "times", "reply", "variants", "finish", "error", "fault", "timing"]);
@@ -255,7 +256,7 @@ function parseRandom(raw: unknown): { seed: number } {
   return { seed };
 }
 
-function parseVariants(raw: unknown, path: string): RuleReplyEvent[][] {
+function parseVariants(raw: unknown, path: string): RuleVariant[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new AiConfigError("expected a nonempty list of variants", path);
   }
@@ -263,10 +264,14 @@ function parseVariants(raw: unknown, path: string): RuleReplyEvent[][] {
     const at = `${path}[${index}]`;
     const obj = expectRecord(variant, at);
     assertKnownKeys(obj, VARIANT_KEYS, at);
-    if (obj.reply === undefined) throw new AiConfigError("expected a reply", `${at}.reply`);
+    const hasReply = obj.reply !== undefined;
+    const hasError = obj.error !== undefined;
+    if (hasReply === hasError) throw new AiConfigError("expected exactly one of reply or error", at);
+    if (hasError) return { error: parseError(obj.error, `${at}.error`) };
+
     const events = parseReply(obj.reply, `${at}.reply`);
     if (events.length === 0) throw new AiConfigError("a variant needs at least one event", `${at}.reply`);
-    return events;
+    return { reply: events };
   });
 }
 
