@@ -22,6 +22,7 @@
     "mongoatlas",
     "resend",
     "stripe",
+    "ai",
     "---Reference---",
     "authentication",
     "architecture"

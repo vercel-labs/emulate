@@ -37,6 +37,7 @@ export const docsSections: NavSection[] = [
       { name: "MongoDB Atlas", href: "/docs/mongoatlas" },
       { name: "Resend", href: "/docs/resend" },
       { name: "Stripe", href: "/docs/stripe" },
+      { name: "AI Responses", label: "AI", href: "/docs/ai" },
     ],
   },
   {
