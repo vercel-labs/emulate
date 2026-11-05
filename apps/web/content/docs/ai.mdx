@@ -115,7 +115,7 @@ Every condition in `match` must hold.
 | `reasoning` | `text`                             | Reasoning text in Responses; Chat reports only reasoning tokens |
 | `refusal`   | `text`                             | A refusal in the format's native shape                          |
 
-Without `finish`, a reply with a tool call ends with `tool_calls`, a refusal ends with `refusal`, and anything else ends with `stop`. Set `finish` to `length` or `content_filter` to test those outcomes.
+Without `finish`, a reply with a tool call ends with `tool_calls`, a refusal ends with `refusal`, and anything else ends with `stop`. Set `finish` to `length` or `content_filter` to test those outcomes. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
 ### Errors and faults
 
