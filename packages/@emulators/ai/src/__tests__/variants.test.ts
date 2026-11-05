@@ -135,6 +135,54 @@ describe("seeded reply variants", () => {
     expect(new Set(shapes)).toEqual(new Set(["stop:0", "tool_calls:1"]));
   });
 
+  it("applies a finish override from the chosen variant", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL, maxRetries: 0 });
+    await configure(2, [
+      {
+        id: "cut",
+        match: { textContains: "cut" },
+        variants: [
+          { reply: [{ type: "text", text: "short answer" }], finish: "length" },
+          { reply: [{ type: "text", text: "full answer" }] },
+        ],
+      },
+    ]);
+
+    const finishes: (string | null)[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const completion = await client.chat.completions.create({
+        model: "pick-model",
+        messages: [{ role: "user", content: "cut" }],
+      });
+      finishes.push(completion.choices[0].finish_reason);
+    }
+
+    expect(new Set(finishes)).toEqual(new Set(["length", "stop"]));
+  });
+
+  it("rejects variant overrides that do not apply", async () => {
+    const post = (variants: unknown[], match: Record<string, unknown> = {}) =>
+      fetch(`${origin}/_ai/rules`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rules: [{ id: "bad", match, variants }] }),
+      });
+
+    const errorWithFinish = await post([{ error: { status: 500, message: "boom" }, finish: "length" }]);
+    expect(errorWithFinish.status).toBe(400);
+
+    const faultWithoutStream = await post([
+      { reply: [{ type: "text", text: "hi" }], fault: { kind: "disconnect", afterChunks: 1 } },
+    ]);
+    expect(faultWithoutStream.status).toBe(400);
+
+    const faultWithStream = await post(
+      [{ reply: [{ type: "text", text: "hi" }], fault: { kind: "disconnect", afterChunks: 1 } }],
+      { stream: true },
+    );
+    expect(faultWithStream.status).toBe(200);
+  });
+
   it("rejects a rule that sets both reply and variants", async () => {
     const response = await fetch(`${origin}/_ai/rules`, {
       method: "PUT",
