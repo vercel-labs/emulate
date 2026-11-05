@@ -1,6 +1,7 @@
 import { Store, type Collection } from "@emulators/core";
 import type {
   GitHubUser,
+  GitHubGpgKey,
   GitHubOrg,
   GitHubTeam,
   GitHubTeamMember,
@@ -42,6 +43,7 @@ import type {
 
 export interface GitHubStore {
   users: Collection<GitHubUser>;
+  gpgKeys: Collection<GitHubGpgKey>;
   orgs: Collection<GitHubOrg>;
   teams: Collection<GitHubTeam>;
   teamMembers: Collection<GitHubTeamMember>;
@@ -84,6 +86,7 @@ export interface GitHubStore {
 export function getGitHubStore(store: Store): GitHubStore {
   return {
     users: store.collection<GitHubUser>("github.users", ["login"]),
+    gpgKeys: store.collection<GitHubGpgKey>("github.gpg_keys", ["user_id", "fingerprint"]),
     orgs: store.collection<GitHubOrg>("github.orgs", ["login"]),
     teams: store.collection<GitHubTeam>("github.teams", ["org_id", "slug"]),
     teamMembers: store.collection<GitHubTeamMember>("github.team_members", ["team_id", "user_id"]),

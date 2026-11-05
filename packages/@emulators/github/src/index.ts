@@ -13,6 +13,7 @@ import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
+import { gpgKeysRoutes } from "./routes/gpg-keys.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -660,6 +661,7 @@ export const githubPlugin: ServicePlugin = {
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     usersRoutes(ctx);
+    gpgKeysRoutes(ctx);
     reposRoutes(ctx);
     issuesRoutes(ctx);
     pullsRoutes(ctx);
