@@ -1,5 +1,6 @@
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
+import { messagesCodec } from "./codecs/anthropic-messages.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
 import { decide } from "./engine.js";
@@ -54,6 +55,7 @@ export interface AiRoutesOptions {
 const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
   { suffix: "/chat/completions", codec: chatCodec },
   { suffix: "/responses", codec: responsesCodec },
+  { suffix: "/messages", codec: messagesCodec },
 ];
 
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
@@ -222,6 +224,7 @@ async function handleGeneration(
     const status = error instanceof AiRequestError ? error.status : 500;
     recordCall(state, rejectedCall(state, codec.format, path, body, status), stamp);
     scope.dispose();
+    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error));
     throw error;
   }
 
@@ -237,6 +240,7 @@ async function handleGeneration(
     fillCall(call, request);
     recordCall(state, call, stamp);
     scope.dispose();
+    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error));
     throw error;
   }
 
@@ -369,6 +373,15 @@ function summarize(reply: Reply): string {
     .replace(/\s+/g, " ")
     .trim();
   return text.length > 200 ? `${text.slice(0, 197)}...` : text;
+}
+
+function failureOf(error: AiRequestError): HttpFailure {
+  return {
+    status: error.status,
+    message: error.message,
+    ...(error.param === undefined ? {} : { param: error.param }),
+    ...(error.code === undefined ? {} : { code: error.code }),
+  };
 }
 
 function errorResponse(codec: Codec, failure: HttpFailure): Response {

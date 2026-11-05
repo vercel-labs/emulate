@@ -43,6 +43,7 @@
   "devDependencies": {
     "@ai-sdk/openai": "4.0.102",
     "@ai-sdk/openai-compatible": "3.0.78",
+    "@anthropic-ai/sdk": "^1.4.0",
     "ai": "7.0.153",
     "ai-sdk-openai-v3": "npm:@ai-sdk/openai@3.0.52",
     "ai-v6": "npm:ai@6.0.151",

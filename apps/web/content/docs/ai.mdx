@@ -3,7 +3,7 @@ title: "AI Responses"
 navTitle: "AI"
 ---
 
-OpenAI Responses and Chat Completions emulation for CI and offline sandboxes. It is not a model: rules and deterministic defaults decide every reply, so text, structured output, tool calls, reasoning, refusals, errors, and stream timing repeat exactly on every run.
+OpenAI Responses, Chat Completions, and Anthropic Messages emulation for CI and offline sandboxes. It is not a model: rules and deterministic defaults decide every reply, so text, structured output, tool calls, reasoning, refusals, errors, and stream timing repeat exactly on every run.
 
 ```bash
 npx emulate start --service ai --port 4014
@@ -17,14 +17,18 @@ Point any OpenAI client at `http://localhost:4014/v1`. Any API key and any model
 
 ```typescript
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { createOpenAI } from "@ai-sdk/openai";
 
 const client = new OpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
+const anthropic = new Anthropic({ apiKey: "test", baseURL: "http://localhost:4014" });
 
 const openai = createOpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
 openai("anthropic/claude-sonnet-5");
 openai.chat("anthropic/claude-sonnet-5");
 ```
+
+The Anthropic SDK adds `/v1/messages` itself, so give it the origin without `/v1`.
 
 - `openai(model)` uses Responses; `openai.chat(model)` uses Chat Completions.
 - `createOpenAICompatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`, or it sends `json_object` without a schema and the `{}` default fails its schema check.
@@ -37,12 +41,21 @@ The format is read from the end of the path, so any prefix works (`/v1`, `/api/v
 
 - `POST .../responses` — OpenAI Responses, unary and streamed
 - `POST .../chat/completions` — OpenAI Chat Completions, unary and streamed
+- `POST .../messages` — Anthropic Messages, unary and streamed
 - `GET .../responses/:id` — retrieve a stored response
 - `DELETE .../responses/:id` — delete a stored response
 - `GET .../models` — configured and previously requested models, in OpenAI's list shape
 - `GET /` — inspector
 
 Other paths return the native OpenAI 404 naming the supported paths.
+
+### Messages
+
+The Messages route speaks Anthropic's wire format, not OpenAI's: `system` is a top-level field, `max_tokens` is required, content is a list of blocks (`text`, `image`, `document`, `tool_use`, `tool_result`), and tools carry `input_schema`. Replies use `stop_reason` (`end_turn`, `tool_use`, `max_tokens`, `stop_sequence`, `refusal`) and content blocks, and a stream sends `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop`. Tool arguments stream as `input_json_delta` pieces of partial JSON.
+
+Structured output arrives in `output_config.format` and comes back as a text block holding JSON. Errors use Anthropic's envelope, `{"type":"error","error":{"type":"invalid_request_error","message":"..."},"request_id":"..."}`, and keep Anthropic's error types: `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, and `overloaded_error`. Anthropic's schema limits apply, so `oneOf`, numeric and string constraints, and external references return a 400.
+
+Rules, variants, timing, faults, and the inspector work the same way; match on `format: anthropic-messages` to target this route alone.
 
 ## Rules
 
