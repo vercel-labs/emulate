@@ -236,7 +236,7 @@ Set `timing.ttftMs` and `timing.chunkDelayMs` globally under `ai.timing`, or per
 
 ### Variants
 
-Give a rule `variants` instead of `reply`, and set `ai.random.seed`, to vary the answer per call. A variant can carry `error` instead of `reply`, so a test meets a 429 on some calls and a normal reply on others; SDK retries spend the next variant.
+Give a rule `variants` instead of `reply`, and set `ai.random.seed`, to vary the answer per call. A variant can carry `error` instead of `reply`, so a test meets a 429 on some calls and a normal reply on others; SDK retries spend the next variant. A variant may also override `finish`, `timing`, and `fault`, taking the rule-level values as defaults, so one rule can send the same content truncated, paced differently, or cut mid-stream.
 
 The seed shuffles the variants per rule and calls walk that order in a cycle, so every variant appears once before any repeat. The same seed and call order always produce the same sequence; a different seed changes the order.
 

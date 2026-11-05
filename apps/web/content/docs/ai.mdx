@@ -73,19 +73,19 @@ ai:
 
 ### Rule fields
 
-| Field      | What it does                                                                                   |
-| ---------- | ---------------------------------------------------------------------------------------------- |
-| `id`       | Names the rule in the call record, the inspector, and `/_ai/rules`                             |
-| `match`    | Conditions the request must meet; omit it to match everything                                  |
-| `times`    | How many times the rule can answer; omit it for unlimited                                      |
-| `reply`    | The events to send back                                                                        |
-| `variants` | Reply bodies the seed picks from, one per matching call                                        |
-| `finish`   | Overrides the finish reason                                                                    |
-| `error`    | Returns an HTTP error instead of a reply                                                       |
-| `fault`    | Stalls or cuts a streamed reply partway through                                                |
-| `timing`   | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing; `chunkDelayMs` also takes a list |
+| Field      | What it does                                                                                                                                             |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`       | Names the rule in the call record, the inspector, and `/_ai/rules`                                                                                       |
+| `match`    | Conditions the request must meet; omit it to match everything                                                                                            |
+| `times`    | How many times the rule can answer; omit it for unlimited                                                                                                |
+| `reply`    | The events to send back                                                                                                                                  |
+| `variants` | Bodies the seed picks from, one per matching call; each may override `finish`, `timing`, and `fault`                                                     |
+| `finish`   | Overrides the finish reason; the rule-level value is the default for its variants                                                                        |
+| `error`    | Returns an HTTP error instead of a reply                                                                                                                 |
+| `fault`    | Stalls or cuts a streamed reply partway through; the rule-level value is the default for its variants                                                    |
+| `timing`   | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing; `chunkDelayMs` also takes a list, and the rule-level value is the default for its variants |
 
-A rule has one of `reply`, `variants`, or `error`. `fault` and `timing` apply only to replies.
+A rule has one of `reply`, `variants`, or `error`. `fault` and `timing` apply only to replies. Inside `variants`, each variant overrides the rule-level `finish`, `timing`, and `fault`. SDK retries spend the next variant.
 
 `times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until reset.
 
@@ -202,7 +202,29 @@ ai:
               text: Hello.
 ```
 
-A variant can carry `error` instead of `reply`, so a test meets a 429 on some calls and a normal reply on others. SDK retries spend the next variant.
+A variant can carry `error` instead of `reply`, so a test meets a 429 on some calls and a normal reply on others.
+
+Each variant may also override `finish`, `timing`, and `fault`, so one rule covers the same content delivered different ways:
+
+```yaml
+- id: flaky-answer
+  match:
+    textContains: flaky
+  variants:
+    - reply:
+        - type: text
+          text: A complete answer.
+    - reply:
+        - type: text
+          text: An answer that stops early.
+      finish: length
+    - reply:
+        - type: text
+          text: An answer that streams slowly.
+      timing:
+        ttftMs: 400
+        chunkDelayMs: 120
+```
 
 The seed shuffles the variants per rule and calls walk that order in a cycle, so every variant appears once before any repeat. The same seed and call order always produce the same sequence, and a different seed changes the order. Call order counts generation requests since startup or reset.
 
