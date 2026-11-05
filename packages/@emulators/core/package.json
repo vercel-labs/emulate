@@ -35,7 +35,7 @@
     "test": "vitest run",
     "clean": "rm -rf dist .turbo",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "oxlint src",
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

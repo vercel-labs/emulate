@@ -20,3 +20,4 @@ packages/@emulators/*/THIRD_PARTY_NOTICES.md
 
 # opensrc - source code for packages
 opensrc/
+.types/
