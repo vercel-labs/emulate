@@ -112,10 +112,10 @@ export interface StreamFault {
   stallMs?: number;
 }
 
-/** Stream pacing; zero means instant. */
+/** Stream pacing; zero means instant. `chunkDelayMs` may list delays used in frame order, repeating the last. */
 export interface Timing {
   ttftMs: number;
-  chunkDelayMs: number;
+  chunkDelayMs: number | number[];
 }
 
 /** Conditions a rule requires; every supplied condition must hold. `model` and `tool` accept `*` wildcards. */
@@ -137,12 +137,14 @@ export type RuleReplyEvent =
   | { type: "tool_call"; name: string; arguments: Json; id?: string }
   | { type: "refusal"; text: string };
 
-/** One validated rule. Exactly one of `reply` or `error` is set. */
+/** One validated rule. Exactly one of `reply`, `variants`, or `error` is set. */
 export interface Rule {
   id: string;
   match: RuleMatch;
   times?: number;
   reply?: RuleReplyEvent[];
+  /** Reply bodies picked in seeded order, so the same seed always yields the same sequence. */
+  variants?: RuleReplyEvent[][];
   finish?: FinishReason;
   error?: HttpFailure;
   fault?: StreamFault;
@@ -153,6 +155,8 @@ export interface Rule {
 export interface AiConfig {
   strict: boolean;
   timing: Timing;
+  /** Seed for variant selection; the same seed and call order always pick the same variants. */
+  random: { seed: number };
   models: string[];
   rules: Rule[];
 }

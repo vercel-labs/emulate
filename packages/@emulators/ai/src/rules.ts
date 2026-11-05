@@ -28,12 +28,15 @@ export type RuleView = Rule & { remaining: number | null };
 export type RuleMatchResult = { rule: Rule; snapshot: RuleSnapshot } | { exhausted: string[] };
 
 const DEFAULT_TIMING: Timing = { ttftMs: 0, chunkDelayMs: 0 };
+const DEFAULT_SEED = 1;
 const MAX_TIMER_MS = 2_147_483_647;
 
-const CONFIG_KEYS = new Set(["port", "baseUrl", "strict", "timing", "models", "rules"]);
+const CONFIG_KEYS = new Set(["port", "baseUrl", "strict", "timing", "random", "models", "rules"]);
+const RANDOM_KEYS = new Set(["seed"]);
+const VARIANT_KEYS = new Set(["reply"]);
 const TIMING_KEYS = new Set(["ttftMs", "chunkDelayMs"]);
 const MATCH_KEYS = new Set(["model", "format", "stream", "textContains", "tool", "hasToolResult", "file"]);
-const RULE_KEYS = new Set(["id", "match", "times", "reply", "finish", "error", "fault", "timing"]);
+const RULE_KEYS = new Set(["id", "match", "times", "reply", "variants", "finish", "error", "fault", "timing"]);
 const ERROR_KEYS = new Set(["status", "message", "type", "code", "param", "headers"]);
 const FAULT_KEYS = new Set(["afterChunks", "kind", "stallMs"]);
 const TEXT_EVENT_KEYS = new Set(["type", "text"]);
@@ -47,7 +50,7 @@ const FAULT_KINDS: ReadonlySet<string> = new Set(["disconnect", "stall"]);
 /** Validate a seed `ai` block or a `PUT /_ai/rules` body into the canonical config, applying defaults. */
 export function parseConfig(raw: unknown): AiConfig {
   if (raw === undefined || raw === null) {
-    return { strict: false, timing: { ...DEFAULT_TIMING }, models: [], rules: [] };
+    return { strict: false, timing: { ...DEFAULT_TIMING }, random: { seed: DEFAULT_SEED }, models: [], rules: [] };
   }
 
   let configRaw: Record<string, unknown>;
@@ -69,6 +72,7 @@ export function parseConfig(raw: unknown): AiConfig {
     ...DEFAULT_TIMING,
     ...parseTimingFields(configRaw.timing === undefined ? {} : configRaw.timing, "timing"),
   };
+  const random = parseRandom(configRaw.random);
   const models = parseModels(configRaw.models);
 
   if (configRaw.port !== undefined) {
@@ -83,7 +87,7 @@ export function parseConfig(raw: unknown): AiConfig {
   const rules = (rulesRaw ?? []).map((rule, index) => parseRule(rule, `rules[${index}]`));
   assertUniqueRuleIds(rules);
 
-  return { strict, timing, models, rules };
+  return { strict, timing, random, models, rules };
 }
 
 /** Build the initial budgets from each rule's `times`; entries are null for unlimited rules. */
@@ -232,9 +236,38 @@ function parseTimingFields(raw: unknown, path: string): Partial<Timing> {
   const timing: Partial<Timing> = {};
   if (obj.ttftMs !== undefined) timing.ttftMs = expectDelay(obj.ttftMs, `${path}.ttftMs`);
   if (obj.chunkDelayMs !== undefined) {
-    timing.chunkDelayMs = expectDelay(obj.chunkDelayMs, `${path}.chunkDelayMs`);
+    const raw = obj.chunkDelayMs;
+    if (Array.isArray(raw)) {
+      if (raw.length === 0) throw new AiConfigError("expected a nonempty delay list", `${path}.chunkDelayMs`);
+      timing.chunkDelayMs = raw.map((value, index) => expectDelay(value, `${path}.chunkDelayMs[${index}]`));
+    } else {
+      timing.chunkDelayMs = expectDelay(raw, `${path}.chunkDelayMs`);
+    }
   }
   return timing;
+}
+
+function parseRandom(raw: unknown): { seed: number } {
+  if (raw === undefined || raw === null) return { seed: DEFAULT_SEED };
+  const obj = expectRecord(raw, "random");
+  assertKnownKeys(obj, RANDOM_KEYS, "random");
+  const seed = obj.seed === undefined ? DEFAULT_SEED : expectSafeInteger(obj.seed, "random.seed", 0);
+  return { seed };
+}
+
+function parseVariants(raw: unknown, path: string): RuleReplyEvent[][] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new AiConfigError("expected a nonempty list of variants", path);
+  }
+  return raw.map((variant, index) => {
+    const at = `${path}[${index}]`;
+    const obj = expectRecord(variant, at);
+    assertKnownKeys(obj, VARIANT_KEYS, at);
+    if (obj.reply === undefined) throw new AiConfigError("expected a reply", `${at}.reply`);
+    const events = parseReply(obj.reply, `${at}.reply`);
+    if (events.length === 0) throw new AiConfigError("a variant needs at least one event", `${at}.reply`);
+    return events;
+  });
 }
 
 function parseRule(raw: unknown, path: string): Rule {
@@ -248,28 +281,36 @@ function parseRule(raw: unknown, path: string): Rule {
   if (obj.times !== undefined) rule.times = expectSafeInteger(obj.times, `${path}.times`, 0);
 
   const hasReply = obj.reply !== undefined;
+  const hasVariants = obj.variants !== undefined;
   const hasError = obj.error !== undefined;
   if (hasReply && hasError) throw new AiConfigError("reply and error are mutually exclusive", `${path}.reply`);
-  if (!hasReply && !hasError) throw new AiConfigError("one of reply or error is required", path);
+  if (hasReply && hasVariants) throw new AiConfigError("reply and variants are mutually exclusive", `${path}.variants`);
+  if (hasVariants && hasError) throw new AiConfigError("variants and error are mutually exclusive", `${path}.variants`);
+  if (!hasReply && !hasVariants && !hasError) {
+    throw new AiConfigError("one of reply, variants, or error is required", path);
+  }
 
   if (hasReply) {
     rule.reply = parseReply(obj.reply, `${path}.reply`);
+  } else if (hasVariants) {
+    rule.variants = parseVariants(obj.variants, `${path}.variants`);
   } else {
     rule.error = parseError(obj.error, `${path}.error`);
   }
+  const scripted = hasReply || hasVariants;
 
   if (obj.finish !== undefined) {
-    if (!hasReply) throw new AiConfigError("finish does not apply to an error rule", `${path}.finish`);
+    if (!scripted) throw new AiConfigError("finish does not apply to an error rule", `${path}.finish`);
     rule.finish = parseFinish(obj.finish, `${path}.finish`);
   }
 
   if (obj.timing !== undefined) {
-    if (!hasReply) throw new AiConfigError("timing does not apply to an error rule", `${path}.timing`);
+    if (!scripted) throw new AiConfigError("timing does not apply to an error rule", `${path}.timing`);
     rule.timing = parseTimingFields(obj.timing, `${path}.timing`);
   }
 
   if (obj.fault !== undefined) {
-    if (!hasReply) throw new AiConfigError("fault requires a reply", `${path}.fault`);
+    if (!scripted) throw new AiConfigError("fault requires a reply", `${path}.fault`);
     if (match.stream !== true) {
       throw new AiConfigError("stream faults require match.stream: true", `${path}.fault`);
     }
