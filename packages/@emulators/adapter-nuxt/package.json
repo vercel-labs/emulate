@@ -30,12 +30,12 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "tsup --clean",
+    "build": "tsup --clean && tsc -p tsconfig.build.json",
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo",
     "test": "vitest run",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "oxlint src",
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
@@ -44,7 +44,7 @@
   "devDependencies": {
     "@emulators/github": "workspace:*",
     "tsup": "^8",
-    "typescript": "^5.7",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

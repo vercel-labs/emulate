@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
-  dts: true,
+  dts: false,
   sourcemap: true,
   onSuccess: async () => {
     const src = resolve("src/fonts");

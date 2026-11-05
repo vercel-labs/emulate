@@ -42,7 +42,7 @@ export default defineConfig([
     ...shared,
     entry: ["src/api.ts"],
     format: ["esm"],
-    dts: { resolve: ["@emulators/core"] },
+    dts: false,
     clean: false,
     splitting: true,
     sourcemap: true,

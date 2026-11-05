@@ -29,12 +29,12 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "tsup --clean",
+    "build": "tsup --clean && tsc -p tsconfig.build.json",
     "dev": "tsup --watch",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "oxlint src",
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
@@ -44,7 +44,7 @@
   "devDependencies": {
     "@linear/sdk": "^86.0.0",
     "tsup": "^8",
-    "typescript": "^5.7",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

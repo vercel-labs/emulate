@@ -12,7 +12,7 @@ const copyFonts = async () => {
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
-  dts: true,
+  dts: false,
   sourcemap: true,
   noExternal: [/^@emulators\/core/],
   onSuccess: copyFonts,
