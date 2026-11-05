@@ -1,4 +1,5 @@
 import type { Store } from "@emulators/core";
+import { assertOpenAiSchema } from "../schema-dialects.js";
 import type {
   Response as OpenAIResponse,
   ResponseCompletedEvent,
@@ -298,7 +299,15 @@ function decodeOutput(raw: unknown): OutputSpec | undefined {
     if (typeof schema !== "boolean" && !isRecord(schema)) {
       invalid("Expected a JSON Schema for 'input.text.format.schema'.", "text.format.schema");
     }
-    return { kind: "json_schema", ...(name === undefined ? {} : { name }), schema: schema as JsonSchema };
+    if (format.strict !== undefined && format.strict !== null && typeof format.strict !== "boolean") {
+      invalid("Expected a boolean for 'input.text.format.strict'.", "text.format.strict");
+    }
+    return {
+      kind: "json_schema",
+      ...(name === undefined ? {} : { name }),
+      ...(format.strict === true ? { strict: true } : {}),
+      schema: schema as JsonSchema,
+    };
   }
   invalid(`Unsupported text format "${String(format.type)}".`, "text.format.type");
 }
@@ -471,6 +480,9 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       ? true
       : requireBoolean(raw.parallel_tool_calls, "parallel_tool_calls");
   const output = decodeOutput(raw.text);
+  if (output?.kind === "json_schema" && output.strict === true) {
+    assertOpenAiSchema(output.schema, output.name ?? "response", "text.format");
+  }
   const reasoning = decodeReasoning(raw.reasoning);
   const metadata = decodeMetadata(raw.metadata);
   const previousResponseId = optionalString(raw.previous_response_id, "previous_response_id");
