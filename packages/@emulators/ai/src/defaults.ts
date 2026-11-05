@@ -29,8 +29,24 @@ const keywords = new Set([
   "maxItems",
   "nullable",
   "anyOf",
+  "oneOf",
+  "format",
+  "pattern",
 ]);
 const types = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
+
+const formatSamples: Record<string, string> = {
+  email: "user@example.com",
+  uuid: "00000000-0000-4000-8000-000000000000",
+  uri: "https://example.com/",
+  hostname: "example.com",
+  ipv4: "192.0.2.1",
+  ipv6: "2001:db8::1",
+  date: "2026-01-01",
+  time: "00:00:00Z",
+  "date-time": "2026-01-01T00:00:00Z",
+  duration: "PT1S",
+};
 
 function fail(path: string, reason: string): never {
   throw new AiRequestError(`Cannot generate a default for ${path}: ${reason}. Add an explicit reply rule.`, path);
@@ -159,6 +175,12 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
         validate(asSchema(branch, `${at}.anyOf[${index}]`), `${at}.anyOf[${index}]`, depth + 1),
       );
     }
+    if (node.oneOf !== undefined) {
+      if (!Array.isArray(node.oneOf) || !node.oneOf.length) fail(`${at}.oneOf`, "expected a nonempty array");
+      node.oneOf.forEach((branch, index) =>
+        validate(asSchema(branch, `${at}.oneOf[${index}]`), `${at}.oneOf[${index}]`, depth + 1),
+      );
+    }
     for (const key of [
       "minimum",
       "maximum",
@@ -263,6 +285,8 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       value = sample(resolve(node.$ref, `${at}.$ref`), `${at}.$ref`, depth + 1);
     } else if (Array.isArray(node.anyOf)) {
       value = sample(node.anyOf[0] as JsonSchema, `${at}.anyOf[0]`, depth + 1);
+    } else if (Array.isArray(node.oneOf)) {
+      value = sample(node.oneOf[0] as JsonSchema, `${at}.oneOf[0]`, depth + 1);
     } else {
       const type = Array.isArray(node.type)
         ? node.type[0]
@@ -288,6 +312,13 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
           break;
         }
         case "string": {
+          const known = typeof node.format === "string" ? formatSamples[node.format] : undefined;
+          if (known !== undefined) {
+            characters -= known.length;
+            if (characters < 0) fail(at, "sample exceeds the bounded output size");
+            value = known;
+            break;
+          }
           const min = typeof node.minLength === "number" ? node.minLength : 0;
           const max = typeof node.maxLength === "number" ? node.maxLength : 65536;
           const text = Array.from(String(seed) || "sample");

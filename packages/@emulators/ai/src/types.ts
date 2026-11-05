@@ -42,7 +42,9 @@ export interface ToolDefinition {
 export type ToolChoice = "auto" | "none" | "required" | { name: string };
 
 /** The structured output the client requested, if any. */
-export type OutputSpec = { kind: "json_object" } | { kind: "json_schema"; name?: string; schema: JsonSchema };
+export type OutputSpec =
+  | { kind: "json_object" }
+  | { kind: "json_schema"; name?: string; strict?: boolean; schema: JsonSchema };
 
 /** A reference to earlier history and whether the store resolved it. */
 export interface HistoryReference {
