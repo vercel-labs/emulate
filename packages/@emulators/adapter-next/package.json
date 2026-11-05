@@ -30,7 +30,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "tsup --clean && tsc -p tsconfig.build.json",
+    "build": "tsup --clean",
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo",
     "test": "vitest run",
