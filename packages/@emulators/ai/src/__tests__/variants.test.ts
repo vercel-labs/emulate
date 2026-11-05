@@ -37,14 +37,13 @@ beforeEach(async () => {
 
 const variants = ["one", "two", "three"].map((name) => ({ reply: [{ type: "text", text: name }] }));
 
-async function configure(seed: number): Promise<void> {
+const pickRule = { id: "pick", match: { textContains: "pick" }, variants };
+
+async function configure(seed: number, rules: unknown[] = [pickRule]): Promise<void> {
   const response = await fetch(`${origin}/_ai/rules`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      random: { seed },
-      rules: [{ id: "pick", match: { textContains: "pick" }, variants }],
-    }),
+    body: JSON.stringify({ random: { seed }, rules }),
   });
   expect(response.status).toBe(200);
 }
@@ -81,6 +80,61 @@ describe("seeded reply variants", () => {
     expect(other).not.toEqual(seven);
   });
 
+  it("cycles an injected error among reply variants", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL, maxRetries: 0 });
+    await configure(7, [
+      {
+        id: "flaky",
+        match: { textContains: "flaky" },
+        variants: [
+          { reply: [{ type: "text", text: "fine" }] },
+          { error: { status: 429, message: "Slow down." } },
+        ],
+      },
+    ]);
+
+    const outcomes: string[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      try {
+        const completion = await client.chat.completions.create({
+          model: "pick-model",
+          messages: [{ role: "user", content: "flaky" }],
+        });
+        outcomes.push(completion.choices[0].message.content ?? "");
+      } catch (error) {
+        outcomes.push(String((error as { status?: number }).status));
+      }
+    }
+
+    expect(outcomes.filter((outcome) => outcome === "429")).toHaveLength(2);
+    expect(outcomes.filter((outcome) => outcome === "fine")).toHaveLength(2);
+  });
+
+  it("keeps the shape of a tool-call variant", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL });
+    await configure(11, [
+      {
+        id: "caller",
+        match: { textContains: "call" },
+        variants: [
+          { reply: [{ type: "text", text: "no tool" }] },
+          { reply: [{ type: "tool_call", name: "lookup", arguments: { id: 1 } }] },
+        ],
+      },
+    ]);
+
+    const shapes: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const completion = await client.chat.completions.create({
+        model: "pick-model",
+        messages: [{ role: "user", content: "call" }],
+      });
+      shapes.push(`${completion.choices[0].finish_reason}:${completion.choices[0].message.tool_calls?.length ?? 0}`);
+    }
+
+    expect(new Set(shapes)).toEqual(new Set(["stop:0", "tool_calls:1"]));
+  });
+
   it("rejects a rule that sets both reply and variants", async () => {
     const response = await fetch(`${origin}/_ai/rules`, {
       method: "PUT",
@@ -92,6 +146,29 @@ describe("seeded reply variants", () => {
             match: {},
             reply: [{ type: "text", text: "one" }],
             variants: [{ reply: [{ type: "text", text: "two" }] }],
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a variant with both reply and error", async () => {
+    const response = await fetch(`${origin}/_ai/rules`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        rules: [
+          {
+            id: "conflict",
+            match: {},
+            variants: [
+              {
+                reply: [{ type: "text", text: "one" }],
+                error: { status: 500, message: "boom" },
+              },
+            ],
           },
         ],
       }),
