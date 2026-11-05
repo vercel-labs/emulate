@@ -148,7 +148,9 @@ describe("anthropic rules on the OpenAI wire", () => {
   }
 
   it("keeps the OpenAI envelope and uses the Anthropic message", async () => {
-    const { status, json } = await chat(claudeBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true));
+    const { status, json } = await chat(
+      claudeBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true),
+    );
     expect(status).toBe(400);
     expect(json.error).toEqual({
       message: "Schema type 'oneOf' is not supported",
@@ -165,7 +167,10 @@ describe("anthropic rules on the OpenAI wire", () => {
   });
 
   it("rejects json_object and missing strict", async () => {
-    const object = await chat({ ...claudeBody(objectWith({ type: "string" })), response_format: { type: "json_object" } });
+    const object = await chat({
+      ...claudeBody(objectWith({ type: "string" })),
+      response_format: { type: "json_object" },
+    });
     expect(object.status).toBe(400);
     expect(object.json.error.message).toBe("Expected a json_schema format with strict set to true.");
 

@@ -86,10 +86,7 @@ describe("seeded reply variants", () => {
       {
         id: "flaky",
         match: { textContains: "flaky" },
-        variants: [
-          { reply: [{ type: "text", text: "fine" }] },
-          { error: { status: 429, message: "Slow down." } },
-        ],
+        variants: [{ reply: [{ type: "text", text: "fine" }] }, { error: { status: 429, message: "Slow down." } }],
       },
     ]);
 
