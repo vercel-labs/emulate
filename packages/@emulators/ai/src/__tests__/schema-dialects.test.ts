@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { anthropicSchemaMessage } from "../schema-dialects.js";
+import { dialectForModel, schemaFailure } from "../schema-dialects.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -115,34 +115,66 @@ describe("openai schema dialect", () => {
 });
 
 describe("anthropic schema dialect", () => {
+  it("is chosen by the model name, the way a compatible gateway does", () => {
+    expect(dialectForModel("claude-opus-5-5")).toBe("anthropic");
+    expect(dialectForModel("gpt-4o-mini")).toBe("openai");
+  });
+
   it("names the keyword with the Anthropic message shape", () => {
-    const schemaValue = schema("oneOf");
-    const message = anthropicSchemaMessage(schemaValue);
-    expect(message).toBe("output_config.format.schema: Schema type 'oneOf' is not supported");
+    expect(schemaFailure("anthropic", schema("oneOf"), "trip")).toBe("Schema type 'oneOf' is not supported");
   });
 
   it("reports type-specific constraints", () => {
-    const schemaValue = {
-      type: "object",
-      properties: { zip: { type: "string", minLength: 5 } },
-      required: ["zip"],
-      additionalProperties: false,
-    };
-    expect(anthropicSchemaMessage(schemaValue)).toBe(
-      "output_config.format.schema: For 'string' type, property 'minLength' is not supported",
+    const schemaValue = objectWith({ type: "string", minLength: 5 });
+    expect(schemaFailure("anthropic", schemaValue, "trip")).toBe(
+      "For 'string' type, property 'minLength' is not supported",
     );
   });
 
   it("accepts formats and anyOf", () => {
-    const schemaValue = {
-      type: "object",
-      properties: {
-        email: { type: "string", format: "email" },
-        either: { anyOf: [{ type: "string" }, { type: "number" }] },
-      },
-      required: ["email", "either"],
-      additionalProperties: false,
-    };
-    expect(anthropicSchemaMessage(schemaValue)).toBeNull();
+    const schemaValue = objectWith({
+      anyOf: [{ type: "string", format: "email" }, { type: "number" }],
+    });
+    expect(schemaFailure("anthropic", schemaValue, "trip")).toBeNull();
+  });
+});
+
+describe("anthropic rules on the OpenAI wire", () => {
+  function claudeBody(schemaValue: Record<string, unknown>, strict?: boolean) {
+    const body = chatBody(schemaValue, strict);
+    body.model = "claude-opus-5-5";
+    return body;
+  }
+
+  it("keeps the OpenAI envelope and uses the Anthropic message", async () => {
+    const { status, json } = await chat(claudeBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true));
+    expect(status).toBe(400);
+    expect(json.error).toEqual({
+      message: "Schema type 'oneOf' is not supported",
+      type: "invalid_request_error",
+      param: "response_format",
+      code: null,
+    });
+  });
+
+  it("rejects constraints Anthropic does not support", async () => {
+    const { status, json } = await chat(claudeBody(objectWith({ type: "number", minimum: 3 }), true));
+    expect(status).toBe(400);
+    expect(json.error.message).toBe("For 'number' type, property 'minimum' is not supported");
+  });
+
+  it("rejects json_object and missing strict", async () => {
+    const object = await chat({ ...claudeBody(objectWith({ type: "string" })), response_format: { type: "json_object" } });
+    expect(object.status).toBe(400);
+    expect(object.json.error.message).toBe("Expected a json_schema format with strict set to true.");
+
+    const loose = await chat(claudeBody(objectWith({ type: "string" }), false));
+    expect(loose.status).toBe(400);
+    expect(loose.json.error.param).toBe("response_format.json_schema.strict");
+  });
+
+  it("still accepts the same schema for an OpenAI model", async () => {
+    const { status } = await chat(chatBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true));
+    expect(status).toBe(200);
   });
 });
