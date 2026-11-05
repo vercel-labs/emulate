@@ -23,26 +23,26 @@ A single selected service otherwise uses the base port, normally 4000. In an all
 Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged.
 
 ```typescript
-import OpenAI from 'openai'
+import OpenAI from "openai";
 
 const openai = new OpenAI({
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
-})
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
+});
 ```
 
 The Vercel AI SDK uses the same base URL through its OpenAI provider:
 
 ```typescript
-import { createOpenAI } from '@ai-sdk/openai'
+import { createOpenAI } from "@ai-sdk/openai";
 
 const openai = createOpenAI({
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
-})
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
+});
 
-openai('gpt-x')
-openai.chat('gpt-x')
+openai("gpt-x");
+openai.chat("gpt-x");
 ```
 
 `openai('gpt-x')` posts to `/v1/responses`, and `openai.chat('gpt-x')` posts to `/v1/chat/completions`.
@@ -82,6 +82,8 @@ ai:
   timing:
     ttftMs: 0
     chunkDelayMs: 0
+  random:
+    seed: 7
   models:
     - gpt-x
   rules:
@@ -115,7 +117,7 @@ ai:
           retry-after: "1"
 ```
 
-Rules are evaluated in order and the first match wins. Every supplied matcher must hold. `times` limits how many times a rule can fire. An unknown configuration key fails at startup with its path. `PUT /_ai/rules` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, and `models`); `port` and `baseUrl` are ignored. A body with only `rules` resets the other fields to their defaults.
+Rules are evaluated in order and the first match wins. Every supplied matcher must hold. `times` limits how many times a rule can fire. An unknown configuration key fails at startup with its path. `PUT /_ai/rules` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. A body with only `rules` resets the other fields to their defaults.
 
 ## Rules
 
@@ -137,7 +139,7 @@ Reply events:
 - `reasoning` — `{ type: reasoning, text }`, Responses only
 - `refusal` — `{ type: refusal, text }`, native refusal shape
 
-A rule has either `reply` or `error`. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`. A fault disconnects or stalls a stream after a counted number of content chunks.
+A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and calls walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 ## Defaults
 

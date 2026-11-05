@@ -16,14 +16,14 @@ Examples on this page use port 4014, the port AI gets when all services start. A
 Point any OpenAI client at `http://localhost:4014/v1`. Any API key and any model id work, including `provider/model` slugs, and the reply echoes the model.
 
 ```typescript
-import OpenAI from 'openai'
-import { createOpenAI } from '@ai-sdk/openai'
+import OpenAI from "openai";
+import { createOpenAI } from "@ai-sdk/openai";
 
-const client = new OpenAI({ apiKey: 'test', baseURL: 'http://localhost:4014/v1' })
+const client = new OpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
 
-const openai = createOpenAI({ apiKey: 'test', baseURL: 'http://localhost:4014/v1' })
-openai('anthropic/claude-sonnet-5')
-openai.chat('anthropic/claude-sonnet-5')
+const openai = createOpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
+openai("anthropic/claude-sonnet-5");
+openai.chat("anthropic/claude-sonnet-5");
 ```
 
 - `openai(model)` uses Responses; `openai.chat(model)` uses Chat Completions.
@@ -73,18 +73,19 @@ ai:
 
 ### Rule fields
 
-| Field | What it does |
-|---|---|
-| `id` | Names the rule in the call record, the inspector, and `/_ai/rules` |
-| `match` | Conditions the request must meet; omit it to match everything |
-| `times` | How many times the rule can answer; omit it for unlimited |
-| `reply` | The events to send back |
-| `finish` | Overrides the finish reason |
-| `error` | Returns an HTTP error instead of a reply |
-| `fault` | Stalls or cuts a streamed reply partway through |
-| `timing` | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing |
+| Field      | What it does                                                                                   |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| `id`       | Names the rule in the call record, the inspector, and `/_ai/rules`                             |
+| `match`    | Conditions the request must meet; omit it to match everything                                  |
+| `times`    | How many times the rule can answer; omit it for unlimited                                      |
+| `reply`    | The events to send back                                                                        |
+| `variants` | Reply bodies the seed picks from, one per matching call                                        |
+| `finish`   | Overrides the finish reason                                                                    |
+| `error`    | Returns an HTTP error instead of a reply                                                       |
+| `fault`    | Stalls or cuts a streamed reply partway through                                                |
+| `timing`   | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing; `chunkDelayMs` also takes a list |
 
-A rule has either `reply` or `error`. `fault` and `timing` apply only to replies.
+A rule has one of `reply`, `variants`, or `error`. `fault` and `timing` apply only to replies.
 
 `times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until reset.
 
@@ -92,27 +93,27 @@ A rule has either `reply` or `error`. `fault` and `timing` apply only to replies
 
 Every condition in `match` must hold.
 
-| Matcher | Matches when |
-|---|---|
-| `model` | The model id matches; `*` wildcards allowed |
-| `format` | The request format is `openai-chat` or `openai-responses` |
-| `stream` | The request does or does not stream |
-| `textContains` | The latest user text contains the string; tool results are ignored |
-| `tool` | The request declares a matching tool; `*` wildcards allowed |
-| `hasToolResult` | The current turn does or does not carry a tool result |
-| `file` | `true` matches any attachment; a media type or glob such as `image/*` matches that type |
+| Matcher         | Matches when                                                                            |
+| --------------- | --------------------------------------------------------------------------------------- |
+| `model`         | The model id matches; `*` wildcards allowed                                             |
+| `format`        | The request format is `openai-chat` or `openai-responses`                               |
+| `stream`        | The request does or does not stream                                                     |
+| `textContains`  | The latest user text contains the string; tool results are ignored                      |
+| `tool`          | The request declares a matching tool; `*` wildcards allowed                             |
+| `hasToolResult` | The current turn does or does not carry a tool result                                   |
+| `file`          | `true` matches any attachment; a media type or glob such as `image/*` matches that type |
 
 ### Replies
 
 `reply` is a list of events. The service adds ids, usage, and the format's terminal events.
 
-| Event | Fields | Sends |
-|---|---|---|
-| `text` | `text` | Assistant text |
-| `object` | `value` | A JSON value for structured output |
-| `tool_call` | `name`, `arguments`, optional `id` | A tool call; the id is generated when omitted |
-| `reasoning` | `text` | Reasoning text in Responses; Chat reports only reasoning tokens |
-| `refusal` | `text` | A refusal in the format's native shape |
+| Event       | Fields                             | Sends                                                           |
+| ----------- | ---------------------------------- | --------------------------------------------------------------- |
+| `text`      | `text`                             | Assistant text                                                  |
+| `object`    | `value`                            | A JSON value for structured output                              |
+| `tool_call` | `name`, `arguments`, optional `id` | A tool call; the id is generated when omitted                   |
+| `reasoning` | `text`                             | Reasoning text in Responses; Chat reports only reasoning tokens |
+| `refusal`   | `text`                             | A refusal in the format's native shape                          |
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, a refusal ends with `refusal`, and anything else ends with `stop`. Set `finish` to `length` or `content_filter` to test those outcomes.
 
@@ -144,15 +145,15 @@ ai:
         stallMs: 30000
 ```
 
-| Field | What it does |
-|---|---|
-| `error.status` | HTTP status from 400 to 599 |
-| `error.message` | Error message in the native error body |
-| `error.type`, `error.code`, `error.param` | Optional native error fields |
-| `error.headers` | Response headers, such as `retry-after` |
-| `fault.kind` | `stall` pauses the stream; `disconnect` cuts the connection |
-| `fault.afterChunks` | Text or tool-argument deltas to send first |
-| `fault.stallMs` | How long a stall lasts |
+| Field                                     | What it does                                                |
+| ----------------------------------------- | ----------------------------------------------------------- |
+| `error.status`                            | HTTP status from 400 to 599                                 |
+| `error.message`                           | Error message in the native error body                      |
+| `error.type`, `error.code`, `error.param` | Optional native error fields                                |
+| `error.headers`                           | Response headers, such as `retry-after`                     |
+| `fault.kind`                              | `stall` pauses the stream; `disconnect` cuts the connection |
+| `fault.afterChunks`                       | Text or tool-argument deltas to send first                  |
+| `fault.stallMs`                           | How long a stall lasts                                      |
 
 A fault needs `match.stream: true`. The call record shows the fault and whether delivery completed, failed, or the client aborted.
 
@@ -160,20 +161,48 @@ A fault needs `match.stream: true`. The call record shows the fault and whether 
 
 With no matching rule:
 
-| Request | Reply |
-|---|---|
-| Plain text | The latest user text, echoed |
-| Attachments only | `Received N files (...)` |
-| JSON mode without a schema | `{}` |
-| A JSON schema | A schema-valid object, identical every run |
-| A forced tool choice | A call with arguments built from the tool schema |
-| A tool result | `Received the result of <tool>.` |
+| Request                    | Reply                                            |
+| -------------------------- | ------------------------------------------------ |
+| Plain text                 | The latest user text, echoed                     |
+| Attachments only           | `Received N files (...)`                         |
+| JSON mode without a schema | `{}`                                             |
+| A JSON schema              | A schema-valid object, identical every run       |
+| A forced tool choice       | A call with arguments built from the tool schema |
+| A tool result              | `Received the result of <tool>.`                 |
 
 Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, and local `$ref`. Anything else returns a 400 naming the schema path.
 
 Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
 
-Streams are instant by default. Set `ai.timing.ttftMs` for the delay before the first chunk and `ai.timing.chunkDelayMs` for the gap between chunks.
+Streams are instant by default. Set `ai.timing.ttftMs` for the delay before the first frame and `ai.timing.chunkDelayMs` for the gap between frames. `chunkDelayMs` also takes a list, used in frame order with the last entry repeating, so a reply can start fast, slow down, and speed up again.
+
+Streamed structured output is split between JSON structural characters, never inside a string, so a client can parse partial values as they arrive.
+
+### Variants
+
+Give a rule `variants` instead of `reply` to vary the answer per call:
+
+```yaml
+ai:
+  random:
+    seed: 7
+  rules:
+    - id: tone
+      match:
+        textContains: hello
+      variants:
+        - reply:
+            - type: text
+              text: Morning.
+        - reply:
+            - type: text
+              text: Hey there.
+        - reply:
+            - type: text
+              text: Hello.
+```
+
+The seed shuffles the variants per rule and calls walk that order in a cycle, so every variant appears once before any repeat. The same seed and call order always produce the same sequence, and a different seed changes the order. Call order counts generation requests since startup or reset.
 
 ## State
 
@@ -200,7 +229,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   -H 'content-type: application/json' --data @rules.json
 ```
 
-`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
+`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
 
 Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Startup warns when the service listens beyond loopback.
 

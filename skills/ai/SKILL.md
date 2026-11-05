@@ -16,28 +16,26 @@ npx emulate start --service ai --port 4014
 
 A single selected service otherwise uses the base port, normally 4000. In an all-services run, `ai` listens on port 4014. Startup prints the base URL setup for the service.
 
-| What | URL |
-|---|---|
-| Base URL for clients | `http://localhost:4014/v1` |
-| Inspector | `http://localhost:4014/` |
-| Control routes | `http://localhost:4014/_ai/` |
+| What                 | URL                          |
+| -------------------- | ---------------------------- |
+| Base URL for clients | `http://localhost:4014/v1`   |
+| Inspector            | `http://localhost:4014/`     |
+| Control routes       | `http://localhost:4014/_ai/` |
 
 Programmatically:
 
 ```typescript
-import { createEmulator } from 'emulate'
+import { createEmulator } from "emulate";
 
 const ai = await createEmulator({
-  service: 'ai',
+  service: "ai",
   port: 4014,
   seed: {
     ai: {
-      rules: [
-        { id: 'hello', match: { textContains: 'Hi' }, reply: [{ type: 'text', text: 'Hello from emulate.' }] },
-      ],
+      rules: [{ id: "hello", match: { textContains: "Hi" }, reply: [{ type: "text", text: "Hello from emulate." }] }],
     },
   },
-})
+});
 ```
 
 ## Point Clients at the Emulator
@@ -47,22 +45,22 @@ Any path prefix works, such as `/v1` or `/api/v1`. The format is selected from t
 ### Official OpenAI SDK
 
 ```typescript
-import OpenAI from 'openai'
+import OpenAI from "openai";
 
 const openai = new OpenAI({
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
-})
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
+});
 
 const chat = await openai.chat.completions.create({
-  model: 'gpt-x',
-  messages: [{ role: 'user', content: 'Hi' }],
-})
+  model: "gpt-x",
+  messages: [{ role: "user", content: "Hi" }],
+});
 
 const response = await openai.responses.create({
-  model: 'gpt-x',
-  input: 'Hi',
-})
+  model: "gpt-x",
+  input: "Hi",
+});
 ```
 
 The SDK also reads environment variables. Set `OPENAI_BASE_URL=http://localhost:4014/v1` and any `OPENAI_API_KEY`, or pass an explicit `baseURL` as above.
@@ -72,23 +70,23 @@ The SDK also reads environment variables. Set `OPENAI_BASE_URL=http://localhost:
 Use the standard OpenAI provider. `openai(...)` posts to `/responses`; `openai.chat(...)` posts to `/chat/completions`.
 
 ```typescript
-import { createOpenAI } from '@ai-sdk/openai'
-import { generateText } from 'ai'
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText } from "ai";
 
 const openai = createOpenAI({
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
-})
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
+});
 
 const responses = await generateText({
-  model: openai('anthropic/claude-sonnet-5'),
-  prompt: 'Hi',
-})
+  model: openai("anthropic/claude-sonnet-5"),
+  prompt: "Hi",
+});
 
 const chat = await generateText({
-  model: openai.chat('gpt-x'),
-  prompt: 'Hi',
-})
+  model: openai.chat("gpt-x"),
+  prompt: "Hi",
+});
 ```
 
 ### Compatible providers and gateways
@@ -96,13 +94,13 @@ const chat = await generateText({
 `@ai-sdk/openai-compatible` works in Chat mode against the same base URL. Vercel AI Gateway's OpenAI-compatible `/v1` surface works through either provider, and any model slug is accepted.
 
 ```typescript
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 const gateway = createOpenAICompatible({
-  name: 'emulate',
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
-})
+  name: "emulate",
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
+});
 ```
 
 `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check. Set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule.
@@ -115,14 +113,14 @@ An unsupported data path such as `/v1/embeddings` returns a native 404 naming th
 
 With no matching rule:
 
-| Request | Reply |
-|---|---|
-| Plain text | Echoes the latest user text |
-| Schema inside the supported subset | Deterministic, schema-valid object |
-| JSON mode without a schema | `{}` |
-| Forced tool choice | A call with arguments generated from the tool schema |
-| Tool result present | An acknowledgement naming the tool or call |
-| Attachments with no text | `Received N files (names or media types, comma-separated).` |
+| Request                            | Reply                                                       |
+| ---------------------------------- | ----------------------------------------------------------- |
+| Plain text                         | Echoes the latest user text                                 |
+| Schema inside the supported subset | Deterministic, schema-valid object                          |
+| JSON mode without a schema         | `{}`                                                        |
+| Forced tool choice                 | A call with arguments generated from the tool schema        |
+| Tool result present                | An acknowledgement naming the tool or call                  |
+| Attachments with no text           | `Received N files (names or media types, comma-separated).` |
 
 Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path.
 
@@ -136,6 +134,8 @@ ai:
   timing:
     ttftMs: 0
     chunkDelayMs: 0
+  random:
+    seed: 7
   models: [gpt-x]
   rules:
     - id: weather-call
@@ -168,27 +168,27 @@ ai:
 
 ### Matchers
 
-| Key | Matches |
-|---|---|
-| `model` | Model id, with `*` wildcards |
-| `format` | `openai-chat` or `openai-responses` |
-| `stream` | Boolean |
-| `textContains` | Case-sensitive text in the latest user instruction, excluding tool results |
-| `tool` | A declared tool name, with `*` wildcards |
-| `hasToolResult` | Whether the current continuation carries a tool result |
-| `file` | `true` for any attachment, or a media-type glob such as `application/*` |
+| Key             | Matches                                                                    |
+| --------------- | -------------------------------------------------------------------------- |
+| `model`         | Model id, with `*` wildcards                                               |
+| `format`        | `openai-chat` or `openai-responses`                                        |
+| `stream`        | Boolean                                                                    |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results |
+| `tool`          | A declared tool name, with `*` wildcards                                   |
+| `hasToolResult` | Whether the current continuation carries a tool result                     |
+| `file`          | `true` for any attachment, or a media-type glob such as `application/*`    |
 
 ### Replies
 
 A rule has either `reply` or `error`. Reply events are ordered:
 
-| Event | Shape | Notes |
-|---|---|---|
-| Text | `{ type: text, text }` | Normal assistant text |
-| Object | `{ type: object, value }` | Sent as JSON text, for structured output |
+| Event     | Shape                                  | Notes                                          |
+| --------- | -------------------------------------- | ---------------------------------------------- |
+| Text      | `{ type: text, text }`                 | Normal assistant text                          |
+| Object    | `{ type: object, value }`              | Sent as JSON text, for structured output       |
 | Tool call | `{ type: tool_call, name, arguments }` | Arguments are a JSON object; ids are generated |
-| Reasoning | `{ type: reasoning, text }` | Responses only; Chat omits reasoning text |
-| Refusal | `{ type: refusal, text }` | Native refusal shape |
+| Reasoning | `{ type: reasoning, text }`            | Responses only; Chat omits reasoning text      |
+| Refusal   | `{ type: refusal, text }`              | Native refusal shape                           |
 
 A rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Stop reasons are otherwise inferred from the events.
 
@@ -232,6 +232,12 @@ A `fault` cuts or pauses a stream after a number of content chunks. The count co
 
 Set `timing.ttftMs` and `timing.chunkDelayMs` globally under `ai.timing`, or per rule with a `timing` object. Both default to zero, so streams are instant. Delays are abortable: a client close or reset cancels pending timers.
 
+`chunkDelayMs` also accepts a list, used in frame order and repeating the last entry, which gives a reply an uneven rhythm. Streamed structured output is split between JSON structural characters, never inside a string, so partial values parse as they arrive.
+
+### Variants
+
+Give a rule `variants` instead of `reply`, and set `ai.random.seed`, to vary the answer per call. The seed shuffles the variants per rule and calls walk that order in a cycle, so every variant appears once before any repeat. The same seed and call order always produce the same sequence; a different seed changes the order.
+
 ## Control Endpoints
 
 Read and edit the live state without restarting. All control routes are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page served from another origin gets 403.
@@ -258,7 +264,7 @@ Returns `{ "deleted": <count> }`.
 curl -s http://localhost:4014/_ai/rules | jq
 ```
 
-Returns `{ "rules": [...] }`. Each rule carries its remaining budget as `remaining`; `null` means unlimited. The response does not include `strict`, `timing`, or `models`.
+Returns `{ "rules": [...] }`. Each rule carries its remaining budget as `remaining`; `null` means unlimited. The response does not include `strict`, `timing`, `random`, or `models`.
 
 Replace the whole rule set with a `rules` document:
 
@@ -276,7 +282,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   }'
 ```
 
-`PUT` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, and `models`); `port` and `baseUrl` are ignored. It returns `{ "rules": [...] }` and ignores `remaining` fields. A body with only `rules` resets the other fields to their defaults. An invalid replacement returns 400 with the failing path and leaves the previous rules active. Runtime replacements are ephemeral: reset restores the seeded rules.
+`PUT` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. It returns `{ "rules": [...] }` and ignores `remaining` fields. A body with only `rules` resets the other fields to their defaults. An invalid replacement returns 400 with the failing path and leaves the previous rules active. Runtime replacements are ephemeral: reset restores the seeded rules.
 
 ### Reset
 
@@ -318,32 +324,32 @@ curl -X PUT http://localhost:4014/_ai/rules \
 Drive it with the AI SDK. Responses mode stores the first turn, and the emulator resolves the second step before matching either way: `@ai-sdk/openai` 3.x sends `item_reference` items for the prior assistant output and tool calls, while 4.x sends a pure tool-call step's history inline and uses item references only for assistant text.
 
 ```typescript
-import { createOpenAI } from '@ai-sdk/openai'
-import { generateText, jsonSchema, stepCountIs, tool } from 'ai'
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText, jsonSchema, stepCountIs, tool } from "ai";
 
 const openai = createOpenAI({
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
-})
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
+});
 
 const result = await generateText({
-  model: openai('gpt-x'),
-  prompt: 'What is the weather in Paris?',
+  model: openai("gpt-x"),
+  prompt: "What is the weather in Paris?",
   tools: {
     get_weather: tool({
-      description: 'Get the current weather for a city.',
+      description: "Get the current weather for a city.",
       inputSchema: jsonSchema({
-        type: 'object',
-        properties: { city: { type: 'string' } },
-        required: ['city'],
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
       }),
       execute: async ({ city }) => ({ city, temperatureC: 20 }),
     }),
   },
   stopWhen: stepCountIs(2),
-})
+});
 
-console.log(result.text)
+console.log(result.text);
 ```
 
 Use `openai.chat('gpt-x')` for Chat mode. The AI SDK then sends the earlier tool call and result inline, and the same second rule answers.
@@ -378,15 +384,15 @@ curl -X PUT http://localhost:4014/_ai/rules \
 
 ```typescript
 const openai = new OpenAI({
-  baseURL: 'http://localhost:4014/v1',
-  apiKey: 'test',
+  baseURL: "http://localhost:4014/v1",
+  apiKey: "test",
   maxRetries: 2,
-})
+});
 
 const result = await openai.chat.completions.create({
-  model: 'gpt-x',
-  messages: [{ role: 'user', content: 'Please retry this.' }],
-})
+  model: "gpt-x",
+  messages: [{ role: "user", content: "Please retry this." }],
+});
 ```
 
 Then `GET /_ai/calls` shows two attempts: the injected 429 and the successful retry. The error rule's budget is spent.
@@ -396,17 +402,17 @@ Then `GET /_ai/calls` shows two attempts: the injected 429 and the successful re
 With no rules, ask for a schema and the default returns deterministic, schema-valid data. The same schema returns the same object on every run.
 
 ```typescript
-import { generateObject } from 'ai'
-import { z } from 'zod'
+import { generateObject } from "ai";
+import { z } from "zod";
 
 const { object } = await generateObject({
-  model: openai('gpt-x'),
+  model: openai("gpt-x"),
   schema: z.object({
     name: z.string(),
     minutes: z.number(),
   }),
-  prompt: 'Plan a short workout.',
-})
+  prompt: "Plan a short workout.",
+});
 ```
 
 To script a specific object, add an `object` reply:
