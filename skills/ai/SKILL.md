@@ -124,7 +124,9 @@ With no matching rule:
 
 A strict JSON Schema is checked against OpenAI's documented subset first, and a rejected keyword returns OpenAI's own error, for example `Invalid schema for response_format 'trip': In context=('properties', 'trip'), 'allOf' is not permitted.` with `param: "response_format"`, or `param: "text.format"` on the Responses endpoint. Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected. Non-strict schemas are not checked.
 
-The generator handles `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, common string `format` values, and local `$ref`, with recursion bounded. `pattern` is accepted and ignored. A schema outside that set returns a native 400 naming the schema path. Provider dialects live in `schema-dialects.ts`; Anthropic rejects numeric and string constraints and `oneOf` with its own message, ready for the Messages format.
+The generator handles `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, common string `format` values, and local `$ref`, with recursion bounded. `pattern` is accepted and ignored. A schema outside that set returns a native 400 naming the schema path. Provider rules differ, so the dialect is chosen per request: a model name starting with `claude` is checked with Anthropic's rules, anything else with OpenAI's. The error envelope stays the one the endpoint speaks, matching Anthropic's OpenAI compatibility layer.
+
+Anthropic requires `response_format` to be `json_schema` with `strict: true`, rejects `json_object` with a 400, and applies its schema limits on top: no `oneOf`, no numeric or string constraints, no array constraints beyond `minItems` 0 or 1, no external references. The native Messages endpoint (`/v1/messages`) is not served.
 
 ## Rules
 

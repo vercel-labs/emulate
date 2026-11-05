@@ -187,7 +187,11 @@ Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `i
 
 The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, string `format` values for the common formats, and local `$ref`. `pattern` is accepted and ignored. A schema outside that set returns a 400 naming the schema path.
 
-Provider subsets differ, so the checks live per provider in `schema-dialects.ts` rather than in the generator. Anthropic rejects numeric and string constraints and `oneOf` and reports them in its own envelope, ready for the Messages format.
+Provider rules differ, so the dialect is chosen per request: a model name starting with `claude` is checked with Anthropic's rules, anything else with OpenAI's. The error envelope stays the one the endpoint speaks, which is what Anthropic's OpenAI compatibility layer does: same shape, different message.
+
+Anthropic is stricter about the request shape: `response_format` must be `json_schema` with `strict: true`, and `json_object` returns a 400. Its schema rules also reject `oneOf`, numeric and string constraints, array constraints beyond `minItems` 0 or 1, and external references.
+
+The native Anthropic Messages endpoint (`/v1/messages` with `output_config.format`) is not served yet.
 
 Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
 
