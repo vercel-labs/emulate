@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialectForModel, schemaFailure } from "../schema-dialects.js";
+import type { JsonSchema } from "../types.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -29,11 +30,11 @@ beforeEach(async () => {
   expect(reset.status).toBe(200);
 });
 
-function objectWith(trip: Record<string, unknown>): Record<string, unknown> {
-  return { type: "object", properties: { trip }, required: ["trip"], additionalProperties: false };
+function objectWith(trip: Record<string, unknown>): JsonSchema {
+  return { type: "object", properties: { trip }, required: ["trip"], additionalProperties: false } as JsonSchema;
 }
 
-function schema(keyword: string): Record<string, unknown> {
+function schema(keyword: string): JsonSchema {
   return objectWith({ [keyword]: [{ type: "string" }, { type: "number" }] });
 }
 
@@ -46,7 +47,7 @@ async function chat(body: unknown): Promise<{ status: number; json: Record<strin
   return { status: response.status, json: (await response.json()) as Record<string, any> };
 }
 
-function chatBody(schemaValue: Record<string, unknown>, strict?: boolean): Record<string, unknown> {
+function chatBody(schemaValue: JsonSchema, strict?: boolean): Record<string, unknown> {
   return {
     model: "gpt-4o-mini",
     messages: [{ role: "user", content: "hello" }],
@@ -140,7 +141,7 @@ describe("anthropic schema dialect", () => {
 });
 
 describe("anthropic rules on the OpenAI wire", () => {
-  function claudeBody(schemaValue: Record<string, unknown>, strict?: boolean) {
+  function claudeBody(schemaValue: JsonSchema, strict?: boolean) {
     const body = chatBody(schemaValue, strict);
     body.model = "claude-opus-5-5";
     return body;
