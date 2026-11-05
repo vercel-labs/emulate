@@ -139,7 +139,7 @@ Reply events:
 - `reasoning` — `{ type: reasoning, text }`, Responses only
 - `refusal` — `{ type: refusal, text }`, native refusal shape
 
-A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and calls walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`. A fault disconnects or stalls a stream after a counted number of content chunks.
+A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and calls walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. A variant holds either `reply` or `error`, and SDK retries spend the next variant. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 ## Defaults
 
