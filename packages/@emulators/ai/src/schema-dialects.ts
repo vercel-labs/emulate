@@ -1,6 +1,9 @@
 import { AiRequestError } from "./errors.js";
 import type { Json, JsonSchema } from "./types.js";
 
+/** Which provider's structured output rules apply to a request. */
+export type SchemaDialect = "openai" | "anthropic";
+
 interface Violation {
   keyword: string;
   path: string[];
@@ -27,6 +30,11 @@ const ANTHROPIC_REJECTED = [
   "minContains",
   "maxContains",
 ];
+
+/** Picks the provider rules from the model name, the way an OpenAI-compatible gateway does. */
+export function dialectForModel(model: string): SchemaDialect {
+  return /^claude/i.test(model) ? "anthropic" : "openai";
+}
 
 function record(value: Json | undefined): value is Record<string, Json> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,21 +90,22 @@ function contextOf(path: string[]): string {
   return `(${path.map((key) => `'${key}'`).join(", ")})`;
 }
 
-/** Rejects schema keywords OpenAI does not accept in strict structured output, using its error text. */
-export function assertOpenAiSchema(schema: JsonSchema, name: string, param = "response_format"): void {
-  const violation = findViolation(schema, OPENAI_REJECTED);
-  if (!violation) return;
-  throw new AiRequestError(
-    `Invalid schema for response_format '${name}': In context=${contextOf(violation.path)}, '${violation.keyword}' is not permitted.`,
-    param,
-  );
-}
-
-/** Describes an Anthropic structured output rejection, or null when the schema is acceptable. */
-export function anthropicSchemaMessage(schema: JsonSchema): string | null {
+/** Describes why a schema is rejected, in the wording the provider uses, or null when it is acceptable. */
+export function schemaFailure(dialect: SchemaDialect, schema: JsonSchema, name: string): string | null {
+  if (dialect === "openai") {
+    const violation = findViolation(schema, OPENAI_REJECTED);
+    if (!violation) return null;
+    return `Invalid schema for response_format '${name}': In context=${contextOf(violation.path)}, '${violation.keyword}' is not permitted.`;
+  }
   const violation = findViolation(schema, ANTHROPIC_REJECTED);
   if (!violation) return null;
   return violation.type === undefined
-    ? `output_config.format.schema: Schema type '${violation.keyword}' is not supported`
-    : `output_config.format.schema: For '${violation.type}' type, property '${violation.keyword}' is not supported`;
+    ? `Schema type '${violation.keyword}' is not supported`
+    : `For '${violation.type}' type, property '${violation.keyword}' is not supported`;
+}
+
+/** Throws the provider's schema rejection in the caller's error envelope. */
+export function assertSchemaSupported(dialect: SchemaDialect, schema: JsonSchema, name: string, param: string): void {
+  const message = schemaFailure(dialect, schema, name);
+  if (message) throw new AiRequestError(message, param);
 }
