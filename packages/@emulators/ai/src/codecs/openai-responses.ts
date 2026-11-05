@@ -35,6 +35,7 @@ import type { Codec, CodecContext, Decoded } from "../codec.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
 import { decodeResponsesAttachment } from "../attachments.js";
 import type { SseFrame } from "../sse.js";
+import { payloadChunks, textChunks } from "../chunks.js";
 import type { AiState } from "../state.js";
 import type {
   AIRequest,
@@ -766,12 +767,6 @@ function preparedFor(reply: Reply, decoded: Decoded, ctx: CodecContext): Prepare
   return prepared;
 }
 
-function chunkText(value: string): string[] {
-  if (value.length === 0) return [];
-  const chunks = value.match(/\s*\S+\s*/g);
-  return chunks && chunks.length > 0 ? chunks : [value];
-}
-
 function chunkArguments(value: string): string[] {
   const chunks: string[] = [];
   for (let index = 0; index < value.length; index += 16) chunks.push(value.slice(index, index + 16));
@@ -831,7 +826,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
             sequence_number: 0,
           };
           add(partAdded);
-          for (const delta of chunkText(part.text)) {
+          for (const delta of payloadChunks(part.text)) {
             const event: ResponseTextDeltaEvent = {
               type: "response.output_text.delta",
               item_id: item.id,
@@ -873,7 +868,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
             sequence_number: 0,
           };
           add(partAdded);
-          for (const delta of chunkText(refusalPart.refusal)) {
+          for (const delta of textChunks(refusalPart.refusal)) {
             const event: ResponseRefusalDeltaEvent = {
               type: "response.refusal.delta",
               item_id: item.id,
@@ -968,7 +963,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
         sequence_number: 0,
       };
       add(partAdded);
-      for (const delta of chunkText(summary.text)) {
+      for (const delta of textChunks(summary.text)) {
         const event: ResponseReasoningSummaryTextDeltaEvent = {
           type: "response.reasoning_summary_text.delta",
           item_id: reasoning.id,
