@@ -1,5 +1,5 @@
 import type { Store } from "@emulators/core";
-import { assertOpenAiSchema } from "../schema-dialects.js";
+import { assertSchemaSupported } from "../schema-dialects.js";
 import type {
   Response as OpenAIResponse,
   ResponseCompletedEvent,
@@ -481,7 +481,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       : requireBoolean(raw.parallel_tool_calls, "parallel_tool_calls");
   const output = decodeOutput(raw.text);
   if (output?.kind === "json_schema" && output.strict === true) {
-    assertOpenAiSchema(output.schema, output.name ?? "response", "text.format");
+    assertSchemaSupported("openai", output.schema, output.name ?? "response", "text.format");
   }
   const reasoning = decodeReasoning(raw.reasoning);
   const metadata = decodeMetadata(raw.metadata);
