@@ -67,15 +67,12 @@ export function decide(store: Store, request: AIRequest): Outcome {
 
   if ("rule" in match) {
     const { rule, snapshot } = match;
-    if (rule.error) return { kind: "error", matched: snapshot, failure: rule.error };
+    const variant = rule.variants?.[variantIndex(state.config.random.seed, rule.id, state.callSeq, rule.variants.length)];
+    const failure = variant && "error" in variant ? variant.error : rule.error;
+    if (failure) return { kind: "error", matched: snapshot, failure };
 
-    const chosen = rule.variants
-      ? {
-          ...rule,
-          reply: rule.variants[variantIndex(state.config.random.seed, rule.id, state.callSeq, rule.variants.length)],
-        }
-      : rule;
-    const events = ruleEvents(chosen, () => makeId("call"));
+    const reply = variant && "reply" in variant ? variant.reply : rule.reply;
+    const events = ruleEvents({ ...rule, reply }, () => makeId("call"));
     return {
       kind: "reply",
       matched: snapshot,
