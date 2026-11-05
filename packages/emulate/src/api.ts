@@ -22,6 +22,7 @@ import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { resolveBaseUrl } from "./base-url.js";
+import { aiNetworkWarning, isLoopbackHost } from "./ai-network.js";
 
 export interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
@@ -155,11 +156,13 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
     fetch: (request) => (handler ? handler(request) : new Response("Starting", { status: 503 })),
     port,
     hostname: options.hostname,
+    abortOnClose: loaded.plugin.abortOnClose,
   });
   try {
     await waitForListening(httpServer);
     const address = httpServer.address();
     const actualPort = address && typeof address === "object" ? address.port : port;
+    const boundAddress = address && typeof address === "object" ? address.address : undefined;
 
     const tokens: Record<string, { login: string; id: number; scopes?: string[] }> = {};
     if (seedConfig?.tokens) {
@@ -210,6 +213,9 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
     seed();
 
     handler = app.fetch;
+    if (service === "ai" && boundAddress !== undefined && !isLoopbackHost(boundAddress)) {
+      console.warn(`Warning: ${aiNetworkWarning(boundAddress)}`);
+    }
     let closing: Promise<void> | undefined;
 
     return {

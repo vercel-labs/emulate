@@ -379,3 +379,18 @@ twilio:
   conversations:
     services:
       - friendly_name: Local Conversations
+
+ai:
+  strict: false
+  timing:
+    ttftMs: 0
+    chunkDelayMs: 0
+  models:
+    - gpt-x
+  rules:
+    - id: greeting
+      match:
+        textContains: hello
+      reply:
+        - type: text
+          text: Hello from the emulate AI service.

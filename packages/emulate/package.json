@@ -59,6 +59,7 @@
     "yaml": "^2"
   },
   "devDependencies": {
+    "@emulators/ai": "workspace:*",
     "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
     "@emulators/apple": "workspace:*",
