@@ -250,6 +250,14 @@ curl http://localhost:4001/users/octocat/hovercard
 curl http://localhost:4001/user/emails -H "Authorization: Bearer $TOKEN"
 ```
 
+GPG key endpoints support authenticated create/list/get/delete and public user listing with pagination. Uploaded public keys are parsed with OpenPGP.js, duplicate fingerprints return HTTP 422, and only the owner can read or delete an authenticated key resource. Responses retain the armored `raw_key`, parsed key IDs, email identities, and subkey material. Email verification reflects the seeded user's email; OAuth scope enforcement, secondary verified emails, and GitHub commit-verification verdicts are not simulated.
+
+- `GET /user/gpg_keys` - list the authenticated user's GPG keys
+- `POST /user/gpg_keys` - upload an armored public GPG key
+- `GET /user/gpg_keys/:gpg_key_id` - get an owned GPG key
+- `DELETE /user/gpg_keys/:gpg_key_id` - delete an owned GPG key
+- `GET /users/:username/gpg_keys` - list public GPG keys
+
 ### Repositories
 
 ```bash

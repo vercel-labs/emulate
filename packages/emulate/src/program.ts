@@ -59,6 +59,8 @@ Custom emulators:
   Docs: https://emulate.dev/docs/custom-emulators
 
 GitHub API coverage:
+  GPG keys support authenticated create/list/get/delete and public paginated lists, backed by parsed public keys.
+  GPG scope enforcement, secondary verified emails, and commit-verification verdicts are not simulated.
   User ID lookup and requested-reviewer listing use stored identities; removals emit review_request_removed.
   Requests reject the PR author; submitted reviews clear that user request while drafts retain it.
   Commit statuses support create, paginated history by ref, and signed status webhooks; combined summaries are not implemented.

@@ -555,3 +555,27 @@ export interface GitHubOAuthGrant extends Entity {
   scopes: string[];
   org_access: Record<string, "granted" | "denied" | "requested">;
 }
+
+/** Parsed public GPG key material shared by the primary key and its subkeys. */
+export interface GitHubGpgKeyMaterial {
+  key_id: string;
+  public_key: string;
+  can_sign: boolean;
+  can_encrypt_comms: boolean;
+  can_encrypt_storage: boolean;
+  can_certify: boolean;
+  created_at: string;
+  expires_at: string | null;
+  revoked: boolean;
+}
+
+/** A user's uploaded GPG key, retained in snapshots with the rest of the GitHub state. */
+export interface GitHubGpgKey extends Entity, GitHubGpgKeyMaterial {
+  user_id: number;
+  fingerprint: string;
+  name: string | null;
+  primary_key_id: number | null;
+  raw_key: string;
+  emails: Array<{ email: string; verified: boolean }>;
+  subkeys: GitHubGpgKeyMaterial[];
+}
