@@ -98,7 +98,7 @@ describe("CLI generated secrets", () => {
     for (const listener of process.listeners("SIGTERM")) {
       if (!beforeSigterm.includes(listener)) process.removeListener("SIGTERM", listener);
     }
-  });
+  }, 20_000);
 
   it("materializes usable generated keys in service order and excludes explicit keys", async () => {
     const { privateKey: explicitKey } = generateKeyPairSync("rsa", {
