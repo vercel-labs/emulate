@@ -664,6 +664,9 @@ importers:
 
   packages/@emulators/github:
     dependencies:
+      '@peculiar/ssh':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@emulators/core':
         specifier: workspace:*
         version: link:../core
@@ -975,6 +978,13 @@ importers:
         version: 7.0.2
 
 packages:
+
+  '@peculiar/ssh@3.0.0':
+    resolution: {integrity: sha512-CaaxFtHwE6Is8Os7EzVxuc0YlgVLayLbKbqbawumy8A4umZ4CAzh/PT8mzTwO2f3ubl04UlrUhd7pXL6TxaA4w==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+
+  '@peculiar/utils@4.1.0':
+    resolution: {integrity: sha512-y2oDqAwp+VPZMUYFGFFMYlXM8xinwb7ehb69+2EhbEL+n7KsykCQX5F0u3/B+BFHxCkwTyft3T1id0ugyzNHVQ==}
 
   '@ai-sdk/gateway@3.0.93':
     resolution: {integrity: sha512-8D6C9eEvDq6IgrdlWzpbniahDkoLiieTCrpzH8p/Hw63/0iPnZJ1uZcqxHrDIVDW/+aaGhBXqmx5C7HSd2eMmQ==}
@@ -12139,6 +12149,12 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@peculiar/ssh@3.0.0':
+    dependencies:
+      '@peculiar/utils': 4.1.0
+
+  '@peculiar/utils@4.1.0': {}
 
   '@ai-sdk/gateway@3.0.93(zod@4.6.5)':
     dependencies:
