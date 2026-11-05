@@ -103,7 +103,7 @@ Resend API coverage:
   Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
 AI API coverage:
-  Serves OpenAI Responses and Chat Completions at any path prefix, unary and streamed.
+  Serves OpenAI Responses, Chat Completions, and Anthropic Messages at any path prefix, unary and streamed.
   Rules script text, structured output, tool calls, reasoning, refusals, errors, and stream faults.
   Rules may list reply variants; ai.random.seed makes the pick repeat on every run.
   ai.timing.chunkDelayMs accepts a list to vary the gap between frames, and structured output streams between JSON tokens.

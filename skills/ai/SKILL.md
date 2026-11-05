@@ -40,7 +40,7 @@ const ai = await createEmulator({
 
 ## Point Clients at the Emulator
 
-Any path prefix works, such as `/v1` or `/api/v1`. The format is selected from the end of the path, so `.../chat/completions` uses Chat Completions and `.../responses` uses Responses. API keys are accepted but never required, stored, or logged. Any model id is accepted and echoed back.
+Any path prefix works, such as `/v1` or `/api/v1`. The format is selected from the end of the path, so `.../chat/completions` uses Chat Completions, `.../responses` uses Responses, and `.../messages` uses Anthropic Messages. The Anthropic SDK appends `/v1/messages`, so point it at the origin without `/v1`. API keys are accepted but never required, stored, or logged. Any model id is accepted and echoed back.
 
 ### Official OpenAI SDK
 
@@ -175,7 +175,7 @@ ai:
 | Key             | Matches                                                                    |
 | --------------- | -------------------------------------------------------------------------- |
 | `model`         | Model id, with `*` wildcards                                               |
-| `format`        | `openai-chat` or `openai-responses`                                        |
+| `format`        | `openai-chat`, `openai-responses`, or `anthropic-messages`                 |
 | `stream`        | Boolean                                                                    |
 | `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results |
 | `tool`          | A declared tool name, with `*` wildcards                                   |
