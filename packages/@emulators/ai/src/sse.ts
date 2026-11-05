@@ -39,6 +39,15 @@ function formatFrame(frame: SseFrame): string {
   return `${lines.join("\n")}\n\n`;
 }
 
+/** Resolves the wait before a frame: `ttftMs` for the first, then `chunkDelayMs` by frame, repeating the last entry. */
+function frameDelay(timing: Timing, index: number): number {
+  if (index === 0) return timing.ttftMs;
+  const delayMs = timing.chunkDelayMs;
+  if (typeof delayMs === "number") return delayMs;
+  if (delayMs.length === 0) return 0;
+  return delayMs[Math.min(index - 1, delayMs.length - 1)];
+}
+
 /** Writes frames as a pull-based server-sent event response, paced by `timing` and stopped by `signal`. */
 export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Response {
   const encoder = new TextEncoder();
@@ -104,7 +113,7 @@ export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Respo
           }
         }
 
-        const wait = index === 0 ? timing.ttftMs : timing.chunkDelayMs;
+        const wait = frameDelay(timing, index);
         if (wait > 0) {
           const ready = await delay(wait, stop.signal);
           if (closed) return;

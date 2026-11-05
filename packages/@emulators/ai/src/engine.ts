@@ -21,6 +21,32 @@ function finishOf(events: ReplyEvent[]): FinishReason {
   return "stop";
 }
 
+function hashText(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  return hash;
+}
+
+/**
+ * Picks a variant from a seed-shuffled cycle, so every variant appears once per cycle of calls
+ * and the same seed and call ordinal always land on the same variant.
+ */
+function variantIndex(seed: number, ruleId: string, call: number, length: number): number {
+  if (length <= 1) return 0;
+  let state = (seed ^ hashText(ruleId)) >>> 0;
+  const order = Array.from({ length }, (_, index) => index);
+  for (let index = length - 1; index > 0; index -= 1) {
+    state = (Math.imul(state ^ (state >>> 15), 0x2c1b3c6d) + 0x297a2d39) >>> 0;
+    const swap = state % (index + 1);
+    const value = order[index];
+    order[index] = order[swap];
+    order[swap] = value;
+  }
+  return order[call % length];
+}
+
 function idFactory(state: AiState): (prefix: string) => string {
   return (prefix) => `${prefix}_${nextId(state)}`;
 }
@@ -43,7 +69,13 @@ export function decide(store: Store, request: AIRequest): Outcome {
     const { rule, snapshot } = match;
     if (rule.error) return { kind: "error", matched: snapshot, failure: rule.error };
 
-    const events = ruleEvents(rule, () => makeId("call"));
+    const chosen = rule.variants
+      ? {
+          ...rule,
+          reply: rule.variants[variantIndex(state.config.random.seed, rule.id, state.callSeq, rule.variants.length)],
+        }
+      : rule;
+    const events = ruleEvents(chosen, () => makeId("call"));
     return {
       kind: "reply",
       matched: snapshot,

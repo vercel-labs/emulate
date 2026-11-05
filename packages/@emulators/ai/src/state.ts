@@ -44,6 +44,7 @@ function defaultConfig(): AiConfig {
   return {
     strict: false,
     timing: { ttftMs: 0, chunkDelayMs: 0 },
+    random: { seed: 1 },
     models: [],
     rules: [],
   };
@@ -199,13 +200,15 @@ export function resetAiState(store: Store, config?: Partial<AiConfig>): AiState 
   state.generation += 1;
   state.controller.abort();
   state.controller = new AbortController();
+  const chunkDelayMs = config?.timing?.chunkDelayMs ?? 0;
   const timing: Timing = {
     ttftMs: config?.timing?.ttftMs ?? 0,
-    chunkDelayMs: config?.timing?.chunkDelayMs ?? 0,
+    chunkDelayMs: Array.isArray(chunkDelayMs) ? [...chunkDelayMs] : chunkDelayMs,
   };
   setAiConfig(state, {
     strict: config?.strict ?? false,
     timing,
+    random: { seed: config?.random?.seed ?? 1 },
     models: [...(config?.models ?? [])],
     rules: [...(config?.rules ?? [])],
   });

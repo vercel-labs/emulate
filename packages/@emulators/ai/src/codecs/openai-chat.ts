@@ -7,6 +7,7 @@ import type {
 import type { CompletionUsage } from "openai/resources/completions";
 import type { ErrorObject } from "openai/resources/shared";
 import { decodeChatAttachment } from "../attachments.js";
+import { jsonChunks, textChunks } from "../chunks.js";
 import type { Codec, CodecContext, Decoded } from "../codec.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
 import type { SseFrame } from "../sse.js";
@@ -431,22 +432,6 @@ function chunk(
   };
 }
 
-function textChunks(text: string): string[] {
-  if (text.length === 0) return [];
-  const chunks: string[] = [];
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    if (!/\s/.test(text[index])) continue;
-    let end = index;
-    while (end < text.length && /\s/.test(text[end])) end += 1;
-    chunks.push(text.slice(start, end));
-    start = end;
-    index = end - 1;
-  }
-  if (start < text.length) chunks.push(text.slice(start));
-  return chunks;
-}
-
 function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFrame[] {
   const { includeUsage } = decoded.extras as unknown as ChatExtras;
   const id = ctx.makeId("chatcmpl");
@@ -461,7 +446,8 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
       case "text":
       case "object": {
         const text = event.type === "text" ? event.text : JSON.stringify(event.value);
-        for (const piece of textChunks(text)) {
+        const pieces = event.type === "text" ? textChunks(text) : jsonChunks(text);
+        for (const piece of pieces) {
           frames.push({
             data: chunk(id, model, { content: piece }, null, includeUsage),
             content: piece,
