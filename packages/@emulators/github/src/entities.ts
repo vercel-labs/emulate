@@ -579,3 +579,11 @@ export interface GitHubGpgKey extends Entity, GitHubGpgKeyMaterial {
   emails: Array<{ email: string; verified: boolean }>;
   subkeys: GitHubGpgKeyMaterial[];
 }
+
+/** A user's public SSH signing key, stored separately from SSH authentication keys. */
+export interface GitHubSshSigningKey extends Entity {
+  user_id: number;
+  fingerprint: string;
+  key: string;
+  title: string;
+}
