@@ -3,7 +3,7 @@ import { defaultReply, estimateUsage, latestUserText, strictMissFailure } from "
 import { AiRequestError } from "./errors.js";
 import { matchRule, ruleEvents } from "./rules.js";
 import { getAiState, nextId, type AiState } from "./state.js";
-import type { AIRequest, FinishReason, Outcome, ReplyEvent } from "./types.js";
+import type { AIRequest, FinishReason, Outcome, ReplyEvent, Rule } from "./types.js";
 
 function defaultKind(request: AIRequest): string {
   if (request.toolChoice === "required" || typeof request.toolChoice === "object") return "forced_tool";
@@ -33,6 +33,28 @@ function hashText(value: string): number {
  * Picks a variant from a seed-shuffled cycle, so every variant appears once per cycle of calls
  * and the same seed and call ordinal always land on the same variant.
  */
+/** Builds the rule body for this call, folding the seeded variant over the rule-level defaults. */
+function applyVariant(rule: Rule, state: AiState): Rule {
+  const variants = rule.variants;
+  if (!variants || variants.length === 0) return rule;
+  const variant = variants[variantIndex(state.config.random.seed, rule.id, state.callSeq, variants.length)];
+  if (!variant) return rule;
+
+  const finish = variant.finish ?? rule.finish;
+  const fault = variant.fault ?? rule.fault;
+  const timing = rule.timing || variant.timing ? { ...rule.timing, ...variant.timing } : undefined;
+  return {
+    id: rule.id,
+    match: rule.match,
+    ...(rule.times === undefined ? {} : { times: rule.times }),
+    ...(variant.reply === undefined ? {} : { reply: variant.reply }),
+    ...(variant.error === undefined ? {} : { error: variant.error }),
+    ...(finish === undefined ? {} : { finish }),
+    ...(timing === undefined ? {} : { timing }),
+    ...(fault === undefined ? {} : { fault }),
+  };
+}
+
 function variantIndex(seed: number, ruleId: string, call: number, length: number): number {
   if (length <= 1) return 0;
   let state = (seed ^ hashText(ruleId)) >>> 0;
@@ -66,13 +88,11 @@ export function decide(store: Store, request: AIRequest): Outcome {
   const match = matchRule(state.config, state.budgets, request);
 
   if ("rule" in match) {
-    const { rule, snapshot } = match;
-    const variant = rule.variants?.[variantIndex(state.config.random.seed, rule.id, state.callSeq, rule.variants.length)];
-    const failure = variant && "error" in variant ? variant.error : rule.error;
-    if (failure) return { kind: "error", matched: snapshot, failure };
+    const { snapshot } = match;
+    const rule = applyVariant(match.rule, state);
+    if (rule.error) return { kind: "error", matched: snapshot, failure: rule.error };
 
-    const reply = variant && "reply" in variant ? variant.reply : rule.reply;
-    const events = ruleEvents({ ...rule, reply }, () => makeId("call"));
+    const events = ruleEvents(rule, () => makeId("call"));
     return {
       kind: "reply",
       matched: snapshot,
