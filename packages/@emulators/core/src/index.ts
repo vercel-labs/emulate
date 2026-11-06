@@ -70,6 +70,7 @@ export {
   renderErrorPage,
   renderSettingsPage,
   renderInspectorPage,
+  renderJsonDetails,
   renderFormPostPage,
   renderCheckoutPage,
   renderUserButton,
