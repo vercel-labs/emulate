@@ -6,6 +6,7 @@ import {
   type EmulatorDefinition,
   type CustomRuntime,
   type CustomRuntimeOptions,
+  type RequestLogEntry,
 } from "@emulators/core";
 import type { Server } from "node:http";
 export {
@@ -49,6 +50,8 @@ export interface Emulator {
   url: string;
   readonly generatedSecrets: readonly GeneratedSecret[];
   reset(): void;
+  requests(): RequestLogEntry[];
+  clearRequests(): void;
   close(): Promise<void>;
 }
 
@@ -192,7 +195,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
 
     const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-    const { app, store, webhooks, tokenMap } = createServer(loaded.plugin, {
+    const { app, store, webhooks, tokenMap, requestLog } = createServer(loaded.plugin, {
       port,
       baseUrl,
       tokens,
@@ -222,6 +225,12 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
         store.reset();
         webhooks.clear();
         seed();
+      },
+      requests(): RequestLogEntry[] {
+        return [...requestLog];
+      },
+      clearRequests(): void {
+        requestLog.length = 0;
       },
       close(): Promise<void> {
         return (closing ??= closeHttpServer(httpServer));
