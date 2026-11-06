@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@emulators/core": "workspace:*",
-    "@peculiar/ssh": "^3.0.0",
     "graphql": "^17.0.0",
     "openpgp": "^6.3.2"
   },
