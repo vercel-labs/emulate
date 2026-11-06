@@ -31,7 +31,7 @@
   ],
   "scripts": {
     "build": "tsup --clean",
-    "dev": "tsup --watch",
+    "dev": "tsup --watch src",
     "clean": "rm -rf dist .turbo",
     "test": "vitest run",
     "type-check": "tsc --noEmit",
