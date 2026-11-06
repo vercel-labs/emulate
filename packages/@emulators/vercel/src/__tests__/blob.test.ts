@@ -88,6 +88,10 @@ beforeAll(async () => {
   });
   restoreFetch = () => fetchSpy.mockRestore();
 
+  // The first read-write token for a store registers it, so client tokens
+  // signed with that token verify even when a test runs on its own.
+  await list({ token });
+
   closeServer = () =>
     new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
@@ -624,7 +628,7 @@ describe("Vercel Blob browser client tokens", () => {
     "x-add-random-suffix": "0",
   };
 
-  it.fails("accepts a signed browser token without a store-id override", async () => {
+  it("accepts a signed browser token without a store-id override", async () => {
     const pathname = "client/valid.txt";
     const clientToken = await generateClientTokenFromReadWriteToken({
       token,
@@ -642,7 +646,7 @@ describe("Vercel Blob browser client tokens", () => {
     expect(await (await fetch(uploaded.url)).text()).toBe("browser bytes");
   });
 
-  it.fails.each([
+  it.each([
     {
       name: "expired token",
       options: { validUntil: 1 },
@@ -696,7 +700,7 @@ describe("Vercel Blob browser client tokens", () => {
     await expect(head(pathname, { token })).rejects.toBeInstanceOf(BlobNotFoundError);
   });
 
-  it.fails("rejects a browser token signed with the wrong store secret", async () => {
+  it("rejects a browser token signed with the wrong store secret", async () => {
     const pathname = "client/forged.txt";
     const clientToken = await generateClientTokenFromReadWriteToken({
       token: "vercel_blob_rw_teststore_wrong",
@@ -712,7 +716,7 @@ describe("Vercel Blob browser client tokens", () => {
     await expect(head(pathname, { token })).rejects.toBeInstanceOf(BlobNotFoundError);
   });
 
-  it.fails("does not let request headers override signed upload options", async () => {
+  it("does not let request headers override signed upload options", async () => {
     const pathname = "client/signed-options.txt";
     const clientToken = await generateClientTokenFromReadWriteToken({
       token,
@@ -732,7 +736,7 @@ describe("Vercel Blob browser client tokens", () => {
     expect((await head(uploaded.url, { token })).cacheControl).toBe("public, max-age=120");
   });
 
-  it.fails("delivers an authenticated upload-completed callback with its token payload", async () => {
+  it("delivers an authenticated upload-completed callback with its token payload", async () => {
     const pathname = "client/callback.txt";
     const clientToken = await generateClientTokenFromReadWriteToken({
       token,
@@ -798,31 +802,31 @@ describe("Vercel Blob browser multipart and permissions", () => {
       .toMatchObject({ tokenPayload: "multipart-fixture" });
   });
 
-  it.fails.each(["list", "delete", "signed-token"])(
-    "does not authorize %s with an upload-only client token",
-    async (operation) => {
-      const clientToken = await generateClientTokenFromReadWriteToken({
-        token,
-        pathname: "client/permissions.txt",
-        validUntil: Date.now() + 60_000,
-      });
-      const response = await fetch(operation === "list" ? apiUrl : `${apiUrl}/${operation}`, {
-        method: operation === "list" ? "GET" : "POST",
-        headers: {
-          authorization: `Bearer ${clientToken}`,
-          "x-api-version": "12",
-          "x-vercel-blob-store-id": storeId,
-          "content-type": "application/json",
-        },
-        body:
-          operation === "list"
-            ? undefined
-            : JSON.stringify(operation === "delete" ? { urls: ["client/permissions.txt"] } : {}),
-      });
-      expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ error: { code: "client_token_not_allowed" } });
-    },
-  );
+  const rejectsClientToken = async (operation: string) => {
+    const clientToken = await generateClientTokenFromReadWriteToken({
+      token,
+      pathname: "client/permissions.txt",
+      validUntil: Date.now() + 60_000,
+    });
+    const response = await fetch(operation === "list" ? apiUrl : `${apiUrl}/${operation}`, {
+      method: operation === "list" ? "GET" : "POST",
+      headers: {
+        authorization: `Bearer ${clientToken}`,
+        "x-api-version": "12",
+        "x-vercel-blob-store-id": storeId,
+        "content-type": "application/json",
+      },
+      body:
+        operation === "list"
+          ? undefined
+          : JSON.stringify(operation === "delete" ? { urls: ["client/permissions.txt"] } : {}),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "client_token_not_allowed" } });
+  };
+
+  it.each(["list", "delete"])("does not authorize %s with an upload-only client token", rejectsClientToken);
+  it.fails.each(["signed-token"])("does not authorize %s with an upload-only client token", rejectsClientToken);
 });
 
 describe("Vercel Blob rename", () => {
@@ -1448,7 +1452,7 @@ describe("Vercel Blob browser preflight and versioned responses", () => {
 });
 
 describe("Vercel Blob credential verification", () => {
-  it.fails("rejects a read-write token with an incorrect secret", async () => {
+  it("rejects a read-write token with an incorrect secret", async () => {
     const uploaded = await put("auth/secret-check.txt", "private metadata", { access: "public", token });
     const response = await fetch(`${apiUrl}?url=${encodeURIComponent(uploaded.url)}`, {
       headers: { authorization: "Bearer vercel_blob_rw_teststore_wrong", "x-api-version": "12" },
@@ -1457,7 +1461,7 @@ describe("Vercel Blob credential verification", () => {
     expect(await response.json()).toMatchObject({ error: { code: "forbidden" } });
   });
 
-  it.fails("does not authenticate an arbitrary bearer token via a store-id header", async () => {
+  it("does not authenticate an arbitrary bearer token via a store-id header", async () => {
     const response = await fetch(apiUrl, {
       headers: { authorization: "Bearer not-an-oidc-token", "x-vercel-blob-store-id": storeId, "x-api-version": "12" },
     });

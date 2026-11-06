@@ -58,7 +58,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 
 ## Blob
 
-Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`).
+Implements the Vercel Blob API used by the `@vercel/blob` SDK (`put`, `head`, `list`, `del`, `copy`) and browser client uploads (`upload()` with `handleUpload()`).
 
 - `PUT /api/blob?pathname=<path>` - upload a blob (honors `x-add-random-suffix`, `x-allow-overwrite`, `x-content-type`, `x-cache-control-max-age`, `x-if-match` headers)
 - `PUT /api/blob?pathname=<path>&fromUrl=<url>` - copy a blob (`copy()`); `x-if-match` is compared with the source blob's ETag, and an existing destination is always replaced
@@ -82,4 +82,39 @@ VERCEL_BLOB_API_URL=http://localhost:4000/api/blob
 BLOB_READ_WRITE_TOKEN=vercel_blob_rw_mystore_secret
 ```
 
-Any token of the form `vercel_blob_rw_<storeId>_<secret>` is accepted; the store id is parsed from the token. Multipart uploads can be created, but uploading parts and completing the upload are not supported yet and return 400. Client (browser) uploads are not supported yet.
+Any token of the form `vercel_blob_rw_<storeId>_<secret>` works without setup. The first time the emulator sees a store id it registers the store with that exact token, and from then on only that token is accepted for the store (another secret returns 403 `Token mismatch`). This auto-registration is an emulator convenience; the real service only accepts tokens issued for an existing store.
+
+Authentication rules:
+
+- Read-write (`vercel_blob_rw_`) and client (`vercel_blob_client_`) tokens carry their store id, so `x-vercel-blob-store-id` is ignored for them.
+- Any other bearer token is treated as an OIDC token for the store named by `x-vercel-blob-store-id` (403 `Missing store id` without it). OIDC tokens cannot be verified offline, so the emulator accepts the literal `local-oidc-token` and any JWT-shaped token (three base64url segments) without checking it, and rejects anything else with 403 `Invalid token`. OIDC stores do not need to be registered first.
+- Client tokens can only upload (single PUT and multipart create, upload and complete); any other operation returns 403 `client_token_not_allowed`. A client token for an unregistered store returns 404 `store_not_found`, a malformed one 400 `Invalid client token`, an expired one 403 `Token expired`, and one not signed by the store's read-write token 403 `Token mismatch`.
+- Requests without a bearer token return 403. Blob content under `/blob/...` stays public and unauthenticated.
+
+Browser uploads work with `upload()` from `@vercel/blob/client` and `handleUpload()` on your server. Set `NEXT_PUBLIC_VERCEL_BLOB_API_URL` so the browser SDK talks to the emulator too. The options signed into the client token (`addRandomSuffix`, `cacheControlMaxAge`, `allowOverwrite`, `ifMatch`) replace the matching request headers, and the upload is rejected with 403 when its pathname (before any random suffix), content type (`allowedContentTypes`, including `type/*` wildcards) or body size (`maximumSizeInBytes`) does not match the token.
+
+After a successful client upload, the emulator POSTs a `blob.upload-completed` event with the uploaded blob and the token's `tokenPayload` to the token's `callbackUrl`. The body is signed with HMAC-SHA256 keyed by the store's read-write token (`x-vercel-signature`, with `x-vercel-signature-type: rw_token`), so `handleUpload()` verifies it and runs `onUploadCompleted`. The callback is sent in the background to the URL exactly as given, so local `http://` URLs work, and a failing callback never fails the upload.
+
+```typescript
+// Server route that issues client tokens and receives the completion callback
+import { handleUpload } from '@vercel/blob/client'
+
+export async function POST(request: Request) {
+  const result = await handleUpload({
+    request,
+    body: await request.json(),
+    onBeforeGenerateToken: async () => ({ allowedContentTypes: ['image/*'], maximumSizeInBytes: 1_000_000 }),
+    onUploadCompleted: async ({ blob, tokenPayload }) => {
+      // runs when the emulator delivers blob.upload-completed
+    },
+  })
+  return Response.json(result)
+}
+
+// Browser
+import { upload } from '@vercel/blob/client'
+
+const blob = await upload('avatars/user.png', file, { access: 'public', handleUploadUrl: '/api/upload' })
+```
+
+Multipart uploads can be created, but uploading parts and completing the upload are not supported yet and return 400.
