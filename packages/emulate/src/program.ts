@@ -59,8 +59,7 @@ Custom emulators:
   Docs: https://emulate.dev/docs/custom-emulators
 
 GitHub API coverage:
-  GPG and SSH signing keys support authenticated create/list/get/delete and public paginated lists.
-  SSH signing keys support Ed25519, RSA and NIST ECDSA; authentication keys and certificates are not simulated.
+  GPG keys support authenticated create/list/get/delete and public paginated lists, backed by parsed public keys.
   GPG scope enforcement, secondary verified emails, and commit-verification verdicts are not simulated.
   User ID lookup and requested-reviewer listing use stored identities; removals emit review_request_removed.
   Requests reject the PR author; submitted reviews clear that user request while drafts retain it.
