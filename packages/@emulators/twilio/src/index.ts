@@ -276,3 +276,5 @@ export const twilioPlugin: ServicePlugin = {
 };
 
 export default twilioPlugin;
+
+export { hosts } from "./hosts.js";

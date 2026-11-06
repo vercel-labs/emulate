@@ -300,3 +300,68 @@ describe("createEmulator", () => {
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");
   });
 });
+
+describe("createEmulator with listen: false", () => {
+  it("handles built-in requests in process without a port", async () => {
+    const github = await createEmulator({ service: "github", listen: false });
+
+    expect(github.url).toBe("http://github.localhost");
+    const res = await github.fetch(
+      new Request("http://anything.invalid/user", { headers: { Authorization: "token test_token_admin" } }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { login: string }).login).toBe("admin");
+
+    await github.close();
+  });
+
+  it("advertises the configured base URL in generated links", async () => {
+    const github = await createEmulator({
+      service: "github",
+      listen: false,
+      baseUrl: "https://api.github.com",
+      seed: { github: { users: [{ login: "octocat" }] } },
+    });
+
+    const res = await github.request("/users/octocat");
+    expect(res.status).toBe(200);
+    const user = (await res.json()) as { url: string; avatar_url: string };
+    expect(user.url).toBe("https://api.github.com/users/octocat");
+    expect(user.avatar_url.startsWith("https://api.github.com/")).toBe(true);
+
+    await github.close();
+  });
+
+  it("exposes the real provider host table", async () => {
+    const twilio = await createEmulator({ service: "twilio", listen: false });
+
+    expect(twilio.hosts).toContainEqual({ host: "verify.twilio.com", prefix: "/verify" });
+    expect(Object.isFrozen(twilio.hosts)).toBe(true);
+
+    await twilio.close();
+  });
+
+  it("resets state and rejects requests after close", async () => {
+    const github = await createEmulator({ service: "github", listen: false });
+    const auth = { Authorization: "token test_token_admin", "Content-Type": "application/json" };
+
+    const created = await github.request("/user/repos", {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ name: "scratch" }),
+    });
+    expect(created.status).toBe(201);
+
+    github.reset();
+    const repos = (await (await github.request("/user/repos", { headers: auth })).json()) as unknown[];
+    expect(repos).toHaveLength(0);
+
+    await github.close();
+    expect((await github.request("/user", { headers: auth })).status).toBe(503);
+  });
+
+  it("throws on unknown service", async () => {
+    // @ts-expect-error testing invalid service name
+    await expect(createEmulator({ service: "unknown-svc", listen: false })).rejects.toThrow("Unknown service");
+  });
+});

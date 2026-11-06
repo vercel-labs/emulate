@@ -227,3 +227,5 @@ export const vercelPlugin: ServicePlugin = {
 };
 
 export default vercelPlugin;
+
+export { hosts } from "./hosts.js";

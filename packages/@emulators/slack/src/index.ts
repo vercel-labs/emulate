@@ -569,3 +569,5 @@ function normalizeSeedProfile(profile: SlackUserProfile): SlackUserProfile {
     status_expiration: profile.status_expiration ?? 0,
   };
 }
+
+export { hosts } from "./hosts.js";
