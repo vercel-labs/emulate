@@ -1,6 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type {
   GitHubBranch,
@@ -465,7 +466,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     assertRepoAdmin(gh, c.get("authUser"), repo);
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const strict = typeof body.strict === "boolean" ? body.strict : (bp.required_status_checks?.strict ?? false);
     const contexts = Array.isArray(body.contexts)
       ? body.contexts.filter((x): x is string => typeof x === "string")
@@ -533,7 +534,7 @@ export function branchesAndGitRoutes({ app, store, webhooks, baseUrl }: RouteCon
     assertRepoAdmin(gh, c.get("authUser"), repo);
     const bp = gh.branchProtections.findBy("repo_id", repo.id).find((p) => p.branch_name === branch);
     if (!bp) throw notFoundResponse();
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const prev = bp.required_pull_request_reviews ?? {
       required_approving_review_count: 1,
       dismiss_stale_reviews: false,

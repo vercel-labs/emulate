@@ -927,7 +927,8 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 ### Organizations & Teams
 - Orgs: get, update, list
-- Org members: list, check, remove, get/set membership
+- Org members: list, check, remove, get/set/remove membership
+- Invitations: list, cancel, list an invitation's teams, list a team's invitations, get and accept your own (`/user/memberships/orgs/:org`)
 - Teams: full CRUD, members, repos
 
 ### Releases
@@ -937,7 +938,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 
 ### Webhooks
 - Repo webhooks: full CRUD, ping, test, deliveries
-- Org webhooks: full CRUD, ping
+- Org webhooks: full CRUD, ping. They receive events from every repository the organization owns as well as organization events, and payloads for an organization's repositories carry `organization`, as on GitHub
 - Real HTTP delivery to registered URLs on all state changes
 
 ### Search
@@ -964,6 +965,33 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 Check-run lists by ref and suite support `page` and `per_page` (default 30, maximum 100) with pagination `Link` headers. Ref lists apply `check_name`, `status`, and `filter` before pagination; `total_count` reports the full filtered count.
 
 Checks created with installation tokens include their GitHub App in API responses and webhooks. Suites are separated by App and commit, and `filter=latest` keeps the newest run for each App and check name. User-token checks return `app: null`; request-body `app_id` cannot set or change attribution.
+
+### GraphQL
+- `POST /graphql` and `GET /graphql` (also at `/api/graphql`, the GitHub Enterprise Server path)
+- `/api/v3/*` serves the REST routes under the GitHub Enterprise Server prefix
+- Queries: `viewer`, `user`, `organization`, `repositoryOwner`, `repository`, `node`, `nodes`, `search` (issues and pull requests), `rateLimit`
+- `Repository`: metadata, `defaultBranchRef`, `ref`, `pullRequest(number)`, `issueOrPullRequest(number)`, `pullRequests(states, headRefName, baseRefName, labels, orderBy)`, labels, milestones, assignable users
+- `PullRequest`: the fields `gh pr view --json` reads, including `state`, `isDraft`, `mergeable`, `mergeStateStatus`, `reviewDecision`, `commits`, `files`, `reviews`, `latestReviews`, `reviewRequests`, `comments`, `labels`, `assignees`, and `statusCheckRollup` built from check runs
+- Mutations: `createPullRequest`, `updatePullRequest`, `closePullRequest`, `reopenPullRequest`, `mergePullRequest`, `markPullRequestReadyForReview`, `convertPullRequestToDraft`, `addPullRequestReview`, `submitPullRequestReview`, `requestReviews`, `addComment`, `updateIssueComment`, `deleteIssueComment`, `addLabelsToLabelable`, `removeLabelsFromLabelable`, `lockLockable`, `unlockLockable`
+- Relay connections with opaque cursors, `pageInfo`, `edges`, `nodes`, and `totalCount`
+- Errors carry GitHub's `type` (`NOT_FOUND`, `FORBIDDEN`, `UNPROCESSABLE`)
+
+The schema is a subset of GitHub's public schema, so field names, arguments, and nullability match the real API. GraphQL and REST share one store: a pull request created through one API is visible through the other, and mutations fire the same webhooks as the matching REST calls.
+
+`gh` uses plain HTTP only for the host `github.localhost`. Advertise that host and route `gh` to the emulator with `HTTP_PROXY`:
+
+```bash
+npx emulate start --service github --port 4001 --base-url http://github.localhost
+export GH_HOST=github.localhost GH_TOKEN=test_token_admin HTTP_PROXY=http://127.0.0.1:4001
+gh pr create --repo admin/demo --head feature --title "Add feature" --body "Details"
+```
+
+`gh` reaches the emulator over HTTPS when it sits behind [portless](https://portless.sh), which also serves the GitHub Enterprise Server paths (`/api/graphql`, `/api/v3`). `gh` treats such a host as GitHub Enterprise and reads the token from `GH_ENTERPRISE_TOKEN`; with `GH_TOKEN` alone it gets a 401:
+
+```bash
+portless alias github-emulator 4001
+GH_HOST=github-emulator.localhost GH_ENTERPRISE_TOKEN=test_token_admin gh pr list --repo admin/demo
+```
 
 ### Misc
 - `GET /rate_limit` - rate limit status
@@ -1672,7 +1700,9 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Vercel**: All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
 
-**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. A token that isn't seeded or minted gets `401 Bad credentials` on every API route, public ones included, as on GitHub. Basic credentials carry a token when the password, or the username with an empty password, looks like a GitHub token (`ghp_`, `gho_`, `ghu_`, `ghs_`, `github_pat_`, or 40 hex characters) or is a seeded token, and that token is checked the same way. Any other Basic credentials are ignored, so a wrong password on a public route still gets a 200, as on GitHub. Writes follow GitHub's repository roles: anyone who can see a repository can open issues and pull requests, comment, and review; authors can edit, close, and reopen their own issues, pull requests, and comments; applying labels, assignees, milestones, and review requests needs triage; merging, pushing, and editing someone else's content need write. Pagination uses `page`/`per_page` with `Link` headers.
+
+Organization members get `default_repository_permission` on the organization's repositories (`read` unless set), owners (`role: admin`) are admins, and `teams` entries (`name`, `permission`, `members`, `repos`) add team grants. Organization owners and team maintainers manage teams, and adding a repository to a team needs admin on it. Adding a user who isn't an organization member to the organization or to a team creates a pending invitation, as on GitHub: the membership reads `state: pending` and grants nothing until the user accepts it with `PATCH /user/memberships/orgs/:org`. Only organization owners can invite to a team. Organization webhooks receive `organization` events (`member_invited`, `member_added` when an invitation is accepted, `member_removed`) and `membership` events (`added`, `removed`) for team changes, with GitHub's payload shapes.
 
 **Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued tokens. Configure clients in the seed config.
 

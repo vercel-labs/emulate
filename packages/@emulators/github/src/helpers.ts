@@ -10,6 +10,7 @@ import type {
   GitHubComment,
   GitHubRelease,
   GitHubTeam,
+  GitHubTeamRepo,
   GitHubBranch,
   GitHubCommit,
   GitHubCheckRun,
@@ -28,6 +29,7 @@ import type {
   GitHubApp,
 } from "./entities.js";
 import type { GitHubStore } from "./store.js";
+import type { WebhookDispatcher } from "@emulators/core";
 
 export function generateNodeId(type: string, id: number): string {
   return Buffer.from(`0:${type}${id}`).toString("base64").replace(/=+$/, "");
@@ -124,11 +126,36 @@ export function formatOwner(store: GitHubStore, ownerId: number, ownerType: stri
   if (ownerType === "Organization") {
     const org = store.orgs.get(ownerId);
     if (!org) return null;
-    return formatOrgBrief(org, baseUrl);
+    return formatOrgAccount(org, baseUrl);
   }
   const user = store.users.get(ownerId);
   if (!user) return null;
   return formatUser(user, baseUrl);
+}
+
+export function formatOrgAccount(org: GitHubOrg, baseUrl: string) {
+  const urls = userUrl(baseUrl, org.login);
+  return {
+    login: org.login,
+    id: org.id,
+    node_id: org.node_id,
+    avatar_url: `${baseUrl}/avatars/o/${org.login}`,
+    gravatar_id: "",
+    url: urls.url,
+    html_url: urls.html_url,
+    followers_url: urls.followers_url,
+    following_url: urls.following_url,
+    gists_url: urls.gists_url,
+    starred_url: urls.starred_url,
+    subscriptions_url: urls.subscriptions_url,
+    organizations_url: urls.organizations_url,
+    repos_url: urls.repos_url,
+    events_url: urls.events_url,
+    received_events_url: urls.received_events_url,
+    type: "Organization",
+    site_admin: false,
+    user_view_type: "public",
+  };
 }
 
 export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
@@ -137,7 +164,6 @@ export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
     id: org.id,
     node_id: org.node_id,
     url: `${baseUrl}/orgs/${org.login}`,
-    html_url: `${baseUrl}/${org.login}`,
     repos_url: `${baseUrl}/orgs/${org.login}/repos`,
     events_url: `${baseUrl}/orgs/${org.login}/events`,
     hooks_url: `${baseUrl}/orgs/${org.login}/hooks`,
@@ -146,46 +172,77 @@ export function formatOrgBrief(org: GitHubOrg, baseUrl: string) {
     public_members_url: `${baseUrl}/orgs/${org.login}/public_members{/member}`,
     avatar_url: `${baseUrl}/avatars/o/${org.login}`,
     description: org.description,
-    type: "Organization",
-    site_admin: false,
-    user_view_type: "public",
   };
 }
 
-function permissionsFromLevel(level: string) {
-  const levels = ["pull", "triage", "push", "maintain", "admin"];
-  const idx = levels.indexOf(level);
-  return {
-    admin: idx >= 4,
-    maintain: idx >= 3,
-    push: idx >= 2,
-    triage: idx >= 1,
-    pull: idx >= 0,
-  };
+const PERMISSION_LEVELS = ["pull", "triage", "push", "maintain", "admin"] as const;
+export type RepoPermissionLevel = (typeof PERMISSION_LEVELS)[number];
+
+export function isRepoPermissionLevel(value: unknown): value is RepoPermissionLevel {
+  return PERMISSION_LEVELS.includes(value as RepoPermissionLevel);
 }
 
-function computeRepoPermissions(store: GitHubStore, repo: GitHubRepo, authUserId: number) {
-  if (repo.owner_type === "User" && repo.owner_id === authUserId) {
-    return { admin: true, maintain: true, push: true, triage: true, pull: true };
-  }
-  if (repo.owner_type === "Organization") {
-    for (const team of store.teams.all()) {
-      if (team.org_id !== repo.owner_id) continue;
-      const member = store.teamMembers.findBy("team_id", team.id).find((m) => m.user_id === authUserId);
-      if (member) {
-        return { admin: true, maintain: true, push: true, triage: true, pull: true };
-      }
+function permissionRank(permission: string): number {
+  if (permission === "read") return 0;
+  if (permission === "write") return 2;
+  return PERMISSION_LEVELS.indexOf(permission as RepoPermissionLevel);
+}
+
+export function isOrgOwner(store: GitHubStore, orgId: number, userId: number): boolean {
+  return store.teamMembers.findBy("user_id", userId).some((membership) => {
+    const team = store.teams.get(membership.team_id);
+    return team?.org_id === orgId && team.slug === "members" && membership.role === "maintainer";
+  });
+}
+
+/** Rows stored before grants carried a permission fall back to the team's permission, as an empty PUT does. */
+export function teamRepoPermission(link: GitHubTeamRepo, team: GitHubTeam): RepoPermissionLevel {
+  return link.permission ?? (isRepoPermissionLevel(team.permission) ? team.permission : "pull");
+}
+
+/** Highest of: owner, org owner, the org base permission, team grants, and a collaborator role. */
+export function repoPermissionLevel(store: GitHubStore, repo: GitHubRepo, userId: number): RepoPermissionLevel | null {
+  if (repo.owner_type === "User") {
+    if (repo.owner_id === userId) return "admin";
+  } else {
+    if (isOrgOwner(store, repo.owner_id, userId)) return "admin";
+    const teams = store.teamMembers.findBy("user_id", userId).flatMap((membership) => {
+      const team = store.teams.get(membership.team_id);
+      return team?.org_id === repo.owner_id ? [team] : [];
+    });
+    let rank = -1;
+    if (teams.length) rank = permissionRank(store.orgs.get(repo.owner_id)?.default_repository_permission ?? "read");
+    for (const team of teams) {
+      const link = store.teamRepos.findBy("team_id", team.id).find((l) => l.repo_id === repo.id);
+      if (link) rank = Math.max(rank, permissionRank(teamRepoPermission(link, team)));
     }
+    const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === userId);
+    if (collab) rank = Math.max(rank, permissionRank(collab.permission));
+    return rank >= 0 ? PERMISSION_LEVELS[rank]! : null;
   }
-  const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === authUserId);
-  if (collab) {
-    return permissionsFromLevel(collab.permission);
-  }
-  if (!repo.private) {
-    return { admin: false, maintain: false, push: false, triage: false, pull: true };
-  }
-  return { admin: false, maintain: false, push: false, triage: false, pull: false };
+  const collab = store.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === userId);
+  return collab ? collab.permission : null;
 }
+
+/** A user's role on a repository, counting read access to any public repository. */
+export function repoAccessLevel(store: GitHubStore, repo: GitHubRepo, userId: number): RepoPermissionLevel | null {
+  return repoPermissionLevel(store, repo, userId) ?? (repo.private ? null : "pull");
+}
+
+export type RepoPermissions = Record<RepoPermissionLevel, boolean>;
+
+export function repoPermissionFlags(level: RepoPermissionLevel | null): RepoPermissions {
+  const rank = level ? permissionRank(level) : -1;
+  return { admin: rank >= 4, maintain: rank >= 3, push: rank >= 2, triage: rank >= 1, pull: rank >= 0 };
+}
+
+export const ROLE_NAMES: Record<RepoPermissionLevel, string> = {
+  pull: "read",
+  triage: "triage",
+  push: "write",
+  maintain: "maintain",
+  admin: "admin",
+};
 
 export function computeAuthorAssociation(store: GitHubStore, userId: number, repoId: number): string {
   const repo = store.repos.get(repoId);
@@ -210,6 +267,8 @@ export function computeAuthorAssociation(store: GitHubStore, userId: number, rep
 export function formatOrgFull(org: GitHubOrg, baseUrl: string) {
   return {
     ...formatOrgBrief(org, baseUrl),
+    html_url: `${baseUrl}/${org.login}`,
+    type: "Organization",
     name: org.name,
     company: org.company,
     blog: org.blog,
@@ -231,7 +290,8 @@ export function formatOrgFull(org: GitHubOrg, baseUrl: string) {
   };
 }
 
-export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string, authUserId?: number) {
+/** `permissions` is the caller's role; GitHub omits it for anonymous callers, installation tokens, and embedded repositories. */
+export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string, permissions?: RepoPermissions) {
   const owner = formatOwner(store, repo.owner_id, repo.owner_type, baseUrl);
   const ownerLogin = owner?.login ?? "unknown";
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
@@ -316,16 +376,7 @@ export function formatRepo(repo: GitHubRepo, store: GitHubStore, baseUrl: string
     open_issues: repo.open_issues_count,
     watchers: repo.watchers_count,
     default_branch: repo.default_branch,
-    permissions:
-      authUserId !== undefined
-        ? computeRepoPermissions(store, repo, authUserId)
-        : {
-            admin: true,
-            maintain: true,
-            push: true,
-            triage: true,
-            pull: true,
-          },
+    ...(permissions && { permissions }),
     allow_rebase_merge: repo.allow_rebase_merge,
     allow_squash_merge: repo.allow_squash_merge,
     allow_merge_commit: repo.allow_merge_commit,
@@ -369,11 +420,11 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     state: issue.state,
     state_reason: issue.state_reason,
     locked: issue.locked,
-    active_lock_reason: issue.active_lock_reason,
+    active_lock_reason: issue.active_lock_reason ?? null,
     assignee: assignees[0] ?? null,
     assignees,
     milestone: milestone ? formatMilestone(milestone, repo, store, baseUrl) : null,
-    comments: issue.comments,
+    comments: issueCommentCount(store, issue.repo_id, issue.number),
     created_at: issue.created_at,
     updated_at: issue.updated_at,
     closed_at: issue.closed_at,
@@ -383,6 +434,99 @@ export function formatIssue(issue: GitHubIssue, store: GitHubStore, baseUrl: str
     timeline_url: `${repoUrl}/issues/${issue.number}/timeline`,
     performed_via_github_app: null,
     author_association: computeAuthorAssociation(store, issue.user_id, issue.repo_id),
+  };
+}
+
+export function issueCommentCount(store: GitHubStore, repoId: number, number: number): number {
+  return store.comments.findBy("repo_id", repoId).filter((c) => c.comment_type === "issue" && c.issue_number === number)
+    .length;
+}
+
+export function reviewCommentCount(store: GitHubStore, repoId: number, number: number): number {
+  return store.comments.findBy("repo_id", repoId).filter((c) => c.comment_type === "review" && c.pull_number === number)
+    .length;
+}
+
+/** A change to an issue, or to a pull request through an issue route, fires the webhook GitHub sends for that kind. */
+export function dispatchIssueEvent(
+  store: GitHubStore,
+  webhooks: WebhookDispatcher,
+  baseUrl: string,
+  issue: GitHubIssue,
+  action: string,
+  payload: Record<string, unknown>,
+  owner: string,
+  repoName: string,
+) {
+  const pr = findPullForIssue(store, issue);
+  return pr
+    ? webhooks.dispatch(
+        "pull_request",
+        action,
+        { action, number: pr.number, pull_request: formatPullRequest(pr, store, baseUrl), ...payload },
+        owner,
+        repoName,
+      )
+    : webhooks.dispatch(
+        "issues",
+        action,
+        { action, issue: formatIssueOrPullRequest(issue, store, baseUrl), ...payload },
+        owner,
+        repoName,
+      );
+}
+
+/** Fields a pull request's own row owns; its issue row mirrors them. */
+export const PULL_REQUEST_FIELDS = [
+  "title",
+  "body",
+  "state",
+  "locked",
+  "active_lock_reason",
+  "assignee_ids",
+  "label_ids",
+  "milestone_id",
+  "closed_at",
+] as const;
+
+function isPullRequestNumber(store: GitHubStore, repoId: number, number: number | null): boolean {
+  return store.pullRequests.findBy("repo_id", repoId).some((p) => p.number === number);
+}
+
+function findPullForIssue(store: GitHubStore, issue: GitHubIssue) {
+  return issue.is_pull_request
+    ? store.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number)
+    : undefined;
+}
+
+/** A pull request's issue row with the current values from its pull request row. */
+export function issueView(store: GitHubStore, issue: GitHubIssue): GitHubIssue {
+  const pr = findPullForIssue(store, issue);
+  if (!pr) return issue;
+  const fields = Object.fromEntries(PULL_REQUEST_FIELDS.map((key) => [key, pr[key]]));
+  return { ...issue, ...fields, user_id: pr.user_id, created_at: pr.created_at, updated_at: pr.updated_at };
+}
+
+/** An issue, or a pull request in the issue shape with `draft` and `pull_request` links, as GitHub's issue routes return it. */
+export function formatIssueOrPullRequest(issue: GitHubIssue, store: GitHubStore, baseUrl: string) {
+  const pr = findPullForIssue(store, issue);
+  if (!pr) return issue.is_pull_request ? null : formatIssue(issue, store, baseUrl);
+  const repo = store.repos.get(issue.repo_id);
+  const formatted = repo && formatIssue(issueView(store, issue), store, baseUrl);
+  if (!repo || !formatted) return null;
+  const html = `${baseUrl}/${repo.full_name}/pull/${pr.number}`;
+  return {
+    ...formatted,
+    node_id: pr.node_id,
+    html_url: html,
+    draft: pr.draft,
+    pull_request: {
+      url: `${baseUrl}/repos/${repo.full_name}/pulls/${pr.number}`,
+      html_url: html,
+      diff_url: `${html}.diff`,
+      patch_url: `${html}.patch`,
+      merged_at: pr.merged_at,
+    },
   };
 }
 
@@ -442,6 +586,7 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
     requested_teams: requestedTeams,
     labels,
     milestone: milestone ? formatMilestone(milestone, repo, store, baseUrl) : null,
+    active_lock_reason: pr.active_lock_reason ?? null,
     draft: pr.draft,
     commits_url: `${repoUrl}/pulls/${pr.number}/commits`,
     review_comments_url: `${repoUrl}/pulls/${pr.number}/comments`,
@@ -479,8 +624,8 @@ export function formatPullRequest(pr: GitHubPullRequest, store: GitHubStore, bas
     rebaseable: true,
     mergeable_state: pr.mergeable_state,
     merged_by: mergedBy ? formatUser(mergedBy, baseUrl) : null,
-    comments: pr.comments,
-    review_comments: pr.review_comments,
+    comments: issueCommentCount(store, pr.repo_id, pr.number),
+    review_comments: reviewCommentCount(store, pr.repo_id, pr.number),
     maintainer_can_modify: true,
     commits: pr.commits,
     additions: pr.additions,
@@ -530,9 +675,10 @@ export function formatComment(comment: GitHubComment, store: GitHubStore, baseUr
   const repoUrl = `${baseUrl}/repos/${repo.full_name}`;
 
   if (comment.comment_type === "issue") {
+    const page = isPullRequestNumber(store, repo.id, comment.issue_number) ? "pull" : "issues";
     return {
       url: `${repoUrl}/issues/comments/${comment.id}`,
-      html_url: `${baseUrl}/${repo.full_name}/issues/${comment.issue_number}#issuecomment-${comment.id}`,
+      html_url: `${baseUrl}/${repo.full_name}/${page}/${comment.issue_number}#issuecomment-${comment.id}`,
       issue_url: `${repoUrl}/issues/${comment.issue_number}`,
       id: comment.id,
       node_id: comment.node_id,
@@ -631,6 +777,18 @@ export function formatTeamBrief(team: GitHubTeam, store: GitHubStore, baseUrl: s
     permission: team.permission,
     members_url: `${baseUrl}/teams/${team.id}/members{/member}`,
     repositories_url: `${baseUrl}/teams/${team.id}/repos`,
+  };
+}
+
+export function formatTeamFull(team: GitHubTeam, store: GitHubStore, baseUrl: string) {
+  const org = store.orgs.get(team.org_id);
+  return {
+    ...formatTeamBrief(team, store, baseUrl),
+    members_count: store.teamMembers.findBy("team_id", team.id).length,
+    repos_count: store.teamRepos.findBy("team_id", team.id).length,
+    created_at: team.created_at,
+    updated_at: team.updated_at,
+    organization: org ? formatOrgFull(org, baseUrl) : null,
   };
 }
 

@@ -1,22 +1,31 @@
-import type { RouteContext } from "@emulators/core";
+import { RateLimiter, remaining, setRateLimitHeaders, type RateLimitBucket, type RouteContext } from "@emulators/core";
+
+function view(bucket: RateLimitBucket) {
+  return {
+    limit: bucket.limit,
+    remaining: remaining(bucket),
+    reset: bucket.resetAt,
+    used: bucket.used,
+    resource: bucket.resource,
+  };
+}
 
 export function rateLimitRoutes({ app }: RouteContext): void {
+  const fallbackLimiter = new RateLimiter();
+
   app.get("/rate_limit", (c) => {
-    const now = Math.floor(Date.now() / 1000);
-    const reset = now + 3600;
-    const rateLimit = {
-      limit: 5000,
-      remaining: 4999,
-      reset,
-      used: 1,
-      resource: "core",
-    };
+    const limiter = c.get("rateLimiter") ?? fallbackLimiter;
+    const token = c.get("authToken") ?? "__anonymous__";
+    const coreBucket = limiter.bucket(token, "core");
+    setRateLimitHeaders(c, coreBucket);
+    const core = view(coreBucket);
+    const reset = core.reset;
 
     return c.json({
       resources: {
-        core: rateLimit,
+        core,
         search: { limit: 30, remaining: 29, reset, used: 1, resource: "search" },
-        graphql: { limit: 5000, remaining: 4999, reset, used: 1, resource: "graphql" },
+        graphql: view(limiter.bucket(token, "graphql")),
         integration_manifest: { limit: 5000, remaining: 4999, reset, used: 1, resource: "integration_manifest" },
         source_import: { limit: 100, remaining: 99, reset, used: 1, resource: "source_import" },
         code_scanning_upload: { limit: 500, remaining: 499, reset, used: 1, resource: "code_scanning_upload" },
@@ -29,7 +38,7 @@ export function rateLimitRoutes({ app }: RouteContext): void {
         },
         scim: { limit: 15000, remaining: 14999, reset, used: 1, resource: "scim" },
       },
-      rate: rateLimit,
+      rate: core,
     });
   });
 }

@@ -1,6 +1,7 @@
 import type { RouteContext, WebhookDispatcher, AuthUser } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRelease, GitHubReleaseAsset, GitHubRepo, GitHubUser } from "../entities.js";
 import {
@@ -206,7 +207,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const asset = gh.releaseAssets.get(assetId);
     if (!asset || asset.repo_id !== repo.id) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubReleaseAsset> = {};
     if (typeof body.name === "string") patch.name = body.name;
     if (typeof body.label === "string" || body.label === null) patch.label = body.label as string | null;
@@ -330,7 +331,7 @@ export function releasesRoutes({ app, store, webhooks, baseUrl }: RouteContext):
     const release = findReleaseById(gh, repo.id, releaseId);
     if (!release) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     const patch: Partial<GitHubRelease> = {};
 
     if (typeof body.tag_name === "string" && body.tag_name.trim()) {
