@@ -210,6 +210,9 @@ export interface GitHubComment extends Entity {
   comment_type: "issue" | "review" | "commit";
   /** Set for line comments created as part of a pull request review. */
   review_id: number | null;
+  /** Resolution of the inline thread rooted at this comment. Replies inherit their root's state. */
+  resolved?: boolean;
+  resolved_by?: number | null;
 }
 
 export interface GitHubReview extends Entity {
@@ -221,6 +224,17 @@ export interface GitHubReview extends Entity {
   state: "PENDING" | "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED";
   commit_id: string;
   submitted_at: string | null;
+}
+
+export type GitHubReactionContent = "+1" | "-1" | "laugh" | "hooray" | "confused" | "heart" | "rocket" | "eyes";
+
+export interface GitHubReaction extends Entity {
+  node_id: string;
+  repo_id: number;
+  subject_type: "issue" | "issue_comment" | "review_comment";
+  subject_id: number;
+  user_id: number;
+  content: GitHubReactionContent;
 }
 
 export interface GitHubIssueEvent extends Entity {
@@ -477,6 +491,16 @@ export interface GitHubCheckSuite extends Entity {
   app_id: number | null;
 }
 
+export interface GitHubCommitStatus extends Entity {
+  repo_id: number;
+  sha: string;
+  user_id: number;
+  state: "pending" | "success" | "failure" | "error";
+  context: string;
+  description: string | null;
+  target_url: string | null;
+}
+
 export interface GitHubOAuthApp extends Entity {
   client_id: string;
   client_secret: string;
@@ -530,4 +554,28 @@ export interface GitHubOAuthGrant extends Entity {
   client_id: string;
   scopes: string[];
   org_access: Record<string, "granted" | "denied" | "requested">;
+}
+
+/** Parsed public GPG key material shared by the primary key and its subkeys. */
+export interface GitHubGpgKeyMaterial {
+  key_id: string;
+  public_key: string;
+  can_sign: boolean;
+  can_encrypt_comms: boolean;
+  can_encrypt_storage: boolean;
+  can_certify: boolean;
+  created_at: string;
+  expires_at: string | null;
+  revoked: boolean;
+}
+
+/** A user's uploaded GPG key, retained in snapshots with the rest of the GitHub state. */
+export interface GitHubGpgKey extends Entity, GitHubGpgKeyMaterial {
+  user_id: number;
+  fingerprint: string;
+  name: string | null;
+  primary_key_id: number | null;
+  raw_key: string;
+  emails: Array<{ email: string; verified: boolean }>;
+  subkeys: GitHubGpgKeyMaterial[];
 }
