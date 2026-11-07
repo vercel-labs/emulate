@@ -273,7 +273,8 @@ describe("Stripe events", () => {
         status: "succeeded",
         customer: customer.body.id,
         payment_intent: pi.body.id,
-        payment_method: "pm_card_visa",
+        // pm_card_visa is cloned into a new pm_ when it is set on the intent, as on Stripe.
+        payment_method: (pi.body as Json).payment_method,
         failure_code: null,
         livemode: false,
       });

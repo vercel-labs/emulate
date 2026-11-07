@@ -79,6 +79,27 @@ export type PaymentIntentStatus =
   | "succeeded"
   | "canceled";
 
+/**
+ * A payment error as Stripe stores it on `last_payment_error`. `payment_method` is the
+ * PaymentMethod object as it was when the attempt failed.
+ */
+export interface StripePaymentError {
+  type: "card_error" | "invalid_request_error";
+  code: string;
+  decline_code?: string;
+  message: string;
+  doc_url: string;
+  param?: string;
+  charge?: string;
+  payment_method?: Record<string, unknown>;
+}
+
+/** The `next_action` of an intent waiting on 3D Secure. */
+export interface StripeNextAction {
+  type: "use_stripe_sdk";
+  use_stripe_sdk: { source: string; stripe_js: string; type: "three_d_secure_redirect" };
+}
+
 export interface StripePaymentIntent extends Entity {
   stripe_id: string;
   amount: number;
@@ -88,6 +109,20 @@ export interface StripePaymentIntent extends Entity {
   description: string | null;
   payment_method: string | null;
   metadata: Record<string, string>;
+  /** Unix seconds on the customer's clock. Intents inserted without one use created_at. */
+  created?: number;
+  amount_received?: number;
+  client_secret?: string;
+  capture_method?: "automatic" | "automatic_async";
+  confirmation_method?: "automatic" | "manual";
+  setup_future_usage?: "off_session" | "on_session";
+  latest_charge?: string;
+  last_payment_error?: StripePaymentError;
+  next_action?: StripeNextAction;
+  /** Set once the customer completed 3D Secure, so a manual confirmation does not ask again. */
+  authenticated?: boolean;
+  canceled_at?: number;
+  cancellation_reason?: string;
 }
 
 export interface StripeCharge extends Entity {
@@ -102,6 +137,17 @@ export interface StripeCharge extends Entity {
   payment_method?: string;
   failure_code?: string;
   failure_message?: string;
+  /** Unix seconds on the customer's clock. Charges inserted without one use created_at. */
+  created?: number;
+  /** The issuer's reason for a failed charge, rendered as `outcome.reason`. */
+  decline_code?: string;
+  /** The card as it was when charged. Charges without one render `payment_method_details` as null. */
+  card?: StripePaymentMethodCard;
+  billing_details?: StripeBillingDetails;
+  /** Whether the customer completed 3D Secure for this charge. */
+  three_d_secure?: boolean;
+  authorization_code?: string;
+  network_transaction_id?: string;
 }
 
 export interface StripeCheckoutSession extends Entity {

@@ -1,6 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeError, stripeList, expandedJson } from "../helpers.js";
+import { stripeError, stripeList, expandedJson, toUnixTimestamp } from "../helpers.js";
 import { formatCharge, stripeExpandResolver } from "../formatters.js";
 
 export function chargeRoutes({ app, store, baseUrl }: RouteContext): void {
@@ -20,6 +20,9 @@ export function chargeRoutes({ app, store, baseUrl }: RouteContext): void {
     const piId = c.req.query("payment_intent");
     if (customerId) items = items.filter((ch) => ch.customer_id === customerId);
     if (piId) items = items.filter((ch) => ch.payment_intent_id === piId);
-    return stripeList(c, items, "/v1/charges", formatCharge, { expand });
+    return stripeList(c, items, "/v1/charges", formatCharge, {
+      created: (ch) => ch.created ?? toUnixTimestamp(ch.created_at),
+      expand,
+    });
   });
 }

@@ -13,7 +13,9 @@ import {
   takeHeld,
   type ReorderMode,
 } from "../chaos.js";
-import { dispatchStoredEvent, syncWebhookEndpoints } from "../events.js";
+import { dispatchStoredEvent, eventBatch, syncWebhookEndpoints } from "../events.js";
+import { formatPaymentIntent } from "../formatters.js";
+import { completeAuthentication } from "../payments.js";
 
 type DeliveryStatus = "succeeded" | "failed" | "dropped" | "held";
 
@@ -45,10 +47,38 @@ function formatAttempt(webhooks: WebhookDispatcher, d: WebhookDelivery) {
   };
 }
 
-/** Emulator-only controls for webhook delivery. Real Stripe has no equivalent. */
+/** Emulator-only controls for webhook delivery and customer actions. Real Stripe has no equivalent. */
 export function controlRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const ss = getStripeStore(store);
+
+  // The customer completing or failing 3D Secure, which Stripe.js would otherwise drive.
+  app.post("/_stripe/simulate/payment_intents/:id/authenticate", async (c) => {
+    const id = c.req.param("id");
+    const pi = ss.paymentIntents.findOneBy("stripe_id", id);
+    if (!pi) {
+      return stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${id}'`, "resource_missing", "id");
+    }
+    const body = await parseStripeBody(c);
+    const result = body.result ?? "succeed";
+    if (result !== "succeed" && result !== "fail") {
+      return badParam(c, "result", "Invalid result: must be one of succeed, fail.");
+    }
+    if (pi.status !== "requires_action") {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `This PaymentIntent's status is ${pi.status}, so there is no authentication to complete.`,
+        "payment_intent_unexpected_state",
+      );
+    }
+    // The customer acted, not an API call, so the events carry no request.
+    const ev = eventBatch(ctx);
+    const updated = completeAuthentication(ctx, ev, pi, result);
+    await ev.commit();
+    return c.json(formatPaymentIntent(updated));
+  });
 
   app.get("/_stripe/webhooks/chaos", (c) => c.json(formatWebhookChaos(store)));
 

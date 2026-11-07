@@ -306,12 +306,26 @@ curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx \
 # Confirm (triggers payment_intent.succeeded + charge.succeeded webhooks)
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx/confirm
 
+# Create and confirm off-session with a saved card in one call
+curl -X POST http://localhost:4000/v1/payment_intents \
+  -d "amount=2000" -d "currency=usd" -d "customer=cus_xxx" \
+  -d "payment_method=pm_xxx" -d "confirm=true" -d "off_session=true"
+
 # Cancel
-curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx/cancel
+curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx/cancel \
+  -d "cancellation_reason=requested_by_customer"
 
 # List
 curl http://localhost:4000/v1/payment_intents
+
+# Emulator only: the customer completes (or fails) 3D Secure on an intent in requires_action
+curl -X POST http://localhost:4000/_stripe/simulate/payment_intents/pi_xxx/authenticate \
+  -H "Content-Type: application/json" -d '{"result": "succeed"}'
 ```
+
+Confirming follows the test card's behaviour. `pm_card_visa` succeeds. A declining card (for example `pm_card_chargeDeclined`, or `pm_card_chargeCustomerFail` after attaching it) returns a 402 `card_error`, creates a failed charge, sets `last_payment_error` and returns the intent to `requires_payment_method`. `pm_card_authenticationRequired` returns `requires_action` with `next_action.type` `use_stripe_sdk` on-session, and a 402 `authentication_required` off-session. `pm_card_authenticationRequiredOnSetup` asks only on-session. Failing 3D Secure gives `last_payment_error.code` `payment_intent_authentication_failure`.
+
+A `pm_card_*` id set on an intent is cloned into a new `pm_`. With `setup_future_usage` and a `customer`, a successful payment attaches that card to the customer. A card used without a customer cannot be used again. Confirming an intent that has no payment method still succeeds as if `pm_card_visa` were used (real Stripe returns a 400).
 
 ### Charges
 
@@ -323,7 +337,7 @@ curl http://localhost:4000/v1/charges/ch_xxx
 curl http://localhost:4000/v1/charges
 ```
 
-Charges are created automatically when a payment intent is confirmed.
+Charges are created automatically when a payment intent is confirmed. Failed charges have `status: failed`, `failure_code`, `failure_message` and `outcome.type: issuer_declined` with the decline code in `outcome.reason`. `payment_method_details.card` describes the card, including `three_d_secure` when the customer authenticated.
 
 ### Customer Sessions
 
@@ -433,9 +447,12 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `product.created` | Product created |
 | `price.created` | Price created |
 | `payment_intent.created` | Payment intent created |
-| `payment_intent.succeeded` | Payment intent confirmed |
+| `payment_intent.requires_action` | Confirmation needs 3D Secure |
+| `payment_intent.succeeded` | Payment intent confirmed and charged |
+| `payment_intent.payment_failed` | Card declined, `authentication_required` off-session, or 3D Secure failed |
 | `payment_intent.canceled` | Payment intent canceled |
-| `charge.succeeded` | Payment intent confirmed (charge auto-created) |
+| `charge.succeeded` | Payment intent charged (charge auto-created) |
+| `charge.failed` | Charge declined |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
 

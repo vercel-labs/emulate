@@ -6,6 +6,7 @@ import type {
   StripeCharge,
   StripeCheckoutSession,
   StripeCustomer,
+  StripePaymentError,
   StripePaymentIntent,
   StripePaymentMethod,
   StripePrice,
@@ -117,19 +118,144 @@ export function formatPaymentMethod(pm: StripePaymentMethod) {
   };
 }
 
+/** `last_payment_error` as Stripe renders it: only the fields that apply, in reference order. */
+function formatPaymentError(error: StripePaymentError | undefined) {
+  if (!error) return null;
+  return {
+    ...(error.charge && { charge: error.charge }),
+    code: error.code,
+    ...(error.decline_code && { decline_code: error.decline_code }),
+    doc_url: error.doc_url,
+    message: error.message,
+    ...(error.param && { param: error.param }),
+    ...(error.payment_method && { payment_method: structuredClone(error.payment_method) }),
+    type: error.type,
+  };
+}
+
+/** The PaymentIntent object in the key order of the API reference. Connect, shipping and receipts are not modelled. */
 export function formatPaymentIntent(pi: StripePaymentIntent) {
   return {
     id: pi.stripe_id,
     object: "payment_intent" as const,
     amount: pi.amount,
+    amount_capturable: 0,
+    amount_details: { tip: {} },
+    amount_received: pi.amount_received ?? 0,
+    application: null,
+    application_fee_amount: null,
+    automatic_payment_methods: { enabled: true },
+    canceled_at: pi.canceled_at ?? null,
+    cancellation_reason: pi.cancellation_reason ?? null,
+    capture_method: pi.capture_method ?? "automatic_async",
+    client_secret: pi.client_secret ?? null,
+    confirmation_method: pi.confirmation_method ?? "automatic",
+    created: pi.created ?? toUnixTimestamp(pi.created_at),
     currency: pi.currency,
-    status: pi.status,
     customer: pi.customer_id,
     description: pi.description,
-    payment_method: pi.payment_method,
-    metadata: pi.metadata,
-    created: toUnixTimestamp(pi.created_at),
+    excluded_payment_method_types: null,
+    last_payment_error: formatPaymentError(pi.last_payment_error),
+    latest_charge: pi.latest_charge ?? null,
     livemode: false,
+    metadata: pi.metadata,
+    next_action: pi.next_action ? structuredClone(pi.next_action) : null,
+    on_behalf_of: null,
+    payment_method: pi.payment_method,
+    payment_method_configuration_details: null,
+    payment_method_options: {
+      card: { installments: null, mandate_options: null, network: null, request_three_d_secure: "automatic" as const },
+    },
+    payment_method_types: ["card"],
+    processing: null,
+    receipt_email: null,
+    review: null,
+    setup_future_usage: pi.setup_future_usage ?? null,
+    shipping: null,
+    source: null,
+    statement_descriptor: null,
+    statement_descriptor_suffix: null,
+    status: pi.status,
+    transfer_data: null,
+    transfer_group: null,
+  };
+}
+
+function chargeOutcome(ch: StripeCharge) {
+  if (ch.status === "succeeded") {
+    return {
+      advice_code: null,
+      network_advice_code: null,
+      network_decline_code: null,
+      network_status: "approved_by_network",
+      reason: null,
+      risk_level: "normal",
+      seller_message: "Payment complete.",
+      type: "authorized",
+    };
+  }
+  if (ch.status !== "failed") return null;
+  const reason = ch.decline_code ?? ch.failure_code ?? null;
+  return {
+    advice_code: null,
+    network_advice_code: null,
+    network_decline_code: null,
+    network_status: "declined_by_network",
+    reason,
+    risk_level: "normal",
+    seller_message:
+      reason && reason !== "generic_decline"
+        ? `The bank returned the decline code \`${reason}\`.`
+        : "The bank did not return any further details with this decline.",
+    type: "issuer_declined",
+  };
+}
+
+/** `payment_method_details` of a card charge, from the card as it was when charged. */
+function chargePaymentMethodDetails(ch: StripeCharge) {
+  if (!ch.card) return null;
+  const testCard = testCardByNumber(ch.card.number);
+  const succeeded = ch.status === "succeeded";
+  const address = ch.billing_details?.address;
+  return {
+    card: {
+      amount_authorized: succeeded ? ch.amount : null,
+      authorization_code: ch.authorization_code ?? null,
+      brand: testCard?.brand ?? "unknown",
+      checks: {
+        address_line1_check: address?.line1 ? "unchecked" : null,
+        address_postal_code_check: address?.postal_code ? "unchecked" : null,
+        cvc_check: ch.card.cvc_check ?? null,
+      },
+      country: testCard?.country ?? null,
+      exp_month: ch.card.exp_month,
+      exp_year: ch.card.exp_year,
+      extended_authorization: { status: "disabled" },
+      fingerprint: testCard?.fingerprint ?? null,
+      funding: testCard?.funding ?? "unknown",
+      incremental_authorization: { status: "unavailable" },
+      installments: null,
+      last4: ch.card.number.slice(-4),
+      mandate: null,
+      multicapture: { status: "unavailable" },
+      network: testCard?.brand ?? null,
+      network_token: { used: false },
+      network_transaction_id: ch.network_transaction_id ?? null,
+      overcapture: { maximum_amount_capturable: ch.amount, status: "unavailable" },
+      regulated_status: "unregulated",
+      three_d_secure: ch.three_d_secure
+        ? {
+            authentication_flow: "challenge",
+            electronic_commerce_indicator: "05",
+            exemption_indicator: null,
+            result: "authenticated",
+            result_reason: null,
+            version: "2.2.0",
+          }
+        : null,
+      wallet: null,
+    },
+    type: "card" as const,
   };
 }
 
@@ -146,15 +272,10 @@ export function formatCharge(ch: StripeCharge) {
     application_fee: null,
     application_fee_amount: null,
     balance_transaction: null,
-    billing_details: {
-      address: { city: null, country: null, line1: null, line2: null, postal_code: null, state: null },
-      email: null,
-      name: null,
-      phone: null,
-    },
+    billing_details: formatBillingDetails(ch.billing_details ?? {}),
     calculated_statement_descriptor: null,
     captured: succeeded,
-    created: toUnixTimestamp(ch.created_at),
+    created: ch.created ?? toUnixTimestamp(ch.created_at),
     currency: ch.currency,
     customer: ch.customer_id,
     description: ch.description,
@@ -166,22 +287,11 @@ export function formatCharge(ch: StripeCharge) {
     livemode: false,
     metadata: ch.metadata,
     on_behalf_of: null,
-    outcome: succeeded
-      ? {
-          advice_code: null,
-          network_advice_code: null,
-          network_decline_code: null,
-          network_status: "approved_by_network",
-          reason: null,
-          risk_level: "normal",
-          seller_message: "Payment complete.",
-          type: "authorized",
-        }
-      : null,
+    outcome: chargeOutcome(ch),
     paid: succeeded,
     payment_intent: ch.payment_intent_id,
     payment_method: ch.payment_method ?? null,
-    payment_method_details: null,
+    payment_method_details: chargePaymentMethodDetails(ch),
     receipt_email: null,
     receipt_number: null,
     receipt_url: null,
