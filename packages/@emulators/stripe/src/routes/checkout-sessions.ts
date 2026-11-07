@@ -1,31 +1,18 @@
 import type { RouteContext } from "@emulators/core";
-import { renderCardPage, renderCheckoutPage, escapeHtml, escapeAttr } from "@emulators/core";
+import { renderCardPage, renderCheckoutPage, escapeHtml } from "@emulators/core";
 import type { CheckoutLineItem } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, toUnixTimestamp, parseStripeBody, stripeError, stripeList } from "../helpers.js";
+import { stripeId, parseStripeBody, stripeError, stripeList, expandedJson } from "../helpers.js";
+import { formatCheckoutSession as formatSession, stripeExpandResolver } from "../formatters.js";
+import { eventBatch } from "../events.js";
 import type { StripeCheckoutSession } from "../entities.js";
 
 const SERVICE_LABEL = "Stripe";
 
-function formatSession(s: StripeCheckoutSession, baseUrl: string) {
-  return {
-    id: s.stripe_id,
-    object: "checkout.session",
-    mode: s.mode,
-    status: s.status,
-    payment_status: s.payment_status,
-    customer: s.customer_id,
-    success_url: s.success_url,
-    cancel_url: s.cancel_url,
-    metadata: s.metadata,
-    created: toUnixTimestamp(s.created_at),
-    livemode: false,
-    url: s.status === "open" ? `${baseUrl}/checkout/${s.stripe_id}` : null,
-  };
-}
-
-export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
+export function checkoutSessionRoutes(ctx: RouteContext): void {
+  const { app, store, baseUrl } = ctx;
   const ss = getStripeStore(store);
+  const expand = stripeExpandResolver(ss, baseUrl);
 
   app.post("/v1/checkout/sessions", async (c) => {
     const body = await parseStripeBody(c);
@@ -106,7 +93,7 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
       line_items: lineItems,
       metadata: (body.metadata as Record<string, string>) ?? {},
     });
-    return c.json(formatSession(session, baseUrl), 200);
+    return expandedJson(c, formatSession(session, baseUrl), expand, body);
   });
 
   app.get("/v1/checkout/sessions/:id", (c) => {
@@ -119,7 +106,7 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
         `No such checkout session: '${c.req.param("id")}'`,
         "resource_missing",
       );
-    return c.json(formatSession(session, baseUrl));
+    return expandedJson(c, formatSession(session, baseUrl), expand);
   });
 
   app.post("/v1/checkout/sessions/:id/expire", async (c) => {
@@ -141,16 +128,14 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
         "checkout_session_not_open",
       );
     }
+    const body = await parseStripeBody(c);
     const updated = ss.checkoutSessions.update(session.id, { status: "expired" })!;
 
-    await webhooks.dispatch(
-      "checkout.session.expired",
-      undefined,
-      { type: "checkout.session.expired", data: { object: formatSession(updated, baseUrl) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("checkout.session.expired", formatSession(updated, baseUrl));
+    await ev.commit();
 
-    return c.json(formatSession(updated, baseUrl));
+    return expandedJson(c, formatSession(updated, baseUrl), expand, body);
   });
 
   app.get("/v1/checkout/sessions", (c) => {
@@ -161,7 +146,7 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
     if (customerId) items = items.filter((s) => s.customer_id === customerId);
     if (status) items = items.filter((s) => s.status === status);
     if (paymentStatus) items = items.filter((s) => s.payment_status === paymentStatus);
-    return stripeList(c, items, "/v1/checkout/sessions", (s) => formatSession(s, baseUrl));
+    return stripeList(c, items, "/v1/checkout/sessions", (s) => formatSession(s, baseUrl), { expand });
   });
 
   app.get("/checkout/:id", (c) => {
@@ -227,12 +212,10 @@ export function checkoutSessionRoutes({ app, store, webhooks, baseUrl }: RouteCo
 
     const updated = ss.checkoutSessions.update(session.id, { status: "complete", payment_status: "paid" })!;
 
-    await webhooks.dispatch(
-      "checkout.session.completed",
-      undefined,
-      { type: "checkout.session.completed", data: { object: formatSession(updated, baseUrl) } },
-      "stripe",
-    );
+    // Completed on the hosted page, not through the API, so the event carries no request.
+    const ev = eventBatch(ctx);
+    ev.emit("checkout.session.completed", formatSession(updated, baseUrl));
+    await ev.commit();
 
     if (session.success_url) {
       const url = session.success_url.replace("{CHECKOUT_SESSION_ID}", updated.stripe_id);

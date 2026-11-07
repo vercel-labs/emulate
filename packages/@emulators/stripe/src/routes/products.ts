@@ -1,22 +1,11 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, toUnixTimestamp, parseStripeBody, stripeError, stripeList } from "../helpers.js";
-import type { StripeProduct } from "../entities.js";
+import { stripeId, parseStripeBody, stripeError, stripeList, readBool } from "../helpers.js";
+import { formatProduct } from "../formatters.js";
+import { eventBatch } from "../events.js";
 
-function formatProduct(p: StripeProduct) {
-  return {
-    id: p.stripe_id,
-    object: "product",
-    name: p.name,
-    description: p.description,
-    active: p.active,
-    metadata: p.metadata,
-    created: toUnixTimestamp(p.created_at),
-    livemode: false,
-  };
-}
-
-export function productRoutes({ app, store, webhooks }: RouteContext): void {
+export function productRoutes(ctx: RouteContext): void {
+  const { app, store } = ctx;
   const ss = getStripeStore(store);
 
   app.post("/v1/products", async (c) => {
@@ -27,16 +16,13 @@ export function productRoutes({ app, store, webhooks }: RouteContext): void {
       stripe_id: stripeId("prod"),
       name: body.name as string,
       description: (body.description as string) ?? null,
-      active: (body.active as boolean) ?? true,
+      active: readBool(body.active) ?? true,
       metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
-    await webhooks.dispatch(
-      "product.created",
-      undefined,
-      { type: "product.created", data: { object: formatProduct(product) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("product.created", formatProduct(product));
+    await ev.commit();
 
     return c.json(formatProduct(product), 200);
   });

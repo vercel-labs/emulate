@@ -1,51 +1,13 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import {
-  stripeId,
-  toUnixTimestamp,
-  parseStripeBody,
-  stripeError,
-  stripeList,
-  applyExpand,
-  parseExpand,
-} from "../helpers.js";
-import type { StripePrice, StripeProduct } from "../entities.js";
+import { stripeId, parseStripeBody, stripeError, stripeList, expandedJson, readBool } from "../helpers.js";
+import { formatPrice, stripeExpandResolver } from "../formatters.js";
+import { eventBatch } from "../events.js";
 
-function formatPrice(p: StripePrice) {
-  return {
-    id: p.stripe_id,
-    object: "price",
-    product: p.product_id,
-    currency: p.currency,
-    unit_amount: p.unit_amount,
-    type: p.type,
-    active: p.active,
-    metadata: p.metadata,
-    created: toUnixTimestamp(p.created_at),
-    livemode: false,
-  };
-}
-
-function formatProduct(p: StripeProduct) {
-  return {
-    id: p.stripe_id,
-    object: "product",
-    name: p.name,
-    active: p.active,
-    created: toUnixTimestamp(p.created_at),
-    livemode: false,
-  };
-}
-
-export function priceRoutes({ app, store, webhooks }: RouteContext): void {
+export function priceRoutes(ctx: RouteContext): void {
+  const { app, store, baseUrl } = ctx;
   const ss = getStripeStore(store);
-
-  const expandResolvers = {
-    product: (id: string) => {
-      const prod = ss.products.findOneBy("stripe_id", id);
-      return prod ? formatProduct(prod) : undefined;
-    },
-  };
+  const expand = stripeExpandResolver(ss, baseUrl);
 
   app.post("/v1/prices", async (c) => {
     const body = await parseStripeBody(c);
@@ -75,27 +37,22 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
       currency: (body.currency as string).toLowerCase(),
       unit_amount: (body.unit_amount as number) ?? null,
       type: body.recurring ? "recurring" : "one_time",
-      active: (body.active as boolean) ?? true,
+      active: readBool(body.active) ?? true,
       metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
-    await webhooks.dispatch(
-      "price.created",
-      undefined,
-      { type: "price.created", data: { object: formatPrice(price) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("price.created", formatPrice(price));
+    await ev.commit();
 
-    return c.json(formatPrice(price), 200);
+    return expandedJson(c, formatPrice(price), expand, body);
   });
 
   app.get("/v1/prices/:id", (c) => {
     const price = ss.prices.findOneBy("stripe_id", c.req.param("id"));
     if (!price)
       return stripeError(c, 404, "invalid_request_error", `No such price: '${c.req.param("id")}'`, "resource_missing");
-    const expand = parseExpand(c);
-    const result = applyExpand(formatPrice(price), expand, expandResolvers);
-    return c.json(result);
+    return expandedJson(c, formatPrice(price), expand);
   });
 
   app.get("/v1/prices", (c) => {
@@ -104,6 +61,6 @@ export function priceRoutes({ app, store, webhooks }: RouteContext): void {
     const active = c.req.query("active");
     if (productId) items = items.filter((p) => p.product_id === productId);
     if (active !== undefined) items = items.filter((p) => p.active === (active === "true"));
-    return stripeList(c, items, "/v1/prices", formatPrice);
+    return stripeList(c, items, "/v1/prices", formatPrice, { expand });
   });
 }

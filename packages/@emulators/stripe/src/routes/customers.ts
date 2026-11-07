@@ -2,8 +2,10 @@ import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
 import { stripeId, parseStripeBody, stripeError, stripeList } from "../helpers.js";
 import { formatCustomer } from "../formatters.js";
+import { eventBatch, previousAttributes } from "../events.js";
 
-export function customerRoutes({ app, store, webhooks }: RouteContext): void {
+export function customerRoutes(ctx: RouteContext): void {
+  const { app, store } = ctx;
   const ss = getStripeStore(store);
 
   app.post("/v1/customers", async (c) => {
@@ -16,12 +18,9 @@ export function customerRoutes({ app, store, webhooks }: RouteContext): void {
       metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
-    await webhooks.dispatch(
-      "customer.created",
-      undefined,
-      { type: "customer.created", data: { object: formatCustomer(customer) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("customer.created", formatCustomer(customer));
+    await ev.commit();
 
     return c.json(formatCustomer(customer), 200);
   });
@@ -55,16 +54,16 @@ export function customerRoutes({ app, store, webhooks }: RouteContext): void {
       ...(body.name !== undefined && { name: body.name as string }),
       ...(body.description !== undefined && { description: body.description as string }),
       ...(body.metadata !== undefined && { metadata: body.metadata as Record<string, string> }),
-    });
+    })!;
 
-    await webhooks.dispatch(
-      "customer.updated",
-      undefined,
-      { type: "customer.updated", data: { object: formatCustomer(updated!) } },
-      "stripe",
-    );
+    const previous = previousAttributes(formatCustomer(customer), formatCustomer(updated));
+    if (Object.keys(previous).length > 0) {
+      const ev = eventBatch(ctx, c);
+      ev.emit("customer.updated", formatCustomer(updated), previous);
+      await ev.commit();
+    }
 
-    return c.json(formatCustomer(updated!));
+    return c.json(formatCustomer(updated));
   });
 
   app.delete("/v1/customers/:id", async (c) => {
@@ -91,12 +90,9 @@ export function customerRoutes({ app, store, webhooks }: RouteContext): void {
 
     ss.customers.delete(customer.id);
 
-    await webhooks.dispatch(
-      "customer.deleted",
-      undefined,
-      { type: "customer.deleted", data: { object: { ...formatCustomer(customer), deleted: true } } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("customer.deleted", { ...formatCustomer(customer), deleted: true });
+    await ev.commit();
 
     return c.json({ id: customer.stripe_id, object: "customer", deleted: true });
   });

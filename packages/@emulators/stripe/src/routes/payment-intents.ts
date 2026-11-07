@@ -1,18 +1,14 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, parseStripeBody, stripeError, stripeList, applyExpand, parseExpand } from "../helpers.js";
-import { formatCustomer, formatPaymentIntent } from "../formatters.js";
+import { stripeId, parseStripeBody, stripeError, stripeList, expandedJson } from "../helpers.js";
+import { formatCharge, formatPaymentIntent, stripeExpandResolver } from "../formatters.js";
+import { eventBatch } from "../events.js";
 import type { StripePaymentIntent, PaymentIntentStatus } from "../entities.js";
 
-export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): void {
+export function paymentIntentRoutes(ctx: RouteContext): void {
+  const { app, store, baseUrl } = ctx;
   const ss = getStripeStore(store);
-
-  const expandResolvers = {
-    customer: (id: string) => {
-      const cust = ss.customers.findOneBy("stripe_id", id);
-      return cust ? formatCustomer(cust) : undefined;
-    },
-  };
+  const expand = stripeExpandResolver(ss, baseUrl);
 
   app.post("/v1/payment_intents", async (c) => {
     const body = await parseStripeBody(c);
@@ -51,14 +47,11 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
       metadata: (body.metadata as Record<string, string>) ?? {},
     });
 
-    await webhooks.dispatch(
-      "payment_intent.created",
-      undefined,
-      { type: "payment_intent.created", data: { object: formatPaymentIntent(pi) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("payment_intent.created", formatPaymentIntent(pi));
+    await ev.commit();
 
-    return c.json(formatPaymentIntent(pi), 200);
+    return expandedJson(c, formatPaymentIntent(pi), expand, body);
   });
 
   app.get("/v1/payment_intents/:id", (c) => {
@@ -71,9 +64,7 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
         `No such payment_intent: '${c.req.param("id")}'`,
         "resource_missing",
       );
-    const expand = parseExpand(c);
-    const result = applyExpand(formatPaymentIntent(pi), expand, expandResolvers);
-    return c.json(result);
+    return expandedJson(c, formatPaymentIntent(pi), expand);
   });
 
   app.post("/v1/payment_intents/:id", async (c) => {
@@ -101,7 +92,7 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
     }
 
     const updated = ss.paymentIntents.update(pi.id, updates);
-    return c.json(formatPaymentIntent(updated!));
+    return expandedJson(c, formatPaymentIntent(updated!), expand, body);
   });
 
   app.post("/v1/payment_intents/:id/confirm", async (c) => {
@@ -126,11 +117,10 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
       );
     }
 
-    if (body.payment_method) {
-      ss.paymentIntents.update(pi.id, { payment_method: body.payment_method as string });
-    }
-
-    const updated = ss.paymentIntents.update(pi.id, { status: "succeeded" })!;
+    const updated = ss.paymentIntents.update(pi.id, {
+      status: "succeeded",
+      ...(typeof body.payment_method === "string" && { payment_method: body.payment_method }),
+    })!;
 
     const charge = ss.charges.insert({
       stripe_id: stripeId("ch"),
@@ -141,34 +131,15 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
       payment_intent_id: updated.stripe_id,
       description: updated.description,
       metadata: updated.metadata,
+      ...(updated.payment_method && { payment_method: updated.payment_method }),
     });
 
-    await webhooks.dispatch(
-      "payment_intent.succeeded",
-      undefined,
-      { type: "payment_intent.succeeded", data: { object: formatPaymentIntent(updated) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("payment_intent.succeeded", formatPaymentIntent(updated));
+    ev.emit("charge.succeeded", formatCharge(charge));
+    await ev.commit();
 
-    await webhooks.dispatch(
-      "charge.succeeded",
-      undefined,
-      {
-        type: "charge.succeeded",
-        data: {
-          object: {
-            id: charge.stripe_id,
-            object: "charge",
-            amount: charge.amount,
-            currency: charge.currency,
-            status: charge.status,
-          },
-        },
-      },
-      "stripe",
-    );
-
-    return c.json(formatPaymentIntent(updated));
+    return expandedJson(c, formatPaymentIntent(updated), expand, body);
   });
 
   app.post("/v1/payment_intents/:id/cancel", async (c) => {
@@ -191,17 +162,15 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
         "payment_intent_unexpected_state",
       );
     }
+    const body = await parseStripeBody(c);
 
     const updated = ss.paymentIntents.update(pi.id, { status: "canceled" })!;
 
-    await webhooks.dispatch(
-      "payment_intent.canceled",
-      undefined,
-      { type: "payment_intent.canceled", data: { object: formatPaymentIntent(updated) } },
-      "stripe",
-    );
+    const ev = eventBatch(ctx, c);
+    ev.emit("payment_intent.canceled", formatPaymentIntent(updated));
+    await ev.commit();
 
-    return c.json(formatPaymentIntent(updated));
+    return expandedJson(c, formatPaymentIntent(updated), expand, body);
   });
 
   app.get("/v1/payment_intents", (c) => {
@@ -210,6 +179,6 @@ export function paymentIntentRoutes({ app, store, webhooks }: RouteContext): voi
     const status = c.req.query("status");
     if (customerId) items = items.filter((pi) => pi.customer_id === customerId);
     if (status) items = items.filter((pi) => pi.status === status);
-    return stripeList(c, items, "/v1/payment_intents", formatPaymentIntent);
+    return stripeList(c, items, "/v1/payment_intents", formatPaymentIntent, { expand });
   });
 }

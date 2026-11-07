@@ -97,6 +97,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
           {
             url: `http://localhost:${process.env.PORT ?? '3000'}/api/webhooks/stripe`,
             events: ['*'],
+            secret: process.env.STRIPE_WEBHOOK_SECRET,
           },
         ],
       },
@@ -144,6 +145,7 @@ Seed data is optional. All entities support an optional `id` field for determini
 
 ```yaml
 stripe:
+  api_version: 2026-10-28.endive   # optional, stamped on every event
   customers:
     - id: cus_demo
       email: demo@example.com
@@ -166,6 +168,28 @@ stripe:
 The `product_name` field in prices links to the product by name. Use `events: ['*']` to receive all webhook events, or specify individual event types.
 
 ## API Endpoints
+
+Every `/v1` response includes a `Request-Id: req_...` header. Retrieve, create and list calls accept `expand` in any of the forms Stripe accepts: `expand[]=customer`, stripe-node's indexed `expand[0]=customer`, or an `expand` array in a POST body. Dotted paths work through objects and lists, up to four levels:
+
+```typescript
+const pi = await stripe.paymentIntents.retrieve('pi_xxx', { expand: ['customer'] })
+const charges = await stripe.charges.list({ expand: ['data.payment_intent.customer'] })
+```
+
+### Events
+
+```bash
+# List events, newest first (type accepts a * wildcard)
+curl "http://localhost:4000/v1/events?type=customer.*"
+
+# Several types, a created range, or only events some endpoint has not accepted yet
+curl "http://localhost:4000/v1/events?types[]=customer.created&types[]=charge.succeeded"
+curl "http://localhost:4000/v1/events?created[gte]=1762560000"
+curl "http://localhost:4000/v1/events?delivery_success=false"
+
+# Retrieve one event
+curl http://localhost:4000/v1/events/evt_xxx
+```
 
 ### Customers
 
@@ -292,8 +316,16 @@ curl http://localhost:4000/v1/payment_methods
 
 ## Webhooks
 
-The emulator dispatches webhook events when state changes. Register webhooks via seed config or programmatically.
-Webhooks configured with a `secret` include `Stripe-Signature: t=<timestamp>,v1=<signature>`. The signature is an HMAC SHA-256 over `<timestamp>.<raw body>`.
+The emulator records a Stripe Event object for every state change and delivers it to each webhook endpoint subscribed to that type or to `*`. Register endpoints via seed config or programmatically. Delivery happens before the API call that caused it returns, and failed deliveries are not retried.
+
+Endpoints configured with a `secret` include `Stripe-Signature: t=<timestamp>,v1=<signature>`, an HMAC SHA-256 over `<timestamp>.<raw body>`, so `stripe.webhooks.constructEvent` verifies them.
+
+Each delivery is a full Event:
+
+- `id` (`evt_...`), `object: "event"`, `api_version` (`2026-10-28.endive` unless the seed sets `api_version`), `created`, `livemode: false`, `type`.
+- `data.object` is a snapshot of the object, and `*.updated` events add `data.previous_attributes` with the old value of each changed field. An update that changes nothing sends no event.
+- `request.id` is the `Request-Id` of the API call that caused the event, and `request.idempotency_key` echoes its `Idempotency-Key` header. Both are `null` for events no API call caused, such as completing the hosted checkout page.
+- `pending_webhooks` is the number of endpoints the event was sent to. `GET /v1/events/:id` shows how many have not answered 2xx yet.
 
 ### Events dispatched
 
@@ -316,11 +348,14 @@ Webhooks configured with a `secret` include `Stripe-Signature: t=<timestamp>,v1=
 ```typescript
 // app/api/webhooks/stripe/route.ts
 import { NextResponse } from 'next/server'
+import { stripe } from '@/lib/stripe'
 
 export async function POST(request: Request) {
-  const body = await request.json()
-  const event = body.type as string
-  const obj = body.data?.object
+  const body = await request.text()
+  const signature = request.headers.get('stripe-signature')!
+  const evt = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!)
+  const event = evt.type
+  const obj = evt.data.object as any
 
   switch (event) {
     case 'customer.created':

@@ -54,6 +54,9 @@ export interface StripeCharge extends Entity {
   payment_intent_id: string | null;
   description: string | null;
   metadata: Record<string, string>;
+  payment_method?: string;
+  failure_code?: string;
+  failure_message?: string;
 }
 
 export interface StripeCheckoutSession extends Entity {
@@ -66,4 +69,20 @@ export interface StripeCheckoutSession extends Entity {
   cancel_url: string | null;
   line_items: Array<{ price: string; quantity: number }>;
   metadata: Record<string, string>;
+}
+
+export interface StripeEventRequest {
+  id: string | null;
+  idempotency_key: string | null;
+}
+
+export interface StripeEvent extends Entity {
+  stripe_id: string;
+  type: string;
+  api_version: string;
+  /** Unix seconds. Kept separately from created_at so simulated time can set it later. */
+  created: number;
+  data: { object: Record<string, unknown>; previous_attributes?: Record<string, unknown> };
+  pending_webhooks: number;
+  request: StripeEventRequest;
 }

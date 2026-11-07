@@ -19,12 +19,17 @@ import { productRoutes } from "./routes/products.js";
 import { priceRoutes } from "./routes/prices.js";
 import { checkoutSessionRoutes } from "./routes/checkout-sessions.js";
 import { customerSessionRoutes } from "./routes/customer-sessions.js";
+import { eventRoutes } from "./routes/events.js";
+import { requestIdMiddleware, setStripeApiVersion } from "./events.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
+export { STRIPE_API_VERSION } from "./events.js";
 
 export interface StripeSeedConfig {
   port?: number;
+  /** API version stamped on events. Defaults to STRIPE_API_VERSION. */
+  api_version?: string;
   customers?: Array<{
     id?: string;
     email?: string;
@@ -82,6 +87,10 @@ export function seedFromConfig(
   webhooks?: WebhookDispatcher,
 ): void {
   const ss = getStripeStore(store);
+
+  if (config.api_version) {
+    setStripeApiVersion(store, config.api_version);
+  }
 
   if (config.customers) {
     for (const c of config.customers) {
@@ -143,7 +152,10 @@ export const stripePlugin: ServicePlugin = {
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     webhooks.setHeaderFactory(stripeWebhookHeaders);
 
+    app.use("*", requestIdMiddleware());
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    eventRoutes(ctx);
     customerRoutes(ctx);
     paymentMethodRoutes(ctx);
     paymentIntentRoutes(ctx);

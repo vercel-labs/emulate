@@ -41,6 +41,7 @@
     "@emulators/core": "workspace:*"
   },
   "devDependencies": {
+    "stripe": "^23.1.0",
     "tsup": "^8",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
