@@ -1,10 +1,13 @@
-import { toUnixTimestamp, type ExpandResolver } from "./helpers.js";
+import { derivedInvoicePrefix, toUnixTimestamp, type ExpandResolver } from "./helpers.js";
+import { testCardByNumber } from "./test-cards.js";
 import type { StripeStore } from "./store.js";
 import type {
+  StripeBillingDetails,
   StripeCharge,
   StripeCheckoutSession,
   StripeCustomer,
   StripePaymentIntent,
+  StripePaymentMethod,
   StripePrice,
   StripeProduct,
   StripeWebhookEndpoint,
@@ -28,16 +31,89 @@ export function formatWebhookEndpoint(ep: StripeWebhookEndpoint, options: { incl
   };
 }
 
+/** The Customer object in the key order of the API reference. Balances, tax and discounts are not modelled. */
 export function formatCustomer(c: StripeCustomer) {
   return {
     id: c.stripe_id,
     object: "customer" as const,
-    email: c.email,
-    name: c.name,
-    description: c.description,
-    metadata: c.metadata,
+    address: null,
+    balance: 0,
     created: toUnixTimestamp(c.created_at),
+    currency: null,
+    default_source: null,
+    delinquent: c.delinquent ?? false,
+    description: c.description,
+    email: c.email,
+    invoice_prefix: c.invoice_prefix ?? derivedInvoicePrefix(c.stripe_id),
+    invoice_settings: {
+      custom_fields: null,
+      default_payment_method: c.invoice_settings?.default_payment_method ?? null,
+      footer: null,
+      rendering_options: null,
+    },
     livemode: false,
+    metadata: c.metadata,
+    name: c.name,
+    next_invoice_sequence: c.next_invoice_sequence ?? 1,
+    phone: null,
+    preferred_locales: [] as string[],
+    shipping: null,
+    tax_exempt: "none" as const,
+    test_clock: c.test_clock ?? null,
+  };
+}
+
+export function formatBillingDetails(details: StripeBillingDetails) {
+  const address = details.address ?? {};
+  return {
+    address: {
+      city: address.city ?? null,
+      country: address.country ?? null,
+      line1: address.line1 ?? null,
+      line2: address.line2 ?? null,
+      postal_code: address.postal_code ?? null,
+      state: address.state ?? null,
+    },
+    email: details.email ?? null,
+    name: details.name ?? null,
+    phone: details.phone ?? null,
+  };
+}
+
+/** The PaymentMethod object for a card, in the key order of the API reference. */
+export function formatPaymentMethod(pm: StripePaymentMethod) {
+  const testCard = testCardByNumber(pm.card.number);
+  const brand = testCard?.brand ?? "unknown";
+  return {
+    id: pm.stripe_id,
+    object: "payment_method" as const,
+    allow_redisplay: pm.allow_redisplay,
+    billing_details: formatBillingDetails(pm.billing_details),
+    card: {
+      brand,
+      checks: {
+        address_line1_check: pm.billing_details.address?.line1 ? "unchecked" : null,
+        address_postal_code_check: pm.billing_details.address?.postal_code ? "unchecked" : null,
+        cvc_check: pm.card.cvc_check ?? null,
+      },
+      country: testCard?.country ?? null,
+      display_brand: testCard?.display_brand ?? null,
+      exp_month: pm.card.exp_month,
+      exp_year: pm.card.exp_year,
+      fingerprint: testCard?.fingerprint ?? null,
+      funding: testCard?.funding ?? "unknown",
+      generated_from: null,
+      last4: pm.card.number.slice(-4),
+      networks: { available: [brand], preferred: null },
+      regulated_status: "unregulated" as const,
+      three_d_secure_usage: { supported: true },
+      wallet: null,
+    },
+    created: pm.created,
+    customer: pm.customer_id ?? null,
+    livemode: false,
+    metadata: pm.metadata,
+    type: pm.type,
   };
 }
 
@@ -201,6 +277,10 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
       const found = ss.checkoutSessions.findOneBy("stripe_id", id);
       return found ? formatCheckoutSession(found, baseUrl) : undefined;
     },
+    payment_method: (id) => {
+      const found = ss.paymentMethods.findOneBy("stripe_id", id);
+      return found ? formatPaymentMethod(found) : undefined;
+    },
   };
 
   const fieldTypes: Record<string, string> = {
@@ -210,6 +290,8 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     latest_charge: "charge",
     product: "product",
     price: "price",
+    payment_method: "payment_method",
+    default_payment_method: "payment_method",
   };
 
   const prefixTypes: Array<[string, string]> = [
@@ -220,6 +302,7 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     ["prod_", "product"],
     ["price_", "price"],
     ["cs_", "checkout_session"],
+    ["pm_", "payment_method"],
   ];
 
   const includable: Record<string, Record<string, (parent: Record<string, unknown>) => unknown>> = {

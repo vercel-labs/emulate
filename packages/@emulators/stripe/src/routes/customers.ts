@@ -1,28 +1,102 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, parseStripeBody, stripeError, stripeList } from "../helpers.js";
-import { formatCustomer } from "../formatters.js";
+import { stripeId, parseStripeBody, stripeError, stripeList, expandedJson, generateInvoicePrefix } from "../helpers.js";
+import { formatCustomer, formatPaymentMethod, stripeExpandResolver } from "../formatters.js";
 import { eventBatch, previousAttributes } from "../events.js";
+import { testCardByPaymentMethod } from "../test-cards.js";
+import {
+  attachPaymentMethod,
+  detachCustomerPaymentMethods,
+  notCustomersPaymentMethod,
+  sendStripeError,
+} from "./payment-methods.js";
+
+import type { StripePaymentMethod } from "../entities.js";
+
+const INVOICE_PREFIX = /^[A-Z0-9]{3,12}$/;
+
+/** The `invoice_settings[default_payment_method]` param: a string id, "" to clear, or undefined when absent. */
+function readDefaultPaymentMethod(body: Record<string, unknown>): string | undefined {
+  const settings = body.invoice_settings;
+  if (!settings || typeof settings !== "object") return undefined;
+  const value = (settings as Record<string, unknown>).default_payment_method;
+  return typeof value === "string" ? value : undefined;
+}
+
+function invalidInvoicePrefix(prefix: unknown) {
+  return typeof prefix === "string" && !INVOICE_PREFIX.test(prefix);
+}
 
 export function customerRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, baseUrl } = ctx;
   const ss = getStripeStore(store);
+  const expand = stripeExpandResolver(ss, baseUrl);
 
   app.post("/v1/customers", async (c) => {
     const body = await parseStripeBody(c);
+    const paymentMethod = typeof body.payment_method === "string" ? body.payment_method : undefined;
+    const defaultPaymentMethod = readDefaultPaymentMethod(body);
+
+    if (invalidInvoicePrefix(body.invoice_prefix)) {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        "Invalid invoice_prefix: must be 3 to 12 uppercase letters or numbers.",
+        undefined,
+        "invoice_prefix",
+      );
+    }
+    // A new customer owns only the payment method attached in this same call.
+    if (defaultPaymentMethod && defaultPaymentMethod !== paymentMethod) {
+      return sendStripeError(c, notCustomersPaymentMethod(defaultPaymentMethod));
+    }
+    if (paymentMethod && !testCardByPaymentMethod(paymentMethod)) {
+      const stored = ss.paymentMethods.findOneBy("stripe_id", paymentMethod);
+      if (!stored) {
+        return stripeError(
+          c,
+          400,
+          "invalid_request_error",
+          `No such PaymentMethod: '${paymentMethod}'`,
+          "resource_missing",
+          "payment_method",
+        );
+      }
+    }
+
     const customer = ss.customers.insert({
       stripe_id: stripeId("cus"),
       email: (body.email as string) ?? null,
       name: (body.name as string) ?? null,
       description: (body.description as string) ?? null,
       metadata: (body.metadata as Record<string, string>) ?? {},
+      invoice_prefix: typeof body.invoice_prefix === "string" ? body.invoice_prefix : generateInvoicePrefix(),
+      next_invoice_sequence: 1,
+      delinquent: false,
     });
 
+    let attached: StripePaymentMethod | undefined;
+    if (paymentMethod) {
+      const result = attachPaymentMethod(ss, paymentMethod, customer.stripe_id);
+      if (!result.ok) {
+        ss.customers.delete(customer.id);
+        return sendStripeError(c, result.error);
+      }
+      attached = result.value.pm;
+    }
+
+    const created =
+      attached && defaultPaymentMethod
+        ? ss.customers.update(customer.id, { invoice_settings: { default_payment_method: attached.stripe_id } })!
+        : customer;
+
     const ev = eventBatch(ctx, c);
-    ev.emit("customer.created", formatCustomer(customer));
+    ev.emit("customer.created", formatCustomer(created));
+    if (attached) ev.emit("payment_method.attached", formatPaymentMethod(attached));
     await ev.commit();
 
-    return c.json(formatCustomer(customer), 200);
+    return expandedJson(c, formatCustomer(created), expand, body);
   });
 
   app.get("/v1/customers/:id", (c) => {
@@ -35,7 +109,7 @@ export function customerRoutes(ctx: RouteContext): void {
         `No such customer: '${c.req.param("id")}'`,
         "resource_missing",
       );
-    return c.json(formatCustomer(customer));
+    return expandedJson(c, formatCustomer(customer), expand);
   });
 
   app.post("/v1/customers/:id", async (c) => {
@@ -49,11 +123,37 @@ export function customerRoutes(ctx: RouteContext): void {
         "resource_missing",
       );
     const body = await parseStripeBody(c);
+
+    if (invalidInvoicePrefix(body.invoice_prefix)) {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        "Invalid invoice_prefix: must be 3 to 12 uppercase letters or numbers.",
+        undefined,
+        "invoice_prefix",
+      );
+    }
+    const defaultPaymentMethod = readDefaultPaymentMethod(body);
+    if (defaultPaymentMethod) {
+      const pm = ss.paymentMethods.findOneBy("stripe_id", defaultPaymentMethod);
+      if (!pm || pm.customer_id !== customer.stripe_id) {
+        return sendStripeError(c, notCustomersPaymentMethod(defaultPaymentMethod));
+      }
+    }
+
     const updated = ss.customers.update(customer.id, {
       ...(body.email !== undefined && { email: body.email as string }),
       ...(body.name !== undefined && { name: body.name as string }),
       ...(body.description !== undefined && { description: body.description as string }),
       ...(body.metadata !== undefined && { metadata: body.metadata as Record<string, string> }),
+      ...(typeof body.invoice_prefix === "string" && { invoice_prefix: body.invoice_prefix }),
+      ...(defaultPaymentMethod !== undefined && {
+        invoice_settings: {
+          ...customer.invoice_settings,
+          default_payment_method: defaultPaymentMethod === "" ? undefined : defaultPaymentMethod,
+        },
+      }),
     })!;
 
     const previous = previousAttributes(formatCustomer(customer), formatCustomer(updated));
@@ -63,7 +163,7 @@ export function customerRoutes(ctx: RouteContext): void {
       await ev.commit();
     }
 
-    return c.json(formatCustomer(updated));
+    return expandedJson(c, formatCustomer(updated), expand, body);
   });
 
   app.delete("/v1/customers/:id", async (c) => {
@@ -87,6 +187,7 @@ export function customerRoutes(ctx: RouteContext): void {
     for (const cs of ss.checkoutSessions.findBy("customer_id", customer.stripe_id)) {
       ss.checkoutSessions.update(cs.id, { customer_id: null });
     }
+    detachCustomerPaymentMethods(ss, customer.stripe_id);
 
     ss.customers.delete(customer.id);
 
@@ -101,6 +202,6 @@ export function customerRoutes(ctx: RouteContext): void {
     let items = ss.customers.all();
     const email = c.req.query("email");
     if (email) items = items.filter((cust) => cust.email === email);
-    return stripeList(c, items, "/v1/customers", formatCustomer);
+    return stripeList(c, items, "/v1/customers", formatCustomer, { expand });
   });
 }

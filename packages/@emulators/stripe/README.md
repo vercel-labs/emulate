@@ -39,8 +39,43 @@ These routes exist only in the emulator. See [Webhook delivery model and chaos](
 - `DELETE /v1/customers/:id` — delete customer
 - `GET /v1/customers` — list customers
 
+Create accepts `payment_method`, which attaches that payment method (or a test card id such as `pm_card_visa`) in the same call, and `invoice_settings[default_payment_method]`, which may name the payment method being attached. Update accepts `invoice_settings[default_payment_method]` for a payment method already attached to the customer, or an empty string to clear it. Both accept `invoice_prefix` (3 to 12 uppercase letters or numbers). Customers always carry `address`, `balance` (0), `currency`, `default_source`, `delinquent` (false), `invoice_prefix` (8 characters when generated), `invoice_settings`, `next_invoice_sequence` (1), `phone`, `preferred_locales`, `shipping`, `tax_exempt` (`none`) and `test_clock` (null). Deleting a customer detaches its payment methods.
+
 ### Payment Methods
-- `GET /v1/payment_methods` — list payment methods
+- `POST /v1/payment_methods`: create a card payment method from `card[token]` (a test token such as `tok_visa`) or `card[number]` with `card[exp_month]` and `card[exp_year]` (a test card number). Also accepts `billing_details`, `metadata` and `allow_redisplay`
+- `GET /v1/payment_methods/:id`: retrieve a payment method. A test card id such as `pm_card_visa` returns a new unattached `pm_` each time
+- `POST /v1/payment_methods/:id`: update `metadata`, `billing_details`, `allow_redisplay`, `card[exp_month]` or `card[exp_year]` of an attached payment method
+- `POST /v1/payment_methods/:id/attach`: attach to `customer`. A test card id clones into a new `pm_`. Cards that simulate an issuer decline return a 402 `card_error` and store nothing
+- `POST /v1/payment_methods/:id/detach`: detach from its customer. Detaching is permanent: the payment method cannot be attached again. If it was the customer's default, the default is cleared
+- `GET /v1/payment_methods`: list payment methods, filtered by `customer` and `type`
+- `GET /v1/customers/:id/payment_methods`: list a customer's payment methods, filtered by `type`
+- `GET /v1/customers/:id/payment_methods/:payment_method`: retrieve one of a customer's payment methods
+
+#### Test cards
+
+Payment methods behave like the cards in [Stripe's testing docs](https://docs.stripe.com/testing). Each one can be used as a `pm_card_*` id, a `tok_*` token or its number:
+
+| Card | Number | Behaviour |
+|------|--------|-----------|
+| `pm_card_visa` (`tok_visa`) | 4242424242424242 | Succeeds |
+| `pm_card_visa_debit` | 4000056655665556 | Succeeds, debit funding |
+| `pm_card_mastercard` | 5555555555554444 | Succeeds |
+| `pm_card_amex` | 378282246310005 | Succeeds |
+| `pm_card_visa_chargeDeclined` (also `pm_card_chargeDeclined`) | 4000000000000002 | Declined: `card_declined` / `generic_decline` |
+| `pm_card_visa_chargeDeclinedInsufficientFunds` | 4000000000009995 | Declined: `insufficient_funds` |
+| `pm_card_visa_chargeDeclinedLostCard` | 4000000000009987 | Declined: `lost_card` |
+| `pm_card_visa_chargeDeclinedStolenCard` | 4000000000009979 | Declined: `stolen_card` |
+| `pm_card_chargeDeclinedExpiredCard` | 4000000000000069 | Declined: `expired_card` |
+| `pm_card_chargeDeclinedIncorrectCvc` | 4000000000000127 | Declined: `incorrect_cvc` |
+| `pm_card_chargeDeclinedProcessingError` | 4000000000000119 | Declined: `processing_error` |
+| `pm_card_visa_chargeDeclinedVelocityLimitExceeded` | 4000000000006975 | Declined: `card_velocity_exceeded` |
+| `pm_card_chargeCustomerFail` | 4000000000000341 | Attaches, then charges are declined |
+| `pm_card_authenticationRequired` | 4000002760003184 | Needs 3D Secure on every charge |
+| `pm_card_authenticationRequiredOnSetup` | 4000002500003155 | Needs 3D Secure on setup and on-session charges, not off-session after setup |
+| `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` | 4000008260003178 | Needs 3D Secure, then is declined with `insufficient_funds` |
+| (number only) | 4242424242424241 | Rejected at creation: `incorrect_number` |
+
+The declined cards cannot be attached to a customer, as on Stripe: attaching one returns the decline. Numbers outside the table are rejected, with `incorrect_number` when they fail the Luhn check and `test_mode_live_card` otherwise. Card errors carry `decline_code` and `doc_url` alongside `code`, `message` and `param`.
 
 ### Customer Sessions
 - `POST /v1/customer_sessions` — create customer session
@@ -101,7 +136,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.succeeded`, `payment_intent.canceled`, `charge.succeeded`, `checkout.session.completed` and `checkout.session.expired`.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.succeeded`, `payment_intent.canceled`, `charge.succeeded`, `checkout.session.completed` and `checkout.session.expired`.
 
 ## Webhook delivery model and chaos
 
@@ -165,6 +200,11 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - Charges report `balance_transaction`, `payment_method_details` and `receipt_url` as `null`, and `outcome` has no risk score.
 - Confirming a PaymentIntent with no payment method succeeds as if `pm_card_visa` were used. Real Stripe returns a 400.
 - Payment-mode Checkout Sessions may be created without `line_items`.
+- Only card payment methods exist, and only the documented test cards. `card[number]` is accepted for those numbers without the raw card data setting real Stripe requires. Fingerprints are derived from the card number, `card.checks.cvc_check` turns `pass` when a `pm_card_*` id or a card created with `card[cvc]` is attached, and `regulated_status` is always `unregulated`.
+- Card behaviour (declines after attaching, 3D Secure) is recorded on each card, but confirming a PaymentIntent does not apply it yet.
+- `GET /v1/payment_methods` without `customer` lists every payment method.
+- Detaching a customer's default payment method clears the default and sends `customer.updated`. Deleting a customer detaches its payment methods without sending `payment_method.detached`.
+- Customer `balance`, `currency`, `address`, `shipping`, tax and discounts are not modelled and keep their empty defaults.
 
 ## Links
 

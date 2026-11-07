@@ -6,6 +6,51 @@ export interface StripeCustomer extends Entity {
   name: string | null;
   description: string | null;
   metadata: Record<string, string>;
+  invoice_settings?: { default_payment_method?: string };
+  /** Eight characters. Customers inserted without one get a prefix derived from their id. */
+  invoice_prefix?: string;
+  next_invoice_sequence?: number;
+  delinquent?: boolean;
+  test_clock?: string;
+}
+
+export interface StripeAddress {
+  city?: string;
+  country?: string;
+  line1?: string;
+  line2?: string;
+  postal_code?: string;
+  state?: string;
+}
+
+export interface StripeBillingDetails {
+  address?: StripeAddress;
+  email?: string;
+  name?: string;
+  phone?: string;
+}
+
+export type CardCheck = "pass" | "fail" | "unavailable" | "unchecked";
+
+export interface StripePaymentMethodCard {
+  /** The test card number this card was created from. Its behaviour comes from the test card table. */
+  number: string;
+  exp_month: number;
+  exp_year: number;
+  cvc_check?: CardCheck;
+}
+
+export interface StripePaymentMethod extends Entity {
+  stripe_id: string;
+  type: "card";
+  customer_id?: string;
+  card: StripePaymentMethodCard;
+  billing_details: StripeBillingDetails;
+  allow_redisplay: "always" | "limited" | "unspecified";
+  metadata: Record<string, string>;
+  created: number;
+  /** Detached payment methods can never be attached again. */
+  detached?: boolean;
 }
 
 export interface StripeProduct extends Entity {

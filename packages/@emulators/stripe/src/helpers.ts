@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import type { Context } from "@emulators/core";
 import type { ContentfulStatusCode } from "@emulators/core";
 import type { Entity } from "@emulators/core";
@@ -33,6 +33,16 @@ export function randomBase62(length: number): string {
 
 export function stripeId(prefix: string, length = 24): string {
   return `${prefix}_${randomBase62(length)}`;
+}
+
+/** Eight uppercase hex characters, the shape of Stripe's generated invoice prefixes. */
+export function generateInvoicePrefix(): string {
+  return randomBytes(4).toString("hex").toUpperCase();
+}
+
+/** A stable prefix for customers stored without one, such as seeded customers. */
+export function derivedInvoicePrefix(customerId: string): string {
+  return createHash("sha256").update(customerId).digest("hex").slice(0, 8).toUpperCase();
 }
 
 export function toUnixTimestamp(iso: string): number {
@@ -148,9 +158,18 @@ export function readStringList(value: unknown): string[] {
   return [];
 }
 
+/** Optional fields of a Stripe error body. Card errors carry the decline and the objects involved. */
+export interface StripeErrorExtras {
+  decline_code?: string;
+  doc_url?: string;
+  payment_intent?: Record<string, unknown>;
+  payment_method?: Record<string, unknown>;
+  charge?: string;
+}
+
 /**
  * Return a Stripe-format error response.
- * Stripe errors use { error: { type, message, code?, param? } }
+ * Stripe errors use { error: { type, message, code?, param?, decline_code?, doc_url?, ... } }
  */
 export function stripeError(
   c: Context,
@@ -159,6 +178,7 @@ export function stripeError(
   message: string,
   code?: string,
   param?: string,
+  extras: StripeErrorExtras = {},
 ) {
   return c.json(
     {
@@ -167,6 +187,11 @@ export function stripeError(
         message,
         ...(code && { code }),
         ...(param && { param }),
+        ...(extras.decline_code && { decline_code: extras.decline_code }),
+        ...(extras.doc_url && { doc_url: extras.doc_url }),
+        ...(extras.charge && { charge: extras.charge }),
+        ...(extras.payment_intent && { payment_intent: extras.payment_intent }),
+        ...(extras.payment_method && { payment_method: extras.payment_method }),
       },
     },
     status as ContentfulStatusCode,

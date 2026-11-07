@@ -336,9 +336,50 @@ curl -X POST http://localhost:4000/v1/customer_sessions \
 ### Payment Methods
 
 ```bash
-# List payment methods
-curl http://localhost:4000/v1/payment_methods
+# Save a test card to a customer. pm_card_visa clones into a new pm_ owned by the customer
+curl -X POST http://localhost:4000/v1/payment_methods/pm_card_visa/attach -d "customer=cus_xxx"
+
+# Create an unattached card from a test token or a test card number
+curl -X POST http://localhost:4000/v1/payment_methods -d "type=card" -d "card[token]=tok_visa"
+curl -X POST http://localhost:4000/v1/payment_methods -d "type=card" \
+  -d "card[number]=4000000000000341" -d "card[exp_month]=12" -d "card[exp_year]=2030"
+
+# Retrieve, update (metadata, billing_details, allow_redisplay) and detach (permanent)
+curl http://localhost:4000/v1/payment_methods/pm_xxx
+curl -X POST http://localhost:4000/v1/payment_methods/pm_xxx -d "metadata[nickname]=work"
+curl -X POST http://localhost:4000/v1/payment_methods/pm_xxx/detach
+
+# List, filtered by customer and type
+curl "http://localhost:4000/v1/payment_methods?customer=cus_xxx&type=card"
+curl http://localhost:4000/v1/customers/cus_xxx/payment_methods
 ```
+
+```typescript
+// Create a customer with a saved default card in one call
+const customer = await stripe.customers.create({
+  email: 'jenny@example.com',
+  payment_method: 'pm_card_visa',
+  invoice_settings: { default_payment_method: 'pm_card_visa' },
+})
+// customer.invoice_settings.default_payment_method is the new pm_ id
+
+// Or set the default later, for a card already attached to the customer
+await stripe.customers.update(customer.id, { invoice_settings: { default_payment_method: pm.id } })
+```
+
+Test cards follow [Stripe's testing docs](https://docs.stripe.com/testing):
+
+| Card | Behaviour |
+|------|-----------|
+| `pm_card_visa`, `pm_card_visa_debit`, `pm_card_mastercard`, `pm_card_amex` | Succeed |
+| `pm_card_chargeDeclined`, `pm_card_visa_chargeDeclinedInsufficientFunds`, `pm_card_visa_chargeDeclinedLostCard`, `pm_card_visa_chargeDeclinedStolenCard`, `pm_card_chargeDeclinedExpiredCard`, `pm_card_chargeDeclinedIncorrectCvc`, `pm_card_chargeDeclinedProcessingError`, `pm_card_visa_chargeDeclinedVelocityLimitExceeded` | Issuer declines. Attaching returns a 402 `card_error` with `code` and `decline_code`, and stores nothing |
+| `pm_card_chargeCustomerFail` (4000000000000341) | Attaches, later charges fail |
+| `pm_card_authenticationRequired` (3184) | Needs 3D Secure on every charge |
+| `pm_card_authenticationRequiredOnSetup` (3155) | Needs 3D Secure on setup and on-session charges |
+| `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` (3178) | Needs 3D Secure, then declines |
+| 4242424242424241 | Rejected at creation with `incorrect_number` |
+
+Other card numbers are rejected. Setting a default payment method that is not attached to the customer returns a 400 with `param: "invoice_settings[default_payment_method]"`. Confirming a PaymentIntent does not apply card declines or 3D Secure yet.
 
 ## Webhooks
 
@@ -386,6 +427,9 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `customer.created` | Customer created |
 | `customer.updated` | Customer updated |
 | `customer.deleted` | Customer deleted |
+| `payment_method.attached` | Payment method attached (also by `payment_method` on customer create) |
+| `payment_method.detached` | Payment method detached |
+| `payment_method.updated` | Payment method updated |
 | `product.created` | Product created |
 | `price.created` | Price created |
 | `payment_intent.created` | Payment intent created |
