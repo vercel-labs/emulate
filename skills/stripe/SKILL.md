@@ -163,9 +163,12 @@ stripe:
     - url: http://localhost:3000/api/webhooks/stripe
       events: ['*']
       secret: whsec_test
+  webhook_chaos:          # optional, see "Delivery chaos" below
+    seed: 42
+    reorder: reverse
 ```
 
-The `product_name` field in prices links to the product by name. Use `events: ['*']` to receive all webhook events, or specify individual event types.
+The `product_name` field in prices links to the product by name. Use `events: ['*']` to receive all webhook events, or specify individual event types. Seeded webhooks are also listed by `GET /v1/webhook_endpoints`.
 
 ## API Endpoints
 
@@ -189,6 +192,29 @@ curl "http://localhost:4000/v1/events?delivery_success=false"
 
 # Retrieve one event
 curl http://localhost:4000/v1/events/evt_xxx
+```
+
+### Webhook Endpoints
+
+```bash
+# Create an endpoint. The response is the only one that includes its secret (whsec_...)
+curl -X POST http://localhost:4000/v1/webhook_endpoints \
+  -d "url=http://localhost:3000/api/webhooks/stripe" \
+  -d "enabled_events[]=customer.created" -d "enabled_events[]=charge.succeeded"
+
+# Retrieve, update (url, enabled_events, description, metadata, disabled), delete, list
+curl http://localhost:4000/v1/webhook_endpoints/we_xxx
+curl -X POST http://localhost:4000/v1/webhook_endpoints/we_xxx -d "disabled=true"
+curl -X DELETE http://localhost:4000/v1/webhook_endpoints/we_xxx
+curl http://localhost:4000/v1/webhook_endpoints
+```
+
+```typescript
+const endpoint = await stripe.webhookEndpoints.create({
+  url: 'http://localhost:3000/api/webhooks/stripe',
+  enabled_events: ['*'],
+})
+// endpoint.secret verifies the deliveries with stripe.webhooks.constructEvent
 ```
 
 ### Customers
@@ -316,7 +342,7 @@ curl http://localhost:4000/v1/payment_methods
 
 ## Webhooks
 
-The emulator records a Stripe Event object for every state change and delivers it to each webhook endpoint subscribed to that type or to `*`. Register endpoints via seed config or programmatically. Delivery happens before the API call that caused it returns, and failed deliveries are not retried.
+The emulator records a Stripe Event object for every state change and delivers it to each webhook endpoint subscribed to that type or to `*`. Register endpoints via seed config or `POST /v1/webhook_endpoints`. Delivery happens before the API call that caused it returns, and failed deliveries are not retried.
 
 Endpoints configured with a `secret` include `Stripe-Signature: t=<timestamp>,v1=<signature>`, an HMAC SHA-256 over `<timestamp>.<raw body>`, so `stripe.webhooks.constructEvent` verifies them.
 
@@ -326,6 +352,32 @@ Each delivery is a full Event:
 - `data.object` is a snapshot of the object, and `*.updated` events add `data.previous_attributes` with the old value of each changed field. An update that changes nothing sends no event.
 - `request.id` is the `Request-Id` of the API call that caused the event, and `request.idempotency_key` echoes its `Idempotency-Key` header. Both are `null` for events no API call caused, such as completing the hosted checkout page.
 - `pending_webhooks` is the number of endpoints the event was sent to. `GET /v1/events/:id` shows how many have not answered 2xx yet.
+
+### Delivery chaos
+
+Delivery is inline, sequential and in order by default, with no automatic retries. To test idempotent and order-independent handlers, turn on chaos with the emulator-only control routes:
+
+```bash
+# Drop 20% of events, hold payment_intent.succeeded until flush, send charge.succeeded twice, shuffle batches
+curl -X POST http://localhost:4000/_stripe/webhooks/chaos \
+  -H "Content-Type: application/json" \
+  -d '{"seed": 42, "drop": {"rate": 0.2}, "delay": {"types": ["payment_intent.succeeded"]}, "duplicate": {"types": ["charge.succeeded"]}, "reorder": "shuffle"}'
+
+curl http://localhost:4000/_stripe/webhooks/chaos               # current settings
+curl -X DELETE http://localhost:4000/_stripe/webhooks/chaos     # back to normal delivery
+
+# Release held events (optionally only some, in held, reverse or shuffled order)
+curl -X POST http://localhost:4000/_stripe/webhooks/flush \
+  -H "Content-Type: application/json" -d '{"order": "reverse"}'
+
+# Every attempt: succeeded, failed, dropped or held
+curl "http://localhost:4000/_stripe/webhooks/deliveries?status=dropped"
+
+# Send a stored event again (for example one that was dropped)
+curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
+```
+
+`rate` is a probability from 0 to 1 (default 1) and `types` accepts `*` wildcards (default every type). Duplicates reuse the same `evt_` id. The same `seed` makes the same decisions in every fresh emulator, and the generator state and held events survive a snapshot and restore.
 
 ### Events dispatched
 

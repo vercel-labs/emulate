@@ -20,11 +20,15 @@ import { priceRoutes } from "./routes/prices.js";
 import { checkoutSessionRoutes } from "./routes/checkout-sessions.js";
 import { customerSessionRoutes } from "./routes/customer-sessions.js";
 import { eventRoutes } from "./routes/events.js";
-import { requestIdMiddleware, setStripeApiVersion } from "./events.js";
+import { webhookEndpointRoutes } from "./routes/webhook-endpoints.js";
+import { controlRoutes } from "./routes/control.js";
+import { requestIdMiddleware, setStripeApiVersion, syncWebhookEndpoints } from "./events.js";
+import { parseChaosConfig, setWebhookChaos, type WebhookChaosInput } from "./chaos.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
 export { STRIPE_API_VERSION } from "./events.js";
+export type { WebhookChaosInput, ReorderMode } from "./chaos.js";
 
 export interface StripeSeedConfig {
   port?: number;
@@ -47,11 +51,15 @@ export interface StripeSeedConfig {
     currency: string;
     unit_amount: number;
   }>;
+  /** Webhook endpoints. Each one is also listed by GET /v1/webhook_endpoints. */
   webhooks?: Array<{
+    id?: string;
     url: string;
     events: string[];
     secret?: string;
   }>;
+  /** Delivery faults applied from the start. See README "Webhook delivery model and chaos". */
+  webhook_chaos?: WebhookChaosInput;
 }
 
 function stripeWebhookHeaders({ body, subscription }: WebhookHeaderContext): Record<string, string> {
@@ -133,17 +141,33 @@ export function seedFromConfig(
     }
   }
 
-  if (config.webhooks && webhooks) {
-    webhooks.setHeaderFactory(stripeWebhookHeaders);
+  if (config.webhook_chaos) {
+    const parsed = parseChaosConfig(config.webhook_chaos);
+    if (parsed.error) throw new Error(`Invalid stripe webhook_chaos: ${parsed.error.message}`);
+    setWebhookChaos(store, parsed.config);
+  }
+
+  if (config.webhooks) {
     for (const wh of config.webhooks) {
-      webhooks.register({
+      const duplicate = ss.webhookEndpoints
+        .findBy("url", wh.url)
+        .some((ep) => ep.secret === wh.secret && ep.enabled_events.join(",") === wh.events.join(","));
+      if (duplicate) continue;
+      ss.webhookEndpoints.insert({
+        stripe_id: wh.id ?? stripeId("we"),
         url: wh.url,
-        events: wh.events,
-        active: true,
+        enabled_events: [...wh.events],
+        status: "enabled",
+        metadata: {},
         secret: wh.secret,
-        owner: "stripe",
+        created: Math.floor(Date.now() / 1000),
       });
     }
+  }
+
+  if (webhooks) {
+    webhooks.setHeaderFactory(stripeWebhookHeaders);
+    syncWebhookEndpoints(store, webhooks);
   }
 }
 
@@ -156,6 +180,8 @@ export const stripePlugin: ServicePlugin = {
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     eventRoutes(ctx);
+    webhookEndpointRoutes(ctx);
+    controlRoutes(ctx);
     customerRoutes(ctx);
     paymentMethodRoutes(ctx);
     paymentIntentRoutes(ctx);

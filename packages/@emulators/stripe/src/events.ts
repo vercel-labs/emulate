@@ -1,6 +1,14 @@
-import type { Context, MiddlewareHandler, Store, WebhookDispatcher } from "@emulators/core";
+import type {
+  Context,
+  MiddlewareHandler,
+  Store,
+  WebhookDelivery,
+  WebhookDispatcher,
+  WebhookSubscription,
+} from "@emulators/core";
 import { getStripeStore } from "./store.js";
 import { randomBase62, stripeId } from "./helpers.js";
+import { holdEvents, planChaos } from "./chaos.js";
 import type { StripeEvent, StripeEventRequest } from "./entities.js";
 
 /** The API version events are rendered with unless the seed config pins another. */
@@ -104,10 +112,134 @@ export interface EventBatch {
   commit(): Promise<void>;
 }
 
-function matchingEndpointCount(webhooks: WebhookDispatcher, type: string): number {
+function matchingSubscriptions(webhooks: WebhookDispatcher, type: string): WebhookSubscription[] {
   return webhooks
     .getSubscriptions("stripe")
-    .filter((s) => s.active && s.repo === undefined && (s.events.includes("*") || s.events.includes(type))).length;
+    .filter((s) => s.active && s.repo === undefined && (s.events.includes("*") || s.events.includes(type)));
+}
+
+/** Subscriptions each dispatcher holds on behalf of a stored webhook endpoint. */
+const endpointSubscriptions = new WeakMap<WebhookDispatcher, Set<number>>();
+
+function sameList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+/**
+ * Make the dispatcher match the `stripe.webhook_endpoints` collection and return which
+ * subscription serves each endpoint. Endpoints are matched to subscriptions by url and secret,
+ * so a store restored into a running or a fresh emulator never registers an endpoint twice.
+ * A subscription that served an endpoint the store no longer has is removed. Subscriptions
+ * registered directly on the dispatcher, outside this collection, are left alone.
+ */
+export function syncWebhookEndpoints(store: Store, webhooks: WebhookDispatcher): Map<number, number> {
+  const ss = getStripeStore(store);
+  const subscriptions = webhooks.getSubscriptions("stripe").filter((s) => s.repo === undefined);
+  const claimed = new Set<number>();
+  const mapping = new Map<number, number>();
+  const owned = endpointSubscriptions.get(webhooks) ?? new Set<number>();
+  endpointSubscriptions.set(webhooks, owned);
+  // Ids left over from a dispatcher.clear() could be reused by unrelated subscriptions.
+  for (const id of owned) if (!webhooks.getSubscription(id)) owned.delete(id);
+
+  for (const endpoint of ss.webhookEndpoints.all().sort((a, b) => a.id - b.id)) {
+    const active = endpoint.status === "enabled";
+    const sub = subscriptions.find((s) => !claimed.has(s.id) && s.url === endpoint.url && s.secret === endpoint.secret);
+    if (sub) {
+      if (sub.active !== active || !sameList(sub.events, endpoint.enabled_events)) {
+        webhooks.updateSubscription(sub.id, { active, events: [...endpoint.enabled_events] });
+      }
+      claimed.add(sub.id);
+      mapping.set(endpoint.id, sub.id);
+    } else {
+      const registered = webhooks.register({
+        url: endpoint.url,
+        events: [...endpoint.enabled_events],
+        active,
+        secret: endpoint.secret,
+        owner: "stripe",
+      });
+      claimed.add(registered.id);
+      mapping.set(endpoint.id, registered.id);
+    }
+  }
+
+  for (const id of owned) {
+    if (claimed.has(id)) continue;
+    webhooks.unregister(id);
+    owned.delete(id);
+  }
+  for (const id of claimed) owned.add(id);
+  return mapping;
+}
+
+function succeededHooks(webhooks: WebhookDispatcher, eventId: string): Set<number> {
+  const hooks = new Set<number>();
+  for (const d of webhooks.getDeliveries()) {
+    if (d.success && (d.payload as { id?: unknown } | undefined)?.id === eventId) hooks.add(d.hook_id);
+  }
+  return hooks;
+}
+
+function lastDeliveryId(webhooks: WebhookDispatcher): number {
+  const deliveries = webhooks.getDeliveries();
+  return deliveries.length === 0 ? 0 : deliveries[deliveries.length - 1].id;
+}
+
+/**
+ * Send one stored event to every matching endpoint, `copies` times with the same body, and
+ * lower its pending_webhooks by the endpoints that newly answered 2xx. Returns the attempts.
+ */
+export async function dispatchStoredEvent(
+  ctx: EventBatchContext,
+  event: StripeEvent,
+  copies = 1,
+): Promise<WebhookDelivery[]> {
+  const ss = getStripeStore(ctx.store);
+  const current = ss.events.get(event.id) ?? event;
+  const before = succeededHooks(ctx.webhooks, current.stripe_id);
+  const since = lastDeliveryId(ctx.webhooks);
+  const payload = formatEvent(current);
+
+  for (let i = 0; i < copies; i++) {
+    await ctx.webhooks.dispatch(current.type, undefined, payload, "stripe");
+  }
+
+  const after = succeededHooks(ctx.webhooks, current.stripe_id);
+  const newlyDelivered = [...after].filter((hook) => !before.has(hook)).length;
+  if (newlyDelivered > 0) {
+    ss.events.update(current.id, { pending_webhooks: Math.max(0, current.pending_webhooks - newlyDelivered) });
+  }
+  return ctx.webhooks.getDeliveries().filter((d) => d.id > since);
+}
+
+/** Deliver freshly stored events, applying the chaos settings to the batch as a whole. */
+async function deliverBatch(ctx: EventBatchContext, events: StripeEvent[]): Promise<void> {
+  const ss = getStripeStore(ctx.store);
+  const plan = planChaos(
+    ctx.store,
+    events.filter((e) => e.pending_webhooks > 0),
+  );
+
+  for (const event of plan.dropped) {
+    const created = Math.floor(Date.now() / 1000);
+    for (const sub of matchingSubscriptions(ctx.webhooks, event.type)) {
+      ss.webhookAttempts.insert({
+        event_id: event.stripe_id,
+        type: event.type,
+        status: "dropped",
+        url: sub.url,
+        created,
+      });
+    }
+  }
+  holdEvents(
+    ctx.store,
+    plan.held.map((e) => ({ event_id: e.stripe_id, type: e.type })),
+  );
+  for (const { item, copies } of plan.deliver) {
+    await dispatchStoredEvent(ctx, item, copies);
+  }
 }
 
 /**
@@ -125,6 +257,7 @@ export function eventBatch(ctx: EventBatchContext, c?: Context): EventBatch {
     },
 
     async commit() {
+      syncWebhookEndpoints(ctx.store, ctx.webhooks);
       const request = eventRequest(c);
       const apiVersion = getStripeApiVersion(ctx.store);
       const created = Math.floor(Date.now() / 1000);
@@ -138,21 +271,12 @@ export function eventBatch(ctx: EventBatchContext, c?: Context): EventBatch {
           data: structuredClone(
             previous && Object.keys(previous).length > 0 ? { object, previous_attributes: previous } : { object },
           ),
-          pending_webhooks: matchingEndpointCount(ctx.webhooks, type),
+          pending_webhooks: matchingSubscriptions(ctx.webhooks, type).length,
           request: { ...request },
         }),
       );
 
-      for (const event of stored) {
-        if (event.pending_webhooks === 0) continue;
-        await ctx.webhooks.dispatch(event.type, undefined, formatEvent(event), "stripe");
-        const delivered = ctx.webhooks
-          .getDeliveries()
-          .filter((d) => d.success && (d.payload as { id?: unknown } | undefined)?.id === event.stripe_id).length;
-        if (delivered > 0) {
-          ss.events.update(event.id, { pending_webhooks: Math.max(0, event.pending_webhooks - delivered) });
-        }
-      }
+      await deliverBatch(ctx, stored);
     },
   };
 }

@@ -7,7 +7,26 @@ import type {
   StripePaymentIntent,
   StripePrice,
   StripeProduct,
+  StripeWebhookEndpoint,
 } from "./entities.js";
+
+/** The Webhook Endpoint object. Stripe returns `secret` only in the create response. */
+export function formatWebhookEndpoint(ep: StripeWebhookEndpoint, options: { includeSecret?: boolean } = {}) {
+  return {
+    id: ep.stripe_id,
+    object: "webhook_endpoint" as const,
+    api_version: ep.api_version ?? null,
+    application: null,
+    created: ep.created,
+    description: ep.description ?? null,
+    enabled_events: [...ep.enabled_events],
+    livemode: false,
+    metadata: ep.metadata,
+    ...(options.includeSecret && { secret: ep.secret ?? null }),
+    status: ep.status,
+    url: ep.url,
+  };
+}
 
 export function formatCustomer(c: StripeCustomer) {
   return {

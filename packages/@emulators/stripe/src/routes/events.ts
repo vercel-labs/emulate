@@ -1,18 +1,14 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeError, stripeList, parseStripeQuery, readStringList, readBool } from "../helpers.js";
+import {
+  stripeError,
+  stripeList,
+  parseStripeQuery,
+  readStringList,
+  readBool,
+  eventTypeMatcher as typeMatcher,
+} from "../helpers.js";
 import { formatEvent } from "../events.js";
-
-/** `type` accepts `*` as a wildcard, for example `customer.*`. */
-function typeMatcher(pattern: string): (type: string) => boolean {
-  if (!pattern.includes("*")) return (type) => type === pattern;
-  const regex = new RegExp(`^${pattern.split("*").map(escapeRegex).join(".*")}$`);
-  return (type) => regex.test(type);
-}
-
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 export function eventRoutes({ app, store }: RouteContext): void {
   const ss = getStripeStore(store);

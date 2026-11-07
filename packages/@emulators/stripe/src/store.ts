@@ -7,6 +7,8 @@ import type {
   StripeCharge,
   StripeCheckoutSession,
   StripeEvent,
+  StripeWebhookEndpoint,
+  StripeWebhookAttempt,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -17,6 +19,8 @@ export interface StripeStore {
   charges: Collection<StripeCharge>;
   checkoutSessions: Collection<StripeCheckoutSession>;
   events: Collection<StripeEvent>;
+  webhookEndpoints: Collection<StripeWebhookEndpoint>;
+  webhookAttempts: Collection<StripeWebhookAttempt>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -28,5 +32,7 @@ export function getStripeStore(store: Store): StripeStore {
     charges: store.collection<StripeCharge>("stripe.charges", ["stripe_id", "customer_id", "payment_intent_id"]),
     checkoutSessions: store.collection<StripeCheckoutSession>("stripe.checkout_sessions", ["stripe_id", "customer_id"]),
     events: store.collection<StripeEvent>("stripe.events", ["stripe_id", "type"]),
+    webhookEndpoints: store.collection<StripeWebhookEndpoint>("stripe.webhook_endpoints", ["stripe_id", "url"]),
+    webhookAttempts: store.collection<StripeWebhookAttempt>("stripe.webhook_attempts", ["event_id"]),
   };
 }

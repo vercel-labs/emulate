@@ -18,6 +18,20 @@ Every `/v1` response carries a `Request-Id: req_...` header. Retrieve, create an
 - `GET /v1/events`: list events, newest first. Filters: `type` (accepts `*`, as in `customer.*`), `types[]`, `created` (exact or `gt`/`gte`/`lt`/`lte`), `delivery_success`, plus `limit`, `starting_after` and `ending_before`
 - `GET /v1/events/:id`: retrieve an event
 
+### Webhook Endpoints
+- `POST /v1/webhook_endpoints`: create an endpoint (`url` and `enabled_events` required; `api_version`, `description`, `metadata` optional). Only this response includes `secret` (`whsec_...`)
+- `GET /v1/webhook_endpoints/:id`: retrieve an endpoint
+- `POST /v1/webhook_endpoints/:id`: update `url`, `enabled_events`, `description`, `metadata` or `disabled`
+- `DELETE /v1/webhook_endpoints/:id`: delete an endpoint
+- `GET /v1/webhook_endpoints`: list endpoints, including the ones from the seed config
+
+### Emulator controls
+These routes exist only in the emulator. See [Webhook delivery model and chaos](#webhook-delivery-model-and-chaos).
+- `GET /_stripe/webhooks/chaos`, `POST /_stripe/webhooks/chaos`, `DELETE /_stripe/webhooks/chaos`: read, replace or clear the delivery chaos settings
+- `POST /_stripe/webhooks/flush`: deliver held events. Body: `order` (`none`, `reverse` or `shuffle`) and `event_ids`
+- `GET /_stripe/webhooks/deliveries`: the delivery log. Filters: `event_id`, `status`, `type`
+- `POST /_stripe/events/:id/redeliver`: send a stored event again to every matching endpoint
+
 ### Customers
 - `POST /v1/customers` — create customer
 - `GET /v1/customers/:id` — retrieve customer
@@ -85,13 +99,46 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 - `pending_webhooks` is the number of endpoints the event was sent to. `GET /v1/events/:id` shows it dropping by one for each endpoint that answered with a 2xx status.
 - `api_version` defaults to `2026-10-28.endive`. Set `api_version` in the seed config to stamp a different version.
 
+Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
+
 Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.succeeded`, `payment_intent.canceled`, `charge.succeeded`, `checkout.session.completed` and `checkout.session.expired`.
+
+## Webhook delivery model and chaos
+
+By default delivery is inline, sequential and in order: the events a request causes are sent one after another, in the order they happened, before the API response returns. A failed delivery is not retried automatically; it stays in the delivery log and keeps the event's `pending_webhooks` above zero until `POST /_stripe/events/:id/redeliver` succeeds.
+
+To test how a handler copes with real-world delivery, turn on chaos. Settings apply to each batch of events a request causes:
+
+```bash
+curl -X POST http://localhost:4000/_stripe/webhooks/chaos \
+  -H "Content-Type: application/json" \
+  -d '{"seed": 42, "drop": {"rate": 0.2}, "duplicate": {"types": ["charge.succeeded"], "count": 1}, "delay": {"types": ["payment_intent.succeeded"]}, "reorder": "shuffle"}'
+```
+
+| Setting | Effect |
+|---------|--------|
+| `drop` `{rate, types}` | The event is stored but not sent. The delivery log shows one `dropped` record per endpoint. |
+| `delay` `{rate, types}` | The event is held in an outbox until `POST /_stripe/webhooks/flush`. The log shows it as `held`. |
+| `duplicate` `{rate, types, count}` | The event is sent `count` extra times (default 1) with the same `evt_` id and a freshly computed signature. |
+| `reorder` | `none` (default), `reverse` or `shuffle` the events of a batch that are being sent now. |
+| `seed` | Seed for the decisions. The same seed makes the same decisions in every fresh emulator. Omitted, a random seed is picked and returned. |
+
+`rate` is a probability from 0 to 1 and defaults to 1. `types` lists event types (`*` wildcards allowed) and defaults to every type. Each event is checked for drop, then delay, then duplicate. The generator state and the outbox are kept in the store, so they survive a snapshot and restore. `DELETE /_stripe/webhooks/chaos` returns to normal delivery; held events stay held until flushed. Flushing and redelivering ignore the chaos settings.
+
+`GET /_stripe/webhooks/deliveries` lists every attempt, oldest first, each with `event_id`, `type`, `status` (`succeeded`, `failed`, `dropped` or `held`), `status_code`, `url`, `delivery_id` and `created`. `POST /_stripe/webhooks/flush` returns `{flushed: [evt ids], remaining}`.
 
 ## Seed Configuration
 
 ```yaml
 stripe:
   api_version: 2026-10-28.endive
+  webhooks:
+    - url: http://localhost:3000/api/webhooks/stripe
+      events: ['*']
+      secret: whsec_test
+  webhook_chaos:
+    seed: 42
+    reorder: reverse
   customers:
     - name: Test Customer
       email: test@example.com
@@ -109,7 +156,8 @@ stripe:
 
 The emulator aims to match Stripe's wire format. These are the places where it deliberately does less:
 
-- Webhooks are delivered inline, one after another and in order, before the API response returns. Failed deliveries are not retried.
+- Webhooks are delivered inline, one after another and in order, before the API response returns. Failed deliveries are not retried, and redelivery happens only through `POST /_stripe/events/:id/redeliver`. Chaos (drop, duplicate, delay until flush, reorder) is opt-in and seeded.
+- Webhook endpoints accept any `enabled_events` strings without checking them against Stripe's list of event types. `api_version` is stored and returned but events are not rendered in it, and `connect` endpoints are not modelled. Seed endpoints without a `secret` receive unsigned deliveries.
 - All events use one `api_version`. There is no per-endpoint version pinning, no conversion between versions, and no thin or v2 events.
 - `livemode` is always `false`, and events are kept for the life of the emulator rather than 30 days.
 - `Idempotency-Key` is echoed into `event.request.idempotency_key`, but repeated requests are not replayed.

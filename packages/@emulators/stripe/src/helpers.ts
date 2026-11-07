@@ -53,6 +53,27 @@ export function readInt(value: unknown): number | undefined {
   return undefined;
 }
 
+/** Coerce a form or JSON value to a finite number. Anything else reads as undefined. */
+export function readNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string" && value.trim() !== "") {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : undefined;
+  }
+  return undefined;
+}
+
+/** An event type pattern. `*` matches any run of characters, as in `customer.*` or `*`. */
+export function eventTypeMatcher(pattern: string): (type: string) => boolean {
+  if (!pattern.includes("*")) return (type) => type === pattern;
+  const regex = new RegExp(`^${pattern.split("*").map(escapeRegex).join(".*")}$`);
+  return (type) => regex.test(type);
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Decode Stripe's bracket encoding (`a[b][0]=c`, `a[]=c`) into nested objects and arrays.
  * Shared by form bodies and query strings, since stripe-node encodes both the same way.

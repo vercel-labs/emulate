@@ -86,3 +86,26 @@ export interface StripeEvent extends Entity {
   pending_webhooks: number;
   request: StripeEventRequest;
 }
+
+export interface StripeWebhookEndpoint extends Entity {
+  stripe_id: string;
+  url: string;
+  enabled_events: string[];
+  status: "enabled" | "disabled";
+  /** Rendered as null when unset. Events always use the emulator's version. */
+  api_version?: string;
+  description?: string;
+  metadata: Record<string, string>;
+  /** Seed endpoints may have no secret, in which case deliveries are unsigned. */
+  secret?: string;
+  created: number;
+}
+
+/** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */
+export interface StripeWebhookAttempt extends Entity {
+  event_id: string;
+  type: string;
+  status: "dropped";
+  url: string;
+  created: number;
+}
