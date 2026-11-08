@@ -91,7 +91,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
           { id: 'prod_widget', name: 'Widget', description: 'A useful widget' },
         ],
         prices: [
-          { id: 'price_widget', product_name: 'Widget', currency: 'usd', unit_amount: 1000 },
+          { id: 'price_widget', product: 'Widget', currency: 'usd', unit_amount: 1000 },
         ],
         webhooks: [
           {
