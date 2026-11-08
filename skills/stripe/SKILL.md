@@ -185,6 +185,10 @@ stripe:
     reorder: reverse
   billing:                # optional, also at /_stripe/billing/settings
     upcoming_renewal_days: 3   # 0 turns invoice.upcoming off
+    retry_schedule_days: [3, 5, 7]   # days after the previous attempt, at most 3 retries
+    after_retries:
+      subscription: cancel   # cancel, unpaid, past_due or pause
+      invoice: open          # open or uncollectible
 ```
 
 The `product` field in prices links to a seeded product by name or id (the older `product_name` key still works). Seeded prices take the same params as `POST /v1/prices` and an invalid one stops the seed with an error. Use `events: ['*']` to receive all webhook events, or specify individual event types. Seeded webhooks are also listed by `GET /v1/webhook_endpoints`.
@@ -454,6 +458,10 @@ curl http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx
 # Billing settings (emulator only): days before a renewal that invoice.upcoming is sent, 0 for never
 curl http://localhost:4000/_stripe/billing/settings
 curl -X POST http://localhost:4000/_stripe/billing/settings -d "upcoming_renewal_days=7"
+# The retry schedule and what happens when the last retry fails
+curl -X POST http://localhost:4000/_stripe/billing/settings \
+  -d "retry_schedule_days[0]=1" -d "retry_schedule_days[1]=2" \
+  -d "after_retries[subscription]=unpaid" -d "after_retries[invoice]=uncollectible"
 
 # List the clock's objects, then delete the clock with its customers and their objects
 curl "http://localhost:4000/v1/subscriptions?test_clock=clock_xxx"
@@ -471,7 +479,25 @@ Advancing runs Billing for the clock's customers, action by action in time order
 | `trial_end` | `active`, `billing_cycle_anchor` = `trial_end`, item periods roll; `customer.subscription.updated` (previous `status`, `items`, `latest_invoice`) and `invoice.created` for a `subscription_cycle` draft |
 | Each `current_period_end` | Item periods roll on the anchor's calendar; `customer.subscription.updated` and a new `subscription_cycle` draft |
 | `cancel_at` (also `cancel_at_period_end`) | `customer.subscription.deleted`, `ended_at` = that time, no invoice |
-| 1 hour after a draft (`automatically_finalizes_at`) | Finalized and charged: `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`. A decline leaves it `open` and the subscription `past_due` |
+| 1 hour after a draft (`automatically_finalizes_at`) | Finalized and charged: `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`. A decline leaves it `open` with `next_payment_attempt` set, the subscription `past_due` and the customer `delinquent` |
+| `next_payment_attempt` | A retry with the payment method the invoice would use now. Each failure sends `invoice.payment_failed` with a higher `attempt_count` |
+| After the last retry fails | `after_retries`: `cancel` (`customer.subscription.deleted`, reason `payment_failed`), `unpaid`, `past_due` or `pause` (`customer.subscription.paused`, `status_details.paused.subscription.type` `final_payment_failure`); the invoice stays `open` or turns `uncollectible` (reason `max_payment_attempts`) |
+| 23 hours after an `incomplete` subscription was created | `incomplete_expired` and its first invoice voided. That invoice is never retried |
+
+Hard declines (`lost_card`, `stolen_card`, `incorrect_number` and the others Stripe lists) keep the retries scheduled and counted, but they make no charge until the default payment method changes. A renewal that needs 3D Secure leaves the PaymentIntent `requires_action` and sends `invoice.payment_action_required` and `invoice.payment_failed`; `POST /_stripe/simulate/payment_intents/:id/authenticate` pays it. Paying, voiding or marking uncollectible the latest invoice makes a `past_due` or `unpaid` subscription `active` again.
+
+```typescript
+// Dunning: a renewal declined by 0341, retried on 3, 5 and 7 days, then canceled
+const customer = await stripe.customers.create({ test_clock: clock.id, payment_method: 'pm_card_chargeCustomerFail',
+  invoice_settings: { default_payment_method: 'pm_card_chargeCustomerFail' } })
+await stripe.subscriptions.create({ customer: customer.id, items: [{ price }], trial_period_days: 7 })
+await stripe.testHelpers.testClocks.advance(clock.id, { frozen_time: start + 7 * 86400 + 3600 })
+// invoice.payment_failed (attempt_count 1), customer.subscription.updated (past_due), customer.updated (delinquent)
+// Recover by attaching a working card, making it the default and paying the invoice:
+const pm = await stripe.paymentMethods.attach('pm_card_visa', { customer: customer.id })
+await stripe.customers.update(customer.id, { invoice_settings: { default_payment_method: pm.id } })
+await stripe.invoices.pay(invoiceId)
+```
 
 ```typescript
 // Walk a 7 day trial through its first renewal
@@ -579,6 +605,14 @@ Test cards follow [Stripe's testing docs](https://docs.stripe.com/testing):
 | `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` (3178) | Needs 3D Secure, then declines |
 | 4242424242424241 | Rejected at creation with `incorrect_number` |
 
+```bash
+# Emulator only: make later charges on a saved card decline, need 3D Secure, or succeed again
+curl -X POST http://localhost:4000/_stripe/simulate/payment_methods/pm_xxx \
+  -d "behavior=decline" -d "decline_code=lost_card"
+curl -X POST http://localhost:4000/_stripe/simulate/payment_methods/pm_xxx -d "behavior=require_authentication"
+curl -X POST http://localhost:4000/_stripe/simulate/payment_methods/pm_xxx -d "behavior=succeed"
+```
+
 Other card numbers are rejected. Setting a default payment method that is not attached to the customer returns a 400 with `param: "invoice_settings[default_payment_method]"`. Confirming a PaymentIntent does not apply card declines or 3D Secure yet.
 
 ## Webhooks
@@ -655,13 +689,14 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `invoice.payment_action_required` | Payment attempt needs 3D Secure |
 | `invoice.upcoming` | A test clock reached `upcoming_renewal_days` before a renewal |
 | `invoice.voided` | Invoice voided |
-| `invoice.marked_uncollectible` | Invoice marked uncollectible |
+| `invoice.marked_uncollectible` | Invoice marked uncollectible, through the API or because the last retry failed |
 | `invoice_payment.paid` | The invoice's InvoicePayment was paid |
 | `invoiceitem.created` | Invoice item created |
 | `invoiceitem.deleted` | Invoice item deleted |
 | `customer.subscription.created` | Subscription created (before its first invoice's events) |
-| `customer.subscription.updated` | Subscription changed, payment moved it from `incomplete` to `active`, or a test clock ended its trial or renewed it |
-| `customer.subscription.deleted` | Subscription canceled, its customer deleted, or a test clock reached its `cancel_at` |
+| `customer.subscription.updated` | Subscription changed, payment moved it from `incomplete` to `active`, a test clock ended its trial or renewed it, or a failed payment made it `past_due`, `unpaid` or `incomplete_expired` |
+| `customer.subscription.deleted` | Subscription canceled, its customer deleted, a test clock reached its `cancel_at`, or the last retry failed |
+| `customer.subscription.paused` | The last retry failed and `after_retries[subscription]` is `pause` |
 | `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close, else when a test clock reaches that point) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |

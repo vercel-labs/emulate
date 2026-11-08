@@ -14,8 +14,15 @@ import {
   type ReorderMode,
 } from "../chaos.js";
 import { dispatchStoredEvent, eventBatch, syncWebhookEndpoints } from "../events.js";
-import { formatPaymentIntent, formatSetupIntent } from "../formatters.js";
-import { completeAuthentication, completeSetupAuthentication } from "../payments.js";
+import { formatPaymentIntent, formatPaymentMethod, formatSetupIntent } from "../formatters.js";
+import {
+  completeAuthentication,
+  completeSetupAuthentication,
+  SIMULATED_BEHAVIORS,
+  simulatedBehavior,
+  type SimulatedBehaviorName,
+} from "../payments.js";
+import { DECLINE_CODES } from "../test-cards.js";
 import { settleInvoicePaymentIntent } from "../invoicing.js";
 import { formatBillingSettings, getBillingSettings, parseBillingSettings, setBillingSettings } from "../settings.js";
 
@@ -108,6 +115,33 @@ export function controlRoutes(ctx: RouteContext): void {
     const updated = completeSetupAuthentication(ctx, ev, si, result);
     await ev.commit();
     return c.json(formatSetupIntent(updated));
+  });
+
+  // Make later charges on a saved card succeed, decline or ask for 3D Secure, as a real card can
+  // start doing long after it was set up. Stripe's test cards cannot change behaviour.
+  app.post("/_stripe/simulate/payment_methods/:id", async (c) => {
+    const id = c.req.param("id");
+    const pm = ss.paymentMethods.findOneBy("stripe_id", id);
+    if (!pm) {
+      return stripeError(c, 404, "invalid_request_error", `No such PaymentMethod: '${id}'`, "resource_missing", "id");
+    }
+    const body = await parseStripeBody(c);
+    const behavior = body.behavior;
+    if (typeof behavior !== "string" || !(SIMULATED_BEHAVIORS as readonly string[]).includes(behavior)) {
+      return badParam(c, "behavior", `Invalid behavior: must be one of ${SIMULATED_BEHAVIORS.join(", ")}.`);
+    }
+    const declineCode = body.decline_code;
+    if (declineCode !== undefined && (typeof declineCode !== "string" || !DECLINE_CODES.includes(declineCode))) {
+      return badParam(
+        c,
+        "decline_code",
+        "Invalid decline_code: must be one of the decline codes at https://docs.stripe.com/declines/codes.",
+      );
+    }
+    const updated = ss.paymentMethods.update(pm.id, {
+      simulated: simulatedBehavior(behavior as SimulatedBehaviorName, declineCode),
+    })!;
+    return c.json(formatPaymentMethod(updated));
   });
 
   // The Dashboard's Billing settings, which have no API on real Stripe.

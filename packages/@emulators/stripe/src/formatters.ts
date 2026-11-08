@@ -1011,7 +1011,15 @@ export function formatSubscription(ss: StripeStore, sub: StripeSubscription) {
     schedule: null,
     start_date: sub.start_date,
     status: sub.status,
-    status_details: null,
+    status_details: sub.paused_details
+      ? {
+          paused: {
+            subscription: { type: sub.paused_details.reason },
+            transitioned_at: sub.paused_details.transitioned_at,
+            type: "subscription" as const,
+          },
+        }
+      : null,
     test_clock: sub.test_clock ?? null,
     transfer_data: null,
     trial_end: sub.trial_end ?? null,

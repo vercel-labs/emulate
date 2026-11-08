@@ -22,6 +22,8 @@ import type {
   StripeSubscription,
   StripeSubscriptionCancellationDetails,
   StripeSubscriptionItem,
+  SubscriptionCancellationReason,
+  SubscriptionPauseReason,
 } from "./entities.js";
 
 export type SubscriptionResult = { ok: true; sub: StripeSubscription } | { ok: false; error: StripeErrorSpec };
@@ -563,8 +565,9 @@ export function isEnded(sub: StripeSubscription): boolean {
 
 /**
  * Cancel a subscription now: at once for an API call, or at its `cancel_at` with `scheduled`,
- * which keeps the `canceled_at` of the request that scheduled it. Its unpaid invoices stop
- * being collected automatically.
+ * which keeps the `canceled_at` of the request that scheduled it. `reason` defaults to
+ * `cancellation_requested`; Billing passes `payment_failed` when retries run out. Its unpaid
+ * invoices stop being collected automatically.
  * Sends customer.subscription.deleted, and no customer.subscription.updated, as on Stripe.
  */
 export function cancelSubscription(
@@ -572,7 +575,7 @@ export function cancelSubscription(
   ev: EventBatch,
   sub: StripeSubscription,
   details: StripeSubscriptionCancellationDetails = {},
-  options: { scheduled?: boolean } = {},
+  options: { scheduled?: boolean; reason?: SubscriptionCancellationReason } = {},
 ): StripeSubscription {
   const ss = getStripeStore(ctx.store);
   const now = nowFor(ss, { customerId: sub.customer_id });
@@ -586,10 +589,36 @@ export function cancelSubscription(
     // A scheduled cancellation keeps the time it was requested, as Stripe documents for canceled_at.
     canceled_at: options.scheduled ? (sub.canceled_at ?? now) : now,
     ended_at: now,
-    cancellation_details: { ...sub.cancellation_details, ...details, reason: "cancellation_requested" },
+    cancellation_details: {
+      ...sub.cancellation_details,
+      ...details,
+      reason: options.reason ?? "cancellation_requested",
+    },
   })!;
   ev.emit("customer.subscription.deleted", formatSubscription(ss, canceled));
   return canceled;
+}
+
+/**
+ * Move a subscription to `paused` and record why in `status_details.paused`. A paused
+ * subscription does not renew or create invoices. Sends customer.subscription.updated and then
+ * customer.subscription.paused.
+ */
+export function pauseSubscription(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  reason: SubscriptionPauseReason,
+): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const before = formatSubscription(ss, sub);
+  const paused = ss.subscriptions.update(sub.id, {
+    status: "paused",
+    paused_details: { reason, transitioned_at: nowFor(ss, { customerId: sub.customer_id }) },
+  })!;
+  const after = emitSubscriptionChange(ss, ev, paused, before);
+  ev.emit("customer.subscription.paused", after);
+  return paused;
 }
 
 /** Send customer.subscription.updated when the rendered subscription changed. */

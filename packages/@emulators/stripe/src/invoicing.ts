@@ -16,7 +16,8 @@ import {
 } from "./formatters.js";
 import { attemptPayment, newClientSecret, resolvePaymentMethod, type PaymentContext } from "./payments.js";
 import { attachPaymentMethod, type StripeErrorSpec } from "./routes/payment-methods.js";
-import { testCardByPaymentMethod } from "./test-cards.js";
+import { isHardDecline, testCardByPaymentMethod } from "./test-cards.js";
+import { getBillingSettings } from "./settings.js";
 import type {
   InvoiceBillingReason,
   InvoiceUncollectibleReason,
@@ -27,6 +28,7 @@ import type {
   StripePaymentIntent,
   StripePaymentMethod,
   StripeSubscription,
+  SubscriptionStatus,
 } from "./entities.js";
 
 export type InvoicingContext = PaymentContext;
@@ -34,6 +36,8 @@ export type InvoicingContext = PaymentContext;
 export type InvoiceResult = { ok: true; invoice: StripeInvoice } | { ok: false; error: StripeErrorSpec };
 
 export { DRAFT_FINALIZE_DELAY } from "./formatters.js";
+
+const DAY = 86400;
 
 export const NO_PAYMENT_METHOD_MESSAGE =
   "This customer has no attached payment source or default payment method. Please consider adding a default payment method. For more information, visit https://docs.stripe.com/billing/subscriptions/payment-methods-setting#payment-method-priority.";
@@ -311,6 +315,7 @@ function markPaid(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice, opt
     auto_advance: false,
     next_payment_attempt: undefined,
     uncollectible_reason: undefined,
+    hard_declined_payment_method: undefined,
   })!;
   const record = options.payment
     ? ss.invoicePayments.update(options.payment.record.id, {
@@ -328,28 +333,34 @@ function markPaid(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice, opt
     ev.emit("invoice_payment.paid", formatInvoicePayment(record));
   }
   setDelinquent(ctx, ev, paid.customer_id, false);
-  settleSubscriptionInvoice(ctx, ev, paid, options.payment?.pi.payment_method ?? undefined);
+  settleSubscriptionInvoice(ctx, ev, paid, SETTLED_BY_PAYMENT, options.payment?.pi.payment_method ?? undefined);
   return paid;
 }
 
+/** Statuses that paying the latest invoice makes `active`. */
+const SETTLED_BY_PAYMENT: readonly SubscriptionStatus[] = ["incomplete", "past_due", "unpaid"];
+
+/** Statuses that forgiving or voiding the latest invoice makes `active`. */
+const SETTLED_BY_RESOLUTION: readonly SubscriptionStatus[] = ["past_due", "unpaid"];
+
 /**
- * Paying a subscription's latest invoice makes an `incomplete`, `past_due` or `unpaid`
- * subscription `active`, and with `save_default_payment_method=on_subscription` saves the
- * card that paid as the subscription's default. Sends customer.subscription.updated when
- * either changes.
+ * Settling a subscription's latest invoice makes a subscription in one of the `from` statuses
+ * `active`, and with `save_default_payment_method=on_subscription` saves the card that paid as
+ * the subscription's default. Sends customer.subscription.updated when either changes.
  */
 function settleSubscriptionInvoice(
   ctx: InvoicingContext,
   ev: EventBatch,
   inv: StripeInvoice,
-  paidWith: string | undefined,
+  from: readonly SubscriptionStatus[],
+  paidWith?: string,
 ): void {
   if (!inv.subscription_id) return;
   const ss = getStripeStore(ctx.store);
   const sub = ss.subscriptions.findOneBy("stripe_id", inv.subscription_id);
   if (!sub || sub.latest_invoice !== inv.stripe_id) return;
   const updates: Partial<StripeSubscription> = {};
-  if (sub.status === "incomplete" || sub.status === "past_due" || sub.status === "unpaid") updates.status = "active";
+  if (from.includes(sub.status)) updates.status = "active";
   if (sub.save_default_payment_method === "on_subscription" && paidWith && sub.default_payment_method !== paidWith) {
     updates.default_payment_method = paidWith;
   }
@@ -357,6 +368,40 @@ function settleSubscriptionInvoice(
   const before = formatSubscription(ss, sub);
   const after = formatSubscription(ss, ss.subscriptions.update(sub.id, updates)!);
   ev.emit("customer.subscription.updated", after, previousAttributes(before, after));
+}
+
+/**
+ * The id of the payment method Billing would charge `inv` with now: the invoice's default,
+ * then the default of the subscription that generated it, then the customer's invoice default.
+ */
+export function invoicePaymentMethodId(ss: StripeStore, inv: StripeInvoice): string | undefined {
+  const customer = ss.customers.findOneBy("stripe_id", inv.customer_id);
+  const subscription = inv.subscription_id ? ss.subscriptions.findOneBy("stripe_id", inv.subscription_id) : undefined;
+  return (
+    inv.default_payment_method ??
+    subscription?.default_payment_method ??
+    customer?.invoice_settings?.default_payment_method
+  );
+}
+
+/**
+ * When Billing retries `inv` after its attempt number `attemptCount` failed at `now`, or
+ * undefined when the retry schedule is used up. Only subscription invoices are retried, and
+ * never the first invoice of an `incomplete` subscription.
+ */
+export function nextRetryAt(
+  ctx: InvoicingContext,
+  inv: StripeInvoice,
+  attemptCount: number,
+  now: number,
+): number | undefined {
+  if (!inv.subscription_id || !inv.auto_advance || inv.collection_method !== "charge_automatically") {
+    return undefined;
+  }
+  const sub = getStripeStore(ctx.store).subscriptions.findOneBy("stripe_id", inv.subscription_id);
+  if (!sub || sub.status === "incomplete" || sub.status === "incomplete_expired") return undefined;
+  const days = getBillingSettings(ctx.store).retry_schedule_days[Math.max(0, attemptCount - 1)];
+  return days === undefined ? undefined : now + days * DAY;
 }
 
 /**
@@ -372,13 +417,7 @@ function invoicePaymentMethod(
   requested: string | undefined,
 ): { ok: true; pm: StripePaymentMethod } | { ok: false; error: StripeErrorSpec } {
   const ss = getStripeStore(ctx.store);
-  const customer = ss.customers.findOneBy("stripe_id", inv.customer_id);
-  const subscription = inv.subscription_id ? ss.subscriptions.findOneBy("stripe_id", inv.subscription_id) : undefined;
-  const id =
-    requested ??
-    inv.default_payment_method ??
-    subscription?.default_payment_method ??
-    customer?.invoice_settings?.default_payment_method;
+  const id = requested ?? invoicePaymentMethodId(ss, inv);
   if (!id) return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
 
   if (testCardByPaymentMethod(id)) {
@@ -435,8 +474,16 @@ export function payInvoice(
   if (!resolved.ok) return resolved;
 
   const before = render(ctx, current);
+  const now = invoiceNow(ss, current);
+  // A manual attempt that fails keeps the retry Billing already scheduled.
+  const scheduled =
+    current.next_payment_attempt !== undefined && current.next_payment_attempt > now
+      ? current.next_payment_attempt
+      : undefined;
+  const attemptCount =
+    current.attempt_count === 0 || options.automatic ? current.attempt_count + 1 : current.attempt_count;
   current = ss.invoices.update(current.id, {
-    attempt_count: current.attempt_count === 0 || options.automatic ? current.attempt_count + 1 : current.attempt_count,
+    attempt_count: attemptCount,
     attempted: true,
     next_payment_attempt: undefined,
   })!;
@@ -449,11 +496,17 @@ export function payInvoice(
     return { ok: true, invoice: markPaid(ctx, ev, current, { payment: { pi: attempt.pi, record }, before }) };
   }
 
+  const hardDecline = attempt.status === "failed" && isHardDecline(attempt.pi.last_payment_error);
+  current = ss.invoices.update(current.id, {
+    next_payment_attempt: options.automatic ? nextRetryAt(ctx, current, attemptCount, now) : scheduled,
+    hard_declined_payment_method: hardDecline ? resolved.pm.stripe_id : undefined,
+  })!;
   const after = render(ctx, current);
   ev.emit("invoice.updated", after, previousAttributes(before, after));
   if (attempt.status === "requires_action") {
     ev.emit("invoice.payment_action_required", after);
     ev.emit("invoice.payment_failed", after);
+    if (options.automatic) setDelinquent(ctx, ev, current.customer_id, true);
     return {
       ok: false,
       error: {
@@ -468,6 +521,28 @@ export function payInvoice(
   ev.emit("invoice.payment_failed", after);
   if (options.automatic) setDelinquent(ctx, ev, current.customer_id, true);
   return { ok: false, error: attempt.error };
+}
+
+/**
+ * A scheduled retry that Billing counts but does not execute, because the invoice would be
+ * charged with the payment method that was hard declined, or with none at all. No charge is
+ * made and the retry moves on to the next scheduled date. Sends invoice.updated and
+ * invoice.payment_failed.
+ */
+export function recordSkippedRetry(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice): StripeInvoice {
+  const ss = getStripeStore(ctx.store);
+  const before = render(ctx, inv);
+  const now = invoiceNow(ss, inv);
+  const attemptCount = inv.attempt_count + 1;
+  const skipped = ss.invoices.update(inv.id, {
+    attempt_count: attemptCount,
+    attempted: true,
+    next_payment_attempt: nextRetryAt(ctx, inv, attemptCount, now),
+  })!;
+  const after = render(ctx, skipped);
+  ev.emit("invoice.updated", after, previousAttributes(before, after));
+  ev.emit("invoice.payment_failed", after);
+  return skipped;
 }
 
 /**
@@ -510,6 +585,24 @@ export function isInvoicePaymentIntent(ss: StripeStore, piId: string): boolean {
   return ss.invoicePayments.findBy("payment_intent_id", piId).some((p) => p.is_default);
 }
 
+/**
+ * A subscription's status follows its most recent invoice that is not void. Voiding the
+ * latest invoice of a `past_due` or `unpaid` subscription makes it `active` again unless an
+ * earlier invoice is still open.
+ */
+function resolveAfterVoid(ctx: InvoicingContext, ev: EventBatch, voided: StripeInvoice): void {
+  if (!voided.subscription_id) return;
+  const ss = getStripeStore(ctx.store);
+  const sub = ss.subscriptions.findOneBy("stripe_id", voided.subscription_id);
+  if (!sub || sub.latest_invoice !== voided.stripe_id || !SETTLED_BY_RESOLUTION.includes(sub.status)) return;
+  const [previous] = ss.invoices
+    .findBy("subscription_id", sub.stripe_id)
+    .filter((inv) => inv.status !== "void" && inv.status !== "draft")
+    .sort((a, b) => b.created - a.created || b.id - a.id);
+  if (previous?.status === "open") return;
+  settleSubscriptionInvoice(ctx, ev, voided, SETTLED_BY_RESOLUTION);
+}
+
 /** Void an open or uncollectible invoice and cancel its PaymentIntent. Sends invoice.voided. */
 export function voidInvoice(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice): InvoiceResult {
   const ss = getStripeStore(ctx.store);
@@ -526,8 +619,10 @@ export function voidInvoice(ctx: InvoicingContext, ev: EventBatch, inv: StripeIn
     auto_advance: false,
     next_payment_attempt: undefined,
     uncollectible_reason: undefined,
+    hard_declined_payment_method: undefined,
   })!;
   ev.emit("invoice.voided", render(ctx, voided));
+  resolveAfterVoid(ctx, ev, voided);
   return { ok: true, invoice: voided };
 }
 
@@ -554,9 +649,13 @@ export function markInvoiceUncollectible(
     uncollectible_reason: reason,
     auto_advance: false,
     next_payment_attempt: undefined,
+    hard_declined_payment_method: undefined,
   })!;
   ev.emit("invoice.marked_uncollectible", render(ctx, marked));
-  if (reason === "user_forgiven") setDelinquent(ctx, ev, marked.customer_id, false);
+  if (reason === "user_forgiven") {
+    setDelinquent(ctx, ev, marked.customer_id, false);
+    settleSubscriptionInvoice(ctx, ev, marked, SETTLED_BY_RESOLUTION);
+  }
   return { ok: true, invoice: marked };
 }
 

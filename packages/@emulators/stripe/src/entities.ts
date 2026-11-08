@@ -53,6 +53,18 @@ export interface StripePaymentMethod extends Entity {
   created: number;
   /** Detached payment methods can never be attached again. */
   detached?: boolean;
+  /**
+   * Charge behaviour set through /_stripe/simulate/payment_methods/:id, which replaces the
+   * test card's for later charges. Setup and attach still follow the test card.
+   */
+  simulated?: SimulatedCardBehavior;
+}
+
+/** How charges on a payment method behave once the emulator was told to change them. */
+export interface SimulatedCardBehavior {
+  charge: "succeed" | "decline";
+  authentication: "none" | "always";
+  decline?: { code: string; decline_code?: string; message: string; param?: string };
 }
 
 export interface StripeProduct extends Entity {
@@ -346,6 +358,11 @@ export interface StripeInvoice extends Entity {
   marked_uncollectible_at?: number;
   uncollectible_reason?: InvoiceUncollectibleReason;
   customer_snapshot?: StripeInvoiceCustomerSnapshot;
+  /**
+   * The payment method whose last attempt ended in a hard decline. Retries stay scheduled
+   * but are not executed while the invoice would still be charged with it.
+   */
+  hard_declined_payment_method?: string;
   webhooks_delivered_at?: number;
   /** The subscription that generated the invoice, rendered as `parent.subscription_details`. */
   subscription_id?: string;
@@ -479,6 +496,20 @@ export interface StripeSubscription extends Entity {
   trial_will_end_sent_for?: number;
   /** The renewal time invoice.upcoming was last sent for. */
   upcoming_sent_for?: number;
+  /** The last transition to `paused`, rendered as `status_details.paused`. */
+  paused_details?: StripeSubscriptionPauseDetails;
+}
+
+export type SubscriptionPauseReason =
+  | "final_payment_failure"
+  | "first_payment_failure"
+  | "pause_requested"
+  | "system"
+  | "trial_end_without_payment_method";
+
+export interface StripeSubscriptionPauseDetails {
+  reason: SubscriptionPauseReason;
+  transitioned_at: number;
 }
 
 export interface StripeSubscriptionItem extends Entity {

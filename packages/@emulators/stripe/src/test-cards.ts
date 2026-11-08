@@ -298,6 +298,111 @@ export function rawNumberError(number: string): CardDecline | undefined {
   };
 }
 
+/**
+ * The issuer decline codes Billing cannot retry with the same payment method, from
+ * https://docs.stripe.com/billing/revenue-recovery/smart-retries#non-retryable-decline-codes.
+ */
+export const HARD_DECLINE_CODES: ReadonlySet<string> = new Set([
+  "incorrect_number",
+  "lost_card",
+  "pickup_card",
+  "stolen_card",
+  "revocation_of_authorization",
+  "revocation_of_all_authorizations",
+  "authentication_required",
+  "highest_risk_level",
+  "transaction_not_allowed",
+]);
+
+export function isHardDecline(error: { code?: string; decline_code?: string } | undefined): boolean {
+  if (!error) return false;
+  return HARD_DECLINE_CODES.has(error.decline_code ?? "") || HARD_DECLINE_CODES.has(error.code ?? "");
+}
+
+/**
+ * Codes that Stripe reports as the error `code` itself rather than as a `decline_code` of
+ * `card_declined`, with the message and param of the matching test card.
+ */
+const TOP_LEVEL_DECLINES: Record<string, CardDecline> = {
+  expired_card: { code: "expired_card", message: "Your card has expired.", param: "exp_month" },
+  incorrect_cvc: { code: "incorrect_cvc", message: "Your card's security code is incorrect.", param: "cvc" },
+  incorrect_number: { code: "incorrect_number", message: "Your card number is incorrect.", param: "number" },
+  processing_error: {
+    code: "processing_error",
+    message: "An error occurred while processing your card. Try again in a little bit.",
+  },
+};
+
+const DECLINE_MESSAGES: Record<string, string> = {
+  authentication_required: "Your card was declined. This transaction requires authentication.",
+  card_velocity_exceeded:
+    "Your card was declined for making repeated attempts too frequently or exceeding its amount limit.",
+  insufficient_funds: "Your card has insufficient funds.",
+};
+
+/** The decline codes Stripe documents at https://docs.stripe.com/declines/codes. */
+export const DECLINE_CODES: readonly string[] = [
+  "authentication_required",
+  "approve_with_id",
+  "call_issuer",
+  "card_not_supported",
+  "card_velocity_exceeded",
+  "currency_not_supported",
+  "do_not_honor",
+  "do_not_try_again",
+  "duplicate_transaction",
+  "expired_card",
+  "fraudulent",
+  "generic_decline",
+  "highest_risk_level",
+  "incorrect_number",
+  "incorrect_cvc",
+  "incorrect_pin",
+  "incorrect_zip",
+  "insufficient_funds",
+  "invalid_account",
+  "invalid_amount",
+  "invalid_cvc",
+  "invalid_expiry_month",
+  "invalid_expiry_year",
+  "invalid_number",
+  "invalid_pin",
+  "issuer_not_available",
+  "lost_card",
+  "merchant_blacklist",
+  "new_account_information_available",
+  "no_action_taken",
+  "not_permitted",
+  "offline_pin_required",
+  "online_or_offline_pin_required",
+  "pickup_card",
+  "pin_try_exceeded",
+  "processing_error",
+  "reenter_transaction",
+  "restricted_card",
+  "revocation_of_all_authorizations",
+  "revocation_of_authorization",
+  "security_violation",
+  "service_not_allowed",
+  "stolen_card",
+  "stop_payment_order",
+  "testmode_decline",
+  "transaction_not_allowed",
+  "try_again_later",
+  "withdrawal_count_limit_exceeded",
+];
+
+/** The card error a decline with `declineCode` raises. */
+export function declineFor(declineCode: string): CardDecline {
+  const topLevel = TOP_LEVEL_DECLINES[declineCode];
+  if (topLevel) return { ...topLevel };
+  return {
+    code: declineCode === "authentication_required" ? "authentication_required" : "card_declined",
+    decline_code: declineCode,
+    message: DECLINE_MESSAGES[declineCode] ?? "Your card was declined.",
+  };
+}
+
 /** `https://docs.stripe.com/error-codes/card-declined` for `card_declined`. */
 export function errorDocUrl(code: string): string {
   return `https://docs.stripe.com/error-codes/${code.replace(/_/g, "-")}`;

@@ -33,7 +33,12 @@ These routes exist only in the emulator. See [Webhook delivery model and chaos](
 - `POST /_stripe/events/:id/redeliver`: send a stored event again to every matching endpoint
 - `POST /_stripe/simulate/payment_intents/:id/authenticate`: complete or fail 3D Secure for an intent in `requires_action`. See [Payment Intents](#payment-intents)
 - `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure for a SetupIntent in `requires_action`. See [Setup Intents](#setup-intents)
-- `GET /_stripe/billing/settings`, `POST /_stripe/billing/settings`: read or change the Billing settings that live in the Stripe Dashboard. `upcoming_renewal_days` (default 3, from 0 to 45; 0 turns `invoice.upcoming` off) is how many days before a renewal `invoice.upcoming` is sent. See [Test Clocks](#test-clocks)
+- `POST /_stripe/simulate/payment_methods/:id`: change how later charges on a saved card behave. See [Test cards](#test-cards)
+- `GET /_stripe/billing/settings`, `POST /_stripe/billing/settings`: read or change the Billing settings that live in the Stripe Dashboard. See [Test Clocks](#test-clocks) and [Failed payments and retries](#failed-payments-and-retries)
+  - `upcoming_renewal_days` (default 3, from 0 to 45; 0 turns `invoice.upcoming` off): how many days before a renewal `invoice.upcoming` is sent
+  - `retry_schedule_days` (default `[3, 5, 7]`): the custom retry schedule, at most 3 retries, each the number of days (1 to 60) after the previous attempt. `""` or `[]` turns retries off
+  - `after_retries[subscription]`: what happens to the subscription when the last retry fails. `cancel` (the default), `unpaid`, `past_due` or `pause`
+  - `after_retries[invoice]`: what happens to the invoice then. `open` (the default) or `uncollectible`
 
 ### Customers
 - `POST /v1/customers`: create customer
@@ -79,6 +84,14 @@ Payment methods behave like the cards in [Stripe's testing docs](https://docs.st
 | (number only) | 4242424242424241 | Rejected at creation: `incorrect_number` |
 
 The declined cards cannot be attached to a customer, as on Stripe: attaching one returns the decline. Numbers outside the table are rejected, with `incorrect_number` when they fail the Luhn check and `test_mode_live_card` otherwise. Card errors carry `decline_code` and `doc_url` alongside `code`, `message` and `param`.
+
+`POST /_stripe/simulate/payment_methods/:id` (emulator only) changes how later charges on a stored payment method behave, which Stripe's test cards cannot do. It answers with the PaymentMethod. Attaching and setting up the card still follow its test card.
+
+| `behavior` | Later charges |
+|------------|---------------|
+| `succeed` | Succeed without 3D Secure |
+| `decline` | Are declined with `decline_code` (default `generic_decline`; any code from [Stripe's decline codes](https://docs.stripe.com/declines/codes)). `expired_card`, `incorrect_cvc`, `incorrect_number` and `processing_error` are reported as the error `code`, the others as `card_declined` with that `decline_code` |
+| `require_authentication` | Ask for 3D Secure on every charge, as 3184 does |
 
 ### Customer Sessions
 - `POST /v1/customer_sessions` — create customer session
@@ -143,8 +156,8 @@ Invoices use the wire shape of API versions from basil on. There is no top-level
 |--------|--------------|--------|
 | finalize | `draft` | `open`, `number` `<invoice_prefix>-0001` (the customer's `next_invoice_sequence` moves on), `finalized_at`, `effective_at`, `hosted_invoice_url` and `invoice_pdf`. Something due creates a `pi_` PaymentIntent and a default `inpay_` InvoicePayment. Nothing due pays the invoice at once |
 | pay | `draft`, `open`, `uncollectible` | Charges the `payment_method` param, else the invoice's `default_payment_method`, else the `default_payment_method` of the subscription that generated it, else the customer's `invoice_settings.default_payment_method`. A test card id such as `pm_card_visa` is attached to the customer first. Sets `attempted`. The first attempt raises `attempt_count` to 1; later manual attempts leave it there, since only automatic retries count after the first, as on Stripe |
-| void | `open`, `uncollectible` | `void`, with the PaymentIntent canceled (`void_invoice`) and the InvoicePayment `canceled` |
-| mark_uncollectible | `open` | `uncollectible` with `status_details.uncollectible.reason` `user_forgiven`. It can still be paid or voided |
+| void | `open`, `uncollectible` | `void`, with the PaymentIntent canceled (`void_invoice`) and the InvoicePayment `canceled`. The latest invoice of a `past_due` or `unpaid` subscription makes it `active` again, unless an earlier invoice is still `open` |
+| mark_uncollectible | `open` | `uncollectible` with `status_details.uncollectible.reason` `user_forgiven`. It can still be paid or voided. The latest invoice of a `past_due` or `unpaid` subscription makes it `active` again |
 | delete | `draft` | Gone, with its lines and invoice items |
 
 Payment outcomes follow the [test card table](#test-cards), with Billing as the initiator:
@@ -226,9 +239,35 @@ While it advances, the clock runs Billing for its customers. It repeatedly takes
 | Trial end | `trial_end` | `active`, `billing_cycle_anchor` moves to `trial_end` and the item periods roll to the first paid period. A `subscription_cycle` draft is created with `auto_advance` true and `automatically_finalizes_at` one hour later. `customer.subscription.updated` (with `previous_attributes` `status`, `items` and `latest_invoice`), then `invoice.created` |
 | Renewal | the items' `current_period_end` | Each item's period rolls to the next boundary of `billing_cycle_anchor`, and a `subscription_cycle` draft bills the new period. Its `period_start` and `period_end` look back on the period that just ended; the lines carry the new one. `customer.subscription.updated` (with the old `items` and `latest_invoice`), then `invoice.created` |
 | Scheduled cancellation | `cancel_at`, when it falls on or before the next trial end or period end (so also `cancel_at_period_end`) | `canceled` with `ended_at` at that time and `canceled_at` kept from the request that scheduled it, `cancellation_details.reason` `cancellation_requested`. `customer.subscription.deleted` only, and no invoice |
-| Draft collection | `automatically_finalizes_at`, one hour after an auto-advancing draft was created | The draft is finalized and, for `charge_automatically`, paid off-session as an automatic attempt, with the same events as `/pay`. A failed payment leaves the invoice `open` and an `active` subscription `past_due` |
+| Draft collection | `automatically_finalizes_at`, one hour after an auto-advancing draft was created | The draft is finalized and, for `charge_automatically`, paid off-session as an automatic attempt, with the same events as `/pay`. A failed payment leaves the invoice `open`, an `active` subscription `past_due` and schedules the first retry. See [Failed payments and retries](#failed-payments-and-retries) |
+| Retry | `next_payment_attempt` of an open subscription invoice | Another automatic attempt. See [Failed payments and retries](#failed-payments-and-retries) |
+| Incomplete expiry | 23 hours after an `incomplete` subscription was created | `incomplete_expired` with `ended_at`, `customer.subscription.updated`, and its open first invoice is voided (`invoice.voided`) |
 
 One advance that spans several periods runs every renewal in it, so advancing a monthly subscription two months gives two cycle invoices.
+
+#### Failed payments and retries
+
+When Billing's automatic attempt on a subscription invoice fails (at a trial end, a renewal, or `trial_end=now`), the invoice stays `open` with `attempt_count` 1 and `next_payment_attempt` set to the first entry of `retry_schedule_days` after the attempt (3 days by default). An `active` subscription turns `past_due` (`customer.subscription.updated`) and the customer turns `delinquent` (`customer.updated`). Each retry charges the payment method the invoice would use at that moment, so a new subscription or customer default takes effect on the next retry. Every failed retry raises `attempt_count`, moves `next_payment_attempt` on by the next entry of the schedule and sends `invoice.updated` and `invoice.payment_failed`.
+
+After the last retry fails, `next_payment_attempt` is `null` and the `after_retries` settings apply:
+
+| Setting | Result |
+|---------|--------|
+| `subscription: cancel` | `canceled` with `cancellation_details.reason` `payment_failed`. Its open invoices keep their status with `auto_advance` false. `customer.subscription.deleted` |
+| `subscription: unpaid` | `unpaid` (`customer.subscription.updated`). Later renewals create drafts with `auto_advance` false that are never finalized |
+| `subscription: past_due` | Stays `past_due`. Later renewals are invoiced and collected as usual |
+| `subscription: pause` | `paused`, with `status_details.paused` `{subscription: {type: "final_payment_failure"}, transitioned_at, type: "subscription"}`. `customer.subscription.updated`, then `customer.subscription.paused`. The invoice stays `open` and no new invoices are created |
+| `invoice: uncollectible` | The invoice is marked `uncollectible` with `status_details.uncollectible.reason` `max_payment_attempts` (`invoice.marked_uncollectible`). The customer stays `delinquent` |
+
+Other failures:
+
+| Case | Result |
+|------|--------|
+| Hard decline (`incorrect_number`, `lost_card`, `pickup_card`, `stolen_card`, `revocation_of_authorization`, `revocation_of_all_authorizations`, `authentication_required`, `highest_risk_level`, `transaction_not_allowed`) | Retries stay scheduled and are counted, as [Stripe documents](https://docs.stripe.com/billing/revenue-recovery/smart-retries#non-retryable-decline-codes), but while the invoice would still be charged with the declined payment method (or with none) a retry makes no charge: it sends `invoice.updated` and `invoice.payment_failed` only. Once the default payment method changes, the next scheduled retry charges the new one |
+| First invoice of an `incomplete` subscription | Never retried: `next_payment_attempt` stays `null`. On a clock the subscription turns `incomplete_expired` 23 hours after it was created |
+| Renewal that needs 3D Secure (3184) | The PaymentIntent stays `requires_action`, `invoice.payment_action_required` and `invoice.payment_failed` are sent and the subscription turns `past_due`. Retries are scheduled as for a decline and ask for authentication again. `POST /_stripe/simulate/payment_intents/:id/authenticate` with `succeed` pays the invoice |
+
+Paying the latest invoice of a `past_due` or `unpaid` subscription (with `/pay`, or by completing 3D Secure) makes it `active`, clears `delinquent` and stops the retries. Marking it uncollectible through the API or voiding it makes the subscription `active` too. A failed manual `/pay` keeps the retry Billing scheduled.
 
 `DELETE` answers `{id, object: "test_helpers.test_clock", deleted: true}` and removes the clock's customers with their payment methods, subscriptions, invoices, invoice items, PaymentIntents, charges, SetupIntents and Checkout Sessions. Subscriptions, invoices and invoice items that carry the clock's `test_clock` are removed too, with their items, lines, invoice payments and PaymentIntents, even when their customer was deleted earlier. Only `test_helpers.test_clock.deleted` is sent; the removed objects send no events of their own.
 
@@ -363,6 +402,10 @@ stripe:
     reorder: reverse
   billing:
     upcoming_renewal_days: 3
+    retry_schedule_days: [3, 5, 7]
+    after_retries:
+      subscription: cancel
+      invoice: open
   customers:
     - name: Test Customer
       email: test@example.com
@@ -402,7 +445,7 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - Charges report `balance_transaction` and `receipt_url` as `null`, and `outcome` has no risk score. Charges are captured at once: `capture_method=manual`, refunds and disputes are not modelled.
 - Confirming a PaymentIntent with no payment method succeeds as if `pm_card_visa` were used. Real Stripe returns a 400.
 - PaymentIntents accept only cards. `payment_method_types` is always `["card"]`, `automatic_payment_methods` is always enabled, `return_url` is never required, and `payment_method_configuration_details` is `null`.
-- 3D Secure is completed through `POST /_stripe/simulate/payment_intents/:id/authenticate`. `next_action` is always `use_stripe_sdk` (never `redirect_to_url`), and its `stripe_js` points at that emulator route. Card behaviour comes only from the test card table: there are no Radar rules, no exemptions and no `request_three_d_secure` handling.
+- 3D Secure is completed through `POST /_stripe/simulate/payment_intents/:id/authenticate`. `next_action` is always `use_stripe_sdk` (never `redirect_to_url`), and its `stripe_js` points at that emulator route. Card behaviour comes only from the test card table and `POST /_stripe/simulate/payment_methods/:id`: there are no Radar rules, no exemptions and no `request_three_d_secure` handling.
 - A test card with authentication `on_setup` (3155, 3178) never asks for authentication off-session, whether or not it was set up first.
 - SetupIntents accept only cards. SetupAttempts and mandates are not modelled, so `latest_attempt`, `mandate` and `single_use_mandate` are always `null`, and `automatic_payment_methods` is `null` with `payment_method_types` always `["card"]`. `return_url`, `payment_method_data` and `payment_method_options` params are ignored. Confirmation always runs with the customer present, so every 3D Secure card asks for authentication at setup.
 - The messages for using a payment method that belongs to another customer are the emulator's wording.
@@ -420,10 +463,13 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - `hosted_invoice_url` and `invoice_pdf` point at the same emulator URL, which is not served yet and answers 404.
 - Invoice items created from a bare `amount` render `pricing` as `null` instead of an inline price. `price_data`, `quantity_decimal`, `tax_rates` and `discounts` params are ignored, and lines are listed oldest first.
 - `/pay` ignores `forgive`, `mandate` and `source`: card payments either cover the whole amount or fail. A customer with no payment method gets a 400 and the attempt is not counted.
-- Subscriptions have no prorations, `subscription_update` invoices for item changes, schedules, quotes, Trial Offers, `pause_collection`, pause or resume, `billing_cycle_anchor` params, `billing_cycle_anchor_config`, tax, discounts, coupons, pending invoice items, thresholds or Connect: those fields keep their empty or `null` defaults. `billing_mode` is always `flexible`, with `updated_at` equal to `created`. `current_trial` on items is always `null`, because only legacy trials exist, and `trial_from_plan` never starts a trial, because plans have no `trial_period_days`.
+- Subscriptions have no prorations, `subscription_update` invoices for item changes, schedules, quotes, Trial Offers, `pause_collection`, the pause and resume endpoints, `billing_cycle_anchor` params, `billing_cycle_anchor_config`, tax, discounts, coupons, pending invoice items, thresholds or Connect: those fields keep their empty or `null` defaults. `billing_mode` is always `flexible`, with `updated_at` equal to `created`. `current_trial` on items is always `null`, because only legacy trials exist, and `trial_from_plan` never starts a trial, because plans have no `trial_period_days`.
 - Every item of a subscription must share one currency and one billing interval. Real Stripe allows mixed intervals under flexible billing mode.
-- Only customers on a test clock move through billing time. Without a clock there are no background timers, so trials never end by themselves and periods never renew. `incomplete` subscriptions never expire after 23 hours, even on a clock. `trial_end` can be changed only while the subscription is `trialing`.
-- A trial that ends on a clock always creates an invoice, whatever `trial_settings.end_behavior.missing_payment_method` says. A failed renewal payment is not retried: the invoice stays `open` with `next_payment_attempt` `null`. An `unpaid` subscription keeps renewing with drafts that are never finalized.
+- Only customers on a test clock move through billing time. Without a clock there are no background timers, so trials never end by themselves, periods never renew, failed payments are never retried and `incomplete` subscriptions never expire after 23 hours. `trial_end` can be changed only while the subscription is `trialing`.
+- A trial that ends on a clock always creates an invoice, whatever `trial_settings.end_behavior.missing_payment_method` says. An `unpaid` subscription keeps renewing with drafts that are never finalized.
+- Retries follow a deterministic custom schedule (`retry_schedule_days`, default `[3, 5, 7]` days after the previous attempt). Smart Retries, automations, retries of one-off invoices, pausing after the first renewal failure and the eligibility checks for pausing are not modelled. A paused subscription does not resume when its invoice is paid. Every hard decline code suspends execution the same way, and a retry that is counted without a charge still sends `invoice.payment_failed`, which is the emulator's reading of the docs. A retry that needs 3D Secure asks for it again rather than being suspended.
+- Subscription status always follows the most recent invoice that is not void. The Dashboard option that looks at all of a subscription's invoices is not modelled. `incomplete_expired` sets `ended_at` and sends `customer.subscription.updated`, and an `incomplete` subscription whose first invoice is voided through the API stays `incomplete`.
+- Billing settings such as the retry schedule are global to the emulator, as they are to a Stripe account, and changing them affects retries scheduled afterwards only.
 - `invoice.upcoming` is skipped when the configured number of days reaches back past the start of the current period, such as 3 days on a daily price. Its preview's `lines.url` and its line ids (`il_tmp_...`) are the emulator's choice, and its `created` is the renewal time. A scheduled `cancel_at` inside a period ends the subscription without a proration.
 - Test clock advances run synchronously inside the request. The response says `advancing`, with `status_details.advancing.target_frozen_time`, but the stored clock is already `ready` when it returns. Clocks are never deleted on their own at `deletes_after`. A clock turns `internal_failure`, with `test_helpers.test_clock.internal_failure`, only if one advance runs more than 10,000 billing actions.
 - Deleting a test clock removes its customers and their objects without sending `customer.deleted`, `customer.subscription.deleted` or other per-object events. Removing a customer from a clock is not possible, as on Stripe.

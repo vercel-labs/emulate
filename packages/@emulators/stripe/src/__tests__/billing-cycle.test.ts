@@ -336,7 +336,7 @@ describe("invoice.upcoming", () => {
     const hooks = captureWebhooks();
     const ctx = createTestApp({ webhook: true });
     const initial = await api<Json>(ctx.app, "GET", "/_stripe/billing/settings");
-    expect(initial.body).toEqual({ object: "billing_settings", upcoming_renewal_days: 3 });
+    expect(initial.body).toMatchObject({ object: "billing_settings", upcoming_renewal_days: 3 });
 
     const off = await api<Json>(ctx.app, "POST", "/_stripe/billing/settings", { upcoming_renewal_days: 0 });
     expect(off.status).toBe(200);

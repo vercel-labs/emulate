@@ -3,16 +3,27 @@ import { stripeId } from "./helpers.js";
 import { clockCustomers } from "./clock.js";
 import { eventBatch, type EventBatch, type EventBatchContext } from "./events.js";
 import { formatInvoice, formatSubscription, subscriptionItems } from "./formatters.js";
-import { autoAdvanceDraft, DRAFT_FINALIZE_DELAY, type InvoicingContext } from "./invoicing.js";
+import {
+  autoAdvanceDraft,
+  DRAFT_FINALIZE_DELAY,
+  invoicePaymentMethodId,
+  markInvoiceUncollectible,
+  payInvoice,
+  recordSkippedRetry,
+  voidInvoice,
+  type InvoicingContext,
+} from "./invoicing.js";
 import {
   cancelSubscription,
   emitSubscriptionChange,
   endTrialOnSchedule,
   nextRenewalPeriod,
+  pauseSubscription,
   renewSubscription,
   subscriptionLines,
   TRIAL_WILL_END_LEAD,
 } from "./subscriptions.js";
+import { nowFor } from "./clock.js";
 import { getBillingSettings } from "./settings.js";
 import type { StripeInvoice, StripeSubscription, StripeTestClock } from "./entities.js";
 
@@ -33,7 +44,10 @@ interface DueAction {
   run(ev: EventBatch): void;
 }
 
-const RANK = { finalize: 0, trialWillEnd: 1, upcoming: 2, period: 3 } as const;
+const RANK = { finalize: 0, retry: 1, expire: 2, trialWillEnd: 3, upcoming: 4, period: 5 } as const;
+
+/** An `incomplete` subscription whose first invoice is not paid within 23 hours expires. */
+export const INCOMPLETE_EXPIRY = 23 * 3600;
 
 /** An advance that keeps finding work after this many actions is treated as a clock failure. */
 const MAX_ACTIONS = 10_000;
@@ -109,9 +123,90 @@ function markPastDue(ctx: BillingContext, ev: EventBatch, inv: StripeInvoice): v
   emitSubscriptionChange(ss, ev, ss.subscriptions.update(sub.id, { status: "past_due" })!, before);
 }
 
+/**
+ * What the account's settings do once the last scheduled attempt on a `past_due`
+ * subscription's invoice has failed: the invoice stays open or is marked uncollectible with
+ * reason `max_payment_attempts`, and the subscription is canceled (reason `payment_failed`),
+ * turned `unpaid`, paused (`final_payment_failure`) or left `past_due`.
+ */
+function applyFinalFailurePolicy(ctx: BillingContext, ev: EventBatch, inv: StripeInvoice): void {
+  if (!inv.subscription_id) return;
+  const ss = getStripeStore(ctx.store);
+  const sub = ss.subscriptions.findOneBy("stripe_id", inv.subscription_id);
+  if (!sub || sub.status !== "past_due") return;
+  const policy = getBillingSettings(ctx.store).after_retries;
+  if (policy.invoice === "uncollectible") markInvoiceUncollectible(ctx, ev, inv, "max_payment_attempts");
+
+  const current = ss.subscriptions.get(sub.id)!;
+  if (policy.subscription === "cancel") {
+    cancelSubscription(ctx, ev, current, {}, { reason: "payment_failed" });
+  } else if (policy.subscription === "unpaid") {
+    const before = formatSubscription(ss, current);
+    emitSubscriptionChange(ss, ev, ss.subscriptions.update(current.id, { status: "unpaid" })!, before);
+  } else if (policy.subscription === "pause") {
+    pauseSubscription(ctx, ev, current, "final_payment_failure");
+  }
+}
+
+/** After an automatic attempt on `invoiceId` failed: past_due first, then the final policy once no retry is left. */
+function afterFailedAttempt(ctx: BillingContext, ev: EventBatch, invoiceId: number): void {
+  const ss = getStripeStore(ctx.store);
+  const inv = ss.invoices.get(invoiceId);
+  if (!inv || inv.status !== "open") return;
+  markPastDue(ctx, ev, inv);
+  if (inv.next_payment_attempt === undefined) applyFinalFailurePolicy(ctx, ev, inv);
+}
+
+/**
+ * A scheduled retry of an open invoice. It charges the payment method the invoice would use
+ * now, so a new default takes effect. While that is still the payment method that was hard
+ * declined, or there is none, the retry is counted without a charge.
+ */
+function retryInvoice(ctx: BillingContext, ev: EventBatch, inv: StripeInvoice): void {
+  const ss = getStripeStore(ctx.store);
+  const pmId = invoicePaymentMethodId(ss, inv);
+  if (!pmId || pmId === inv.hard_declined_payment_method) {
+    recordSkippedRetry(ctx, ev, inv);
+  } else {
+    const result = payInvoice(ctx, ev, inv, { automatic: true, offSession: true });
+    if (result.ok) return;
+    // A payment method that can no longer be used fails before any attempt is counted.
+    const current = ss.invoices.get(inv.id);
+    if (current && current.attempt_count === inv.attempt_count) recordSkippedRetry(ctx, ev, current);
+  }
+  afterFailedAttempt(ctx, ev, inv.id);
+}
+
+/**
+ * An `incomplete` subscription whose first invoice is still unpaid 23 hours after it was
+ * created turns `incomplete_expired`, a terminal status, and its open invoice is voided.
+ */
+function expireIncomplete(ctx: BillingContext, ev: EventBatch, sub: StripeSubscription): void {
+  const ss = getStripeStore(ctx.store);
+  const before = formatSubscription(ss, sub);
+  const expired = ss.subscriptions.update(sub.id, {
+    status: "incomplete_expired",
+    ended_at: nowFor(ss, { customerId: sub.customer_id }),
+  })!;
+  emitSubscriptionChange(ss, ev, expired, before);
+  const inv = sub.latest_invoice ? ss.invoices.findOneBy("stripe_id", sub.latest_invoice) : undefined;
+  if (inv && (inv.status === "open" || inv.status === "uncollectible")) voidInvoice(ctx, ev, inv);
+}
+
 function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, frozenTime: number): DueAction[] {
   const ss = getStripeStore(ctx.store);
   const actions: DueAction[] = [];
+  if (sub.status === "incomplete") {
+    actions.push({
+      at: Math.max(sub.created + INCOMPLETE_EXPIRY, frozenTime),
+      rank: RANK.expire,
+      key: sub.id,
+      run(ev) {
+        expireIncomplete(ctx, ev, sub);
+      },
+    });
+    return actions;
+  }
   const boundary = nextBoundary(ss, sub);
   if (boundary === undefined) return actions;
   const ending = sub.cancel_at !== undefined && sub.cancel_at <= boundary;
@@ -172,15 +267,32 @@ function scheduledActions(ctx: BillingContext, clock: StripeTestClock): DueActio
       actions.push(...subscriptionActions(ctx, sub, clock.frozen_time));
     }
     for (const inv of ss.invoices.findBy("customer_id", customer.stripe_id)) {
-      if (inv.status !== "draft" || !inv.auto_advance) continue;
-      actions.push({
-        at: Math.max(inv.created + DRAFT_FINALIZE_DELAY, clock.frozen_time),
-        rank: RANK.finalize,
-        key: inv.id,
-        run(ev) {
-          if (autoAdvanceDraft(ctx, ev, inv)) markPastDue(ctx, ev, ss.invoices.get(inv.id) ?? inv);
-        },
-      });
+      if (!inv.auto_advance) continue;
+      if (inv.status === "draft") {
+        actions.push({
+          at: Math.max(inv.created + DRAFT_FINALIZE_DELAY, clock.frozen_time),
+          rank: RANK.finalize,
+          key: inv.id,
+          run(ev) {
+            if (autoAdvanceDraft(ctx, ev, inv)) afterFailedAttempt(ctx, ev, inv.id);
+          },
+        });
+      } else if (
+        inv.status === "open" &&
+        inv.attempted &&
+        inv.subscription_id !== undefined &&
+        inv.collection_method === "charge_automatically" &&
+        inv.next_payment_attempt !== undefined
+      ) {
+        actions.push({
+          at: Math.max(inv.next_payment_attempt, clock.frozen_time),
+          rank: RANK.retry,
+          key: inv.id,
+          run(ev) {
+            retryInvoice(ctx, ev, inv);
+          },
+        });
+      }
     }
   }
   return actions;

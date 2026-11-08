@@ -4,7 +4,7 @@ import { randomBase62, stripeId } from "./helpers.js";
 import { nowFor } from "./clock.js";
 import { formatCharge, formatPaymentIntent, formatPaymentMethod, formatSetupIntent } from "./formatters.js";
 import type { EventBatch } from "./events.js";
-import { errorDocUrl, testCardByPaymentMethod, type CardDecline, type TestCard } from "./test-cards.js";
+import { declineFor, errorDocUrl, testCardByPaymentMethod, type CardDecline, type TestCard } from "./test-cards.js";
 import {
   attachPaymentMethod,
   cardError,
@@ -19,6 +19,7 @@ import type {
   StripePaymentIntent,
   StripePaymentMethod,
   StripeSetupIntent,
+  SimulatedCardBehavior,
 } from "./entities.js";
 
 export interface PaymentContext {
@@ -98,7 +99,14 @@ export function resolvePaymentMethod(
   return { ok: true, pm };
 }
 
-function needsAuthentication(card: TestCard | undefined, offSession: boolean): boolean {
+type ChargeBehavior = Pick<TestCard, "charge" | "authentication" | "decline">;
+
+/** How a charge on `pm` behaves: as simulated through the emulator route, else as its test card. */
+function chargeBehavior(pm: StripePaymentMethod): ChargeBehavior | undefined {
+  return pm.simulated ?? testCardOf(pm);
+}
+
+function needsAuthentication(card: ChargeBehavior | undefined, offSession: boolean): boolean {
   if (!card) return false;
   return card.authentication === "always" || (card.authentication === "on_setup" && !offSession);
 }
@@ -223,6 +231,16 @@ function succeed(
   return { status: "succeeded", pi: updated, charge };
 }
 
+export const SIMULATED_BEHAVIORS = ["succeed", "decline", "require_authentication"] as const;
+export type SimulatedBehaviorName = (typeof SIMULATED_BEHAVIORS)[number];
+
+/** The charge behaviour /_stripe/simulate/payment_methods/:id stores on a payment method. */
+export function simulatedBehavior(name: SimulatedBehaviorName, declineCode = "generic_decline"): SimulatedCardBehavior {
+  if (name === "decline") return { charge: "decline", authentication: "none", decline: declineFor(declineCode) };
+  if (name === "require_authentication") return { charge: "succeed", authentication: "always" };
+  return { charge: "succeed", authentication: "none" };
+}
+
 /** Charge the card once any authentication is done: the test card decides the outcome. */
 function charge(
   ctx: PaymentContext,
@@ -231,7 +249,7 @@ function charge(
   pm: StripePaymentMethod,
   threeDSecure: boolean,
 ): PaymentAttempt {
-  const card = testCardOf(pm);
+  const card = chargeBehavior(pm);
   if (card?.charge === "decline" && card.decline) return decline(ctx, ev, pi, pm, card.decline, threeDSecure);
   return succeed(ctx, ev, pi, pm, threeDSecure);
 }
@@ -278,7 +296,7 @@ export function attemptPayment(
 ): PaymentAttempt {
   const offSession = options.offSession ?? false;
   const initiator = options.initiator ?? "api";
-  if (!pi.authenticated && needsAuthentication(testCardOf(pm), offSession)) {
+  if (!pi.authenticated && needsAuthentication(chargeBehavior(pm), offSession)) {
     if (offSession && initiator === "api") return decline(ctx, ev, pi, pm, AUTHENTICATION_REQUIRED, false);
     return requireAction(ctx, ev, pi, pm);
   }
