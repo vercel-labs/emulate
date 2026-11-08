@@ -228,6 +228,20 @@ function paymentIntentDescription(reason: InvoiceBillingReason): string | null {
 }
 
 /**
+ * Whether the PaymentIntent of `inv` saves the card that pays it: the invoice belongs to a
+ * subscription with `payment_settings.save_default_payment_method=on_subscription`. Its
+ * PaymentIntent then has `setup_future_usage` `off_session`, so a card confirmed on it client
+ * side (the `default_incomplete` flow) is attached to the customer before it becomes the
+ * subscription's default and can be charged off-session at renewal.
+ */
+function savesCardOnSubscription(ss: StripeStore, inv: StripeInvoice): boolean {
+  if (!inv.subscription_id) return false;
+  return (
+    ss.subscriptions.findOneBy("stripe_id", inv.subscription_id)?.save_default_payment_method === "on_subscription"
+  );
+}
+
+/**
  * Finalize a draft: number it, freeze the customer details and open it. An invoice with an
  * amount due gets its PaymentIntent and default InvoicePayment; one with nothing due is paid
  * at once. Sends payment_intent.created and invoice.finalized.
@@ -266,6 +280,7 @@ export function finalizeInvoice(ctx: InvoicingContext, ev: EventBatch, inv: Stri
       metadata: {},
       created: now,
       client_secret: newClientSecret(piId),
+      setup_future_usage: savesCardOnSubscription(ss, opened) ? "off_session" : undefined,
     });
     ss.invoicePayments.insert({
       stripe_id: stripeId("inpay"),
