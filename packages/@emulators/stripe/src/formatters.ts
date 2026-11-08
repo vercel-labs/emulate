@@ -1045,7 +1045,11 @@ export function formatSubscription(ss: StripeStore, sub: StripeSubscription) {
     pending_update: sub.pending_resume
       ? {
           billing_cycle_anchor: sub.pending_resume.billing_cycle_anchor,
+          cancel_at_period_end: null,
+          discount: null,
+          discounts: null,
           expires_at: sub.pending_resume.expires_at,
+          metadata: null,
           subscription_items: null,
           trial_end: null,
           trial_from_plan: null,

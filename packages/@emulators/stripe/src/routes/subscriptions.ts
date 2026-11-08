@@ -650,10 +650,18 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     const sub = ss.subscriptions.findOneBy("stripe_id", id);
     if (!sub) return notFound(c, id);
     const body = await parseStripeBody(c);
-    const anchorParam = isRecord(body.billing_cycle_anchor)
-      ? body.billing_cycle_anchor.type
-      : body.billing_cycle_anchor;
-    const anchor = readOneOf(anchorParam, RESUME_ANCHORS, "billing_cycle_anchor[type]");
+    const anchorParam = body.billing_cycle_anchor;
+    if (anchorParam !== undefined && anchorParam !== "" && !isRecord(anchorParam)) {
+      return sendStripeError(
+        c,
+        invalid("Invalid billing_cycle_anchor: must be an object.", "billing_cycle_anchor").error,
+      );
+    }
+    const anchor = readOneOf(
+      isRecord(anchorParam) ? anchorParam.type : undefined,
+      RESUME_ANCHORS,
+      "billing_cycle_anchor[type]",
+    );
     if (!anchor.ok) return sendStripeError(c, anchor.error);
     const behavior = readOneOf(body.payment_behavior, RESUME_PAYMENT_BEHAVIORS, "payment_behavior");
     if (!behavior.ok) return sendStripeError(c, behavior.error);

@@ -338,7 +338,17 @@ describe("POST /v1/subscriptions/:id/resume", () => {
     const res = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}/resume`);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.status).toBe("paused");
-    expect(res.body.pending_update).toMatchObject({ billing_cycle_anchor: resumeAt, expires_at: resumeAt + 23 * HOUR });
+    expect(res.body.pending_update).toEqual({
+      billing_cycle_anchor: resumeAt,
+      cancel_at_period_end: null,
+      discount: null,
+      discounts: null,
+      expires_at: resumeAt + 23 * HOUR,
+      metadata: null,
+      subscription_items: null,
+      trial_end: null,
+      trial_from_plan: null,
+    });
     const inv = await getInvoice(ctx, res.body.latest_invoice);
     expect(inv).toMatchObject({
       status: "open",
@@ -523,6 +533,11 @@ describe("POST /v1/subscriptions/:id/resume", () => {
     });
     expect(badAnchor.status).toBe(400);
     expect(badAnchor.body.error.param).toBe("billing_cycle_anchor[type]");
+    const stringAnchor = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}/resume`, {
+      billing_cycle_anchor: "now",
+    });
+    expect(stringAnchor.status).toBe(400);
+    expect(stringAnchor.body.error.param).toBe("billing_cycle_anchor");
     const badBehavior = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}/resume`, {
       payment_behavior: "allow_incomplete",
     });
