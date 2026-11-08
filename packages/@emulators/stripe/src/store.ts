@@ -20,6 +20,8 @@ import type {
   StripeTestClock,
   StripeBillingMeter,
   StripeMeterEvent,
+  StripeBillingPortalConfiguration,
+  StripeBillingPortalSession,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -43,6 +45,8 @@ export interface StripeStore {
   testClocks: Collection<StripeTestClock>;
   billingMeters: Collection<StripeBillingMeter>;
   meterEvents: Collection<StripeMeterEvent>;
+  billingPortalConfigurations: Collection<StripeBillingPortalConfiguration>;
+  billingPortalSessions: Collection<StripeBillingPortalSession>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -82,6 +86,14 @@ export function getStripeStore(store: Store): StripeStore {
     testClocks: store.collection<StripeTestClock>("stripe.test_clocks", ["stripe_id"]),
     billingMeters: store.collection<StripeBillingMeter>("stripe.billing_meters", ["stripe_id", "event_name"]),
     meterEvents: store.collection<StripeMeterEvent>("stripe.meter_events", ["identifier", "meter_id", "customer_id"]),
+    billingPortalConfigurations: store.collection<StripeBillingPortalConfiguration>(
+      "stripe.billing_portal_configurations",
+      ["stripe_id"],
+    ),
+    billingPortalSessions: store.collection<StripeBillingPortalSession>("stripe.billing_portal_sessions", [
+      "stripe_id",
+      "customer_id",
+    ]),
   };
 }
 

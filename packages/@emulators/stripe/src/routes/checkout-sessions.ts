@@ -23,7 +23,13 @@ import {
 import { eventBatch } from "../events.js";
 import { nowFor } from "../clock.js";
 import { checkItemSet, intervalText, MAX_TRIAL_SECONDS, meteredQuantityError } from "../subscriptions.js";
-import { checkoutCanSkipCard, completeCheckoutSession, DEFAULT_CHECKOUT_CARD, NO_CARD } from "../checkout.js";
+import {
+  checkoutCanSkipCard,
+  completeCheckoutSession,
+  DEFAULT_CHECKOUT_CARD,
+  HOSTED_CARD_CHOICES,
+  NO_CARD,
+} from "../checkout.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
 import type {
   StripeCheckoutLineItem,
@@ -44,18 +50,6 @@ const MIN_LIFETIME = 30 * 60;
 const MAX_LIFETIME = DAY;
 /** A trial set with `subscription_data[trial_end]` must end at least 48 hours from now. */
 const MIN_TRIAL_END_LEAD = 2 * DAY;
-
-/** Test cards the hosted page offers, with what each one does. */
-const CARD_CHOICES: Array<[string, string]> = [
-  ["pm_card_visa", "Visa 4242 4242 4242 4242 (succeeds)"],
-  ["pm_card_mastercard", "Mastercard 5555 5555 5555 4444 (succeeds)"],
-  ["pm_card_amex", "American Express 3782 822463 10005 (succeeds)"],
-  ["pm_card_authenticationRequired", "Visa 4000 0027 6000 3184 (3D Secure on every payment)"],
-  ["pm_card_authenticationRequiredOnSetup", "Visa 4000 0025 0000 3155 (3D Secure when saved)"],
-  ["pm_card_chargeCustomerFail", "Visa 4000 0000 0000 0341 (saves, later charges decline)"],
-  ["pm_card_chargeDeclined", "Visa 4000 0000 0000 0002 (declined)"],
-  ["pm_card_chargeDeclinedInsufficientFunds", "Visa 4000 0000 0000 9995 (insufficient funds)"],
-];
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: StripeErrorSpec };
 
@@ -412,7 +406,7 @@ export function checkoutSessionRoutes(ctx: RouteContext): void {
     const subscription = session.mode === "subscription";
     const total = subscription ? (session.amount_total ?? 0) : subtotal;
     const chosen = options.paymentMethod ?? DEFAULT_CHECKOUT_CARD;
-    const paymentMethodOptions: CheckoutPaymentMethodOption[] = CARD_CHOICES.map(([value, label]) => ({
+    const paymentMethodOptions: CheckoutPaymentMethodOption[] = HOSTED_CARD_CHOICES.map(([value, label]) => ({
       value,
       label,
       selected: value === chosen,

@@ -5,6 +5,9 @@ import type { StripeStore } from "./store.js";
 import type {
   StripeBillingDetails,
   StripeBillingMeter,
+  StripeBillingPortalConfiguration,
+  StripeBillingPortalFlow,
+  StripeBillingPortalSession,
   StripeCharge,
   StripeCheckoutSession,
   StripeCustomer,
@@ -40,6 +43,113 @@ export function formatTestClock(clock: StripeTestClock, advancingTo?: number) {
     name: clock.name ?? null,
     status: advancingTo === undefined ? clock.status : ("advancing" as const),
     status_details: advancingTo === undefined ? {} : { advancing: { target_frozen_time: advancingTo } },
+  };
+}
+
+/** The cancellation reasons the portal offers, in the order of the API reference. */
+export const PORTAL_CANCELLATION_REASONS = [
+  "customer_service",
+  "low_quality",
+  "missing_features",
+  "other",
+  "switched_service",
+  "too_complex",
+  "too_expensive",
+  "unused",
+] as const;
+
+/**
+ * The Customer Portal Configuration object. The emulator's only configuration lets customers
+ * see invoices, update their payment method and cancel at period end. Customer details and
+ * pausing are off. `features.subscription_update.products` is includable and never included.
+ */
+export function formatBillingPortalConfiguration(config: StripeBillingPortalConfiguration) {
+  return {
+    id: config.stripe_id,
+    object: "billing_portal.configuration" as const,
+    active: true,
+    application: null,
+    business_profile: { headline: null, privacy_policy_url: null, terms_of_service_url: null },
+    created: config.created,
+    default_return_url: null,
+    features: {
+      customer_update: { allowed_updates: [] as string[], enabled: false },
+      invoice_history: { enabled: true },
+      payment_method_update: { enabled: true, payment_method_configuration: null },
+      subscription_cancel: {
+        cancellation_reason: { enabled: true, feedback_options: null, options: [...PORTAL_CANCELLATION_REASONS] },
+        enabled: true,
+        mode: "at_period_end" as const,
+        proration_behavior: "none" as const,
+      },
+      subscription_pause: {
+        duration: { interval_options: [] as unknown[], type: "indefinite" as const },
+        enabled: false,
+      },
+      subscription_update: {
+        billing_cycle_anchor: null,
+        default_allowed_updates: ["price", "quantity"],
+        enabled: true,
+        proration_behavior: "none" as const,
+        schedule_at_period_end: { conditions: [] as unknown[] },
+        trial_update_behavior: "end_trial" as const,
+      },
+    },
+    is_default: config.is_default,
+    livemode: false,
+    login_page: { enabled: false, url: null },
+    metadata: {},
+    name: null,
+    updated: config.updated,
+  };
+}
+
+/** The URL of a portal session's page. */
+export function billingPortalUrl(baseUrl: string, sessionId: string): string {
+  return `${baseUrl}/billing_portal/${sessionId}`;
+}
+
+function formatPortalFlow(flow: StripeBillingPortalFlow) {
+  const after = flow.after_completion;
+  return {
+    after_completion: {
+      hosted_confirmation:
+        after.type === "hosted_confirmation" ? { custom_message: after.custom_message ?? null } : null,
+      redirect: after.type === "redirect" ? { return_url: after.return_url } : null,
+      type: after.type,
+    },
+    customer_update: null,
+    subscription_cancel:
+      flow.type === "subscription_cancel" ? { retention: null, subscription: flow.subscription ?? null } : null,
+    subscription_pause: null,
+    subscription_update: flow.type === "subscription_update" ? { subscription: flow.subscription ?? null } : null,
+    subscription_update_confirm: null,
+    type: flow.type,
+  };
+}
+
+/** The Customer Portal Session object in the key order of the API reference. */
+export function formatBillingPortalSession(session: StripeBillingPortalSession, baseUrl: string) {
+  const expiration = session.after_expiration;
+  return {
+    id: session.stripe_id,
+    object: "billing_portal.session" as const,
+    after_expiration: expiration
+      ? {
+          customer_login: { expires_at: expiration.expires_at ?? null },
+          type: expiration.type,
+        }
+      : null,
+    configuration: session.configuration_id,
+    created: session.created,
+    customer: session.customer_id,
+    customer_account: null,
+    flow: session.flow ? formatPortalFlow(session.flow) : null,
+    livemode: false,
+    locale: session.locale ?? null,
+    on_behalf_of: session.on_behalf_of ?? null,
+    return_url: session.return_url ?? null,
+    url: billingPortalUrl(baseUrl, session.stripe_id),
   };
 }
 
@@ -801,7 +911,7 @@ export function invoiceAmounts(ss: StripeStore, inv: StripeInvoice) {
 /** How long Stripe waits after invoice.created before it finalizes an auto-advancing draft. */
 export const DRAFT_FINALIZE_DELAY = 3600;
 
-/** The hosted invoice page. Until it exists the URL answers 404. */
+/** The hosted invoice page, served by routes/hosted-invoices.ts. `invoice_pdf` points here too. */
 export function hostedInvoiceUrl(baseUrl: string, invoiceId: string): string {
   return `${baseUrl}/invoice/${invoiceId}`;
 }
@@ -1145,6 +1255,10 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
       const found = ss.testClocks.findOneBy("stripe_id", id);
       return found ? formatTestClock(found) : undefined;
     },
+    billing_portal_configuration: (id) => {
+      const found = ss.billingPortalConfigurations.findOneBy("stripe_id", id);
+      return found ? formatBillingPortalConfiguration(found) : undefined;
+    },
   };
 
   const fieldTypes: Record<string, string> = {
@@ -1181,6 +1295,7 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     ["sub_", "subscription"],
     ["si_", "subscription_item"],
     ["clock_", "test_clock"],
+    ["bpc_", "billing_portal_configuration"],
   ];
 
   const storedInvoice = (parent: Record<string, unknown>) => ss.invoices.findOneBy("stripe_id", String(parent.id));

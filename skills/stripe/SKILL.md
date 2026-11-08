@@ -391,6 +391,35 @@ The session's `url` field points to a hosted checkout page at `/checkout/cs_test
 
 In `subscription` mode the page creates the customer and the subscription, with the card as the subscription's `default_payment_method` (the customer's invoice default stays unset). A trial saves the card through a SetupIntent and starts `trialing`; without a trial the first invoice is charged and the subscription turns `active`. The completed session has `customer`, `subscription` and `invoice` ids and `payment_status: "paid"`. In `payment` mode the page charges a PaymentIntent and sets `payment_intent`. A declined card (such as `pm_card_chargeDeclined`) re-renders the page with status 402 and keeps nothing, so no subscription exists. 3D Secure cards are approved on the page. `payment_method_types` is ignored.
 
+### Customer Portal
+
+```bash
+# A portal session (bps_...) on the default configuration (bpc_...); its url is the portal page
+curl -X POST http://localhost:4000/v1/billing_portal/sessions \
+  -d "customer=cus_xxx" -d "return_url=http://localhost:3000/account"
+
+# Deep link straight into one step, then go somewhere after it
+curl -X POST http://localhost:4000/v1/billing_portal/sessions \
+  -d "customer=cus_xxx" -d "flow_data[type]=payment_method_update"
+curl -X POST http://localhost:4000/v1/billing_portal/sessions \
+  -d "customer=cus_xxx" -d "flow_data[type]=subscription_cancel" \
+  -d "flow_data[subscription_cancel][subscription]=sub_xxx" \
+  -d "flow_data[after_completion][type]=redirect" \
+  -d "flow_data[after_completion][redirect][return_url]=http://localhost:3000/bye"
+
+# The configuration
+curl http://localhost:4000/v1/billing_portal/configurations
+
+# Drive the page without a browser: cancel at period end (with feedback), renew,
+# save a new default card, pay an open invoice
+curl -X POST http://localhost:4000/billing_portal/bps_xxx/subscriptions/sub_xxx/cancel -d "feedback=too_expensive"
+curl -X POST http://localhost:4000/billing_portal/bps_xxx/subscriptions/sub_xxx/renew
+curl -X POST http://localhost:4000/billing_portal/bps_xxx/payment_method -d "payment_method=pm_card_visa"
+curl -X POST http://localhost:4000/billing_portal/bps_xxx/invoices/in_xxx/pay
+```
+
+The page lists the customer's current subscriptions, default card and invoices. Canceling sets `cancel_at_period_end` with `cancellation_details.reason` `cancellation_requested` and sends `customer.subscription.updated`; renewing undoes it. A new card is saved through a SetupIntent (`setup_intent.succeeded`, `payment_method.attached`) and becomes the customer's `invoice_settings.default_payment_method` (`customer.updated`). Paying the open invoice of a `past_due` subscription sends `invoice.paid` and makes it `active`. Portal events carry a `null` request. `flow_data[type]` may be `payment_method_update`, `subscription_cancel` or `subscription_update`; the session echoes it in `flow`, with `after_completion.type` defaulting to `portal_homepage`. Session URLs never expire.
+
 ### Payment Intents
 
 ```bash
@@ -592,7 +621,13 @@ curl "http://localhost:4000/v1/invoice_payments?invoice=in_xxx"
 
 Invoices use the current wire shape: there is no top-level `subscription`, `payment_intent`, `charge` or `paid`. Reach the PaymentIntent through `expand[]=payments.data.payment.payment_intent` or the client secret through `expand[]=confirmation_secret`. Lines carry `parent.invoice_item_details` and `pricing.price_details`. `pending_invoice_items_behavior` defaults to `exclude`, as on Stripe.
 
-Paying charges, in order, the `payment_method` param, the invoice's `default_payment_method`, the `default_payment_method` of the subscription that generated it, then the customer's `invoice_settings.default_payment_method`, off-session by default. A decline (`pm_card_chargeCustomerFail`) returns 402, leaves the invoice `open` with `attempt_count` 1 and sends `invoice.payment_failed`. Further manual `/pay` attempts leave `attempt_count` at 1, as on Stripe, where only automatic retries count after the first attempt. `pm_card_authenticationRequired` returns 402 `invoice_payment_intent_requires_action`, leaves the PaymentIntent in `requires_action` and sends `invoice.payment_action_required` and `invoice.payment_failed`; completing it with `/_stripe/simulate/payment_intents/pi_xxx/authenticate` pays the invoice. A $0 invoice is paid when it is finalized and, like `paid_out_of_band`, sends `invoice.paid` without `invoice.payment_succeeded`. `mark_uncollectible` sets `status_details.uncollectible.reason` to `user_forgiven`; the invoice can still be paid. The hosted invoice page is not served yet, so `hosted_invoice_url` answers 404.
+Paying charges, in order, the `payment_method` param, the invoice's `default_payment_method`, the `default_payment_method` of the subscription that generated it, then the customer's `invoice_settings.default_payment_method`, off-session by default. A decline (`pm_card_chargeCustomerFail`) returns 402, leaves the invoice `open` with `attempt_count` 1 and sends `invoice.payment_failed`. Further manual `/pay` attempts leave `attempt_count` at 1, as on Stripe, where only automatic retries count after the first attempt. `pm_card_authenticationRequired` returns 402 `invoice_payment_intent_requires_action`, leaves the PaymentIntent in `requires_action` and sends `invoice.payment_action_required` and `invoice.payment_failed`; completing it with `/_stripe/simulate/payment_intents/pi_xxx/authenticate` pays the invoice. A $0 invoice is paid when it is finalized and, like `paid_out_of_band`, sends `invoice.paid` without `invoice.payment_succeeded`. `mark_uncollectible` sets `status_details.uncollectible.reason` to `user_forgiven`; the invoice can still be paid.
+
+`hosted_invoice_url` (and `invoice_pdf`, which points at the same page) serves an HTML page with the invoice's lines and, while it is `open`, a test card select and a Pay button. Paying there charges the chosen card with the customer present (3D Secure is approved), does not save it to the customer, and redirects back to the page. Without a browser:
+
+```bash
+curl -X POST http://localhost:4000/invoice/in_xxx/pay -d "payment_method=pm_card_visa"
+```
 
 ### Charges
 
@@ -756,6 +791,7 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close, else when a test clock reaches that point) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
+| `billing_portal.session.created` | Customer portal session created |
 | `billing.meter.created` | Billing meter created |
 | `billing.meter.updated` | Billing meter renamed |
 | `billing.meter.deactivated` | Billing meter deactivated |

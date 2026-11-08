@@ -32,6 +32,8 @@ import { webhookEndpointRoutes } from "./routes/webhook-endpoints.js";
 import { controlRoutes } from "./routes/control.js";
 import { billingMeterRoutes, insertMeter, readMeterParams } from "./routes/billing-meters.js";
 import { meterEventRoutes } from "./routes/meter-events.js";
+import { billingPortalRoutes } from "./routes/billing-portal.js";
+import { hostedInvoiceRoutes } from "./routes/hosted-invoices.js";
 import { activeMeterFor } from "./metering.js";
 import { requestIdMiddleware, setStripeApiVersion, syncWebhookEndpoints } from "./events.js";
 import { parseChaosConfig, setWebhookChaos, type WebhookChaosInput } from "./chaos.js";
@@ -298,6 +300,8 @@ export const stripePlugin: ServicePlugin = {
     testClockRoutes(ctx);
     billingMeterRoutes(ctx);
     meterEventRoutes(ctx);
+    billingPortalRoutes(ctx);
+    hostedInvoiceRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

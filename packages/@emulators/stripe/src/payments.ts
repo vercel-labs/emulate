@@ -111,6 +111,11 @@ function needsAuthentication(card: ChargeBehavior | undefined, offSession: boole
   return card.authentication === "always" || (card.authentication === "on_setup" && !offSession);
 }
 
+/** Whether charging `pm`, as simulated or as its test card, asks for 3D Secure. */
+export function asksForAuthentication(pm: StripePaymentMethod, offSession: boolean): boolean {
+  return needsAuthentication(chargeBehavior(pm), offSession);
+}
+
 function digits(length: number): string {
   let out = "";
   while (out.length < length) out += Math.floor(Math.random() * 10).toString();

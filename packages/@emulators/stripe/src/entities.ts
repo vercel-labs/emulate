@@ -597,6 +597,48 @@ export interface StripeMeterEvent extends Entity {
   canceled?: boolean;
 }
 
+/**
+ * A customer portal configuration. The emulator keeps one, the default, created the first
+ * time a portal session or the configurations API needs it.
+ */
+export interface StripeBillingPortalConfiguration extends Entity {
+  stripe_id: string;
+  is_default: boolean;
+  /** Unix seconds on the wall clock. */
+  created: number;
+  updated: number;
+}
+
+export type BillingPortalFlowType = "payment_method_update" | "subscription_cancel" | "subscription_update";
+
+export type BillingPortalAfterCompletion =
+  | { type: "portal_homepage" }
+  | { type: "hosted_confirmation"; custom_message?: string }
+  | { type: "redirect"; return_url: string };
+
+/** The deep link a portal session opens on, as given in `flow_data`. */
+export interface StripeBillingPortalFlow {
+  type: BillingPortalFlowType;
+  after_completion: BillingPortalAfterCompletion;
+  /** The subscription of a `subscription_cancel` or `subscription_update` flow. */
+  subscription?: string;
+}
+
+export interface StripeBillingPortalSession extends Entity {
+  stripe_id: string;
+  customer_id: string;
+  configuration_id: string;
+  return_url?: string;
+  locale?: string;
+  on_behalf_of?: string;
+  flow?: StripeBillingPortalFlow;
+  /** Set once the customer finishes the flow, after which the page shows the portal homepage. */
+  flow_completed?: boolean;
+  after_expiration?: { type: "customer_login"; expires_at?: number };
+  /** Unix seconds on the customer's clock. */
+  created: number;
+}
+
 /** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */
 export interface StripeWebhookAttempt extends Entity {
   event_id: string;

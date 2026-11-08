@@ -286,9 +286,9 @@ describe("finalizing", () => {
     expect(res.body.effective_at).toBe(res.body.status_transitions.finalized_at);
     expect(res.body.hosted_invoice_url).toMatch(new RegExp(`/invoice/${invoice.id}$`));
     expect(res.body.invoice_pdf).toEqual(expect.any(String));
-    // The hosted invoice page is not served yet.
+    expect(res.body.invoice_pdf).toBe(res.body.hosted_invoice_url);
     const hosted = await ctx.app.request(res.body.hosted_invoice_url);
-    expect(hosted.status).toBe(404);
+    expect(hosted.status).toBe(200);
 
     expect(res.body.payments.total_count).toBe(1);
     const payment = res.body.payments.data[0];
