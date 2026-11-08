@@ -1,6 +1,6 @@
 ---
 name: stripe
-description: Emulated Stripe API for local development and testing. Use when the user needs to process payments locally, test checkout flows, create customers, manage products and prices, handle payment intents, work with webhooks, or use the Stripe SDK without hitting real Stripe servers. Triggers include "Stripe API", "emulate Stripe", "test payments locally", "checkout flow", "payment intent", "Stripe webhook", "Stripe SDK", "STRIPE_API_KEY", or any task requiring a local Stripe API.
+description: Emulated Stripe API for local development and testing, covering payments and Stripe Billing. Use when the user needs to process payments locally, test checkout flows, create customers, manage products and prices, handle payment or setup intents, run subscriptions (trials, renewals, cancellations, pausing), invoices, failed-payment retries and dunning, metered or usage-based billing with meters and meter events, the customer portal, test clocks, webhooks, or use the Stripe SDK without hitting real Stripe servers. Triggers include "Stripe API", "emulate Stripe", "test payments locally", "checkout flow", "payment intent", "Stripe subscription", "Stripe invoice", "free trial", "test clock", "subscription renewal", "metered billing", "usage-based billing", "billing meter", "dunning", "customer portal", "Stripe webhook", "Stripe SDK", "STRIPE_API_KEY", or any task requiring a local Stripe API.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
@@ -716,7 +716,7 @@ Each delivery is a full Event:
 - `id` (`evt_...`), `object: "event"`, `api_version` (`2026-10-28.endive` unless the seed sets `api_version`), `created`, `livemode: false`, `type`.
 - `data.object` is a snapshot of the object, and `*.updated` events add `data.previous_attributes` with the old value of each changed field. An update that changes nothing sends no event.
 - `request.id` is the `Request-Id` of the API call that caused the event, and `request.idempotency_key` echoes its `Idempotency-Key` header. Both are `null` for events no API call caused, such as completing the hosted checkout page.
-- `pending_webhooks` is the number of endpoints the event was sent to. `GET /v1/events/:id` shows how many have not answered 2xx yet.
+- `pending_webhooks` is the number of endpoints the event was sent to, fixed when it is created. `GET /v1/events/:id` shows how many of them have not answered 2xx yet. Endpoints created later never receive the event.
 
 ### Delivery chaos
 
@@ -731,15 +731,17 @@ curl -X POST http://localhost:4000/_stripe/webhooks/chaos \
 curl http://localhost:4000/_stripe/webhooks/chaos               # current settings
 curl -X DELETE http://localhost:4000/_stripe/webhooks/chaos     # back to normal delivery
 
-# Release held events (optionally only some, in held, reverse or shuffled order)
+# Release held events (optionally only some, in held, reverse or shuffled order; a shuffle takes a seed)
 curl -X POST http://localhost:4000/_stripe/webhooks/flush \
-  -H "Content-Type: application/json" -d '{"order": "reverse"}'
+  -H "Content-Type: application/json" -d '{"order": "shuffle", "seed": 7}'
 
 # Every attempt: succeeded, failed, dropped or held
 curl "http://localhost:4000/_stripe/webhooks/deliveries?status=dropped"
 
-# Send a stored event again (for example one that was dropped)
+# Send a stored event again to its endpoints that have not answered 2xx (for example after a drop),
+# or to one of its endpoints even after a 2xx
 curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
+curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver -d "endpoint=we_xxx"
 ```
 
 `rate` is a probability from 0 to 1 (default 1) and `types` accepts `*` wildcards (default every type). Duplicates reuse the same `evt_` id. The same `seed` makes the same decisions in every fresh emulator, and the generator state and held events survive a snapshot and restore.

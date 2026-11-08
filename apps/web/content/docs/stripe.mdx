@@ -177,9 +177,9 @@ Dropped events are stored but not sent, delayed events wait for `POST /_stripe/w
 These routes exist only in the emulator:
 
 - `GET`, `POST` and `DELETE /_stripe/webhooks/chaos`: read, replace or clear the chaos settings
-- `POST /_stripe/webhooks/flush`: deliver held events
+- `POST /_stripe/webhooks/flush`: deliver held events, with `order` (`none`, `reverse` or `shuffle`), `event_ids` and a `seed` for the shuffle
 - `GET /_stripe/webhooks/deliveries`: the delivery log
-- `POST /_stripe/events/:id/redeliver`: send a stored event again
+- `POST /_stripe/events/:id/redeliver`: send a stored event again to the endpoints it was sent to that have not answered 2xx, or with `endpoint` to that one endpoint
 - `POST /_stripe/simulate/payment_intents/:id/authenticate`, `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure
 - `POST /_stripe/simulate/payment_methods/:id`: change how later charges on a saved card behave
 - `GET` and `POST /_stripe/billing/settings`: the `invoice.upcoming` lead time, the retry schedule and the after-retries policy
