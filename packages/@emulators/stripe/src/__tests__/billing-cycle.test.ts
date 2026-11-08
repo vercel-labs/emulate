@@ -188,6 +188,35 @@ describe("trials on a test clock", () => {
   });
 });
 
+describe("descriptions of subscription payments", () => {
+  it("describe the PaymentIntent and charge by the invoice's billing reason", async () => {
+    const ctx = createTestApp();
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id);
+    await subscribe(ctx, customer.id, await monthlyPrice(ctx));
+    await advance(ctx, clock.id, utc(2026, 1, 15, 14));
+
+    const intents = await api<{ data: Json[] }>(ctx.app, "GET", `/v1/payment_intents?customer=${customer.id}`);
+    expect(intents.body.data.map((pi) => pi.description)).toEqual(["Subscription update", "Subscription creation"]);
+    const charges = await api<{ data: Json[] }>(ctx.app, "GET", `/v1/charges?customer=${customer.id}`);
+    expect(charges.body.data.map((ch) => ch.description)).toEqual(["Subscription update", "Subscription creation"]);
+
+    const item = await api<Json>(ctx.app, "POST", "/v1/invoiceitems", {
+      customer: customer.id,
+      amount: 500,
+      currency: "usd",
+    });
+    expect(item.status).toBe(200);
+    const manual = await api<Json>(ctx.app, "POST", "/v1/invoices", {
+      customer: customer.id,
+      pending_invoice_items_behavior: "include",
+    });
+    await api(ctx.app, "POST", `/v1/invoices/${manual.body.id}/finalize`);
+    const latest = await api<{ data: Json[] }>(ctx.app, "GET", `/v1/payment_intents?customer=${customer.id}&limit=1`);
+    expect(latest.body.data[0].description).toBeNull();
+  });
+});
+
 describe("send_invoice subscriptions on a test clock", () => {
   it("turn past_due when the latest invoice is unpaid at its due date, and active once it is paid", async () => {
     const ctx = createTestApp({ webhook: true });

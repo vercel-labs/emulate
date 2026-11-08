@@ -217,6 +217,17 @@ function nextInvoiceNumber(ss: StripeStore, customerId: string): string | undefi
 }
 
 /**
+ * The description Billing gives the PaymentIntent of a subscription invoice, which its charge
+ * inherits: "Subscription creation" for the first invoice and "Subscription update" for later
+ * ones. Other invoices leave it null.
+ */
+function paymentIntentDescription(reason: InvoiceBillingReason): string | null {
+  if (reason === "subscription_create") return "Subscription creation";
+  if (reason.startsWith("subscription")) return "Subscription update";
+  return null;
+}
+
+/**
  * Finalize a draft: number it, freeze the customer details and open it. An invoice with an
  * amount due gets its PaymentIntent and default InvoicePayment; one with nothing due is paid
  * at once. Sends payment_intent.created and invoice.finalized.
@@ -250,7 +261,7 @@ export function finalizeInvoice(ctx: InvoicingContext, ev: EventBatch, inv: Stri
       currency: opened.currency,
       status: "requires_payment_method",
       customer_id: opened.customer_id,
-      description: null,
+      description: paymentIntentDescription(opened.billing_reason),
       payment_method: null,
       metadata: {},
       created: now,
