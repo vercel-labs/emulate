@@ -305,18 +305,24 @@ export function billingMeterRoutes(ctx: RouteContext): void {
     const limit = Math.min(Math.max(readInt(query.limit) ?? 10, 1), 100);
     const startingAfter = readText(query.starting_after);
     const endingBefore = readText(query.ending_before);
-    let page = summaries;
-    if (startingAfter) {
-      const at = page.findIndex((s) => s.id === startingAfter);
-      if (at !== -1) page = page.slice(at + 1);
-    } else if (endingBefore) {
-      const at = page.findIndex((s) => s.id === endingBefore);
-      if (at !== -1) page = page.slice(0, at).slice(-limit);
+    let data: typeof summaries;
+    let hasMore: boolean;
+    const beforeAt = endingBefore && !startingAfter ? summaries.findIndex((s) => s.id === endingBefore) : -1;
+    if (beforeAt !== -1) {
+      // An ending_before page is the `limit` summaries just before the cursor; more lie beyond its start.
+      const before = summaries.slice(0, beforeAt);
+      data = before.slice(-limit);
+      hasMore = before.length > limit;
+    } else {
+      const afterAt = startingAfter ? summaries.findIndex((s) => s.id === startingAfter) : -1;
+      const rest = summaries.slice(afterAt + 1);
+      data = rest.slice(0, limit);
+      hasMore = rest.length > limit;
     }
     return c.json({
       object: "list",
-      data: page.slice(0, limit),
-      has_more: page.length > limit,
+      data,
+      has_more: hasMore,
       url: `/v1/billing/meters/${meter.stripe_id}/event_summaries`,
     });
   });

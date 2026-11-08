@@ -1,6 +1,6 @@
 import { derivedInvoicePrefix, toUnixTimestamp, type ExpandResolver } from "./helpers.js";
 import { testCardByNumber } from "./test-cards.js";
-import { priceAmount, unitAmountDecimal, wholeAmount } from "./pricing.js";
+import { priceAmount, quantityDecimal, unitAmountDecimal, wholeAmount } from "./pricing.js";
 import type { StripeStore } from "./store.js";
 import type {
   StripeBillingDetails,
@@ -742,8 +742,9 @@ export function formatInvoiceLineItem(line: StripeInvoiceLineItem) {
     period: { ...line.period },
     pretax_credit_amounts: [] as unknown[],
     pricing: formatPricing(line.price_id, line.product_id, line.unit_amount_decimal),
-    quantity: line.quantity,
-    quantity_decimal: String(line.quantity),
+    // Metered usage can be fractional: `quantity` truncates it and `quantity_decimal` keeps it whole.
+    quantity: Math.trunc(line.quantity),
+    quantity_decimal: quantityDecimal(line.quantity),
     subtotal: line.amount,
     taxes: [] as unknown[],
   };

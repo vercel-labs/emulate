@@ -17,9 +17,10 @@ function readText(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-/** A usage value: a whole number, possibly negative, sent as a string or a number. */
+/** A usage value: a decimal number, possibly negative, sent as a string or a number. */
 function readUsageValue(value: string): number | undefined {
-  return /^-?\d+$/.test(value.trim()) ? Number(value.trim()) : undefined;
+  const text = value.trim();
+  return /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(text) ? Number(text) : undefined;
 }
 
 export function meterEventRoutes(ctx: RouteContext): void {
@@ -82,7 +83,7 @@ export function meterEventRoutes(ctx: RouteContext): void {
       if (value === undefined) {
         return invalid(
           c,
-          `The value under '${valueKey}' must be a whole number.`,
+          `The value under '${valueKey}' must be a number.`,
           `payload[${valueKey}]`,
           "meter_event_invalid_value",
         );
@@ -92,7 +93,7 @@ export function meterEventRoutes(ctx: RouteContext): void {
         c,
         `The payload must contain the value under '${valueKey}'.`,
         `payload[${valueKey}]`,
-        "meter_event_invalid_value",
+        "meter_event_value_not_found",
       );
     }
 

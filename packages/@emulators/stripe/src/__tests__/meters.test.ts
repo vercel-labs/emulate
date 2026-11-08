@@ -261,6 +261,31 @@ describe("Meter events", () => {
     const badValue = await sendUsage(ctx, customer.id, "lots");
     expect(badValue.status).toBe(400);
     expect(badValue.body.error.code).toBe("meter_event_invalid_value");
+
+    const noValue = await api<Json>(ctx.app, "POST", "/v1/billing/meter_events", {
+      event_name: "api_calls",
+      payload: { stripe_customer_id: customer.id },
+    });
+    expect(noValue.status).toBe(400);
+    expect(noValue.body.error).toMatchObject({ code: "meter_event_value_not_found", param: "payload[value]" });
+  });
+
+  it("accepts decimal usage values", async () => {
+    const ctx = createTestApp();
+    const meter = await createMeter(ctx);
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id);
+
+    const decimal = await sendUsage(ctx, customer.id, "2.5");
+    expect(decimal.status, JSON.stringify(decimal.body)).toBe(200);
+    expect(decimal.body.payload.value).toBe("2.5");
+    expect((await sendUsage(ctx, customer.id, "0.1")).status).toBe(200);
+    expect((await sendUsage(ctx, customer.id, "0.2")).status).toBe(200);
+    expect((await sendUsage(ctx, customer.id, "1.2.3")).body.error.code).toBe("meter_event_invalid_value");
+
+    const range = `customer=${customer.id}&start_time=${T - HOUR}&end_time=${T + HOUR}`;
+    const summary = await api<Json>(ctx.app, "GET", `/v1/billing/meters/${meter.id}/event_summaries?${range}`);
+    expect(summary.body.data[0].aggregated_value).toBe(2.8);
   });
 
   it("enforces identifier uniqueness for 24 hours and the timestamp window on the customer's clock", async () => {
@@ -401,6 +426,37 @@ describe("Meter event summaries", () => {
     const lastValue = await api<Json>(ctx.app, "GET", `/v1/billing/meters/${last.id}/event_summaries?${range}`);
     expect(lastValue.body.data[0].aggregated_value).toBe(3);
   });
+
+  it("pages hour buckets with starting_after and ending_before", async () => {
+    const ctx = createTestApp();
+    const meter = await createMeter(ctx);
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id);
+    for (const hoursAgo of [1, 2, 3]) {
+      await sendUsage(ctx, customer.id, hoursAgo, { timestamp: T - hoursAgo * HOUR });
+    }
+    const hour = Math.floor(T / HOUR) * HOUR;
+    const base =
+      `/v1/billing/meters/${meter.id}/event_summaries?customer=${customer.id}` +
+      `&start_time=${hour - 4 * HOUR}&end_time=${hour + HOUR}&value_grouping_window=hour`;
+
+    const all = (await api<Json>(ctx.app, "GET", base)).body.data as Json[];
+    expect(all.map((s) => s.aggregated_value)).toEqual([1, 2, 3]);
+
+    const first = await api<Json>(ctx.app, "GET", `${base}&limit=1`);
+    expect(first.body.data.map((s: Json) => s.aggregated_value)).toEqual([1]);
+    expect(first.body.has_more).toBe(true);
+    const after = await api<Json>(ctx.app, "GET", `${base}&limit=1&starting_after=${all[1].id}`);
+    expect(after.body.data.map((s: Json) => s.aggregated_value)).toEqual([3]);
+    expect(after.body.has_more).toBe(false);
+
+    const before = await api<Json>(ctx.app, "GET", `${base}&limit=1&ending_before=${all[2].id}`);
+    expect(before.body.data.map((s: Json) => s.aggregated_value)).toEqual([2]);
+    expect(before.body.has_more).toBe(true);
+    const start = await api<Json>(ctx.app, "GET", `${base}&limit=1&ending_before=${all[1].id}`);
+    expect(start.body.data.map((s: Json) => s.aggregated_value)).toEqual([1]);
+    expect(start.body.has_more).toBe(false);
+  });
 });
 
 describe("Metered prices and items", () => {
@@ -520,6 +576,51 @@ describe("Usage on cycle invoices", () => {
     expect(cycle.billing_reason).toBe("subscription_cycle");
     expect(cycle.lines.data.map((l: Json) => [l.quantity, l.amount])).toEqual([[0, 0]]);
     expect(cycle.lines.data[0].period).toEqual({ start: trialEnd, end: periodEnd });
+  });
+
+  it("bills count and last meters on the cycle invoice", async () => {
+    const ctx = createTestApp();
+    const logins = await createMeter(ctx, { event_name: "logins", default_aggregation: { formula: "count" } });
+    const seats = await createMeter(ctx, { event_name: "seats", default_aggregation: { formula: "last" } });
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id);
+    const perLogin = await meteredPrice(ctx, logins.id, { unit_amount: 10 });
+    const perSeat = await meteredPrice(ctx, seats.id, { unit_amount: 500 });
+    const sub = await subscribe(ctx, customer.id, [{ price: perLogin }, { price: perSeat }]);
+
+    for (const value of [5, 9, 2, 7]) await sendUsage(ctx, customer.id, value, { event_name: "logins" });
+    await sendUsage(ctx, customer.id, 8, { event_name: "seats", timestamp: T + 60 });
+    await sendUsage(ctx, customer.id, 3, { event_name: "seats", timestamp: T + 180 });
+    await sendUsage(ctx, customer.id, 6, { event_name: "seats", timestamp: T + 120 });
+
+    await advance(ctx, clock.id, PERIOD_END + 2 * HOUR);
+    const invoice = (await subInvoices(ctx, sub.id)).at(-1)!;
+    expect(invoice.billing_reason).toBe("subscription_cycle");
+    const byPrice = (priceId: string) =>
+      (invoice.lines.data as Json[])
+        .filter((l) => l.pricing.price_details.price === priceId)
+        .map((l) => [l.quantity, l.amount]);
+    expect(byPrice(perLogin)).toEqual([[4, 40]]);
+    expect(byPrice(perSeat)).toEqual([[3, 1500]]);
+    expect(invoice.total).toBe(1540);
+  });
+
+  it("bills decimal usage with a truncated quantity and the full quantity_decimal", async () => {
+    const ctx = createTestApp();
+    const meter = await createMeter(ctx);
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id);
+    const perUnit = await meteredPrice(ctx, meter.id, { unit_amount: 4 });
+    const sub = await subscribe(ctx, customer.id, [{ price: perUnit }]);
+
+    await sendUsage(ctx, customer.id, "2.5");
+    await sendUsage(ctx, customer.id, "0.25");
+    await advance(ctx, clock.id, PERIOD_END + 2 * HOUR);
+    const invoice = (await subInvoices(ctx, sub.id)).at(-1)!;
+    expect(invoice.lines.data).toHaveLength(1);
+    expect(invoice.lines.data[0]).toMatchObject({ quantity: 2, quantity_decimal: "2.75", amount: 11 });
+    expect(invoice.lines.data[0].description).toMatch(/^2\.75 × /);
+    expect(invoice.total).toBe(11);
   });
 
   it("seeds meters and metered tiered prices that bill end to end", async () => {

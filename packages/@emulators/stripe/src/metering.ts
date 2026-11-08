@@ -1,6 +1,7 @@
 import type { StripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
 import { priceLines } from "./lines.js";
+import { roundQuantity } from "./pricing.js";
 import type {
   MeterFormula,
   StripeBillingMeter,
@@ -45,7 +46,7 @@ export function aggregate(events: StripeMeterEvent[], formula: MeterFormula): nu
     }
     return latest?.value ?? 0;
   }
-  return events.reduce((sum, event) => sum + (event.value ?? 0), 0);
+  return roundQuantity(events.reduce((sum, event) => sum + (event.value ?? 0), 0));
 }
 
 /** Events of `meterId` for `customerId` with a timestamp in [start, end), leaving out canceled ones. */
@@ -73,7 +74,7 @@ export function usageQuantity(
   const meter = ss.billingMeters.findOneBy("stripe_id", meterId);
   if (!meter) return 0;
   const total = aggregate(meterEventsIn(ss, meterId, customerId, period.start, period.end), meter.formula);
-  return Math.max(0, Math.floor(total));
+  return Math.max(0, total);
 }
 
 /** The in-arrears lines for the metered items of `sub` over `period`, from the usage recorded so far. */

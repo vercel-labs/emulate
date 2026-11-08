@@ -1,5 +1,5 @@
 import type { StripeStore } from "./store.js";
-import { priceBreakdown } from "./pricing.js";
+import { priceBreakdown, quantityDecimal } from "./pricing.js";
 import type { LineFields } from "./invoicing.js";
 import type { PriceInterval, StripePrice, StripeSubscription, StripeSubscriptionItem } from "./entities.js";
 
@@ -78,7 +78,7 @@ export function priceLines(
       {
         ...base,
         amount: part.amount,
-        description: `${quantity} × ${name} (at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
+        description: `${quantityDecimal(quantity)} × ${name} (at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
         unit_amount_decimal: part.unit_amount_decimal,
         quantity,
       },
@@ -92,7 +92,7 @@ export function priceLines(
       description:
         part.kind === "flat"
           ? `${name} (Tier ${tier} flat fee)`
-          : `${part.quantity} × ${name} (Tier ${tier} at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
+          : `${quantityDecimal(part.quantity)} × ${name} (Tier ${tier} at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
       unit_amount_decimal: part.unit_amount_decimal,
       quantity: part.quantity,
     };

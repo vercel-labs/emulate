@@ -74,6 +74,19 @@ export function normalizeDecimal(value: unknown): string | undefined {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
+/**
+ * A quantity rounded to the 12 decimal places Stripe keeps, so sums of decimal usage such as
+ * 0.1 + 0.2 do not carry binary floating-point noise.
+ */
+export function roundQuantity(quantity: number): number {
+  return Number(quantity.toFixed(12));
+}
+
+/** A non-negative quantity as a decimal string, such as `2.75`, the way `quantity_decimal` shows it. */
+export function quantityDecimal(quantity: number): string {
+  return normalizeDecimal(quantity) ?? String(quantity);
+}
+
 /** The integer form of a decimal amount, or null when it has a fractional part. */
 export function wholeAmount(decimal: string | undefined): number | null {
   return decimal !== undefined && /^\d+$/.test(decimal) ? Number(decimal) : null;
@@ -484,7 +497,7 @@ export function priceBreakdown(price: StripePrice, quantity: number): PriceCompo
   let lower = 0;
   for (const [index, tier] of tiers.entries()) {
     const upper = tier.up_to ?? Infinity;
-    const units = Math.max(0, Math.min(quantity, upper) - lower);
+    const units = Math.max(0, roundQuantity(Math.min(quantity, upper) - lower));
     if (units === 0 && index > 0) break;
     parts.push(...tierComponents(tier, index, units));
     lower = upper;
