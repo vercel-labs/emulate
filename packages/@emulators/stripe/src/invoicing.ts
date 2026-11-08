@@ -43,11 +43,16 @@ export { DRAFT_FINALIZE_DELAY } from "./formatters.js";
 
 const DAY = 86400;
 
-export const NO_PAYMENT_METHOD_MESSAGE =
+const NO_PAYMENT_METHOD_MESSAGE =
   "This customer has no attached payment source or default payment method. Please consider adding a default payment method. For more information, visit https://docs.stripe.com/billing/subscriptions/payment-methods-setting#payment-method-priority.";
 
 const REQUIRES_ACTION_MESSAGE =
   "This payment requires additional user action before it can be completed successfully. Payment can be completed using the PaymentIntent associated with the invoice. For more details see: https://docs.stripe.com/billing/subscriptions/overview#requires-action";
+
+/** The 400 for an invoice with no payment method to charge, coded `resource_missing` as on Stripe. */
+export function noPaymentMethodError(): StripeErrorSpec {
+  return invalidRequest(NO_PAYMENT_METHOD_MESSAGE, "resource_missing");
+}
 
 function invalidRequest(message: string, code?: string, param?: string): StripeErrorSpec {
   return { status: 400, type: "invalid_request_error", message, code, param };
@@ -482,7 +487,7 @@ function invoicePaymentMethod(
 ): { ok: true; pm: StripePaymentMethod } | { ok: false; error: StripeErrorSpec } {
   const ss = getStripeStore(ctx.store);
   const id = requested ?? invoicePaymentMethodId(ss, inv);
-  if (!id) return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
+  if (!id) return { ok: false, error: noPaymentMethodError() };
 
   if (testCardByPaymentMethod(id)) {
     const attached = attachPaymentMethod(ss, id, inv.customer_id);
@@ -647,7 +652,7 @@ export function autoAdvanceDraft(
     // With nothing to charge, the attempt is counted and fails, and retries are scheduled.
     recordSkippedRetry(ctx, ev, opened);
     setDelinquent(ctx, ev, opened.customer_id, true);
-    return invalidRequest(NO_PAYMENT_METHOD_MESSAGE);
+    return noPaymentMethodError();
   }
   const paid = payInvoice(ctx, ev, opened, { automatic: true, offSession: true });
   return paid.ok ? undefined : paid.error;

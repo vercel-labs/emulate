@@ -488,6 +488,7 @@ describe("paying", () => {
 
     const noCard = await api<Json>(ctx.app, "POST", `/v1/invoices/${invoice.id}/pay`);
     expect(noCard.status).toBe(400);
+    expect(noCard.body.error).toMatchObject({ type: "invalid_request_error", code: "resource_missing" });
 
     const paid = await api<Json>(ctx.app, "POST", `/v1/invoices/${invoice.id}/pay`, {
       payment_method: "pm_card_mastercard",

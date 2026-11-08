@@ -86,6 +86,7 @@ export function productRoutes(ctx: RouteContext): void {
         "invalid_request_error",
         `No such product: '${c.req.param("id")}'`,
         "resource_missing",
+        "id",
       );
     return c.json(formatProduct(product));
   });

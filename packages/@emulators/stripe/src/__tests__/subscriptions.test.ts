@@ -462,6 +462,7 @@ describe("POST /v1/subscriptions", () => {
       items: [{ price: priceId }],
     });
     expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({ type: "invalid_request_error", code: "resource_missing" });
     expect(res.body.error.message).toContain("no attached payment source or default payment method");
     const list = await api<Json>(ctx.app, "GET", "/v1/subscriptions?status=all");
     expect(list.body.data).toHaveLength(0);

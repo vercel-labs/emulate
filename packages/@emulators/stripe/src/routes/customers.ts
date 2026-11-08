@@ -141,6 +141,7 @@ export function customerRoutes(ctx: RouteContext): void {
         "invalid_request_error",
         `No such customer: '${c.req.param("id")}'`,
         "resource_missing",
+        "id",
       );
     return expandedJson(c, formatCustomer(customer), expand);
   });
@@ -154,6 +155,7 @@ export function customerRoutes(ctx: RouteContext): void {
         "invalid_request_error",
         `No such customer: '${c.req.param("id")}'`,
         "resource_missing",
+        "id",
       );
     const body = await parseStripeBody(c);
 
@@ -208,6 +210,7 @@ export function customerRoutes(ctx: RouteContext): void {
         "invalid_request_error",
         `No such customer: '${c.req.param("id")}'`,
         "resource_missing",
+        "id",
       );
 
     const ev = eventBatch(ctx, c);

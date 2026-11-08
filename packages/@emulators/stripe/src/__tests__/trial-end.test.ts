@@ -493,7 +493,7 @@ describe("POST /v1/subscriptions/:id/resume", () => {
       payment_behavior: "resume_on_payment_success",
     });
     expect(res.status).toBe(400);
-    expect(res.body.error.type).toBe("invalid_request_error");
+    expect(res.body.error).toMatchObject({ type: "invalid_request_error", code: "resource_missing" });
     expect(hooks.events).toHaveLength(0);
     expect(await subInvoices(ctx, sub.id)).toHaveLength(1);
     expect((await getSub(ctx, sub.id)).status).toBe("paused");

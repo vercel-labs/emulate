@@ -11,7 +11,7 @@ import {
   applyResume,
   createInvoice,
   finalizeInvoice,
-  NO_PAYMENT_METHOD_MESSAGE,
+  noPaymentMethodError,
   payInvoice,
   type InvoicingContext,
   type LineFields,
@@ -315,7 +315,7 @@ export function createSubscription(
     params.paymentBehavior !== "default_incomplete" &&
     !subscriptionPaymentMethod(ss, params.customerId, params.defaultPaymentMethod)
   ) {
-    return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
+    return { ok: false, error: noPaymentMethodError() };
   }
 
   const cancelAt =
@@ -663,7 +663,7 @@ export function resumeSubscription(
   const success = params.paymentBehavior === "resume_on_payment_success";
   const due = lines.reduce((sum, line) => sum + line.amount, 0);
   if (success && due > 0 && !subscriptionPaymentMethod(ss, sub.customer_id, sub.default_payment_method)) {
-    return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
+    return { ok: false, error: noPaymentMethodError() };
   }
 
   const before = formatSubscription(ss, sub);
