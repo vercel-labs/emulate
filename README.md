@@ -32,7 +32,7 @@ All services listen on IPv4 loopback (`127.0.0.1`) by default. No config file ne
 - **Linear** on `http://localhost:4012`
 - **Twilio** on `http://localhost:4013`
 
-Stripe webhooks configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body.
+Stripe webhooks are Stripe Event objects. Endpoints configured with a secret include a `Stripe-Signature` header signed over the timestamp and raw request body, so `stripe.webhooks.constructEvent` verifies them.
 
 Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` when `slack.signing_secret` is configured. The signature is an HMAC-SHA256 over `v0:<timestamp>:<raw-body>`; configure the receiver with the same secret and verify against the unparsed request body. Existing event subscriptions remain unsigned when the secret is absent or empty.
 
@@ -574,16 +574,38 @@ resend:
       last_name: User
 
 stripe:
+  webhooks:
+    - url: http://localhost:3000/api/webhooks/stripe
+      events: ['*']
+      secret: whsec_test
   customers:
     - email: test@example.com
       name: Test Customer
   products:
     - name: Pro Plan
       description: Monthly pro subscription
+  meters:
+    - display_name: API calls
+      event_name: api_calls
   prices:
-    - product_name: Pro Plan
+    - product: Pro Plan
       currency: usd
       unit_amount: 2000
+      lookup_key: pro_monthly
+      recurring:
+        interval: month
+    - product: Pro Plan
+      currency: usd
+      recurring:
+        interval: month
+        usage_type: metered
+        meter: api_calls
+      tiers_mode: graduated
+      tiers:
+        - up_to: 1000
+          unit_amount: 0
+        - up_to: inf
+          unit_amount: 2
 
 mongoatlas:
   projects:
@@ -1199,6 +1221,29 @@ A rejected send returns `403 validation_error` naming the rejected addresses and
 Validated sends append one record per email to the `resend.send_attempts` store collection, including emails in a rejected batch. Each record contains `from`, `to`, `cc`, `bcc`, `subject`, `idempotency_key` (or `null`), and the store's `id`, `created_at`, and `updated_at`. Message bodies are not copied into attempts. Malformed requests, invalid or conflicting idempotency keys, and idempotency replays do not append attempts.
 
 Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/resend`, or inspect the persisted state. Shared adapter snapshots use the key `resend:resend.send_attempts`. Attempts and recipient restrictions survive saved-state restoration, including rejected sends. There is no additional Resend API endpoint for attempts. A rejected send has an attempt without an email; a send that never happened has neither.
+
+## Stripe API
+
+Stateful Stripe REST emulation for payments and Billing at API version `2026-10-28.endive`, the version stripe-node 23 pins. Point stripe-node at it with `host`, `port` and `protocol`. It covers customers, payment methods with Stripe's test cards, payment intents with 3D Secure, setup intents, charges, products, recurring, tiered and metered prices, subscriptions (trials, cancellation, pausing, dunning), invoices, test clocks, billing meters and meter events, Checkout Sessions in payment and subscription mode, and the customer portal. Hosted checkout, invoice and portal pages run in the emulator. The full reference is in [`packages/@emulators/stripe/README.md`](packages/@emulators/stripe/README.md).
+
+### Test clocks and Billing
+
+Customers created with `test_clock` take every time from the clock's `frozen_time`. `POST /v1/test_helpers/test_clocks/:id/advance` runs Billing for them in time order: `customer.subscription.trial_will_end` three days before a trial ends, trial ends and renewals with `subscription_cycle` invoices that are finalized and charged an hour later, `invoice.upcoming`, scheduled cancellations, and retries of failed payments on a `[3, 5, 7]` day schedule followed by the `cancel`, `unpaid`, `past_due` or `pause` policy. Metered prices bill the usage reported with `POST /v1/billing/meter_events` in arrears on each renewal. Customers without a clock never move through billing time.
+
+### Webhooks
+
+Every state change is stored as a Stripe Event (`evt_...`) with `api_version`, `created`, `livemode: false`, `pending_webhooks`, `request` and `data.object`, and delivered to the seed `webhooks` and to endpoints created with `POST /v1/webhook_endpoints`. Deliveries are signed with `Stripe-Signature`, so `stripe.webhooks.constructEvent` verifies them. Delivery is inline and in order by default.
+
+### Emulator controls
+
+- `POST /_stripe/webhooks/chaos`: drop, duplicate, delay or reorder deliveries, with a seed for repeatable runs; `webhook_chaos` in seed config does the same
+- `POST /_stripe/webhooks/flush` and `GET /_stripe/webhooks/deliveries`: release held events and read the delivery log
+- `POST /_stripe/events/:id/redeliver`: send a stored event again
+- `POST /_stripe/simulate/payment_intents/:id/authenticate` and `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure
+- `POST /_stripe/simulate/payment_methods/:id`: make later charges on a saved card decline or need authentication
+- `GET /_stripe/billing/settings` and `POST /_stripe/billing/settings`: the retry schedule, the after-retries policy and the `invoice.upcoming` lead time; `billing` in seed config sets them at start
+
+Current Stripe limits: prorations, subscription schedules, quotes, Trial Offers, coupons, discounts, taxes, credit notes, Connect and Smart Retries are not implemented, and webhooks are never retried automatically. The package README lists every deliberate difference from real Stripe.
 
 ## Linear API
 

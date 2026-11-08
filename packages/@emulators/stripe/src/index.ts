@@ -9,44 +9,143 @@ import type {
   AppEnv,
   RouteContext,
 } from "@emulators/core";
-import { getStripeStore } from "./store.js";
+import { getStripeStore, type StripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
+import { readPriceParams } from "./pricing.js";
 import { customerRoutes } from "./routes/customers.js";
 import { paymentIntentRoutes } from "./routes/payment-intents.js";
+import { setupIntentRoutes } from "./routes/setup-intents.js";
 import { paymentMethodRoutes } from "./routes/payment-methods.js";
 import { chargeRoutes } from "./routes/charges.js";
 import { productRoutes } from "./routes/products.js";
 import { priceRoutes } from "./routes/prices.js";
 import { checkoutSessionRoutes } from "./routes/checkout-sessions.js";
 import { customerSessionRoutes } from "./routes/customer-sessions.js";
+import { invoiceRoutes } from "./routes/invoices.js";
+import { invoiceItemRoutes } from "./routes/invoice-items.js";
+import { invoicePaymentRoutes } from "./routes/invoice-payments.js";
+import { subscriptionRoutes } from "./routes/subscriptions.js";
+import { subscriptionItemRoutes } from "./routes/subscription-items.js";
+import { testClockRoutes } from "./routes/test-clocks.js";
+import { eventRoutes } from "./routes/events.js";
+import { webhookEndpointRoutes } from "./routes/webhook-endpoints.js";
+import { controlRoutes } from "./routes/control.js";
+import { billingMeterRoutes, insertMeter, readMeterParams } from "./routes/billing-meters.js";
+import { meterEventRoutes } from "./routes/meter-events.js";
+import { billingPortalRoutes } from "./routes/billing-portal.js";
+import { hostedInvoiceRoutes } from "./routes/hosted-invoices.js";
+import { activeMeterFor } from "./metering.js";
+import { clockCustomers, insertTestClock, MAX_CLOCK_CUSTOMERS } from "./clock.js";
+import { attachPaymentMethod, notCustomersPaymentMethod } from "./routes/payment-methods.js";
+import { requestIdMiddleware, setStripeApiVersion, syncWebhookEndpoints } from "./events.js";
+import { parseChaosConfig, setWebhookChaos, type WebhookChaosInput } from "./chaos.js";
+import { getBillingSettings, parseBillingSettings, setBillingSettings, type BillingSettingsInput } from "./settings.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
+export { STRIPE_API_VERSION } from "./events.js";
+export type { WebhookChaosInput, ReorderMode } from "./chaos.js";
+export type { BillingSettings, BillingSettingsInput } from "./settings.js";
+
+export interface StripeSeedPrice {
+  id?: string;
+  /** The product's name or id. */
+  product?: string;
+  /** The product's name. Kept for older configs; `product` takes precedence. */
+  product_name?: string;
+  currency: string;
+  unit_amount?: number;
+  unit_amount_decimal?: string;
+  active?: boolean;
+  billing_scheme?: "per_unit" | "tiered";
+  recurring?: {
+    interval: "day" | "week" | "month" | "year";
+    interval_count?: number;
+    usage_type?: "licensed" | "metered";
+    /** A seeded or existing meter, by id or by the `event_name` of an active meter. */
+    meter?: string;
+  };
+  tiers?: Array<{
+    up_to: number | "inf";
+    unit_amount?: number;
+    unit_amount_decimal?: string;
+    flat_amount?: number;
+    flat_amount_decimal?: string;
+  }>;
+  tiers_mode?: "graduated" | "volume";
+  transform_quantity?: { divide_by: number; round: "up" | "down" };
+  lookup_key?: string;
+  nickname?: string;
+  tax_behavior?: "exclusive" | "inclusive" | "unspecified";
+  metadata?: Record<string, string>;
+}
+
+export interface StripeSeedMeter {
+  id?: string;
+  display_name: string;
+  event_name: string;
+  default_aggregation?: { formula: "count" | "last" | "sum" };
+  customer_mapping?: { type: "by_id"; event_payload_key: string };
+  value_settings?: { event_payload_key: string };
+  event_time_window?: "day" | "hour";
+}
+
+export interface StripeSeedCustomer {
+  id?: string;
+  email?: string;
+  name?: string;
+  description?: string;
+  /**
+   * A payment method to attach, as `payment_method` on `POST /v1/customers`: a test card id
+   * such as `pm_card_visa`, which becomes a new `pm_` attached to the customer.
+   */
+  payment_method?: string;
+  /** `default_payment_method` may name the `payment_method` above, which makes the attached card the default. */
+  invoice_settings?: { default_payment_method?: string };
+  /** A seeded test clock, by id or by name. The customer is created at its `frozen_time`. */
+  test_clock?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface StripeSeedTestClock {
+  id?: string;
+  frozen_time: number;
+  name?: string;
+}
 
 export interface StripeSeedConfig {
   port?: number;
-  customers?: Array<{
-    id?: string;
-    email?: string;
-    name?: string;
-    description?: string;
-  }>;
+  /** API version stamped on events. Defaults to STRIPE_API_VERSION. */
+  api_version?: string;
+  /** Test clocks, seeded before customers so a customer can name one in `test_clock`. */
+  test_clocks?: Array<StripeSeedTestClock>;
+  customers?: Array<StripeSeedCustomer>;
   products?: Array<{
     id?: string;
     name: string;
     description?: string;
   }>;
-  prices?: Array<{
-    id?: string;
-    product_name: string;
-    currency: string;
-    unit_amount: number;
-  }>;
+  /**
+   * Prices take the params of `POST /v1/prices`. `product` (or the older `product_name`) names
+   * a seeded product by name or id. `tiers` without `billing_scheme` makes a tiered price.
+   */
+  prices?: Array<StripeSeedPrice>;
+  /**
+   * Billing meters, seeded before prices so metered prices can name them by `event_name`.
+   * `default_aggregation` defaults to `{ formula: "sum" }`.
+   */
+  meters?: Array<StripeSeedMeter>;
+  /** Webhook endpoints. Each one is also listed by GET /v1/webhook_endpoints. */
   webhooks?: Array<{
+    id?: string;
     url: string;
     events: string[];
     secret?: string;
   }>;
+  /** Delivery faults applied from the start. See README "Webhook delivery model and chaos". */
+  webhook_chaos?: WebhookChaosInput;
+  /** Billing settings, also readable and writable at /_stripe/billing/settings. */
+  billing?: BillingSettingsInput;
 }
 
 function stripeWebhookHeaders({ body, subscription }: WebhookHeaderContext): Record<string, string> {
@@ -61,6 +160,91 @@ function stripeWebhookHeaders({ body, subscription }: WebhookHeaderContext): Rec
   }
 
   return headers;
+}
+
+/**
+ * Insert a seeded price after the same validation `POST /v1/prices` applies. A seeded
+ * lookup key takes over from any price already holding it, as with `transfer_lookup_key`.
+ */
+function seedPrice(ss: StripeStore, productId: string, pr: StripeSeedPrice): void {
+  if (pr.id && ss.prices.findOneBy("stripe_id", pr.id)) return;
+  const input: Record<string, unknown> = { ...pr };
+  if (pr.tiers && pr.billing_scheme === undefined) input.billing_scheme = "tiered";
+  const meterRef = pr.recurring?.meter;
+  if (meterRef && !ss.billingMeters.findOneBy("stripe_id", meterRef)) {
+    const byName = activeMeterFor(ss, meterRef);
+    if (byName) input.recurring = { ...pr.recurring, meter: byName.stripe_id };
+  }
+  const parsed = readPriceParams(input, {
+    meterStatus: (id) => ss.billingMeters.findOneBy("stripe_id", id)?.status,
+  });
+  if (parsed.error) {
+    throw new Error(`Invalid stripe price for product ${productId}: ${parsed.error.message} (${parsed.error.param})`);
+  }
+  const definition = parsed.price!;
+  if (definition.lookup_key) {
+    for (const holder of ss.prices.all().filter((p) => p.lookup_key === definition.lookup_key)) {
+      ss.prices.update(holder.id, { lookup_key: undefined });
+    }
+  }
+  ss.prices.insert({ stripe_id: pr.id ?? stripeId("price"), product_id: productId, ...definition });
+}
+
+function seedTestClock(ss: StripeStore, clock: StripeSeedTestClock): void {
+  if (clock.id && ss.testClocks.findOneBy("stripe_id", clock.id)) return;
+  if (!clock.id && clock.name !== undefined && ss.testClocks.findOneBy("name", clock.name)) return;
+  if (!Number.isInteger(clock.frozen_time)) {
+    throw new Error(
+      `Invalid stripe test clock ${clock.id ?? clock.name ?? ""}: frozen_time must be an integer timestamp`,
+    );
+  }
+  insertTestClock(ss, clock.frozen_time, clock.name, clock.id);
+}
+
+/**
+ * Insert a seeded customer with the checks `POST /v1/customers` applies to `payment_method`,
+ * `invoice_settings[default_payment_method]` and `test_clock`. A seeded customer whose id or
+ * email already exists is skipped, so seeding the same config twice adds nothing.
+ */
+function seedCustomer(ss: StripeStore, c: StripeSeedCustomer): void {
+  if (c.id && ss.customers.findOneBy("stripe_id", c.id)) return;
+  if (c.email && ss.customers.findOneBy("email", c.email)) return;
+  const label = c.id ?? c.email ?? c.name ?? "";
+  const fail = (message: string, param?: string): never => {
+    throw new Error(`Invalid stripe customer ${label}: ${message}${param ? ` (${param})` : ""}`);
+  };
+
+  const clock = c.test_clock
+    ? (ss.testClocks.findOneBy("stripe_id", c.test_clock) ?? ss.testClocks.findOneBy("name", c.test_clock))
+    : undefined;
+  if (c.test_clock && !clock) fail(`No such test_clock: '${c.test_clock}'`, "test_clock");
+  if (clock && clockCustomers(ss, clock.stripe_id).length >= MAX_CLOCK_CUSTOMERS) {
+    fail(`A test clock can have at most ${MAX_CLOCK_CUSTOMERS} customers.`, "test_clock");
+  }
+  const defaultPaymentMethod = c.invoice_settings?.default_payment_method;
+  if (defaultPaymentMethod && defaultPaymentMethod !== c.payment_method) {
+    const error = notCustomersPaymentMethod(defaultPaymentMethod);
+    fail(error.message, error.param);
+  }
+
+  const customer = ss.customers.insert({
+    stripe_id: c.id ?? stripeId("cus"),
+    email: c.email ?? null,
+    name: c.name ?? null,
+    description: c.description ?? null,
+    metadata: { ...c.metadata },
+    ...(clock && { test_clock: clock.stripe_id, created: clock.frozen_time }),
+  });
+  if (!c.payment_method) return;
+  const attached = attachPaymentMethod(ss, c.payment_method, customer.stripe_id);
+  if (!attached.ok) {
+    ss.customers.delete(customer.id);
+    fail(attached.error.message, attached.error.param ?? "payment_method");
+    return;
+  }
+  if (defaultPaymentMethod) {
+    ss.customers.update(customer.id, { invoice_settings: { default_payment_method: attached.value.pm.stripe_id } });
+  }
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -83,20 +267,20 @@ export function seedFromConfig(
 ): void {
   const ss = getStripeStore(store);
 
-  if (config.customers) {
-    for (const c of config.customers) {
-      if (c.email) {
-        const existing = ss.customers.findOneBy("email", c.email);
-        if (existing) continue;
-      }
-      ss.customers.insert({
-        stripe_id: c.id ?? stripeId("cus"),
-        email: c.email ?? null,
-        name: c.name ?? null,
-        description: c.description ?? null,
-        metadata: {},
-      });
-    }
+  if (config.api_version) {
+    setStripeApiVersion(store, config.api_version);
+  }
+
+  for (const clock of config.test_clocks ?? []) seedTestClock(ss, clock);
+  for (const c of config.customers ?? []) seedCustomer(ss, c);
+
+  for (const m of config.meters ?? []) {
+    if (m.id && ss.billingMeters.findOneBy("stripe_id", m.id)) continue;
+    const parsed = readMeterParams({ default_aggregation: { formula: "sum" }, ...m });
+    if (parsed.error) throw new Error(`Invalid stripe meter ${m.event_name}: ${parsed.error.message}`);
+    // Seeding the same config twice keeps the meter that already records the event name.
+    if (activeMeterFor(ss, parsed.meter!.event_name)) continue;
+    insertMeter(ss, parsed.meter!, m.id);
   }
 
   if (config.products) {
@@ -109,32 +293,48 @@ export function seedFromConfig(
         metadata: {},
       });
 
-      const matchingPrices = config.prices?.filter((pr) => pr.product_name === p.name) ?? [];
-      for (const pr of matchingPrices) {
-        ss.prices.insert({
-          stripe_id: pr.id ?? stripeId("price"),
-          product_id: product.stripe_id,
-          currency: pr.currency.toLowerCase(),
-          unit_amount: pr.unit_amount,
-          type: "one_time",
-          active: true,
-          metadata: {},
-        });
-      }
+      const matchingPrices =
+        config.prices?.filter((pr) => {
+          const ref = pr.product ?? pr.product_name;
+          return ref === p.name || ref === product.stripe_id;
+        }) ?? [];
+      for (const pr of matchingPrices) seedPrice(ss, product.stripe_id, pr);
     }
   }
 
-  if (config.webhooks && webhooks) {
-    webhooks.setHeaderFactory(stripeWebhookHeaders);
+  if (config.billing) {
+    const parsed = parseBillingSettings({ ...config.billing }, getBillingSettings(store));
+    if (!parsed.ok) throw new Error(`Invalid stripe billing settings: ${parsed.error.message}`);
+    setBillingSettings(store, parsed.settings);
+  }
+
+  if (config.webhook_chaos) {
+    const parsed = parseChaosConfig(config.webhook_chaos);
+    if (parsed.error) throw new Error(`Invalid stripe webhook_chaos: ${parsed.error.message}`);
+    setWebhookChaos(store, parsed.config);
+  }
+
+  if (config.webhooks) {
     for (const wh of config.webhooks) {
-      webhooks.register({
+      const duplicate = ss.webhookEndpoints
+        .findBy("url", wh.url)
+        .some((ep) => ep.secret === wh.secret && ep.enabled_events.join(",") === wh.events.join(","));
+      if (duplicate) continue;
+      ss.webhookEndpoints.insert({
+        stripe_id: wh.id ?? stripeId("we"),
         url: wh.url,
-        events: wh.events,
-        active: true,
+        enabled_events: [...wh.events],
+        status: "enabled",
+        metadata: {},
         secret: wh.secret,
-        owner: "stripe",
+        created: Math.floor(Date.now() / 1000),
       });
     }
+  }
+
+  if (webhooks) {
+    webhooks.setHeaderFactory(stripeWebhookHeaders);
+    syncWebhookEndpoints(store, webhooks);
   }
 }
 
@@ -143,15 +343,31 @@ export const stripePlugin: ServicePlugin = {
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     webhooks.setHeaderFactory(stripeWebhookHeaders);
 
+    app.use("*", requestIdMiddleware());
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    eventRoutes(ctx);
+    webhookEndpointRoutes(ctx);
+    controlRoutes(ctx);
     customerRoutes(ctx);
     paymentMethodRoutes(ctx);
     paymentIntentRoutes(ctx);
+    setupIntentRoutes(ctx);
     chargeRoutes(ctx);
     productRoutes(ctx);
     priceRoutes(ctx);
     checkoutSessionRoutes(ctx);
     customerSessionRoutes(ctx);
+    invoiceRoutes(ctx);
+    invoiceItemRoutes(ctx);
+    invoicePaymentRoutes(ctx);
+    subscriptionRoutes(ctx);
+    subscriptionItemRoutes(ctx);
+    testClockRoutes(ctx);
+    billingMeterRoutes(ctx);
+    meterEventRoutes(ctx);
+    billingPortalRoutes(ctx);
+    hostedInvoiceRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

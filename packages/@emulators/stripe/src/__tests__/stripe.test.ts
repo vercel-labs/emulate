@@ -132,6 +132,34 @@ describe("Stripe plugin", () => {
       expect(body.error.message).toContain("cus_nonexistent");
     });
 
+    it("names the missing path param on every retrieve, update and delete 404", async () => {
+      const cases: Array<[string, string, string]> = [
+        ["GET", "/v1/customers/cus_missing", "id"],
+        ["POST", "/v1/customers/cus_missing", "id"],
+        ["DELETE", "/v1/customers/cus_missing", "id"],
+        ["GET", "/v1/products/prod_missing", "id"],
+        ["GET", "/v1/prices/price_missing", "id"],
+        ["GET", "/v1/charges/ch_missing", "id"],
+        ["GET", "/v1/payment_intents/pi_missing", "intent"],
+        ["POST", "/v1/payment_intents/pi_missing/confirm", "intent"],
+        ["GET", "/v1/setup_intents/seti_missing", "intent"],
+      ];
+      for (const [method, path, param] of cases) {
+        const res = await app.request(`${base}${path}`, {
+          method,
+          headers: auth(),
+          ...(method === "POST" && { body: "{}" }),
+        });
+        expect(res.status, `${method} ${path}`).toBe(404);
+        const body = (await res.json()) as { error: Record<string, unknown> };
+        expect(body.error, `${method} ${path}`).toMatchObject({
+          type: "invalid_request_error",
+          code: "resource_missing",
+          param,
+        });
+      }
+    });
+
     it("lists with cursor pagination", async () => {
       // Create 3 customers
       const ids: string[] = [];

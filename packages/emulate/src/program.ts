@@ -102,6 +102,14 @@ Resend API coverage:
   Rejected batches create no emails or webhooks. Validated sends record resend.send_attempts in saved state.
   Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
+Stripe API coverage:
+  Payments, Checkout, subscriptions with trials, pausing and dunning, invoices, metered billing and the customer portal.
+  Test clocks (POST /v1/test_helpers/test_clocks/:id/advance) run renewals, retries and trial ends in simulated time.
+  Seed keys: api_version, webhooks, webhook_chaos, billing (retry schedule, after_retries), customers, products,
+  meters, prices. Webhook endpoints are also managed with /v1/webhook_endpoints; events are listed at /v1/events.
+  Emulator-only routes under /_stripe/: webhooks/chaos, webhooks/flush, webhooks/deliveries, events/:id/redeliver,
+  billing/settings, and simulate/ (3D Secure for payment and setup intents, saved card behaviour).
+
 Microsoft OAuth coverage:
   Refresh tokens are bound to the issuing client and require its client_id and client_secret, or client_secret_basic.
   Legacy refresh records without a stored client binding remain supported.

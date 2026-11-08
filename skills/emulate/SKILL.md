@@ -367,9 +367,11 @@ stripe:
     - name: Pro Plan
       description: Monthly pro subscription
   prices:
-    - product_name: Pro Plan
+    - product: Pro Plan
       currency: usd
       unit_amount: 2000
+      recurring:
+        interval: month
 
 mongoatlas:
   projects:

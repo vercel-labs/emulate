@@ -128,6 +128,21 @@ export class WebhookDispatcher {
     }
   }
 
+  /**
+   * Send `payload` to one subscription, whatever events it lists. Returns the recorded
+   * delivery, or undefined when the subscription does not exist or is inactive.
+   */
+  async deliverTo(
+    subscriptionId: number,
+    event: string,
+    action: string | undefined,
+    payload: unknown,
+  ): Promise<WebhookDelivery | undefined> {
+    const sub = this.getSubscription(subscriptionId);
+    if (!sub?.active) return undefined;
+    return this.deliver(sub, event, action, payload);
+  }
+
   async redeliver(
     deliveryId: number,
     options: { headers?: Record<string, string> } = {},

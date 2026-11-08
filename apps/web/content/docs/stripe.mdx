@@ -2,63 +2,256 @@
 title: "Stripe"
 ---
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation for payments and Billing: customers, payment methods with Stripe's test cards, payment intents, setup intents, charges, products, recurring, tiered and metered prices, subscriptions, invoices, test clocks, billing meters, Checkout Sessions and the customer portal. Hosted checkout, invoice and portal pages run in the emulator, and every state change is delivered as a signed Stripe Event.
+
+Responses use the wire shape of API version `2026-10-28.endive`, the version stripe-node 23 pins. The package README (`packages/@emulators/stripe/README.md`) is the complete reference for every param, state transition and event.
+
+## Using stripe-node
+
+stripe-node has no base URL environment variable, so pass `host`, `port` and `protocol`:
+
+```typescript
+import Stripe from 'stripe'
+
+const stripe = new Stripe('sk_test_emulated', {
+  host: 'localhost',
+  port: 4009, // 4000 when Stripe runs alone
+  protocol: 'http',
+})
+```
+
+Every `/v1` response carries a `Request-Id` header. Retrieve, create and list calls accept `expand` as `expand[]=customer`, as stripe-node's indexed `expand[0]=customer`, or as an array in a POST body, with dotted paths up to four levels.
 
 ## Customers
 
-- `POST /v1/customers` — create customer
-- `GET /v1/customers/:id` — retrieve customer
-- `POST /v1/customers/:id` — update customer
-- `DELETE /v1/customers/:id` — delete customer
-- `GET /v1/customers` — list customers
+- `POST /v1/customers`: create a customer. `payment_method` attaches a card in the same call, `invoice_settings[default_payment_method]` sets the default and `test_clock` puts the customer on a test clock
+- `GET /v1/customers/:id`, `POST /v1/customers/:id`, `DELETE /v1/customers/:id`: retrieve, update, delete
+- `GET /v1/customers`: list, filtered by `email` and `test_clock`
 
 ## Payment Methods
 
-- `GET /v1/payment_methods` — list payment methods
+- `POST /v1/payment_methods`: create a card from a test token (`tok_visa`) or a test card number
+- `POST /v1/payment_methods/:id/attach` and `POST /v1/payment_methods/:id/detach`: attach to or detach from a customer. A test card id such as `pm_card_visa` clones into a new `pm_`
+- `GET /v1/payment_methods/:id`, `POST /v1/payment_methods/:id`, `GET /v1/payment_methods`, `GET /v1/customers/:id/payment_methods`: retrieve, update and list
+
+### Test cards
+
+| Card | Behaviour |
+|------|-----------|
+| `pm_card_visa`, `pm_card_visa_debit`, `pm_card_mastercard`, `pm_card_amex` | Succeed |
+| `pm_card_chargeDeclined` and the other `chargeDeclined*` cards | Declined by the issuer. Attaching one returns the decline |
+| `pm_card_chargeCustomerFail` (4000000000000341) | Attaches, then every charge is declined |
+| `pm_card_authenticationRequired` (3184) | Needs 3D Secure on every charge |
+| `pm_card_authenticationRequiredOnSetup` (3155) | Needs 3D Secure on setup and on-session charges |
+| `pm_card_authenticationRequiredSetupForOffSession` (0446) | Needs 3D Secure on setup and on-session charges, never off-session |
+| `pm_card_threeDSecure2Required` (3220) | Needs 3D Secure 2 on every charge |
+| `pm_card_threeDSecureOptional` (3055) | Supports 3D Secure but succeeds without it |
+| `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` (3178) | Needs 3D Secure, then is declined |
+
+Other card numbers are rejected. `POST /_stripe/simulate/payment_methods/:id` makes later charges on a saved card decline or need authentication.
 
 ## Customer Sessions
 
-- `POST /v1/customer_sessions` — create customer session
+- `POST /v1/customer_sessions`: create a customer session
 
 ## Payment Intents
 
-- `POST /v1/payment_intents` — create payment intent
-- `GET /v1/payment_intents/:id` — retrieve payment intent
-- `POST /v1/payment_intents/:id` — update payment intent
-- `POST /v1/payment_intents/:id/confirm` — confirm payment intent
-- `POST /v1/payment_intents/:id/cancel` — cancel payment intent
-- `GET /v1/payment_intents` — list payment intents
+- `POST /v1/payment_intents`: create, optionally with `confirm`, `off_session` and `setup_future_usage`
+- `POST /v1/payment_intents/:id/confirm`: confirm against the test card table. A 3D Secure card returns `requires_action` on-session and 402 `authentication_required` off-session
+- `POST /v1/payment_intents/:id/cancel`: cancel
+- `GET /v1/payment_intents/:id`, `POST /v1/payment_intents/:id`, `GET /v1/payment_intents`: retrieve, update and list
+
+`POST /_stripe/simulate/payment_intents/:id/authenticate` completes or fails 3D Secure, as the customer would.
+
+## Setup Intents
+
+- `POST /v1/setup_intents`, `POST /v1/setup_intents/:id/confirm`, `POST /v1/setup_intents/:id/cancel`: save a card for later payments without charging it
+- `GET /v1/setup_intents/:id`, `POST /v1/setup_intents/:id`, `GET /v1/setup_intents`: retrieve, update and list
 
 ## Charges
 
-- `GET /v1/charges/:id` — retrieve charge
-- `GET /v1/charges` — list charges
+- `GET /v1/charges/:id`: retrieve a charge
+- `GET /v1/charges`: list charges
 
 ## Products
 
-- `POST /v1/products` — create product
-- `GET /v1/products/:id` — retrieve product
-- `GET /v1/products` — list products
+- `POST /v1/products`: create a product
+- `GET /v1/products/:id`: retrieve a product
+- `GET /v1/products`: list products
 
 ## Prices
 
-- `POST /v1/prices` — create price
-- `GET /v1/prices/:id` — retrieve price
-- `GET /v1/prices` — list prices
+- `POST /v1/prices`: create a one-time or recurring price. Accepts `recurring` (`interval`, `interval_count`, `usage_type`, `meter`), `billing_scheme`, `tiers` with `tiers_mode` `graduated` or `volume`, `transform_quantity` and `lookup_key`
+- `GET /v1/prices/:id`: retrieve a price
+- `GET /v1/prices`: list prices, filtered by `active`, `currency`, `product`, `type`, `lookup_keys[]` and `recurring`
+
+A metered price (`recurring[usage_type]=metered`) needs an active billing meter and bills its usage in arrears.
+
+## Subscriptions
+
+- `POST /v1/subscriptions`: subscribe a customer to recurring prices, with an optional trial (`trial_period_days`, `trial_end`) and `trial_settings[end_behavior][missing_payment_method]`. The first invoice is finalized and charged in the request
+- `POST /v1/subscriptions/:id`: change items, `cancel_at_period_end`, `cancel_at`, `default_payment_method` or the trial end
+- `DELETE /v1/subscriptions/:id`: cancel at once; `invoice_now=true` bills the metered usage of the current period on a final invoice
+- `POST /v1/subscriptions/:id/pause` and `POST /v1/subscriptions/:id/resume`: pause and resume
+- `GET /v1/subscriptions/:id`, `GET /v1/subscriptions`: retrieve and list
+- `POST /v1/subscription_items`, `GET /v1/subscription_items/:id`, `POST /v1/subscription_items/:id`, `DELETE /v1/subscription_items/:id`, `GET /v1/subscription_items`: manage items
+
+Billing periods are `current_period_start` and `current_period_end` on each item. Statuses move through `trialing`, `active`, `incomplete`, `incomplete_expired`, `past_due`, `unpaid`, `paused` and `canceled` as on Stripe.
+
+## Invoices
+
+- `POST /v1/invoices`, `POST /v1/invoices/:id`, `DELETE /v1/invoices/:id`: create, update and delete drafts
+- `POST /v1/invoices/:id/finalize`, `POST /v1/invoices/:id/pay`, `POST /v1/invoices/:id/void`, `POST /v1/invoices/:id/mark_uncollectible`: move an invoice through its lifecycle
+- `GET /v1/invoices/:id`, `GET /v1/invoices/:id/lines`, `GET /v1/invoices`: retrieve and list
+- `POST /v1/invoiceitems` and the other invoice item routes, `GET /v1/invoice_payments`: invoice items and payments
+
+Each finalized invoice has a `hosted_invoice_url` that opens an emulator page where the customer can pay it with a test card.
+
+## Test Clocks
+
+- `POST /v1/test_helpers/test_clocks`: create a clock frozen at `frozen_time`
+- `POST /v1/test_helpers/test_clocks/:id/advance`: move it forward
+- `GET /v1/test_helpers/test_clocks/:id`, `GET /v1/test_helpers/test_clocks`, `DELETE /v1/test_helpers/test_clocks/:id`: retrieve, list and delete
+
+Customers created with `test_clock` take every time from the clock. An advance runs Billing for them in time order and sends each action's events with the simulated time as `created`:
+
+| When | What happens |
+|------|--------------|
+| 3 days before `trial_end` | `customer.subscription.trial_will_end` |
+| `trial_end` | The subscription turns `active` and a `subscription_cycle` invoice is drafted. Without a payment method, `missing_payment_method` decides: `create_invoice`, `cancel` or `pause` |
+| Each period end | The item periods roll forward and the new period is invoiced, with metered usage of the ended period |
+| An hour after a draft | The invoice is finalized and charged. A failure makes the subscription `past_due` and schedules a retry |
+| Each retry | Retries follow `[3, 5, 7]` days by default. After the last one the subscription is canceled, or turns `unpaid`, stays `past_due` or pauses, as configured |
+| `cancel_at` | The subscription is canceled, with `customer.subscription.deleted` |
+
+One advance can move at most two intervals of the shortest subscription on the clock. `test_helpers.test_clock.ready` is always the last event of an advance.
+
+## Billing Meters
+
+- `POST /v1/billing/meters`, `POST /v1/billing/meters/:id`, `POST /v1/billing/meters/:id/deactivate`, `POST /v1/billing/meters/:id/reactivate`, `GET /v1/billing/meters`: manage meters
+- `POST /v1/billing/meter_events`: report usage. An `identifier` seen in the last 24 hours answers 400 `duplicate_meter_event`
+- `POST /v1/billing/meter_event_adjustments`: cancel an event
+- `GET /v1/billing/meters/:id/event_summaries`: aggregated usage for one customer
+
+Graduated tiers bill one invoice line per tier reached, so a free first tier shows as a line of 0.
 
 ## Checkout Sessions
 
-- `POST /v1/checkout/sessions` — create checkout session
-- `GET /v1/checkout/sessions/:id` — retrieve session
-- `POST /v1/checkout/sessions/:id/expire` — expire session
-- `GET /v1/checkout/sessions` — list sessions (filter by `customer`, `status`, `payment_status`)
-- `GET /checkout/:id` — hosted checkout page (HTML)
-- `POST /checkout/:id/complete` — complete payment flow
+- `POST /v1/checkout/sessions`: create a session in `payment`, `subscription` or `setup` mode. In `subscription` mode it accepts `subscription_data` (trial, `trial_settings`, `metadata`) and `payment_method_collection` (`always` or `if_required`)
+- `GET /v1/checkout/sessions/:id`, `GET /v1/checkout/sessions/:id/line_items`, `GET /v1/checkout/sessions`: retrieve and list
+- `POST /v1/checkout/sessions/:id/expire`: expire an open session
+- `GET /checkout/:id`: the hosted checkout page, with a select of test cards
+- `POST /checkout/:id/complete`: what the page posts, with `payment_method` (a test card id, or `none` for a trial without a card)
+
+Completing a subscription-mode session creates the subscription with the card as its `default_payment_method`, and `checkout.session.completed` is the last event. Pass a `customer` that is on a test clock to run the trial and renewals on that clock.
+
+## Customer Portal
+
+- `POST /v1/billing_portal/sessions`: create a `bps_` session whose `url` is the emulator's portal page. Accepts `return_url` and `flow_data`
+- `GET /v1/billing_portal/configurations`, `GET /v1/billing_portal/configurations/:id`: the default configuration
+
+On the portal page the customer can cancel at period end, renew, save a new default card and pay open invoices.
 
 ## Webhooks
 
-Events are delivered to configured webhook URLs:
+Every state change is stored as a Stripe Event and delivered to each endpoint subscribed to its type or to `*`:
 
-- Webhooks configured with a secret include `Stripe-Signature: t=<timestamp>,v1=<signature>`, signed over `<timestamp>.<raw body>`
-- `checkout.session.completed` — when a checkout session is completed
-- `checkout.session.expired` — when a checkout session expires
+- The body is the full Event: `id` (`evt_...`), `object`, `api_version`, `created`, `livemode: false`, `pending_webhooks`, `request` and `data.object`, with `data.previous_attributes` on updates.
+- Endpoints configured with a secret include `Stripe-Signature: t=<timestamp>,v1=<signature>`, signed over `<timestamp>.<raw body>`, so `stripe.webhooks.constructEvent` verifies them.
+- `request.id` is the `Request-Id` of the call that caused the event and `request.idempotency_key` echoes its `Idempotency-Key`. Both are `null` for events raised by a hosted page or a test clock.
+- Endpoints come from the seed config's `webhooks` or from `POST /v1/webhook_endpoints`. `GET /v1/events` and `GET /v1/events/:id` read stored events.
+
+Delivery is inline, sequential and in order, before the API response returns, and failed deliveries are not retried.
+
+## Delivery Chaos
+
+To test handlers against real-world delivery, turn on chaos with `POST /_stripe/webhooks/chaos` or the seed key `webhook_chaos`:
+
+```bash
+curl -X POST http://localhost:4009/_stripe/webhooks/chaos \
+  -H "Content-Type: application/json" \
+  -d '{"seed": 42, "drop": {"rate": 0.2}, "duplicate": {"types": ["invoice.paid"]}, "delay": {"types": ["customer.subscription.created"]}, "reorder": "shuffle"}'
+```
+
+Dropped events are stored but not sent, delayed events wait for `POST /_stripe/webhooks/flush`, duplicates reuse the same `evt_` id, and `reorder` shuffles or reverses each batch: the events of one API call, or every billing event of one test clock advance. The same `seed` gives the same decisions in every fresh emulator.
+
+## Emulator Controls
+
+These routes exist only in the emulator:
+
+- `GET`, `POST` and `DELETE /_stripe/webhooks/chaos`: read, replace or clear the chaos settings
+- `POST /_stripe/webhooks/flush`: deliver held events, with `order` (`none`, `reverse` or `shuffle`), `event_ids` and a `seed` for the shuffle
+- `GET /_stripe/webhooks/deliveries`: the delivery log
+- `POST /_stripe/events/:id/redeliver`: send a stored event again to the endpoints it was sent to that have not answered 2xx, or with `endpoint` to that one endpoint
+- `POST /_stripe/simulate/payment_intents/:id/authenticate`, `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure
+- `POST /_stripe/simulate/payment_methods/:id`: change how later charges on a saved card behave
+- `GET` and `POST /_stripe/billing/settings`: the `invoice.upcoming` lead time, the retry schedule and the after-retries policy
+
+## Seed Configuration
+
+```yaml
+stripe:
+  api_version: 2026-10-28.endive
+  webhooks:
+    - url: http://localhost:3000/api/webhooks/stripe
+      events: ['*']
+      secret: whsec_test
+  billing:
+    retry_schedule_days: [3, 5, 7]
+    after_retries:
+      subscription: cancel
+      invoice: open
+  test_clocks:
+    - id: clock_renewals
+      frozen_time: 1768478400
+  customers:
+    - email: test@example.com
+      name: Test Customer
+    - id: cus_with_card
+      test_clock: clock_renewals
+      payment_method: pm_card_visa
+      invoice_settings:
+        default_payment_method: pm_card_visa
+  products:
+    - name: Pro Plan
+  meters:
+    - display_name: API calls
+      event_name: api_calls
+  prices:
+    - product: Pro Plan
+      currency: usd
+      unit_amount: 2000
+      lookup_key: pro_monthly
+      recurring:
+        interval: month
+    - product: Pro Plan
+      currency: usd
+      recurring:
+        interval: month
+        usage_type: metered
+        meter: api_calls
+      tiers_mode: graduated
+      tiers:
+        - up_to: 1000
+          unit_amount: 0
+        - up_to: inf
+          unit_amount: 2
+```
+
+A price's `product` names a seeded product by name or id, and a metered price's `recurring.meter` names a meter by id or `event_name`. Seeded prices are validated like `POST /v1/prices`. A customer's `payment_method` attaches a test card as a new `pm_`, `invoice_settings.default_payment_method` naming that same card makes it the default, and `test_clock` puts the customer on a seeded clock by id or name.
+
+## Differences from Real Stripe
+
+The emulator matches Stripe's wire format and deliberately does less in places. The ones that most often matter:
+
+- Only customers on a test clock move through billing time. Without a clock, trials never end, periods never renew and failed payments are never retried.
+- A test clock advance runs synchronously: the response says `advancing`, but the clock is already `ready` when it returns.
+- Retries follow a fixed custom schedule, not Smart Retries.
+- There are no prorations, subscription schedules, quotes, Trial Offers, coupons, discounts, taxes, credit notes or Connect.
+- A plan change to another billing interval restarts the cycle and charges the full new period at once, without a credit for the unused part of the old period.
+- Meter event problems answer 400 at once instead of arriving later as error report events.
+- Webhooks are never retried automatically, and every event uses one `api_version`.
+- Checkout, invoice and portal pages are emulator HTML with a select of test cards, and they approve 3D Secure on the page.
+- `livemode` is always `false`.
+
+The package README lists every difference.

@@ -2,108 +2,140 @@ import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
 import {
   stripeId,
-  toUnixTimestamp,
   parseStripeBody,
+  parseStripeQuery,
   stripeError,
   stripeList,
-  applyExpand,
-  parseExpand,
+  expandedJson,
+  readBool,
+  readStringList,
 } from "../helpers.js";
-import type { StripePrice, StripeProduct } from "../entities.js";
+import { formatPrice, formatProduct, stripeExpandResolver } from "../formatters.js";
+import { eventBatch, previousAttributes } from "../events.js";
+import { readPriceParams } from "../pricing.js";
+import { insertProduct, readProductParams } from "./products.js";
 
-function formatPrice(p: StripePrice) {
-  return {
-    id: p.stripe_id,
-    object: "price",
-    product: p.product_id,
-    currency: p.currency,
-    unit_amount: p.unit_amount,
-    type: p.type,
-    active: p.active,
-    metadata: p.metadata,
-    created: toUnixTimestamp(p.created_at),
-    livemode: false,
-  };
-}
+/** Stripe accepts at most ten `lookup_keys` in one list request. */
+const MAX_LOOKUP_KEYS = 10;
 
-function formatProduct(p: StripeProduct) {
-  return {
-    id: p.stripe_id,
-    object: "product",
-    name: p.name,
-    active: p.active,
-    created: toUnixTimestamp(p.created_at),
-    livemode: false,
-  };
-}
-
-export function priceRoutes({ app, store, webhooks }: RouteContext): void {
+export function priceRoutes(ctx: RouteContext): void {
+  const { app, store, baseUrl } = ctx;
   const ss = getStripeStore(store);
-
-  const expandResolvers = {
-    product: (id: string) => {
-      const prod = ss.products.findOneBy("stripe_id", id);
-      return prod ? formatProduct(prod) : undefined;
-    },
-  };
+  const expand = stripeExpandResolver(ss, baseUrl);
 
   app.post("/v1/prices", async (c) => {
     const body = await parseStripeBody(c);
-    if (!body.currency || !body.product) {
-      return stripeError(
-        c,
-        400,
-        "invalid_request_error",
-        "Missing required param: currency and product are required.",
-        undefined,
-        "currency",
-      );
+    const badParam = (message: string, param: string, code?: string) =>
+      stripeError(c, 400, "invalid_request_error", message, code, param);
+
+    const productId = typeof body.product === "string" && body.product !== "" ? body.product : undefined;
+    const productData = body.product_data;
+    if (!productId && productData === undefined) {
+      return badParam("Missing required param: product.", "product", "parameter_missing");
     }
-    if (!ss.products.findOneBy("stripe_id", body.product as string)) {
-      return stripeError(
-        c,
-        400,
-        "invalid_request_error",
-        `No such product: '${body.product}'`,
-        "resource_missing",
-        "product",
-      );
+    if (productId && productData !== undefined) {
+      return badParam("You may only specify one of these parameters: product, product_data.", "product");
     }
-    const price = ss.prices.insert({
-      stripe_id: stripeId("price"),
-      product_id: body.product as string,
-      currency: (body.currency as string).toLowerCase(),
-      unit_amount: (body.unit_amount as number) ?? null,
-      type: body.recurring ? "recurring" : "one_time",
-      active: (body.active as boolean) ?? true,
-      metadata: (body.metadata as Record<string, string>) ?? {},
+    if (productId && !ss.products.findOneBy("stripe_id", productId)) {
+      return badParam(`No such product: '${productId}'`, "product", "resource_missing");
+    }
+    const newProduct = productData !== undefined ? readProductParams(productData, "product_data") : undefined;
+    if (newProduct?.error) return badParam(newProduct.error.message, newProduct.error.param, newProduct.error.code);
+
+    const parsed = readPriceParams(body, {
+      meterStatus: (id) => ss.billingMeters.findOneBy("stripe_id", id)?.status,
     });
+    if (parsed.error) return badParam(parsed.error.message, parsed.error.param, parsed.error.code);
+    const definition = parsed.price!;
 
-    await webhooks.dispatch(
-      "price.created",
-      undefined,
-      { type: "price.created", data: { object: formatPrice(price) } },
-      "stripe",
-    );
+    const holder = definition.lookup_key
+      ? ss.prices.all().find((p) => p.lookup_key === definition.lookup_key)
+      : undefined;
+    const transfer = readBool(body.transfer_lookup_key) === true;
+    if (holder && !transfer) {
+      return badParam(
+        `A price (\`${holder.stripe_id}\`) already uses that lookup key.`,
+        "lookup_key",
+        "lookup_key_already_used",
+      );
+    }
 
-    return c.json(formatPrice(price), 200);
+    const ev = eventBatch(ctx, c);
+    if (holder) {
+      const before = formatPrice(holder);
+      const updated = ss.prices.update(holder.id, { lookup_key: undefined })!;
+      const after = formatPrice(updated);
+      ev.emit("price.updated", after, previousAttributes(before, after));
+    }
+
+    let product = productId;
+    if (newProduct?.product) {
+      const inserted = insertProduct(ss, newProduct.product);
+      ev.emit("product.created", formatProduct(inserted));
+      product = inserted.stripe_id;
+    }
+
+    const price = ss.prices.insert({ stripe_id: stripeId("price"), product_id: product!, ...definition });
+    ev.emit("price.created", formatPrice(price));
+    await ev.commit();
+
+    return expandedJson(c, formatPrice(price), expand, body);
   });
 
   app.get("/v1/prices/:id", (c) => {
     const price = ss.prices.findOneBy("stripe_id", c.req.param("id"));
     if (!price)
-      return stripeError(c, 404, "invalid_request_error", `No such price: '${c.req.param("id")}'`, "resource_missing");
-    const expand = parseExpand(c);
-    const result = applyExpand(formatPrice(price), expand, expandResolvers);
-    return c.json(result);
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such price: '${c.req.param("id")}'`,
+        "resource_missing",
+        "id",
+      );
+    return expandedJson(c, formatPrice(price), expand);
   });
 
   app.get("/v1/prices", (c) => {
+    const query = parseStripeQuery(c);
     let items = ss.prices.all();
-    const productId = c.req.query("product");
-    const active = c.req.query("active");
+
+    const productId = typeof query.product === "string" ? query.product : undefined;
     if (productId) items = items.filter((p) => p.product_id === productId);
-    if (active !== undefined) items = items.filter((p) => p.active === (active === "true"));
-    return stripeList(c, items, "/v1/prices", formatPrice);
+
+    const active = readBool(query.active);
+    if (active !== undefined) items = items.filter((p) => p.active === active);
+
+    const currency = typeof query.currency === "string" ? query.currency.toLowerCase() : undefined;
+    if (currency) items = items.filter((p) => p.currency === currency);
+
+    const type = query.type;
+    if (type === "one_time" || type === "recurring") items = items.filter((p) => p.type === type);
+
+    const lookupKeys = readStringList(query.lookup_keys);
+    if (lookupKeys.length > MAX_LOOKUP_KEYS) {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `You may only specify up to ${MAX_LOOKUP_KEYS} lookup_keys.`,
+        undefined,
+        "lookup_keys",
+      );
+    }
+    if (lookupKeys.length > 0) items = items.filter((p) => p.lookup_key && lookupKeys.includes(p.lookup_key));
+
+    const recurring = query.recurring;
+    if (recurring && typeof recurring === "object" && !Array.isArray(recurring)) {
+      const filter = recurring as Record<string, unknown>;
+      for (const key of ["interval", "usage_type", "meter"] as const) {
+        const wanted = filter[key];
+        if (typeof wanted === "string" && wanted !== "") {
+          items = items.filter((p) => p.recurring?.[key] === wanted);
+        }
+      }
+    }
+
+    return stripeList(c, items, "/v1/prices", formatPrice, { expand });
   });
 }

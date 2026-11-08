@@ -432,9 +432,9 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     },
   },
   stripe: {
-    label: "Stripe payments emulator",
+    label: "Stripe payments and Billing emulator",
     endpoints:
-      "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
+      "customers, payment methods, customer sessions, payment intents, setup intents, charges, products, prices, checkout sessions, subscriptions, subscription items, invoices, invoice items, invoice payments, test clocks, billing meters, meter events, billing portal, events, webhook endpoints",
     async load() {
       const mod = await import("@emulators/stripe");
       return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig };
@@ -446,7 +446,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       stripe: {
         customers: [{ email: "test@example.com", name: "Test Customer" }],
         products: [{ name: "Pro Plan", description: "Monthly pro subscription" }],
-        prices: [{ product_name: "Pro Plan", currency: "usd", unit_amount: 2000 }],
+        prices: [{ product: "Pro Plan", currency: "usd", unit_amount: 2000, recurring: { interval: "month" } }],
       },
     },
   },

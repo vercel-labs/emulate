@@ -290,15 +290,26 @@
       "ogImage": "/og/stripe",
       "ogTitle": "Stripe | emulate",
       "headings": [
+        "Using stripe-node",
         "Customers",
         "Payment Methods",
         "Customer Sessions",
         "Payment Intents",
+        "Setup Intents",
         "Charges",
         "Products",
         "Prices",
+        "Subscriptions",
+        "Invoices",
+        "Test Clocks",
+        "Billing Meters",
         "Checkout Sessions",
-        "Webhooks"
+        "Customer Portal",
+        "Webhooks",
+        "Delivery Chaos",
+        "Emulator Controls",
+        "Seed Configuration",
+        "Differences from Real Stripe"
       ]
     },
     "/docs/authentication": {
