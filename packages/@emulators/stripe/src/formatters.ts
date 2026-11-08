@@ -17,6 +17,8 @@ import type {
   StripePrice,
   StripeProduct,
   StripeSetupIntent,
+  StripeSubscription,
+  StripeSubscriptionItem,
   StripeWebhookEndpoint,
 } from "./entities.js";
 
@@ -730,6 +732,150 @@ export function formatInvoice(ss: StripeStore, inv: StripeInvoice, baseUrl: stri
 }
 
 /**
+ * The legacy Plan object Stripe still embeds in every subscription item, derived from its
+ * recurring price. `amount` is null for tiered prices, like the price's `unit_amount`.
+ */
+export function formatPlan(p: StripePrice) {
+  const price = formatPrice(p);
+  return {
+    id: p.stripe_id,
+    object: "plan" as const,
+    active: p.active,
+    amount: price.unit_amount,
+    amount_decimal: price.unit_amount_decimal,
+    billing_scheme: price.billing_scheme,
+    created: price.created,
+    currency: p.currency,
+    discounts: null,
+    interval: p.recurring?.interval ?? null,
+    interval_count: p.recurring?.interval_count ?? null,
+    livemode: false,
+    metadata: p.metadata,
+    meter: p.recurring?.meter ?? null,
+    nickname: p.nickname ?? null,
+    product: p.product_id,
+    tiers_mode: price.tiers_mode,
+    transform_usage: p.transform_quantity ? { ...p.transform_quantity } : null,
+    trial_period_days: null,
+    usage_type: p.recurring?.usage_type ?? "licensed",
+  };
+}
+
+/** The items of a subscription in the order they were added. */
+export function subscriptionItems(ss: StripeStore, subscriptionId: string): StripeSubscriptionItem[] {
+  return ss.subscriptionItems.findBy("subscription_id", subscriptionId).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The Subscription Item object. Periods live here rather than on the subscription. Trial
+ * Offers are not modelled, so `current_trial` is always null; legacy trials show on the
+ * subscription's `trial_start` and `trial_end`.
+ */
+export function formatSubscriptionItem(ss: StripeStore, si: StripeSubscriptionItem) {
+  const price = ss.prices.findOneBy("stripe_id", si.price_id);
+  return {
+    id: si.stripe_id,
+    object: "subscription_item" as const,
+    billing_thresholds: null,
+    created: si.created,
+    current_period_end: si.current_period_end,
+    current_period_start: si.current_period_start,
+    current_trial: null,
+    discounts: [] as string[],
+    metadata: si.metadata,
+    plan: price ? formatPlan(price) : null,
+    price: price ? formatPrice(price) : null,
+    quantity: si.quantity,
+    subscription: si.subscription_id,
+    tax_rates: [] as unknown[],
+  };
+}
+
+/** How many items a subscription may have, all of which its `items` list embeds. */
+export const MAX_SUBSCRIPTION_ITEMS = 20;
+
+/**
+ * The Subscription object in the key order of the API reference. There is no top-level
+ * `current_period_*`, `plan` or `quantity`: periods live on the items. Taxes, discounts,
+ * schedules, Connect and pause_collection are not modelled and keep their empty defaults.
+ */
+export function formatSubscription(ss: StripeStore, sub: StripeSubscription) {
+  const items = subscriptionItems(ss, sub.stripe_id);
+  return {
+    id: sub.stripe_id,
+    object: "subscription" as const,
+    application: null,
+    application_fee_percent: null,
+    automatic_tax: { disabled_reason: null, enabled: false, liability: null },
+    billing_cycle_anchor: sub.billing_cycle_anchor,
+    billing_cycle_anchor_config: null,
+    billing_mode: {
+      flexible: { proration_discounts: "included" as const },
+      type: "flexible" as const,
+      updated_at: sub.created,
+    },
+    billing_thresholds: null,
+    cancel_at: sub.cancel_at ?? null,
+    cancel_at_period_end: sub.cancel_at_period_end,
+    canceled_at: sub.canceled_at ?? null,
+    cancellation_details: {
+      comment: sub.cancellation_details.comment ?? null,
+      feedback: sub.cancellation_details.feedback ?? null,
+      reason: sub.cancellation_details.reason ?? null,
+    },
+    collection_method: sub.collection_method,
+    created: sub.created,
+    currency: sub.currency,
+    customer: sub.customer_id,
+    customer_account: null,
+    days_until_due: sub.days_until_due ?? null,
+    default_payment_method: sub.default_payment_method ?? null,
+    default_source: null,
+    default_tax_rates: [] as unknown[],
+    description: sub.description ?? null,
+    discounts: null,
+    ended_at: sub.ended_at ?? null,
+    invoice_settings: { account_tax_ids: null, issuer: { type: "self" as const } },
+    items: {
+      object: "list" as const,
+      data: items.slice(0, MAX_SUBSCRIPTION_ITEMS).map((si) => formatSubscriptionItem(ss, si)),
+      has_more: items.length > MAX_SUBSCRIPTION_ITEMS,
+      total_count: items.length,
+      url: `/v1/subscription_items?subscription=${sub.stripe_id}`,
+    },
+    latest_invoice: sub.latest_invoice ?? null,
+    livemode: false,
+    metadata: sub.metadata,
+    next_pending_invoice_item_invoice: null,
+    on_behalf_of: null,
+    pause_collection: null,
+    payment_settings: {
+      payment_method_options: null,
+      payment_method_types: null,
+      save_default_payment_method: sub.save_default_payment_method ?? "off",
+    },
+    pending_invoice_item_interval: null,
+    pending_setup_intent: null,
+    pending_update: null,
+    presentment_details: null,
+    schedule: null,
+    start_date: sub.start_date,
+    status: sub.status,
+    status_details: null,
+    test_clock: sub.test_clock ?? null,
+    transfer_data: null,
+    trial_end: sub.trial_end ?? null,
+    trial_settings: {
+      end_behavior: {
+        missing_payment_method: sub.trial_missing_payment_method ?? "create_invoice",
+        billing_cycle_anchor: "now" as const,
+      },
+    },
+    trial_start: sub.trial_start ?? null,
+  };
+}
+
+/**
  * One resolver for every expandable reference. A field is resolved by its name first
  * (so seeded ids without a standard prefix still expand) and then by the id's prefix.
  * Includable fields, which are absent unless expanded, are filled in from their parent.
@@ -780,6 +926,14 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
       const found = ss.invoicePayments.findOneBy("stripe_id", id);
       return found ? formatInvoicePayment(found) : undefined;
     },
+    subscription: (id) => {
+      const found = ss.subscriptions.findOneBy("stripe_id", id);
+      return found ? formatSubscription(ss, found) : undefined;
+    },
+    subscription_item: (id) => {
+      const found = ss.subscriptionItems.findOneBy("stripe_id", id);
+      return found ? formatSubscriptionItem(ss, found) : undefined;
+    },
   };
 
   const fieldTypes: Record<string, string> = {
@@ -795,6 +949,8 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     invoice: "invoice",
     latest_invoice: "invoice",
     invoice_item: "invoiceitem",
+    subscription: "subscription",
+    subscription_item: "subscription_item",
   };
 
   const prefixTypes: Array<[string, string]> = [
@@ -810,6 +966,8 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     ["in_", "invoice"],
     ["ii_", "invoiceitem"],
     ["inpay_", "invoice_payment"],
+    ["sub_", "subscription"],
+    ["si_", "subscription_item"],
   ];
 
   const storedInvoice = (parent: Record<string, unknown>) => ss.invoices.findOneBy("stripe_id", String(parent.id));

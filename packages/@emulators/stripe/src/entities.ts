@@ -371,6 +371,84 @@ export interface StripeInvoicePayment extends Entity {
   canceled_at?: number;
 }
 
+export type SubscriptionStatus =
+  | "incomplete"
+  | "incomplete_expired"
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "unpaid"
+  | "paused";
+
+export type SubscriptionCancellationReason =
+  | "cancellation_requested"
+  | "payment_disputed"
+  | "payment_failed"
+  | "canceled_by_retention_policy";
+
+export type SubscriptionCancellationFeedback =
+  | "customer_service"
+  | "low_quality"
+  | "missing_features"
+  | "other"
+  | "switched_service"
+  | "too_complex"
+  | "too_expensive"
+  | "unused";
+
+export interface StripeSubscriptionCancellationDetails {
+  comment?: string;
+  feedback?: SubscriptionCancellationFeedback;
+  reason?: SubscriptionCancellationReason;
+}
+
+/**
+ * A subscription. Billing periods live on its items, as in API versions from basil on. Every
+ * item shares one currency and one interval.
+ */
+export interface StripeSubscription extends Entity {
+  stripe_id: string;
+  customer_id: string;
+  status: SubscriptionStatus;
+  currency: string;
+  collection_method: "charge_automatically" | "send_invoice";
+  days_until_due?: number;
+  default_payment_method?: string;
+  description?: string;
+  metadata: Record<string, string>;
+  /** Unix seconds on the customer's clock. */
+  created: number;
+  start_date: number;
+  billing_cycle_anchor: number;
+  cancel_at?: number;
+  cancel_at_period_end: boolean;
+  canceled_at?: number;
+  ended_at?: number;
+  cancellation_details: StripeSubscriptionCancellationDetails;
+  trial_start?: number;
+  trial_end?: number;
+  /** What happens when the trial ends without a payment method. Defaults to `create_invoice`. */
+  trial_missing_payment_method?: "cancel" | "create_invoice" | "pause";
+  latest_invoice?: string;
+  /** Whether invoice payments are attempted with the customer present. Defaults to false. */
+  off_session?: boolean;
+  save_default_payment_method?: "off" | "on_subscription";
+  test_clock?: string;
+}
+
+export interface StripeSubscriptionItem extends Entity {
+  stripe_id: string;
+  subscription_id: string;
+  price_id: string;
+  quantity: number;
+  metadata: Record<string, string>;
+  /** Unix seconds on the customer's clock. */
+  created: number;
+  current_period_start: number;
+  current_period_end: number;
+}
+
 /** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */
 export interface StripeWebhookAttempt extends Entity {
   event_id: string;

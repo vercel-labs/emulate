@@ -1,4 +1,4 @@
-import { Store, type Collection } from "@emulators/core";
+import { Store, type Collection, type Entity } from "@emulators/core";
 import type {
   StripeCustomer,
   StripeProduct,
@@ -15,6 +15,8 @@ import type {
   StripeInvoiceItem,
   StripeInvoiceLineItem,
   StripeInvoicePayment,
+  StripeSubscription,
+  StripeSubscriptionItem,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -33,6 +35,8 @@ export interface StripeStore {
   invoiceItems: Collection<StripeInvoiceItem>;
   invoiceLineItems: Collection<StripeInvoiceLineItem>;
   invoicePayments: Collection<StripeInvoicePayment>;
+  subscriptions: Collection<StripeSubscription>;
+  subscriptionItems: Collection<StripeSubscriptionItem>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -64,5 +68,25 @@ export function getStripeStore(store: Store): StripeStore {
       "invoice_id",
       "payment_intent_id",
     ]),
+    subscriptions: store.collection<StripeSubscription>("stripe.subscriptions", ["stripe_id", "customer_id"]),
+    subscriptionItems: store.collection<StripeSubscriptionItem>("stripe.subscription_items", [
+      "stripe_id",
+      "subscription_id",
+    ]),
+  };
+}
+
+/**
+ * Remember the state of every Stripe collection and return a function that puts it back.
+ * Lets a request that must persist nothing on failure, such as `error_if_incomplete`, undo
+ * the objects it created along the way.
+ */
+export function stripeStoreCheckpoint(ss: StripeStore): () => void {
+  const snapshots = Object.values(ss).map((collection: Collection<Entity>) => ({
+    collection,
+    snapshot: collection.snapshot(),
+  }));
+  return () => {
+    for (const { collection, snapshot } of snapshots) collection.restore(snapshot);
   };
 }

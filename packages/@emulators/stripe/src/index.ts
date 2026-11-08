@@ -24,6 +24,8 @@ import { customerSessionRoutes } from "./routes/customer-sessions.js";
 import { invoiceRoutes } from "./routes/invoices.js";
 import { invoiceItemRoutes } from "./routes/invoice-items.js";
 import { invoicePaymentRoutes } from "./routes/invoice-payments.js";
+import { subscriptionRoutes } from "./routes/subscriptions.js";
+import { subscriptionItemRoutes } from "./routes/subscription-items.js";
 import { eventRoutes } from "./routes/events.js";
 import { webhookEndpointRoutes } from "./routes/webhook-endpoints.js";
 import { controlRoutes } from "./routes/control.js";
@@ -245,6 +247,8 @@ export const stripePlugin: ServicePlugin = {
     invoiceRoutes(ctx);
     invoiceItemRoutes(ctx);
     invoicePaymentRoutes(ctx);
+    subscriptionRoutes(ctx);
+    subscriptionItemRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

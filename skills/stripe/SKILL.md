@@ -387,6 +387,35 @@ curl -X POST http://localhost:4000/_stripe/simulate/setup_intents/seti_xxx/authe
 
 `usage` defaults to `off_session`. Issuer-decline cards such as `pm_card_chargeDeclined` return a 402 `card_error` carrying the `setup_intent`, set `last_setup_error` and send `setup_intent.setup_failed`. `pm_card_chargeCustomerFail` (0341) sets up fine and only fails when charged. `pm_card_authenticationRequired` and `pm_card_authenticationRequiredOnSetup` go to `requires_action`; once authenticated, a 3155 card is charged off-session without asking again. A failed authentication gives `last_setup_error.code` `setup_intent_authentication_failure`.
 
+### Subscriptions
+
+```bash
+# Subscribe a customer whose default card is set; the first invoice is paid in the request
+curl -X POST http://localhost:4000/v1/subscriptions \
+  -d "customer=cus_xxx" -d "items[0][price]=price_xxx" -d "items[0][quantity]=1" \
+  -d "expand[]=latest_invoice.confirmation_secret"
+
+# A 7 day trial (no payment method needed), or collect payment client side first
+curl -X POST http://localhost:4000/v1/subscriptions \
+  -d "customer=cus_xxx" -d "items[0][price]=price_xxx" -d "trial_period_days=7"
+curl -X POST http://localhost:4000/v1/subscriptions \
+  -d "customer=cus_xxx" -d "items[0][price]=price_xxx" -d "payment_behavior=default_incomplete"
+
+# Cancel at period end, end a trial now, change items, cancel at once
+curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx -d "cancel_at_period_end=true"
+curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx -d "trial_end=now"
+curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx \
+  -d "items[0][id]=si_xxx" -d "items[0][quantity]=3" -d "items[1][price]=price_seat"
+curl -X DELETE http://localhost:4000/v1/subscriptions/sub_xxx
+
+# List (canceled ones only with status=canceled, ended or all) and manage items
+curl "http://localhost:4000/v1/subscriptions?customer=cus_xxx&status=all"
+curl -X POST http://localhost:4000/v1/subscription_items -d "subscription=sub_xxx" -d "price=price_seat"
+curl "http://localhost:4000/v1/subscription_items?subscription=sub_xxx"
+```
+
+Subscriptions use the current wire shape: billing periods are `items.data[].current_period_start` and `current_period_end`, not top-level fields, and each item carries both `price` and the legacy `plan`. Creating one finalizes its first invoice (`billing_reason` `subscription_create`) and charges the subscription's `default_payment_method` or the customer's default card. A paid invoice makes it `active`; a decline (`pm_card_chargeCustomerFail`) or 3D Secure leaves it `incomplete` with the invoice `open`, and paying that invoice later activates it. `error_if_incomplete` answers 402 and stores nothing. A trial makes it `trialing` with a paid $0 invoice whose lines say "Free trial", and a trial under three days sends `customer.subscription.trial_will_end` at once. `send_invoice` subscriptions are `active` at once with an open invoice due after `days_until_due`. `DELETE` sets `canceled` with `cancellation_details.reason` `cancellation_requested` and sends only `customer.subscription.deleted`. Item and setting changes create no prorations. Billing time does not pass on its own, so trials and periods never roll over by themselves.
+
 ### Invoices
 
 ```bash
@@ -415,7 +444,7 @@ curl "http://localhost:4000/v1/invoice_payments?invoice=in_xxx"
 
 Invoices use the current wire shape: there is no top-level `subscription`, `payment_intent`, `charge` or `paid`. Reach the PaymentIntent through `expand[]=payments.data.payment.payment_intent` or the client secret through `expand[]=confirmation_secret`. Lines carry `parent.invoice_item_details` and `pricing.price_details`. `pending_invoice_items_behavior` defaults to `exclude`, as on Stripe.
 
-Paying charges, in order, the `payment_method` param, the invoice's `default_payment_method`, then the customer's `invoice_settings.default_payment_method`, off-session by default. Stripe also tries a subscription's `default_payment_method` before the customer's; the emulator skips that step until subscriptions exist. A decline (`pm_card_chargeCustomerFail`) returns 402, leaves the invoice `open` with `attempt_count` 1 and sends `invoice.payment_failed`. Further manual `/pay` attempts leave `attempt_count` at 1, as on Stripe, where only automatic retries count after the first attempt. `pm_card_authenticationRequired` returns 402 `invoice_payment_intent_requires_action`, leaves the PaymentIntent in `requires_action` and sends `invoice.payment_action_required` and `invoice.payment_failed`; completing it with `/_stripe/simulate/payment_intents/pi_xxx/authenticate` pays the invoice. A $0 invoice is paid when it is finalized and, like `paid_out_of_band`, sends `invoice.paid` without `invoice.payment_succeeded`. `mark_uncollectible` sets `status_details.uncollectible.reason` to `user_forgiven`; the invoice can still be paid. The hosted invoice page is not served yet, so `hosted_invoice_url` answers 404.
+Paying charges, in order, the `payment_method` param, the invoice's `default_payment_method`, the `default_payment_method` of the subscription that generated it, then the customer's `invoice_settings.default_payment_method`, off-session by default. A decline (`pm_card_chargeCustomerFail`) returns 402, leaves the invoice `open` with `attempt_count` 1 and sends `invoice.payment_failed`. Further manual `/pay` attempts leave `attempt_count` at 1, as on Stripe, where only automatic retries count after the first attempt. `pm_card_authenticationRequired` returns 402 `invoice_payment_intent_requires_action`, leaves the PaymentIntent in `requires_action` and sends `invoice.payment_action_required` and `invoice.payment_failed`; completing it with `/_stripe/simulate/payment_intents/pi_xxx/authenticate` pays the invoice. A $0 invoice is paid when it is finalized and, like `paid_out_of_band`, sends `invoice.paid` without `invoice.payment_succeeded`. `mark_uncollectible` sets `status_details.uncollectible.reason` to `user_forgiven`; the invoice can still be paid. The hosted invoice page is not served yet, so `hosted_invoice_url` answers 404.
 
 ### Charges
 
@@ -562,6 +591,10 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `invoice_payment.paid` | The invoice's InvoicePayment was paid |
 | `invoiceitem.created` | Invoice item created |
 | `invoiceitem.deleted` | Invoice item deleted |
+| `customer.subscription.created` | Subscription created (before its first invoice's events) |
+| `customer.subscription.updated` | Subscription changed, or payment moved it from `incomplete` to `active` |
+| `customer.subscription.deleted` | Subscription canceled, or its customer deleted |
+| `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
 

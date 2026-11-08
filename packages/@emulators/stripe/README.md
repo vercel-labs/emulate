@@ -1,6 +1,6 @@
 # @emulators/stripe
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, setup intents, charges, invoices, invoice items, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation with customers, payment methods, customer sessions, payment intents, setup intents, charges, subscriptions, invoices, invoice items, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -141,7 +141,7 @@ Invoices use the wire shape of API versions from basil on. There is no top-level
 | Action | Allowed from | Result |
 |--------|--------------|--------|
 | finalize | `draft` | `open`, `number` `<invoice_prefix>-0001` (the customer's `next_invoice_sequence` moves on), `finalized_at`, `effective_at`, `hosted_invoice_url` and `invoice_pdf`. Something due creates a `pi_` PaymentIntent and a default `inpay_` InvoicePayment. Nothing due pays the invoice at once |
-| pay | `draft`, `open`, `uncollectible` | Charges the `payment_method` param, else the invoice's `default_payment_method`, else the customer's `invoice_settings.default_payment_method`. A test card id such as `pm_card_visa` is attached to the customer first. Sets `attempted`. The first attempt raises `attempt_count` to 1; later manual attempts leave it there, since only automatic retries count after the first, as on Stripe |
+| pay | `draft`, `open`, `uncollectible` | Charges the `payment_method` param, else the invoice's `default_payment_method`, else the `default_payment_method` of the subscription that generated it, else the customer's `invoice_settings.default_payment_method`. A test card id such as `pm_card_visa` is attached to the customer first. Sets `attempted`. The first attempt raises `attempt_count` to 1; later manual attempts leave it there, since only automatic retries count after the first, as on Stripe |
 | void | `open`, `uncollectible` | `void`, with the PaymentIntent canceled (`void_invoice`) and the InvoicePayment `canceled` |
 | mark_uncollectible | `open` | `uncollectible` with `status_details.uncollectible.reason` `user_forgiven`. It can still be paid or voided |
 | delete | `draft` | Gone, with its lines and invoice items |
@@ -155,6 +155,48 @@ Payment outcomes follow the [test card table](#test-cards), with Billing as the 
 | 3D Secure always (3184) | 402 `invoice_payment_intent_requires_action` | `open`, PaymentIntent `requires_action` | `invoice.updated`, `invoice.payment_action_required`, `invoice.payment_failed` |
 
 Completing 3D Secure with `POST /_stripe/simulate/payment_intents/:id/authenticate`, or confirming the invoice's PaymentIntent directly, pays the invoice with the same events and a `null` request. The PaymentIntent of an invoice cannot be canceled through `/v1/payment_intents/:id/cancel`. A $0 invoice and a `paid_out_of_band` payment send `invoice.paid` without `invoice.payment_succeeded`, as the [invoice lifecycle docs](https://docs.stripe.com/invoicing/overview#paid) describe. Paying and `mark_uncollectible` set the customer's `delinquent` to `false`, with `customer.updated` when it changes. A failed automatic collection attempt sets it to `true`; a failed manual `/pay` leaves it alone.
+
+### Subscriptions
+- `POST /v1/subscriptions`: create a subscription for `customer` from `items` (1 to 20 `{price, quantity, metadata}`, recurring prices only, one currency and one interval). Also accepts `default_payment_method`, `collection_method` with `days_until_due` (required for `send_invoice`), `trial_end` (a timestamp or `now`), `trial_period_days`, `trial_from_plan`, `trial_settings[end_behavior][missing_payment_method]`, `cancel_at` (a timestamp, `max_period_end` or `min_period_end`), `cancel_at_period_end`, `payment_behavior`, `payment_settings[save_default_payment_method]`, `off_session` (default `false`), `description` and `metadata`
+- `GET /v1/subscriptions/:id`: retrieve a subscription
+- `POST /v1/subscriptions/:id`: update `items` (`items[i][id]` with `price`, `quantity`, `metadata` or `deleted`; an entry without `id` adds an item), `cancel_at_period_end`, `cancel_at` (`""` clears it), `cancellation_details` (`comment`, `feedback`), `default_payment_method`, `description`, `metadata`, `trial_end` and `trial_settings`. Changes create no prorations or invoices
+- `DELETE /v1/subscriptions/:id`: cancel at once, with optional `cancellation_details`
+- `GET /v1/subscriptions`: list subscriptions, filtered by `customer`, `price`, `collection_method`, `test_clock` and `status`. Without `status`, canceled subscriptions are left out; `status=all` lists every one and `status=ended` the canceled and expired ones
+
+### Subscription Items
+- `POST /v1/subscription_items`: add an item to `subscription` from `price`, with `quantity` (default 1) and `metadata`. It joins the current period
+- `GET /v1/subscription_items/:id`: retrieve an item
+- `POST /v1/subscription_items/:id`: update `price`, `quantity` or `metadata`
+- `DELETE /v1/subscription_items/:id`: delete an item. The last item of a subscription cannot be deleted
+- `GET /v1/subscription_items`: list the items of `subscription` (required)
+
+Subscriptions use the wire shape of API versions from basil on: billing periods are `current_period_start` and `current_period_end` on each item, and there is no top-level `current_period_*`, `plan` or `quantity`. Each item still carries the legacy `plan` object next to the full `price`. `billing_mode` is `{type: "flexible", flexible: {proration_discounts: "included"}}`, the default since clover. `latest_invoice`, `customer`, `default_payment_method` and `items.data.price.product` are expandable.
+
+Periods follow the UTC calendar from `billing_cycle_anchor`. A monthly anchor on the 31st bills on the last day of shorter months and returns to the 31st (Jan 31, Feb 28, Mar 31); a yearly anchor on Feb 29 bills on Feb 28 in other years.
+
+Creating a subscription creates its first invoice (`billing_reason` `subscription_create`, `parent.subscription_details.subscription` set to the `sub_` id), finalizes it and, for `charge_automatically`, pays it in the same request with the subscription's `default_payment_method`, else the customer's `invoice_settings.default_payment_method`. Each item gives one line, such as `1 × Pro Plan (at $20.00 / month)`; a tiered price gives one line per tier reached and one per flat fee.
+
+| Case | Status | First invoice |
+|------|--------|---------------|
+| Payment succeeds (`allow_incomplete`, the default) | `active` | `paid` |
+| Payment fails or needs 3D Secure | `incomplete` | `open`, `attempt_count` 1. Paying it later makes the subscription `active` |
+| `default_incomplete` | `incomplete` | `open`, `auto_advance` false, no payment attempted |
+| `error_if_incomplete` and the payment fails | 402 error, nothing is stored and no event is sent | |
+| Trial (`trial_period_days` or a future `trial_end`) | `trialing`, `billing_cycle_anchor` and the item period end at `trial_end` | $0, `paid`, lines say "Free trial" |
+| `send_invoice` | `active` | `open`, `due_date` `days_until_due` days after creation |
+| No payment method, no trial, something due | 400, nothing is stored | |
+
+Events: `customer.subscription.created` first, already pointing at `latest_invoice`, then the invoice and PaymentIntent events, then `customer.subscription.updated` when payment moves the subscription from `incomplete` to `active`. A trial ending within three days also sends `customer.subscription.trial_will_end` at once.
+
+| Change | Result |
+|--------|--------|
+| `cancel_at_period_end=true` | `cancel_at` is the item period end and `canceled_at` the time of the request. `false` clears both |
+| `cancel_at` | Scheduled cancellation at that time, with `canceled_at` set to now |
+| `trial_end` while `trialing` | A later timestamp moves the trial end, the anchor and the period end. `now` ends the trial: a new period starts, the subscription turns `active` and the period is invoiced with `billing_reason` `subscription_update`; a failed payment leaves it `past_due` |
+| `DELETE` | `canceled`, `canceled_at` and `ended_at` now, `cancellation_details.reason` `cancellation_requested`. Open invoices of the subscription get `auto_advance` false. Sends `customer.subscription.deleted` only. A second `DELETE` answers 400 |
+| Deleting the customer | Cancels each of its subscriptions the same way, before `customer.deleted` |
+
+A canceled subscription accepts only `metadata` and `cancellation_details`; an `incomplete` one only `metadata` and `default_payment_method`. Other updates answer 400. Every change sends `customer.subscription.updated` with `previous_attributes`, including the old `items` list when items change.
 
 ### Invoice Items
 - `POST /v1/invoiceitems`: create an item for `customer` (required), from `pricing[price]` (amount is `unit_amount` times `quantity`), `amount` with `currency`, or `unit_amount_decimal`. With `invoice` it goes on that draft; without, it stays pending. Also accepts `quantity`, `description` (defaults to the product name), `discountable`, `period` and `metadata`
@@ -234,7 +276,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.trial_will_end`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
 
 ## Webhook delivery model and chaos
 
@@ -324,8 +366,12 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - Invoices are never finalized or charged on their own: `auto_advance` is stored and `automatically_finalizes_at` and `next_payment_attempt` are reported, but nothing acts on them without a test clock. `webhooks_delivered_at` is set when the invoice is created, because delivery is inline.
 - `hosted_invoice_url` and `invoice_pdf` point at the same emulator URL, which is not served yet and answers 404.
 - Invoice items created from a bare `amount` render `pricing` as `null` instead of an inline price. `price_data`, `quantity_decimal`, `tax_rates` and `discounts` params are ignored, and lines are listed oldest first.
-- `/pay` does not yet look at a subscription's `default_payment_method`. Stripe tries it after the invoice's own default and before the customer's `invoice_settings.default_payment_method`; the emulator skips that step until subscriptions are modelled.
 - `/pay` ignores `forgive`, `mandate` and `source`: card payments either cover the whole amount or fail. A customer with no payment method gets a 400 and the attempt is not counted.
+- Subscriptions have no prorations, `subscription_update` invoices for item changes, schedules, quotes, Trial Offers, `pause_collection`, pause or resume, `billing_cycle_anchor` params, `billing_cycle_anchor_config`, tax, discounts, coupons, pending invoice items, thresholds or Connect: those fields keep their empty or `null` defaults. `billing_mode` is always `flexible`, with `updated_at` equal to `created`. `current_trial` on items is always `null`, because only legacy trials exist, and `trial_from_plan` never starts a trial, because plans have no `trial_period_days`.
+- Every item of a subscription must share one currency and one billing interval. Real Stripe allows mixed intervals under flexible billing mode.
+- Billing time does not pass on its own: trials never end by themselves, periods never renew and `incomplete` subscriptions never expire after 23 hours. `trial_end` can be changed only while the subscription is `trialing`.
+- The first payment of a subscription counts as an automatic collection attempt, so a decline makes the customer `delinquent`. `error_if_incomplete` rolls back everything the attempt created, including the declined charge.
+- Invoice line descriptions for subscription items (`1 × Pro Plan (at $20.00 / month)`, `Free trial for 1 × Pro Plan`, tier lines) and the error messages for subscription updates are the emulator's wording. The pending invoice items of a customer are not pulled into subscription invoices.
 - InvoicePayments are only of type `payment_intent`, and there is no attach-payment or detach-payment API.
 - Error messages for invoice state changes (finalizing twice, voiding a paid invoice, deleting a finalized one) are the emulator's wording.
 - A per-unit price may be created without `unit_amount`, `unit_amount_decimal` or `custom_unit_amount` and then charges 0. Real Stripe requires one of them.

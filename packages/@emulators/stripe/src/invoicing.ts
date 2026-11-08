@@ -10,6 +10,7 @@ import {
   formatInvoicePayment,
   formatPaymentIntent,
   formatPaymentMethod,
+  formatSubscription,
   invoiceAmounts,
   invoiceLines,
 } from "./formatters.js";
@@ -25,6 +26,7 @@ import type {
   StripeInvoicePayment,
   StripePaymentIntent,
   StripePaymentMethod,
+  StripeSubscription,
 } from "./entities.js";
 
 export type InvoicingContext = PaymentContext;
@@ -33,7 +35,7 @@ export type InvoiceResult = { ok: true; invoice: StripeInvoice } | { ok: false; 
 
 export { DRAFT_FINALIZE_DELAY } from "./formatters.js";
 
-const NO_PAYMENT_METHOD_MESSAGE =
+export const NO_PAYMENT_METHOD_MESSAGE =
   "This customer has no attached payment source or default payment method. Please consider adding a default payment method. For more information, visit https://docs.stripe.com/billing/subscriptions/payment-methods-setting#payment-method-priority.";
 
 const REQUIRES_ACTION_MESSAGE =
@@ -69,7 +71,7 @@ export function setDelinquent(ctx: InvoicingContext, ev: EventBatch, customerId:
   ev.emit("customer.updated", after, previousAttributes(formatCustomer(customer), after));
 }
 
-type LineFields = Omit<StripeInvoiceLineItem, keyof Entity | "stripe_id" | "invoice_id">;
+export type LineFields = Omit<StripeInvoiceLineItem, keyof Entity | "stripe_id" | "invoice_id">;
 
 function lineFieldsFromItem(item: StripeInvoiceItem): LineFields {
   return {
@@ -133,6 +135,10 @@ export interface CreateInvoiceParams {
   includePending?: boolean;
   billingReason?: InvoiceBillingReason;
   subscriptionId?: string;
+  /** The subscription's metadata, rendered as `parent.subscription_details.metadata`. */
+  subscriptionMetadata?: Record<string, string>;
+  /** Lines to put on the draft before invoice.created, such as a subscription's items. */
+  lines?: LineFields[];
 }
 
 /** Create a draft invoice, optionally sweeping in the customer's pending invoice items. Sends invoice.created. */
@@ -170,8 +176,12 @@ export function createInvoice(ctx: InvoicingContext, ev: EventBatch, params: Cre
     // Delivery is inline, so the invoice's webhooks are done by the time anyone reads it.
     webhooks_delivered_at: now,
     subscription_id: params.subscriptionId,
+    subscription_metadata: params.subscriptionMetadata,
     test_clock: customer?.test_clock,
   });
+  for (const line of params.lines ?? []) {
+    ss.invoiceLineItems.insert({ stripe_id: stripeId("il"), invoice_id: inv.stripe_id, ...line });
+  }
   for (const item of pending) {
     if (item.currency === currency) attachInvoiceItem(ss, item, inv);
   }
@@ -313,14 +323,42 @@ function markPaid(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice, opt
     ev.emit("invoice_payment.paid", formatInvoicePayment(record));
   }
   setDelinquent(ctx, ev, paid.customer_id, false);
+  settleSubscriptionInvoice(ctx, ev, paid, options.payment?.pi.payment_method ?? undefined);
   return paid;
 }
 
 /**
+ * Paying a subscription's latest invoice makes an `incomplete`, `past_due` or `unpaid`
+ * subscription `active`, and with `save_default_payment_method=on_subscription` saves the
+ * card that paid as the subscription's default. Sends customer.subscription.updated when
+ * either changes.
+ */
+function settleSubscriptionInvoice(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  inv: StripeInvoice,
+  paidWith: string | undefined,
+): void {
+  if (!inv.subscription_id) return;
+  const ss = getStripeStore(ctx.store);
+  const sub = ss.subscriptions.findOneBy("stripe_id", inv.subscription_id);
+  if (!sub || sub.latest_invoice !== inv.stripe_id) return;
+  const updates: Partial<StripeSubscription> = {};
+  if (sub.status === "incomplete" || sub.status === "past_due" || sub.status === "unpaid") updates.status = "active";
+  if (sub.save_default_payment_method === "on_subscription" && paidWith && sub.default_payment_method !== paidWith) {
+    updates.default_payment_method = paidWith;
+  }
+  if (Object.keys(updates).length === 0) return;
+  const before = formatSubscription(ss, sub);
+  const after = formatSubscription(ss, ss.subscriptions.update(sub.id, updates)!);
+  ev.emit("customer.subscription.updated", after, previousAttributes(before, after));
+}
+
+/**
  * The payment method an invoice is charged with: the `payment_method` param, then the
- * invoice's default, then the customer's invoice default. Stripe checks the subscription's
- * `default_payment_method` before the customer's; that step waits for subscriptions. A test
- * card id such as `pm_card_visa` is attached to the customer first.
+ * invoice's default, then the default of the subscription that generated it, then the
+ * customer's invoice default. A test card id such as `pm_card_visa` is attached to the
+ * customer first.
  */
 function invoicePaymentMethod(
   ctx: InvoicingContext,
@@ -330,8 +368,12 @@ function invoicePaymentMethod(
 ): { ok: true; pm: StripePaymentMethod } | { ok: false; error: StripeErrorSpec } {
   const ss = getStripeStore(ctx.store);
   const customer = ss.customers.findOneBy("stripe_id", inv.customer_id);
-  // TODO: try the default_payment_method of inv.subscription_id here once subscriptions are modelled.
-  const id = requested ?? inv.default_payment_method ?? customer?.invoice_settings?.default_payment_method;
+  const subscription = inv.subscription_id ? ss.subscriptions.findOneBy("stripe_id", inv.subscription_id) : undefined;
+  const id =
+    requested ??
+    inv.default_payment_method ??
+    subscription?.default_payment_method ??
+    customer?.invoice_settings?.default_payment_method;
   if (!id) return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
 
   if (testCardByPaymentMethod(id)) {

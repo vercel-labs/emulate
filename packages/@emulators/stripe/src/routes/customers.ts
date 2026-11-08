@@ -4,6 +4,7 @@ import { stripeId, parseStripeBody, stripeError, stripeList, expandedJson, gener
 import { formatCustomer, formatPaymentMethod, stripeExpandResolver } from "../formatters.js";
 import { eventBatch, previousAttributes } from "../events.js";
 import { testCardByPaymentMethod } from "../test-cards.js";
+import { cancelSubscription, isEnded } from "../subscriptions.js";
 import {
   attachPaymentMethod,
   detachCustomerPaymentMethods,
@@ -177,6 +178,12 @@ export function customerRoutes(ctx: RouteContext): void {
         "resource_missing",
       );
 
+    const ev = eventBatch(ctx, c);
+    // Deleting a customer cancels its subscriptions, each with customer.subscription.deleted.
+    for (const sub of ss.subscriptions.findBy("customer_id", customer.stripe_id)) {
+      if (!isEnded(sub)) cancelSubscription(ctx, ev, sub);
+    }
+
     // Cascade: nullify customer_id on related entities
     for (const pi of ss.paymentIntents.findBy("customer_id", customer.stripe_id)) {
       ss.paymentIntents.update(pi.id, { customer_id: null });
@@ -191,7 +198,6 @@ export function customerRoutes(ctx: RouteContext): void {
 
     ss.customers.delete(customer.id);
 
-    const ev = eventBatch(ctx, c);
     ev.emit("customer.deleted", { ...formatCustomer(customer), deleted: true });
     await ev.commit();
 

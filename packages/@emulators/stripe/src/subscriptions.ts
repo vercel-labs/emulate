@@ -1,0 +1,498 @@
+import { getStripeStore, type StripeStore } from "./store.js";
+import { stripeId } from "./helpers.js";
+import { nowFor } from "./clock.js";
+import { nextPeriodEnd } from "./billing.js";
+import { previousAttributes, type EventBatch } from "./events.js";
+import { formatSubscription, subscriptionItems, MAX_SUBSCRIPTION_ITEMS } from "./formatters.js";
+import { priceAmount, priceBreakdown } from "./pricing.js";
+import {
+  createInvoice,
+  finalizeInvoice,
+  NO_PAYMENT_METHOD_MESSAGE,
+  payInvoice,
+  type InvoicingContext,
+  type LineFields,
+} from "./invoicing.js";
+import type { StripeErrorSpec } from "./routes/payment-methods.js";
+import type {
+  InvoiceBillingReason,
+  PriceInterval,
+  StripeInvoice,
+  StripePrice,
+  StripeSubscription,
+  StripeSubscriptionCancellationDetails,
+  StripeSubscriptionItem,
+} from "./entities.js";
+
+export type SubscriptionResult = { ok: true; sub: StripeSubscription } | { ok: false; error: StripeErrorSpec };
+
+export type PaymentBehavior = "allow_incomplete" | "default_incomplete" | "error_if_incomplete";
+
+/** Stripe sends customer.subscription.trial_will_end three days before a trial ends. */
+export const TRIAL_WILL_END_LEAD = 3 * 86400;
+
+/** Trials may last at most two years. */
+export const MAX_TRIAL_SECONDS = 730 * 86400;
+
+function invalidRequest(message: string, param?: string, code?: string): StripeErrorSpec {
+  return { status: 400, type: "invalid_request_error", message, code, param };
+}
+
+/** An EventBatch that keeps its events until they are replayed into another batch. */
+function deferredBatch(): EventBatch & { replay(into: EventBatch): void } {
+  const held: Array<[string, Record<string, unknown>, Record<string, unknown> | undefined]> = [];
+  return {
+    emit(type, object, previous) {
+      held.push([type, object, previous]);
+    },
+    async commit() {},
+    replay(into) {
+      for (const [type, object, previous] of held.splice(0)) into.emit(type, object, previous);
+    },
+  };
+}
+
+/**
+ * Check that `priceId` names a recurring price a subscription item can use. `param` is the
+ * request param errors point at, such as `items[0][price]`.
+ */
+export function readSubscriptionPrice(
+  ss: StripeStore,
+  priceId: unknown,
+  param: string,
+): { ok: true; price: StripePrice } | { ok: false; error: StripeErrorSpec } {
+  if (typeof priceId !== "string" || priceId === "") {
+    return { ok: false, error: invalidRequest(`Missing required param: ${param}.`, param, "parameter_missing") };
+  }
+  const price = ss.prices.findOneBy("stripe_id", priceId);
+  if (!price) return { ok: false, error: invalidRequest(`No such price: '${priceId}'`, param, "resource_missing") };
+  if (price.type !== "recurring" || !price.recurring) {
+    return {
+      ok: false,
+      error: invalidRequest(
+        "The price specified is set to `type=one_time` but this field only accepts prices with `type=recurring`.",
+        param,
+      ),
+    };
+  }
+  if (!price.active) {
+    return {
+      ok: false,
+      error: invalidRequest(`The price specified is inactive. This field only accepts active prices.`, param),
+    };
+  }
+  return { ok: true, price };
+}
+
+/**
+ * The rules every set of subscription items keeps: one to twenty items, one price each, and a
+ * single currency and billing interval.
+ */
+export function checkItemSet(prices: StripePrice[]): StripeErrorSpec | undefined {
+  if (prices.length === 0) return invalidRequest("A subscription must have at least one active price.", "items");
+  if (prices.length > MAX_SUBSCRIPTION_ITEMS) {
+    return invalidRequest(`You can only pass up to ${MAX_SUBSCRIPTION_ITEMS} items.`, "items");
+  }
+  const ids = new Set<string>();
+  for (const price of prices) {
+    if (ids.has(price.stripe_id)) {
+      return invalidRequest(`Cannot add multiple subscription items with the same price: ${price.stripe_id}.`, "items");
+    }
+    ids.add(price.stripe_id);
+  }
+  const [first] = prices;
+  if (prices.some((p) => p.currency !== first.currency)) {
+    return invalidRequest(
+      "Currency and interval fields must match across all plans on this subscription. Found mismatch in currency field.",
+      "items",
+    );
+  }
+  const interval = (p: StripePrice) => `${p.recurring?.interval}/${p.recurring?.interval_count}`;
+  if (prices.some((p) => interval(p) !== interval(first))) {
+    return invalidRequest(
+      "Currency and interval fields must match across all plans on this subscription. Found mismatch in interval field.",
+      "items",
+    );
+  }
+  return undefined;
+}
+
+const ZERO_DECIMAL_CURRENCIES = new Set([
+  "bif",
+  "clp",
+  "djf",
+  "gnf",
+  "jpy",
+  "kmf",
+  "krw",
+  "mga",
+  "pyg",
+  "rwf",
+  "ugx",
+  "vnd",
+  "vuv",
+  "xaf",
+  "xof",
+  "xpf",
+]);
+
+const CURRENCY_SYMBOLS: Record<string, string> = { usd: "$", eur: "€", gbp: "£", jpy: "¥" };
+
+/** An amount in the smallest currency unit as an invoice line shows it, such as `$20.00`. */
+export function formatMoney(amountDecimal: string, currency: string): string {
+  const exponent = ZERO_DECIMAL_CURRENCIES.has(currency) ? 0 : 2;
+  const major = Number(amountDecimal) / 10 ** exponent;
+  let text = major.toFixed(exponent);
+  if (Number(text) !== major) text = String(Number(major.toFixed(12)));
+  const symbol = Object.hasOwn(CURRENCY_SYMBOLS, currency) ? CURRENCY_SYMBOLS[currency] : undefined;
+  return symbol ? `${symbol}${text}` : `${currency.toUpperCase()} ${text}`;
+}
+
+function intervalText(interval: PriceInterval, count: number): string {
+  return count === 1 ? `/ ${interval}` : `every ${count} ${interval}s`;
+}
+
+function productName(ss: StripeStore, price: StripePrice): string {
+  return ss.products.findOneBy("stripe_id", price.product_id)?.name ?? price.stripe_id;
+}
+
+/**
+ * The invoice lines for one billing period of `items`. A trial bills each item at 0 with
+ * "Free trial" in the description. Per-unit prices give one line per item and tiered prices
+ * one line per tier reached, plus one for each flat fee. Metered prices are billed in arrears
+ * and get no line here.
+ */
+export function subscriptionLines(
+  ss: StripeStore,
+  sub: StripeSubscription,
+  items: StripeSubscriptionItem[],
+  period: { start: number; end: number },
+  trial: boolean,
+): LineFields[] {
+  const lines: LineFields[] = [];
+  for (const item of items) {
+    const price = ss.prices.findOneBy("stripe_id", item.price_id);
+    if (!price?.recurring || price.recurring.usage_type === "metered") continue;
+    const name = productName(ss, price);
+    const every = intervalText(price.recurring.interval, price.recurring.interval_count);
+    const base = {
+      currency: sub.currency,
+      discountable: true,
+      metadata: {},
+      period: { ...period },
+      price_id: price.stripe_id,
+      product_id: price.product_id,
+      proration: false,
+      subscription_item_id: item.stripe_id,
+      subscription_id: sub.stripe_id,
+    };
+    if (trial) {
+      lines.push({
+        ...base,
+        amount: 0,
+        description: `Free trial for ${item.quantity} × ${name}`,
+        unit_amount_decimal: "0",
+        quantity: item.quantity,
+      });
+      continue;
+    }
+    if (price.billing_scheme !== "tiered") {
+      const [part] = priceBreakdown(price, item.quantity);
+      lines.push({
+        ...base,
+        amount: part.amount,
+        description: `${item.quantity} × ${name} (at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
+        unit_amount_decimal: part.unit_amount_decimal,
+        quantity: item.quantity,
+      });
+      continue;
+    }
+    for (const part of priceBreakdown(price, item.quantity)) {
+      const tier = (part.tier ?? 0) + 1;
+      lines.push({
+        ...base,
+        amount: part.amount,
+        description:
+          part.kind === "flat"
+            ? `${name} (Tier ${tier} flat fee)`
+            : `${part.quantity} × ${name} (Tier ${tier} at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
+        unit_amount_decimal: part.unit_amount_decimal,
+        quantity: part.quantity,
+      });
+    }
+  }
+  return lines;
+}
+
+/** The interval every item of a subscription bills on. */
+function subscriptionInterval(ss: StripeStore, items: StripeSubscriptionItem[]) {
+  for (const item of items) {
+    const recurring = ss.prices.findOneBy("stripe_id", item.price_id)?.recurring;
+    if (recurring) return recurring;
+  }
+  return { interval: "month" as const, interval_count: 1 };
+}
+
+/**
+ * Create the invoice for the period the subscription's items are in now and make it the
+ * latest invoice. Events go to `ev`; invoice.created comes out of it like any other.
+ */
+function invoiceSubscription(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  billingReason: InvoiceBillingReason,
+  trial: boolean,
+  autoAdvance: boolean,
+): StripeInvoice {
+  const ss = getStripeStore(ctx.store);
+  const items = subscriptionItems(ss, sub.stripe_id);
+  const period = { start: items[0].current_period_start, end: items[0].current_period_end };
+  const inv = createInvoice(ctx, ev, {
+    customerId: sub.customer_id,
+    currency: sub.currency,
+    collectionMethod: sub.collection_method,
+    autoAdvance,
+    daysUntilDue: sub.collection_method === "send_invoice" ? sub.days_until_due : undefined,
+    billingReason,
+    subscriptionId: sub.stripe_id,
+    subscriptionMetadata: { ...sub.metadata },
+    lines: subscriptionLines(ss, sub, items, period, trial),
+  });
+  ss.subscriptions.update(sub.id, { latest_invoice: inv.stripe_id });
+  return inv;
+}
+
+/**
+ * Finalize a subscription invoice and, for automatic collection, attempt it the way Billing
+ * does. Returns the payment error, if any, for `error_if_incomplete`.
+ */
+function collectSubscriptionInvoice(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  inv: StripeInvoice,
+  attempt: boolean,
+): StripeErrorSpec | undefined {
+  const finalized = finalizeInvoice(ctx, ev, inv);
+  if (!finalized.ok) return finalized.error;
+  if (finalized.invoice.status !== "open" || !attempt || sub.collection_method !== "charge_automatically") {
+    return undefined;
+  }
+  const paid = payInvoice(ctx, ev, finalized.invoice, { automatic: true, offSession: sub.off_session ?? false });
+  return paid.ok ? undefined : paid.error;
+}
+
+/** The payment method Billing would charge for this subscription, if there is one. */
+export function subscriptionPaymentMethod(ss: StripeStore, customerId: string, subscriptionDefault?: string) {
+  return (
+    subscriptionDefault ?? ss.customers.findOneBy("stripe_id", customerId)?.invoice_settings?.default_payment_method
+  );
+}
+
+export interface SubscriptionItemInput {
+  price: StripePrice;
+  quantity: number;
+  metadata: Record<string, string>;
+}
+
+export interface CreateSubscriptionParams {
+  customerId: string;
+  items: SubscriptionItemInput[];
+  collectionMethod: StripeSubscription["collection_method"];
+  daysUntilDue?: number;
+  defaultPaymentMethod?: string;
+  description?: string;
+  metadata: Record<string, string>;
+  /** The end of a trial. Undefined, or not in the future, means no trial. */
+  trialEnd?: number;
+  trialMissingPaymentMethod?: StripeSubscription["trial_missing_payment_method"];
+  cancelAt?: number | "max_period_end" | "min_period_end";
+  cancelAtPeriodEnd: boolean;
+  paymentBehavior: PaymentBehavior;
+  saveDefaultPaymentMethod?: StripeSubscription["save_default_payment_method"];
+  offSession?: boolean;
+}
+
+/**
+ * Create a subscription with its first invoice, finalized and, for automatic collection,
+ * paid in the same request. The subscription starts `incomplete` and becomes `active` when the
+ * invoice is paid, `trialing` during a trial, and `active` at once for `send_invoice`.
+ * Sends customer.subscription.created before the invoice events. With
+ * `error_if_incomplete`, a failed payment is returned as an error and the caller must discard
+ * the objects and events this created.
+ */
+export function createSubscription(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  params: CreateSubscriptionParams,
+): SubscriptionResult {
+  const ss = getStripeStore(ctx.store);
+  const customer = ss.customers.findOneBy("stripe_id", params.customerId);
+  const now = nowFor(ss, { customerId: params.customerId });
+  const trial = params.trialEnd !== undefined && params.trialEnd > now;
+  const recurring = params.items[0].price.recurring!;
+  const anchor = trial ? params.trialEnd! : now;
+  const periodEnd = trial ? params.trialEnd! : nextPeriodEnd(anchor, recurring.interval, recurring.interval_count, now);
+  const charged = params.collectionMethod === "charge_automatically";
+
+  const dueNow = params.items.reduce(
+    (sum, item) =>
+      item.price.recurring?.usage_type === "metered" ? sum : sum + priceAmount(item.price, item.quantity),
+    0,
+  );
+  if (
+    charged &&
+    !trial &&
+    dueNow > 0 &&
+    params.paymentBehavior !== "default_incomplete" &&
+    !subscriptionPaymentMethod(ss, params.customerId, params.defaultPaymentMethod)
+  ) {
+    return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
+  }
+
+  const cancelAt =
+    params.cancelAtPeriodEnd || params.cancelAt === "max_period_end" || params.cancelAt === "min_period_end"
+      ? periodEnd
+      : params.cancelAt;
+  const sub = ss.subscriptions.insert({
+    stripe_id: stripeId("sub"),
+    customer_id: params.customerId,
+    status: trial ? "trialing" : charged ? "incomplete" : "active",
+    currency: params.items[0].price.currency,
+    collection_method: params.collectionMethod,
+    days_until_due: params.daysUntilDue,
+    default_payment_method: params.defaultPaymentMethod,
+    description: params.description,
+    metadata: params.metadata,
+    created: now,
+    start_date: now,
+    billing_cycle_anchor: anchor,
+    cancel_at: cancelAt,
+    cancel_at_period_end: params.cancelAtPeriodEnd,
+    canceled_at: cancelAt !== undefined ? now : undefined,
+    cancellation_details: {},
+    trial_start: trial ? now : undefined,
+    trial_end: trial ? params.trialEnd : undefined,
+    trial_missing_payment_method: params.trialMissingPaymentMethod,
+    off_session: params.offSession,
+    save_default_payment_method: params.saveDefaultPaymentMethod,
+    test_clock: customer?.test_clock,
+  });
+  for (const item of params.items) {
+    ss.subscriptionItems.insert({
+      stripe_id: stripeId("si"),
+      subscription_id: sub.stripe_id,
+      price_id: item.price.stripe_id,
+      quantity: item.quantity,
+      metadata: item.metadata,
+      created: now,
+      current_period_start: now,
+      current_period_end: periodEnd,
+    });
+  }
+
+  // The subscription is announced first, already pointing at its first invoice.
+  const held = deferredBatch();
+  const attempt = params.paymentBehavior !== "default_incomplete";
+  const inv = invoiceSubscription(ctx, held, sub, "subscription_create", trial, attempt);
+  ev.emit("customer.subscription.created", formatSubscription(ss, ss.subscriptions.get(sub.id)!));
+  held.replay(ev);
+
+  const failure = collectSubscriptionInvoice(ctx, ev, sub, ss.invoices.get(inv.id) ?? inv, attempt);
+  if (failure && params.paymentBehavior === "error_if_incomplete") return { ok: false, error: failure };
+
+  const current = ss.subscriptions.get(sub.id)!;
+  if (trial && current.trial_end! - now <= TRIAL_WILL_END_LEAD) {
+    ev.emit("customer.subscription.trial_will_end", formatSubscription(ss, current));
+  }
+  return { ok: true, sub: current };
+}
+
+/**
+ * End a trial now: a new billing period starts, the subscription turns `active` and the
+ * period is invoiced with `billing_reason` `subscription_update`. A failed payment leaves it
+ * `past_due`. The caller sends customer.subscription.updated.
+ */
+export function endTrialNow(ctx: InvoicingContext, ev: EventBatch, sub: StripeSubscription): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const now = nowFor(ss, { customerId: sub.customer_id });
+  const items = subscriptionItems(ss, sub.stripe_id);
+  const { interval, interval_count } = subscriptionInterval(ss, items);
+  const end = nextPeriodEnd(now, interval, interval_count, now);
+  for (const item of items)
+    ss.subscriptionItems.update(item.id, { current_period_start: now, current_period_end: end });
+  const active = ss.subscriptions.update(sub.id, {
+    status: "active",
+    trial_end: now,
+    billing_cycle_anchor: now,
+    cancel_at: sub.cancel_at_period_end ? end : sub.cancel_at,
+  })!;
+  const inv = invoiceSubscription(ctx, ev, active, "subscription_update", false, true);
+  const failure = collectSubscriptionInvoice(ctx, ev, active, ss.invoices.get(inv.id) ?? inv, true);
+  const current = ss.subscriptions.get(sub.id)!;
+  if (failure && current.status === "active") return ss.subscriptions.update(sub.id, { status: "past_due" })!;
+  return current;
+}
+
+/** Move a trial's end to a later time. The current period stretches to match. */
+export function extendTrial(ss: StripeStore, sub: StripeSubscription, trialEnd: number): StripeSubscription {
+  for (const item of subscriptionItems(ss, sub.stripe_id)) {
+    ss.subscriptionItems.update(item.id, { current_period_end: trialEnd });
+  }
+  return ss.subscriptions.update(sub.id, {
+    trial_end: trialEnd,
+    billing_cycle_anchor: trialEnd,
+    cancel_at: sub.cancel_at_period_end ? trialEnd : sub.cancel_at,
+  })!;
+}
+
+/** The latest end among the current periods of a subscription's items. */
+export function currentPeriodEnd(ss: StripeStore, sub: StripeSubscription): number | undefined {
+  const ends = subscriptionItems(ss, sub.stripe_id).map((item) => item.current_period_end);
+  return ends.length > 0 ? Math.max(...ends) : undefined;
+}
+
+export function isEnded(sub: StripeSubscription): boolean {
+  return sub.status === "canceled" || sub.status === "incomplete_expired";
+}
+
+/**
+ * Cancel a subscription at once. Its unpaid invoices stop being collected automatically.
+ * Sends customer.subscription.deleted, and no customer.subscription.updated, as on Stripe.
+ */
+export function cancelSubscription(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  details: StripeSubscriptionCancellationDetails = {},
+): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const now = nowFor(ss, { customerId: sub.customer_id });
+  for (const inv of ss.invoices.findBy("subscription_id", sub.stripe_id)) {
+    if (inv.status === "open" && inv.auto_advance) {
+      ss.invoices.update(inv.id, { auto_advance: false, next_payment_attempt: undefined });
+    }
+  }
+  const canceled = ss.subscriptions.update(sub.id, {
+    status: "canceled",
+    canceled_at: now,
+    ended_at: now,
+    cancellation_details: { ...sub.cancellation_details, ...details, reason: "cancellation_requested" },
+  })!;
+  ev.emit("customer.subscription.deleted", formatSubscription(ss, canceled));
+  return canceled;
+}
+
+/** Send customer.subscription.updated when the rendered subscription changed. */
+export function emitSubscriptionChange(
+  ss: StripeStore,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  before: Record<string, unknown>,
+): Record<string, unknown> {
+  const after = formatSubscription(ss, sub);
+  const previous = previousAttributes(before, after);
+  if (Object.keys(previous).length > 0) ev.emit("customer.subscription.updated", after, previous);
+  return after;
+}
