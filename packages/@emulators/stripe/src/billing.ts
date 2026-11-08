@@ -47,7 +47,7 @@ interface DueAction {
   run(ev: EventBatch): void;
 }
 
-const RANK = { finalize: 0, retry: 1, expire: 2, trialWillEnd: 3, upcoming: 4, period: 5 } as const;
+const RANK = { finalize: 0, retry: 1, overdue: 2, expire: 3, trialWillEnd: 4, upcoming: 5, period: 6 } as const;
 
 /** An `incomplete` subscription whose first invoice is not paid within 23 hours expires. */
 export const INCOMPLETE_EXPIRY = 23 * 3600;
@@ -128,6 +128,17 @@ function markPastDue(ctx: BillingContext, ev: EventBatch, inv: StripeInvoice): v
   if (!sub || sub.latest_invoice !== inv.stripe_id || sub.status !== "active") return;
   const before = formatSubscription(ss, sub);
   emitSubscriptionChange(ss, ev, ss.subscriptions.update(sub.id, { status: "past_due" })!, before);
+}
+
+/**
+ * A `send_invoice` subscription becomes `past_due` when its latest invoice is still unpaid at
+ * the due date. The account's overdue-invoice automations (canceling the subscription or
+ * marking it unpaid later, invoice.overdue) are not modelled.
+ */
+function markOverdue(ctx: BillingContext, ev: EventBatch, inv: StripeInvoice): void {
+  const ss = getStripeStore(ctx.store);
+  const handled = ss.invoices.update(inv.id, { overdue_handled: true })!;
+  markPastDue(ctx, ev, handled);
 }
 
 /**
@@ -317,6 +328,22 @@ function scheduledActions(ctx: BillingContext, clock: StripeTestClock): DueActio
       actions.push(...subscriptionActions(ctx, sub, clock.frozen_time));
     }
     for (const inv of ss.invoices.findBy("customer_id", customer.stripe_id)) {
+      if (
+        inv.status === "open" &&
+        inv.collection_method === "send_invoice" &&
+        inv.subscription_id !== undefined &&
+        inv.due_date !== undefined &&
+        !inv.overdue_handled
+      ) {
+        actions.push({
+          at: Math.max(inv.due_date, clock.frozen_time),
+          rank: RANK.overdue,
+          key: inv.id,
+          run(ev) {
+            markOverdue(ctx, ev, inv);
+          },
+        });
+      }
       if (!inv.auto_advance) continue;
       if (inv.status === "draft") {
         actions.push({

@@ -188,6 +188,52 @@ describe("trials on a test clock", () => {
   });
 });
 
+describe("send_invoice subscriptions on a test clock", () => {
+  it("turn past_due when the latest invoice is unpaid at its due date, and active once it is paid", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id, false);
+    const sub = await subscribe(ctx, customer.id, await monthlyPrice(ctx), {
+      collection_method: "send_invoice",
+      days_until_due: 7,
+    });
+    expect(sub.status).toBe("active");
+    const first = await api<Json>(ctx.app, "GET", `/v1/invoices/${sub.latest_invoice}`);
+    expect(first.body).toMatchObject({ status: "open", due_date: T + 7 * DAY });
+
+    const hooks = captureWebhooks();
+    await advance(ctx, clock.id, T + 7 * DAY - 1);
+    expect((await getSub(ctx, sub.id)).status).toBe("active");
+    await advance(ctx, clock.id, T + 8 * DAY);
+    expect((await getSub(ctx, sub.id)).status).toBe("past_due");
+    const [pastDue] = hooks.ofType("customer.subscription.updated");
+    expect(pastDue.created).toBe(T + 7 * DAY);
+    expect(pastDue.data.previous_attributes).toEqual({ status: "active" });
+    expect(types(hooks.events)).not.toContain("invoice.overdue");
+
+    // Only the first time the due date passes changes anything.
+    await advance(ctx, clock.id, T + 9 * DAY);
+    expect(hooks.ofType("customer.subscription.updated")).toHaveLength(1);
+
+    const paid = await api<Json>(ctx.app, "POST", `/v1/invoices/${sub.latest_invoice}/pay`, { paid_out_of_band: true });
+    expect(paid.status).toBe(200);
+    expect((await getSub(ctx, sub.id)).status).toBe("active");
+  });
+
+  it("stay active when an invoice is paid before its due date", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id, false);
+    const sub = await subscribe(ctx, customer.id, await monthlyPrice(ctx), {
+      collection_method: "send_invoice",
+      days_until_due: 7,
+    });
+    await api(ctx.app, "POST", `/v1/invoices/${sub.latest_invoice}/pay`, { paid_out_of_band: true });
+    await advance(ctx, clock.id, T + 10 * DAY);
+    expect((await getSub(ctx, sub.id)).status).toBe("active");
+  });
+});
+
 describe("renewals on a test clock", () => {
   it("rolls item periods by the clamped month and invoices each period from an anchor on the 31st", async () => {
     const ctx = createTestApp();

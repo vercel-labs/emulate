@@ -363,6 +363,8 @@ export interface StripeInvoice extends Entity {
    * but are not executed while the invoice would still be charged with it.
    */
   hard_declined_payment_method?: string;
+  /** Set once Billing has acted on a `send_invoice` invoice still open at its `due_date`. */
+  overdue_handled?: boolean;
   webhooks_delivered_at?: number;
   /** The subscription that generated the invoice, rendered as `parent.subscription_details`. */
   subscription_id?: string;
