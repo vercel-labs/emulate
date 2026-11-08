@@ -1,7 +1,13 @@
 import type { StripeStore } from "./store.js";
 import { periodBoundary } from "./billing.js";
 import { stripeId } from "./helpers.js";
-import type { StripeCustomer, StripeSubscription, StripeTestClock } from "./entities.js";
+import type {
+  StripeCustomer,
+  StripeInvoice,
+  StripePaymentIntent,
+  StripeSubscription,
+  StripeTestClock,
+} from "./entities.js";
 
 /** Whose clock a timestamp is read from. Objects of a customer on a test clock follow that clock. */
 export interface ClockScope {
@@ -86,31 +92,47 @@ export function attachCustomerToClock(ss: StripeStore, customer: StripeCustomer,
   }
 }
 
+function deleteSubscription(ss: StripeStore, sub: StripeSubscription): void {
+  for (const item of ss.subscriptionItems.findBy("subscription_id", sub.stripe_id))
+    ss.subscriptionItems.delete(item.id);
+  ss.subscriptions.delete(sub.id);
+}
+
+function deletePaymentIntent(ss: StripeStore, pi: StripePaymentIntent): void {
+  for (const charge of ss.charges.findBy("payment_intent_id", pi.stripe_id)) ss.charges.delete(charge.id);
+  ss.paymentIntents.delete(pi.id);
+}
+
+/** An invoice with its lines, its payments and the PaymentIntents behind them. */
+function deleteInvoice(ss: StripeStore, inv: StripeInvoice): void {
+  for (const line of ss.invoiceLineItems.findBy("invoice_id", inv.stripe_id)) ss.invoiceLineItems.delete(line.id);
+  for (const payment of ss.invoicePayments.findBy("invoice_id", inv.stripe_id)) {
+    const pi = ss.paymentIntents.findOneBy("stripe_id", payment.payment_intent_id);
+    if (pi) deletePaymentIntent(ss, pi);
+    ss.invoicePayments.delete(payment.id);
+  }
+  ss.invoices.delete(inv.id);
+}
+
 /**
- * Remove a test clock with its customers and every object that belongs to them. Nothing sends
- * an event of its own: the caller announces only test_helpers.test_clock.deleted.
+ * Remove a test clock and every object on it. Nothing sends an event of its own: the caller
+ * announces only test_helpers.test_clock.deleted.
+ *
+ * Subscriptions, invoices and invoice items are found by their own test_clock as well as by
+ * customer, because they outlive a clock customer that was deleted earlier.
  */
 export function deleteTestClockObjects(ss: StripeStore, clock: StripeTestClock): void {
-  for (const customer of clockCustomers(ss, clock.stripe_id)) {
+  const clockId = clock.stripe_id;
+  for (const sub of ss.subscriptions.findBy("test_clock", clockId)) deleteSubscription(ss, sub);
+  for (const inv of ss.invoices.findBy("test_clock", clockId)) deleteInvoice(ss, inv);
+  for (const item of ss.invoiceItems.findBy("test_clock", clockId)) ss.invoiceItems.delete(item.id);
+
+  for (const customer of clockCustomers(ss, clockId)) {
     const customerId = customer.stripe_id;
-    for (const sub of ss.subscriptions.findBy("customer_id", customerId)) {
-      for (const item of ss.subscriptionItems.findBy("subscription_id", sub.stripe_id)) {
-        ss.subscriptionItems.delete(item.id);
-      }
-      ss.subscriptions.delete(sub.id);
-    }
-    for (const inv of ss.invoices.findBy("customer_id", customerId)) {
-      for (const line of ss.invoiceLineItems.findBy("invoice_id", inv.stripe_id)) ss.invoiceLineItems.delete(line.id);
-      for (const payment of ss.invoicePayments.findBy("invoice_id", inv.stripe_id)) {
-        ss.invoicePayments.delete(payment.id);
-      }
-      ss.invoices.delete(inv.id);
-    }
+    for (const sub of ss.subscriptions.findBy("customer_id", customerId)) deleteSubscription(ss, sub);
+    for (const inv of ss.invoices.findBy("customer_id", customerId)) deleteInvoice(ss, inv);
     for (const item of ss.invoiceItems.findBy("customer_id", customerId)) ss.invoiceItems.delete(item.id);
-    for (const pi of ss.paymentIntents.findBy("customer_id", customerId)) {
-      for (const charge of ss.charges.findBy("payment_intent_id", pi.stripe_id)) ss.charges.delete(charge.id);
-      ss.paymentIntents.delete(pi.id);
-    }
+    for (const pi of ss.paymentIntents.findBy("customer_id", customerId)) deletePaymentIntent(ss, pi);
     for (const charge of ss.charges.findBy("customer_id", customerId)) ss.charges.delete(charge.id);
     for (const si of ss.setupIntents.findBy("customer_id", customerId)) ss.setupIntents.delete(si.id);
     for (const pm of ss.paymentMethods.findBy("customer_id", customerId)) ss.paymentMethods.delete(pm.id);

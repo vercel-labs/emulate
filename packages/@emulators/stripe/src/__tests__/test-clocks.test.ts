@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import Stripe from "stripe";
 import { createTestApp, captureWebhooks, api, sdk, type TestApp } from "./support.js";
-import { periodBoundary } from "../billing.js";
+import { getStripeStore } from "../store.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -269,7 +269,7 @@ describe("advance limits", () => {
   it("allows two years without subscriptions, and not a second more", async () => {
     const ctx = createTestApp();
     const clock = await createClock(ctx);
-    const limit = periodBoundary(T, "year", 1, 2);
+    const limit = Date.UTC(2028, 0, 15, 12) / 1000;
     const over = await api<Json>(ctx.app, "POST", `/v1/test_helpers/test_clocks/${clock.id}/advance`, {
       frozen_time: limit + 1,
     });
@@ -288,12 +288,20 @@ describe("advance limits", () => {
     const monthly = await clockCustomer(ctx, clock.id);
     expect((await subscribe(ctx, monthly.id, await recurringPrice(ctx, "month"))).status).toBe(200);
 
-    const twoMonths = periodBoundary(T, "month", 1, 2);
+    const twoMonths = Date.UTC(2026, 2, 15, 12) / 1000;
     const tooFar = await api<Json>(ctx.app, "POST", `/v1/test_helpers/test_clocks/${clock.id}/advance`, {
       frozen_time: twoMonths + 1,
     });
     expect(tooFar.status).toBe(400);
     expect(tooFar.body.error.param).toBe("frozen_time");
+
+    const other = await createClock(ctx);
+    const otherCustomer = await clockCustomer(ctx, other.id);
+    expect((await subscribe(ctx, otherCustomer.id, await recurringPrice(ctx, "month"))).status).toBe(200);
+    const exactly = await api<Json>(ctx.app, "POST", `/v1/test_helpers/test_clocks/${other.id}/advance`, {
+      frozen_time: twoMonths,
+    });
+    expect(exactly.status).toBe(200);
 
     const weekly = await clockCustomer(ctx, clock.id);
     expect((await subscribe(ctx, weekly.id, await recurringPrice(ctx, "week"))).status).toBe(200);
@@ -333,7 +341,7 @@ describe("clock scoping and limits", () => {
     }
     const fourth = await subscribe(ctx, customer.id, await recurringPrice(ctx, "day"));
     expect(fourth.status).toBe(400);
-    expect(fourth.body.error.type).toBe("invalid_request_error");
+    expect(fourth.body.error).toMatchObject({ type: "invalid_request_error", param: "customer" });
   });
 
   it("hides clock objects from unfiltered lists", async () => {
@@ -443,5 +451,42 @@ describe("deleting a test clock", () => {
 
     const again = await api<Json>(ctx.app, "DELETE", `/v1/test_helpers/test_clocks/${clock.id}`);
     expect(again.status).toBe(404);
+  });
+
+  it("also removes what is left on the clock of a customer deleted earlier", async () => {
+    const ctx = createTestApp();
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id);
+    const sub = await subscribe(ctx, customer.id, await recurringPrice(ctx));
+    const invoice = await api<Json>(ctx.app, "GET", `/v1/invoices/${sub.body.latest_invoice}?expand[]=payments`);
+    const piId = invoice.body.payments.data[0].payment.payment_intent as string;
+    const pending = await api<Json>(ctx.app, "POST", "/v1/invoiceitems", {
+      customer: customer.id,
+      amount: 500,
+      currency: "usd",
+    });
+    expect(pending.body.test_clock).toBe(clock.id);
+
+    expect((await api(ctx.app, "DELETE", `/v1/customers/${customer.id}`)).status).toBe(200);
+    const leftover = await api<Json>(ctx.app, "GET", `/v1/subscriptions/${sub.body.id}`);
+    expect(leftover.body).toMatchObject({ status: "canceled", test_clock: clock.id });
+
+    const res = await api<Json>(ctx.app, "DELETE", `/v1/test_helpers/test_clocks/${clock.id}`);
+    expect(res.status).toBe(200);
+
+    for (const path of [
+      `/v1/subscriptions/${sub.body.id}`,
+      `/v1/subscription_items/${sub.body.items.data[0].id}`,
+      `/v1/invoices/${invoice.body.id}`,
+      `/v1/invoice_payments/${invoice.body.payments.data[0].id}`,
+      `/v1/payment_intents/${piId}`,
+      `/v1/invoiceitems/${pending.body.id}`,
+    ]) {
+      const got = await api<Json>(ctx.app, "GET", path);
+      expect(got.status, path).toBe(404);
+    }
+    const ss = getStripeStore(ctx.store);
+    expect(ss.invoiceLineItems.findBy("invoice_id", invoice.body.id)).toEqual([]);
+    expect(ss.charges.findBy("payment_intent_id", piId)).toEqual([]);
   });
 });
