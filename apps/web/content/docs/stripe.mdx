@@ -198,9 +198,17 @@ stripe:
     after_retries:
       subscription: cancel
       invoice: open
+  test_clocks:
+    - id: clock_renewals
+      frozen_time: 1768478400
   customers:
     - email: test@example.com
       name: Test Customer
+    - id: cus_with_card
+      test_clock: clock_renewals
+      payment_method: pm_card_visa
+      invoice_settings:
+        default_payment_method: pm_card_visa
   products:
     - name: Pro Plan
   meters:
@@ -227,7 +235,7 @@ stripe:
           unit_amount: 2
 ```
 
-A price's `product` names a seeded product by name or id, and a metered price's `recurring.meter` names a meter by id or `event_name`. Seeded prices are validated like `POST /v1/prices`.
+A price's `product` names a seeded product by name or id, and a metered price's `recurring.meter` names a meter by id or `event_name`. Seeded prices are validated like `POST /v1/prices`. A customer's `payment_method` attaches a test card as a new `pm_`, `invoice_settings.default_payment_method` naming that same card makes it the default, and `test_clock` puts the customer on a seeded clock by id or name.
 
 ## Differences from Real Stripe
 

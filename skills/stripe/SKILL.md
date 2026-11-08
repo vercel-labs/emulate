@@ -146,10 +146,17 @@ Seed data is optional. All entities support an optional `id` field for determini
 ```yaml
 stripe:
   api_version: 2026-10-28.endive   # optional, stamped on every event
+  test_clocks:            # seeded before customers
+    - id: clock_demo
+      frozen_time: 1768478400
   customers:
     - id: cus_demo
       email: demo@example.com
       name: Demo User
+      payment_method: pm_card_visa          # attached as a new pm_
+      invoice_settings:
+        default_payment_method: pm_card_visa # the card above becomes the invoice default
+      test_clock: clock_demo                 # optional, by id or name
   meters:                 # seeded before prices; default_aggregation defaults to sum
     - id: mtr_test_api_calls
       display_name: API calls

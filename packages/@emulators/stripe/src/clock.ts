@@ -143,11 +143,11 @@ export function deleteTestClockObjects(ss: StripeStore, clock: StripeTestClock):
   ss.testClocks.delete(clock.id);
 }
 
-/** A new clock frozen at `frozenTime`. */
-export function insertTestClock(ss: StripeStore, frozenTime: number, name?: string): StripeTestClock {
+/** A new clock frozen at `frozenTime`. `id` gives a seeded clock a fixed id. */
+export function insertTestClock(ss: StripeStore, frozenTime: number, name?: string, id?: string): StripeTestClock {
   const created = wallClock();
   return ss.testClocks.insert({
-    stripe_id: stripeId("clock"),
+    stripe_id: id ?? stripeId("clock"),
     name,
     frozen_time: frozenTime,
     status: "ready",

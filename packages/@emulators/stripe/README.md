@@ -527,9 +527,19 @@ stripe:
     after_retries:
       subscription: cancel
       invoice: open
+  test_clocks:
+    - id: clock_renewals
+      frozen_time: 1768478400
+      name: Renewals
   customers:
     - name: Test Customer
       email: test@example.com
+    - id: cus_with_card
+      email: card@example.com
+      test_clock: clock_renewals
+      payment_method: pm_card_visa
+      invoice_settings:
+        default_payment_method: pm_card_visa
   meters:
     - display_name: API calls
       event_name: api_calls
@@ -558,7 +568,7 @@ stripe:
           unit_amount: 2
 ```
 
-Every key is optional. Seeded objects are created in this order: customers, products, meters, prices, then webhook endpoints.
+Every key is optional. Seeded objects are created in this order: test clocks, customers, meters, products with their prices, then webhook endpoints.
 
 | Key | Contents |
 |-----|----------|
@@ -566,10 +576,13 @@ Every key is optional. Seeded objects are created in this order: customers, prod
 | `webhooks` | Endpoints: `url`, `events` (`['*']` for every type), optional `secret` (deliveries are signed only with one) and `id`. Listed by `GET /v1/webhook_endpoints` |
 | `webhook_chaos` | Delivery faults applied from the start, with the body of `POST /_stripe/webhooks/chaos`. See [Webhook delivery model and chaos](#webhook-delivery-model-and-chaos) |
 | `billing` | `upcoming_renewal_days`, `retry_schedule_days` and `after_retries` (`subscription`, `invoice`), as in `POST /_stripe/billing/settings` |
-| `customers` | `email`, `name`, `description` and an optional `id` |
+| `test_clocks` | `frozen_time` (required), `name` and an optional `id`. Created `ready`, as by `POST /v1/test_helpers/test_clocks` |
+| `customers` | `email`, `name`, `description`, `metadata` and an optional `id`, plus `payment_method`, `invoice_settings.default_payment_method` and `test_clock` as described below |
 | `products` | `name`, `description` and an optional `id` |
 | `meters` | The params of `POST /v1/billing/meters` (`display_name`, `event_name`, `customer_mapping`, `value_settings`, `event_time_window`) with an optional `id`. `default_aggregation` defaults to `{formula: sum}` |
 | `prices` | The params of `POST /v1/prices`: `currency`, `unit_amount` or `unit_amount_decimal`, `recurring` (`interval`, `interval_count`, `usage_type`, `meter`), `billing_scheme`, `tiers`, `tiers_mode`, `transform_quantity`, `lookup_key`, `nickname`, `tax_behavior` and `metadata`, with an optional `id` |
+
+A seeded customer takes `payment_method` and `invoice_settings.default_payment_method` as `POST /v1/customers` does: `payment_method` is a test card id such as `pm_card_visa`, attached as a new `pm_` (listed by `GET /v1/payment_methods?customer=...`), and `default_payment_method` may name that same card, which then becomes the customer's `invoice_settings.default_payment_method`, so subscriptions charge it with no further setup. Any other default, or a card that declines on attach, stops the seed with an error. `test_clock` names a seeded clock by id or name; the customer and its card are then created at the clock's `frozen_time`, and at most three customers fit on one clock. Seeding emits no events. A customer whose `id` or `email` already exists is skipped, card included, so seeding the same config twice adds nothing.
 
 A price's `product` names a seeded product by name or id; the older `product_name` key still works. Seeded prices are validated like `POST /v1/prices`, so an invalid one stops the seed with an error. `tiers` without `billing_scheme` makes a tiered price, a tier's `up_to` takes `inf` for the last tier, and a seeded `lookup_key` moves from any price that already holds it. Meters are seeded before prices, so a metered price's `recurring.meter` can name a meter by id or by `event_name`. Optional `id` fields give deterministic ids that survive a restart.
 

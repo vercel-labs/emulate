@@ -720,7 +720,7 @@ describe("Seed examples in the docs", { timeout: 30_000 }, () => {
     // The README points at a local app; deliveries are captured here instead.
     const ctx = createTestApp({ seed: { ...seed, webhooks: [] }, webhook: true });
     const ss = getStripeStore(ctx.store);
-    expect(ss.customers.all().map((c) => c.email)).toEqual(["test@example.com"]);
+    expect(ss.customers.all().map((c) => c.email)).toEqual(["test@example.com", "card@example.com"]);
     expect(ss.billingMeters.all().map((m) => m.event_name)).toEqual(["api_calls"]);
     expect(ss.prices.all()).toHaveLength(2);
 
@@ -743,11 +743,13 @@ describe("Seed examples in the docs", { timeout: 30_000 }, () => {
     expect(monthly).toMatchObject({ unit_amount: 2000, recurring: { interval: "month" } });
     expect(metered).toMatchObject({ billing_scheme: "tiered", tiers_mode: "graduated" });
 
-    const clock = await stripe.testHelpers.testClocks.create({ frozen_time: T });
-    const customer = await stripe.customers.create({
+    // The seeded customer is on the seeded clock with a default card, so it subscribes as is.
+    const clock = await stripe.testHelpers.testClocks.retrieve("clock_renewals");
+    expect(clock.frozen_time).toBe(T);
+    const customer = await stripe.customers.retrieve("cus_with_card");
+    expect(customer).toMatchObject({
       test_clock: clock.id,
-      payment_method: "pm_card_visa",
-      invoice_settings: { default_payment_method: "pm_card_visa" },
+      invoice_settings: { default_payment_method: expect.stringMatching(/^pm_/) },
     });
     const subscription = await stripe.subscriptions.create({
       customer: customer.id,

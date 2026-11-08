@@ -35,6 +35,8 @@ import { meterEventRoutes } from "./routes/meter-events.js";
 import { billingPortalRoutes } from "./routes/billing-portal.js";
 import { hostedInvoiceRoutes } from "./routes/hosted-invoices.js";
 import { activeMeterFor } from "./metering.js";
+import { clockCustomers, insertTestClock, MAX_CLOCK_CUSTOMERS } from "./clock.js";
+import { attachPaymentMethod, notCustomersPaymentMethod } from "./routes/payment-methods.js";
 import { requestIdMiddleware, setStripeApiVersion, syncWebhookEndpoints } from "./events.js";
 import { parseChaosConfig, setWebhookChaos, type WebhookChaosInput } from "./chaos.js";
 import { getBillingSettings, parseBillingSettings, setBillingSettings, type BillingSettingsInput } from "./settings.js";
@@ -88,16 +90,36 @@ export interface StripeSeedMeter {
   event_time_window?: "day" | "hour";
 }
 
+export interface StripeSeedCustomer {
+  id?: string;
+  email?: string;
+  name?: string;
+  description?: string;
+  /**
+   * A payment method to attach, as `payment_method` on `POST /v1/customers`: a test card id
+   * such as `pm_card_visa`, which becomes a new `pm_` attached to the customer.
+   */
+  payment_method?: string;
+  /** `default_payment_method` may name the `payment_method` above, which makes the attached card the default. */
+  invoice_settings?: { default_payment_method?: string };
+  /** A seeded test clock, by id or by name. The customer is created at its `frozen_time`. */
+  test_clock?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface StripeSeedTestClock {
+  id?: string;
+  frozen_time: number;
+  name?: string;
+}
+
 export interface StripeSeedConfig {
   port?: number;
   /** API version stamped on events. Defaults to STRIPE_API_VERSION. */
   api_version?: string;
-  customers?: Array<{
-    id?: string;
-    email?: string;
-    name?: string;
-    description?: string;
-  }>;
+  /** Test clocks, seeded before customers so a customer can name one in `test_clock`. */
+  test_clocks?: Array<StripeSeedTestClock>;
+  customers?: Array<StripeSeedCustomer>;
   products?: Array<{
     id?: string;
     name: string;
@@ -168,6 +190,63 @@ function seedPrice(ss: StripeStore, productId: string, pr: StripeSeedPrice): voi
   ss.prices.insert({ stripe_id: pr.id ?? stripeId("price"), product_id: productId, ...definition });
 }
 
+function seedTestClock(ss: StripeStore, clock: StripeSeedTestClock): void {
+  if (clock.id && ss.testClocks.findOneBy("stripe_id", clock.id)) return;
+  if (!clock.id && clock.name !== undefined && ss.testClocks.findOneBy("name", clock.name)) return;
+  if (!Number.isInteger(clock.frozen_time)) {
+    throw new Error(
+      `Invalid stripe test clock ${clock.id ?? clock.name ?? ""}: frozen_time must be an integer timestamp`,
+    );
+  }
+  insertTestClock(ss, clock.frozen_time, clock.name, clock.id);
+}
+
+/**
+ * Insert a seeded customer with the checks `POST /v1/customers` applies to `payment_method`,
+ * `invoice_settings[default_payment_method]` and `test_clock`. A seeded customer whose id or
+ * email already exists is skipped, so seeding the same config twice adds nothing.
+ */
+function seedCustomer(ss: StripeStore, c: StripeSeedCustomer): void {
+  if (c.id && ss.customers.findOneBy("stripe_id", c.id)) return;
+  if (c.email && ss.customers.findOneBy("email", c.email)) return;
+  const label = c.id ?? c.email ?? c.name ?? "";
+  const fail = (message: string, param?: string): never => {
+    throw new Error(`Invalid stripe customer ${label}: ${message}${param ? ` (${param})` : ""}`);
+  };
+
+  const clock = c.test_clock
+    ? (ss.testClocks.findOneBy("stripe_id", c.test_clock) ?? ss.testClocks.findOneBy("name", c.test_clock))
+    : undefined;
+  if (c.test_clock && !clock) fail(`No such test_clock: '${c.test_clock}'`, "test_clock");
+  if (clock && clockCustomers(ss, clock.stripe_id).length >= MAX_CLOCK_CUSTOMERS) {
+    fail(`A test clock can have at most ${MAX_CLOCK_CUSTOMERS} customers.`, "test_clock");
+  }
+  const defaultPaymentMethod = c.invoice_settings?.default_payment_method;
+  if (defaultPaymentMethod && defaultPaymentMethod !== c.payment_method) {
+    const error = notCustomersPaymentMethod(defaultPaymentMethod);
+    fail(error.message, error.param);
+  }
+
+  const customer = ss.customers.insert({
+    stripe_id: c.id ?? stripeId("cus"),
+    email: c.email ?? null,
+    name: c.name ?? null,
+    description: c.description ?? null,
+    metadata: { ...c.metadata },
+    ...(clock && { test_clock: clock.stripe_id, created: clock.frozen_time }),
+  });
+  if (!c.payment_method) return;
+  const attached = attachPaymentMethod(ss, c.payment_method, customer.stripe_id);
+  if (!attached.ok) {
+    ss.customers.delete(customer.id);
+    fail(attached.error.message, attached.error.param ?? "payment_method");
+    return;
+  }
+  if (defaultPaymentMethod) {
+    ss.customers.update(customer.id, { invoice_settings: { default_payment_method: attached.value.pm.stripe_id } });
+  }
+}
+
 function seedDefaults(store: Store, _baseUrl: string): void {
   const ss = getStripeStore(store);
 
@@ -192,21 +271,8 @@ export function seedFromConfig(
     setStripeApiVersion(store, config.api_version);
   }
 
-  if (config.customers) {
-    for (const c of config.customers) {
-      if (c.email) {
-        const existing = ss.customers.findOneBy("email", c.email);
-        if (existing) continue;
-      }
-      ss.customers.insert({
-        stripe_id: c.id ?? stripeId("cus"),
-        email: c.email ?? null,
-        name: c.name ?? null,
-        description: c.description ?? null,
-        metadata: {},
-      });
-    }
-  }
+  for (const clock of config.test_clocks ?? []) seedTestClock(ss, clock);
+  for (const c of config.customers ?? []) seedCustomer(ss, c);
 
   for (const m of config.meters ?? []) {
     if (m.id && ss.billingMeters.findOneBy("stripe_id", m.id)) continue;
