@@ -1343,6 +1343,29 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     charge: {
       refunds: (parent) => emptyList(`/v1/charges/${String(parent.id)}/refunds`),
     },
+    customer: {
+      subscriptions: (parent) => {
+        const id = String(parent.id);
+        // "The customer's current subscriptions": every one not canceled, newest first, as the list endpoint returns them.
+        const current = ss.subscriptions
+          .findBy("customer_id", id)
+          .filter((sub) => sub.status !== "canceled")
+          .sort((a, b) => b.created - a.created || b.id - a.id);
+        return embeddedList(current, `/v1/customers/${id}/subscriptions`, (sub) => formatSubscription(ss, sub));
+      },
+      // Payment sources and tax ids are not modelled, so these lists are always empty.
+      sources: (parent) => emptyList(`/v1/customers/${String(parent.id)}/sources`),
+      tax_ids: (parent) => emptyList(`/v1/customers/${String(parent.id)}/tax_ids`),
+      cash_balance: (parent) => ({
+        object: "cash_balance",
+        available: null,
+        customer: String(parent.id),
+        customer_account: null,
+        livemode: false,
+        settings: { reconciliation_mode: "automatic", using_merchant_default: true },
+      }),
+      invoice_credit_balance: () => ({}),
+    },
     "checkout.session": {
       line_items: (parent) => {
         const session = ss.checkoutSessions.findOneBy("stripe_id", String(parent.id));

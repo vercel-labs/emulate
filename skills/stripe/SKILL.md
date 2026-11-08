@@ -213,6 +213,8 @@ Every `/v1` response includes a `Request-Id: req_...` header. Retrieve, create a
 ```typescript
 const pi = await stripe.paymentIntents.retrieve('pi_xxx', { expand: ['customer'] })
 const charges = await stripe.charges.list({ expand: ['data.payment_intent.customer'] })
+// Includable lists: a customer's current (not canceled) subscriptions, for an entitlement check
+const customer = await stripe.customers.retrieve('cus_xxx', { expand: ['subscriptions'] })
 ```
 
 ### Events
