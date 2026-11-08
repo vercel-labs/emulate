@@ -29,6 +29,8 @@ import {
   readSubscriptionPrice,
   requestedCancellation,
   resumeSubscription,
+  sendTrialWillEnd,
+  TRIAL_WILL_END_LEAD,
   unscheduleCancellation,
   type PaymentBehavior,
   type SubscriptionItemInput,
@@ -622,11 +624,22 @@ export function subscriptionRoutes(ctx: RouteContext): void {
 
     const ev = eventBatch(ctx, c);
     let sub = ss.subscriptions.update(found.id, updates)!;
-    if (trialEnd === "now") sub = endTrialNow(ctx, ev, sub);
-    else if (trialEnd !== undefined) sub = extendTrial(ss, sub, trialEnd);
-    const after = emitSubscriptionChange(ss, ev, sub, before);
+    if (trialEnd === "now") {
+      sub = endTrialNow(ctx, ev, sub, before);
+    } else {
+      if (trialEnd !== undefined) sub = extendTrial(ss, sub, trialEnd);
+      emitSubscriptionChange(ss, ev, sub, before);
+      // A trial shortened to within three days of its end is warned about in the same request.
+      if (
+        trialEnd !== undefined &&
+        trialEnd - now <= TRIAL_WILL_END_LEAD &&
+        sub.trial_will_end_sent_for !== sub.trial_end
+      ) {
+        sub = sendTrialWillEnd(ss, ev, sub);
+      }
+    }
     await ev.commit();
-    return expandedJson(c, after, expand, body);
+    return expandedJson(c, render(sub), expand, body);
   });
 
   app.post("/v1/subscriptions/:id/pause", async (c) => {

@@ -11,8 +11,11 @@ import {
   applyResume,
   createInvoice,
   finalizeInvoice,
+  invoicePaymentMethodId,
   noPaymentMethodError,
   payInvoice,
+  recordSkippedRetry,
+  setDelinquent,
   type InvoicingContext,
   type LineFields,
 } from "./invoicing.js";
@@ -237,6 +240,12 @@ function collectSubscriptionInvoice(
   if (finalized.invoice.status !== "open" || !attempt || sub.collection_method !== "charge_automatically") {
     return undefined;
   }
+  if (!invoicePaymentMethodId(getStripeStore(ctx.store), finalized.invoice)) {
+    // As when a draft auto-advances: the attempt is counted and fails, and retries are scheduled.
+    recordSkippedRetry(ctx, ev, finalized.invoice);
+    setDelinquent(ctx, ev, finalized.invoice.customer_id, true);
+    return noPaymentMethodError();
+  }
   const paid = payInvoice(ctx, ev, finalized.invoice, { automatic: true, offSession: sub.off_session ?? false });
   return paid.ok ? undefined : paid.error;
 }
@@ -371,22 +380,57 @@ export function createSubscription(
 
   const current = ss.subscriptions.get(sub.id)!;
   if (trial && current.trial_end! - now <= TRIAL_WILL_END_LEAD) {
-    const warned = ss.subscriptions.update(sub.id, { trial_will_end_sent_for: current.trial_end })!;
-    ev.emit("customer.subscription.trial_will_end", formatSubscription(ss, warned));
-    return { ok: true, sub: warned };
+    return { ok: true, sub: sendTrialWillEnd(ss, ev, current) };
   }
   return { ok: true, sub: current };
 }
 
 /**
- * End a trial now: a new billing period starts, the subscription turns `active` and the
- * period is invoiced with `billing_reason` `subscription_update`. A failed payment leaves it
- * `past_due`. The caller sends customer.subscription.updated.
+ * Send customer.subscription.trial_will_end for the trial ending at `sub.trial_end`, and
+ * remember it so the warning goes out once per trial end.
  */
-export function endTrialNow(ctx: InvoicingContext, ev: EventBatch, sub: StripeSubscription): StripeSubscription {
+export function sendTrialWillEnd(ss: StripeStore, ev: EventBatch, sub: StripeSubscription): StripeSubscription {
+  const warned = ss.subscriptions.update(sub.id, { trial_will_end_sent_for: sub.trial_end })!;
+  ev.emit("customer.subscription.trial_will_end", formatSubscription(ss, warned));
+  return warned;
+}
+
+/**
+ * End a trial now, as `trial_end=now` does. `sub` carries the request's other changes and
+ * `before` is the subscription as rendered before the request. A new billing period starts,
+ * the subscription turns `active` and the period is invoiced with `billing_reason`
+ * `subscription_update`; a failed attempt, including one with no payment method to charge,
+ * leaves it `past_due` with retries scheduled. As with a scheduled trial end, a subscription
+ * whose `missing_payment_method` is `cancel` or `pause` and that has no payment method is
+ * canceled or paused instead, without an invoice.
+ *
+ * Sends customer.subscription.updated for the whole request and then
+ * customer.subscription.trial_will_end (unless this trial was already warned about), before
+ * the invoice events, as at creation and at a scheduled trial end.
+ */
+export function endTrialNow(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  before: Record<string, unknown>,
+): StripeSubscription {
   const ss = getStripeStore(ctx.store);
   const now = nowFor(ss, { customerId: sub.customer_id });
   const items = subscriptionItems(ss, sub.stripe_id);
+  if (trialEndsWithoutInvoice(ss, sub)) {
+    // The request's other changes, if any, are announced before the trial ends.
+    emitSubscriptionChange(ss, ev, sub, before);
+    if (sub.trial_missing_payment_method === "cancel") {
+      for (const item of items) ss.subscriptionItems.update(item.id, { current_period_end: now });
+      return cancelSubscription(ctx, ev, ss.subscriptions.update(sub.id, { trial_end: now })!);
+    }
+    return pauseSubscription(ctx, ev, sub, "trial_end_without_payment_method", {
+      endPeriod: true,
+      updates: { trial_end: now },
+    });
+  }
+
+  const warned = sub.trial_will_end_sent_for === sub.trial_end;
   const { interval, interval_count } = subscriptionInterval(ss, items);
   const end = nextPeriodEnd(now, interval, interval_count, now);
   for (const item of items)
@@ -397,11 +441,20 @@ export function endTrialNow(ctx: InvoicingContext, ev: EventBatch, sub: StripeSu
     billing_cycle_anchor: now,
     cancel_at: sub.cancel_at_period_end ? end : sub.cancel_at,
   })!;
-  const inv = invoiceSubscription(ctx, ev, active, "subscription_update", false, true);
+  const held = deferredBatch();
+  const inv = invoiceSubscription(ctx, held, active, "subscription_update", false, true);
+  const announced = ss.subscriptions.get(sub.id)!;
+  emitSubscriptionChange(ss, ev, announced, before);
+  if (!warned) sendTrialWillEnd(ss, ev, announced);
+  held.replay(ev);
+
   const failure = collectSubscriptionInvoice(ctx, ev, active, ss.invoices.get(inv.id) ?? inv, true);
   const current = ss.subscriptions.get(sub.id)!;
-  if (failure && current.status === "active") return ss.subscriptions.update(sub.id, { status: "past_due" })!;
-  return current;
+  if (!failure || current.status !== "active") return current;
+  const unpaid = formatSubscription(ss, current);
+  const pastDue = ss.subscriptions.update(sub.id, { status: "past_due" })!;
+  emitSubscriptionChange(ss, ev, pastDue, unpaid);
+  return pastDue;
 }
 
 /** The period the items of a subscription are in now. */
@@ -603,15 +656,15 @@ export function cancelSubscription(
 /**
  * Move a subscription to `paused` and record why in `status_details.paused`. A paused
  * subscription does not renew or create invoices. `endPeriod` ends the items' current period
- * at the pause, as the pause endpoint does. Sends customer.subscription.updated and then
- * customer.subscription.paused.
+ * at the pause, as the pause endpoint does, and `updates` go into the same change. Sends
+ * customer.subscription.updated and then customer.subscription.paused.
  */
 export function pauseSubscription(
   ctx: InvoicingContext,
   ev: EventBatch,
   sub: StripeSubscription,
   reason: SubscriptionPauseReason,
-  options: { endPeriod?: boolean } = {},
+  options: { endPeriod?: boolean; updates?: Partial<StripeSubscription> } = {},
 ): StripeSubscription {
   const ss = getStripeStore(ctx.store);
   const before = formatSubscription(ss, sub);
@@ -622,6 +675,7 @@ export function pauseSubscription(
     }
   }
   const paused = ss.subscriptions.update(sub.id, {
+    ...options.updates,
     status: "paused",
     paused_details: { reason, transitioned_at: now },
   })!;

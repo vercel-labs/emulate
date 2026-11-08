@@ -260,6 +260,115 @@ describe("Trial end without a payment method", () => {
   });
 });
 
+describe("Ending a trial early with trial_end=now", () => {
+  it("counts the attempt without a card, goes past_due and retries on the schedule", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { clock, customer, sub } = await cardlessTrial(ctx, "create_invoice");
+    const hooks = captureWebhooks();
+    const res = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}`, { trial_end: "now" });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.status).toBe("past_due");
+
+    const inv = await getInvoice(ctx, res.body.latest_invoice);
+    expect(inv).toMatchObject({ status: "open", attempt_count: 1, attempted: true, billing_reason: "subscription_update" });
+    expect(inv.next_payment_attempt).toBe(T + 3 * DAY);
+    expect(hooks.ofType("invoice.payment_failed")).toHaveLength(1);
+    expect((await api<Json>(ctx.app, "GET", `/v1/customers/${customer.id}`)).body.delinquent).toBe(true);
+
+    await advance(ctx, clock.id, T + 3 * DAY + HOUR);
+    expect((await getInvoice(ctx, inv.id)).attempt_count).toBe(2);
+    await advance(ctx, clock.id, T + 16 * DAY);
+    expect((await getSub(ctx, sub.id)).status).toBe("canceled");
+  });
+
+  it("applies missing_payment_method cancel or pause instead of invoicing", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const canceled = await cardlessTrial(ctx, "cancel");
+    const hooks = captureWebhooks();
+    const res = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${canceled.sub.id}`, { trial_end: "now" });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({ status: "canceled", trial_end: T, ended_at: T });
+    expect(types(hooks.events)).toEqual(["customer.subscription.deleted"]);
+    expect(await subInvoices(ctx, canceled.sub.id)).toHaveLength(1);
+
+    const paused = await cardlessTrial(ctx, "pause");
+    const pausedRes = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${paused.sub.id}`, { trial_end: "now" });
+    expect(pausedRes.body).toMatchObject({ status: "paused", trial_end: T });
+    expect(pausedRes.body.status_details.paused.subscription.type).toBe("trial_end_without_payment_method");
+    expect(pausedRes.body.items.data[0].current_period_end).toBe(T);
+    expect(await subInvoices(ctx, paused.sub.id)).toHaveLength(1);
+  });
+
+  it("announces the subscription once, then trial_will_end, before the invoice events", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const clock = await createClock(ctx);
+    const customer = await clockCustomer(ctx, clock.id, "pm_card_visa");
+    const created = await api<Json>(ctx.app, "POST", "/v1/subscriptions", {
+      customer: customer.id,
+      items: [{ price: await monthlyPrice(ctx) }],
+      trial_period_days: 7,
+      payment_settings: { save_default_payment_method: "on_subscription" },
+    });
+    expect(created.body.default_payment_method).toBeNull();
+    const hooks = captureWebhooks();
+    const res = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${created.body.id}`, {
+      trial_end: "now",
+      metadata: { ended: "early" },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.status).toBe("active");
+    expect(res.body.default_payment_method).not.toBeNull();
+
+    const seen = types(hooks.events);
+    expect(seen.slice(0, 3)).toEqual([
+      "customer.subscription.updated",
+      "customer.subscription.trial_will_end",
+      "invoice.created",
+    ]);
+    const updates = hooks.ofType("customer.subscription.updated");
+    expect(Object.keys(updates[0].data.previous_attributes ?? {}).sort()).toEqual(
+      ["billing_cycle_anchor", "items", "latest_invoice", "metadata", "status", "trial_end"].sort(),
+    );
+    expect(obj(updates[0])).toMatchObject({ status: "active", trial_end: T });
+    const savedCard = updates.filter((e) => "default_payment_method" in (e.data.previous_attributes ?? {}));
+    expect(savedCard).toHaveLength(1);
+    expect(seen.indexOf("invoice.paid")).toBeLessThan(seen.lastIndexOf("customer.subscription.updated"));
+    expect(obj(hooks.ofType("customer.subscription.trial_will_end")[0])).toMatchObject({ trial_end: T });
+
+    // The scheduler does not warn again for the trial that already ended.
+    await advance(ctx, clock.id, T + 10 * DAY);
+    expect(hooks.ofType("customer.subscription.trial_will_end")).toHaveLength(1);
+  });
+
+  it("does not warn again for a trial already warned about", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { clock, sub } = await cardlessTrial(ctx, "create_invoice");
+    await advance(ctx, clock.id, TRIAL_END - 2 * DAY);
+    const hooks = captureWebhooks();
+    await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}`, { trial_end: "now" });
+    expect(hooks.ofType("customer.subscription.trial_will_end")).toHaveLength(0);
+  });
+});
+
+describe("Shortening a trial", () => {
+  it("sends trial_will_end in the update request when fewer than three days remain", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { clock, sub } = await cardlessTrial(ctx, "create_invoice");
+    const hooks = captureWebhooks();
+    const res = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}`, { trial_end: T + 2 * DAY });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(types(hooks.events)).toEqual(["customer.subscription.updated", "customer.subscription.trial_will_end"]);
+    expect(obj(hooks.ofType("customer.subscription.trial_will_end")[0]).trial_end).toBe(T + 2 * DAY);
+
+    await advance(ctx, clock.id, T + DAY);
+    expect(hooks.ofType("customer.subscription.trial_will_end")).toHaveLength(1);
+
+    const later = await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}`, { trial_end: T + 20 * DAY });
+    expect(later.status).toBe(200);
+    expect(hooks.ofType("customer.subscription.trial_will_end")).toHaveLength(1);
+  });
+});
+
 describe("POST /v1/subscriptions/:id/pause", () => {
   it("pauses an active subscription with pause_requested", async () => {
     const ctx = createTestApp({ webhook: true });

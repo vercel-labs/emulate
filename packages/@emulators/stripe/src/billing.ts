@@ -20,6 +20,7 @@ import {
   nextRenewalPeriod,
   pauseSubscription,
   renewSubscription,
+  sendTrialWillEnd,
   subscriptionLines,
   TRIAL_WILL_END_LEAD,
   trialEndsWithoutInvoice,
@@ -265,8 +266,7 @@ function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, froze
       rank: RANK.trialWillEnd,
       key: sub.id,
       run(ev) {
-        const warned = ss.subscriptions.update(sub.id, { trial_will_end_sent_for: sub.trial_end })!;
-        ev.emit("customer.subscription.trial_will_end", formatSubscription(ss, warned));
+        sendTrialWillEnd(ss, ev, sub);
       },
     });
   }
