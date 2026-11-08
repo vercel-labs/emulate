@@ -658,6 +658,10 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - `GET /v1/prices` without `active` lists inactive prices too.
 - Products have no update or delete API yet, so `updated` equals `created`. `default_price_data`, `marketing_features`, `package_dimensions` and `tax_code` are not modelled.
 
+## Credits
+
+The Billing emulation (subscriptions, invoices, test clocks, meters, the portal and saved payment methods, tracked in [#324](https://github.com/vercel-labs/emulate/issues/324) and [#325](https://github.com/vercel-labs/emulate/issues/325)) builds on earlier proposals: [PR #194](https://github.com/vercel-labs/emulate/pull/194) by [Ansonhkg](https://github.com/Ansonhkg), "Add Creem and expanded Stripe billing emulation", and the Stripe billing work in the separate [josh-vincent/emulate](https://github.com/josh-vincent/emulate) fork. Thank you both.
+
 ## Links
 
 - [Full documentation](https://emulate.dev)
