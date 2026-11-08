@@ -415,6 +415,40 @@ describe("clock scoping and limits", () => {
     expect(again.status).toBe(400);
     expect(again.body.error.param).toBe("customer");
   });
+
+  it("catches up an attached subscription whose period ended before the clock's time without moving it back", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const now = Math.floor(Date.now() / 1000);
+    const customer = await api<Json>(ctx.app, "POST", "/v1/customers", {
+      email: "existing@example.com",
+      payment_method: "pm_card_visa",
+      invoice_settings: { default_payment_method: "pm_card_visa" },
+    });
+    const sub = await subscribe(ctx, customer.body.id, await recurringPrice(ctx));
+    expect(sub.body.status).toBe("active");
+    const periodEnd = sub.body.items.data[0].current_period_end as number;
+
+    const start = now + 45 * DAY;
+    expect(periodEnd).toBeLessThan(start);
+    const clock = await api<Json>(ctx.app, "POST", "/v1/test_helpers/test_clocks", {
+      frozen_time: start,
+      customer: customer.body.id,
+    });
+    expect(clock.status).toBe(200);
+    const hooks = captureWebhooks();
+    const advanced = await api<Json>(ctx.app, "POST", `/v1/test_helpers/test_clocks/${clock.body.id}/advance`, {
+      frozen_time: start + DAY,
+    });
+    expect(advanced.status, JSON.stringify(advanced.body)).toBe(200);
+
+    const billing = hooks.events.filter((e) => !e.type.startsWith("test_helpers."));
+    expect(billing.length).toBeGreaterThan(0);
+    for (const event of billing) expect(event.created, event.type).toBeGreaterThanOrEqual(start);
+    const renewal = hooks.ofType("invoice.created")[0];
+    expect((renewal.data.object as unknown as Json).created).toBeGreaterThanOrEqual(start);
+    const stored = await api<Json>(ctx.app, "GET", `/v1/test_helpers/test_clocks/${clock.body.id}`);
+    expect(stored.body.frozen_time).toBe(start + DAY);
+  });
 });
 
 describe("deleting a test clock", () => {

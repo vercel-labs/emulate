@@ -295,7 +295,8 @@ function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, froze
   }
 
   actions.push({
-    at: ending ? sub.cancel_at! : boundary,
+    // A subscription attached to a clock later than its boundary catches up at the clock's time.
+    at: Math.max(ending ? sub.cancel_at! : boundary, frozenTime),
     rank: RANK.period,
     key: sub.id,
     run(ev) {
@@ -375,7 +376,8 @@ export async function runBillingUntil(ctx: BillingContext, clockId: string, targ
     if (!clock) return true;
     const next = earliest(scheduledActions(ctx, clock).filter((action) => action.at <= target));
     if (!next) return true;
-    if (next.at !== clock.frozen_time) ss.testClocks.update(clock.id, { frozen_time: next.at });
+    // A clock only moves forward; every action is clamped to frozen_time, so this never goes back.
+    if (next.at > clock.frozen_time) ss.testClocks.update(clock.id, { frozen_time: next.at });
     const ev = eventBatch(ctx, undefined, next.at);
     next.run(ev);
     await ev.commit();
