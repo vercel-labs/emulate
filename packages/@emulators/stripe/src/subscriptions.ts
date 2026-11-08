@@ -8,6 +8,7 @@ import { priceAmount } from "./pricing.js";
 import { priceLines, productName } from "./lines.js";
 import { usageLines } from "./metering.js";
 import {
+  applyResume,
   createInvoice,
   finalizeInvoice,
   NO_PAYMENT_METHOD_MESSAGE,
@@ -18,6 +19,7 @@ import {
 import type { StripeErrorSpec } from "./routes/payment-methods.js";
 import type {
   InvoiceBillingReason,
+  ResumePaymentBehavior,
   StripeInvoice,
   StripePrice,
   StripeSubscription,
@@ -444,11 +446,33 @@ function startCycle(
 }
 
 /**
+ * Whether the trial of `sub` would end by canceling or pausing it rather than invoicing: it
+ * collects automatically, `trial_settings.end_behavior.missing_payment_method` is `cancel` or
+ * `pause`, and neither the subscription nor its customer has a default payment method.
+ * Payment sources are not modelled, so `default_source` never counts.
+ */
+export function trialEndsWithoutInvoice(ss: StripeStore, sub: StripeSubscription): boolean {
+  const behavior = sub.trial_missing_payment_method;
+  return (
+    sub.collection_method === "charge_automatically" &&
+    (behavior === "cancel" || behavior === "pause") &&
+    !subscriptionPaymentMethod(ss, sub.customer_id, sub.default_payment_method)
+  );
+}
+
+/**
  * The scheduled end of a trial: the subscription turns `active`, `billing_cycle_anchor` moves
- * to the trial end and the first paid period is invoiced as a `subscription_cycle` draft.
+ * to the trial end and the first paid period is invoiced as a `subscription_cycle` draft. With
+ * no payment method on file, `missing_payment_method` may instead cancel the subscription or
+ * pause it (`trial_end_without_payment_method`), and then no invoice is created.
  */
 export function endTrialOnSchedule(ctx: InvoicingContext, ev: EventBatch, sub: StripeSubscription): StripeSubscription {
   const ss = getStripeStore(ctx.store);
+  if (trialEndsWithoutInvoice(ss, sub)) {
+    return sub.trial_missing_payment_method === "cancel"
+      ? cancelSubscription(ctx, ev, sub)
+      : pauseSubscription(ctx, ev, sub, "trial_end_without_payment_method");
+  }
   const trialEnd = sub.trial_end!;
   const { interval, interval_count } = subscriptionInterval(ss, subscriptionItems(ss, sub.stripe_id));
   return startCycle(
@@ -540,6 +564,7 @@ export function cancelSubscription(
   }
   const canceled = ss.subscriptions.update(sub.id, {
     status: "canceled",
+    pending_resume: undefined,
     // A scheduled cancellation keeps the time it was requested, as Stripe documents for canceled_at.
     canceled_at: options.scheduled ? (sub.canceled_at ?? now) : now,
     ended_at: now,
@@ -555,7 +580,8 @@ export function cancelSubscription(
 
 /**
  * Move a subscription to `paused` and record why in `status_details.paused`. A paused
- * subscription does not renew or create invoices. Sends customer.subscription.updated and then
+ * subscription does not renew or create invoices. `endPeriod` ends the items' current period
+ * at the pause, as the pause endpoint does. Sends customer.subscription.updated and then
  * customer.subscription.paused.
  */
 export function pauseSubscription(
@@ -563,16 +589,98 @@ export function pauseSubscription(
   ev: EventBatch,
   sub: StripeSubscription,
   reason: SubscriptionPauseReason,
+  options: { endPeriod?: boolean } = {},
 ): StripeSubscription {
   const ss = getStripeStore(ctx.store);
   const before = formatSubscription(ss, sub);
+  const now = nowFor(ss, { customerId: sub.customer_id });
+  if (options.endPeriod) {
+    for (const item of subscriptionItems(ss, sub.stripe_id)) {
+      ss.subscriptionItems.update(item.id, { current_period_end: now });
+    }
+  }
   const paused = ss.subscriptions.update(sub.id, {
     status: "paused",
-    paused_details: { reason, transitioned_at: nowFor(ss, { customerId: sub.customer_id }) },
+    paused_details: { reason, transitioned_at: now },
   })!;
   const after = emitSubscriptionChange(ss, ev, paused, before);
   ev.emit("customer.subscription.paused", after);
   return paused;
+}
+
+/** With `resume_on_payment_attempt`, a resumption invoice nobody attempts within 23 hours is voided. */
+export const RESUME_ATTEMPT_WINDOW = 23 * 3600;
+
+/** With `resume_on_payment_success`, the resumption invoice stays payable for a year. */
+export const RESUME_SUCCESS_WINDOW = 365 * 86400;
+
+export interface ResumeParams {
+  anchor: "now" | "unchanged";
+  paymentBehavior: ResumePaymentBehavior;
+}
+
+/**
+ * Resume a paused subscription. With `billing_cycle_anchor` `unchanged` no proration is
+ * modelled, so it turns `active` at once and its items start a period that runs from now to the
+ * anchor's next boundary. With `now`, a resumption invoice for a new period starting now is
+ * created with `billing_reason` `subscription_update` and finalized, and the subscription stays
+ * paused, with the resumption in `pending_update`, until that invoice is settled.
+ * `resume_on_payment_success` attempts it at once and retries it on the schedule; a failure
+ * leaves the subscription paused. `resume_on_payment_attempt` leaves the attempt to the caller.
+ */
+export function resumeSubscription(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  params: ResumeParams,
+): SubscriptionResult {
+  const ss = getStripeStore(ctx.store);
+  const now = nowFor(ss, { customerId: sub.customer_id });
+  const items = subscriptionItems(ss, sub.stripe_id);
+  const { interval, interval_count } = subscriptionInterval(ss, items);
+  if (params.anchor === "unchanged") {
+    const anchor = sub.billing_cycle_anchor;
+    const period = { start: now, end: nextPeriodEnd(anchor, interval, interval_count, now) };
+    return { ok: true, sub: applyResume(ctx, ev, sub, { billing_cycle_anchor: anchor, period }, "active") };
+  }
+
+  const target = {
+    billing_cycle_anchor: now,
+    period: { start: now, end: nextPeriodEnd(now, interval, interval_count, now) },
+  };
+  const lines = subscriptionLines(ss, sub, items, target.period, false);
+  const success = params.paymentBehavior === "resume_on_payment_success";
+  const due = lines.reduce((sum, line) => sum + line.amount, 0);
+  if (success && due > 0 && !subscriptionPaymentMethod(ss, sub.customer_id, sub.default_payment_method)) {
+    return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
+  }
+
+  const before = formatSubscription(ss, sub);
+  const inv = createInvoice(ctx, ev, {
+    customerId: sub.customer_id,
+    currency: sub.currency,
+    collectionMethod: sub.collection_method,
+    autoAdvance: success,
+    billingReason: "subscription_update",
+    subscriptionId: sub.stripe_id,
+    subscriptionMetadata: { ...sub.metadata },
+    lines,
+  });
+  const pending = ss.subscriptions.update(sub.id, {
+    latest_invoice: inv.stripe_id,
+    pending_resume: {
+      ...target,
+      invoice_id: inv.stripe_id,
+      payment_behavior: params.paymentBehavior,
+      expires_at: now + (success ? RESUME_SUCCESS_WINDOW : RESUME_ATTEMPT_WINDOW),
+    },
+  })!;
+  emitSubscriptionChange(ss, ev, pending, before);
+  const finalized = finalizeInvoice(ctx, ev, ss.invoices.get(inv.id) ?? inv);
+  if (finalized.ok && finalized.invoice.status === "open" && success) {
+    payInvoice(ctx, ev, finalized.invoice, { automatic: true, offSession: true });
+  }
+  return { ok: true, sub: ss.subscriptions.get(sub.id)! };
 }
 
 /** Send customer.subscription.updated when the rendered subscription changed. */

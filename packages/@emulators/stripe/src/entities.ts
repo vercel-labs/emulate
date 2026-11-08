@@ -503,6 +503,23 @@ export interface StripeSubscription extends Entity {
   upcoming_sent_for?: number;
   /** The last transition to `paused`, rendered as `status_details.paused`. */
   paused_details?: StripeSubscriptionPauseDetails;
+  /** A resumption waiting on its invoice, rendered as `pending_update`. */
+  pending_resume?: StripeSubscriptionPendingResume;
+}
+
+export type ResumePaymentBehavior = "resume_on_payment_attempt" | "resume_on_payment_success";
+
+/** Where a resumed subscription's billing restarts: its new anchor and the items' first period. */
+export interface StripeSubscriptionResumeTarget {
+  billing_cycle_anchor: number;
+  period: { start: number; end: number };
+}
+
+export interface StripeSubscriptionPendingResume extends StripeSubscriptionResumeTarget {
+  invoice_id: string;
+  payment_behavior: ResumePaymentBehavior;
+  /** When Stripe voids the resumption invoice and the subscription stays paused. */
+  expires_at: number;
 }
 
 export type SubscriptionPauseReason =

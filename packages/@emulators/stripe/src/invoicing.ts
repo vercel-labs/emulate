@@ -13,6 +13,7 @@ import {
   formatSubscription,
   invoiceAmounts,
   invoiceLines,
+  subscriptionItems,
 } from "./formatters.js";
 import { attemptPayment, newClientSecret, resolvePaymentMethod, type PaymentContext } from "./payments.js";
 import { attachPaymentMethod, type StripeErrorSpec } from "./routes/payment-methods.js";
@@ -29,6 +30,8 @@ import type {
   StripePaymentIntent,
   StripePaymentMethod,
   StripeSubscription,
+  StripeSubscriptionPendingResume,
+  StripeSubscriptionResumeTarget,
   SubscriptionStatus,
 } from "./entities.js";
 
@@ -348,7 +351,8 @@ const SETTLED_BY_RESOLUTION: readonly SubscriptionStatus[] = ["past_due", "unpai
 /**
  * Settling a subscription's latest invoice makes a subscription in one of the `from` statuses
  * `active`, and with `save_default_payment_method=on_subscription` saves the card that paid as
- * the subscription's default. Sends customer.subscription.updated when either changes.
+ * the subscription's default. Sends customer.subscription.updated when either changes. Settling
+ * the resumption invoice of a paused subscription resumes it.
  */
 function settleSubscriptionInvoice(
   ctx: InvoicingContext,
@@ -366,10 +370,68 @@ function settleSubscriptionInvoice(
   if (sub.save_default_payment_method === "on_subscription" && paidWith && sub.default_payment_method !== paidWith) {
     updates.default_payment_method = paidWith;
   }
+  const resume = pendingResumeFor(sub, inv);
+  if (resume) {
+    applyResume(ctx, ev, sub, resume, "active", updates);
+    return;
+  }
   if (Object.keys(updates).length === 0) return;
   const before = formatSubscription(ss, sub);
   const after = formatSubscription(ss, ss.subscriptions.update(sub.id, updates)!);
   ev.emit("customer.subscription.updated", after, previousAttributes(before, after));
+}
+
+/** The resumption `inv` settles, when `sub` is paused waiting on it. */
+function pendingResumeFor(sub: StripeSubscription, inv: StripeInvoice): StripeSubscriptionPendingResume | undefined {
+  return sub.status === "paused" && sub.pending_resume?.invoice_id === inv.stripe_id ? sub.pending_resume : undefined;
+}
+
+/**
+ * Resume a paused subscription: every item starts the period of `target`, the anchor moves to
+ * its anchor and the pause and any pending resumption are cleared. `status` is `active`, or
+ * `past_due` when a payment attempt on the resumption invoice failed. Sends
+ * customer.subscription.updated and then customer.subscription.resumed.
+ */
+export function applyResume(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  target: StripeSubscriptionResumeTarget,
+  status: "active" | "past_due",
+  extra: Partial<StripeSubscription> = {},
+): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const before = formatSubscription(ss, sub);
+  for (const item of subscriptionItems(ss, sub.stripe_id)) {
+    ss.subscriptionItems.update(item.id, {
+      current_period_start: target.period.start,
+      current_period_end: target.period.end,
+    });
+  }
+  const resumed = ss.subscriptions.update(sub.id, {
+    ...extra,
+    status,
+    billing_cycle_anchor: target.billing_cycle_anchor,
+    paused_details: undefined,
+    pending_resume: undefined,
+  })!;
+  const after = formatSubscription(ss, resumed);
+  ev.emit("customer.subscription.updated", after, previousAttributes(before, after));
+  ev.emit("customer.subscription.resumed", after);
+  return resumed;
+}
+
+/**
+ * With `resume_on_payment_attempt`, any payment attempt on the resumption invoice resumes the
+ * subscription; one that fails leaves it `past_due`.
+ */
+function resumeOnFailedAttempt(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice): void {
+  if (!inv.subscription_id) return;
+  const ss = getStripeStore(ctx.store);
+  const sub = ss.subscriptions.findOneBy("stripe_id", inv.subscription_id);
+  const resume = sub ? pendingResumeFor(sub, inv) : undefined;
+  if (!sub || !resume || resume.payment_behavior !== "resume_on_payment_attempt") return;
+  applyResume(ctx, ev, sub, resume, "past_due");
 }
 
 /**
@@ -509,6 +571,7 @@ export function payInvoice(
     ev.emit("invoice.payment_action_required", after);
     ev.emit("invoice.payment_failed", after);
     if (options.automatic) setDelinquent(ctx, ev, current.customer_id, true);
+    resumeOnFailedAttempt(ctx, ev, current);
     return {
       ok: false,
       error: {
@@ -522,6 +585,7 @@ export function payInvoice(
   }
   ev.emit("invoice.payment_failed", after);
   if (options.automatic) setDelinquent(ctx, ev, current.customer_id, true);
+  resumeOnFailedAttempt(ctx, ev, current);
   return { ok: false, error: attempt.error };
 }
 
@@ -567,7 +631,8 @@ export function settleInvoicePaymentIntent(ctx: InvoicingContext, ev: EventBatch
 /**
  * What Billing does when an auto-advancing draft reaches `automatically_finalizes_at`:
  * finalize it and, for `charge_automatically`, attempt payment off-session as an automatic
- * collection attempt. A failed attempt leaves the invoice open. Returns the payment error.
+ * collection attempt. A failed attempt, including one with no payment method to charge, leaves
+ * the invoice open. Returns the payment error.
  */
 export function autoAdvanceDraft(
   ctx: InvoicingContext,
@@ -578,6 +643,12 @@ export function autoAdvanceDraft(
   if (!finalized.ok) return finalized.error;
   const opened = finalized.invoice;
   if (opened.status !== "open" || opened.collection_method !== "charge_automatically") return undefined;
+  if (!invoicePaymentMethodId(getStripeStore(ctx.store), opened)) {
+    // With nothing to charge, the attempt is counted and fails, and retries are scheduled.
+    recordSkippedRetry(ctx, ev, opened);
+    setDelinquent(ctx, ev, opened.customer_id, true);
+    return invalidRequest(NO_PAYMENT_METHOD_MESSAGE);
+  }
   const paid = payInvoice(ctx, ev, opened, { automatic: true, offSession: true });
   return paid.ok ? undefined : paid.error;
 }
@@ -590,12 +661,20 @@ export function isInvoicePaymentIntent(ss: StripeStore, piId: string): boolean {
 /**
  * A subscription's status follows its most recent invoice that is not void. Voiding the
  * latest invoice of a `past_due` or `unpaid` subscription makes it `active` again unless an
- * earlier invoice is still open.
+ * earlier invoice is still open. Voiding a paused subscription's resumption invoice keeps it
+ * paused.
  */
 function resolveAfterVoid(ctx: InvoicingContext, ev: EventBatch, voided: StripeInvoice): void {
   if (!voided.subscription_id) return;
   const ss = getStripeStore(ctx.store);
   const sub = ss.subscriptions.findOneBy("stripe_id", voided.subscription_id);
+  if (sub && pendingResumeFor(sub, voided)) {
+    // A voided resumption invoice drops the resumption; the subscription stays paused.
+    const before = formatSubscription(ss, sub);
+    const after = formatSubscription(ss, ss.subscriptions.update(sub.id, { pending_resume: undefined })!);
+    ev.emit("customer.subscription.updated", after, previousAttributes(before, after));
+    return;
+  }
   if (!sub || sub.latest_invoice !== voided.stripe_id || !SETTLED_BY_RESOLUTION.includes(sub.status)) return;
   const [previous] = ss.invoices
     .findBy("subscription_id", sub.stripe_id)

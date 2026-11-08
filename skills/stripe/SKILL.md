@@ -473,6 +473,17 @@ curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx \
   -d "items[0][id]=si_xxx" -d "items[0][quantity]=3" -d "items[1][price]=price_seat"
 curl -X DELETE http://localhost:4000/v1/subscriptions/sub_xxx
 
+# Pause (active or past_due only), then resume. The default payment_behavior finalizes a
+# resumption invoice without charging it; resume_on_payment_success charges it at once
+curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx/pause
+curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx/resume -d "billing_cycle_anchor[type]=now"
+curl -X POST http://localhost:4000/v1/subscriptions/sub_xxx/resume -d "payment_behavior=resume_on_payment_success"
+
+# A cardless trial that pauses (or cancels) instead of invoicing when it ends without a card
+curl -X POST http://localhost:4000/v1/subscriptions \
+  -d "customer=cus_xxx" -d "items[0][price]=price_xxx" -d "trial_period_days=7" \
+  -d "trial_settings[end_behavior][missing_payment_method]=pause"
+
 # List (canceled ones only with status=canceled, ended or all) and manage items
 curl "http://localhost:4000/v1/subscriptions?customer=cus_xxx&status=all"
 curl -X POST http://localhost:4000/v1/subscription_items -d "subscription=sub_xxx" -d "price=price_seat"
@@ -480,6 +491,8 @@ curl "http://localhost:4000/v1/subscription_items?subscription=sub_xxx"
 ```
 
 Subscriptions use the current wire shape: billing periods are `items.data[].current_period_start` and `current_period_end`, not top-level fields, and each item carries both `price` and the legacy `plan`. Creating one finalizes its first invoice (`billing_reason` `subscription_create`) and charges the subscription's `default_payment_method` or the customer's default card. A paid invoice makes it `active`; a decline (`pm_card_chargeCustomerFail`) or 3D Secure leaves it `incomplete` with the invoice `open`, and paying that invoice later activates it. `error_if_incomplete` answers 402 and stores nothing. A trial makes it `trialing` with a paid $0 invoice whose lines say "Free trial", and a trial under three days sends `customer.subscription.trial_will_end` at once. `send_invoice` subscriptions are `active` at once with an open invoice due after `days_until_due`. `DELETE` sets `canceled` with `cancellation_details.reason` `cancellation_requested` and sends only `customer.subscription.deleted`. Item and setting changes create no prorations. Billing time passes only for customers on a test clock: without one, trials and periods never roll over by themselves.
+
+Pausing sets `status: "paused"` with `status_details.paused.subscription.type` `pause_requested`, ends the items' current period at the pause, and sends `customer.subscription.updated` and `customer.subscription.paused`. A paused subscription creates no invoices and can still be updated. `resume` answers 400 unless the subscription is paused. With `billing_cycle_anchor[type]=unchanged` it turns `active` at once with no invoice. With `now` (the default) it creates and finalizes a `subscription_update` resumption invoice for a new period starting now. Under `resume_on_payment_attempt` (the default) the subscription stays `paused`, with `pending_update.expires_at` 23 hours ahead, until you `/pay` that invoice: success makes it `active`, a failure `past_due`, and an unattempted invoice is voided on a test clock at `expires_at`, keeping it `paused`. Under `resume_on_payment_success` the invoice is charged in the call: success makes it `active`, a failure keeps it `paused` while the invoice is retried. Resuming sends `customer.subscription.updated` and `customer.subscription.resumed`. Usage recorded while paused is never billed.
 
 ### Test Clocks
 
@@ -517,6 +530,8 @@ Advancing runs Billing for the clock's customers, action by action in time order
 | 3 days before `trial_end` | `customer.subscription.trial_will_end`; still `trialing` |
 | `upcoming_renewal_days` (default 3) before a renewal | `invoice.upcoming` with an unsaved preview (no `id`, `billing_reason` `upcoming`). Not for `send_invoice` or a subscription ending then |
 | `trial_end` | `active`, `billing_cycle_anchor` = `trial_end`, item periods roll; `customer.subscription.updated` (previous `status`, `items`, `latest_invoice`) and `invoice.created` for a `subscription_cycle` draft |
+| `trial_end` with no default payment method | `trial_settings.end_behavior.missing_payment_method`: `create_invoice` (default) invoices as above, and the attempt an hour later fails (`invoice.payment_failed`, `past_due`); `cancel` sends `customer.subscription.deleted` and creates no invoice; `pause` sends `customer.subscription.updated` and `customer.subscription.paused` (`trial_end_without_payment_method`) and creates no invoice |
+| `pending_update.expires_at` of a paused subscription | The unpaid resumption invoice is voided; the subscription stays `paused` |
 | Each `current_period_end` | Item periods roll on the anchor's calendar; `customer.subscription.updated` and a new `subscription_cycle` draft |
 | `cancel_at` (also `cancel_at_period_end`) | `customer.subscription.deleted`, `ended_at` = that time, no invoice |
 | 1 hour after a draft (`automatically_finalizes_at`) | Finalized and charged: `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`. A decline leaves it `open` with `next_payment_attempt` set, the subscription `past_due` and the customer `delinquent` |
@@ -736,7 +751,8 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `customer.subscription.created` | Subscription created (before its first invoice's events) |
 | `customer.subscription.updated` | Subscription changed, payment moved it from `incomplete` to `active`, a test clock ended its trial or renewed it, or a failed payment made it `past_due`, `unpaid` or `incomplete_expired` |
 | `customer.subscription.deleted` | Subscription canceled, its customer deleted, a test clock reached its `cancel_at`, or the last retry failed |
-| `customer.subscription.paused` | The last retry failed and `after_retries[subscription]` is `pause` |
+| `customer.subscription.paused` | Paused through the pause endpoint, at a trial end without a payment method, or after the last retry failed with `after_retries[subscription]` `pause` |
+| `customer.subscription.resumed` | A paused subscription resumed: at once with an unchanged anchor, or when its resumption invoice was paid, marked uncollectible or (default `payment_behavior`) failed a payment attempt |
 | `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close, else when a test clock reaches that point) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |

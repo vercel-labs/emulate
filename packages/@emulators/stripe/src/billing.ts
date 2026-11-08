@@ -22,6 +22,7 @@ import {
   renewSubscription,
   subscriptionLines,
   TRIAL_WILL_END_LEAD,
+  trialEndsWithoutInvoice,
 } from "./subscriptions.js";
 import { nowFor } from "./clock.js";
 import { getBillingSettings } from "./settings.js";
@@ -198,6 +199,23 @@ function expireIncomplete(ctx: BillingContext, ev: EventBatch, sub: StripeSubscr
   if (inv && (inv.status === "open" || inv.status === "uncollectible")) voidInvoice(ctx, ev, inv);
 }
 
+/**
+ * A resumption still pending at its `expires_at` lapses: its invoice is voided and the
+ * subscription stays paused.
+ */
+function expireResume(ctx: BillingContext, ev: EventBatch, sub: StripeSubscription): void {
+  const ss = getStripeStore(ctx.store);
+  const pending = sub.pending_resume;
+  if (!pending) return;
+  const inv = ss.invoices.findOneBy("stripe_id", pending.invoice_id);
+  if (inv && (inv.status === "open" || inv.status === "uncollectible")) {
+    voidInvoice(ctx, ev, inv);
+    return;
+  }
+  const before = formatSubscription(ss, sub);
+  emitSubscriptionChange(ss, ev, ss.subscriptions.update(sub.id, { pending_resume: undefined })!, before);
+}
+
 function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, frozenTime: number): DueAction[] {
   const ss = getStripeStore(ctx.store);
   const actions: DueAction[] = [];
@@ -210,6 +228,31 @@ function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, froze
         expireIncomplete(ctx, ev, sub);
       },
     });
+    return actions;
+  }
+  if (sub.status === "paused") {
+    // A paused subscription neither renews nor invoices; only its pending resumption expires.
+    const pending = sub.pending_resume;
+    if (pending) {
+      actions.push({
+        at: Math.max(pending.expires_at, frozenTime),
+        rank: RANK.expire,
+        key: sub.id,
+        run(ev) {
+          expireResume(ctx, ev, sub);
+        },
+      });
+    }
+    if (sub.cancel_at !== undefined) {
+      actions.push({
+        at: Math.max(sub.cancel_at, frozenTime),
+        rank: RANK.period,
+        key: sub.id,
+        run(ev) {
+          cancelSubscription(ctx, ev, sub, {}, { scheduled: true });
+        },
+      });
+    }
     return actions;
   }
   const boundary = nextBoundary(ss, sub);
@@ -236,7 +279,8 @@ function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, froze
     sub.status !== "unpaid" &&
     sub.collection_method === "charge_automatically" &&
     sub.upcoming_sent_for !== boundary &&
-    due >= currentPeriodStart(ss, sub)
+    due >= currentPeriodStart(ss, sub) &&
+    !(sub.status === "trialing" && trialEndsWithoutInvoice(ss, sub))
   ) {
     actions.push({
       at: Math.max(due, frozenTime),

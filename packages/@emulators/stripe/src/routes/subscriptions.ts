@@ -25,7 +25,9 @@ import {
   isEnded,
   MAX_TRIAL_SECONDS,
   meteredQuantityError,
+  pauseSubscription,
   readSubscriptionPrice,
+  resumeSubscription,
   type PaymentBehavior,
   type SubscriptionItemInput,
 } from "../subscriptions.js";
@@ -65,6 +67,27 @@ const LIST_STATUSES = [
   "trialing",
   "unpaid",
 ] as const;
+
+const PAUSE_TYPES = ["subscription"] as const;
+const PAUSE_INVOICING = ["invoice", "pending_invoice_item"] as const;
+const RESUME_ANCHORS = ["now", "unchanged"] as const;
+const RESUME_PAYMENT_BEHAVIORS = ["resume_on_payment_attempt", "resume_on_payment_success"] as const;
+const PRORATION_BEHAVIORS = ["always_invoice", "create_prorations", "none"] as const;
+
+/** Why the pause endpoint refuses `sub`, following Stripe's list of subscriptions you can't pause. */
+function pauseRefusal(sub: StripeSubscription): StripeErrorSpec | undefined {
+  if (sub.collection_method !== "charge_automatically") {
+    return invalid("Only subscriptions with collection_method=charge_automatically can be paused.").error;
+  }
+  if (sub.status === "trialing") {
+    return invalid("A subscription in a free trial can't be paused. End the trial first by setting trial_end to now.")
+      .error;
+  }
+  if (sub.status !== "active" && sub.status !== "past_due") {
+    return invalid(`A subscription in status ${sub.status} can't be paused.`).error;
+  }
+  return undefined;
+}
 
 /** Params a canceled or expired subscription still accepts. */
 const ENDED_EDITABLE = ["metadata", "cancellation_details", "expand"];
@@ -599,6 +622,75 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     const after = emitSubscriptionChange(ss, ev, sub, before);
     await ev.commit();
     return expandedJson(c, after, expand, body);
+  });
+
+  app.post("/v1/subscriptions/:id/pause", async (c) => {
+    const id = c.req.param("id");
+    const sub = ss.subscriptions.findOneBy("stripe_id", id);
+    if (!sub) return notFound(c, id);
+    const body = await parseStripeBody(c);
+    const type = readOneOf(body.type, PAUSE_TYPES, "type");
+    if (!type.ok) return sendStripeError(c, type.error);
+    const invoicing = readOneOf(body.invoicing_behavior, PAUSE_INVOICING, "invoicing_behavior");
+    if (!invoicing.ok) return sendStripeError(c, invoicing.error);
+    if (body.bill_for !== undefined && body.bill_for !== "" && !isRecord(body.bill_for)) {
+      return sendStripeError(c, invalid("Invalid bill_for: must be an object.", "bill_for").error);
+    }
+    const refused = pauseRefusal(sub);
+    if (refused) return sendStripeError(c, refused);
+
+    const ev = eventBatch(ctx, c);
+    const paused = pauseSubscription(ctx, ev, sub, "pause_requested", { endPeriod: true });
+    await ev.commit();
+    return expandedJson(c, render(paused), expand, body);
+  });
+
+  app.post("/v1/subscriptions/:id/resume", async (c) => {
+    const id = c.req.param("id");
+    const sub = ss.subscriptions.findOneBy("stripe_id", id);
+    if (!sub) return notFound(c, id);
+    const body = await parseStripeBody(c);
+    const anchorParam = isRecord(body.billing_cycle_anchor)
+      ? body.billing_cycle_anchor.type
+      : body.billing_cycle_anchor;
+    const anchor = readOneOf(anchorParam, RESUME_ANCHORS, "billing_cycle_anchor[type]");
+    if (!anchor.ok) return sendStripeError(c, anchor.error);
+    const behavior = readOneOf(body.payment_behavior, RESUME_PAYMENT_BEHAVIORS, "payment_behavior");
+    if (!behavior.ok) return sendStripeError(c, behavior.error);
+    const proration = readOneOf(body.proration_behavior, PRORATION_BEHAVIORS, "proration_behavior");
+    if (!proration.ok) return sendStripeError(c, proration.error);
+    if (body.proration_date !== undefined && body.proration_date !== "" && readInt(body.proration_date) === undefined) {
+      return sendStripeError(c, invalid(`Invalid integer: ${String(body.proration_date)}`, "proration_date").error);
+    }
+    if (sub.status !== "paused") {
+      return sendStripeError(
+        c,
+        invalid(`Only a paused subscription can be resumed. This subscription is ${sub.status}.`).error,
+      );
+    }
+    if (sub.collection_method !== "charge_automatically") {
+      return sendStripeError(
+        c,
+        invalid("Only subscriptions with collection_method=charge_automatically can be resumed.").error,
+      );
+    }
+    if (sub.pending_resume) {
+      return sendStripeError(
+        c,
+        invalid(
+          `This subscription is already resuming. Pay or void its resumption invoice (${sub.pending_resume.invoice_id}) first.`,
+        ).error,
+      );
+    }
+
+    const ev = eventBatch(ctx, c);
+    const result = resumeSubscription(ctx, ev, sub, {
+      anchor: anchor.value ?? "now",
+      paymentBehavior: behavior.value ?? "resume_on_payment_attempt",
+    });
+    if (!result.ok) return sendStripeError(c, result.error);
+    await ev.commit();
+    return expandedJson(c, render(ss.subscriptions.get(result.sub.id) ?? result.sub), expand, body);
   });
 
   app.delete("/v1/subscriptions/:id", async (c) => {

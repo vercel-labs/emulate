@@ -1042,20 +1042,29 @@ export function formatSubscription(ss: StripeStore, sub: StripeSubscription) {
     },
     pending_invoice_item_interval: null,
     pending_setup_intent: null,
-    pending_update: null,
+    pending_update: sub.pending_resume
+      ? {
+          billing_cycle_anchor: sub.pending_resume.billing_cycle_anchor,
+          expires_at: sub.pending_resume.expires_at,
+          subscription_items: null,
+          trial_end: null,
+          trial_from_plan: null,
+        }
+      : null,
     presentment_details: null,
     schedule: null,
     start_date: sub.start_date,
     status: sub.status,
-    status_details: sub.paused_details
-      ? {
-          paused: {
-            subscription: { type: sub.paused_details.reason },
-            transitioned_at: sub.paused_details.transitioned_at,
-            type: "subscription" as const,
-          },
-        }
-      : null,
+    status_details:
+      sub.status === "paused" && sub.paused_details
+        ? {
+            paused: {
+              subscription: { type: sub.paused_details.reason },
+              transitioned_at: sub.paused_details.transitioned_at,
+              type: "subscription" as const,
+            },
+          }
+        : null,
     test_clock: sub.test_clock ?? null,
     transfer_data: null,
     trial_end: sub.trial_end ?? null,
