@@ -11,6 +11,7 @@ import type {
   StripePaymentMethod,
   StripePrice,
   StripeProduct,
+  StripeSetupIntent,
   StripeWebhookEndpoint,
 } from "./entities.js";
 
@@ -178,6 +179,42 @@ export function formatPaymentIntent(pi: StripePaymentIntent) {
     status: pi.status,
     transfer_data: null,
     transfer_group: null,
+  };
+}
+
+/**
+ * The SetupIntent object in the key order of the API reference. SetupAttempts and mandates
+ * are not modelled, so `latest_attempt`, `mandate` and `single_use_mandate` stay null.
+ */
+export function formatSetupIntent(si: StripeSetupIntent) {
+  return {
+    id: si.stripe_id,
+    object: "setup_intent" as const,
+    application: null,
+    automatic_payment_methods: null,
+    cancellation_reason: si.cancellation_reason ?? null,
+    client_secret: si.client_secret,
+    created: si.created,
+    customer: si.customer_id ?? null,
+    description: si.description ?? null,
+    excluded_payment_method_types: null,
+    flow_directions: null,
+    last_setup_error: formatPaymentError(si.last_setup_error),
+    latest_attempt: null,
+    livemode: false,
+    mandate: null,
+    metadata: si.metadata,
+    next_action: si.next_action ? structuredClone(si.next_action) : null,
+    on_behalf_of: null,
+    payment_method: si.payment_method ?? null,
+    payment_method_configuration_details: null,
+    payment_method_options: {
+      card: { mandate_options: null, network: null, request_three_d_secure: "automatic" as const },
+    },
+    payment_method_types: ["card"],
+    single_use_mandate: null,
+    status: si.status,
+    usage: si.usage,
   };
 }
 
@@ -391,6 +428,10 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
       const found = ss.paymentMethods.findOneBy("stripe_id", id);
       return found ? formatPaymentMethod(found) : undefined;
     },
+    setup_intent: (id) => {
+      const found = ss.setupIntents.findOneBy("stripe_id", id);
+      return found ? formatSetupIntent(found) : undefined;
+    },
   };
 
   const fieldTypes: Record<string, string> = {
@@ -402,6 +443,7 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     price: "price",
     payment_method: "payment_method",
     default_payment_method: "payment_method",
+    setup_intent: "setup_intent",
   };
 
   const prefixTypes: Array<[string, string]> = [
@@ -413,6 +455,7 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     ["price_", "price"],
     ["cs_", "checkout_session"],
     ["pm_", "payment_method"],
+    ["seti_", "setup_intent"],
   ];
 
   const includable: Record<string, Record<string, (parent: Record<string, unknown>) => unknown>> = {

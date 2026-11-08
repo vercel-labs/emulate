@@ -13,6 +13,7 @@ import { getStripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
 import { customerRoutes } from "./routes/customers.js";
 import { paymentIntentRoutes } from "./routes/payment-intents.js";
+import { setupIntentRoutes } from "./routes/setup-intents.js";
 import { paymentMethodRoutes } from "./routes/payment-methods.js";
 import { chargeRoutes } from "./routes/charges.js";
 import { productRoutes } from "./routes/products.js";
@@ -185,6 +186,7 @@ export const stripePlugin: ServicePlugin = {
     customerRoutes(ctx);
     paymentMethodRoutes(ctx);
     paymentIntentRoutes(ctx);
+    setupIntentRoutes(ctx);
     chargeRoutes(ctx);
     productRoutes(ctx);
     priceRoutes(ctx);

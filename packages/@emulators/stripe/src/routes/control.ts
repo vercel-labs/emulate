@@ -14,8 +14,8 @@ import {
   type ReorderMode,
 } from "../chaos.js";
 import { dispatchStoredEvent, eventBatch, syncWebhookEndpoints } from "../events.js";
-import { formatPaymentIntent } from "../formatters.js";
-import { completeAuthentication } from "../payments.js";
+import { formatPaymentIntent, formatSetupIntent } from "../formatters.js";
+import { completeAuthentication, completeSetupAuthentication } from "../payments.js";
 
 type DeliveryStatus = "succeeded" | "failed" | "dropped" | "held";
 
@@ -78,6 +78,33 @@ export function controlRoutes(ctx: RouteContext): void {
     const updated = completeAuthentication(ctx, ev, pi, result);
     await ev.commit();
     return c.json(formatPaymentIntent(updated));
+  });
+
+  // The same step for a SetupIntent, which saves the card once the customer authenticates.
+  app.post("/_stripe/simulate/setup_intents/:id/authenticate", async (c) => {
+    const id = c.req.param("id");
+    const si = ss.setupIntents.findOneBy("stripe_id", id);
+    if (!si) {
+      return stripeError(c, 404, "invalid_request_error", `No such setupintent: '${id}'`, "resource_missing", "id");
+    }
+    const body = await parseStripeBody(c);
+    const result = body.result ?? "succeed";
+    if (result !== "succeed" && result !== "fail") {
+      return badParam(c, "result", "Invalid result: must be one of succeed, fail.");
+    }
+    if (si.status !== "requires_action") {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `This SetupIntent's status is ${si.status}, so there is no authentication to complete.`,
+        "setup_intent_unexpected_state",
+      );
+    }
+    const ev = eventBatch(ctx);
+    const updated = completeSetupAuthentication(ctx, ev, si, result);
+    await ev.commit();
+    return c.json(formatSetupIntent(updated));
   });
 
   app.get("/_stripe/webhooks/chaos", (c) => c.json(formatWebhookChaos(store)));

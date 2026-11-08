@@ -327,6 +327,29 @@ Confirming follows the test card's behaviour. `pm_card_visa` succeeds. A declini
 
 A `pm_card_*` id set on an intent is cloned into a new `pm_`. With `setup_future_usage` and a `customer`, a successful payment attaches that card to the customer. A card used without a customer cannot be used again. Confirming an intent that has no payment method still succeeds as if `pm_card_visa` were used (real Stripe returns a 400).
 
+### Setup Intents
+
+```bash
+# Save a card to a customer without charging it (payment_method.attached + setup_intent.succeeded)
+curl -X POST http://localhost:4000/v1/setup_intents \
+  -d "customer=cus_xxx" -d "payment_method=pm_card_visa" -d "confirm=true"
+
+# Or in two steps: create, then confirm with a card
+curl -X POST http://localhost:4000/v1/setup_intents -d "customer=cus_xxx"
+curl -X POST http://localhost:4000/v1/setup_intents/seti_xxx/confirm -d "payment_method=pm_card_visa"
+
+# Retrieve, update (customer, payment_method, description, metadata), cancel, list (customer, payment_method)
+curl http://localhost:4000/v1/setup_intents/seti_xxx
+curl -X POST http://localhost:4000/v1/setup_intents/seti_xxx/cancel -d "cancellation_reason=abandoned"
+curl "http://localhost:4000/v1/setup_intents?customer=cus_xxx"
+
+# Emulator only: the customer completes (or fails) 3D Secure on a SetupIntent in requires_action
+curl -X POST http://localhost:4000/_stripe/simulate/setup_intents/seti_xxx/authenticate \
+  -H "Content-Type: application/json" -d '{"result": "succeed"}'
+```
+
+`usage` defaults to `off_session`. Issuer-decline cards such as `pm_card_chargeDeclined` return a 402 `card_error` carrying the `setup_intent`, set `last_setup_error` and send `setup_intent.setup_failed`. `pm_card_chargeCustomerFail` (0341) sets up fine and only fails when charged. `pm_card_authenticationRequired` and `pm_card_authenticationRequiredOnSetup` go to `requires_action`; once authenticated, a 3155 card is charged off-session without asking again. A failed authentication gives `last_setup_error.code` `setup_intent_authentication_failure`.
+
 ### Charges
 
 ```bash
@@ -451,6 +474,11 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `payment_intent.succeeded` | Payment intent confirmed and charged |
 | `payment_intent.payment_failed` | Card declined, `authentication_required` off-session, or 3D Secure failed |
 | `payment_intent.canceled` | Payment intent canceled |
+| `setup_intent.created` | SetupIntent created |
+| `setup_intent.requires_action` | Setup needs 3D Secure |
+| `setup_intent.succeeded` | Card saved (after `payment_method.attached` when there is a customer) |
+| `setup_intent.setup_failed` | Card declined at setup, or 3D Secure failed |
+| `setup_intent.canceled` | SetupIntent canceled |
 | `charge.succeeded` | Payment intent charged (charge auto-created) |
 | `charge.failed` | Charge declined |
 | `checkout.session.completed` | Checkout completed via hosted page |

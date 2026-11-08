@@ -7,6 +7,7 @@ import {
   stripeError,
   stripeList,
   expandedJson,
+  readEnum,
   toUnixTimestamp,
 } from "../helpers.js";
 import { formatPaymentIntent, stripeExpandResolver } from "../formatters.js";
@@ -21,27 +22,6 @@ const CAPTURE_METHODS = ["automatic", "automatic_async"] as const;
 const CONFIRMATION_METHODS = ["automatic", "manual"] as const;
 const SETUP_FUTURE_USAGES = ["off_session", "on_session"] as const;
 const CANCELLATION_REASONS = ["abandoned", "duplicate", "fraudulent", "requested_by_customer"] as const;
-
-/** Read an enum param. Returns an error response for a value outside `allowed`. */
-function readEnum<T extends string>(
-  c: Context,
-  value: unknown,
-  allowed: readonly T[],
-  param: string,
-): { value?: T; error?: Response } {
-  if (value === undefined || value === "") return {};
-  if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return { value: value as T };
-  return {
-    error: stripeError(
-      c,
-      400,
-      "invalid_request_error",
-      `Invalid ${param}: must be one of ${allowed.join(", ")}`,
-      undefined,
-      param,
-    ),
-  };
-}
 
 /** `off_session` takes a boolean, or `one_off` / `recurring`, which both mean true. */
 function readOffSession(value: unknown): boolean {

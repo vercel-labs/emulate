@@ -2,7 +2,7 @@ import type { Store } from "@emulators/core";
 import { getStripeStore, type StripeStore } from "./store.js";
 import { randomBase62, stripeId } from "./helpers.js";
 import { nowFor } from "./clock.js";
-import { formatCharge, formatPaymentIntent, formatPaymentMethod } from "./formatters.js";
+import { formatCharge, formatPaymentIntent, formatPaymentMethod, formatSetupIntent } from "./formatters.js";
 import type { EventBatch } from "./events.js";
 import { errorDocUrl, testCardByPaymentMethod, type CardDecline, type TestCard } from "./test-cards.js";
 import {
@@ -12,7 +12,14 @@ import {
   testCardOf,
   type StripeErrorSpec,
 } from "./routes/payment-methods.js";
-import type { StripeCharge, StripePaymentError, StripePaymentIntent, StripePaymentMethod } from "./entities.js";
+import type {
+  StripeCharge,
+  StripeNextAction,
+  StripePaymentError,
+  StripePaymentIntent,
+  StripePaymentMethod,
+  StripeSetupIntent,
+} from "./entities.js";
 
 export interface PaymentContext {
   store: Store;
@@ -41,6 +48,9 @@ const AUTHENTICATION_REQUIRED: CardDecline = {
   decline_code: "authentication_required",
   message: "Your card was declined. This transaction requires authentication.",
 };
+
+const SETUP_AUTHENTICATION_FAILURE_MESSAGE =
+  "The latest attempt to set up the payment method has failed because authentication failed. Provide a new payment method to attempt to fulfill this SetupIntent again.";
 
 const AUTHENTICATION_FAILURE_MESSAGE =
   "The provided PaymentMethod has failed authentication. You can provide payment_method_data or a new PaymentMethod to attempt to fulfill this PaymentIntent again.";
@@ -226,6 +236,18 @@ function charge(
   return succeed(ctx, ev, pi, pm, threeDSecure);
 }
 
+/** The 3D Secure step, which the emulator's simulate route completes in place of Stripe.js. */
+function threeDSecureAction(ctx: PaymentContext, intentPath: string): StripeNextAction {
+  return {
+    type: "use_stripe_sdk",
+    use_stripe_sdk: {
+      source: stripeId("src"),
+      stripe_js: `${ctx.baseUrl}/_stripe/simulate/${intentPath}/authenticate`,
+      type: "three_d_secure_redirect",
+    },
+  };
+}
+
 function requireAction(
   ctx: PaymentContext,
   ev: EventBatch,
@@ -237,14 +259,7 @@ function requireAction(
     status: "requires_action",
     payment_method: pm.stripe_id,
     last_payment_error: undefined,
-    next_action: {
-      type: "use_stripe_sdk",
-      use_stripe_sdk: {
-        source: stripeId("src"),
-        stripe_js: `${ctx.baseUrl}/_stripe/simulate/payment_intents/${pi.stripe_id}/authenticate`,
-        type: "three_d_secure_redirect",
-      },
-    },
+    next_action: threeDSecureAction(ctx, `payment_intents/${pi.stripe_id}`),
   })!;
   ev.emit("payment_intent.requires_action", formatPaymentIntent(updated));
   return { status: "requires_action", pi: updated };
@@ -310,4 +325,125 @@ export function completeAuthentication(
   }
   const authenticated = ss.paymentIntents.update(pi.id, { authenticated: true })!;
   return charge(ctx, ev, authenticated, pm, true).pi;
+}
+
+export type SetupAttempt =
+  | { status: "succeeded"; si: StripeSetupIntent }
+  | { status: "requires_action"; si: StripeSetupIntent }
+  | { status: "failed"; si: StripeSetupIntent; error: StripeErrorSpec };
+
+/** A failed setup clears the payment method, which stays visible in last_setup_error. */
+function failSetup(
+  ctx: PaymentContext,
+  ev: EventBatch,
+  si: StripeSetupIntent,
+  lastError: StripePaymentError,
+): StripeSetupIntent {
+  const ss = getStripeStore(ctx.store);
+  const updated = ss.setupIntents.update(si.id, {
+    status: "requires_payment_method",
+    payment_method: undefined,
+    next_action: undefined,
+    last_setup_error: lastError,
+  })!;
+  ev.emit("setup_intent.setup_failed", formatSetupIntent(updated));
+  return updated;
+}
+
+/** The issuer refused the card, so it cannot be saved. */
+function declineSetup(
+  ctx: PaymentContext,
+  ev: EventBatch,
+  si: StripeSetupIntent,
+  pm: StripePaymentMethod,
+  reason: CardDecline,
+): SetupAttempt {
+  const pmObject = formatPaymentMethod(pm);
+  const failed = failSetup(ctx, ev, si, {
+    type: "card_error",
+    code: reason.code,
+    decline_code: reason.decline_code,
+    message: reason.message,
+    doc_url: errorDocUrl(reason.code),
+    param: reason.param,
+    payment_method: pmObject,
+  });
+  return {
+    status: "failed",
+    si: failed,
+    error: cardError(reason, { setup_intent: formatSetupIntent(failed), payment_method: pmObject }),
+  };
+}
+
+/** Save the card: attach it to the intent's customer, if any, and mark the intent succeeded. */
+function completeSetup(
+  ctx: PaymentContext,
+  ev: EventBatch,
+  si: StripeSetupIntent,
+  pm: StripePaymentMethod,
+): SetupAttempt {
+  const ss = getStripeStore(ctx.store);
+  if (si.customer_id && pm.customer_id !== si.customer_id) {
+    const attached = attachPaymentMethod(ss, pm.stripe_id, si.customer_id);
+    if (!attached.ok) return { status: "failed", si, error: attached.error };
+    if (attached.value.attached) ev.emit("payment_method.attached", formatPaymentMethod(attached.value.pm));
+  }
+  const updated = ss.setupIntents.update(si.id, {
+    status: "succeeded",
+    payment_method: pm.stripe_id,
+    last_setup_error: undefined,
+    next_action: undefined,
+  })!;
+  ev.emit("setup_intent.succeeded", formatSetupIntent(updated));
+  return { status: "succeeded", si: updated };
+}
+
+/**
+ * Run one confirmation of SetupIntent `si` with `pm`. The customer is present when a card is
+ * set up, so every card that asks for 3D Secure asks here, and issuer declines fail at once.
+ * Cards whose charges fail later (0341) set up fine. Writes the intent's new state and emits
+ * its events on `ev`; the caller commits.
+ */
+export function attemptSetup(
+  ctx: PaymentContext,
+  ev: EventBatch,
+  si: StripeSetupIntent,
+  pm: StripePaymentMethod,
+): SetupAttempt {
+  const card = testCardOf(pm);
+  if (card?.attach === "decline" && card.decline) return declineSetup(ctx, ev, si, pm, card.decline);
+  if (card && card.authentication !== "none") {
+    const ss = getStripeStore(ctx.store);
+    const updated = ss.setupIntents.update(si.id, {
+      status: "requires_action",
+      payment_method: pm.stripe_id,
+      last_setup_error: undefined,
+      next_action: threeDSecureAction(ctx, `setup_intents/${si.stripe_id}`),
+    })!;
+    ev.emit("setup_intent.requires_action", formatSetupIntent(updated));
+    return { status: "requires_action", si: updated };
+  }
+  return completeSetup(ctx, ev, si, pm);
+}
+
+/** Finish the 3D Secure step of a SetupIntent in `requires_action`, as the customer would. */
+export function completeSetupAuthentication(
+  ctx: PaymentContext,
+  ev: EventBatch,
+  si: StripeSetupIntent,
+  result: "succeed" | "fail",
+): StripeSetupIntent {
+  const ss = getStripeStore(ctx.store);
+  const pm = si.payment_method ? ss.paymentMethods.findOneBy("stripe_id", si.payment_method) : undefined;
+  if (result === "succeed" && pm) {
+    const attempt = completeSetup(ctx, ev, si, pm);
+    if (attempt.status !== "failed") return attempt.si;
+  }
+  return failSetup(ctx, ev, si, {
+    type: "invalid_request_error",
+    code: "setup_intent_authentication_failure",
+    message: SETUP_AUTHENTICATION_FAILURE_MESSAGE,
+    doc_url: errorDocUrl("setup_intent_authentication_failure"),
+    payment_method: pm ? formatPaymentMethod(pm) : undefined,
+  });
 }

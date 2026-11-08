@@ -125,6 +125,26 @@ export interface StripePaymentIntent extends Entity {
   cancellation_reason?: string;
 }
 
+export type SetupIntentStatus = PaymentIntentStatus;
+
+export interface StripeSetupIntent extends Entity {
+  stripe_id: string;
+  status: SetupIntentStatus;
+  /** On successful setup the payment method is attached to this customer. */
+  customer_id?: string;
+  payment_method?: string;
+  usage: "off_session" | "on_session";
+  description?: string;
+  metadata: Record<string, string>;
+  /** Unix seconds on the customer's clock. */
+  created: number;
+  client_secret: string;
+  /** Same shape as a PaymentIntent's `last_payment_error`, without a charge. */
+  last_setup_error?: StripePaymentError;
+  next_action?: StripeNextAction;
+  cancellation_reason?: "abandoned" | "duplicate" | "requested_by_customer";
+}
+
 export interface StripeCharge extends Entity {
   stripe_id: string;
   amount: number;

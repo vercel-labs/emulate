@@ -32,6 +32,7 @@ These routes exist only in the emulator. See [Webhook delivery model and chaos](
 - `GET /_stripe/webhooks/deliveries`: the delivery log. Filters: `event_id`, `status`, `type`
 - `POST /_stripe/events/:id/redeliver`: send a stored event again to every matching endpoint
 - `POST /_stripe/simulate/payment_intents/:id/authenticate`: complete or fail 3D Secure for an intent in `requires_action`. See [Payment Intents](#payment-intents)
+- `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure for a SetupIntent in `requires_action`. See [Setup Intents](#setup-intents)
 
 ### Customers
 - `POST /v1/customers` — create customer
@@ -104,6 +105,25 @@ Confirming charges the card according to the [test card table](#test-cards):
 
 A failed attempt sets `last_payment_error` (with `code`, `decline_code`, `doc_url`, `message`, `charge` and the `payment_method` object) and clears `payment_method`. The 402 error body carries the same fields plus the `payment_intent` object. Failing 3D Secure returns the intent to `requires_payment_method` with `last_payment_error.code` `payment_intent_authentication_failure` and creates no charge. With `confirmation_method=manual`, authenticating returns the intent to `requires_confirmation` and the next confirm charges it. With `setup_future_usage` and a `customer`, a successful payment attaches the payment method to the customer. Cancel accepts `cancellation_reason` and sets `canceled_at`.
 
+### Setup Intents
+- `POST /v1/setup_intents`: create a SetupIntent. Accepts `customer`, `payment_method`, `confirm`, `usage` (`off_session`, the default, or `on_session`), `description` and `metadata`
+- `GET /v1/setup_intents/:id`: retrieve a SetupIntent
+- `POST /v1/setup_intents/:id`: update `customer`, `payment_method`, `description` or `metadata`. Setting `payment_method` moves the intent to `requires_confirmation`
+- `POST /v1/setup_intents/:id/confirm`: confirm, optionally with `payment_method`
+- `POST /v1/setup_intents/:id/cancel`: cancel, with an optional `cancellation_reason` (`abandoned`, `duplicate` or `requested_by_customer`)
+- `GET /v1/setup_intents`: list SetupIntents, filtered by `customer` and `payment_method`
+- `POST /_stripe/simulate/setup_intents/:id/authenticate`: emulator only. Completes (`{"result": "succeed"}`, the default) or fails (`{"result": "fail"}`) the 3D Secure step of a SetupIntent in `requires_action`
+
+A SetupIntent saves a card for later payments without charging it. A test card id such as `pm_card_visa` is cloned into a new `pm_`. Confirming follows the [test card table](#test-cards), with the customer present:
+
+| Card behaviour | Confirm |
+|----------------|---------|
+| Succeeds, or declines only when charged (0341) | `succeeded`. The card is attached to `customer` (`payment_method.attached`, then `setup_intent.succeeded`) |
+| Issuer decline (for example 0002 or 9995) | 402 `card_error` with the `setup_intent` and `payment_method` objects, intent back to `requires_payment_method` with `last_setup_error`, `setup_intent.setup_failed`. Nothing is attached |
+| 3D Secure (3184, 3155, 3178) | `requires_action` with `next_action.type` `use_stripe_sdk` and `setup_intent.requires_action`. Authenticating saves the card as above; failing returns the intent to `requires_payment_method` with `last_setup_error.code` `setup_intent_authentication_failure` and sends `setup_intent.setup_failed` |
+
+Without a `customer`, a successful setup leaves the card unattached, and it can be attached later. A card set up with 3155 is then charged off-session without asking for authentication again. Every event is `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed` or `setup_intent.canceled`; there is no `setup_intent.updated`, as on Stripe.
+
 ### Charges
 - `GET /v1/charges/:id` — retrieve charge
 - `GET /v1/charges` — list charges
@@ -154,7 +174,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.succeeded`, `charge.failed`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
 
 ## Webhook delivery model and chaos
 
@@ -220,6 +240,7 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - PaymentIntents accept only cards. `payment_method_types` is always `["card"]`, `automatic_payment_methods` is always enabled, `return_url` is never required, and `payment_method_configuration_details` is `null`.
 - 3D Secure is completed through `POST /_stripe/simulate/payment_intents/:id/authenticate`. `next_action` is always `use_stripe_sdk` (never `redirect_to_url`), and its `stripe_js` points at that emulator route. Card behaviour comes only from the test card table: there are no Radar rules, no exemptions and no `request_three_d_secure` handling.
 - A test card with authentication `on_setup` (3155, 3178) never asks for authentication off-session, whether or not it was set up first.
+- SetupIntents accept only cards. SetupAttempts and mandates are not modelled, so `latest_attempt`, `mandate` and `single_use_mandate` are always `null`, and `automatic_payment_methods` is `null` with `payment_method_types` always `["card"]`. `return_url`, `payment_method_data` and `payment_method_options` params are ignored. Confirmation always runs with the customer present, so every 3D Secure card asks for authentication at setup.
 - The messages for using a payment method that belongs to another customer are the emulator's wording.
 - Payment-mode Checkout Sessions may be created without `line_items`.
 - Only card payment methods exist, and only the documented test cards. `card[number]` is accepted for those numbers without the raw card data setting real Stripe requires. Fingerprints are derived from the card number, `card.checks.cvc_check` turns `pass` when a `pm_card_*` id or a card created with `card[cvc]` is attached, and `regulated_status` is always `unregulated`.

@@ -56,6 +56,27 @@ export function readBool(value: unknown): boolean | undefined {
   return undefined;
 }
 
+/** Read an enum param. Returns an error response for a value outside `allowed`. */
+export function readEnum<T extends string>(
+  c: Context,
+  value: unknown,
+  allowed: readonly T[],
+  param: string,
+): { value?: T; error?: Response } {
+  if (value === undefined || value === "") return {};
+  if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return { value: value as T };
+  return {
+    error: stripeError(
+      c,
+      400,
+      "invalid_request_error",
+      `Invalid ${param}: must be one of ${allowed.join(", ")}`,
+      undefined,
+      param,
+    ),
+  };
+}
+
 /** Coerce a form or JSON value to an integer. Non-integers read as undefined. */
 export function readInt(value: unknown): number | undefined {
   if (typeof value === "number") return Number.isInteger(value) ? value : undefined;
@@ -164,6 +185,7 @@ export interface StripeErrorExtras {
   doc_url?: string;
   payment_intent?: Record<string, unknown>;
   payment_method?: Record<string, unknown>;
+  setup_intent?: Record<string, unknown>;
   charge?: string;
 }
 
@@ -192,6 +214,7 @@ export function stripeError(
         ...(extras.charge && { charge: extras.charge }),
         ...(extras.payment_intent && { payment_intent: extras.payment_intent }),
         ...(extras.payment_method && { payment_method: extras.payment_method }),
+        ...(extras.setup_intent && { setup_intent: extras.setup_intent }),
       },
     },
     status as ContentfulStatusCode,
