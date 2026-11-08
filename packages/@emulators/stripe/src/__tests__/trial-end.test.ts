@@ -270,7 +270,12 @@ describe("Ending a trial early with trial_end=now", () => {
     expect(res.body.status).toBe("past_due");
 
     const inv = await getInvoice(ctx, res.body.latest_invoice);
-    expect(inv).toMatchObject({ status: "open", attempt_count: 1, attempted: true, billing_reason: "subscription_update" });
+    expect(inv).toMatchObject({
+      status: "open",
+      attempt_count: 1,
+      attempted: true,
+      billing_reason: "subscription_update",
+    });
     expect(inv.next_payment_attempt).toBe(T + 3 * DAY);
     expect(hooks.ofType("invoice.payment_failed")).toHaveLength(1);
     expect((await api<Json>(ctx.app, "GET", `/v1/customers/${customer.id}`)).body.delinquent).toBe(true);

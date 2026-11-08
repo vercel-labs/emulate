@@ -2,6 +2,7 @@ import type { Context, RouteContext } from "@emulators/core";
 import { getStripeStore, type StripeStore } from "../store.js";
 import {
   expandedJson,
+  mergeMetadata,
   parseStripeBody,
   readInt,
   stripeError,
@@ -196,18 +197,6 @@ function mergeBillingDetails(current: StripeBillingDetails, input: unknown): Str
   return next;
 }
 
-/** Stripe's metadata update: keys merge in, and an empty string removes a key. */
-export function mergeMetadata(current: Record<string, string>, input: unknown): Record<string, string> {
-  if (input === "") return {};
-  if (!input || typeof input !== "object") return current;
-  const next = { ...current };
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (value === "" || value === null) delete next[key];
-    else next[key] = String(value);
-  }
-  return next;
-}
-
 function readAllowRedisplay(value: unknown): StripePaymentMethod["allow_redisplay"] | undefined {
   return value === "always" || value === "limited" || value === "unspecified" ? value : undefined;
 }
@@ -279,7 +268,7 @@ export function paymentMethodRoutes(ctx: RouteContext): void {
     const pm = insertCardPaymentMethod(ss, testCard, {
       card: cardFields,
       billing_details: mergeBillingDetails({}, body.billing_details),
-      metadata: mergeMetadata({}, body.metadata),
+      metadata: mergeMetadata({}, body.metadata) ?? {},
       allow_redisplay: readAllowRedisplay(body.allow_redisplay),
     });
     return expandedJson(c, formatPaymentMethod(pm), expand, body);
@@ -313,7 +302,7 @@ export function paymentMethodRoutes(ctx: RouteContext): void {
     const expYear = readInt(card.exp_year);
     const updated = ss.paymentMethods.update(pm.id, {
       billing_details: mergeBillingDetails(pm.billing_details, body.billing_details),
-      metadata: mergeMetadata(pm.metadata, body.metadata),
+      metadata: mergeMetadata(pm.metadata, body.metadata) ?? pm.metadata,
       allow_redisplay: readAllowRedisplay(body.allow_redisplay) ?? pm.allow_redisplay,
       card: {
         ...pm.card,

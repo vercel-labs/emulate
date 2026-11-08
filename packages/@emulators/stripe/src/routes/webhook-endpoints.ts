@@ -1,6 +1,15 @@
 import type { Context, RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { parseStripeBody, readBool, readStringList, stripeError, stripeId, stripeList } from "../helpers.js";
+import {
+  mergeMetadata,
+  parseStripeBody,
+  readBool,
+  readStringList,
+  stripeError,
+  stripeId,
+  stripeList,
+  readString,
+} from "../helpers.js";
 import { formatWebhookEndpoint } from "../formatters.js";
 import { syncWebhookEndpoints } from "../events.js";
 import type { StripeWebhookEndpoint } from "../entities.js";
@@ -26,22 +35,6 @@ function notFound(c: Context, id: string) {
   return stripeError(c, 404, "invalid_request_error", `No such webhook_endpoint: '${id}'`, "resource_missing", "id");
 }
 
-/** Stripe metadata updates merge keys; an empty string removes a key, and `metadata=""` clears all. */
-function mergeMetadata(current: Record<string, string>, update: unknown): Record<string, string> {
-  if (update === "") return {};
-  if (!update || typeof update !== "object" || Array.isArray(update)) return current;
-  const merged = { ...current };
-  for (const [key, value] of Object.entries(update as Record<string, unknown>)) {
-    if (value === "" || value === null) delete merged[key];
-    else merged[key] = String(value);
-  }
-  return merged;
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
 export function webhookEndpointRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const ss = getStripeStore(store);
@@ -50,7 +43,7 @@ export function webhookEndpointRoutes(ctx: RouteContext): void {
 
   app.post("/v1/webhook_endpoints", async (c) => {
     const body = await parseStripeBody(c);
-    const url = optionalString(body.url);
+    const url = readString(body.url);
     if (!url) return missingParam(c, "url");
     const enabledEvents = readStringList(body.enabled_events);
     if (enabledEvents.length === 0) return missingParam(c, "enabled_events");
@@ -61,9 +54,9 @@ export function webhookEndpointRoutes(ctx: RouteContext): void {
       url,
       enabled_events: enabledEvents,
       status: "enabled",
-      api_version: optionalString(body.api_version),
-      description: optionalString(body.description),
-      metadata: mergeMetadata({}, body.metadata),
+      api_version: readString(body.api_version),
+      description: readString(body.description),
+      metadata: mergeMetadata({}, body.metadata) ?? {},
       secret: stripeId("whsec", 32),
       created: Math.floor(Date.now() / 1000),
     });
@@ -85,7 +78,7 @@ export function webhookEndpointRoutes(ctx: RouteContext): void {
 
     const patch: Partial<StripeWebhookEndpoint> = {};
     if (body.url !== undefined) {
-      const url = optionalString(body.url);
+      const url = readString(body.url);
       if (!url || invalidUrl(url)) return urlError(c, String(body.url));
       patch.url = url;
     }
@@ -117,8 +110,9 @@ export function webhookEndpointRoutes(ctx: RouteContext): void {
       }
       patch.status = disabled ? "disabled" : "enabled";
     }
-    if (body.description !== undefined) patch.description = optionalString(body.description);
-    if (body.metadata !== undefined) patch.metadata = mergeMetadata(endpoint.metadata, body.metadata);
+    if (body.description !== undefined) patch.description = readString(body.description);
+    if (body.metadata !== undefined)
+      patch.metadata = mergeMetadata(endpoint.metadata, body.metadata) ?? endpoint.metadata;
 
     // Resolve the subscription before the url changes, since url and secret identify it.
     const subscriptionId = syncWebhookEndpoints(store, webhooks).get(endpoint.id);

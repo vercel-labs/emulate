@@ -27,6 +27,9 @@ export type CheckoutContext = EventBatchContext & InvoicingContext;
 /** The hosted page's `payment_method` value for completing a free trial without a card. */
 export const NO_CARD = "none";
 
+/** The service name the hosted pages (Checkout, portal, invoice) show in their header. */
+export const SERVICE_LABEL = "Stripe";
+
 /** The card the hosted page uses when the form names none. */
 export const DEFAULT_CHECKOUT_CARD = "pm_card_visa";
 

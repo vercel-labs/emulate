@@ -1,6 +1,6 @@
 import type { Context, RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { expandedJson, parseStripeBody, readInt, stripeError, stripeList } from "../helpers.js";
+import { expandedJson, parseStripeBody, readInt, stripeError, stripeList, readString } from "../helpers.js";
 import { formatTestClock, stripeExpandResolver } from "../formatters.js";
 import { eventBatch } from "../events.js";
 import {
@@ -12,10 +12,6 @@ import {
   MAX_CLOCK_SUBSCRIPTIONS,
 } from "../clock.js";
 import { runBillingUntil } from "../billing.js";
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 /** `frozen_time` as an integer, or the 400 Stripe answers for a missing or malformed one. */
 function readFrozenTime(c: Context, value: unknown): number | Response {

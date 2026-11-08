@@ -8,6 +8,7 @@ import {
   stripeList,
   readBool,
   readStringList,
+  readString,
 } from "../helpers.js";
 import { formatProduct } from "../formatters.js";
 import { eventBatch } from "../events.js";
@@ -15,10 +16,6 @@ import type { StripeProduct } from "../entities.js";
 import type { PriceParamError } from "../pricing.js";
 
 export type ProductDefinition = Omit<StripeProduct, "id" | "created_at" | "updated_at" | "stripe_id">;
-
-function readText(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 /**
  * Validate product params, from `POST /v1/products` or a price's `product_data`. `prefix`
@@ -31,12 +28,12 @@ export function readProductParams(
   const param = (field: string) => (prefix ? `${prefix}[${field}]` : field);
   const source =
     input !== null && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
-  const name = readText(source.name);
+  const name = readString(source.name);
   if (!name) return { error: { message: `Missing required param: ${param("name")}.`, param: param("name") } };
 
   const product: ProductDefinition = {
     name,
-    description: readText(source.description) ?? null,
+    description: readString(source.description) ?? null,
     active: readBool(source.active) ?? true,
     metadata:
       source.metadata && typeof source.metadata === "object" && !Array.isArray(source.metadata)
@@ -48,7 +45,7 @@ export function readProductParams(
   const shippable = readBool(source.shippable);
   if (shippable !== undefined) product.shippable = shippable;
   for (const field of ["statement_descriptor", "unit_label", "url"] as const) {
-    const value = readText(source[field]);
+    const value = readString(source[field]);
     if (value !== undefined) product[field] = value;
   }
   return { product };

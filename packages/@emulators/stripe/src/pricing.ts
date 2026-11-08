@@ -1,4 +1,4 @@
-import { readBool, readInt } from "./helpers.js";
+import { readBool, readInt, isRecord, readString } from "./helpers.js";
 import type {
   PriceInterval,
   StripePrice,
@@ -44,14 +44,6 @@ const INTERVALS: readonly PriceInterval[] = ["day", "week", "month", "year"];
 const MAX_INTERVAL_COUNT: Record<PriceInterval, number> = { day: 1095, week: 156, month: 36, year: 3 };
 
 const MAX_LOOKUP_KEY_LENGTH = 200;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readText(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 /**
  * A non-negative amount in the smallest currency unit as Stripe renders a decimal string:
@@ -184,7 +176,7 @@ function readRecurring(
     };
   }
 
-  const meter = readText(value.meter);
+  const meter = readString(value.meter);
   if (usageType === "metered") {
     if (!meter) {
       return {
@@ -312,7 +304,7 @@ export function readPriceParams(
   input: Record<string, unknown>,
   options: ReadPriceOptions = {},
 ): { price?: PriceDefinition; error?: PriceParamError } {
-  const currency = readText(input.currency)?.toLowerCase();
+  const currency = readString(input.currency)?.toLowerCase();
   if (!currency) {
     return { error: { message: "Missing required param: currency.", param: "currency", code: "parameter_missing" } };
   }
@@ -387,7 +379,7 @@ export function readPriceParams(
     if (transform.transform) definition.transform_quantity = transform.transform;
   }
 
-  const lookupKey = readText(input.lookup_key);
+  const lookupKey = readString(input.lookup_key);
   if (lookupKey !== undefined) {
     if (lookupKey.length > MAX_LOOKUP_KEY_LENGTH) {
       return {
@@ -396,7 +388,7 @@ export function readPriceParams(
     }
     definition.lookup_key = lookupKey;
   }
-  const nickname = readText(input.nickname);
+  const nickname = readString(input.nickname);
   if (nickname !== undefined) definition.nickname = nickname;
 
   const taxBehavior = input.tax_behavior;

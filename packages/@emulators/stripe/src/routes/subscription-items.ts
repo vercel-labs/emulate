@@ -8,6 +8,7 @@ import {
   stripeError,
   stripeId,
   stripeList,
+  readString,
 } from "../helpers.js";
 import { nowFor } from "../clock.js";
 import { formatSubscription, formatSubscriptionItem, stripeExpandResolver, subscriptionItems } from "../formatters.js";
@@ -22,10 +23,6 @@ import {
 import { isMetered } from "../metering.js";
 import { sendStripeError } from "./payment-methods.js";
 import type { StripePrice, StripeSubscription, StripeSubscriptionItem } from "../entities.js";
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 export function subscriptionItemRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;

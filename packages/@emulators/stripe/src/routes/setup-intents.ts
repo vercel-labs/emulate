@@ -1,11 +1,21 @@
 import type { Context, RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { expandedJson, parseStripeBody, readBool, readEnum, stripeError, stripeId, stripeList } from "../helpers.js";
+import {
+  expandedJson,
+  mergeMetadata,
+  parseStripeBody,
+  readBool,
+  readEnum,
+  stripeError,
+  stripeId,
+  stripeList,
+  readString,
+} from "../helpers.js";
 import { formatSetupIntent, stripeExpandResolver } from "../formatters.js";
 import { eventBatch } from "../events.js";
 import { nowFor } from "../clock.js";
 import { attemptSetup, newClientSecret, resolvePaymentMethod } from "../payments.js";
-import { mergeMetadata, sendStripeError } from "./payment-methods.js";
+import { sendStripeError } from "./payment-methods.js";
 import type { SetupIntentStatus, StripePaymentMethod, StripeSetupIntent } from "../entities.js";
 
 const USAGES = ["off_session", "on_session"] as const;
@@ -18,10 +28,6 @@ const CANCELABLE: readonly SetupIntentStatus[] = [
 
 const MISSING_PAYMENT_METHOD =
   "You cannot confirm this SetupIntent because it's missing a payment method. You can either update the SetupIntent with a payment method and then confirm it again, or confirm it again directly with a payment method.";
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 function unexpectedState(c: Context, message: string) {
   return stripeError(c, 400, "invalid_request_error", message, "setup_intent_unexpected_state");
@@ -85,7 +91,7 @@ export function setupIntentRoutes(ctx: RouteContext): void {
       payment_method: pm?.stripe_id,
       usage: usage.value ?? "off_session",
       description: readString(body.description),
-      metadata: mergeMetadata({}, body.metadata),
+      metadata: mergeMetadata({}, body.metadata) ?? {},
       created: nowFor(ss, { customerId }),
       client_secret: newClientSecret(id),
     });
@@ -109,7 +115,7 @@ export function setupIntentRoutes(ctx: RouteContext): void {
     const body = await parseStripeBody(c);
 
     const updates: Partial<StripeSetupIntent> = {};
-    if (body.metadata !== undefined) updates.metadata = mergeMetadata(si.metadata, body.metadata);
+    if (body.metadata !== undefined) updates.metadata = mergeMetadata(si.metadata, body.metadata) ?? si.metadata;
     if (body.description !== undefined) updates.description = readString(body.description);
 
     const customerId = readString(body.customer);

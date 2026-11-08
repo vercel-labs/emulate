@@ -8,7 +8,7 @@ import type {
   WebhookSubscription,
 } from "@emulators/core";
 import { getStripeStore } from "./store.js";
-import { randomBase62, stripeId } from "./helpers.js";
+import { randomBase62, stripeId, isRecord } from "./helpers.js";
 import { holdEvents, planChaos, takeHeld, type HeldEvent } from "./chaos.js";
 import type { StripeEvent, StripeEventRequest, StripeEventWebhookTarget, StripeWebhookAttempt } from "./entities.js";
 
@@ -71,10 +71,6 @@ export function formatEvent(e: StripeEvent) {
   };
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -92,7 +88,7 @@ export function previousAttributes(
     const old = before[key];
     const now = after[key];
     if (sameValue(old, now)) continue;
-    if (isPlainObject(old) && isPlainObject(now) && !("object" in old)) {
+    if (isRecord(old) && isRecord(now) && !("object" in old)) {
       previous[key] = previousAttributes(old, now);
     } else {
       previous[key] = old === undefined ? null : old;
@@ -200,7 +196,11 @@ function targetsOf(event: StripeEvent, targets: Map<string, WebhookSubscription>
     .map(([endpoint]) => ({ endpoint, delivered: event.pending_webhooks === 0 }));
 }
 
-function recordAttempt(store: Store, event: StripeEvent, fields: Omit<StripeWebhookAttempt, keyof Entity | "event_id" | "type" | "created">) {
+function recordAttempt(
+  store: Store,
+  event: StripeEvent,
+  fields: Omit<StripeWebhookAttempt, keyof Entity | "event_id" | "type" | "created">,
+) {
   getStripeStore(store).webhookAttempts.insert({
     event_id: event.stripe_id,
     type: event.type,

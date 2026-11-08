@@ -6,12 +6,10 @@ import { defaultInvoicePayment, formatInvoice, hostedInvoiceUrl, invoiceLines } 
 import { eventBatch, type EventBatch } from "../events.js";
 import { asksForAuthentication, resolvePaymentMethod } from "../payments.js";
 import { invoicePaymentMethodId, payInvoice, type InvoiceResult, type InvoicingContext } from "../invoicing.js";
-import { DEFAULT_CHECKOUT_CARD, HOSTED_CARD_CHOICES } from "../checkout.js";
+import { DEFAULT_CHECKOUT_CARD, HOSTED_CARD_CHOICES, SERVICE_LABEL } from "../checkout.js";
 import { formatMoney } from "../lines.js";
 import { testCardByPaymentMethod } from "../test-cards.js";
 import type { StripeInvoice } from "../entities.js";
-
-export const SERVICE_LABEL = "Stripe";
 
 /** A `<select name="payment_method">` of the test cards the hosted pages offer. */
 export function cardSelect(chosen: string = DEFAULT_CHECKOUT_CARD): string {

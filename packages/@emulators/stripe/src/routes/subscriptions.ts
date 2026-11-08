@@ -10,6 +10,8 @@ import {
   stripeError,
   stripeList,
   stripeId,
+  isRecord,
+  readString,
 } from "../helpers.js";
 import { nowFor } from "../clock.js";
 import { formatSubscription, stripeExpandResolver, subscriptionItems } from "../formatters.js";
@@ -102,14 +104,6 @@ type Parsed<T> = { ok: true; value: T } | { ok: false; error: StripeErrorSpec };
 
 function invalid(message: string, param?: string, code?: string): { ok: false; error: StripeErrorSpec } {
   return { ok: false, error: { status: 400, type: "invalid_request_error", message, code, param } };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 /** A form list (`items[0][price]`) arrives as an array; an indexed JSON object is accepted too. */

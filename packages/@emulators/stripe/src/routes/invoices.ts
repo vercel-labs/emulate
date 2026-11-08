@@ -9,6 +9,7 @@ import {
   readInt,
   stripeError,
   stripeList,
+  readString,
 } from "../helpers.js";
 import { formatInvoice, formatInvoiceLineItem, invoiceLines, stripeExpandResolver } from "../formatters.js";
 import { eventBatch, previousAttributes } from "../events.js";
@@ -28,10 +29,6 @@ import type { StripeInvoice } from "../entities.js";
 const COLLECTION_METHODS = ["charge_automatically", "send_invoice"] as const;
 const PENDING_BEHAVIORS = ["exclude", "include"] as const;
 const STATUSES = ["draft", "open", "paid", "uncollectible", "void"] as const;
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 export function invoiceRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;

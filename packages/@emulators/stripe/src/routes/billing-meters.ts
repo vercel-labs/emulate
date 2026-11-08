@@ -9,6 +9,8 @@ import {
   stripeError,
   stripeId,
   stripeList,
+  isRecord,
+  readString,
 } from "../helpers.js";
 import { formatBillingMeter, stripeExpandResolver } from "../formatters.js";
 import { eventBatch, previousAttributes } from "../events.js";
@@ -22,14 +24,6 @@ const MAX_DISPLAY_NAME_LENGTH = 250;
 const GROUPING_SECONDS = { hour: 3600, day: 86400 } as const;
 
 type Invalid = { message: string; param?: string; code?: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readText(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 function wallClock(): number {
   return Math.floor(Date.now() / 1000);
@@ -54,7 +48,7 @@ function readPayloadKey(
   if (!isRecord(value)) return { error: { message: `Invalid ${param}: must be an object.`, param } };
   const failed = extra?.(value);
   if (failed) return { error: failed };
-  const key = readText(value.event_payload_key);
+  const key = readString(value.event_payload_key);
   if (!key) return { error: missing(`${param}[event_payload_key]`) };
   if (key.length > MAX_NAME_LENGTH) return { error: tooLong(`${param}[event_payload_key]`, MAX_NAME_LENGTH) };
   return { key };
@@ -67,12 +61,12 @@ export type MeterDefinition = Pick<
 
 /** Validate the params of `POST /v1/billing/meters`, or a seeded meter. */
 export function readMeterParams(input: Record<string, unknown>): { meter?: MeterDefinition; error?: Invalid } {
-  const displayName = readText(input.display_name);
+  const displayName = readString(input.display_name);
   if (!displayName) return { error: missing("display_name") };
   if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
     return { error: tooLong("display_name", MAX_DISPLAY_NAME_LENGTH) };
   }
-  const eventName = readText(input.event_name);
+  const eventName = readString(input.event_name);
   if (!eventName) return { error: missing("event_name") };
   if (eventName.length > MAX_NAME_LENGTH) return { error: tooLong("event_name", MAX_NAME_LENGTH) };
 
@@ -192,7 +186,7 @@ export function billingMeterRoutes(ctx: RouteContext): void {
     if (!meter) return notFound(c, id);
     const body = await parseStripeBody(c);
     if (body.display_name === undefined) return expandedJson(c, formatBillingMeter(meter), expand, body);
-    const displayName = readText(body.display_name);
+    const displayName = readString(body.display_name);
     if (!displayName) return invalid(c, { message: "Invalid display_name: must not be empty.", param: "display_name" });
     if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
       return invalid(c, tooLong("display_name", MAX_DISPLAY_NAME_LENGTH));
@@ -247,7 +241,7 @@ export function billingMeterRoutes(ctx: RouteContext): void {
     if (!meter) return notFound(c, id);
     const query = parseStripeQuery(c);
 
-    const customerId = readText(query.customer);
+    const customerId = readString(query.customer);
     if (!customerId) return invalid(c, missing("customer"));
     if (!ss.customers.findOneBy("stripe_id", customerId)) {
       return invalid(c, { message: `No such customer: '${customerId}'`, param: "customer", code: "resource_missing" });
@@ -303,8 +297,8 @@ export function billingMeterRoutes(ctx: RouteContext): void {
     }
 
     const limit = Math.min(Math.max(readInt(query.limit) ?? 10, 1), 100);
-    const startingAfter = readText(query.starting_after);
-    const endingBefore = readText(query.ending_before);
+    const startingAfter = readString(query.starting_after);
+    const endingBefore = readString(query.ending_before);
     let data: typeof summaries;
     let hasMore: boolean;
     const beforeAt = endingBefore && !startingAfter ? summaries.findIndex((s) => s.id === endingBefore) : -1;

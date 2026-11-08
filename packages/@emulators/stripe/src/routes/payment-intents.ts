@@ -36,7 +36,14 @@ export function paymentIntentRoutes(ctx: RouteContext): void {
   const expand = stripeExpandResolver(ss, baseUrl);
 
   const notFound = (c: Context) =>
-    stripeError(c, 404, "invalid_request_error", `No such payment_intent: '${c.req.param("id")}'`, "resource_missing", "intent");
+    stripeError(
+      c,
+      404,
+      "invalid_request_error",
+      `No such payment_intent: '${c.req.param("id")}'`,
+      "resource_missing",
+      "intent",
+    );
 
   /**
    * Confirm `pi` and respond. Without any payment method the emulator keeps its old

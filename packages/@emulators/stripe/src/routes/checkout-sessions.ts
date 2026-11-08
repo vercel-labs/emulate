@@ -11,6 +11,8 @@ import {
   mergeMetadata,
   readEnum,
   readInt,
+  isRecord,
+  readString,
 } from "../helpers.js";
 import {
   checkoutHasTrial,
@@ -28,6 +30,7 @@ import {
   completeCheckoutSession,
   DEFAULT_CHECKOUT_CARD,
   HOSTED_CARD_CHOICES,
+  SERVICE_LABEL,
   NO_CARD,
 } from "../checkout.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
@@ -37,8 +40,6 @@ import type {
   StripeCheckoutSubscriptionData,
   StripePrice,
 } from "../entities.js";
-
-const SERVICE_LABEL = "Stripe";
 
 const MODES = ["payment", "setup", "subscription"] as const;
 const CUSTOMER_CREATION = ["always", "if_required"] as const;
@@ -55,14 +56,6 @@ type Parsed<T> = { ok: true; value: T } | { ok: false; error: StripeErrorSpec };
 
 function invalid(message: string, param?: string, code?: string): { ok: false; error: StripeErrorSpec } {
   return { ok: false, error: { status: 400, type: "invalid_request_error", message, code, param } };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 function readLineItems(

@@ -188,6 +188,16 @@ export function mergeMetadata(current: Record<string, string>, patch: unknown): 
   return merged;
 }
 
+/** A JSON object or bracketed form param, as opposed to a scalar, list or null. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** A non-empty string param, or undefined for anything else, including "". */
+export function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
 /** Read a list parameter that may arrive as `name[]`, `name[0]` or a single value. */
 export function readStringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string" && v !== "");
@@ -333,10 +343,6 @@ export type ExpandResolver = (parent: Record<string, unknown>, field: string, va
 /** Stripe allows at most four levels of expansion. `data` segments that step into a list do not count. */
 export const MAX_EXPAND_DEPTH = 4;
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function expandDepth(path: string): number {
   return path.split(".").filter((segment) => segment !== "data").length;
 }
@@ -344,7 +350,7 @@ function expandDepth(path: string): number {
 function expandPath(node: unknown, segments: string[], resolve: ExpandResolver): unknown {
   if (segments.length === 0) return node;
   if (Array.isArray(node)) return node.map((item) => expandPath(item, segments, resolve));
-  if (!isPlainObject(node)) return node;
+  if (!isRecord(node)) return node;
 
   const [field, ...rest] = segments;
   if (field === "id" || field === "object") return node;
@@ -399,22 +405,6 @@ export function expandedJson(
   const tooDeep = expandDepthError(c, paths);
   if (tooDeep) return tooDeep;
   return c.json(expandPaths(obj, paths, resolve));
-}
-
-/**
- * Apply Stripe's expand[] parameter to embed related objects.
- * Replaces ID strings with full formatted objects, looked up by field name.
- */
-export function applyExpand(
-  obj: Record<string, unknown>,
-  expandPathList: string[],
-  resolvers: Partial<Record<string, (id: string) => Record<string, unknown> | undefined>>,
-): Record<string, unknown> {
-  if (!expandPathList || expandPathList.length === 0) return obj;
-  return expandPaths(obj, expandPathList, (_parent, field, value) => {
-    const resolver = Object.hasOwn(resolvers, field) ? resolvers[field] : undefined;
-    return resolver && typeof value === "string" ? resolver(value) : undefined;
-  });
 }
 
 /**

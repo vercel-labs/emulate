@@ -1,6 +1,6 @@
 import { randomInt } from "crypto";
 import type { Store } from "@emulators/core";
-import { eventTypeMatcher, readInt, readNumber, readStringList } from "./helpers.js";
+import { eventTypeMatcher, readInt, readNumber, readStringList, isRecord } from "./helpers.js";
 
 /**
  * Opt-in delivery faults for testing webhook handlers: drop, delay until flush, duplicate and
@@ -63,10 +63,6 @@ const OUTBOX_KEY = "stripe.webhook_outbox";
 const MAX_SEED = 0xffffffff;
 const MAX_DUPLICATES = 10;
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function unknownKey(value: Record<string, unknown>, allowed: readonly string[], prefix: string) {
   const key = Object.keys(value).find((k) => !allowed.includes(k));
   if (key === undefined) return undefined;
@@ -79,7 +75,7 @@ function parseRule(
   name: "drop" | "duplicate" | "delay",
 ): { rule?: ChaosRule & { count?: number }; error?: ChaosValidationError } {
   if (value === undefined || value === null || value === "") return {};
-  if (!isPlainObject(value)) {
+  if (!isRecord(value)) {
     return { error: { param: name, message: `Invalid ${name}: must be an object with rate and types.` } };
   }
   const allowed = name === "duplicate" ? ["rate", "types", "count"] : ["rate", "types"];
@@ -132,7 +128,7 @@ export function parseChaosConfig(
   input: unknown,
 ): { config: WebhookChaosConfig; error?: undefined } | { config?: undefined; error: ChaosValidationError } {
   const value = input === undefined ? {} : input;
-  if (!isPlainObject(value)) return { error: { param: "", message: "Chaos settings must be an object." } };
+  if (!isRecord(value)) return { error: { param: "", message: "Chaos settings must be an object." } };
   const unknown = unknownKey(value, ["seed", "drop", "duplicate", "delay", "reorder"], "");
   if (unknown) return { error: unknown };
 

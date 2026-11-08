@@ -1,7 +1,16 @@
 import type { Context, RouteContext } from "@emulators/core";
 import { renderCardPage, escapeAttr, escapeHtml } from "@emulators/core";
 import { getStripeStore, type StripeStore } from "../store.js";
-import { expandedJson, parseStripeBody, readInt, stripeError, stripeId, stripeList } from "../helpers.js";
+import {
+  expandedJson,
+  parseStripeBody,
+  readInt,
+  stripeError,
+  stripeId,
+  stripeList,
+  isRecord,
+  readString,
+} from "../helpers.js";
 import {
   PORTAL_CANCELLATION_REASONS,
   billingPortalUrl,
@@ -27,7 +36,8 @@ import {
 } from "../subscriptions.js";
 import { intervalText, productName } from "../lines.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
-import { SERVICE_LABEL, cardSelect, day, errorBlock, money, payInvoiceOnPage } from "./hosted-invoices.js";
+import { SERVICE_LABEL } from "../checkout.js";
+import { cardSelect, day, errorBlock, money, payInvoiceOnPage } from "./hosted-invoices.js";
 import type {
   BillingPortalAfterCompletion,
   BillingPortalFlowType,
@@ -127,14 +137,6 @@ function invalid(message: string, param?: string, code?: string): { ok: false; e
 
 function missing(param: string): { ok: false; error: StripeErrorSpec } {
   return invalid(`Missing required param: ${param}.`, param, "parameter_missing");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 /** Stripe accepts only absolute http(s) URLs; anything else (a `javascript:` URL too) answers 400. */

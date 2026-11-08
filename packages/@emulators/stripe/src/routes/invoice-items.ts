@@ -10,6 +10,7 @@ import {
   stripeError,
   stripeId,
   stripeList,
+  readString,
 } from "../helpers.js";
 import { formatInvoice, formatInvoiceItem, stripeExpandResolver } from "../formatters.js";
 import { eventBatch } from "../events.js";
@@ -17,10 +18,6 @@ import { nowFor } from "../clock.js";
 import { attachInvoiceItem, emitDraftChange, invoiceNotEditable, syncInvoiceItemLine } from "../invoicing.js";
 import { sendStripeError } from "./payment-methods.js";
 import type { StripeInvoice, StripeInvoiceItem, StripePrice } from "../entities.js";
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 /** `pricing[price]`, the endive way to invoice an existing price. */
 function readPricingPrice(body: Record<string, unknown>): string | undefined {

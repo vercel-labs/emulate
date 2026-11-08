@@ -85,7 +85,14 @@ export function priceRoutes(ctx: RouteContext): void {
   app.get("/v1/prices/:id", (c) => {
     const price = ss.prices.findOneBy("stripe_id", c.req.param("id"));
     if (!price)
-      return stripeError(c, 404, "invalid_request_error", `No such price: '${c.req.param("id")}'`, "resource_missing", "id");
+      return stripeError(
+        c,
+        404,
+        "invalid_request_error",
+        `No such price: '${c.req.param("id")}'`,
+        "resource_missing",
+        "id",
+      );
     return expandedJson(c, formatPrice(price), expand);
   });
 

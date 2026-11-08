@@ -1,21 +1,13 @@
 import { randomUUID } from "crypto";
 import type { Context, RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { parseStripeBody, readInt, stripeError } from "../helpers.js";
+import { parseStripeBody, readInt, stripeError, isRecord, readString } from "../helpers.js";
 import { nowFor } from "../clock.js";
 import { formatMeterEvent } from "../formatters.js";
 import { activeMeterFor, MAX_METER_EVENT_AGE, MAX_METER_EVENT_LEAD, METER_EVENT_WINDOW } from "../metering.js";
 import type { StripeMeterEvent } from "../entities.js";
 
 const MAX_NAME_LENGTH = 100;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readText(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
 
 /** A usage value: a decimal number, possibly negative, sent as a string or a number. */
 function readUsageValue(value: string): number | undefined {
@@ -36,7 +28,7 @@ export function meterEventRoutes(ctx: RouteContext): void {
 
   app.post("/v1/billing/meter_events", async (c) => {
     const body = await parseStripeBody(c);
-    const eventName = readText(body.event_name);
+    const eventName = readString(body.event_name);
     if (!eventName) return invalid(c, "Missing required param: event_name.", "event_name", "parameter_missing");
     if (eventName.length > MAX_NAME_LENGTH) {
       return invalid(c, `Invalid event_name: must be at most ${MAX_NAME_LENGTH} characters.`, "event_name");
@@ -58,7 +50,7 @@ export function meterEventRoutes(ctx: RouteContext): void {
     }
 
     const customerKey = meter.customer_payload_key;
-    const customerId = readText(payload[customerKey]);
+    const customerId = readString(payload[customerKey]);
     if (!customerId) {
       return invalid(
         c,
@@ -121,7 +113,7 @@ export function meterEventRoutes(ctx: RouteContext): void {
       timestamp = given;
     }
 
-    const identifier = readText(body.identifier) ?? randomUUID();
+    const identifier = readString(body.identifier) ?? randomUUID();
     if (identifier.length > MAX_NAME_LENGTH) {
       return invalid(c, `Invalid identifier: must be at most ${MAX_NAME_LENGTH} characters.`, "identifier");
     }
@@ -149,13 +141,13 @@ export function meterEventRoutes(ctx: RouteContext): void {
 
   app.post("/v1/billing/meter_event_adjustments", async (c) => {
     const body = await parseStripeBody(c);
-    const eventName = readText(body.event_name);
+    const eventName = readString(body.event_name);
     if (!eventName) return invalid(c, "Missing required param: event_name.", "event_name", "parameter_missing");
     if (body.type === undefined || body.type === "") {
       return invalid(c, "Missing required param: type.", "type", "parameter_missing");
     }
     if (body.type !== "cancel") return invalid(c, "Invalid type: must be cancel", "type");
-    const identifier = isRecord(body.cancel) ? readText(body.cancel.identifier) : undefined;
+    const identifier = isRecord(body.cancel) ? readString(body.cancel.identifier) : undefined;
     if (!identifier) {
       return invalid(c, "Missing required param: cancel[identifier].", "cancel[identifier]", "parameter_missing");
     }
