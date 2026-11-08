@@ -1,14 +1,43 @@
 # @emulators/stripe
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, setup intents, charges, subscriptions, invoices, invoice items, products, prices, and checkout sessions (payment and subscription mode). Includes a hosted checkout page and webhook delivery.
+Stripe API emulation for payments and Billing: customers, payment methods with Stripe's test cards, customer sessions, payment intents, setup intents, charges, products, prices (recurring, tiered and metered), subscriptions with trials, pausing and dunning, invoices, invoice items, invoice payments, test clocks, billing meters and meter events, Checkout Sessions (payment and subscription mode) and the customer portal. Includes hosted checkout, invoice and portal pages, and webhook delivery of signed Event objects with optional delivery chaos.
 
-Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
+Part of [emulate](https://github.com/vercel-labs/emulate), local drop-in replacement services for CI and no-network sandboxes.
 
 ## Install
 
 ```bash
 npm install @emulators/stripe
 ```
+
+## Usage
+
+Point the official SDK at the emulator. stripe-node has no base URL environment variable, so pass `host`, `port` and `protocol`:
+
+```typescript
+import Stripe from 'stripe'
+
+const stripe = new Stripe('sk_test_emulated', {
+  host: 'localhost',
+  port: 4000, // 4009 when emulate runs every service
+  protocol: 'http',
+})
+```
+
+Responses use the wire shape of API version `2026-10-28.endive`, the version stripe-node 23 pins. Register a webhook endpoint with a secret, in the [seed config](#seed-configuration) or with `POST /v1/webhook_endpoints`, and verify deliveries with `stripe.webhooks.constructEvent` as you would in production.
+
+### Testing a subscription integration
+
+A typical SaaS setup (a 7 day trial with a card on file, a flat monthly plan and a metered overage price whose first 1000 units are free) runs end to end against the emulator. Billing time only moves on a [test clock](#test-clocks), so put the customer on one:
+
+1. Create a clock with `POST /v1/test_helpers/test_clocks` and a customer with `test_clock` set.
+2. Create a subscription-mode Checkout Session for that `customer` with `subscription_data[trial_period_days]=7`, and complete the hosted page at its `url` (or `POST /checkout/:id/complete` with `payment_method=pm_card_visa`). The subscription starts `trialing` with the card as its `default_payment_method`, and `checkout.session.completed` comes last.
+3. Advance the clock. Three days before the trial ends you get `customer.subscription.trial_will_end`. At `trial_end` the subscription turns `active` and an hour later the first invoice is finalized and charged (`invoice.paid`).
+4. Report usage with `POST /v1/billing/meter_events`. The next renewal bills it in arrears on the cycle invoice, one line per tier reached.
+5. Make payments fail with `pm_card_chargeCustomerFail`, or later with `POST /_stripe/simulate/payment_methods/:id`, to walk `past_due`, the retry schedule and the final `cancel`, `unpaid`, `past_due` or `pause` policy. Recover by setting a new default card and paying the open invoice.
+6. Send customers to a portal session's `url` to cancel at period end, renew, change their card or pay an invoice.
+
+`src/__tests__/scenarios.test.ts` drives each of these steps through stripe-node and verifies every webhook with `constructEvent`.
 
 ## Endpoints
 
@@ -94,15 +123,15 @@ The declined cards cannot be attached to a customer, as on Stripe: attaching one
 | `require_authentication` | Ask for 3D Secure on every charge, as 3184 does |
 
 ### Customer Sessions
-- `POST /v1/customer_sessions` — create customer session
+- `POST /v1/customer_sessions`: create a customer session
 
 ### Payment Intents
-- `POST /v1/payment_intents` — create payment intent
-- `GET /v1/payment_intents/:id` — retrieve payment intent
-- `POST /v1/payment_intents/:id` — update payment intent
-- `POST /v1/payment_intents/:id/confirm` — confirm payment intent
-- `POST /v1/payment_intents/:id/cancel` — cancel payment intent
-- `GET /v1/payment_intents` — list payment intents
+- `POST /v1/payment_intents`: create a payment intent
+- `GET /v1/payment_intents/:id`: retrieve a payment intent
+- `POST /v1/payment_intents/:id`: update a payment intent
+- `POST /v1/payment_intents/:id/confirm`: confirm a payment intent
+- `POST /v1/payment_intents/:id/cancel`: cancel a payment intent
+- `GET /v1/payment_intents`: list payment intents
 - `POST /_stripe/simulate/payment_intents/:id/authenticate`: emulator only. Completes (`{"result": "succeed"}`, the default) or fails (`{"result": "fail"}`) the 3D Secure step of an intent in `requires_action`, as the customer would
 
 Create accepts `payment_method`, `confirm`, `off_session` (`true`, `one_off` or `recurring`), `setup_future_usage` (`off_session` or `on_session`), `confirmation_method` (`automatic` or `manual`), `capture_method` (`automatic_async`, the default, or `automatic`), `customer`, `description` and `metadata`. Confirm accepts `payment_method`, `off_session` and `setup_future_usage`. A test card id such as `pm_card_visa` is cloned into a new unattached `pm_` when it is set on an intent. A payment method attached to a customer can only be used with that customer, and one used without a customer cannot be used again.
@@ -314,8 +343,8 @@ Items on a finalized invoice answer 400 `invoice_not_editable`. Changing the lin
 - `GET /v1/invoice_payments`: list them, filtered by `invoice`, `status` and `payment[type]` with `payment[payment_intent]`
 
 ### Charges
-- `GET /v1/charges/:id` — retrieve charge
-- `GET /v1/charges` — list charges
+- `GET /v1/charges/:id`: retrieve a charge
+- `GET /v1/charges`: list charges
 
 Charges are created by confirming a payment intent. They carry `outcome` (`authorized`, or `issuer_declined` with the decline code in `reason`), `failure_code`, `failure_message`, `paid`, `billing_details` copied from the payment method, and `payment_method_details.card` (brand, last4, checks, `network`, `three_d_secure` when the customer authenticated).
 
@@ -386,7 +415,7 @@ Usage is billed through metered prices. A subscription's first invoice (`subscri
 
 Session ids start with `cs_test_`. A line for a metered price takes no `quantity` (400 on `line_items[i][quantity]` otherwise), shows `quantity: null` and adds nothing to the amount due. `amount_subtotal` and `amount_total` are what is due when the session completes, so a trial session shows 0. `subscription` mode needs at least one recurring price, and `payment` mode accepts only one-time prices; both return 400 with `param: "line_items"` otherwise.
 
-Completing the page in `subscription` mode creates the customer (unless the session has one), then the subscription through the same path as `POST /v1/subscriptions`, with the collected card as the subscription's `default_payment_method`. The customer's `invoice_settings.default_payment_method` is left alone. With a trial the card is saved through a `seti_` SetupIntent and the $0 invoice is paid at once; without one the card is attached and the first invoice charged with the customer present. The session ends `complete` and `paid` with `customer`, `subscription` and `invoice` set:
+Completing the page in `subscription` mode creates the customer (unless the session has one), then the subscription through the same path as `POST /v1/subscriptions`, with the collected card as the subscription's `default_payment_method`. The customer's `invoice_settings.default_payment_method` is left alone. A session for a `customer` that is on a [test clock](#test-clocks) creates everything at the clock's `frozen_time`, so advancing that clock runs the trial and the renewals. With a trial the card is saved through a `seti_` SetupIntent and the $0 invoice is paid at once; without one the card is attached and the first invoice charged with the customer present. The session ends `complete` and `paid` with `customer`, `subscription` and `invoice` set:
 
 | Session | Events, in order, ending with `checkout.session.completed` |
 |---------|-------------------------------------------------------------|
@@ -528,7 +557,20 @@ stripe:
           unit_amount: 2
 ```
 
-`billing` takes the same keys as `POST /_stripe/billing/settings`. A price's `product` names a seeded product by name or id; the older `product_name` key still works. Seeded prices take the same params as `POST /v1/prices` and are validated the same way, so an invalid one stops the seed with an error. `tiers` without `billing_scheme` makes a tiered price, and a seeded `lookup_key` moves from any price that already holds it. `meters` take the params of `POST /v1/billing/meters`, with an optional `id` and `default_aggregation` defaulting to `sum`, and are seeded before prices, so a metered price's `recurring.meter` can name a meter by id or by `event_name`.
+Every key is optional. Seeded objects are created in this order: customers, products, meters, prices, then webhook endpoints.
+
+| Key | Contents |
+|-----|----------|
+| `api_version` | The version stamped on every event. Defaults to `2026-10-28.endive` |
+| `webhooks` | Endpoints: `url`, `events` (`['*']` for every type), optional `secret` (deliveries are signed only with one) and `id`. Listed by `GET /v1/webhook_endpoints` |
+| `webhook_chaos` | Delivery faults applied from the start, with the body of `POST /_stripe/webhooks/chaos`. See [Webhook delivery model and chaos](#webhook-delivery-model-and-chaos) |
+| `billing` | `upcoming_renewal_days`, `retry_schedule_days` and `after_retries` (`subscription`, `invoice`), as in `POST /_stripe/billing/settings` |
+| `customers` | `email`, `name`, `description` and an optional `id` |
+| `products` | `name`, `description` and an optional `id` |
+| `meters` | The params of `POST /v1/billing/meters` (`display_name`, `event_name`, `customer_mapping`, `value_settings`, `event_time_window`) with an optional `id`. `default_aggregation` defaults to `{formula: sum}` |
+| `prices` | The params of `POST /v1/prices`: `currency`, `unit_amount` or `unit_amount_decimal`, `recurring` (`interval`, `interval_count`, `usage_type`, `meter`), `billing_scheme`, `tiers`, `tiers_mode`, `transform_quantity`, `lookup_key`, `nickname`, `tax_behavior` and `metadata`, with an optional `id` |
+
+A price's `product` names a seeded product by name or id; the older `product_name` key still works. Seeded prices are validated like `POST /v1/prices`, so an invalid one stops the seed with an error. `tiers` without `billing_scheme` makes a tiered price, a tier's `up_to` takes `inf` for the last tier, and a seeded `lookup_key` moves from any price that already holds it. Meters are seeded before prices, so a metered price's `recurring.meter` can name a meter by id or by `event_name`. Optional `id` fields give deterministic ids that survive a restart.
 
 ## Differences from real Stripe
 

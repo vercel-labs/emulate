@@ -383,17 +383,41 @@ resend:
 
 ```yaml
 stripe:
+  webhooks:
+    - url: http://localhost:3000/api/webhooks/stripe
+      events: ['*']
+      secret: whsec_test
   customers:
     - email: test@example.com
       name: Test Customer
   products:
     - name: Pro Plan
       description: Monthly pro subscription
+  meters:
+    - display_name: API calls
+      event_name: api_calls
   prices:
-    - product_name: Pro Plan
+    - product: Pro Plan
       currency: usd
       unit_amount: 2000
+      lookup_key: pro_monthly
+      recurring:
+        interval: month
+    - product: Pro Plan
+      currency: usd
+      recurring:
+        interval: month
+        usage_type: metered
+        meter: api_calls
+      tiers_mode: graduated
+      tiers:
+        - up_to: 1000
+          unit_amount: 0
+        - up_to: inf
+          unit_amount: 2
 ```
+
+`billing`, `webhook_chaos` and `api_version` are also accepted. See [Stripe](/docs/stripe#seed-configuration) for every key.
 
 ## Clerk Seed Config
 

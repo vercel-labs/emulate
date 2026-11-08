@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Stripe API Emulator
 
-Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. Webhooks fire on state changes. The hosted checkout UI lets you complete payments in the browser.
+Fully stateful Stripe API emulation for payments and Billing. Customers, payment methods (Stripe's test cards), payment intents, setup intents, charges, products, prices (recurring, tiered, metered), subscriptions, invoices, test clocks, billing meters, Checkout Sessions and customer portal sessions persist in memory. Every state change becomes a signed Stripe Event delivered to your webhook endpoints. Hosted checkout, invoice and portal pages let you complete flows in the browser or with a plain form POST.
 
 No real payments are processed. Every Stripe SDK call hits the emulator and produces realistic responses.
 
@@ -41,7 +41,7 @@ The Stripe Node.js SDK does not read an environment variable for the base URL. Y
 import Stripe from 'stripe'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-12-18.acacia',
+  apiVersion: '2026-10-28.endive', // the shapes the emulator serves
   host: 'localhost',
   port: 4000,
   protocol: 'http',
@@ -70,7 +70,7 @@ import Stripe from 'stripe'
 const port = process.env.PORT ?? '3000'
 
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-12-18.acacia',
+  apiVersion: '2026-10-28.endive', // the shapes the emulator serves
   host: 'localhost',
   port: parseInt(port, 10),
   protocol: 'http',
@@ -703,7 +703,7 @@ curl -X POST http://localhost:4000/_stripe/simulate/payment_methods/pm_xxx -d "b
 curl -X POST http://localhost:4000/_stripe/simulate/payment_methods/pm_xxx -d "behavior=succeed"
 ```
 
-Other card numbers are rejected. Setting a default payment method that is not attached to the customer returns a 400 with `param: "invoice_settings[default_payment_method]"`. Confirming a PaymentIntent does not apply card declines or 3D Secure yet.
+Other card numbers are rejected. Setting a default payment method that is not attached to the customer returns a 400 with `param: "invoice_settings[default_payment_method]"`.
 
 ## Webhooks
 
@@ -829,6 +829,15 @@ export async function POST(request: Request) {
     case 'charge.succeeded':
       console.log('Charge succeeded:', obj.id)
       break
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted':
+      console.log('Subscription', obj.id, 'is', obj.status) // trialing, active, past_due, canceled...
+      break
+    case 'invoice.paid':
+    case 'invoice.payment_failed':
+      console.log('Invoice', obj.id, obj.status, 'attempt', obj.attempt_count)
+      break
   }
 
   return NextResponse.json({ received: true })
@@ -884,6 +893,47 @@ console.log(sub.status)                 // 'trialing'
 console.log(sub.default_payment_method) // 'pm_...', saved through a SetupIntent
 ```
 
+### SaaS Subscription on a Test Clock
+
+Billing time only moves on a test clock. Put the customer on one, run Checkout for that customer, then advance:
+
+```typescript
+const start = Math.floor(Date.UTC(2026, 0, 15, 12) / 1000)
+const clock = await stripe.testHelpers.testClocks.create({ frozen_time: start })
+const customer = await stripe.customers.create({ email: 'founder@saas.example', test_clock: clock.id })
+
+const session = await stripe.checkout.sessions.create({
+  mode: 'subscription',
+  customer: customer.id,
+  line_items: [{ price: 'price_pro_monthly', quantity: 1 }, { price: 'price_api_calls' }], // metered: no quantity
+  subscription_data: { trial_period_days: 7 },
+  success_url: `${origin}/welcome?session_id={CHECKOUT_SESSION_ID}`,
+})
+// Complete session.url in a browser, or post the form the page posts:
+await fetch(`http://localhost:4000/checkout/${session.id}/complete`, {
+  method: 'POST',
+  body: new URLSearchParams({ payment_method: 'pm_card_visa' }),
+})
+// customer.subscription.created (trialing) ... checkout.session.completed (last)
+
+await stripe.testHelpers.testClocks.advance(clock.id, { frozen_time: start + 4 * 86400 })
+// customer.subscription.trial_will_end
+await stripe.testHelpers.testClocks.advance(clock.id, { frozen_time: start + 7 * 86400 + 3600 })
+// customer.subscription.updated (active), invoice.created, invoice.finalized, invoice.paid
+
+await stripe.billing.meterEvents.create({
+  event_name: 'api_calls',
+  identifier: 'req-1', // a repeat within 24 hours answers 400 duplicate_meter_event
+  payload: { stripe_customer_id: customer.id, value: '1500' },
+})
+// Billed in arrears on the renewal a month after the trial ended
+
+const portal = await stripe.billingPortal.sessions.create({ customer: customer.id, return_url: `${origin}/account` })
+// portal.url is the emulator's portal page: cancel at period end, renew, change card, pay invoices
+```
+
+Usage during the trial is never billed; each renewal bills the usage of the period that just ended, one line per tier reached. With `payment_method_collection: 'if_required'` and `payment_method: 'none'` on the form, the trial starts without a card and `subscription_data.trial_settings.end_behavior.missing_payment_method` (`cancel`, `pause` or `create_invoice`) decides what happens at `trial_end`.
+
 ### Payment Intent Flow (no checkout UI)
 
 ```typescript
@@ -897,6 +947,18 @@ const pi = await stripe.paymentIntents.create({
 const confirmed = await stripe.paymentIntents.confirm(pi.id)
 console.log(confirmed.status) // 'succeeded'
 ```
+
+## Differences from Real Stripe
+
+The emulator matches Stripe's wire format but deliberately does less in places. The full list is in the package README (`packages/@emulators/stripe/README.md`). The ones that most often matter in tests:
+
+- Only customers on a test clock move through billing time. Without a clock, trials never end, periods never renew and failed payments are never retried.
+- A clock advance runs synchronously: the response says `advancing`, but a `GET` right after shows `ready`.
+- Webhooks are delivered inline, in order, before the API response returns, with no automatic retries. Use the chaos controls to test duplicates, reordering, delays and drops.
+- Retries follow a fixed custom schedule (`[3, 5, 7]` days by default), not Smart Retries.
+- There are no prorations, schedules, coupons, discounts, taxes or credit notes.
+- Meter event problems answer 400 at once instead of arriving later as error report events.
+- Checkout, invoice and portal pages are emulator HTML with a select of test cards. Off-session 3D Secure is completed with `POST /_stripe/simulate/payment_intents/:id/authenticate`.
 
 ## Custom emulators alongside built-ins
 
