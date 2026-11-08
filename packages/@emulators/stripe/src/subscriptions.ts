@@ -4,7 +4,9 @@ import { liveSubscriptionCount, MAX_CLOCK_SUBSCRIPTIONS, nowFor } from "./clock.
 import { nextPeriodEnd } from "./periods.js";
 import { previousAttributes, type EventBatch } from "./events.js";
 import { formatSubscription, subscriptionItems, MAX_SUBSCRIPTION_ITEMS } from "./formatters.js";
-import { priceAmount, priceBreakdown } from "./pricing.js";
+import { priceAmount } from "./pricing.js";
+import { priceLines, productName } from "./lines.js";
+import { usageLines } from "./metering.js";
 import {
   createInvoice,
   finalizeInvoice,
@@ -16,7 +18,6 @@ import {
 import type { StripeErrorSpec } from "./routes/payment-methods.js";
 import type {
   InvoiceBillingReason,
-  PriceInterval,
   StripeInvoice,
   StripePrice,
   StripeSubscription,
@@ -87,6 +88,19 @@ export function readSubscriptionPrice(
 }
 
 /**
+ * The 400 for a quantity sent with a metered price, which bills usage instead. `owner` is the
+ * param holding the quantity, such as `items[0]`, or undefined for a top-level `quantity`.
+ */
+export function meteredQuantityError(owner: string | undefined): StripeErrorSpec {
+  const param = owner ? `${owner}[quantity]` : "quantity";
+  const from = owner ? `\`${owner}\`` : "the request";
+  return invalidRequest(
+    `Quantity should not be specified where usage_type is \`metered\`. Remove quantity from ${from}.`,
+    param,
+  );
+}
+
+/**
  * The rules every set of subscription items keeps: one to twenty items, one price each, and a
  * single currency and billing interval.
  */
@@ -119,51 +133,13 @@ export function checkItemSet(prices: StripePrice[]): StripeErrorSpec | undefined
   return undefined;
 }
 
-const ZERO_DECIMAL_CURRENCIES = new Set([
-  "bif",
-  "clp",
-  "djf",
-  "gnf",
-  "jpy",
-  "kmf",
-  "krw",
-  "mga",
-  "pyg",
-  "rwf",
-  "ugx",
-  "vnd",
-  "vuv",
-  "xaf",
-  "xof",
-  "xpf",
-]);
-
-const CURRENCY_SYMBOLS: Record<string, string> = { usd: "$", eur: "€", gbp: "£", jpy: "¥" };
-
-/** An amount in the smallest currency unit as an invoice line shows it, such as `$20.00`. */
-export function formatMoney(amountDecimal: string, currency: string): string {
-  const exponent = ZERO_DECIMAL_CURRENCIES.has(currency) ? 0 : 2;
-  const major = Number(amountDecimal) / 10 ** exponent;
-  let text = major.toFixed(exponent);
-  if (Number(text) !== major) text = String(Number(major.toFixed(12)));
-  const symbol = Object.hasOwn(CURRENCY_SYMBOLS, currency) ? CURRENCY_SYMBOLS[currency] : undefined;
-  return symbol ? `${symbol}${text}` : `${currency.toUpperCase()} ${text}`;
-}
-
-/** How a price's billing interval reads after its amount: `/ month`, or `every 3 months`. */
-export function intervalText(interval: PriceInterval, count: number): string {
-  return count === 1 ? `/ ${interval}` : `every ${count} ${interval}s`;
-}
-
-function productName(ss: StripeStore, price: StripePrice): string {
-  return ss.products.findOneBy("stripe_id", price.product_id)?.name ?? price.stripe_id;
-}
+export { formatMoney, intervalText } from "./lines.js";
 
 /**
- * The invoice lines for one billing period of `items`. A trial bills each item at 0 with
- * "Free trial" in the description. Per-unit prices give one line per item and tiered prices
- * one line per tier reached, plus one for each flat fee. Metered prices are billed in arrears
- * and get no line here.
+ * The invoice lines for one billing period of `items`, billed in advance. A trial bills each
+ * item at 0 with "Free trial" in the description. Per-unit prices give one line per item and
+ * tiered prices one line per tier reached, plus one for each flat fee. Metered prices are
+ * billed in arrears by usageLines and get no line here.
  */
 export function subscriptionLines(
   ss: StripeStore,
@@ -176,53 +152,25 @@ export function subscriptionLines(
   for (const item of items) {
     const price = ss.prices.findOneBy("stripe_id", item.price_id);
     if (!price?.recurring || price.recurring.usage_type === "metered") continue;
-    const name = productName(ss, price);
-    const every = intervalText(price.recurring.interval, price.recurring.interval_count);
-    const base = {
-      currency: sub.currency,
-      discountable: true,
-      metadata: {},
-      period: { ...period },
-      price_id: price.stripe_id,
-      product_id: price.product_id,
-      proration: false,
-      subscription_item_id: item.stripe_id,
-      subscription_id: sub.stripe_id,
-    };
     if (trial) {
       lines.push({
-        ...base,
         amount: 0,
-        description: `Free trial for ${item.quantity} × ${name}`,
+        currency: sub.currency,
+        description: `Free trial for ${item.quantity} × ${productName(ss, price)}`,
+        discountable: true,
+        metadata: {},
+        period: { ...period },
+        price_id: price.stripe_id,
+        product_id: price.product_id,
         unit_amount_decimal: "0",
         quantity: item.quantity,
+        proration: false,
+        subscription_item_id: item.stripe_id,
+        subscription_id: sub.stripe_id,
       });
       continue;
     }
-    if (price.billing_scheme !== "tiered") {
-      const [part] = priceBreakdown(price, item.quantity);
-      lines.push({
-        ...base,
-        amount: part.amount,
-        description: `${item.quantity} × ${name} (at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
-        unit_amount_decimal: part.unit_amount_decimal,
-        quantity: item.quantity,
-      });
-      continue;
-    }
-    for (const part of priceBreakdown(price, item.quantity)) {
-      const tier = (part.tier ?? 0) + 1;
-      lines.push({
-        ...base,
-        amount: part.amount,
-        description:
-          part.kind === "flat"
-            ? `${name} (Tier ${tier} flat fee)`
-            : `${part.quantity} × ${name} (Tier ${tier} at ${formatMoney(part.unit_amount_decimal, sub.currency)} ${every})`,
-        unit_amount_decimal: part.unit_amount_decimal,
-        quantity: part.quantity,
-      });
-    }
+    lines.push(...priceLines(ss, sub, item, price, item.quantity, period));
   }
   return lines;
 }
@@ -248,10 +196,13 @@ function invoiceSubscription(
   trial: boolean,
   autoAdvance: boolean,
   invoicePeriod?: { start: number; end: number },
+  usagePeriod?: { start: number; end: number },
 ): StripeInvoice {
   const ss = getStripeStore(ctx.store);
   const items = subscriptionItems(ss, sub.stripe_id);
   const period = { start: items[0].current_period_start, end: items[0].current_period_end };
+  const lines = subscriptionLines(ss, sub, items, period, trial);
+  if (usagePeriod) lines.push(...usageLines(ss, sub, items, usagePeriod));
   const inv = createInvoice(ctx, ev, {
     period: invoicePeriod,
     customerId: sub.customer_id,
@@ -262,7 +213,7 @@ function invoiceSubscription(
     billingReason,
     subscriptionId: sub.stripe_id,
     subscriptionMetadata: { ...sub.metadata },
-    lines: subscriptionLines(ss, sub, items, period, trial),
+    lines,
   });
   ss.subscriptions.update(sub.id, { latest_invoice: inv.stripe_id });
   return inv;
@@ -459,8 +410,10 @@ function currentItemPeriod(items: StripeSubscriptionItem[]): { start: number; en
 /**
  * Open a new billing period for every item and invoice it with `billing_reason`
  * `subscription_cycle`. The draft looks back on the period that just ended, auto-advances and
- * is finalized an hour later. Sends customer.subscription.updated, carrying the old `items`
- * and `latest_invoice` (and `status` when it changed), before invoice.created.
+ * is finalized an hour later. Licensed items are billed in advance for the new period, metered
+ * items in arrears for the period that ended, unless that period was a trial. Sends
+ * customer.subscription.updated, carrying the old `items` and `latest_invoice` (and `status`
+ * when it changed), before invoice.created.
  */
 function startCycle(
   ctx: InvoicingContext,
@@ -482,7 +435,8 @@ function startCycle(
   }
   const updated = ss.subscriptions.update(sub.id, updates)!;
   const held = deferredBatch();
-  invoiceSubscription(ctx, held, updated, "subscription_cycle", false, autoAdvance, lookBack);
+  const usagePeriod = sub.status === "trialing" ? undefined : lookBack;
+  invoiceSubscription(ctx, held, updated, "subscription_cycle", false, autoAdvance, lookBack, usagePeriod);
   const current = ss.subscriptions.get(sub.id)!;
   emitSubscriptionChange(ss, ev, current, before);
   held.replay(ev);

@@ -18,6 +18,7 @@ import { attemptPayment, newClientSecret, resolvePaymentMethod, type PaymentCont
 import { attachPaymentMethod, type StripeErrorSpec } from "./routes/payment-methods.js";
 import { isHardDecline, testCardByPaymentMethod } from "./test-cards.js";
 import { getBillingSettings } from "./settings.js";
+import { refreshUsageLines } from "./metering.js";
 import type {
   InvoiceBillingReason,
   InvoiceUncollectibleReason,
@@ -221,6 +222,7 @@ export function finalizeInvoice(ctx: InvoicingContext, ev: EventBatch, inv: Stri
     };
   }
   const now = invoiceNow(ss, inv);
+  refreshUsageLines(ss, inv);
   const customer = ss.customers.findOneBy("stripe_id", inv.customer_id);
   const opened = ss.invoices.update(inv.id, {
     status: "open",

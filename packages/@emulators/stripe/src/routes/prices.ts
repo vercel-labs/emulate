@@ -42,7 +42,9 @@ export function priceRoutes(ctx: RouteContext): void {
     const newProduct = productData !== undefined ? readProductParams(productData, "product_data") : undefined;
     if (newProduct?.error) return badParam(newProduct.error.message, newProduct.error.param, newProduct.error.code);
 
-    const parsed = readPriceParams(body);
+    const parsed = readPriceParams(body, {
+      meterStatus: (id) => ss.billingMeters.findOneBy("stripe_id", id)?.status,
+    });
     if (parsed.error) return badParam(parsed.error.message, parsed.error.param, parsed.error.code);
     const definition = parsed.price!;
 

@@ -4,6 +4,7 @@ import { priceAmount, unitAmountDecimal, wholeAmount } from "./pricing.js";
 import type { StripeStore } from "./store.js";
 import type {
   StripeBillingDetails,
+  StripeBillingMeter,
   StripeCharge,
   StripeCheckoutSession,
   StripeCustomer,
@@ -11,6 +12,7 @@ import type {
   StripeInvoiceItem,
   StripeInvoiceLineItem,
   StripeInvoicePayment,
+  StripeMeterEvent,
   StripePaymentError,
   StripePaymentIntent,
   StripePaymentMethod,
@@ -38,6 +40,38 @@ export function formatTestClock(clock: StripeTestClock, advancingTo?: number) {
     name: clock.name ?? null,
     status: advancingTo === undefined ? clock.status : ("advancing" as const),
     status_details: advancingTo === undefined ? {} : { advancing: { target_frozen_time: advancingTo } },
+  };
+}
+
+/** The Billing Meter object in the key order of the API reference. */
+export function formatBillingMeter(meter: StripeBillingMeter) {
+  return {
+    id: meter.stripe_id,
+    object: "billing.meter" as const,
+    created: meter.created,
+    customer_mapping: { type: "by_id" as const, event_payload_key: meter.customer_payload_key },
+    default_aggregation: { formula: meter.formula },
+    display_name: meter.display_name,
+    event_name: meter.event_name,
+    event_time_window: meter.event_time_window ?? null,
+    livemode: false,
+    status: meter.status,
+    status_transitions: { deactivated_at: meter.deactivated_at ?? null },
+    updated: meter.updated,
+    value_settings: { event_payload_key: meter.value_payload_key },
+  };
+}
+
+/** The Billing Meter Event object. Stripe gives meter events no id. */
+export function formatMeterEvent(event: StripeMeterEvent) {
+  return {
+    object: "billing.meter_event" as const,
+    created: event.created,
+    event_name: event.event_name,
+    identifier: event.identifier,
+    livemode: false,
+    payload: { ...event.payload },
+    timestamp: event.timestamp,
   };
 }
 
@@ -503,7 +537,7 @@ export function formatCheckoutLineItem(ss: StripeStore, s: StripeCheckoutSession
     currency: price?.currency ?? s.currency ?? null,
     description: product?.name ?? null,
     price: price ? formatPrice(price) : null,
-    quantity: li.quantity,
+    quantity: price?.recurring?.usage_type === "metered" ? null : li.quantity,
   };
 }
 
@@ -935,7 +969,8 @@ export function formatSubscriptionItem(ss: StripeStore, si: StripeSubscriptionIt
     metadata: si.metadata,
     plan: price ? formatPlan(price) : null,
     price: price ? formatPrice(price) : null,
-    quantity: si.quantity,
+    // Metered items bill their usage, so they have no quantity.
+    quantity: price?.recurring?.usage_type === "metered" ? null : si.quantity,
     subscription: si.subscription_id,
     tax_rates: [] as unknown[],
   };

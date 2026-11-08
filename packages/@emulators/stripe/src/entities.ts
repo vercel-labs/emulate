@@ -411,6 +411,11 @@ export interface StripeInvoiceLineItem extends Entity {
   invoice_item_id?: string;
   subscription_item_id?: string;
   subscription_id?: string;
+  /**
+   * A line billing a metered item in arrears for `period`. Its quantity is recomputed from the
+   * meter when the invoice finalizes, so usage that arrives while the invoice is a draft counts.
+   */
+  metered?: boolean;
 }
 
 export interface StripeInvoicePayment extends Entity {
@@ -535,6 +540,44 @@ export interface StripeTestClock extends Entity {
   /** Unix seconds on the wall clock. */
   created: number;
   deletes_after: number;
+}
+
+export type MeterFormula = "count" | "last" | "sum";
+
+/** A billing meter. It is not bound to a test clock, so its timestamps are on the wall clock. */
+export interface StripeBillingMeter extends Entity {
+  stripe_id: string;
+  display_name: string;
+  /** Unique among active meters. */
+  event_name: string;
+  formula: MeterFormula;
+  /** The payload key that holds the customer id. Defaults to `stripe_customer_id`. */
+  customer_payload_key: string;
+  /** The payload key that holds the value. Defaults to `value`. */
+  value_payload_key: string;
+  event_time_window?: "day" | "hour";
+  status: "active" | "inactive";
+  created: number;
+  updated: number;
+  deactivated_at?: number;
+}
+
+/** A recorded meter event. Meter events have no id on the wire; they are found by `identifier`. */
+export interface StripeMeterEvent extends Entity {
+  identifier: string;
+  event_name: string;
+  meter_id: string;
+  customer_id: string;
+  /** As sent, with every value as a string. */
+  payload: Record<string, string>;
+  /** The usage value read from the payload. Count meters may record events without one. */
+  value?: number;
+  /** When the usage happened, in Unix seconds. */
+  timestamp: number;
+  /** When the event was received, on the customer's clock. */
+  created: number;
+  /** Set by a `cancel` meter event adjustment. Canceled events are left out of every aggregation. */
+  canceled?: boolean;
 }
 
 /** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */

@@ -25,6 +25,7 @@ import {
 } from "./subscriptions.js";
 import { nowFor } from "./clock.js";
 import { getBillingSettings } from "./settings.js";
+import { usageLines } from "./metering.js";
 import type { StripeInvoice, StripeSubscription, StripeTestClock } from "./entities.js";
 
 export { nextPeriodEnd, periodBoundary } from "./periods.js";
@@ -95,7 +96,11 @@ function upcomingInvoice(ctx: BillingContext, sub: StripeSubscription, period: {
     subscription_metadata: { ...sub.metadata },
     test_clock: sub.test_clock,
   });
-  const lines = subscriptionLines(ss, sub, items, period, false).map((line) =>
+  const usage =
+    sub.status === "trialing" || items.length === 0
+      ? []
+      : usageLines(ss, sub, items, { start: items[0].current_period_start, end: items[0].current_period_end });
+  const lines = [...subscriptionLines(ss, sub, items, period, false), ...usage].map((line) =>
     ss.invoiceLineItems.insert({ stripe_id: stripeId("il_tmp"), invoice_id: inv.stripe_id, ...line }),
   );
   const rendered = formatInvoice(ss, inv, ctx.baseUrl);

@@ -150,6 +150,10 @@ stripe:
     - id: cus_demo
       email: demo@example.com
       name: Demo User
+  meters:                 # seeded before prices; default_aggregation defaults to sum
+    - id: mtr_test_api_calls
+      display_name: API calls
+      event_name: api_calls
   products:
     - id: prod_tshirt
       name: T-Shirt
@@ -170,6 +174,8 @@ stripe:
       currency: usd
       recurring:
         interval: month
+        usage_type: metered
+        meter: api_calls      # a meter id or the event_name of an active meter
       tiers_mode: graduated   # tiers without billing_scheme make a tiered price
       tiers:
         - up_to: 1000
@@ -307,7 +313,41 @@ curl "http://localhost:4000/v1/prices?lookup_keys[]=pro_monthly&lookup_keys[]=pr
 curl "http://localhost:4000/v1/prices?type=recurring&recurring[interval]=month"
 ```
 
-Prices use the current wire shape: `billing_scheme`, `recurring` (`interval`, `interval_count`, `meter`, `trial_period_days`, `usage_type`), `lookup_key`, `nickname`, `tax_behavior` (default `unspecified`), `tiers_mode`, `transform_quantity`, `unit_amount_decimal` and `custom_unit_amount` (`null`). A bad `recurring[interval]` answers 400 with that param. Metered prices (`recurring[usage_type]=metered`) are rejected until billing meters exist.
+Prices use the current wire shape: `billing_scheme`, `recurring` (`interval`, `interval_count`, `meter`, `trial_period_days`, `usage_type`), `lookup_key`, `nickname`, `tax_behavior` (default `unspecified`), `tiers_mode`, `transform_quantity`, `unit_amount_decimal` and `custom_unit_amount` (`null`). A bad `recurring[interval]` answers 400 with that param. Metered prices (`recurring[usage_type]=metered`) need `recurring[meter]`, an active billing meter. Their subscription items and Checkout lines have `quantity: null`, and sending a quantity for one answers 400.
+
+### Billing Meters and usage
+
+```bash
+# A meter (mtr_test_...). customer_mapping and value_settings default to stripe_customer_id and value
+curl -X POST http://localhost:4000/v1/billing/meters \
+  -d "display_name=API calls" -d "event_name=api_calls" -d "default_aggregation[formula]=sum"
+
+# A metered graduated price on it
+curl -X POST http://localhost:4000/v1/prices \
+  -d "product=prod_xxx" -d "currency=usd" \
+  -d "recurring[interval]=month" -d "recurring[usage_type]=metered" -d "recurring[meter]=mtr_test_xxx" \
+  -d "billing_scheme=tiered" -d "tiers_mode=graduated" \
+  -d "tiers[0][up_to]=1000" -d "tiers[0][unit_amount]=0" -d "tiers[1][up_to]=inf" -d "tiers[1][unit_amount]=2"
+
+# Report usage (no id in the response; identifier is generated when absent, timestamp defaults to now)
+curl -X POST http://localhost:4000/v1/billing/meter_events \
+  -d "event_name=api_calls" -d "payload[value]=25" -d "payload[stripe_customer_id]=cus_xxx" -d "identifier=req_123"
+
+# Cancel an event received in the last 24 hours
+curl -X POST http://localhost:4000/v1/billing/meter_event_adjustments \
+  -d "event_name=api_calls" -d "type=cancel" -d "cancel[identifier]=req_123"
+
+# Aggregated usage for one customer (times aligned to the minute; hour or day buckets, newest first)
+curl "http://localhost:4000/v1/billing/meters/mtr_test_xxx/event_summaries?customer=cus_xxx&start_time=1767225600&end_time=1767312000&value_grouping_window=hour"
+
+# Rename, deactivate (rejects new events), reactivate, list by status
+curl -X POST http://localhost:4000/v1/billing/meters/mtr_test_xxx -d "display_name=Calls"
+curl -X POST http://localhost:4000/v1/billing/meters/mtr_test_xxx/deactivate
+curl -X POST http://localhost:4000/v1/billing/meters/mtr_test_xxx/reactivate
+curl "http://localhost:4000/v1/billing/meters?status=active"
+```
+
+Meter events are validated at once and a problem answers 400 with the code Stripe would put in its error report: `no_meter`, `archived_meter`, `meter_event_no_customer_defined`, `meter_event_customer_not_found`, `meter_event_invalid_value` (values are whole numbers, possibly negative), `timestamp_in_future` (over 5 minutes ahead), `timestamp_too_far_in_past` (over 35 days back) or `duplicate_meter_event` (identifier seen in the last 24 hours). Times are read on the customer's test clock. Each `subscription_cycle` invoice bills licensed items in advance and metered items in arrears for the period that ended, from the customer's usage with a timestamp inside it. Usage is summed when the invoice finalizes, an hour after the draft, so late events for the old period still count. Negative totals bill 0, trial usage is never billed and the first invoice has no metered charge.
 
 ### Checkout Sessions
 
@@ -700,6 +740,10 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close, else when a test clock reaches that point) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
+| `billing.meter.created` | Billing meter created |
+| `billing.meter.updated` | Billing meter renamed |
+| `billing.meter.deactivated` | Billing meter deactivated |
+| `billing.meter.reactivated` | Billing meter reactivated |
 | `test_helpers.test_clock.created` | Test clock created |
 | `test_helpers.test_clock.advancing` | Test clock advance started |
 | `test_helpers.test_clock.ready` | Test clock reached its new `frozen_time` |

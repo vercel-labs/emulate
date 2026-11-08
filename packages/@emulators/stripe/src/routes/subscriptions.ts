@@ -24,10 +24,12 @@ import {
   extendTrial,
   isEnded,
   MAX_TRIAL_SECONDS,
+  meteredQuantityError,
   readSubscriptionPrice,
   type PaymentBehavior,
   type SubscriptionItemInput,
 } from "../subscriptions.js";
+import { isMetered } from "../metering.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
 import type {
   StripePrice,
@@ -218,6 +220,9 @@ function readCreateItems(ss: StripeStore, value: unknown): Parsed<SubscriptionIt
     if (!price.ok) return price;
     const quantity = readQuantity(raw.quantity, `items[${i}][quantity]`);
     if (!quantity.ok) return quantity;
+    if (quantity.value !== undefined && price.price.recurring?.usage_type === "metered") {
+      return { ok: false, error: meteredQuantityError(`items[${i}]`) };
+    }
     items.push({ price: price.price, quantity: quantity.value ?? 1, metadata: mergeMetadata({}, raw.metadata) ?? {} });
   }
   const set = checkItemSet(items.map((item) => item.price));
@@ -253,6 +258,11 @@ function readItemChanges(ss: StripeStore, sub: StripeSubscription, value: unknow
     }
     const quantity = readQuantity(raw.quantity, `items[${i}][quantity]`);
     if (!quantity.ok) return quantity;
+    const priceId =
+      price?.stripe_id ?? subscriptionItems(ss, sub.stripe_id).find((item) => item.stripe_id === id)?.price_id;
+    if (quantity.value !== undefined && priceId && isMetered(ss, priceId)) {
+      return { ok: false, error: meteredQuantityError(`items[${i}]`) };
+    }
     changes.push({
       id,
       price,

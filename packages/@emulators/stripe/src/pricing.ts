@@ -34,8 +34,8 @@ export interface PriceParamError {
 }
 
 export interface ReadPriceOptions {
-  /** Whether a billing meter exists. Until meters are modelled none does. */
-  meterExists?: (id: string) => boolean;
+  /** The status of a billing meter, or undefined when none has that id. Without it no meter exists. */
+  meterStatus?: (id: string) => "active" | "inactive" | undefined;
 }
 
 const INTERVALS: readonly PriceInterval[] = ["day", "week", "month", "year"];
@@ -182,9 +182,18 @@ function readRecurring(
         },
       };
     }
-    if (!options.meterExists?.(meter)) {
+    const status = options.meterStatus?.(meter);
+    if (!status) {
       return {
         error: { message: `No such billing meter: '${meter}'`, param: "recurring[meter]", code: "resource_missing" },
+      };
+    }
+    if (status !== "active") {
+      return {
+        error: {
+          message: `The billing meter '${meter}' is inactive. Only active meters can be attached to a price.`,
+          param: "recurring[meter]",
+        },
       };
     }
   } else if (meter) {

@@ -18,6 +18,8 @@ import type {
   StripeSubscription,
   StripeSubscriptionItem,
   StripeTestClock,
+  StripeBillingMeter,
+  StripeMeterEvent,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -39,6 +41,8 @@ export interface StripeStore {
   subscriptions: Collection<StripeSubscription>;
   subscriptionItems: Collection<StripeSubscriptionItem>;
   testClocks: Collection<StripeTestClock>;
+  billingMeters: Collection<StripeBillingMeter>;
+  meterEvents: Collection<StripeMeterEvent>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -76,6 +80,8 @@ export function getStripeStore(store: Store): StripeStore {
       "subscription_id",
     ]),
     testClocks: store.collection<StripeTestClock>("stripe.test_clocks", ["stripe_id"]),
+    billingMeters: store.collection<StripeBillingMeter>("stripe.billing_meters", ["stripe_id", "event_name"]),
+    meterEvents: store.collection<StripeMeterEvent>("stripe.meter_events", ["identifier", "meter_id", "customer_id"]),
   };
 }
 

@@ -137,6 +137,7 @@ export function deleteTestClockObjects(ss: StripeStore, clock: StripeTestClock):
     for (const si of ss.setupIntents.findBy("customer_id", customerId)) ss.setupIntents.delete(si.id);
     for (const pm of ss.paymentMethods.findBy("customer_id", customerId)) ss.paymentMethods.delete(pm.id);
     for (const cs of ss.checkoutSessions.findBy("customer_id", customerId)) ss.checkoutSessions.delete(cs.id);
+    for (const event of ss.meterEvents.findBy("customer_id", customerId)) ss.meterEvents.delete(event.id);
     ss.customers.delete(customer.id);
   }
   ss.testClocks.delete(clock.id);

@@ -30,6 +30,9 @@ import { testClockRoutes } from "./routes/test-clocks.js";
 import { eventRoutes } from "./routes/events.js";
 import { webhookEndpointRoutes } from "./routes/webhook-endpoints.js";
 import { controlRoutes } from "./routes/control.js";
+import { billingMeterRoutes, insertMeter, readMeterParams } from "./routes/billing-meters.js";
+import { meterEventRoutes } from "./routes/meter-events.js";
+import { activeMeterFor } from "./metering.js";
 import { requestIdMiddleware, setStripeApiVersion, syncWebhookEndpoints } from "./events.js";
 import { parseChaosConfig, setWebhookChaos, type WebhookChaosInput } from "./chaos.js";
 import { getBillingSettings, parseBillingSettings, setBillingSettings, type BillingSettingsInput } from "./settings.js";
@@ -55,6 +58,7 @@ export interface StripeSeedPrice {
     interval: "day" | "week" | "month" | "year";
     interval_count?: number;
     usage_type?: "licensed" | "metered";
+    /** A seeded or existing meter, by id or by the `event_name` of an active meter. */
     meter?: string;
   };
   tiers?: Array<{
@@ -70,6 +74,16 @@ export interface StripeSeedPrice {
   nickname?: string;
   tax_behavior?: "exclusive" | "inclusive" | "unspecified";
   metadata?: Record<string, string>;
+}
+
+export interface StripeSeedMeter {
+  id?: string;
+  display_name: string;
+  event_name: string;
+  default_aggregation?: { formula: "count" | "last" | "sum" };
+  customer_mapping?: { type: "by_id"; event_payload_key: string };
+  value_settings?: { event_payload_key: string };
+  event_time_window?: "day" | "hour";
 }
 
 export interface StripeSeedConfig {
@@ -92,6 +106,11 @@ export interface StripeSeedConfig {
    * a seeded product by name or id. `tiers` without `billing_scheme` makes a tiered price.
    */
   prices?: Array<StripeSeedPrice>;
+  /**
+   * Billing meters, seeded before prices so metered prices can name them by `event_name`.
+   * `default_aggregation` defaults to `{ formula: "sum" }`.
+   */
+  meters?: Array<StripeSeedMeter>;
   /** Webhook endpoints. Each one is also listed by GET /v1/webhook_endpoints. */
   webhooks?: Array<{
     id?: string;
@@ -127,7 +146,14 @@ function seedPrice(ss: StripeStore, productId: string, pr: StripeSeedPrice): voi
   if (pr.id && ss.prices.findOneBy("stripe_id", pr.id)) return;
   const input: Record<string, unknown> = { ...pr };
   if (pr.tiers && pr.billing_scheme === undefined) input.billing_scheme = "tiered";
-  const parsed = readPriceParams(input);
+  const meterRef = pr.recurring?.meter;
+  if (meterRef && !ss.billingMeters.findOneBy("stripe_id", meterRef)) {
+    const byName = activeMeterFor(ss, meterRef);
+    if (byName) input.recurring = { ...pr.recurring, meter: byName.stripe_id };
+  }
+  const parsed = readPriceParams(input, {
+    meterStatus: (id) => ss.billingMeters.findOneBy("stripe_id", id)?.status,
+  });
   if (parsed.error) {
     throw new Error(`Invalid stripe price for product ${productId}: ${parsed.error.message} (${parsed.error.param})`);
   }
@@ -178,6 +204,15 @@ export function seedFromConfig(
         metadata: {},
       });
     }
+  }
+
+  for (const m of config.meters ?? []) {
+    if (m.id && ss.billingMeters.findOneBy("stripe_id", m.id)) continue;
+    const parsed = readMeterParams({ default_aggregation: { formula: "sum" }, ...m });
+    if (parsed.error) throw new Error(`Invalid stripe meter ${m.event_name}: ${parsed.error.message}`);
+    // Seeding the same config twice keeps the meter that already records the event name.
+    if (activeMeterFor(ss, parsed.meter!.event_name)) continue;
+    insertMeter(ss, parsed.meter!, m.id);
   }
 
   if (config.products) {
@@ -261,6 +296,8 @@ export const stripePlugin: ServicePlugin = {
     subscriptionRoutes(ctx);
     subscriptionItemRoutes(ctx);
     testClockRoutes(ctx);
+    billingMeterRoutes(ctx);
+    meterEventRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

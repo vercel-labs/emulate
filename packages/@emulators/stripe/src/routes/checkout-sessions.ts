@@ -22,7 +22,7 @@ import {
 } from "../formatters.js";
 import { eventBatch } from "../events.js";
 import { nowFor } from "../clock.js";
-import { checkItemSet, intervalText, MAX_TRIAL_SECONDS } from "../subscriptions.js";
+import { checkItemSet, intervalText, MAX_TRIAL_SECONDS, meteredQuantityError } from "../subscriptions.js";
 import { checkoutCanSkipCard, completeCheckoutSession, DEFAULT_CHECKOUT_CARD, NO_CARD } from "../checkout.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
 import type {
@@ -92,8 +92,12 @@ function readLineItems(
         `line_items[${i}][price]`,
       );
     }
+    // Metered prices bill usage, so a line for one carries no quantity.
     const metered = price.recurring?.usage_type === "metered";
-    const quantity = li.quantity === undefined && metered ? 1 : readInt(li.quantity);
+    if (metered && li.quantity !== undefined && li.quantity !== "") {
+      return { ok: false, error: meteredQuantityError(`line_items[${i}]`) };
+    }
+    const quantity = metered ? 1 : readInt(li.quantity);
     if (quantity === undefined || quantity < 1) {
       return invalid(`Invalid line_items[${i}][quantity]: must be a positive integer.`, `line_items[${i}][quantity]`);
     }
@@ -391,11 +395,13 @@ export function checkoutSessionRoutes(ctx: RouteContext): void {
       const product = priceObj ? ss.products.findOneBy("stripe_id", priceObj.product_id) : undefined;
       const unitPrice = priceObj?.unit_amount ?? 0;
       const recurring = priceObj?.recurring;
+      // Usage is billed later, so a metered line adds nothing to what is due today.
+      const metered = recurring?.usage_type === "metered";
       return {
         name: product?.name ?? li.price,
         quantity: li.quantity,
         unitPrice,
-        totalPrice: unitPrice * li.quantity,
+        totalPrice: metered ? 0 : unitPrice * li.quantity,
         currency: priceObj?.currency ?? "usd",
         intervalLabel: recurring ? intervalText(recurring.interval, recurring.interval_count) : undefined,
       };

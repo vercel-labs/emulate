@@ -178,13 +178,13 @@ Completing 3D Secure with `POST /_stripe/simulate/payment_intents/:id/authentica
 - `GET /v1/subscriptions`: list subscriptions, filtered by `customer`, `price`, `collection_method`, `test_clock` and `status`. Subscriptions of a test clock customer are listed only when `customer` or `test_clock` is given. Without `status`, canceled subscriptions are left out; `status=all` lists every one and `status=ended` the canceled and expired ones
 
 ### Subscription Items
-- `POST /v1/subscription_items`: add an item to `subscription` from `price`, with `quantity` (default 1) and `metadata`. It joins the current period
+- `POST /v1/subscription_items`: add an item to `subscription` from `price`, with `quantity` (default 1, not allowed for a metered price) and `metadata`. It joins the current period
 - `GET /v1/subscription_items/:id`: retrieve an item
 - `POST /v1/subscription_items/:id`: update `price`, `quantity` or `metadata`
 - `DELETE /v1/subscription_items/:id`: delete an item. The last item of a subscription cannot be deleted
 - `GET /v1/subscription_items`: list the items of `subscription` (required)
 
-Subscriptions use the wire shape of API versions from basil on: billing periods are `current_period_start` and `current_period_end` on each item, and there is no top-level `current_period_*`, `plan` or `quantity`. Each item still carries the legacy `plan` object next to the full `price`. `billing_mode` is `{type: "flexible", flexible: {proration_discounts: "included"}}`, the default since clover. `latest_invoice`, `customer`, `default_payment_method` and `items.data.price.product` are expandable.
+Subscriptions use the wire shape of API versions from basil on: billing periods are `current_period_start` and `current_period_end` on each item, and there is no top-level `current_period_*`, `plan` or `quantity`. Each item still carries the legacy `plan` object next to the full `price`. Items of a metered price have `quantity: null`, and passing `quantity` for one answers 400. `billing_mode` is `{type: "flexible", flexible: {proration_discounts: "included"}}`, the default since clover. `latest_invoice`, `customer`, `default_payment_method` and `items.data.price.product` are expandable.
 
 Periods follow the UTC calendar from `billing_cycle_anchor`. A monthly anchor on the 31st bills on the last day of shorter months and returns to the 31st (Jan 31, Feb 28, Mar 31); a yearly anchor on Feb 29 bills on Feb 28 in other years.
 
@@ -305,7 +305,7 @@ Products have the full shape of the API reference. `default_price`, `package_dim
 | Price | Rules |
 |-------|-------|
 | Recurring | `recurring[interval]` is `day`, `week`, `month` or `year`, otherwise 400 with param `recurring[interval]`. `interval_count` defaults to 1 and may span at most three years (3 years, 36 months, 156 weeks or 1095 days). `type` is `recurring`; without `recurring` it is `one_time` and `recurring` is `null` |
-| Metered | `recurring[usage_type]=metered` needs `recurring[meter]`. Billing meters are not modelled yet, so every metered price is rejected with 400: `parameter_missing` without a meter, `resource_missing` with one |
+| Metered | `recurring[usage_type]=metered` needs `recurring[meter]`, an active [billing meter](#billing-meters). Without one the answer is 400 `parameter_missing`; an unknown meter gives `resource_missing` and an inactive one a 400 on `recurring[meter]`. Metered items bill their usage in arrears, so their `quantity` is `null` and sending one answers 400 |
 | Per unit | `unit_amount` (integer) or `unit_amount_decimal` (up to 12 decimal places), not both. `unit_amount` is `null` when the decimal has a fractional part |
 | Tiered | `billing_scheme=tiered` needs `tiers` and `tiers_mode` (`graduated` or `volume`). Each tier has `up_to` and at least one of `unit_amount`/`unit_amount_decimal` and `flat_amount`/`flat_amount_decimal`. `up_to` values must increase and only the last tier, which must be `inf`, may be unbounded. `unit_amount`, `unit_amount_decimal` and `transform_quantity` are not allowed alongside. `unit_amount` and `unit_amount_decimal` are `null` |
 | Package | `transform_quantity` `{divide_by, round}` divides the quantity and rounds `up` or `down` before multiplying by the unit amount |
@@ -314,6 +314,36 @@ Products have the full shape of the API reference. `default_price`, `package_dim
 `tiers` and `currency_options` are includable. `expand[]=tiers` shows the tiers with the final `inf` tier as `up_to: null`, and `null` for a per-unit price. `expand[]=currency_options` holds only the price's own currency. `recurring.trial_period_days` (legacy) is always `null`, and `tax_behavior` defaults to `unspecified`.
 
 Amounts follow Stripe's tiered pricing rules: graduated tiers charge each tier for the units in it plus the flat fee of every tier reached, volume tiers charge every unit at the tier the whole quantity falls in, and a quantity of 0 still bills the first tier's flat fee.
+
+### Billing Meters
+- `POST /v1/billing/meters`: create a meter (`mtr_test_...`) from `display_name`, `event_name` and `default_aggregation[formula]` (`sum`, `count` or `last`), all required. `customer_mapping` defaults to `{type: "by_id", event_payload_key: "stripe_customer_id"}` and `value_settings` to `{event_payload_key: "value"}`. `event_time_window` (`day` or `hour`) is stored and shown. `event_name` must be unique among active meters, else 400 on `event_name`
+- `GET /v1/billing/meters/:id`: retrieve a meter
+- `POST /v1/billing/meters/:id`: update `display_name`, the only field that can change
+- `POST /v1/billing/meters/:id/deactivate`: stop accepting events. `status` turns `inactive` and `status_transitions.deactivated_at` is set. An inactive meter frees its `event_name` and cannot back a new price
+- `POST /v1/billing/meters/:id/reactivate`: accept events again. Answers 400 while another active meter holds the `event_name`
+- `GET /v1/billing/meters`: list meters, filtered by `status`
+- `GET /v1/billing/meters/:id/event_summaries`: aggregate a meter's events for `customer` (required) between `start_time` (inclusive) and `end_time` (exclusive), both required and aligned to the minute. Without `value_grouping_window` the answer is one summary for the whole range; with `hour` or `day` (times aligned to the hour or the UTC day) it is one summary per bucket that has events, newest first. Summaries (`mtrusg_test_...`, `object: "billing.meter_event_summary"`) have deterministic ids, so `starting_after` and `ending_before` work
+
+Events: `billing.meter.created`, `billing.meter.updated` (with `previous_attributes`), `billing.meter.deactivated` and `billing.meter.reactivated`. Meters belong to the account, not to a test clock, so `created` and `updated` are on the wall clock.
+
+### Meter Events
+- `POST /v1/billing/meter_events`: record usage. `event_name` (an active meter's) and `payload` are required. The payload holds the customer id under the meter's customer key and a whole number, which may be negative, under its value key; every payload value is kept as a string. `identifier` is generated (a UUID) when absent. `timestamp` defaults to now on the customer's clock and must lie within the past 35 days and at most 5 minutes ahead. The response is the `billing.meter_event` object, which has no `id`
+- `POST /v1/billing/meter_event_adjustments`: `type=cancel` with `event_name` and `cancel[identifier]` removes one event from every aggregation. Only events received in the last 24 hours on the customer's clock can be canceled. The response is `{object: "billing.meter_event_adjustment", status: "pending", ...}` as on Stripe, but the cancellation applies at once
+
+| Rejected event | Code |
+|----------------|------|
+| No meter has the `event_name` | `no_meter` |
+| The meter is inactive | `archived_meter` |
+| No customer id in the payload | `meter_event_no_customer_defined` |
+| The customer does not exist | `meter_event_customer_not_found` |
+| The value is missing (`sum` and `last`) or not a whole number | `meter_event_invalid_value` |
+| `timestamp` more than 5 minutes ahead | `timestamp_in_future` |
+| `timestamp` more than 35 days back | `timestamp_too_far_in_past` |
+| The `identifier` was received in the last 24 hours | `duplicate_meter_event` |
+
+`count` meters count events and need no value, `last` takes the value of the event with the latest `timestamp`, and `sum` adds the values.
+
+Usage is billed through metered prices. A subscription's first invoice (`subscription_create`) has no metered charge. Each `subscription_cycle` invoice bills licensed items in advance for the new period and metered items in arrears for the period that just ended: the usage of the subscription's customer on the price's meter with a `timestamp` in `[period start, period end)`. The quantity is computed when the invoice finalizes, an hour after the draft, so usage that arrives in that window with a timestamp inside the period counts. A negative total bills 0, and usage during a trial is never billed. Graduated tiers give one line per tier reached plus one per flat fee, so 1500 units on `[{up_to: 1000, unit_amount: 0}, {up_to: inf, unit_amount: 2}]` bill `1000 × ... (Tier 1 at $0.00 / month)` and `500 × ... (Tier 2 at $0.02 / month)`, 1000 in all. `invoice.upcoming` previews the usage of the current period so far.
 
 ### Checkout Sessions
 - `POST /v1/checkout/sessions`: create a session in `payment`, `subscription` or `setup` mode. Accepts `line_items` (`{price, quantity}`), `customer` or `customer_email`, `customer_creation` (`payment` and `setup` mode only), `client_reference_id`, `success_url`, `cancel_url`, `expires_at` (30 minutes to 24 hours ahead, default 24 hours), `metadata`, and in `subscription` mode `payment_method_collection` (`always` or `if_required`) and `subscription_data` (`trial_period_days`, `trial_end`, `trial_settings[end_behavior][missing_payment_method]`, `description`, `metadata`). `payment_method_types` is ignored, since endive removed it from the request
@@ -324,7 +354,7 @@ Amounts follow Stripe's tiered pricing rules: graduated tiers charge each tier f
 - `GET /checkout/:id`: the hosted checkout page (HTML), with a select of test cards
 - `POST /checkout/:id/complete`: what the page posts. Form fields `payment_method` (a test card id, default `pm_card_visa`, or `none` to start a free trial without a card) and `email`
 
-Session ids start with `cs_test_`. `amount_subtotal` and `amount_total` are what is due when the session completes, so a trial session shows 0. `subscription` mode needs at least one recurring price, and `payment` mode accepts only one-time prices; both return 400 with `param: "line_items"` otherwise.
+Session ids start with `cs_test_`. A line for a metered price takes no `quantity` (400 on `line_items[i][quantity]` otherwise), shows `quantity: null` and adds nothing to the amount due. `amount_subtotal` and `amount_total` are what is due when the session completes, so a trial session shows 0. `subscription` mode needs at least one recurring price, and `payment` mode accepts only one-time prices; both return 400 with `param: "line_items"` otherwise.
 
 Completing the page in `subscription` mode creates the customer (unless the session has one), then the subscription through the same path as `POST /v1/subscriptions`, with the collected card as the subscription's `default_payment_method`. The customer's `invoice_settings.default_payment_method` is left alone. With a trial the card is saved through a `seti_` SetupIntent and the $0 invoice is paid at once; without one the card is attached and the first invoice charged with the customer present. The session ends `complete` and `paid` with `customer`, `subscription` and `invoice` set:
 
@@ -362,7 +392,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.upcoming`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.trial_will_end`, `checkout.session.completed`, `checkout.session.expired`, `test_helpers.test_clock.created`, `test_helpers.test_clock.advancing`, `test_helpers.test_clock.ready`, `test_helpers.test_clock.internal_failure` and `test_helpers.test_clock.deleted`. Events raised by the customer completing 3D Secure, or by Billing while a test clock advances, carry a `null` request, like the hosted checkout page.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.upcoming`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.trial_will_end`, `checkout.session.completed`, `checkout.session.expired`, `billing.meter.created`, `billing.meter.updated`, `billing.meter.deactivated`, `billing.meter.reactivated`, `test_helpers.test_clock.created`, `test_helpers.test_clock.advancing`, `test_helpers.test_clock.ready`, `test_helpers.test_clock.internal_failure` and `test_helpers.test_clock.deleted`. Events raised by the customer completing 3D Secure, or by Billing while a test clock advances, carry a `null` request, like the hosted checkout page.
 
 ## Webhook delivery model and chaos
 
@@ -409,6 +439,11 @@ stripe:
   customers:
     - name: Test Customer
       email: test@example.com
+  meters:
+    - display_name: API calls
+      event_name: api_calls
+      default_aggregation:
+        formula: sum
   products:
     - name: Pro Plan
   prices:
@@ -422,6 +457,8 @@ stripe:
       currency: usd
       recurring:
         interval: month
+        usage_type: metered
+        meter: api_calls
       tiers_mode: graduated
       tiers:
         - up_to: 1000
@@ -430,7 +467,7 @@ stripe:
           unit_amount: 2
 ```
 
-`billing` takes the same keys as `POST /_stripe/billing/settings`. A price's `product` names a seeded product by name or id; the older `product_name` key still works. Seeded prices take the same params as `POST /v1/prices` and are validated the same way, so an invalid one stops the seed with an error. `tiers` without `billing_scheme` makes a tiered price, and a seeded `lookup_key` moves from any price that already holds it.
+`billing` takes the same keys as `POST /_stripe/billing/settings`. A price's `product` names a seeded product by name or id; the older `product_name` key still works. Seeded prices take the same params as `POST /v1/prices` and are validated the same way, so an invalid one stops the seed with an error. `tiers` without `billing_scheme` makes a tiered price, and a seeded `lookup_key` moves from any price that already holds it. `meters` take the params of `POST /v1/billing/meters`, with an optional `id` and `default_aggregation` defaulting to `sum`, and are seeded before prices, so a metered price's `recurring.meter` can name a meter by id or by `event_name`.
 
 ## Differences from real Stripe
 
@@ -480,7 +517,11 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - Error messages for invoice state changes (finalizing twice, voiding a paid invoice, deleting a finalized one) are the emulator's wording.
 - A per-unit price may be created without `unit_amount`, `unit_amount_decimal` or `custom_unit_amount` and then charges 0. Real Stripe requires one of them.
 - Prices have no update, search or delete API yet. `custom_unit_amount` is always `null`, `currency_options` holds only the price's own currency, and the `currency_options` and `custom_unit_amount` params are ignored. Currencies are checked only for being three letters.
-- Metered prices are rejected until billing meters exist. Validation messages for prices and tiers are the emulator's wording.
+- Validation messages for prices and tiers are the emulator's wording.
+- Meter events are validated and aggregated synchronously. Stripe accepts them and reports problems later through `v1.billing.meter.error_report_triggered`; the emulator answers 400 with the error report's code instead, and never sends that event. The error messages, the 400 for a duplicate meter `event_name` and the 404 for an unknown meter are the emulator's wording. Deactivating an inactive meter, or reactivating an active one, returns it unchanged without an event.
+- Identifier uniqueness covers the whole account for exactly 24 hours after receipt, measured on the clock of the customer that sent the earlier event. Usage values must be whole numbers. `event_time_window` is stored but does not change how events are aggregated, and the v2 meter event streams and sessions are not modelled.
+- Event summaries with a `value_grouping_window` list only buckets that have events. Summary ids are the emulator's deterministic hash of meter, customer and time range.
+- Metered usage is summed per customer and meter when the invoice finalizes, so two items on one subscription with the same meter would bill it twice. Canceling a subscription bills no final usage invoice, and usage during a paused period is never billed, because a paused subscription does not renew.
 - `GET /v1/prices` without `active` lists inactive prices too.
 - Products have no update or delete API yet, so `updated` equals `created`. `default_price_data`, `marketing_features`, `package_dimensions` and `tax_code` are not modelled.
 

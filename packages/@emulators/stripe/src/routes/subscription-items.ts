@@ -12,7 +12,14 @@ import {
 import { nowFor } from "../clock.js";
 import { formatSubscription, formatSubscriptionItem, stripeExpandResolver, subscriptionItems } from "../formatters.js";
 import { eventBatch } from "../events.js";
-import { checkItemSet, emitSubscriptionChange, isEnded, readSubscriptionPrice } from "../subscriptions.js";
+import {
+  checkItemSet,
+  emitSubscriptionChange,
+  isEnded,
+  meteredQuantityError,
+  readSubscriptionPrice,
+} from "../subscriptions.js";
+import { isMetered } from "../metering.js";
 import { sendStripeError } from "./payment-methods.js";
 import type { StripePrice, StripeSubscription, StripeSubscriptionItem } from "../entities.js";
 
@@ -95,7 +102,11 @@ export function subscriptionItemRoutes(ctx: RouteContext): void {
     if (isEnded(sub)) return ended(c, sub);
     const price = readSubscriptionPrice(ss, body.price, "price");
     if (!price.ok) return sendStripeError(c, price.error);
-    const quantity = body.quantity === undefined || body.quantity === "" ? 1 : readInt(body.quantity);
+    const quantityGiven = body.quantity !== undefined && body.quantity !== "";
+    if (quantityGiven && price.price.recurring?.usage_type === "metered") {
+      return sendStripeError(c, meteredQuantityError(undefined));
+    }
+    const quantity = !quantityGiven ? 1 : readInt(body.quantity);
     if (quantity === undefined || quantity < 0) return invalidQuantity(c);
     const current = subscriptionItems(ss, sub.stripe_id);
     const rejected = checkPrices(c, sub, [...current.map(priceOf), price.price]);
@@ -161,6 +172,7 @@ export function subscriptionItemRoutes(ctx: RouteContext): void {
       updates.price_id = price.price.stripe_id;
     }
     if (body.quantity !== undefined && body.quantity !== "") {
+      if (isMetered(ss, updates.price_id ?? si.price_id)) return sendStripeError(c, meteredQuantityError(undefined));
       const quantity = readInt(body.quantity);
       if (quantity === undefined || quantity < 0) return invalidQuantity(c);
       updates.quantity = quantity;
