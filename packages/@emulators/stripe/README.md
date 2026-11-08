@@ -235,8 +235,8 @@ Events: `customer.subscription.created` first, already pointing at `latest_invoi
 
 | Change | Result |
 |--------|--------|
-| `cancel_at_period_end=true` | `cancel_at` is the item period end and `canceled_at` the time of the request. `false` clears both |
-| `cancel_at` | Scheduled cancellation at that time, with `canceled_at` set to now |
+| `cancel_at_period_end=true` | `cancel_at` is the item period end, `canceled_at` the time of the request and `cancellation_details.reason` `cancellation_requested`. `false` clears all three |
+| `cancel_at` | Scheduled cancellation at that time, with `canceled_at` set to now and `cancellation_details.reason` `cancellation_requested` |
 | `trial_end` while `trialing` | A later timestamp moves the trial end, the anchor and the period end. `now` ends the trial: a new period starts, the subscription turns `active` and the period is invoiced with `billing_reason` `subscription_update`; a failed payment leaves it `past_due` |
 | `DELETE` | `canceled`, `canceled_at` and `ended_at` now, `cancellation_details.reason` `cancellation_requested`. Open invoices of the subscription get `auto_advance` false. Sends `customer.subscription.deleted` only. A second `DELETE` answers 400 |
 | Deleting the customer | Cancels each of its subscriptions the same way, before `customer.deleted` |

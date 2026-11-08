@@ -549,16 +549,53 @@ describe("POST /v1/subscriptions/:id", () => {
     const periodEnd = updated.items.data[0].current_period_end;
     expect(updated).toMatchObject({ status: "active", cancel_at_period_end: true, cancel_at: periodEnd });
     expect(updated.canceled_at).toBeGreaterThanOrEqual(updated.created);
+    expect(updated.cancellation_details).toEqual({ comment: null, feedback: null, reason: "cancellation_requested" });
 
     const event = hooks.ofType("customer.subscription.updated")[0];
     expect(event.data.previous_attributes).toMatchObject({
       cancel_at_period_end: false,
       cancel_at: null,
       canceled_at: null,
+      cancellation_details: { reason: null },
     });
 
     const undone = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: false });
     expect(undone).toMatchObject({ cancel_at_period_end: false, cancel_at: null, canceled_at: null });
+    expect(undone.cancellation_details?.reason).toBeNull();
+  });
+
+  it("records cancellation_requested as soon as a cancellation is scheduled", async () => {
+    const ctx = createTestApp();
+    const { customerId } = await customer(ctx);
+    const { priceId } = await recurringPrice(ctx);
+    const stripe = sdk(ctx.app);
+
+    const created = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      cancel_at_period_end: true,
+    });
+    expect(created.cancellation_details?.reason).toBe("cancellation_requested");
+
+    const plain = await stripe.subscriptions.create({ customer: customerId, items: [{ price: priceId }] });
+    expect(plain.cancellation_details?.reason).toBeNull();
+    const at = plain.items.data[0].current_period_end;
+    const scheduled = await stripe.subscriptions.update(plain.id, {
+      cancel_at: at,
+      cancellation_details: { feedback: "too_expensive" },
+    });
+    expect(scheduled.cancellation_details).toEqual({
+      comment: null,
+      feedback: "too_expensive",
+      reason: "cancellation_requested",
+    });
+
+    const atCreate = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      cancel_at: at,
+    });
+    expect(atCreate.cancellation_details?.reason).toBe("cancellation_requested");
   });
 
   it("clears cancellation_details when a scheduled cancellation is undone", async () => {

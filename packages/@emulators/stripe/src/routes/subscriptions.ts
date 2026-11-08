@@ -27,6 +27,7 @@ import {
   meteredQuantityError,
   pauseSubscription,
   readSubscriptionPrice,
+  requestedCancellation,
   resumeSubscription,
   unscheduleCancellation,
   type PaymentBehavior,
@@ -602,6 +603,7 @@ export function subscriptionRoutes(ctx: RouteContext): void {
       updates.cancel_at_period_end = true;
       updates.cancel_at = currentPeriodEnd(ss, found);
       updates.canceled_at = now;
+      updates.cancellation_details = requestedCancellation(updates.cancellation_details ?? found.cancellation_details);
     } else if (
       cancelAt.value === "" ||
       (cancelAt.value === undefined && cancelAtPeriodEnd === false && found.cancel_at_period_end)
@@ -615,6 +617,7 @@ export function subscriptionRoutes(ctx: RouteContext): void {
       updates.cancel_at = cancelAt.value === "period_end" ? currentPeriodEnd(ss, found) : cancelAt.value;
       updates.canceled_at = now;
       updates.cancel_at_period_end = false;
+      updates.cancellation_details = requestedCancellation(updates.cancellation_details ?? found.cancellation_details);
     }
 
     const ev = eventBatch(ctx, c);

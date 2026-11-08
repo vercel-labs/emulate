@@ -18,7 +18,13 @@ import {
 import { eventBatch, previousAttributes, type EventBatch } from "../events.js";
 import { nowFor } from "../clock.js";
 import { attemptSetup, completeSetupAuthentication, newClientSecret, resolvePaymentMethod } from "../payments.js";
-import { currentPeriodEnd, emitSubscriptionChange, isEnded, unscheduleCancellation } from "../subscriptions.js";
+import {
+  currentPeriodEnd,
+  emitSubscriptionChange,
+  isEnded,
+  requestedCancellation,
+  unscheduleCancellation,
+} from "../subscriptions.js";
 import { intervalText, productName } from "../lines.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
 import { SERVICE_LABEL, cardSelect, day, errorBlock, money, payInvoiceOnPage } from "./hosted-invoices.js";
@@ -586,12 +592,11 @@ export function billingPortalRoutes(ctx: RouteContext): void {
       cancel_at_period_end: true,
       cancel_at: currentPeriodEnd(ss, sub),
       canceled_at: now,
-      cancellation_details: {
+      cancellation_details: requestedCancellation({
         ...sub.cancellation_details,
-        reason: "cancellation_requested",
         feedback: feedback.value,
         comment: readString(form.comment),
-      },
+      }),
     })!;
     const ev = eventBatch(ctx);
     emitSubscriptionChange(ss, ev, updated, before);

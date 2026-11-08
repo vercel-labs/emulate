@@ -338,7 +338,7 @@ export function createSubscription(
     cancel_at: cancelAt,
     cancel_at_period_end: params.cancelAtPeriodEnd,
     canceled_at: cancelAt !== undefined ? now : undefined,
-    cancellation_details: {},
+    cancellation_details: cancelAt !== undefined ? requestedCancellation({}) : {},
     trial_start: trial ? now : undefined,
     trial_end: trial ? params.trialEnd : undefined,
     trial_missing_payment_method: params.trialMissingPaymentMethod,
@@ -546,6 +546,17 @@ export function unscheduleCancellation(): Pick<
   "cancel_at" | "cancel_at_period_end" | "canceled_at" | "cancellation_details"
 > {
   return { cancel_at: undefined, cancel_at_period_end: false, canceled_at: undefined, cancellation_details: {} };
+}
+
+/**
+ * The details of a cancellation requested through the API, the Dashboard or the portal. Stripe
+ * records `cancellation_requested` as soon as the cancellation is scheduled, together with
+ * `canceled_at`, so customer.subscription.updated already carries it.
+ */
+export function requestedCancellation(
+  details: StripeSubscriptionCancellationDetails,
+): StripeSubscriptionCancellationDetails {
+  return { ...details, reason: "cancellation_requested" };
 }
 
 export function isEnded(sub: StripeSubscription): boolean {
