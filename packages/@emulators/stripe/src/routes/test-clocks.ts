@@ -11,6 +11,7 @@ import {
   maxAdvanceTime,
   MAX_CLOCK_SUBSCRIPTIONS,
 } from "../clock.js";
+import { runBillingUntil } from "../billing.js";
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
@@ -161,6 +162,15 @@ export function testClockRoutes(ctx: RouteContext): void {
     started.emit("test_helpers.test_clock.advancing", response);
     await started.commit();
 
+    ss.testClocks.update(clock.id, { status: "advancing" });
+    const finished = await runBillingUntil(ctx, clock.stripe_id, target);
+    if (!finished) {
+      const failed = ss.testClocks.update(clock.id, { status: "internal_failure" })!;
+      const report = eventBatch(ctx);
+      report.emit("test_helpers.test_clock.internal_failure", formatTestClock(failed));
+      await report.commit();
+      return expandedJson(c, response, expand, body);
+    }
     const advanced = ss.testClocks.update(clock.id, { frozen_time: target, status: "ready" })!;
     const settled = eventBatch(ctx);
     settled.emit("test_helpers.test_clock.ready", formatTestClock(advanced));

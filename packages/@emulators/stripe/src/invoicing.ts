@@ -139,6 +139,11 @@ export interface CreateInvoiceParams {
   subscriptionMetadata?: Record<string, string>;
   /** Lines to put on the draft before invoice.created, such as a subscription's items. */
   lines?: LineFields[];
+  /**
+   * The invoice's `period_start` and `period_end`. A renewal invoice looks back on the period
+   * that just ended; other invoices default to their creation time.
+   */
+  period?: { start: number; end: number };
 }
 
 /** Create a draft invoice, optionally sweeping in the customer's pending invoice items. Sends invoice.created. */
@@ -164,8 +169,8 @@ export function createInvoice(ctx: InvoicingContext, ev: EventBatch, params: Cre
     auto_advance: params.autoAdvance ?? false,
     metadata: params.metadata ?? {},
     created: now,
-    period_start: now,
-    period_end: now,
+    period_start: params.period?.start ?? now,
+    period_end: params.period?.end ?? now,
     attempt_count: 0,
     attempted: false,
     amount_paid: 0,
@@ -480,6 +485,24 @@ export function settleInvoicePaymentIntent(ctx: InvoicingContext, ev: EventBatch
   } else if (pi.status === "requires_payment_method" && pi.last_payment_error) {
     ev.emit("invoice.payment_failed", render(ctx, inv));
   }
+}
+
+/**
+ * What Billing does when an auto-advancing draft reaches `automatically_finalizes_at`:
+ * finalize it and, for `charge_automatically`, attempt payment off-session as an automatic
+ * collection attempt. A failed attempt leaves the invoice open. Returns the payment error.
+ */
+export function autoAdvanceDraft(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  inv: StripeInvoice,
+): StripeErrorSpec | undefined {
+  const finalized = finalizeInvoice(ctx, ev, inv);
+  if (!finalized.ok) return finalized.error;
+  const opened = finalized.invoice;
+  if (opened.status !== "open" || opened.collection_method !== "charge_automatically") return undefined;
+  const paid = payInvoice(ctx, ev, opened, { automatic: true, offSession: true });
+  return paid.ok ? undefined : paid.error;
 }
 
 /** Whether `pi` is the PaymentIntent of an invoice's default payment, which Stripe does not let you cancel. */

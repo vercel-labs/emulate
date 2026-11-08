@@ -17,6 +17,7 @@ import { dispatchStoredEvent, eventBatch, syncWebhookEndpoints } from "../events
 import { formatPaymentIntent, formatSetupIntent } from "../formatters.js";
 import { completeAuthentication, completeSetupAuthentication } from "../payments.js";
 import { settleInvoicePaymentIntent } from "../invoicing.js";
+import { formatBillingSettings, getBillingSettings, parseBillingSettings, setBillingSettings } from "../settings.js";
 
 type DeliveryStatus = "succeeded" | "failed" | "dropped" | "held";
 
@@ -48,7 +49,7 @@ function formatAttempt(webhooks: WebhookDispatcher, d: WebhookDelivery) {
   };
 }
 
-/** Emulator-only controls for webhook delivery and customer actions. Real Stripe has no equivalent. */
+/** Emulator-only controls for webhook delivery, Billing settings and customer actions. Real Stripe has no equivalent. */
 export function controlRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const ss = getStripeStore(store);
@@ -107,6 +108,16 @@ export function controlRoutes(ctx: RouteContext): void {
     const updated = completeSetupAuthentication(ctx, ev, si, result);
     await ev.commit();
     return c.json(formatSetupIntent(updated));
+  });
+
+  // The Dashboard's Billing settings, which have no API on real Stripe.
+  app.get("/_stripe/billing/settings", (c) => c.json(formatBillingSettings(getBillingSettings(store))));
+
+  app.post("/_stripe/billing/settings", async (c) => {
+    const parsed = parseBillingSettings(await parseStripeBody(c), getBillingSettings(store));
+    if (!parsed.ok) return badParam(c, parsed.error.param, parsed.error.message);
+    setBillingSettings(store, parsed.settings);
+    return c.json(formatBillingSettings(parsed.settings));
   });
 
   app.get("/_stripe/webhooks/chaos", (c) => c.json(formatWebhookChaos(store)));

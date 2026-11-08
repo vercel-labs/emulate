@@ -245,9 +245,11 @@ async function deliverBatch(ctx: EventBatchContext, events: StripeEvent[]): Prom
 /**
  * Collect the events a request causes and deliver them as Stripe Event objects. Pass the
  * request context `c` for events an API call triggered; leave it out for events Stripe
- * raises on its own (hosted pages, billing time) so `request` is all null.
+ * raises on its own (hosted pages, billing time) so `request` is all null. `at` sets the
+ * events' `created`, such as the simulated time of a test clock action; it defaults to the
+ * wall clock.
  */
-export function eventBatch(ctx: EventBatchContext, c?: Context): EventBatch {
+export function eventBatch(ctx: EventBatchContext, c?: Context, at?: number): EventBatch {
   const ss = getStripeStore(ctx.store);
   const pending: Array<{ type: string; object: Record<string, unknown>; previous?: Record<string, unknown> }> = [];
 
@@ -260,7 +262,7 @@ export function eventBatch(ctx: EventBatchContext, c?: Context): EventBatch {
       syncWebhookEndpoints(ctx.store, ctx.webhooks);
       const request = eventRequest(c);
       const apiVersion = getStripeApiVersion(ctx.store);
-      const created = Math.floor(Date.now() / 1000);
+      const created = at ?? Math.floor(Date.now() / 1000);
 
       const stored = pending.splice(0).map(({ type, object, previous }) =>
         ss.events.insert({

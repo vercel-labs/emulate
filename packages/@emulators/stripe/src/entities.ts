@@ -475,6 +475,10 @@ export interface StripeSubscription extends Entity {
   off_session?: boolean;
   save_default_payment_method?: "off" | "on_subscription";
   test_clock?: string;
+  /** The `trial_end` customer.subscription.trial_will_end was last sent for. */
+  trial_will_end_sent_for?: number;
+  /** The renewal time invoice.upcoming was last sent for. */
+  upcoming_sent_for?: number;
 }
 
 export interface StripeSubscriptionItem extends Entity {

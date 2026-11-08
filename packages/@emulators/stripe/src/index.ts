@@ -32,11 +32,13 @@ import { webhookEndpointRoutes } from "./routes/webhook-endpoints.js";
 import { controlRoutes } from "./routes/control.js";
 import { requestIdMiddleware, setStripeApiVersion, syncWebhookEndpoints } from "./events.js";
 import { parseChaosConfig, setWebhookChaos, type WebhookChaosInput } from "./chaos.js";
+import { getBillingSettings, parseBillingSettings, setBillingSettings, type BillingSettingsInput } from "./settings.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
 export { STRIPE_API_VERSION } from "./events.js";
 export type { WebhookChaosInput, ReorderMode } from "./chaos.js";
+export type { BillingSettings, BillingSettingsInput } from "./settings.js";
 
 export interface StripeSeedPrice {
   id?: string;
@@ -99,6 +101,8 @@ export interface StripeSeedConfig {
   }>;
   /** Delivery faults applied from the start. See README "Webhook delivery model and chaos". */
   webhook_chaos?: WebhookChaosInput;
+  /** Billing settings, also readable and writable at /_stripe/billing/settings. */
+  billing?: BillingSettingsInput;
 }
 
 function stripeWebhookHeaders({ body, subscription }: WebhookHeaderContext): Record<string, string> {
@@ -193,6 +197,12 @@ export function seedFromConfig(
         }) ?? [];
       for (const pr of matchingPrices) seedPrice(ss, product.stripe_id, pr);
     }
+  }
+
+  if (config.billing) {
+    const parsed = parseBillingSettings({ ...config.billing }, getBillingSettings(store));
+    if (!parsed.ok) throw new Error(`Invalid stripe billing settings: ${parsed.error.message}`);
+    setBillingSettings(store, parsed.settings);
   }
 
   if (config.webhook_chaos) {

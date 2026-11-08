@@ -1,7 +1,7 @@
 import { getStripeStore, type StripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
 import { liveSubscriptionCount, MAX_CLOCK_SUBSCRIPTIONS, nowFor } from "./clock.js";
-import { nextPeriodEnd } from "./billing.js";
+import { nextPeriodEnd } from "./periods.js";
 import { previousAttributes, type EventBatch } from "./events.js";
 import { formatSubscription, subscriptionItems, MAX_SUBSCRIPTION_ITEMS } from "./formatters.js";
 import { priceAmount, priceBreakdown } from "./pricing.js";
@@ -245,11 +245,13 @@ function invoiceSubscription(
   billingReason: InvoiceBillingReason,
   trial: boolean,
   autoAdvance: boolean,
+  invoicePeriod?: { start: number; end: number },
 ): StripeInvoice {
   const ss = getStripeStore(ctx.store);
   const items = subscriptionItems(ss, sub.stripe_id);
   const period = { start: items[0].current_period_start, end: items[0].current_period_end };
   const inv = createInvoice(ctx, ev, {
+    period: invoicePeriod,
     customerId: sub.customer_id,
     currency: sub.currency,
     collectionMethod: sub.collection_method,
@@ -414,7 +416,9 @@ export function createSubscription(
 
   const current = ss.subscriptions.get(sub.id)!;
   if (trial && current.trial_end! - now <= TRIAL_WILL_END_LEAD) {
-    ev.emit("customer.subscription.trial_will_end", formatSubscription(ss, current));
+    const warned = ss.subscriptions.update(sub.id, { trial_will_end_sent_for: current.trial_end })!;
+    ev.emit("customer.subscription.trial_will_end", formatSubscription(ss, warned));
+    return { ok: true, sub: warned };
   }
   return { ok: true, sub: current };
 }
@@ -445,6 +449,96 @@ export function endTrialNow(ctx: InvoicingContext, ev: EventBatch, sub: StripeSu
   return current;
 }
 
+/** The period the items of a subscription are in now. */
+function currentItemPeriod(items: StripeSubscriptionItem[]): { start: number; end: number } {
+  return { start: items[0].current_period_start, end: items[0].current_period_end };
+}
+
+/**
+ * Open a new billing period for every item and invoice it with `billing_reason`
+ * `subscription_cycle`. The draft looks back on the period that just ended, auto-advances and
+ * is finalized an hour later. Sends customer.subscription.updated, carrying the old `items`
+ * and `latest_invoice` (and `status` when it changed), before invoice.created.
+ */
+function startCycle(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  updates: Partial<StripeSubscription>,
+  periodEnd: (item: StripeSubscriptionItem) => number,
+  autoAdvance: boolean,
+): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const before = formatSubscription(ss, sub);
+  const items = subscriptionItems(ss, sub.stripe_id);
+  const lookBack = currentItemPeriod(items);
+  for (const item of items) {
+    ss.subscriptionItems.update(item.id, {
+      current_period_start: item.current_period_end,
+      current_period_end: periodEnd(item),
+    });
+  }
+  const updated = ss.subscriptions.update(sub.id, updates)!;
+  const held = deferredBatch();
+  invoiceSubscription(ctx, held, updated, "subscription_cycle", false, autoAdvance, lookBack);
+  const current = ss.subscriptions.get(sub.id)!;
+  emitSubscriptionChange(ss, ev, current, before);
+  held.replay(ev);
+  return current;
+}
+
+/**
+ * The scheduled end of a trial: the subscription turns `active`, `billing_cycle_anchor` moves
+ * to the trial end and the first paid period is invoiced as a `subscription_cycle` draft.
+ */
+export function endTrialOnSchedule(ctx: InvoicingContext, ev: EventBatch, sub: StripeSubscription): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const trialEnd = sub.trial_end!;
+  const { interval, interval_count } = subscriptionInterval(ss, subscriptionItems(ss, sub.stripe_id));
+  return startCycle(
+    ctx,
+    ev,
+    sub,
+    { status: "active", billing_cycle_anchor: trialEnd },
+    () => nextPeriodEnd(trialEnd, interval, interval_count, trialEnd),
+    true,
+  );
+}
+
+/**
+ * Renew a subscription whose period ended: each item's period rolls to the next boundary of
+ * `billing_cycle_anchor`, and the new period is invoiced. An `unpaid` subscription keeps
+ * creating invoices but leaves them as drafts that are never collected.
+ */
+export function renewSubscription(ctx: InvoicingContext, ev: EventBatch, sub: StripeSubscription): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const { interval, interval_count } = subscriptionInterval(ss, subscriptionItems(ss, sub.stripe_id));
+  return startCycle(
+    ctx,
+    ev,
+    sub,
+    {},
+    (item) => nextPeriodEnd(sub.billing_cycle_anchor, interval, interval_count, item.current_period_end),
+    sub.status !== "unpaid",
+  );
+}
+
+/**
+ * The period the next renewal of `sub` opens, or undefined when it will not renew: the first
+ * paid period after a trial, or the period after the current one.
+ */
+export function nextRenewalPeriod(
+  ss: StripeStore,
+  sub: StripeSubscription,
+): { start: number; end: number } | undefined {
+  const items = subscriptionItems(ss, sub.stripe_id);
+  if (items.length === 0) return undefined;
+  const { interval, interval_count } = subscriptionInterval(ss, items);
+  const start = sub.status === "trialing" && sub.trial_end !== undefined ? sub.trial_end : items[0].current_period_end;
+  const anchor = sub.status === "trialing" ? start : sub.billing_cycle_anchor;
+  return { start, end: nextPeriodEnd(anchor, interval, interval_count, start) };
+}
+
 /** Move a trial's end to a later time. The current period stretches to match. */
 export function extendTrial(ss: StripeStore, sub: StripeSubscription, trialEnd: number): StripeSubscription {
   for (const item of subscriptionItems(ss, sub.stripe_id)) {
@@ -468,7 +562,9 @@ export function isEnded(sub: StripeSubscription): boolean {
 }
 
 /**
- * Cancel a subscription at once. Its unpaid invoices stop being collected automatically.
+ * Cancel a subscription now: at once for an API call, or at its `cancel_at` with `scheduled`,
+ * which keeps the `canceled_at` of the request that scheduled it. Its unpaid invoices stop
+ * being collected automatically.
  * Sends customer.subscription.deleted, and no customer.subscription.updated, as on Stripe.
  */
 export function cancelSubscription(
@@ -476,6 +572,7 @@ export function cancelSubscription(
   ev: EventBatch,
   sub: StripeSubscription,
   details: StripeSubscriptionCancellationDetails = {},
+  options: { scheduled?: boolean } = {},
 ): StripeSubscription {
   const ss = getStripeStore(ctx.store);
   const now = nowFor(ss, { customerId: sub.customer_id });
@@ -486,7 +583,8 @@ export function cancelSubscription(
   }
   const canceled = ss.subscriptions.update(sub.id, {
     status: "canceled",
-    canceled_at: now,
+    // A scheduled cancellation keeps the time it was requested, as Stripe documents for canceled_at.
+    canceled_at: options.scheduled ? (sub.canceled_at ?? now) : now,
     ended_at: now,
     cancellation_details: { ...sub.cancellation_details, ...details, reason: "cancellation_requested" },
   })!;

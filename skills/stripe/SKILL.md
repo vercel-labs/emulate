@@ -183,6 +183,8 @@ stripe:
   webhook_chaos:          # optional, see "Delivery chaos" below
     seed: 42
     reorder: reverse
+  billing:                # optional, also at /_stripe/billing/settings
+    upcoming_renewal_days: 3   # 0 turns invoice.upcoming off
 ```
 
 The `product` field in prices links to a seeded product by name or id (the older `product_name` key still works). Seeded prices take the same params as `POST /v1/prices` and an invalid one stops the seed with an error. Use `events: ['*']` to receive all webhook events, or specify individual event types. Seeded webhooks are also listed by `GET /v1/webhook_endpoints`.
@@ -433,7 +435,7 @@ curl -X POST http://localhost:4000/v1/subscription_items -d "subscription=sub_xx
 curl "http://localhost:4000/v1/subscription_items?subscription=sub_xxx"
 ```
 
-Subscriptions use the current wire shape: billing periods are `items.data[].current_period_start` and `current_period_end`, not top-level fields, and each item carries both `price` and the legacy `plan`. Creating one finalizes its first invoice (`billing_reason` `subscription_create`) and charges the subscription's `default_payment_method` or the customer's default card. A paid invoice makes it `active`; a decline (`pm_card_chargeCustomerFail`) or 3D Secure leaves it `incomplete` with the invoice `open`, and paying that invoice later activates it. `error_if_incomplete` answers 402 and stores nothing. A trial makes it `trialing` with a paid $0 invoice whose lines say "Free trial", and a trial under three days sends `customer.subscription.trial_will_end` at once. `send_invoice` subscriptions are `active` at once with an open invoice due after `days_until_due`. `DELETE` sets `canceled` with `cancellation_details.reason` `cancellation_requested` and sends only `customer.subscription.deleted`. Item and setting changes create no prorations. Billing time does not pass on its own, so trials and periods never roll over by themselves.
+Subscriptions use the current wire shape: billing periods are `items.data[].current_period_start` and `current_period_end`, not top-level fields, and each item carries both `price` and the legacy `plan`. Creating one finalizes its first invoice (`billing_reason` `subscription_create`) and charges the subscription's `default_payment_method` or the customer's default card. A paid invoice makes it `active`; a decline (`pm_card_chargeCustomerFail`) or 3D Secure leaves it `incomplete` with the invoice `open`, and paying that invoice later activates it. `error_if_incomplete` answers 402 and stores nothing. A trial makes it `trialing` with a paid $0 invoice whose lines say "Free trial", and a trial under three days sends `customer.subscription.trial_will_end` at once. `send_invoice` subscriptions are `active` at once with an open invoice due after `days_until_due`. `DELETE` sets `canceled` with `cancellation_details.reason` `cancellation_requested` and sends only `customer.subscription.deleted`. Item and setting changes create no prorations. Billing time passes only for customers on a test clock: without one, trials and periods never roll over by themselves.
 
 ### Test Clocks
 
@@ -449,12 +451,37 @@ curl -X POST http://localhost:4000/v1/customers \
 curl -X POST http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx/advance -d "frozen_time=1767830400"
 curl http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx
 
+# Billing settings (emulator only): days before a renewal that invoice.upcoming is sent, 0 for never
+curl http://localhost:4000/_stripe/billing/settings
+curl -X POST http://localhost:4000/_stripe/billing/settings -d "upcoming_renewal_days=7"
+
 # List the clock's objects, then delete the clock with its customers and their objects
 curl "http://localhost:4000/v1/subscriptions?test_clock=clock_xxx"
 curl -X DELETE http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx
 ```
 
-Everything created for a clock customer (subscriptions, invoices, payment methods, PaymentIntents) takes its times from the clock's `frozen_time`, so a subscription created with `trial_period_days=7` has `created`, `start_date` and `trial_start` equal to the frozen time. A clock holds at most 3 customers and each of them at most 3 subscriptions. One advance may move at most two intervals of the shortest subscription on the clock, or two years without subscriptions. Unfiltered `GET /v1/customers`, `/v1/subscriptions` and `/v1/invoices` leave clock objects out; pass `customer`, `subscription` (invoices) or `test_clock` to see them. Advancing moves time only for now: trials, renewals and collection do not run on it yet. Deleting a clock sends only `test_helpers.test_clock.deleted`.
+Everything created for a clock customer (subscriptions, invoices, payment methods, PaymentIntents) takes its times from the clock's `frozen_time`, so a subscription created with `trial_period_days=7` has `created`, `start_date` and `trial_start` equal to the frozen time. A clock holds at most 3 customers and each of them at most 3 subscriptions. One advance may move at most two intervals of the shortest subscription on the clock, or two years without subscriptions. Unfiltered `GET /v1/customers`, `/v1/subscriptions` and `/v1/invoices` leave clock objects out; pass `customer`, `subscription` (invoices) or `test_clock` to see them. Deleting a clock sends only `test_helpers.test_clock.deleted`.
+
+Advancing runs Billing for the clock's customers, action by action in time order. Every event it raises has a `null` request and `created` set to the simulated time; `test_helpers.test_clock.ready` comes last. Webhook signatures stay on the wall clock, so `constructEvent` verifies them as usual.
+
+| When | What happens |
+|------|--------------|
+| 3 days before `trial_end` | `customer.subscription.trial_will_end`; still `trialing` |
+| `upcoming_renewal_days` (default 3) before a renewal | `invoice.upcoming` with an unsaved preview (no `id`, `billing_reason` `upcoming`). Not for `send_invoice` or a subscription ending then |
+| `trial_end` | `active`, `billing_cycle_anchor` = `trial_end`, item periods roll; `customer.subscription.updated` (previous `status`, `items`, `latest_invoice`) and `invoice.created` for a `subscription_cycle` draft |
+| Each `current_period_end` | Item periods roll on the anchor's calendar; `customer.subscription.updated` and a new `subscription_cycle` draft |
+| `cancel_at` (also `cancel_at_period_end`) | `customer.subscription.deleted`, `ended_at` = that time, no invoice |
+| 1 hour after a draft (`automatically_finalizes_at`) | Finalized and charged: `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`. A decline leaves it `open` and the subscription `past_due` |
+
+```typescript
+// Walk a 7 day trial through its first renewal
+const clock = await stripe.testHelpers.testClocks.create({ frozen_time: start })
+const customer = await stripe.customers.create({ test_clock: clock.id, payment_method: 'pm_card_visa',
+  invoice_settings: { default_payment_method: 'pm_card_visa' } })
+await stripe.subscriptions.create({ customer: customer.id, items: [{ price }], trial_period_days: 7 })
+await stripe.testHelpers.testClocks.advance(clock.id, { frozen_time: start + 7 * 86400 + 3600 })
+// trial_will_end, customer.subscription.updated (active), invoice.created, then invoice.paid
+```
 
 ### Invoices
 
@@ -626,20 +653,22 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `invoice.payment_succeeded` | Invoice paid by its PaymentIntent |
 | `invoice.payment_failed` | Payment attempt declined or waiting on 3D Secure |
 | `invoice.payment_action_required` | Payment attempt needs 3D Secure |
+| `invoice.upcoming` | A test clock reached `upcoming_renewal_days` before a renewal |
 | `invoice.voided` | Invoice voided |
 | `invoice.marked_uncollectible` | Invoice marked uncollectible |
 | `invoice_payment.paid` | The invoice's InvoicePayment was paid |
 | `invoiceitem.created` | Invoice item created |
 | `invoiceitem.deleted` | Invoice item deleted |
 | `customer.subscription.created` | Subscription created (before its first invoice's events) |
-| `customer.subscription.updated` | Subscription changed, or payment moved it from `incomplete` to `active` |
-| `customer.subscription.deleted` | Subscription canceled, or its customer deleted |
-| `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close) |
+| `customer.subscription.updated` | Subscription changed, payment moved it from `incomplete` to `active`, or a test clock ended its trial or renewed it |
+| `customer.subscription.deleted` | Subscription canceled, its customer deleted, or a test clock reached its `cancel_at` |
+| `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close, else when a test clock reaches that point) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
 | `test_helpers.test_clock.created` | Test clock created |
 | `test_helpers.test_clock.advancing` | Test clock advance started |
 | `test_helpers.test_clock.ready` | Test clock reached its new `frozen_time` |
+| `test_helpers.test_clock.internal_failure` | An advance ran more than 10,000 billing actions |
 | `test_helpers.test_clock.deleted` | Test clock deleted with its customers |
 
 ### Webhook handler example

@@ -1,5 +1,5 @@
 import type { StripeStore } from "./store.js";
-import { periodBoundary } from "./billing.js";
+import { periodBoundary } from "./periods.js";
 import { stripeId } from "./helpers.js";
 import type {
   StripeCustomer,
