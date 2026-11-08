@@ -31,8 +31,7 @@ export type InvoicingContext = PaymentContext;
 
 export type InvoiceResult = { ok: true; invoice: StripeInvoice } | { ok: false; error: StripeErrorSpec };
 
-/** How long Stripe waits after invoice.created before it finalizes an auto-advancing draft. */
-export const DRAFT_FINALIZE_DELAY = 3600;
+export { DRAFT_FINALIZE_DELAY } from "./formatters.js";
 
 const NO_PAYMENT_METHOD_MESSAGE =
   "This customer has no attached payment source or default payment method. Please consider adding a default payment method. For more information, visit https://docs.stripe.com/billing/subscriptions/payment-methods-setting#payment-method-priority.";
@@ -319,8 +318,9 @@ function markPaid(ctx: InvoicingContext, ev: EventBatch, inv: StripeInvoice, opt
 
 /**
  * The payment method an invoice is charged with: the `payment_method` param, then the
- * invoice's default, then the customer's invoice default. A test card id such as
- * `pm_card_visa` is attached to the customer first.
+ * invoice's default, then the customer's invoice default. Stripe checks the subscription's
+ * `default_payment_method` before the customer's; that step waits for subscriptions. A test
+ * card id such as `pm_card_visa` is attached to the customer first.
  */
 function invoicePaymentMethod(
   ctx: InvoicingContext,
@@ -330,6 +330,7 @@ function invoicePaymentMethod(
 ): { ok: true; pm: StripePaymentMethod } | { ok: false; error: StripeErrorSpec } {
   const ss = getStripeStore(ctx.store);
   const customer = ss.customers.findOneBy("stripe_id", inv.customer_id);
+  // TODO: try the default_payment_method of inv.subscription_id here once subscriptions are modelled.
   const id = requested ?? inv.default_payment_method ?? customer?.invoice_settings?.default_payment_method;
   if (!id) return { ok: false, error: invalidRequest(NO_PAYMENT_METHOD_MESSAGE) };
 
@@ -347,14 +348,18 @@ export interface PayInvoiceOptions {
   /** Defaults to true: Billing charges invoices with the customer away. */
   offSession?: boolean;
   paidOutOfBand?: boolean;
-  /** True for Billing's own collection attempts, whose failures make the customer delinquent. */
+  /**
+   * True for Billing's own collection attempts. Each one counts in attempt_count, and a failure
+   * makes the customer delinquent.
+   */
   automatic?: boolean;
 }
 
 /**
- * Attempt to pay an invoice, finalizing a draft first. Each attempt counts in attempt_count.
- * A decline leaves the invoice open; a card that needs 3D Secure leaves its PaymentIntent in
- * requires_action. Both send invoice.payment_failed.
+ * Attempt to pay an invoice, finalizing a draft first. As on Stripe, the first attempt of any
+ * kind counts in attempt_count and after that only automatic retries do. A decline leaves the
+ * invoice open; a card that needs 3D Secure leaves its PaymentIntent in requires_action. Both
+ * send invoice.payment_failed.
  */
 export function payInvoice(
   ctx: InvoicingContext,
@@ -384,7 +389,7 @@ export function payInvoice(
 
   const before = render(ctx, current);
   current = ss.invoices.update(current.id, {
-    attempt_count: current.attempt_count + 1,
+    attempt_count: current.attempt_count === 0 || options.automatic ? current.attempt_count + 1 : current.attempt_count,
     attempted: true,
     next_payment_attempt: undefined,
   })!;

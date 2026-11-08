@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import Stripe from "stripe";
-import { createTestApp, captureWebhooks, sdk, api, type TestApp } from "./support.js";
+import { createTestApp, captureWebhooks, sdk, api, base, type TestApp } from "./support.js";
 import { getStripeStore } from "../store.js";
+import { eventBatch } from "../events.js";
+import { DRAFT_FINALIZE_DELAY, payInvoice } from "../invoicing.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -88,6 +90,7 @@ describe("Invoice object", () => {
       subtotal: 3000,
       total: 3000,
       parent: null,
+      customer_account: null,
       hosted_invoice_url: null,
       invoice_pdf: null,
       ending_balance: null,
@@ -170,6 +173,7 @@ describe("Invoice object", () => {
       "currency",
       "custom_fields",
       "customer",
+      "customer_account",
       "customer_address",
       "customer_email",
       "customer_name",
@@ -282,6 +286,9 @@ describe("finalizing", () => {
     expect(res.body.effective_at).toBe(res.body.status_transitions.finalized_at);
     expect(res.body.hosted_invoice_url).toMatch(new RegExp(`/invoice/${invoice.id}$`));
     expect(res.body.invoice_pdf).toEqual(expect.any(String));
+    // The hosted invoice page is not served yet.
+    const hosted = await ctx.app.request(res.body.hosted_invoice_url);
+    expect(hosted.status).toBe(404);
 
     expect(res.body.payments.total_count).toBe(1);
     const payment = res.body.payments.data[0];
@@ -394,6 +401,52 @@ describe("paying", () => {
     // A manual attempt is not an automatic payment failure, so the customer is not delinquent.
     const customer = await api<Json>(ctx.app, "GET", `/v1/customers/${customerId}`);
     expect(customer.body.delinquent).toBe(false);
+  });
+
+  it("counts only the first manual attempt in attempt_count", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { customerId } = await customerWithCard(ctx, "pm_card_chargeCustomerFail");
+    const { invoice } = await draftInvoice(ctx, customerId);
+    await api(ctx.app, "POST", `/v1/invoices/${invoice.id}/finalize`);
+
+    expect((await api(ctx.app, "POST", `/v1/invoices/${invoice.id}/pay`)).status).toBe(402);
+    const hooks = captureWebhooks();
+    expect((await api(ctx.app, "POST", `/v1/invoices/${invoice.id}/pay`)).status).toBe(402);
+    const second = await api<Json>(ctx.app, "GET", `/v1/invoices/${invoice.id}`);
+    expect(second.body).toMatchObject({ status: "open", attempt_count: 1, attempted: true });
+    expect(types(hooks.events)).toContain("invoice.payment_failed");
+
+    const paid = await api<Json>(ctx.app, "POST", `/v1/invoices/${invoice.id}/pay`, {
+      payment_method: "pm_card_visa",
+    });
+    expect(paid.status).toBe(200);
+    expect(paid.body).toMatchObject({ status: "paid", attempt_count: 1 });
+  });
+
+  it("makes the customer delinquent when an automatic attempt fails, and counts each retry", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { customerId } = await customerWithCard(ctx, "pm_card_chargeCustomerFail");
+    const { invoice } = await draftInvoice(ctx, customerId);
+    await api(ctx.app, "POST", `/v1/invoices/${invoice.id}/finalize`);
+    const ss = getStripeStore(ctx.store);
+    const hooks = captureWebhooks();
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const ev = eventBatch(ctx);
+      const stored = ss.invoices.findOneBy("stripe_id", invoice.id)!;
+      const result = payInvoice({ store: ctx.store, baseUrl: base }, ev, stored, { automatic: true });
+      await ev.commit();
+      expect(result.ok).toBe(false);
+      expect(ss.invoices.findOneBy("stripe_id", invoice.id)!.attempt_count).toBe(attempt);
+    }
+
+    const delinquency = hooks.ofType("customer.updated");
+    expect(delinquency).toHaveLength(1);
+    expect(delinquency[0].data.object).toMatchObject({ id: customerId, delinquent: true });
+    expect(delinquency[0].data.previous_attributes).toEqual({ delinquent: false });
+    expectInOrder(hooks.events, ["invoice.payment_failed", "customer.updated", "invoice.payment_failed"]);
+    const customer = await api<Json>(ctx.app, "GET", `/v1/customers/${customerId}`);
+    expect(customer.body.delinquent).toBe(true);
   });
 
   it("asks for authentication, then pays once the customer authenticates", async () => {
@@ -558,7 +611,7 @@ describe("status transitions", () => {
       auto_advance: "true",
     });
     expect(res.body).toMatchObject({ description: "Consulting", metadata: { order: "42" }, auto_advance: true });
-    expect(res.body.automatically_finalizes_at).toEqual(expect.any(Number));
+    expect(res.body.automatically_finalizes_at).toBe(invoice.created + DRAFT_FINALIZE_DELAY);
     const updated = hooks.ofType("invoice.updated")[0];
     expect(updated.data.previous_attributes).toMatchObject({
       description: null,

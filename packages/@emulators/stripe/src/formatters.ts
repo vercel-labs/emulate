@@ -544,6 +544,9 @@ export function invoiceAmounts(ss: StripeStore, inv: StripeInvoice) {
   };
 }
 
+/** How long Stripe waits after invoice.created before it finalizes an auto-advancing draft. */
+export const DRAFT_FINALIZE_DELAY = 3600;
+
 /** The hosted invoice page. Until it exists the URL answers 404. */
 export function hostedInvoiceUrl(baseUrl: string, invoiceId: string): string {
   return `${baseUrl}/invoice/${invoiceId}`;
@@ -577,13 +580,14 @@ export function formatInvoice(ss: StripeStore, inv: StripeInvoice, baseUrl: stri
     attempted: inv.attempted,
     auto_advance: inv.auto_advance,
     automatic_tax: { enabled: false, liability: null, status: null },
-    automatically_finalizes_at: !finalized && inv.auto_advance ? inv.created + 3600 : null,
+    automatically_finalizes_at: !finalized && inv.auto_advance ? inv.created + DRAFT_FINALIZE_DELAY : null,
     billing_reason: inv.billing_reason,
     collection_method: inv.collection_method,
     created: inv.created,
     currency: inv.currency,
     custom_fields: null,
     customer: inv.customer_id,
+    customer_account: null,
     customer_address: null,
     customer_email: snapshot.email,
     customer_name: snapshot.name,
