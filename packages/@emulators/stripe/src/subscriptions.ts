@@ -537,6 +537,17 @@ export function currentPeriodEnd(ss: StripeStore, sub: StripeSubscription): numb
   return ends.length > 0 ? Math.max(...ends) : undefined;
 }
 
+/**
+ * The fields that undo a scheduled cancellation, shared by the API and the portal's renew so
+ * both leave the same wire state. The cancellation's details go with it.
+ */
+export function unscheduleCancellation(): Pick<
+  StripeSubscription,
+  "cancel_at" | "cancel_at_period_end" | "canceled_at" | "cancellation_details"
+> {
+  return { cancel_at: undefined, cancel_at_period_end: false, canceled_at: undefined, cancellation_details: {} };
+}
+
 export function isEnded(sub: StripeSubscription): boolean {
   return sub.status === "canceled" || sub.status === "incomplete_expired";
 }

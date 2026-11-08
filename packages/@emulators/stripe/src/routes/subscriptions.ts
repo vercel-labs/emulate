@@ -28,6 +28,7 @@ import {
   pauseSubscription,
   readSubscriptionPrice,
   resumeSubscription,
+  unscheduleCancellation,
   type PaymentBehavior,
   type SubscriptionItemInput,
 } from "../subscriptions.js";
@@ -601,18 +602,19 @@ export function subscriptionRoutes(ctx: RouteContext): void {
       updates.cancel_at_period_end = true;
       updates.cancel_at = currentPeriodEnd(ss, found);
       updates.canceled_at = now;
-    } else if (cancelAt.value === "") {
-      updates.cancel_at = undefined;
-      updates.canceled_at = undefined;
-      updates.cancel_at_period_end = false;
+    } else if (
+      cancelAt.value === "" ||
+      (cancelAt.value === undefined && cancelAtPeriodEnd === false && found.cancel_at_period_end)
+    ) {
+      if (found.cancel_at !== undefined || found.cancel_at_period_end) {
+        Object.assign(updates, unscheduleCancellation());
+        // Details sent with the reactivation describe it, not the cancellation it undoes.
+        if (details.value) updates.cancellation_details = details.value;
+      }
     } else if (cancelAt.value !== undefined) {
       updates.cancel_at = cancelAt.value === "period_end" ? currentPeriodEnd(ss, found) : cancelAt.value;
       updates.canceled_at = now;
       updates.cancel_at_period_end = false;
-    } else if (cancelAtPeriodEnd === false && found.cancel_at_period_end) {
-      updates.cancel_at_period_end = false;
-      updates.cancel_at = undefined;
-      updates.canceled_at = undefined;
     }
 
     const ev = eventBatch(ctx, c);

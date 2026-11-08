@@ -560,6 +560,34 @@ describe("POST /v1/subscriptions/:id", () => {
     expect(undone).toMatchObject({ cancel_at_period_end: false, cancel_at: null, canceled_at: null });
   });
 
+  it("clears cancellation_details when a scheduled cancellation is undone", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { customerId } = await customer(ctx);
+    const { priceId } = await recurringPrice(ctx);
+    const stripe = sdk(ctx.app);
+    const sub = await stripe.subscriptions.create({ customer: customerId, items: [{ price: priceId }] });
+    const cleared = { reason: null, feedback: null, comment: null };
+
+    await stripe.subscriptions.update(sub.id, {
+      cancel_at_period_end: true,
+      cancellation_details: { comment: "Cheaper elsewhere", feedback: "too_expensive" },
+    });
+    const hooks = captureWebhooks();
+    const undone = wire(await stripe.subscriptions.update(sub.id, { cancel_at_period_end: false }));
+    expect(undone.cancellation_details).toEqual(cleared);
+    expect(hooks.ofType("customer.subscription.updated")[0].data.previous_attributes).toMatchObject({
+      cancel_at_period_end: true,
+      cancellation_details: { comment: "Cheaper elsewhere", feedback: "too_expensive" },
+    });
+
+    await stripe.subscriptions.update(sub.id, {
+      cancel_at: undone.items.data[0].current_period_end,
+      cancellation_details: { comment: "Leaving" },
+    });
+    const unset = (await api<Json>(ctx.app, "POST", `/v1/subscriptions/${sub.id}`, { cancel_at: "" })).body;
+    expect(unset).toMatchObject({ cancel_at: null, canceled_at: null, cancellation_details: cleared });
+  });
+
   it("updates metadata, cancellation_details and items without prorations", async () => {
     const ctx = createTestApp({ webhook: true });
     const { customerId } = await customer(ctx);

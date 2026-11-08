@@ -18,7 +18,7 @@ import {
 import { eventBatch, previousAttributes, type EventBatch } from "../events.js";
 import { nowFor } from "../clock.js";
 import { attemptSetup, completeSetupAuthentication, newClientSecret, resolvePaymentMethod } from "../payments.js";
-import { currentPeriodEnd, emitSubscriptionChange, isEnded } from "../subscriptions.js";
+import { currentPeriodEnd, emitSubscriptionChange, isEnded, unscheduleCancellation } from "../subscriptions.js";
 import { intervalText, productName } from "../lines.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
 import { SERVICE_LABEL, cardSelect, day, errorBlock, money, payInvoiceOnPage } from "./hosted-invoices.js";
@@ -131,6 +131,19 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
+/** Stripe accepts only absolute http(s) URLs; anything else (a `javascript:` URL too) answers 400. */
+function readUrl(value: unknown, param: string): Parsed<string | undefined> {
+  const url = readString(value);
+  if (url === undefined) return { ok: true, value: undefined };
+  try {
+    const { protocol } = new URL(url);
+    if (protocol === "http:" || protocol === "https:") return { ok: true, value: url };
+  } catch {
+    // Not parseable: fall through to the error.
+  }
+  return invalid("Not a valid URL", param, "url_invalid");
+}
+
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], param: string): Parsed<T | undefined> {
   if (value === undefined || value === "") return { ok: true, value: undefined };
   if (typeof value === "string" && (allowed as readonly string[]).includes(value)) {
@@ -161,9 +174,10 @@ function readAfterCompletion(value: unknown): Parsed<BillingPortalAfterCompletio
   if (!type.ok) return type;
   if (type.value === "redirect") {
     const redirect = isRecord(value.redirect) ? value.redirect : undefined;
-    const url = readString(redirect?.return_url);
-    if (!url) return missing(`${param}[redirect][return_url]`);
-    return { ok: true, value: { type: "redirect", return_url: url } };
+    const url = readUrl(redirect?.return_url, `${param}[redirect][return_url]`);
+    if (!url.ok) return url;
+    if (!url.value) return missing(`${param}[redirect][return_url]`);
+    return { ok: true, value: { type: "redirect", return_url: url.value } };
   }
   if (type.value === "hosted_confirmation") {
     const confirmation = isRecord(value.hosted_confirmation) ? value.hosted_confirmation : undefined;
@@ -295,6 +309,8 @@ export function billingPortalRoutes(ctx: RouteContext): void {
     } else {
       configuration = defaultPortalConfiguration(ss);
     }
+    const returnUrl = readUrl(body.return_url, "return_url");
+    if (!returnUrl.ok) return sendStripeError(c, returnUrl.error);
     const locale = oneOf(body.locale, LOCALES, "locale");
     if (!locale.ok) return sendStripeError(c, locale.error);
     const flow = readFlowData(ss, body.flow_data, customerId);
@@ -306,7 +322,7 @@ export function billingPortalRoutes(ctx: RouteContext): void {
       stripe_id: stripeId("bps"),
       customer_id: customerId,
       configuration_id: configuration.stripe_id,
-      return_url: readString(body.return_url),
+      return_url: returnUrl.value,
       locale: locale.value,
       on_behalf_of: readString(body.on_behalf_of),
       flow: flow.value,
@@ -592,12 +608,7 @@ export function billingPortalRoutes(ctx: RouteContext): void {
       return pageError(c, session, invalid("This subscription is not scheduled to cancel.").error);
     }
     const before = formatSubscription(ss, sub);
-    const updated = ss.subscriptions.update(sub.id, {
-      cancel_at_period_end: false,
-      cancel_at: undefined,
-      canceled_at: undefined,
-      cancellation_details: {},
-    })!;
+    const updated = ss.subscriptions.update(sub.id, unscheduleCancellation())!;
     const ev = eventBatch(ctx);
     emitSubscriptionChange(ss, ev, updated, before);
     await ev.commit();
@@ -632,8 +643,9 @@ export function billingPortalRoutes(ctx: RouteContext): void {
 
   /**
    * Save a card through a SetupIntent, as the portal does, and make it the customer's invoice
-   * default. Subscriptions with a default of their own get the new card too, or they would
-   * keep charging the old one. The customer is present, so 3D Secure is approved.
+   * default. A subscription's own `default_payment_method` overrides that default, so the portal
+   * removes the override and the subscription falls back to the new card, as Stripe's portal
+   * integration guide describes. The customer is present, so 3D Secure is approved.
    */
   function savePortalCard(
     ev: EventBatch,
@@ -672,9 +684,9 @@ export function billingPortalRoutes(ctx: RouteContext): void {
     if (Object.keys(previous).length > 0) ev.emit("customer.updated", after, previous);
 
     for (const sub of ss.subscriptions.findBy("customer_id", customerId)) {
-      if (isEnded(sub) || !sub.default_payment_method || sub.default_payment_method === pmId) continue;
+      if (isEnded(sub) || !sub.default_payment_method) continue;
       const before = formatSubscription(ss, sub);
-      const changed = ss.subscriptions.update(sub.id, { default_payment_method: pmId })!;
+      const changed = ss.subscriptions.update(sub.id, { default_payment_method: undefined })!;
       emitSubscriptionChange(ss, ev, changed, before);
     }
     return { ok: true };

@@ -211,6 +211,39 @@ describe("POST /v1/billing_portal/sessions", () => {
     const notFound = await ctx.app.request(`${base}/billing_portal/bps_missing`);
     expect(notFound.status).toBe(404);
   });
+
+  it("rejects return URLs that are not http or https", async () => {
+    const ctx = createTestApp();
+    const { customer } = await subscribed(ctx);
+    for (const url of ["not a url", "javascript:alert(1)", "/relative"]) {
+      const res = await api<Json>(ctx.app, "POST", "/v1/billing_portal/sessions", {
+        customer: customer.id,
+        return_url: url,
+      });
+      expect(res.status, url).toBe(400);
+      expect(res.body.error).toMatchObject({
+        type: "invalid_request_error",
+        message: "Not a valid URL",
+        param: "return_url",
+      });
+    }
+
+    const redirect = await api<Json>(ctx.app, "POST", "/v1/billing_portal/sessions", {
+      customer: customer.id,
+      flow_data: {
+        type: "payment_method_update",
+        after_completion: { type: "redirect", redirect: { return_url: "javascript:alert(1)" } },
+      },
+    });
+    expect(redirect.status).toBe(400);
+    expect(redirect.body.error).toMatchObject({
+      message: "Not a valid URL",
+      param: "flow_data[after_completion][redirect][return_url]",
+    });
+
+    const ok = await portal(ctx, { customer: customer.id, return_url: "http://localhost:3000/account" });
+    expect(ok.return_url).toBe("http://localhost:3000/account");
+  });
 });
 
 describe("flow_data", () => {
@@ -438,6 +471,37 @@ describe("portal actions", () => {
     expect((await getSub(ctx, sub.id)).default_payment_method).toBeNull();
     const page = await (await ctx.app.request(session.url)).text();
     expect(page).toContain("4242");
+  });
+
+  it("removes a subscription's own default so it falls back to the new customer default", async () => {
+    const ctx = createTestApp({ webhook: true });
+    const { customer } = await subscribed(ctx);
+    const oldPm = customer.invoice_settings.default_payment_method as string;
+    // As a Checkout-created subscription has: a default_payment_method of its own.
+    const own = await api<Json>(ctx.app, "POST", "/v1/subscriptions", {
+      customer: customer.id,
+      items: [{ price: await monthlyPrice(ctx, "Team Plan") }],
+      default_payment_method: oldPm,
+    });
+    expect(own.status, JSON.stringify(own.body)).toBe(200);
+    expect(own.body.default_payment_method).toBe(oldPm);
+    const session = await portal(ctx, { customer: customer.id });
+    const hooks = captureWebhooks();
+
+    const res = await submit(ctx, `${session.url}/payment_method`, { payment_method: "pm_card_mastercard" });
+    expect(res.status).toBe(303);
+
+    const pmId = obj(hooks.ofType("setup_intent.succeeded")[0]).payment_method as string;
+    expect(pmId).not.toBe(oldPm);
+    const after = await getSub(ctx, own.body.id);
+    expect(after.default_payment_method).toBeNull();
+    expect(obj(hooks.ofType("customer.updated")[0]).invoice_settings.default_payment_method).toBe(pmId);
+
+    const updated = hooks.ofType("customer.subscription.updated");
+    expect(updated).toHaveLength(1);
+    expect(obj(updated[0])).toMatchObject({ id: own.body.id, default_payment_method: null });
+    expect(updated[0].data.previous_attributes).toEqual({ default_payment_method: oldPm });
+    expect(updated[0].request).toEqual({ id: null, idempotency_key: null });
   });
 
   it("approves 3D Secure on the page and keeps the old default when a card declines", async () => {
