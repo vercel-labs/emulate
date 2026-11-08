@@ -4,6 +4,7 @@ import type {
   GitHubOrg,
   GitHubTeam,
   GitHubTeamMember,
+  GitHubOrgInvitation,
   GitHubTeamRepo,
   GitHubRepo,
   GitHubCollaborator,
@@ -43,6 +44,7 @@ export interface GitHubStore {
   orgs: Collection<GitHubOrg>;
   teams: Collection<GitHubTeam>;
   teamMembers: Collection<GitHubTeamMember>;
+  orgInvitations: Collection<GitHubOrgInvitation>;
   teamRepos: Collection<GitHubTeamRepo>;
   repos: Collection<GitHubRepo>;
   collaborators: Collection<GitHubCollaborator>;
@@ -83,6 +85,7 @@ export function getGitHubStore(store: Store): GitHubStore {
     orgs: store.collection<GitHubOrg>("github.orgs", ["login"]),
     teams: store.collection<GitHubTeam>("github.teams", ["org_id", "slug"]),
     teamMembers: store.collection<GitHubTeamMember>("github.team_members", ["team_id", "user_id"]),
+    orgInvitations: store.collection<GitHubOrgInvitation>("github.org_invitations", ["org_id", "invitee_id"]),
     teamRepos: store.collection<GitHubTeamRepo>("github.team_repos", ["team_id", "repo_id"]),
     repos: store.collection<GitHubRepo>("github.repos", ["owner_id", "full_name"]),
     collaborators: store.collection<GitHubCollaborator>("github.collaborators", ["repo_id", "user_id"]),

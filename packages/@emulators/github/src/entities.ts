@@ -52,8 +52,6 @@ export interface GitHubTeam extends Entity {
   permission: string;
   org_id: number;
   parent_id: number | null;
-  members_count: number;
-  repos_count: number;
 }
 
 export interface GitHubTeamMember extends Entity {
@@ -62,9 +60,19 @@ export interface GitHubTeamMember extends Entity {
   role: "member" | "maintainer";
 }
 
+export interface GitHubOrgInvitation extends Entity {
+  node_id: string;
+  org_id: number;
+  invitee_id: number;
+  inviter_id: number | null;
+  role: "admin" | "direct_member";
+  teams: Array<{ team_id: number; role: "member" | "maintainer" }>;
+}
+
 export interface GitHubTeamRepo extends Entity {
   team_id: number;
   repo_id: number;
+  permission?: "pull" | "triage" | "push" | "maintain" | "admin";
 }
 
 export interface GitHubRepo extends Entity {
@@ -127,7 +135,6 @@ export interface GitHubIssue extends Entity {
   assignee_ids: number[];
   label_ids: number[];
   milestone_id: number | null;
-  comments: number;
   closed_at: string | null;
   closed_by_id: number | null;
   is_pull_request: boolean;
@@ -141,6 +148,7 @@ export interface GitHubPullRequest extends Entity {
   body: string | null;
   state: "open" | "closed";
   locked: boolean;
+  active_lock_reason?: string | null;
   user_id: number;
   assignee_ids: number[];
   label_ids: number[];
@@ -157,8 +165,6 @@ export interface GitHubPullRequest extends Entity {
   merge_commit_sha: string | null;
   mergeable: boolean | null;
   mergeable_state: string;
-  comments: number;
-  review_comments: number;
   commits: number;
   additions: number;
   deletions: number;
@@ -235,6 +241,7 @@ export interface GitHubIssueEvent extends Entity {
   assignee_id: number | null;
   milestone_title: string | null;
   rename: { from: string; to: string } | null;
+  lock_reason?: string | null;
 }
 
 export interface GitHubBranch extends Entity {

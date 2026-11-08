@@ -2,6 +2,7 @@ import type { Context, Next } from "../http.js";
 import { createPublicKey } from "crypto";
 import { jwtVerify } from "jose";
 import { debug } from "../debug.js";
+import type { RateLimiter } from "../rate-limit.js";
 
 export interface AuthUser {
   login: string;
@@ -65,6 +66,7 @@ export type AppEnv = {
     authToken?: string;
     authScopes?: string[];
     docsUrl?: string;
+    rateLimiter?: RateLimiter;
   };
 };
 
@@ -78,12 +80,53 @@ export interface AuthFallback {
   scopes: string[];
 }
 
-export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver, fallbackUser?: AuthFallback) {
+/** Picks the token carried in Basic credentials, or undefined to treat the request as anonymous. */
+export type BasicAuthToken = (
+  username: string,
+  password: string,
+  isKnown: (token: string) => boolean,
+) => string | undefined;
+
+/** How an emulator treats a bearer token it does not recognise. */
+export type UnknownTokenPolicy =
+  | { kind: "fallback"; user: AuthFallback }
+  | { kind: "reject"; respond: (c: Context) => Response | undefined; basicToken?: BasicAuthToken };
+
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function decodeBasic(encoded: string): { username: string; password: string } | null {
+  if (!encoded || !BASE64.test(encoded)) return null;
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const colon = decoded.indexOf(":");
+  return colon < 0
+    ? { username: decoded, password: "" }
+    : { username: decoded.slice(0, colon), password: decoded.slice(colon + 1) };
+}
+
+function presentedToken(header: string, tokens: TokenMap, policy: UnknownTokenPolicy | undefined): string | undefined {
+  if (/^(Bearer|token)(?:\s+|$)/i.test(header) || policy?.kind !== "reject") {
+    return header.replace(/^(Bearer|token)\s+/i, "").trim();
+  }
+  const basic = header.match(/^Basic(?:\s+(.*))?$/i);
+  if (!basic || !policy.basicToken) return undefined;
+  const credentials = decodeBasic(basic[1] ?? "");
+  if (!credentials) return "";
+  return policy.basicToken(credentials.username, credentials.password, (token) => tokens.has(token));
+}
+
+export function authMiddleware(
+  tokens: TokenMap,
+  appKeyResolver?: AppKeyResolver,
+  unknownTokenOrFallback?: UnknownTokenPolicy | AuthFallback,
+) {
+  const unknownToken: UnknownTokenPolicy | undefined =
+    unknownTokenOrFallback && !("kind" in unknownTokenOrFallback)
+      ? { kind: "fallback", user: unknownTokenOrFallback }
+      : unknownTokenOrFallback;
   return async (c: Context, next: Next) => {
     const authHeader = c.req.header("Authorization");
-    if (authHeader) {
-      const token = authHeader.replace(/^(Bearer|token)\s+/i, "").trim();
-
+    const token = authHeader ? presentedToken(authHeader, tokens, unknownToken) : undefined;
+    if (token !== undefined) {
       if (token.startsWith("eyJ") && appKeyResolver) {
         try {
           const [, payloadB64] = token.split(".");
@@ -105,12 +148,17 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
         } catch {
           // JWT verification failed
         }
+        const rejected = !c.get("authApp") && unknownToken?.kind === "reject" ? unknownToken.respond(c) : undefined;
+        if (rejected) return rejected;
       } else {
         let user = tokens.get(token);
-        if (!user && fallbackUser && token.length > 0) {
+        if (!user && unknownToken?.kind === "fallback" && token.length > 0) {
+          const fallbackUser = unknownToken.user;
           debug("auth", "fallback user for unknown token", { login: fallbackUser.login, id: fallbackUser.id });
           user = { login: fallbackUser.login, id: fallbackUser.id, scopes: fallbackUser.scopes };
         }
+        const rejected = !user && unknownToken?.kind === "reject" ? unknownToken.respond(c) : undefined;
+        if (rejected) return rejected;
         if (user) {
           c.set("authUser", user);
           c.set("authToken", token);

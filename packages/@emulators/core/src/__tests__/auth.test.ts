@@ -51,6 +51,51 @@ describe("authMiddleware", () => {
     expect(tokenMap.has("unknown-secret")).toBe(false);
   });
 
+  it("lets a plugin reject unknown bearer tokens while keeping known ones and other schemes", async () => {
+    tokenMap.set("test-token", { login: "testuser", id: 1, scopes: ["repo"] });
+    const app = new Hono<AppEnv>();
+    app.use(
+      "*",
+      authMiddleware(tokenMap, undefined, {
+        kind: "reject",
+        respond: (c) => (c.req.path === "/open" ? undefined : c.json({ message: "Bad credentials" }, 401)),
+      }),
+    );
+    app.get("/test", (c) => c.json({ user: c.get("authUser")?.login ?? null }));
+    app.get("/open", (c) => c.json({ user: c.get("authUser")?.login ?? null }));
+    const get = (path: string, authorization: string) =>
+      app.request(path, { headers: { Authorization: authorization } });
+
+    expect((await get("/test", "Bearer unknown")).status).toBe(401);
+    expect((await get("/test", "token ")).status).toBe(401);
+    expect(await (await get("/test", "Bearer test-token")).json()).toEqual({ user: "testuser" });
+    expect(await (await get("/test", "Basic Zm9vOmJhcg==")).json()).toEqual({ user: null });
+    expect(await (await get("/open", "Bearer unknown")).json()).toEqual({ user: null });
+  });
+
+  it("lets a plugin read a token from Basic credentials and reject it like a bearer token", async () => {
+    tokenMap.set("test-token", { login: "testuser", id: 1, scopes: ["repo"] });
+    const app = new Hono<AppEnv>();
+    app.use(
+      "*",
+      authMiddleware(tokenMap, undefined, {
+        kind: "reject",
+        respond: (c) => c.json({ message: "Bad credentials" }, 401),
+        basicToken: (_username, password, isKnown) =>
+          isKnown(password) || password.startsWith("tok_") ? password : undefined,
+      }),
+    );
+    app.get("/test", (c) => c.json({ user: c.get("authUser")?.login ?? null }));
+    const basic = (credentials: string) => `Basic ${Buffer.from(credentials).toString("base64")}`;
+    const get = (authorization: string) => app.request("/test", { headers: { Authorization: authorization } });
+
+    expect(await (await get(basic("someone:test-token"))).json()).toEqual({ user: "testuser" });
+    expect((await get(basic("someone:tok_unknown"))).status).toBe(401);
+    expect(await (await get(basic("someone:a-password"))).json()).toEqual({ user: null });
+    expect((await get("Basic !!!")).status).toBe(401);
+    expect((await get("Basic")).status).toBe(401);
+  });
+
   it("does not set authUser when there is no Authorization header", async () => {
     tokenMap.set("test-token", { login: "testuser", id: 1, scopes: ["repo"] });
 

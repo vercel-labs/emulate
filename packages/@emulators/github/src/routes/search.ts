@@ -11,8 +11,15 @@ import type {
   GitHubRepo,
   GitHubUser,
 } from "../entities.js";
-import { formatIssue, formatOrgBrief, formatPullRequest, formatRepo, formatUser, lookupRepo } from "../helpers.js";
-import { canAccessRepo, canReadRepoContents } from "../route-helpers.js";
+import {
+  formatIssueOrPullRequest,
+  formatOrgAccount,
+  formatRepo,
+  formatUser,
+  issueCommentCount,
+  lookupRepo,
+} from "../helpers.js";
+import { canAccessRepo, canReadRepoContents, formatRepoForCaller } from "../route-helpers.js";
 import {
   commitIdentityMatches,
   encodeContentPath,
@@ -147,6 +154,148 @@ export function parseSearchQuery(q: string): ParsedSearchQuery {
     negations,
     ranges,
   };
+}
+
+type SearchToken = { kind: "(" | ")" } | { kind: "word"; value: string; quoted: boolean };
+
+/** A query in GitHub's advanced issue search syntax: terms joined by AND, OR, NOT, and parentheses. */
+type SearchExpression =
+  | { kind: "term"; parsed: ParsedSearchQuery; qualifier: boolean }
+  | { kind: "and" | "or"; children: SearchExpression[] }
+  | { kind: "not"; child: SearchExpression };
+
+export class SearchSyntaxError extends Error {
+  constructor() {
+    super("The search query contains invalid syntax.");
+  }
+}
+
+function tokenizeAdvancedQuery(q: string): SearchToken[] {
+  const tokens: SearchToken[] = [];
+  let buf = "";
+  let quoted = false;
+  let inWord = false;
+  const flush = () => {
+    if (inWord) tokens.push({ kind: "word", value: buf, quoted });
+    buf = "";
+    quoted = false;
+    inWord = false;
+  };
+  for (let i = 0; i < q.length; i++) {
+    const c = q[i]!;
+    if (c === '"') {
+      const end = q.indexOf('"', i + 1);
+      const stop = end === -1 ? q.length : end;
+      quoted = !inWord;
+      inWord = true;
+      buf += q.slice(i + 1, stop);
+      i = stop;
+    } else if (/\s/.test(c)) {
+      flush();
+    } else if (c === "(" || c === ")") {
+      flush();
+      tokens.push({ kind: c });
+    } else {
+      quoted = false;
+      inWord = true;
+      buf += c;
+    }
+  }
+  flush();
+  return tokens;
+}
+
+/** Parses GitHub's advanced issue search syntax. Bare OR binds looser than the implicit AND between terms. */
+function parseAdvancedSearchQuery(q: string): SearchExpression {
+  const tokens = tokenizeAdvancedQuery(q);
+  let i = 0;
+  const isOperator = (token: SearchToken | undefined, op: string) =>
+    token?.kind === "word" && !token.quoted && token.value === op;
+
+  const parseOr = (): SearchExpression => {
+    const children = [parseAnd()];
+    while (isOperator(tokens[i], "OR")) {
+      i++;
+      children.push(parseAnd());
+    }
+    return children.length === 1 ? children[0]! : { kind: "or", children };
+  };
+  const parseAnd = (): SearchExpression => {
+    const children: SearchExpression[] = [];
+    while (i < tokens.length && tokens[i]!.kind !== ")" && !isOperator(tokens[i], "OR")) {
+      if (isOperator(tokens[i], "AND")) i++;
+      else children.push(parseUnary());
+    }
+    return children.length === 1 ? children[0]! : { kind: "and", children };
+  };
+  const parseUnary = (): SearchExpression => {
+    if (!isOperator(tokens[i], "NOT")) return parsePrimary();
+    i++;
+    const next = tokens[i];
+    if (!next || next.kind === ")" || isOperator(next, "OR")) return { kind: "and", children: [] };
+    return { kind: "not", child: parseUnary() };
+  };
+  const parsePrimary = (): SearchExpression => {
+    const token = tokens[i++]!;
+    if (token.kind === ")") throw new SearchSyntaxError();
+    if (token.kind !== "word") {
+      if (tokens[i]?.kind === ")") throw new SearchSyntaxError();
+      const inner = parseOr();
+      if (tokens[i]?.kind !== ")") throw new SearchSyntaxError();
+      i++;
+      return inner;
+    }
+    if (token.value === "-") throw new SearchSyntaxError();
+    const parsed: ParsedSearchQuery = token.quoted
+      ? { text: token.value, qualifiers: new Map(), negations: new Map(), ranges: new Map() }
+      : parseSearchQuery(token.value);
+    return { kind: "term", parsed, qualifier: parsed.text === "" };
+  };
+
+  const root = parseOr();
+  if (i < tokens.length) throw new SearchSyntaxError();
+  return root;
+}
+
+function hasQualifier(expression: SearchExpression): boolean {
+  if (expression.kind === "term") return expression.qualifier;
+  if (expression.kind === "not") return hasQualifier(expression.child);
+  return expression.children.some(hasQualifier);
+}
+
+/** GitHub applies NOT to text only: a NOT over a qualifier matches nothing. */
+function evaluateSearchExpression(
+  expression: SearchExpression,
+  matches: (parsed: ParsedSearchQuery) => boolean,
+): boolean {
+  switch (expression.kind) {
+    case "term":
+      return matches(expression.parsed);
+    case "and":
+      return expression.children.every((child) => evaluateSearchExpression(child, matches));
+    case "or":
+      return expression.children.some((child) => evaluateSearchExpression(child, matches));
+    case "not":
+      return !hasQualifier(expression.child) && !evaluateSearchExpression(expression.child, matches);
+  }
+}
+
+/**
+ * Matches issues and pull requests against `q`. The advanced syntax (GraphQL `ISSUE_ADVANCED`, REST
+ * `advanced_search=true`) groups terms; the legacy syntax treats parentheses and operators as text.
+ */
+export function issueSearchMatcher(
+  gh: GitHubStore,
+  q: string,
+  advanced: boolean,
+): (repo: GitHubRepo, issue: GitHubIssue, pr: GitHubPullRequest | null) => boolean {
+  if (!advanced) {
+    const parsed = parseSearchQuery(q);
+    return (repo, issue, pr) => issuePrMatchesFilters(gh, parsed, repo, issue, pr);
+  }
+  const expression = parseAdvancedSearchQuery(q);
+  return (repo, issue, pr) =>
+    evaluateSearchExpression(expression, (parsed) => issuePrMatchesFilters(gh, parsed, repo, issue, pr));
 }
 
 function textMatches(haystack: string, needle: string): boolean {
@@ -344,7 +493,7 @@ function resolveRepoQualifier(gh: GitHubStore, spec: string): GitHubRepo | null 
   return lookupRepo(gh, trimmed.split("/")[0]!, trimmed.split("/")[1]!) ?? null;
 }
 
-function issuePrMatchesFilters(
+export function issuePrMatchesFilters(
   gh: GitHubStore,
   parsed: ParsedSearchQuery,
   repo: GitHubRepo,
@@ -422,6 +571,18 @@ function issuePrMatchesFilters(
     }
   }
 
+  for (const value of parsed.qualifiers.get("draft") ?? []) {
+    if (!pr || pr.draft !== (value.toLowerCase() === "true")) return false;
+  }
+  for (const value of parsed.negations.get("draft") ?? []) {
+    if (pr && pr.draft === (value.toLowerCase() === "true")) return false;
+  }
+
+  for (const login of parsed.qualifiers.get("review-requested") ?? []) {
+    const uid = gh.users.findOneBy("login", login)?.id;
+    if (!pr || uid === undefined || !pr.requested_reviewer_ids.includes(uid)) return false;
+  }
+
   const authors = parsed.qualifiers.get("author") ?? [];
   for (const a of authors) {
     const u = gh.users.findOneBy("login", a);
@@ -487,7 +648,7 @@ function issuePrMatchesFilters(
 
   const commentRanges = parsed.ranges.get("comments") ?? [];
   const commentEq = parsed.qualifiers.get("comments") ?? [];
-  const n = isPr && pr ? pr.comments : (issue?.comments ?? 0);
+  const n = issue ? issueCommentCount(gh, issue.repo_id, issue.number) : 0;
   if (!matchesNumericPredicate(n, commentRanges, commentEq)) return false;
   for (const nv of parsed.negations.get("comments") ?? []) {
     const r = parseRangeToken(nv);
@@ -646,6 +807,12 @@ function loginMatchesCommitAuthor(
   return commitIdentityMatches(gh, email, login);
 }
 
+/** Search hits leave out `closed_by`, as GitHub's do. */
+function formatSearchIssue(issue: GitHubIssue, gh: GitHubStore, baseUrl: string) {
+  const { closed_by: _closedBy, ...item } = formatIssueOrPullRequest(issue, gh, baseUrl)!;
+  return item;
+}
+
 export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
@@ -683,7 +850,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.json({
       total_count: total,
       incomplete_results: false,
-      items: slice.map((r) => formatRepo(r, gh, baseUrl)),
+      items: slice.map((r) => formatRepoForCaller(gh, r, baseUrl, authUser)),
     });
   });
 
@@ -693,12 +860,21 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       throw new ApiError(422, "Validation Failed");
     }
     const parsed = parseSearchQuery(q);
+    let matches: ReturnType<typeof issueSearchMatcher>;
+    try {
+      matches = issueSearchMatcher(gh, q, c.req.query("advanced_search") === "true");
+    } catch (error) {
+      if (!(error instanceof SearchSyntaxError)) throw error;
+      throw new ApiError(422, "Validation Failed", [
+        { message: error.message, resource: "Search", field: "q", code: "invalid" },
+      ]);
+    }
     const { page, per_page } = parsePagination(c);
     const sortRaw = (c.req.query("sort") ?? "best-match").toLowerCase();
     const order = (c.req.query("order") ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
 
     const authUser = c.get("authUser");
-    type Hit = { kind: "issue"; issue: GitHubIssue } | { kind: "pr"; pr: GitHubPullRequest };
+    type Hit = { kind: "issue"; issue: GitHubIssue } | { kind: "pr"; issue: GitHubIssue; pr: GitHubPullRequest };
     const hits: Hit[] = [];
 
     for (const issue of gh.issues.all()) {
@@ -708,10 +884,10 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       if (issue.is_pull_request) {
         const pr = gh.pullRequests.findBy("repo_id", issue.repo_id).find((p) => p.number === issue.number);
         if (!pr) continue;
-        if (!issuePrMatchesFilters(gh, parsed, repo, issue, pr)) continue;
-        hits.push({ kind: "pr", pr });
+        if (!matches(repo, issue, pr)) continue;
+        hits.push({ kind: "pr", issue, pr });
       } else {
-        if (!issuePrMatchesFilters(gh, parsed, repo, issue, null)) continue;
+        if (!matches(repo, issue, null)) continue;
         hits.push({ kind: "issue", issue });
       }
     }
@@ -744,8 +920,8 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
       });
     } else if (sortRaw === "comments") {
       sorted.sort((a, b) => {
-        const ca = a.kind === "issue" ? a.issue.comments : a.pr.comments;
-        const cb = b.kind === "issue" ? b.issue.comments : b.pr.comments;
+        const ca = issueCommentCount(gh, a.issue.repo_id, a.issue.number);
+        const cb = issueCommentCount(gh, b.issue.repo_id, b.issue.number);
         return order === "desc" ? cb - ca : ca - cb;
       });
     } else {
@@ -757,16 +933,14 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     setLinkHeader(c, total, page, per_page);
 
     const items = slice.map((h) => {
-      if (h.kind === "issue") {
-        return formatIssue(h.issue, gh, baseUrl);
-      }
-      return formatPullRequest(h.pr, gh, baseUrl);
+      const score = Math.max(1, relevance(h));
+      return { ...formatSearchIssue(h.issue, gh, baseUrl), score };
     });
 
     return c.json({
       total_count: total,
       incomplete_results: false,
-      items: items.filter(Boolean),
+      items,
     });
   });
 
@@ -840,7 +1014,7 @@ export function searchRoutes({ app, store, baseUrl }: RouteContext): void {
     const slice = list.slice((page - 1) * per_page, (page - 1) * per_page + per_page);
     setLinkHeader(c, total, page, per_page);
 
-    const items = slice.map((h) => (h.kind === "user" ? formatUser(h.u, baseUrl) : formatOrgBrief(h.o, baseUrl)));
+    const items = slice.map((h) => (h.kind === "user" ? formatUser(h.u, baseUrl) : formatOrgAccount(h.o, baseUrl)));
 
     return c.json({
       total_count: total,

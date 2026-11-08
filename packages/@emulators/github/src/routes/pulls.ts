@@ -1,10 +1,16 @@
 import type { AuthUser, RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
+import { parseOptionalJsonBody } from "../request-body.js";
 import {
   assertAuthenticatedActor,
   assertRepoPermission,
+  assertRepoParticipant,
+  assertRepoRole,
   assertRepoWrite,
+  isAuthorOrHasRole,
+  hasRepoAdmin,
+  hasRepoContentsWrite,
   notFoundResponse,
   ownerLoginOf,
 } from "../route-helpers.js";
@@ -25,7 +31,9 @@ import {
   generateNodeId,
   generateSha,
   getNextIssueNumber,
+  issueCommentCount,
   lookupRepo,
+  reviewCommentCount,
   timestamp,
 } from "../helpers.js";
 import { findOrCreateCommit } from "../git-helpers.js";
@@ -236,6 +244,7 @@ function matchesHeadFilter(gh: GitHubStore, pr: GitHubPullRequest, headParam: st
 }
 
 function sortPulls(
+  gh: GitHubStore,
   list: GitHubPullRequest[],
   sort: "created" | "updated" | "popularity" | "long-running",
   direction: "asc" | "desc",
@@ -253,8 +262,8 @@ function sortPulls(
     if (sort === "created") {
       return a.created_at.localeCompare(b.created_at) * mul;
     }
-    const av = a.comments + a.review_comments;
-    const bv = b.comments + b.review_comments;
+    const av = issueCommentCount(gh, a.repo_id, a.number) + reviewCommentCount(gh, a.repo_id, a.number);
+    const bv = issueCommentCount(gh, b.repo_id, b.number) + reviewCommentCount(gh, b.repo_id, b.number);
     if (av < bv) return -1 * mul;
     if (av > bv) return 1 * mul;
     return 0;
@@ -262,7 +271,13 @@ function sortPulls(
   return sorted;
 }
 
-function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
+/** GitHub ignores approvals and change requests from reviewers without write access. */
+export function reviewCounts(gh: GitHubStore, repo: GitHubRepo, userId: number): boolean {
+  const user = gh.users.get(userId);
+  return user !== undefined && (hasRepoAdmin(gh, user, repo) || hasRepoContentsWrite(gh, user, repo));
+}
+
+export function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
   const baseRepo = gh.repos.get(pr.base_repo_id);
   if (!baseRepo) throw new ApiError(422, "Base repository not found");
 
@@ -286,7 +301,7 @@ function checkMergeRequirements(gh: GitHubStore, pr: GitHubPullRequest) {
     const need = rev.required_approving_review_count;
     const approved = gh.reviews
       .findBy("repo_id", baseRepo.id)
-      .filter((r) => r.pull_number === pr.number && r.state === "APPROVED");
+      .filter((r) => r.pull_number === pr.number && r.state === "APPROVED" && reviewCounts(gh, baseRepo, r.user_id));
     const approvers = new Set(approved.map((r) => r.user_id));
     if (approvers.size < need) {
       throw new ApiError(422, "Required approving review count not met.");
@@ -305,6 +320,20 @@ function lookupUserByLogin(gh: GitHubStore, login: string): GitHubUser {
   const u = gh.users.findOneBy("login", login);
   if (!u) throw new ApiError(422, "Validation failed");
   return u;
+}
+
+export function resolveRequestedReviewers(
+  gh: GitHubStore,
+  repo: GitHubRepo,
+  logins: string[],
+  teamSlugs: string[],
+): { userIds: number[]; teamIds: number[] } {
+  const userIds = logins.map((login) => lookupUserByLogin(gh, login).id);
+  if (teamSlugs.length === 0) return { userIds, teamIds: [] };
+  if (repo.owner_type !== "Organization") {
+    throw new ApiError(422, "Team reviewers are only supported for organization repositories.");
+  }
+  return { userIds, teamIds: teamSlugs.map((slug) => lookupTeamSlug(gh, repo.owner_id, slug).id) };
 }
 
 function lookupTeamSlug(gh: GitHubStore, orgId: number, slug: string) {
@@ -348,7 +377,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       list = list.filter((p) => matchesHeadFilter(gh, p, headQ));
     }
 
-    list = sortPulls(list, sort, direction);
+    list = sortPulls(gh, list, sort, direction);
 
     const { page, per_page } = parsePagination(c);
     const total = list.length;
@@ -367,7 +396,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoParticipant(gh, c.get("authUser"), repo, "pull_requests");
     const body = await parseJsonBody(c);
 
     const title = body.title;
@@ -383,7 +412,9 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const baseRef = baseRaw.trim();
 
     if (headRef === baseRef && headRepo.id === repo.id) {
-      throw new ApiError(422, "Validation failed");
+      throw new ApiError(422, "Validation failed", [
+        { resource: "PullRequest", code: "custom", message: `No commits between ${baseRef} and ${headRef}` },
+      ]);
     }
 
     const prBody = typeof body.body === "string" || body.body === null ? (body.body as string | null) : null;
@@ -412,7 +443,6 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       assignee_ids: [],
       label_ids: [],
       milestone_id: null,
-      comments: 0,
       closed_at: null,
       closed_by_id: null,
       is_pull_request: true,
@@ -429,6 +459,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       body: prBody,
       state: "open",
       locked: false,
+      active_lock_reason: null,
       user_id: actor.id,
       assignee_ids: [],
       label_ids: [],
@@ -445,8 +476,6 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       merge_commit_sha: null,
       mergeable: true,
       mergeable_state: "clean",
-      comments: 0,
-      review_comments: 0,
       commits: Math.max(1, commitCount),
       additions: 0,
       deletions: 0,
@@ -481,7 +510,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     return c.json(prFmt, 201);
   });
 
-  app.get("/repos/:owner/:repo/pulls/:pull_number", (c) => {
+  app.get("/repos/:owner/:repo/pulls/:pull_number{[0-9]+}", (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;
     const repo = lookupRepo(gh, owner, repoName);
@@ -505,14 +534,18 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const authUser = c.get("authUser");
+    const actor = assertRepoParticipant(gh, authUser, repo, "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
+    const editsContent = ["title", "body", "base", "draft"].some((key) => key in body);
+    const role = editsContent ? "write" : "triage";
+    if (!isAuthorOrHasRole(gh, authUser, repo, pr.user_id, role, "pull_requests")) throw notFoundResponse();
     const patch: Partial<GitHubPullRequest> = {};
     const issuePatch: Partial<GitHubIssue> = {};
 
@@ -630,7 +663,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       throw new ApiError(422, "Draft pull requests cannot be merged.");
     }
 
-    const body = await parseJsonBody(c);
+    const body = await parseOptionalJsonBody(c);
     if (typeof body.sha === "string" && body.sha !== pr.head_sha) {
       throw new ApiError(422, "Head sha is out of date");
     }
@@ -807,14 +840,14 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    const actor = assertRepoRole(gh, c.get("authUser"), repo, "triage", "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
     const pr = findPull(gh, repo.id, pullNumber);
     if (!pr) throw notFoundResponse();
 
-    const body = (await parseJsonBody(c)) as {
+    const body = (await parseOptionalJsonBody(c)) as {
       reviewers?: unknown;
       team_reviewers?: unknown;
     };
@@ -826,14 +859,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       ? body.team_reviewers.filter((x): x is string => typeof x === "string")
       : [];
 
-    const newUserIds = reviewerLogins.map((login) => lookupUserByLogin(gh, login).id);
-    let newTeamIds: number[] = [];
-    if (teamSlugs.length > 0) {
-      if (repo.owner_type !== "Organization") {
-        throw new ApiError(422, "Team reviewers are only supported for organization repositories.");
-      }
-      newTeamIds = teamSlugs.map((slug) => lookupTeamSlug(gh, repo.owner_id, slug).id);
-    }
+    const { userIds: newUserIds, teamIds: newTeamIds } = resolveRequestedReviewers(gh, repo, reviewerLogins, teamSlugs);
 
     const requested_reviewer_ids = [...new Set([...pr.requested_reviewer_ids, ...newUserIds])];
     const requested_team_ids = [...new Set([...pr.requested_team_ids, ...newTeamIds])];
@@ -865,7 +891,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
     const repo = lookupRepo(gh, owner, repoName);
     if (!repo) throw notFoundResponse();
 
-    assertRepoWrite(gh, c.get("authUser"), repo, "pull_requests");
+    assertRepoRole(gh, c.get("authUser"), repo, "triage", "pull_requests");
     const pullNumber = parseInt(c.req.param("pull_number")!, 10);
     if (!Number.isFinite(pullNumber)) throw notFoundResponse();
 
@@ -914,7 +940,7 @@ export function pullsRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       throw new ApiError(422, "Cannot update a closed pull request");
     }
 
-    const body = (await parseJsonBody(c)) as { expected_head_sha?: unknown };
+    const body = (await parseOptionalJsonBody(c)) as { expected_head_sha?: unknown };
     if (typeof body.expected_head_sha === "string" && body.expected_head_sha !== pr.head_sha) {
       throw new ApiError(422, "Head sha is out of date");
     }

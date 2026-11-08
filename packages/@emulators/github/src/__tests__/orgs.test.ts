@@ -82,9 +82,10 @@ describe("GitHub organization seed memberships", () => {
     const teamMembers = gh.teamMembers.findBy("team_id", membersTeam.id);
     expect(membersTeam.slug).toBe("members");
     expect(membersTeam.name).toBe("Members");
-    expect(membersTeam.members_count).toBe(2);
     expect(teamMembers).toHaveLength(2);
     expect(teamMembers.map((member) => member.role)).toEqual(["maintainer", "member"]);
+    const team = await app.request(`${base}/orgs/acme/teams/members`, { headers: authHeaders("member-token") });
+    expect(((await team.json()) as { members_count: number }).members_count).toBe(2);
   });
 
   it("derives organization listings and private repository access from seeded memberships", async () => {
@@ -130,6 +131,5 @@ describe("GitHub organization seed memberships", () => {
     const org = gh.orgs.findOneBy("login", "acme")!;
     const membersTeam = gh.teams.findBy("org_id", org.id).find((team) => team.slug === "members")!;
     expect(gh.teamMembers.findBy("team_id", membersTeam.id)).toHaveLength(2);
-    expect(gh.teams.get(membersTeam.id)!.members_count).toBe(2);
   });
 });

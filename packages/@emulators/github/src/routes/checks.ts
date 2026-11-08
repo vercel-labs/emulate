@@ -453,9 +453,10 @@ export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): v
           ? ""
           : String(body.external_id);
 
+    // GitHub stamps started_at at creation when the caller omits it.
     const started_at =
       body.started_at === undefined
-        ? null
+        ? timestamp()
         : body.started_at === null
           ? null
           : typeof body.started_at === "string"
