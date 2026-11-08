@@ -176,14 +176,29 @@ Items on a finalized invoice answer 400 `invoice_not_editable`. Changing the lin
 Charges are created by confirming a payment intent. They carry `outcome` (`authorized`, or `issuer_declined` with the decline code in `reason`), `failure_code`, `failure_message`, `paid`, `billing_details` copied from the payment method, and `payment_method_details.card` (brand, last4, checks, `network`, `three_d_secure` when the customer authenticated).
 
 ### Products
-- `POST /v1/products` — create product
-- `GET /v1/products/:id` — retrieve product
-- `GET /v1/products` — list products
+- `POST /v1/products`: create a product. Accepts `name` (required), `description`, `active`, `metadata`, `images`, `shippable`, `statement_descriptor`, `unit_label` and `url`
+- `GET /v1/products/:id`: retrieve a product
+- `GET /v1/products`: list products, filtered by `active`
+
+Products have the full shape of the API reference. `default_price`, `package_dimensions` and `tax_code` are `null` and `marketing_features` is empty. `expand[]=product` on a price returns the same object as `GET /v1/products/:id`.
 
 ### Prices
-- `POST /v1/prices` — create price
-- `GET /v1/prices/:id` — retrieve price
-- `GET /v1/prices` — list prices
+- `POST /v1/prices`: create a price for `product`, or for a new product from `product_data` (`product.created` is sent first). Accepts `currency` (required), `unit_amount` or `unit_amount_decimal`, `recurring` (`interval`, `interval_count`, `usage_type`), `billing_scheme`, `tiers`, `tiers_mode`, `transform_quantity`, `lookup_key` with `transfer_lookup_key`, `nickname`, `tax_behavior`, `active` and `metadata`
+- `GET /v1/prices/:id`: retrieve a price
+- `GET /v1/prices`: list prices, filtered by `active`, `currency`, `product`, `type`, `lookup_keys[]` (up to 10) and `recurring[interval]`, `recurring[usage_type]` or `recurring[meter]`
+
+| Price | Rules |
+|-------|-------|
+| Recurring | `recurring[interval]` is `day`, `week`, `month` or `year`, otherwise 400 with param `recurring[interval]`. `interval_count` defaults to 1 and may span at most three years (3 years, 36 months, 156 weeks or 1095 days). `type` is `recurring`; without `recurring` it is `one_time` and `recurring` is `null` |
+| Metered | `recurring[usage_type]=metered` needs `recurring[meter]`. Billing meters are not modelled yet, so every metered price is rejected with 400: `parameter_missing` without a meter, `resource_missing` with one |
+| Per unit | `unit_amount` (integer) or `unit_amount_decimal` (up to 12 decimal places), not both. `unit_amount` is `null` when the decimal has a fractional part |
+| Tiered | `billing_scheme=tiered` needs `tiers` and `tiers_mode` (`graduated` or `volume`). Each tier has `up_to` and at least one of `unit_amount`/`unit_amount_decimal` and `flat_amount`/`flat_amount_decimal`. `up_to` values must increase and only the last tier, which must be `inf`, may be unbounded. `unit_amount`, `unit_amount_decimal` and `transform_quantity` are not allowed alongside. `unit_amount` and `unit_amount_decimal` are `null` |
+| Package | `transform_quantity` `{divide_by, round}` divides the quantity and rounds `up` or `down` before multiplying by the unit amount |
+| Lookup key | Up to 200 characters and unique across all prices. Reusing one answers 400 `lookup_key_already_used` unless `transfer_lookup_key=true`, which moves it and sends `price.updated` for the old price |
+
+`tiers` and `currency_options` are includable. `expand[]=tiers` shows the tiers with the final `inf` tier as `up_to: null`, and `null` for a per-unit price. `expand[]=currency_options` holds only the price's own currency. `recurring.trial_period_days` (legacy) is always `null`, and `tax_behavior` defaults to `unspecified`.
+
+Amounts follow Stripe's tiered pricing rules: graduated tiers charge each tier for the units in it plus the flat fee of every tier reached, volume tiers charge every unit at the tier the whole quantity falls in, and a quantity of 0 still bills the first tier's flat fee.
 
 ### Checkout Sessions
 - `POST /v1/checkout/sessions` — create checkout session
@@ -219,7 +234,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
 
 ## Webhook delivery model and chaos
 
@@ -266,9 +281,22 @@ stripe:
     - product: Pro Plan
       unit_amount: 2000
       currency: usd
+      lookup_key: pro_monthly
       recurring:
         interval: month
+    - product: Pro Plan
+      currency: usd
+      recurring:
+        interval: month
+      tiers_mode: graduated
+      tiers:
+        - up_to: 1000
+          unit_amount: 0
+        - up_to: inf
+          unit_amount: 2
 ```
+
+A price's `product` names a seeded product by name or id; the older `product_name` key still works. Seeded prices take the same params as `POST /v1/prices` and are validated the same way, so an invalid one stops the seed with an error. `tiers` without `billing_scheme` makes a tiered price, and a seeded `lookup_key` moves from any price that already holds it.
 
 ## Differences from real Stripe
 
@@ -300,6 +328,11 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - `/pay` ignores `forgive`, `mandate` and `source`: card payments either cover the whole amount or fail. A customer with no payment method gets a 400 and the attempt is not counted.
 - InvoicePayments are only of type `payment_intent`, and there is no attach-payment or detach-payment API.
 - Error messages for invoice state changes (finalizing twice, voiding a paid invoice, deleting a finalized one) are the emulator's wording.
+- A per-unit price may be created without `unit_amount`, `unit_amount_decimal` or `custom_unit_amount` and then charges 0. Real Stripe requires one of them.
+- Prices have no update, search or delete API yet. `custom_unit_amount` is always `null`, `currency_options` holds only the price's own currency, and the `currency_options` and `custom_unit_amount` params are ignored. Currencies are checked only for being three letters.
+- Metered prices are rejected until billing meters exist. Validation messages for prices and tiers are the emulator's wording.
+- `GET /v1/prices` without `active` lists inactive prices too.
+- Products have no update or delete API yet, so `updated` equals `created`. `default_price_data`, `marketing_features`, `package_dimensions` and `tax_code` are not modelled.
 
 ## Links
 

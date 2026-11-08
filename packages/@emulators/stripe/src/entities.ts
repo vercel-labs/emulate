@@ -59,16 +59,57 @@ export interface StripeProduct extends Entity {
   description: string | null;
   active: boolean;
   metadata: Record<string, string>;
+  images?: string[];
+  shippable?: boolean;
+  statement_descriptor?: string;
+  unit_label?: string;
+  url?: string;
+}
+
+export type PriceInterval = "day" | "week" | "month" | "year";
+
+export interface StripePriceRecurring {
+  interval: PriceInterval;
+  interval_count: number;
+  usage_type: "licensed" | "metered";
+  meter?: string;
+}
+
+/**
+ * One pricing tier. Amounts are kept as decimal strings, the integer fields are derived from
+ * them. A tier without `up_to` is the final `inf` tier.
+ */
+export interface StripePriceTier {
+  up_to?: number;
+  unit_amount_decimal?: string;
+  flat_amount_decimal?: string;
+}
+
+export interface StripePriceTransformQuantity {
+  divide_by: number;
+  round: "up" | "down";
 }
 
 export interface StripePrice extends Entity {
   stripe_id: string;
   product_id: string;
   currency: string;
+  /** Set when the unit amount is a whole number. Tiered prices and fractional amounts leave it null. */
   unit_amount: number | null;
   type: "one_time" | "recurring";
   active: boolean;
   metadata: Record<string, string>;
+  /** Defaults to `per_unit`. */
+  billing_scheme?: "per_unit" | "tiered";
+  /** Defaults to String(unit_amount) when unit_amount is set. */
+  unit_amount_decimal?: string;
+  recurring?: StripePriceRecurring;
+  tiers?: StripePriceTier[];
+  tiers_mode?: "graduated" | "volume";
+  transform_quantity?: StripePriceTransformQuantity;
+  lookup_key?: string;
+  nickname?: string;
+  tax_behavior?: "exclusive" | "inclusive" | "unspecified";
 }
 
 export type PaymentIntentStatus =

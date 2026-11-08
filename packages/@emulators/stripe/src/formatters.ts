@@ -1,5 +1,6 @@
 import { derivedInvoicePrefix, toUnixTimestamp, type ExpandResolver } from "./helpers.js";
 import { testCardByNumber } from "./test-cards.js";
+import { unitAmountDecimal, wholeAmount } from "./pricing.js";
 import type { StripeStore } from "./store.js";
 import type {
   StripeBillingDetails,
@@ -348,31 +349,97 @@ export function formatCharge(ch: StripeCharge) {
   };
 }
 
+/**
+ * The Product object in the key order of the API reference, shared by the products API and
+ * every `expand[]=product`. Default prices, marketing features, package dimensions and tax
+ * codes are not modelled.
+ */
 export function formatProduct(p: StripeProduct) {
   return {
     id: p.stripe_id,
     object: "product" as const,
-    name: p.name,
-    description: p.description,
     active: p.active,
-    metadata: p.metadata,
     created: toUnixTimestamp(p.created_at),
+    default_price: null,
+    description: p.description,
+    images: [...(p.images ?? [])],
+    marketing_features: [] as unknown[],
     livemode: false,
+    metadata: p.metadata,
+    name: p.name,
+    package_dimensions: null,
+    shippable: p.shippable ?? null,
+    statement_descriptor: p.statement_descriptor ?? null,
+    tax_code: null,
+    unit_label: p.unit_label ?? null,
+    updated: toUnixTimestamp(p.updated_at),
+    url: p.url ?? null,
   };
 }
 
+/**
+ * The Price object in the key order of the API reference. `tiers` and `currency_options` are
+ * includable and added by the expand resolver. `recurring.trial_period_days` is legacy and
+ * always null.
+ */
 export function formatPrice(p: StripePrice) {
+  const tiered = p.billing_scheme === "tiered";
   return {
     id: p.stripe_id,
     object: "price" as const,
-    product: p.product_id,
-    currency: p.currency,
-    unit_amount: p.unit_amount,
-    type: p.type,
     active: p.active,
-    metadata: p.metadata,
+    billing_scheme: p.billing_scheme ?? "per_unit",
     created: toUnixTimestamp(p.created_at),
+    currency: p.currency,
+    custom_unit_amount: null,
     livemode: false,
+    lookup_key: p.lookup_key ?? null,
+    metadata: p.metadata,
+    nickname: p.nickname ?? null,
+    product: p.product_id,
+    recurring: p.recurring
+      ? {
+          interval: p.recurring.interval,
+          interval_count: p.recurring.interval_count,
+          meter: p.recurring.meter ?? null,
+          trial_period_days: null,
+          usage_type: p.recurring.usage_type,
+        }
+      : null,
+    tax_behavior: p.tax_behavior ?? "unspecified",
+    tiers_mode: tiered ? (p.tiers_mode ?? null) : null,
+    transform_quantity: p.transform_quantity ? { ...p.transform_quantity } : null,
+    type: p.type,
+    unit_amount: tiered ? null : p.unit_amount,
+    unit_amount_decimal: unitAmountDecimal(p) ?? null,
+  };
+}
+
+/** The `tiers` of a tiered price, with the final `inf` tier rendered as `up_to: null`. */
+export function formatPriceTiers(p: StripePrice) {
+  if (p.billing_scheme !== "tiered") return null;
+  return (p.tiers ?? []).map((tier) => ({
+    flat_amount: wholeAmount(tier.flat_amount_decimal),
+    flat_amount_decimal: tier.flat_amount_decimal ?? null,
+    unit_amount: wholeAmount(tier.unit_amount_decimal),
+    unit_amount_decimal: tier.unit_amount_decimal ?? null,
+    up_to: tier.up_to ?? null,
+  }));
+}
+
+/**
+ * `currency_options` of a price. Extra currencies are not modelled, so the map holds only the
+ * price's own currency.
+ */
+export function formatPriceCurrencyOptions(p: StripePrice) {
+  const formatted = formatPrice(p);
+  return {
+    [p.currency]: {
+      custom_unit_amount: null,
+      tax_behavior: formatted.tax_behavior,
+      unit_amount: formatted.unit_amount,
+      unit_amount_decimal: formatted.unit_amount_decimal,
+    },
   };
 }
 
@@ -747,7 +814,19 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
 
   const storedInvoice = (parent: Record<string, unknown>) => ss.invoices.findOneBy("stripe_id", String(parent.id));
 
+  const storedPrice = (parent: Record<string, unknown>) => ss.prices.findOneBy("stripe_id", String(parent.id));
+
   const includable: Record<string, Record<string, (parent: Record<string, unknown>) => unknown>> = {
+    price: {
+      tiers: (parent) => {
+        const price = storedPrice(parent);
+        return price ? formatPriceTiers(price) : undefined;
+      },
+      currency_options: (parent) => {
+        const price = storedPrice(parent);
+        return price ? formatPriceCurrencyOptions(price) : undefined;
+      },
+    },
     charge: {
       refunds: (parent) => emptyList(`/v1/charges/${String(parent.id)}/refunds`),
     },

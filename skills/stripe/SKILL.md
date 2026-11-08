@@ -156,9 +156,26 @@ stripe:
       description: A comfortable tee
   prices:
     - id: price_tshirt
-      product_name: T-Shirt
+      product: T-Shirt          # product name or id
       currency: usd
       unit_amount: 2500
+    - id: price_tshirt_club
+      product: prod_tshirt
+      currency: usd
+      unit_amount: 900
+      lookup_key: tshirt_club_monthly
+      recurring:
+        interval: month       # day, week, month or year
+    - product: T-Shirt
+      currency: usd
+      recurring:
+        interval: month
+      tiers_mode: graduated   # tiers without billing_scheme make a tiered price
+      tiers:
+        - up_to: 1000
+          unit_amount: 0
+        - up_to: inf
+          unit_amount: 2
   webhooks:
     - url: http://localhost:3000/api/webhooks/stripe
       events: ['*']
@@ -168,7 +185,7 @@ stripe:
     reorder: reverse
 ```
 
-The `product_name` field in prices links to the product by name. Use `events: ['*']` to receive all webhook events, or specify individual event types. Seeded webhooks are also listed by `GET /v1/webhook_endpoints`.
+The `product` field in prices links to a seeded product by name or id (the older `product_name` key still works). Seeded prices take the same params as `POST /v1/prices` and an invalid one stops the seed with an error. Use `events: ['*']` to receive all webhook events, or specify individual event types. Seeded webhooks are also listed by `GET /v1/webhook_endpoints`.
 
 ## API Endpoints
 
@@ -255,16 +272,36 @@ curl "http://localhost:4000/v1/products?active=true"
 ### Prices
 
 ```bash
-# Create price
+# Create a one-time price
 curl -X POST http://localhost:4000/v1/prices \
   -d "product=prod_xxx" -d "currency=usd" -d "unit_amount=1000"
 
-# Retrieve price
-curl http://localhost:4000/v1/prices/price_xxx
+# A monthly price with a lookup key (transfer_lookup_key=true moves a key already in use)
+curl -X POST http://localhost:4000/v1/prices \
+  -d "product=prod_xxx" -d "currency=usd" -d "unit_amount=1000" \
+  -d "recurring[interval]=month" -d "lookup_key=pro_monthly"
 
-# List prices
+# A graduated tiered price; tiers are includable, so expand them to see them
+curl -X POST http://localhost:4000/v1/prices \
+  -d "product=prod_xxx" -d "currency=usd" -d "recurring[interval]=month" \
+  -d "billing_scheme=tiered" -d "tiers_mode=graduated" \
+  -d "tiers[0][up_to]=1000" -d "tiers[0][unit_amount]=0" \
+  -d "tiers[1][up_to]=inf" -d "tiers[1][unit_amount]=2" -d "expand[]=tiers"
+
+# Price and product in one call
+curl -X POST http://localhost:4000/v1/prices \
+  -d "currency=usd" -d "unit_amount=1000" -d "product_data[name]=Gold Plan"
+
+# Retrieve price
+curl "http://localhost:4000/v1/prices/price_xxx?expand[]=product"
+
+# List prices (active, currency, product, type, lookup_keys[], recurring[interval])
 curl "http://localhost:4000/v1/prices?active=true"
+curl "http://localhost:4000/v1/prices?lookup_keys[]=pro_monthly&lookup_keys[]=pro_yearly"
+curl "http://localhost:4000/v1/prices?type=recurring&recurring[interval]=month"
 ```
+
+Prices use the current wire shape: `billing_scheme`, `recurring` (`interval`, `interval_count`, `meter`, `trial_period_days`, `usage_type`), `lookup_key`, `nickname`, `tax_behavior` (default `unspecified`), `tiers_mode`, `transform_quantity`, `unit_amount_decimal` and `custom_unit_amount` (`null`). A bad `recurring[interval]` answers 400 with that param. Metered prices (`recurring[usage_type]=metered`) are rejected until billing meters exist.
 
 ### Checkout Sessions
 
@@ -499,6 +536,7 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `payment_method.updated` | Payment method updated |
 | `product.created` | Product created |
 | `price.created` | Price created |
+| `price.updated` | Price lost its lookup key to a new price created with `transfer_lookup_key` |
 | `payment_intent.created` | Payment intent created |
 | `payment_intent.requires_action` | Confirmation needs 3D Secure |
 | `payment_intent.succeeded` | Payment intent confirmed and charged |

@@ -9,8 +9,9 @@ import type {
   AppEnv,
   RouteContext,
 } from "@emulators/core";
-import { getStripeStore } from "./store.js";
+import { getStripeStore, type StripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
+import { readPriceParams } from "./pricing.js";
 import { customerRoutes } from "./routes/customers.js";
 import { paymentIntentRoutes } from "./routes/payment-intents.js";
 import { setupIntentRoutes } from "./routes/setup-intents.js";
@@ -34,6 +35,38 @@ export * from "./entities.js";
 export { STRIPE_API_VERSION } from "./events.js";
 export type { WebhookChaosInput, ReorderMode } from "./chaos.js";
 
+export interface StripeSeedPrice {
+  id?: string;
+  /** The product's name or id. */
+  product?: string;
+  /** The product's name. Kept for older configs; `product` takes precedence. */
+  product_name?: string;
+  currency: string;
+  unit_amount?: number;
+  unit_amount_decimal?: string;
+  active?: boolean;
+  billing_scheme?: "per_unit" | "tiered";
+  recurring?: {
+    interval: "day" | "week" | "month" | "year";
+    interval_count?: number;
+    usage_type?: "licensed" | "metered";
+    meter?: string;
+  };
+  tiers?: Array<{
+    up_to: number | "inf";
+    unit_amount?: number;
+    unit_amount_decimal?: string;
+    flat_amount?: number;
+    flat_amount_decimal?: string;
+  }>;
+  tiers_mode?: "graduated" | "volume";
+  transform_quantity?: { divide_by: number; round: "up" | "down" };
+  lookup_key?: string;
+  nickname?: string;
+  tax_behavior?: "exclusive" | "inclusive" | "unspecified";
+  metadata?: Record<string, string>;
+}
+
 export interface StripeSeedConfig {
   port?: number;
   /** API version stamped on events. Defaults to STRIPE_API_VERSION. */
@@ -49,12 +82,11 @@ export interface StripeSeedConfig {
     name: string;
     description?: string;
   }>;
-  prices?: Array<{
-    id?: string;
-    product_name: string;
-    currency: string;
-    unit_amount: number;
-  }>;
+  /**
+   * Prices take the params of `POST /v1/prices`. `product` (or the older `product_name`) names
+   * a seeded product by name or id. `tiers` without `billing_scheme` makes a tiered price.
+   */
+  prices?: Array<StripeSeedPrice>;
   /** Webhook endpoints. Each one is also listed by GET /v1/webhook_endpoints. */
   webhooks?: Array<{
     id?: string;
@@ -78,6 +110,27 @@ function stripeWebhookHeaders({ body, subscription }: WebhookHeaderContext): Rec
   }
 
   return headers;
+}
+
+/**
+ * Insert a seeded price after the same validation `POST /v1/prices` applies. A seeded
+ * lookup key takes over from any price already holding it, as with `transfer_lookup_key`.
+ */
+function seedPrice(ss: StripeStore, productId: string, pr: StripeSeedPrice): void {
+  if (pr.id && ss.prices.findOneBy("stripe_id", pr.id)) return;
+  const input: Record<string, unknown> = { ...pr };
+  if (pr.tiers && pr.billing_scheme === undefined) input.billing_scheme = "tiered";
+  const parsed = readPriceParams(input);
+  if (parsed.error) {
+    throw new Error(`Invalid stripe price for product ${productId}: ${parsed.error.message} (${parsed.error.param})`);
+  }
+  const definition = parsed.price!;
+  if (definition.lookup_key) {
+    for (const holder of ss.prices.all().filter((p) => p.lookup_key === definition.lookup_key)) {
+      ss.prices.update(holder.id, { lookup_key: undefined });
+    }
+  }
+  ss.prices.insert({ stripe_id: pr.id ?? stripeId("price"), product_id: productId, ...definition });
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -130,18 +183,12 @@ export function seedFromConfig(
         metadata: {},
       });
 
-      const matchingPrices = config.prices?.filter((pr) => pr.product_name === p.name) ?? [];
-      for (const pr of matchingPrices) {
-        ss.prices.insert({
-          stripe_id: pr.id ?? stripeId("price"),
-          product_id: product.stripe_id,
-          currency: pr.currency.toLowerCase(),
-          unit_amount: pr.unit_amount,
-          type: "one_time",
-          active: true,
-          metadata: {},
-        });
-      }
+      const matchingPrices =
+        config.prices?.filter((pr) => {
+          const ref = pr.product ?? pr.product_name;
+          return ref === p.name || ref === product.stripe_id;
+        }) ?? [];
+      for (const pr of matchingPrices) seedPrice(ss, product.stripe_id, pr);
     }
   }
 
