@@ -65,6 +65,52 @@ describe("Stripe test cards", () => {
     }
   });
 
+  it("covers the 3D Secure cards Stripe documents, by magic id, token and number", () => {
+    const required = testCardByPaymentMethod("pm_card_threeDSecure2Required");
+    expect(required).toMatchObject({
+      number: "4000000000003220",
+      tokens: ["tok_threeDSecure2Required"],
+      brand: "visa",
+      country: "IE",
+      authentication: "always",
+      charge: "succeed",
+    });
+    expect(testCardByPaymentMethod("pm_card_threeDSecureOptional")).toMatchObject({
+      number: "4000000000003055",
+      tokens: ["tok_threeDSecureOptional"],
+      authentication: "none",
+      charge: "succeed",
+    });
+    expect(testCardByPaymentMethod("pm_card_authenticationRequiredSetupForOffSession")).toMatchObject({
+      number: "4000003800000446",
+      tokens: ["tok_authenticationRequiredSetupForOffSession"],
+      authentication: "on_session",
+      charge: "succeed",
+    });
+    for (const number of ["4000000000003220", "4000000000003055", "4000003800000446"]) {
+      expect(rawNumberError(number), number).toBeUndefined();
+    }
+  });
+
+  it("creates payment methods from the 3D Secure card numbers", async () => {
+    const { app } = createTestApp();
+    for (const [number, last4] of [
+      ["4000000000003220", "3220"],
+      ["4000000000003055", "3055"],
+      ["4000003800000446", "0446"],
+    ]) {
+      const res = await form(app, "/v1/payment_methods", {
+        type: "card",
+        "card[number]": number,
+        "card[exp_month]": "12",
+        "card[exp_year]": "2031",
+        "card[cvc]": "123",
+      });
+      expect(res.status, number).toBe(200);
+      expect(res.body.card).toMatchObject({ brand: "visa", last4 });
+    }
+  });
+
   it("gives every card a stable 16 character fingerprint", () => {
     const fingerprints = new Set(TEST_CARDS.map((c) => c.fingerprint));
     expect(fingerprints.size).toBe(TEST_CARDS.length);

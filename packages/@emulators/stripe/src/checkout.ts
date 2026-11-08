@@ -42,6 +42,7 @@ export const HOSTED_CARD_CHOICES: ReadonlyArray<readonly [string, string]> = [
   ["pm_card_visa", "Visa 4242 4242 4242 4242 (succeeds)"],
   ["pm_card_mastercard", "Mastercard 5555 5555 5555 4444 (succeeds)"],
   ["pm_card_amex", "American Express 3782 822463 10005 (succeeds)"],
+  ["pm_card_threeDSecure2Required", "Visa 4000 0000 0000 3220 (3D Secure 2 required)"],
   ["pm_card_authenticationRequired", "Visa 4000 0027 6000 3184 (3D Secure on every payment)"],
   ["pm_card_authenticationRequiredOnSetup", "Visa 4000 0025 0000 3155 (3D Secure when saved)"],
   ["pm_card_chargeCustomerFail", "Visa 4000 0000 0000 0341 (saves, later charges decline)"],

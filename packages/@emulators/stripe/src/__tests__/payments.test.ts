@@ -123,6 +123,55 @@ describe("PaymentIntent object", () => {
   });
 });
 
+describe("the 3D Secure test cards", () => {
+  async function confirm(ctx: TestApp, card: string, offSession: boolean) {
+    const { customerId, pmId } = await customerWithCard(ctx, card);
+    return api<Json>(ctx.app, "POST", "/v1/payment_intents", {
+      amount: 1000,
+      currency: "usd",
+      customer: customerId,
+      payment_method: pmId,
+      confirm: true,
+      ...(offSession && { off_session: true }),
+    });
+  }
+
+  it("asks 3220 for authentication on every charge and succeeds once it is done", async () => {
+    const ctx = createTestApp();
+    const onSession = await confirm(ctx, "pm_card_threeDSecure2Required", false);
+    expect(onSession.body).toMatchObject({ status: "requires_action", next_action: { type: "use_stripe_sdk" } });
+    const done = await api<Json>(
+      ctx.app,
+      "POST",
+      `/_stripe/simulate/payment_intents/${onSession.body.id}/authenticate`,
+      {
+        result: "succeed",
+      },
+    );
+    expect(done.body.status).toBe("succeeded");
+
+    const offSession = await confirm(ctx, "pm_card_threeDSecure2Required", true);
+    expect(offSession.status).toBe(402);
+    expect(offSession.body.error).toMatchObject({ code: "authentication_required" });
+  });
+
+  it("charges 3055 without authentication", async () => {
+    const ctx = createTestApp();
+    expect((await confirm(ctx, "pm_card_threeDSecureOptional", false)).body.status).toBe("succeeded");
+    expect((await confirm(ctx, "pm_card_threeDSecureOptional", true)).body.status).toBe("succeeded");
+  });
+
+  it("asks 0446 for authentication on-session only, as a card already set up", async () => {
+    const ctx = createTestApp();
+    expect((await confirm(ctx, "pm_card_authenticationRequiredSetupForOffSession", false)).body.status).toBe(
+      "requires_action",
+    );
+    expect((await confirm(ctx, "pm_card_authenticationRequiredSetupForOffSession", true)).body.status).toBe(
+      "succeeded",
+    );
+  });
+});
+
 describe("confirming against test cards", () => {
   it("charges a saved visa off-session in one create call", async () => {
     const ctx = createTestApp({ webhook: true });

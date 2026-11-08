@@ -107,8 +107,9 @@ function chargeBehavior(pm: StripePaymentMethod): ChargeBehavior | undefined {
 }
 
 function needsAuthentication(card: ChargeBehavior | undefined, offSession: boolean): boolean {
-  if (!card) return false;
-  return card.authentication === "always" || (card.authentication === "on_setup" && !offSession);
+  if (!card || card.authentication === "none") return false;
+  // on_setup and on_session differ only off-session before a setup, which is not modelled.
+  return card.authentication === "always" || !offSession;
 }
 
 /** Whether charging `pm`, as simulated or as its test card, asks for 3D Secure. */

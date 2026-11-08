@@ -13,8 +13,10 @@ export type CardBrand = "visa" | "mastercard" | "amex";
 /**
  * When a card asks for 3D Secure. `always` asks on every charge. `on_setup` asks when the card
  * is set up and on on-session charges, but not on off-session charges once it has been set up.
+ * `on_session` (4000003800000446, "already set up") asks when the card is set up and on
+ * on-session charges, and never off-session, whether or not it was set up.
  */
-export type CardAuthentication = "none" | "always" | "on_setup";
+export type CardAuthentication = "none" | "always" | "on_setup" | "on_session";
 
 export interface TestCard {
   number: string;
@@ -225,6 +227,34 @@ export const TEST_CARDS: readonly TestCard[] = [
     funding: "credit",
     country: "FR",
     authentication: "on_setup",
+  }),
+  card({
+    number: "4000003800000446",
+    paymentMethods: ["pm_card_authenticationRequiredSetupForOffSession"],
+    tokens: ["tok_authenticationRequiredSetupForOffSession"],
+    brand: "visa",
+    funding: "credit",
+    country: "US",
+    authentication: "on_session",
+  }),
+  card({
+    // 3D Secure 2 required: Radar asks for authentication on every charge. Issued in Ireland.
+    number: "4000000000003220",
+    paymentMethods: ["pm_card_threeDSecure2Required"],
+    tokens: ["tok_threeDSecure2Required"],
+    brand: "visa",
+    funding: "credit",
+    country: "IE",
+    authentication: "always",
+  }),
+  card({
+    // 3D Secure supported but not required: Radar does not ask, so charges succeed without it.
+    number: "4000000000003055",
+    paymentMethods: ["pm_card_threeDSecureOptional"],
+    tokens: ["tok_threeDSecureOptional"],
+    brand: "visa",
+    funding: "credit",
+    country: "US",
   }),
   card({
     number: "4000008260003178",

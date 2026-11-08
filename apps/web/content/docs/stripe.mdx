@@ -43,6 +43,9 @@ Every `/v1` response carries a `Request-Id` header. Retrieve, create and list ca
 | `pm_card_chargeCustomerFail` (4000000000000341) | Attaches, then every charge is declined |
 | `pm_card_authenticationRequired` (3184) | Needs 3D Secure on every charge |
 | `pm_card_authenticationRequiredOnSetup` (3155) | Needs 3D Secure on setup and on-session charges |
+| `pm_card_authenticationRequiredSetupForOffSession` (0446) | Needs 3D Secure on setup and on-session charges, never off-session |
+| `pm_card_threeDSecure2Required` (3220) | Needs 3D Secure 2 on every charge |
+| `pm_card_threeDSecureOptional` (3055) | Supports 3D Secure but succeeds without it |
 | `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` (3178) | Needs 3D Secure, then is declined |
 
 Other card numbers are rejected. `POST /_stripe/simulate/payment_methods/:id` makes later charges on a saved card decline or need authentication.

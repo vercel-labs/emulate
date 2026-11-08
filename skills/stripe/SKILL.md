@@ -701,6 +701,9 @@ Test cards follow [Stripe's testing docs](https://docs.stripe.com/testing):
 | `pm_card_chargeCustomerFail` (4000000000000341) | Attaches, later charges fail |
 | `pm_card_authenticationRequired` (3184) | Needs 3D Secure on every charge |
 | `pm_card_authenticationRequiredOnSetup` (3155) | Needs 3D Secure on setup and on-session charges |
+| `pm_card_authenticationRequiredSetupForOffSession` (0446) | Needs 3D Secure on setup and on-session charges, never off-session |
+| `pm_card_threeDSecure2Required` (3220) | Needs 3D Secure 2 on every charge |
+| `pm_card_threeDSecureOptional` (3055) | Supports 3D Secure but succeeds without it |
 | `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` (3178) | Needs 3D Secure, then declines |
 | 4242424242424241 | Rejected at creation with `incorrect_number` |
 

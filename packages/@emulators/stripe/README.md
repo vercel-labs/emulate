@@ -112,6 +112,9 @@ Payment methods behave like the cards in [Stripe's testing docs](https://docs.st
 | `pm_card_authenticationRequired` | 4000002760003184 | Needs 3D Secure on every charge |
 | `pm_card_authenticationRequiredOnSetup` | 4000002500003155 | Needs 3D Secure on setup and on-session charges, not off-session after setup |
 | `pm_card_authenticationRequiredChargeDeclinedInsufficientFunds` | 4000008260003178 | Needs 3D Secure, then is declined with `insufficient_funds` |
+| `pm_card_authenticationRequiredSetupForOffSession` | 4000003800000446 | "Already set up": needs 3D Secure on setup and on-session charges, never off-session |
+| `pm_card_threeDSecure2Required` | 4000000000003220 | 3D Secure 2 required on every charge (issued in `IE`) |
+| `pm_card_threeDSecureOptional` | 4000000000003055 | 3D Secure supported but not required: succeeds without it |
 | (number only) | 4242424242424241 | Rejected at creation: `incorrect_number` |
 
 The declined cards cannot be attached to a customer, as on Stripe: attaching one returns the decline. Numbers outside the table are rejected, with `incorrect_number` when they fail the Luhn check and `test_mode_live_card` otherwise. Card errors carry `decline_code` and `doc_url` alongside `code`, `message` and `param`.
@@ -144,8 +147,8 @@ Confirming charges the card according to the [test card table](#test-cards):
 |----------------|--------------------|------------------------------------------|
 | Succeeds | `succeeded`, with a `ch_` charge in `latest_charge` | `succeeded` |
 | Declines (for example 0002, 9995, or 0341 after attaching) | 402 `card_error`, failed charge, intent back to `requires_payment_method` | Same |
-| 3D Secure always (3184) | `requires_action` with `next_action.type` `use_stripe_sdk` | 402 `authentication_required`, failed charge, intent `requires_payment_method` |
-| 3D Secure on setup (3155) | `requires_action` | `succeeded` |
+| 3D Secure always (3184, 3220) | `requires_action` with `next_action.type` `use_stripe_sdk` | 402 `authentication_required`, failed charge, intent `requires_payment_method` |
+| 3D Secure on setup or on-session (3155, 0446) | `requires_action` | `succeeded` |
 | 3D Secure, then declined (3178) | `requires_action`, then declined with `insufficient_funds` after authenticating | Declined with `insufficient_funds` |
 
 A failed attempt sets `last_payment_error` (with `code`, `decline_code`, `doc_url`, `message`, `charge` and the `payment_method` object) and clears `payment_method`. The 402 error body carries the same fields plus the `payment_intent` object. Failing 3D Secure returns the intent to `requires_payment_method` with `last_payment_error.code` `payment_intent_authentication_failure` and creates no charge. With `confirmation_method=manual`, authenticating returns the intent to `requires_confirmation` and the next confirm charges it. With `setup_future_usage` and a `customer`, a successful payment attaches the payment method to the customer. Cancel accepts `cancellation_reason` and sets `canceled_at`.
@@ -165,7 +168,7 @@ A SetupIntent saves a card for later payments without charging it. A test card i
 |----------------|---------|
 | Succeeds, or declines only when charged (0341) | `succeeded`. The card is attached to `customer` (`payment_method.attached`, then `setup_intent.succeeded`) |
 | Issuer decline (for example 0002 or 9995) | 402 `card_error` with the `setup_intent` and `payment_method` objects, intent back to `requires_payment_method` with `last_setup_error`, `setup_intent.setup_failed`. Nothing is attached |
-| 3D Secure (3184, 3155, 3178) | `requires_action` with `next_action.type` `use_stripe_sdk` and `setup_intent.requires_action`. Authenticating saves the card as above; failing returns the intent to `requires_payment_method` with `last_setup_error.code` `setup_intent_authentication_failure` and sends `setup_intent.setup_failed` |
+| 3D Secure (3184, 3220, 3155, 0446, 3178) | `requires_action` with `next_action.type` `use_stripe_sdk` and `setup_intent.requires_action`. Authenticating saves the card as above; failing returns the intent to `requires_payment_method` with `last_setup_error.code` `setup_intent_authentication_failure` and sends `setup_intent.setup_failed` |
 
 Without a `customer`, a successful setup leaves the card unattached, and it can be attached later. A card set up with 3155 is then charged off-session without asking for authentication again. Every event is `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed` or `setup_intent.canceled`; there is no `setup_intent.updated`, as on Stripe.
 
@@ -606,7 +609,7 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - Confirming a PaymentIntent with no payment method succeeds as if `pm_card_visa` were used. Real Stripe returns a 400.
 - PaymentIntents accept only cards. `payment_method_types` is always `["card"]`, `automatic_payment_methods` is always enabled, `return_url` is never required, and `payment_method_configuration_details` is `null`.
 - 3D Secure is completed through `POST /_stripe/simulate/payment_intents/:id/authenticate`. `next_action` is always `use_stripe_sdk` (never `redirect_to_url`), and its `stripe_js` points at that emulator route. Card behaviour comes only from the test card table and `POST /_stripe/simulate/payment_methods/:id`: there are no Radar rules, no exemptions and no `request_three_d_secure` handling.
-- A test card with authentication `on_setup` (3155, 3178) never asks for authentication off-session, whether or not it was set up first.
+- A test card with authentication `on_setup` (3155, 3178) never asks for authentication off-session, whether or not it was set up first, so it behaves like 0446 ("already set up"). Each card's token (`tok_threeDSecure2Required` and so on) has the same behaviour as its magic `pm_card_` id. 3055 never asks for 3D Secure, since the emulator has no Radar rules that could request it.
 - SetupIntents accept only cards. SetupAttempts and mandates are not modelled, so `latest_attempt`, `mandate` and `single_use_mandate` are always `null`, and `automatic_payment_methods` is `null` with `payment_method_types` always `["card"]`. `return_url`, `payment_method_data` and `payment_method_options` params are ignored. Confirmation always runs with the customer present, so every 3D Secure card asks for authentication at setup.
 - The messages for using a payment method that belongs to another customer are the emulator's wording.
 - Payment-mode Checkout Sessions may be created without `line_items`. Such a session has `null` amounts and `currency`, and completing it charges nothing and creates no PaymentIntent.
