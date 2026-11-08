@@ -350,6 +350,36 @@ curl -X POST http://localhost:4000/_stripe/simulate/setup_intents/seti_xxx/authe
 
 `usage` defaults to `off_session`. Issuer-decline cards such as `pm_card_chargeDeclined` return a 402 `card_error` carrying the `setup_intent`, set `last_setup_error` and send `setup_intent.setup_failed`. `pm_card_chargeCustomerFail` (0341) sets up fine and only fails when charged. `pm_card_authenticationRequired` and `pm_card_authenticationRequiredOnSetup` go to `requires_action`; once authenticated, a 3155 card is charged off-session without asking again. A failed authentication gives `last_setup_error.code` `setup_intent_authentication_failure`.
 
+### Invoices
+
+```bash
+# A draft invoice, then an invoice item on it (pricing[price] or amount + currency)
+curl -X POST http://localhost:4000/v1/invoices -d "customer=cus_xxx"
+curl -X POST http://localhost:4000/v1/invoiceitems \
+  -d "customer=cus_xxx" -d "invoice=in_xxx" -d "pricing[price]=price_xxx" -d "quantity=2"
+
+# Or create pending items first and sweep them in
+curl -X POST http://localhost:4000/v1/invoices \
+  -d "customer=cus_xxx" -d "pending_invoice_items_behavior=include"
+
+# Finalize (number, PaymentIntent, default InvoicePayment), then pay with the default card
+curl -X POST http://localhost:4000/v1/invoices/in_xxx/finalize -d "expand[]=payments"
+curl -X POST http://localhost:4000/v1/invoices/in_xxx/pay
+curl -X POST http://localhost:4000/v1/invoices/in_xxx/pay -d "payment_method=pm_card_mastercard"
+curl -X POST http://localhost:4000/v1/invoices/in_xxx/pay -d "paid_out_of_band=true"
+
+# Void, mark uncollectible, delete a draft, list lines, list payments
+curl -X POST http://localhost:4000/v1/invoices/in_xxx/void
+curl -X POST http://localhost:4000/v1/invoices/in_xxx/mark_uncollectible
+curl -X DELETE http://localhost:4000/v1/invoices/in_xxx
+curl "http://localhost:4000/v1/invoices/in_xxx/lines?limit=10"
+curl "http://localhost:4000/v1/invoice_payments?invoice=in_xxx"
+```
+
+Invoices use the current wire shape: there is no top-level `subscription`, `payment_intent`, `charge` or `paid`. Reach the PaymentIntent through `expand[]=payments.data.payment.payment_intent` or the client secret through `expand[]=confirmation_secret`. Lines carry `parent.invoice_item_details` and `pricing.price_details`. `pending_invoice_items_behavior` defaults to `exclude`, as on Stripe.
+
+Paying charges, in order, the `payment_method` param, the invoice's `default_payment_method`, then the customer's `invoice_settings.default_payment_method`, off-session by default. A decline (`pm_card_chargeCustomerFail`) returns 402, leaves the invoice `open` with `attempt_count` 1 and sends `invoice.payment_failed`. `pm_card_authenticationRequired` returns 402 `invoice_payment_intent_requires_action`, leaves the PaymentIntent in `requires_action` and sends `invoice.payment_action_required` and `invoice.payment_failed`; completing it with `/_stripe/simulate/payment_intents/pi_xxx/authenticate` pays the invoice. A $0 invoice is paid when it is finalized and, like `paid_out_of_band`, sends `invoice.paid` without `invoice.payment_succeeded`. `mark_uncollectible` sets `status_details.uncollectible.reason` to `user_forgiven`; the invoice can still be paid. The hosted invoice page is not served yet, so `hosted_invoice_url` answers 404.
+
 ### Charges
 
 ```bash
@@ -481,6 +511,19 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `setup_intent.canceled` | SetupIntent canceled |
 | `charge.succeeded` | Payment intent charged (charge auto-created) |
 | `charge.failed` | Charge declined |
+| `invoice.created` | Invoice created as a draft |
+| `invoice.updated` | Invoice fields or lines changed, or a payment attempt succeeded or failed |
+| `invoice.deleted` | Draft invoice deleted |
+| `invoice.finalized` | Invoice finalized (after `payment_intent.created` when something is due) |
+| `invoice.paid` | Invoice paid, including $0 invoices and `paid_out_of_band` |
+| `invoice.payment_succeeded` | Invoice paid by its PaymentIntent |
+| `invoice.payment_failed` | Payment attempt declined or waiting on 3D Secure |
+| `invoice.payment_action_required` | Payment attempt needs 3D Secure |
+| `invoice.voided` | Invoice voided |
+| `invoice.marked_uncollectible` | Invoice marked uncollectible |
+| `invoice_payment.paid` | The invoice's InvoicePayment was paid |
+| `invoiceitem.created` | Invoice item created |
+| `invoiceitem.deleted` | Invoice item deleted |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
 

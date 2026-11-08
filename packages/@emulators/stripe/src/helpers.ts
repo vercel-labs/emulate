@@ -172,6 +172,22 @@ export function parseStripeQuery(c: Context): Record<string, unknown> {
   return parseFormParams(new URL(c.req.url).searchParams);
 }
 
+/**
+ * Apply a `metadata` update the way Stripe does: keys are merged, a key set to "" is removed,
+ * and `metadata=""` clears every key. Returns undefined when the param is absent.
+ */
+export function mergeMetadata(current: Record<string, string>, patch: unknown): Record<string, string> | undefined {
+  if (patch === undefined) return undefined;
+  if (patch === "" || patch === null) return {};
+  if (typeof patch !== "object" || Array.isArray(patch)) return undefined;
+  const merged = { ...current };
+  for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+    if (value === "" || value === null) delete merged[key];
+    else merged[key] = String(value);
+  }
+  return merged;
+}
+
 /** Read a list parameter that may arrive as `name[]`, `name[0]` or a single value. */
 export function readStringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string" && v !== "");
@@ -226,6 +242,8 @@ export interface StripeListOptions<T> {
   created?: (item: T) => number;
   /** Resolver used for `expand[]=data.*` on the list response. */
   expand?: ExpandResolver;
+  /** `oldest_first` for lists Stripe returns in insertion order, such as invoice lines. Defaults to newest first. */
+  order?: "newest_first" | "oldest_first";
 }
 
 /**
@@ -267,8 +285,9 @@ export function stripeList<T extends Entity & { stripe_id: string; created_at: s
     });
   }
 
-  // Sort newest first (Stripe default)
-  filtered.sort((a, b) => b.id - a.id);
+  // Newest first is Stripe's default order.
+  if (options.order === "oldest_first") filtered.sort((a, b) => a.id - b.id);
+  else filtered.sort((a, b) => b.id - a.id);
 
   // Cursor-based pagination
   if (startingAfter) {

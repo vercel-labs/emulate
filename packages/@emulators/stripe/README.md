@@ -1,6 +1,6 @@
 # @emulators/stripe
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation with customers, payment methods, customer sessions, payment intents, setup intents, charges, invoices, invoice items, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -124,6 +124,51 @@ A SetupIntent saves a card for later payments without charging it. A test card i
 
 Without a `customer`, a successful setup leaves the card unattached, and it can be attached later. A card set up with 3155 is then charged off-session without asking for authentication again. Every event is `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed` or `setup_intent.canceled`; there is no `setup_intent.updated`, as on Stripe.
 
+### Invoices
+- `POST /v1/invoices`: create a draft. Accepts `customer` (required), `currency` (default `usd`), `collection_method`, `auto_advance` (default `false`), `default_payment_method`, `days_until_due`, `due_date`, `description`, `footer`, `metadata` and `pending_invoice_items_behavior` (`exclude`, the default, or `include`)
+- `GET /v1/invoices/:id`: retrieve an invoice
+- `POST /v1/invoices/:id`: update `description`, `footer`, `metadata`, `auto_advance` and `default_payment_method`, and on a draft also `collection_method`, `days_until_due` and `due_date`
+- `DELETE /v1/invoices/:id`: delete a draft, with its lines and invoice items
+- `GET /v1/invoices/:id/lines`: list the lines, oldest first
+- `POST /v1/invoices/:id/finalize`: finalize a draft
+- `POST /v1/invoices/:id/pay`: pay, finalizing a draft first. Accepts `payment_method`, `off_session` (default `true`), `paid_out_of_band` and `forgive`
+- `POST /v1/invoices/:id/void`: void an `open` or `uncollectible` invoice
+- `POST /v1/invoices/:id/mark_uncollectible`: mark an `open` invoice uncollectible
+- `GET /v1/invoices`: list invoices, filtered by `customer`, `status`, `collection_method` and `subscription`
+
+Invoices use the wire shape of API versions from basil on. There is no top-level `subscription`, `payment_intent`, `charge` or `paid`; `parent` is `null` for invoices created through the API. `lines` is a list with `total_count` and `url`. `payments`, `confirmation_secret` and `amount_paid_off_stripe` are includable, so they appear only with `expand[]`. `status_details` appears only while the invoice is `uncollectible`.
+
+| Action | Allowed from | Result |
+|--------|--------------|--------|
+| finalize | `draft` | `open`, `number` `<invoice_prefix>-0001` (the customer's `next_invoice_sequence` moves on), `finalized_at`, `effective_at`, `hosted_invoice_url` and `invoice_pdf`. Something due creates a `pi_` PaymentIntent and a default `inpay_` InvoicePayment. Nothing due pays the invoice at once |
+| pay | `draft`, `open`, `uncollectible` | Charges the `payment_method` param, else the invoice's `default_payment_method`, else the customer's `invoice_settings.default_payment_method`. A test card id such as `pm_card_visa` is attached to the customer first. Every attempt raises `attempt_count` and sets `attempted` |
+| void | `open`, `uncollectible` | `void`, with the PaymentIntent canceled (`void_invoice`) and the InvoicePayment `canceled` |
+| mark_uncollectible | `open` | `uncollectible` with `status_details.uncollectible.reason` `user_forgiven`. It can still be paid or voided |
+| delete | `draft` | Gone, with its lines and invoice items |
+
+Payment outcomes follow the [test card table](#test-cards), with Billing as the initiator:
+
+| Card behaviour | `/pay` response | Invoice | Events, after the PaymentIntent and charge events |
+|----------------|-----------------|---------|---------------------------------------------------|
+| Succeeds | 200 | `paid`, `amount_paid` equal to the total, `auto_advance` false | `invoice.updated`, `invoice.paid`, `invoice.payment_succeeded`, `invoice_payment.paid` |
+| Declines (for example 0341) | 402 `card_error` | `open`, `attempt_count` 1 | `invoice.updated`, `invoice.payment_failed` |
+| 3D Secure always (3184) | 402 `invoice_payment_intent_requires_action` | `open`, PaymentIntent `requires_action` | `invoice.updated`, `invoice.payment_action_required`, `invoice.payment_failed` |
+
+Completing 3D Secure with `POST /_stripe/simulate/payment_intents/:id/authenticate`, or confirming the invoice's PaymentIntent directly, pays the invoice with the same events and a `null` request. The PaymentIntent of an invoice cannot be canceled through `/v1/payment_intents/:id/cancel`. A $0 invoice and a `paid_out_of_band` payment send `invoice.paid` without `invoice.payment_succeeded`, as the [invoice lifecycle docs](https://docs.stripe.com/invoicing/overview#paid) describe. Paying and `mark_uncollectible` set the customer's `delinquent` to `false`, with `customer.updated` when it changes; a failed manual `/pay` leaves it alone.
+
+### Invoice Items
+- `POST /v1/invoiceitems`: create an item for `customer` (required), from `pricing[price]` (amount is `unit_amount` times `quantity`), `amount` with `currency`, or `unit_amount_decimal`. With `invoice` it goes on that draft; without, it stays pending. Also accepts `quantity`, `description` (defaults to the product name), `discountable`, `period` and `metadata`
+- `GET /v1/invoiceitems/:id`: retrieve an item
+- `POST /v1/invoiceitems/:id`: update `pricing[price]`, `quantity`, `amount`, `description`, `discountable`, `period` or `metadata`. The draft's line follows
+- `DELETE /v1/invoiceitems/:id`: delete an item that is pending or on a draft
+- `GET /v1/invoiceitems`: list items, filtered by `customer`, `invoice` and `pending`
+
+Items on a finalized invoice answer 400 `invoice_not_editable`. Changing the lines of a draft sends `invoice.updated`.
+
+### Invoice Payments
+- `GET /v1/invoice_payments/:id`: retrieve an InvoicePayment
+- `GET /v1/invoice_payments`: list them, filtered by `invoice`, `status` and `payment[type]` with `payment[payment_intent]`
+
 ### Charges
 - `GET /v1/charges/:id` — retrieve charge
 - `GET /v1/charges` — list charges
@@ -174,7 +219,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
 
 ## Webhook delivery model and chaos
 
@@ -247,6 +292,13 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - `GET /v1/payment_methods` without `customer` lists every payment method.
 - Detaching a customer's default payment method clears the default and sends `customer.updated`. Deleting a customer detaches its payment methods without sending `payment_method.detached`.
 - Customer `balance`, `currency`, `address`, `shipping`, tax and discounts are not modelled and keep their empty defaults.
+- Invoices model no taxes, discounts, credit notes, customer balance, shipping or Connect: `total` is the sum of the lines, `amount_due` never goes below 0, `starting_balance` is 0 and `ending_balance` is 0 once finalized. `account_country` and `account_name` are `null`, and `customer_address`, `customer_phone` and `customer_shipping` are always `null`.
+- Invoices are never finalized or charged on their own: `auto_advance` is stored and `automatically_finalizes_at` and `next_payment_attempt` are reported, but nothing acts on them without a test clock. `webhooks_delivered_at` is set when the invoice is created, because delivery is inline.
+- `hosted_invoice_url` and `invoice_pdf` point at the same emulator URL, which is not served yet and answers 404.
+- Invoice items created from a bare `amount` render `pricing` as `null` instead of an inline price. `price_data`, `quantity_decimal`, `tax_rates` and `discounts` params are ignored, and lines are listed oldest first.
+- `/pay` ignores `forgive`, `mandate` and `source`: card payments either cover the whole amount or fail. A customer with no payment method gets a 400 and the attempt is not counted.
+- InvoicePayments are only of type `payment_intent`, and there is no attach-payment or detach-payment API.
+- Error messages for invoice state changes (finalizing twice, voiding a paid invoice, deleting a finalized one) are the emulator's wording.
 
 ## Links
 

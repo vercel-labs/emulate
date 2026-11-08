@@ -212,6 +212,124 @@ export interface StripeWebhookEndpoint extends Entity {
   created: number;
 }
 
+export type InvoiceStatus = "draft" | "open" | "paid" | "uncollectible" | "void";
+
+export type InvoiceBillingReason =
+  | "manual"
+  | "subscription_create"
+  | "subscription_cycle"
+  | "subscription_threshold"
+  | "subscription_update"
+  | "upcoming";
+
+export type InvoiceUncollectibleReason =
+  | "max_payment_attempts"
+  | "payment_not_received"
+  | "subscription_canceled"
+  | "subscription_paused"
+  | "user_forgiven";
+
+/** The customer fields an invoice freezes when it is finalized. Drafts read the live customer. */
+export interface StripeInvoiceCustomerSnapshot {
+  email: string | null;
+  name: string | null;
+}
+
+export interface StripeInvoice extends Entity {
+  stripe_id: string;
+  customer_id: string;
+  status: InvoiceStatus;
+  currency: string;
+  collection_method: "charge_automatically" | "send_invoice";
+  billing_reason: InvoiceBillingReason;
+  auto_advance: boolean;
+  metadata: Record<string, string>;
+  /** Unix seconds on the customer's clock. */
+  created: number;
+  period_start: number;
+  period_end: number;
+  attempt_count: number;
+  attempted: boolean;
+  amount_paid: number;
+  /** Set when the invoice was paid outside Stripe. Rendered only when expanded. */
+  amount_paid_off_stripe?: number;
+  description?: string;
+  footer?: string;
+  default_payment_method?: string;
+  due_date?: number;
+  number?: string;
+  next_payment_attempt?: number;
+  finalized_at?: number;
+  paid_at?: number;
+  voided_at?: number;
+  marked_uncollectible_at?: number;
+  uncollectible_reason?: InvoiceUncollectibleReason;
+  customer_snapshot?: StripeInvoiceCustomerSnapshot;
+  webhooks_delivered_at?: number;
+  /** The subscription that generated the invoice, rendered as `parent.subscription_details`. */
+  subscription_id?: string;
+  subscription_metadata?: Record<string, string>;
+  test_clock?: string;
+}
+
+/** A pending charge for a customer, invoiced as a line once it is attached to an invoice. */
+export interface StripeInvoiceItem extends Entity {
+  stripe_id: string;
+  customer_id: string;
+  invoice_id?: string;
+  amount: number;
+  currency: string;
+  description?: string;
+  discountable: boolean;
+  metadata: Record<string, string>;
+  period: { start: number; end: number };
+  /** Without a price the item was created from a bare amount and renders `pricing` as null. */
+  price_id?: string;
+  product_id?: string;
+  unit_amount_decimal: string;
+  quantity: number;
+  proration: boolean;
+  subscription_id?: string;
+  /** Unix seconds on the customer's clock, rendered as `date`. */
+  date: number;
+  test_clock?: string;
+}
+
+export interface StripeInvoiceLineItem extends Entity {
+  stripe_id: string;
+  invoice_id: string;
+  amount: number;
+  currency: string;
+  description?: string;
+  discountable: boolean;
+  metadata: Record<string, string>;
+  period: { start: number; end: number };
+  price_id?: string;
+  product_id?: string;
+  unit_amount_decimal?: string;
+  quantity: number;
+  proration: boolean;
+  /** Exactly one of the two parents is set. */
+  invoice_item_id?: string;
+  subscription_item_id?: string;
+  subscription_id?: string;
+}
+
+export interface StripeInvoicePayment extends Entity {
+  stripe_id: string;
+  invoice_id: string;
+  amount_requested: number;
+  /** Null on the wire until the payment is paid. */
+  amount_paid?: number;
+  currency: string;
+  is_default: boolean;
+  payment_intent_id: string;
+  status: "open" | "paid" | "canceled";
+  created: number;
+  paid_at?: number;
+  canceled_at?: number;
+}
+
 /** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */
 export interface StripeWebhookAttempt extends Entity {
   event_id: string;

@@ -14,6 +14,7 @@ import { formatPaymentIntent, stripeExpandResolver } from "../formatters.js";
 import { eventBatch } from "../events.js";
 import { nowFor } from "../clock.js";
 import { attemptPayment, newClientSecret, resolvePaymentMethod } from "../payments.js";
+import { isInvoicePaymentIntent, settleInvoicePaymentIntent } from "../invoicing.js";
 import { insertCardPaymentMethod, sendStripeError } from "./payment-methods.js";
 import { testCardByPaymentMethod } from "../test-cards.js";
 import type { StripePaymentIntent, StripePaymentMethod, PaymentIntentStatus } from "../entities.js";
@@ -50,6 +51,7 @@ export function paymentIntentRoutes(ctx: RouteContext): void {
   ) => {
     const card = pm ?? insertCardPaymentMethod(ss, testCardByPaymentMethod("pm_card_visa")!);
     const attempt = attemptPayment(ctx, ev, pi, card, { offSession: readOffSession(body.off_session) });
+    settleInvoicePaymentIntent(ctx, ev, attempt.pi);
     await ev.commit();
     if (attempt.status === "failed") return sendStripeError(c, attempt.error);
     return expandedJson(c, formatPaymentIntent(attempt.pi), expand, body);
@@ -197,6 +199,15 @@ export function paymentIntentRoutes(ctx: RouteContext): void {
         400,
         "invalid_request_error",
         `This PaymentIntent's status is ${pi.status}, which does not allow cancellation.`,
+        "payment_intent_unexpected_state",
+      );
+    }
+    if (isInvoicePaymentIntent(ss, pi.stripe_id)) {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        "This PaymentIntent was created by an invoice and cannot be canceled directly. Void the invoice instead.",
         "payment_intent_unexpected_state",
       );
     }

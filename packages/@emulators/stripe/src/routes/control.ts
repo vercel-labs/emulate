@@ -16,6 +16,7 @@ import {
 import { dispatchStoredEvent, eventBatch, syncWebhookEndpoints } from "../events.js";
 import { formatPaymentIntent, formatSetupIntent } from "../formatters.js";
 import { completeAuthentication, completeSetupAuthentication } from "../payments.js";
+import { settleInvoicePaymentIntent } from "../invoicing.js";
 
 type DeliveryStatus = "succeeded" | "failed" | "dropped" | "held";
 
@@ -76,6 +77,7 @@ export function controlRoutes(ctx: RouteContext): void {
     // The customer acted, not an API call, so the events carry no request.
     const ev = eventBatch(ctx);
     const updated = completeAuthentication(ctx, ev, pi, result);
+    settleInvoicePaymentIntent(ctx, ev, updated);
     await ev.commit();
     return c.json(formatPaymentIntent(updated));
   });

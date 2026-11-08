@@ -6,6 +6,10 @@ import type {
   StripeCharge,
   StripeCheckoutSession,
   StripeCustomer,
+  StripeInvoice,
+  StripeInvoiceItem,
+  StripeInvoiceLineItem,
+  StripeInvoicePayment,
   StripePaymentError,
   StripePaymentIntent,
   StripePaymentMethod,
@@ -393,6 +397,267 @@ function emptyList(url: string) {
   return { object: "list" as const, data: [], has_more: false, total_count: 0, url };
 }
 
+/** How many entries an embedded list shows before `has_more`, as on Stripe. */
+const EMBEDDED_LIST_LIMIT = 10;
+
+function embeddedList<T>(items: T[], url: string, format: (item: T) => Record<string, unknown>) {
+  return {
+    object: "list" as const,
+    data: items.slice(0, EMBEDDED_LIST_LIMIT).map(format),
+    has_more: items.length > EMBEDDED_LIST_LIMIT,
+    total_count: items.length,
+    url,
+  };
+}
+
+/** `pricing` of an invoice item or line. Items created from a bare amount have no price. */
+function formatPricing(priceId: string | undefined, productId: string | undefined, unitAmountDecimal?: string) {
+  if (!priceId) return null;
+  return {
+    price_details: { price: priceId, product: productId ?? null },
+    type: "price_details" as const,
+    unit_amount_decimal: unitAmountDecimal ?? null,
+  };
+}
+
+/** The Invoice Item object in the key order of the API reference. Discounts and tax rates are not modelled. */
+export function formatInvoiceItem(ii: StripeInvoiceItem) {
+  return {
+    id: ii.stripe_id,
+    object: "invoiceitem" as const,
+    amount: ii.amount,
+    currency: ii.currency,
+    customer: ii.customer_id,
+    date: ii.date,
+    description: ii.description ?? null,
+    discountable: ii.discountable,
+    discounts: [] as string[],
+    invoice: ii.invoice_id ?? null,
+    livemode: false,
+    metadata: ii.metadata,
+    parent: ii.subscription_id
+      ? {
+          subscription_details: { subscription: ii.subscription_id, subscription_item: null },
+          type: "subscription_details" as const,
+        }
+      : null,
+    period: { ...ii.period },
+    pricing: formatPricing(ii.price_id, ii.product_id, ii.unit_amount_decimal),
+    proration: ii.proration,
+    quantity: ii.quantity,
+    quantity_decimal: String(ii.quantity),
+    tax_rates: [] as unknown[],
+    test_clock: ii.test_clock ?? null,
+  };
+}
+
+/** The Invoice Line Item object. A line comes from an invoice item or from a subscription item. */
+export function formatInvoiceLineItem(line: StripeInvoiceLineItem) {
+  const parent = line.subscription_item_id
+    ? {
+        subscription_item_details: {
+          invoice_item: line.invoice_item_id ?? null,
+          proration: line.proration,
+          proration_details: { credited_items: null },
+          subscription: line.subscription_id ?? null,
+          subscription_item: line.subscription_item_id,
+        },
+        type: "subscription_item_details" as const,
+      }
+    : {
+        invoice_item_details: {
+          invoice_item: line.invoice_item_id ?? null,
+          proration: line.proration,
+          proration_details: { credited_items: null },
+          subscription: line.subscription_id ?? null,
+        },
+        type: "invoice_item_details" as const,
+      };
+  return {
+    id: line.stripe_id,
+    object: "line_item" as const,
+    amount: line.amount,
+    currency: line.currency,
+    description: line.description ?? null,
+    discount_amounts: [] as unknown[],
+    discountable: line.discountable,
+    discounts: [] as string[],
+    invoice: line.invoice_id,
+    livemode: false,
+    metadata: line.metadata,
+    parent,
+    period: { ...line.period },
+    pretax_credit_amounts: [] as unknown[],
+    pricing: formatPricing(line.price_id, line.product_id, line.unit_amount_decimal),
+    quantity: line.quantity,
+    quantity_decimal: String(line.quantity),
+    subtotal: line.amount,
+    taxes: [] as unknown[],
+  };
+}
+
+/** The Invoice Payment object. Only PaymentIntent payments are modelled. */
+export function formatInvoicePayment(p: StripeInvoicePayment) {
+  return {
+    id: p.stripe_id,
+    object: "invoice_payment" as const,
+    amount_paid: p.amount_paid ?? null,
+    amount_requested: p.amount_requested,
+    created: p.created,
+    currency: p.currency,
+    invoice: p.invoice_id,
+    is_default: p.is_default,
+    livemode: false,
+    payment: { type: "payment_intent" as const, payment_intent: p.payment_intent_id },
+    status: p.status,
+    status_transitions: { canceled_at: p.canceled_at ?? null, paid_at: p.paid_at ?? null },
+  };
+}
+
+/** The lines of an invoice in the order they were added. */
+export function invoiceLines(ss: StripeStore, invoiceId: string): StripeInvoiceLineItem[] {
+  return ss.invoiceLineItems.findBy("invoice_id", invoiceId).sort((a, b) => a.id - b.id);
+}
+
+export function invoicePayments(ss: StripeStore, invoiceId: string): StripeInvoicePayment[] {
+  return ss.invoicePayments.findBy("invoice_id", invoiceId).sort((a, b) => a.id - b.id);
+}
+
+/** The default InvoicePayment Stripe creates at finalization, which carries the invoice's PaymentIntent. */
+export function defaultInvoicePayment(ss: StripeStore, invoiceId: string): StripeInvoicePayment | undefined {
+  return invoicePayments(ss, invoiceId).find((p) => p.is_default);
+}
+
+/**
+ * The money fields of an invoice. Taxes, discounts, credit notes and customer balances are not
+ * modelled, so the total is the sum of the lines and a negative total owes nothing.
+ */
+export function invoiceAmounts(ss: StripeStore, inv: StripeInvoice) {
+  const subtotal = invoiceLines(ss, inv.stripe_id).reduce((sum, line) => sum + line.amount, 0);
+  const amountDue = inv.status === "void" ? 0 : Math.max(0, subtotal);
+  return {
+    subtotal,
+    total: subtotal,
+    amount_due: amountDue,
+    amount_paid: inv.amount_paid,
+    amount_remaining: Math.max(0, amountDue - inv.amount_paid),
+  };
+}
+
+/** The hosted invoice page. Until it exists the URL answers 404. */
+export function hostedInvoiceUrl(baseUrl: string, invoiceId: string): string {
+  return `${baseUrl}/invoice/${invoiceId}`;
+}
+
+/**
+ * The Invoice object in the key order of the API reference, for API versions from basil on:
+ * no top-level `subscription`, `payment_intent`, `charge` or `paid`. `payments`,
+ * `confirmation_secret` and `amount_paid_off_stripe` are includable and added by the expand
+ * resolver. `status_details` appears only while the invoice is uncollectible.
+ */
+export function formatInvoice(ss: StripeStore, inv: StripeInvoice, baseUrl: string) {
+  const amounts = invoiceAmounts(ss, inv);
+  const customer = ss.customers.findOneBy("stripe_id", inv.customer_id);
+  const snapshot = inv.customer_snapshot ?? { email: customer?.email ?? null, name: customer?.name ?? null };
+  const finalized = inv.status !== "draft";
+  const hosted = finalized ? hostedInvoiceUrl(baseUrl, inv.stripe_id) : null;
+  return {
+    id: inv.stripe_id,
+    object: "invoice" as const,
+    account_country: null,
+    account_name: null,
+    account_tax_ids: null,
+    amount_due: amounts.amount_due,
+    amount_paid: amounts.amount_paid,
+    amount_overpaid: 0,
+    amount_remaining: amounts.amount_remaining,
+    amount_shipping: 0,
+    application: null,
+    attempt_count: inv.attempt_count,
+    attempted: inv.attempted,
+    auto_advance: inv.auto_advance,
+    automatic_tax: { enabled: false, liability: null, status: null },
+    automatically_finalizes_at: !finalized && inv.auto_advance ? inv.created + 3600 : null,
+    billing_reason: inv.billing_reason,
+    collection_method: inv.collection_method,
+    created: inv.created,
+    currency: inv.currency,
+    custom_fields: null,
+    customer: inv.customer_id,
+    customer_address: null,
+    customer_email: snapshot.email,
+    customer_name: snapshot.name,
+    customer_phone: null,
+    customer_shipping: null,
+    customer_tax_exempt: "none" as const,
+    customer_tax_ids: [] as unknown[],
+    default_payment_method: inv.default_payment_method ?? null,
+    default_source: null,
+    default_tax_rates: [] as unknown[],
+    description: inv.description ?? null,
+    discounts: [] as string[],
+    due_date: inv.due_date ?? null,
+    effective_at: inv.finalized_at ?? null,
+    ending_balance: finalized ? 0 : null,
+    footer: inv.footer ?? null,
+    from_invoice: null,
+    hosted_invoice_url: hosted,
+    invoice_pdf: hosted,
+    issuer: { type: "self" as const },
+    last_finalization_error: null,
+    latest_revision: null,
+    lines: embeddedList(invoiceLines(ss, inv.stripe_id), `/v1/invoices/${inv.stripe_id}/lines`, formatInvoiceLineItem),
+    livemode: false,
+    metadata: inv.metadata,
+    next_payment_attempt: inv.next_payment_attempt ?? null,
+    number: inv.number ?? null,
+    on_behalf_of: null,
+    parent: inv.subscription_id
+      ? {
+          quote_details: null,
+          subscription_details: {
+            metadata: inv.subscription_metadata ?? {},
+            subscription: inv.subscription_id,
+            subscription_proration_date: null,
+          },
+          type: "subscription_details" as const,
+        }
+      : null,
+    payment_settings: { default_mandate: null, payment_method_options: null, payment_method_types: null },
+    period_end: inv.period_end,
+    period_start: inv.period_start,
+    post_payment_credit_notes_amount: 0,
+    pre_payment_credit_notes_amount: 0,
+    receipt_number: null,
+    rendering: null,
+    shipping_cost: null,
+    shipping_details: null,
+    starting_balance: 0,
+    statement_descriptor: null,
+    status: inv.status,
+    ...(inv.status === "uncollectible" && {
+      status_details: { uncollectible: { reason: inv.uncollectible_reason ?? null } },
+    }),
+    status_transitions: {
+      finalized_at: inv.finalized_at ?? null,
+      marked_uncollectible_at: inv.marked_uncollectible_at ?? null,
+      paid_at: inv.paid_at ?? null,
+      voided_at: inv.voided_at ?? null,
+    },
+    subtotal: amounts.subtotal,
+    subtotal_excluding_tax: amounts.subtotal,
+    test_clock: inv.test_clock ?? null,
+    threshold_reason: null,
+    total: amounts.total,
+    total_discount_amounts: [] as unknown[],
+    total_excluding_tax: amounts.total,
+    total_pretax_credit_amounts: [] as unknown[],
+    total_taxes: [] as unknown[],
+    transfer_data: null,
+    webhooks_delivered_at: inv.webhooks_delivered_at ?? null,
+  };
+}
+
 /**
  * One resolver for every expandable reference. A field is resolved by its name first
  * (so seeded ids without a standard prefix still expand) and then by the id's prefix.
@@ -432,6 +697,18 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
       const found = ss.setupIntents.findOneBy("stripe_id", id);
       return found ? formatSetupIntent(found) : undefined;
     },
+    invoice: (id) => {
+      const found = ss.invoices.findOneBy("stripe_id", id);
+      return found ? formatInvoice(ss, found, baseUrl) : undefined;
+    },
+    invoiceitem: (id) => {
+      const found = ss.invoiceItems.findOneBy("stripe_id", id);
+      return found ? formatInvoiceItem(found) : undefined;
+    },
+    invoice_payment: (id) => {
+      const found = ss.invoicePayments.findOneBy("stripe_id", id);
+      return found ? formatInvoicePayment(found) : undefined;
+    },
   };
 
   const fieldTypes: Record<string, string> = {
@@ -444,6 +721,9 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     payment_method: "payment_method",
     default_payment_method: "payment_method",
     setup_intent: "setup_intent",
+    invoice: "invoice",
+    latest_invoice: "invoice",
+    invoice_item: "invoiceitem",
   };
 
   const prefixTypes: Array<[string, string]> = [
@@ -456,11 +736,26 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     ["cs_", "checkout_session"],
     ["pm_", "payment_method"],
     ["seti_", "setup_intent"],
+    ["in_", "invoice"],
+    ["ii_", "invoiceitem"],
+    ["inpay_", "invoice_payment"],
   ];
+
+  const storedInvoice = (parent: Record<string, unknown>) => ss.invoices.findOneBy("stripe_id", String(parent.id));
 
   const includable: Record<string, Record<string, (parent: Record<string, unknown>) => unknown>> = {
     charge: {
       refunds: (parent) => emptyList(`/v1/charges/${String(parent.id)}/refunds`),
+    },
+    invoice: {
+      payments: (parent) =>
+        embeddedList(invoicePayments(ss, String(parent.id)), "/v1/invoice_payments", formatInvoicePayment),
+      confirmation_secret: (parent) => {
+        const payment = defaultInvoicePayment(ss, String(parent.id));
+        const pi = payment ? ss.paymentIntents.findOneBy("stripe_id", payment.payment_intent_id) : undefined;
+        return pi?.client_secret ? { client_secret: pi.client_secret, type: "payment_intent" } : null;
+      },
+      amount_paid_off_stripe: (parent) => storedInvoice(parent)?.amount_paid_off_stripe ?? 0,
     },
   };
 

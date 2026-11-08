@@ -11,6 +11,10 @@ import type {
   StripeWebhookAttempt,
   StripePaymentMethod,
   StripeSetupIntent,
+  StripeInvoice,
+  StripeInvoiceItem,
+  StripeInvoiceLineItem,
+  StripeInvoicePayment,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -25,6 +29,10 @@ export interface StripeStore {
   webhookAttempts: Collection<StripeWebhookAttempt>;
   paymentMethods: Collection<StripePaymentMethod>;
   setupIntents: Collection<StripeSetupIntent>;
+  invoices: Collection<StripeInvoice>;
+  invoiceItems: Collection<StripeInvoiceItem>;
+  invoiceLineItems: Collection<StripeInvoiceLineItem>;
+  invoicePayments: Collection<StripeInvoicePayment>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -40,5 +48,21 @@ export function getStripeStore(store: Store): StripeStore {
     webhookAttempts: store.collection<StripeWebhookAttempt>("stripe.webhook_attempts", ["event_id"]),
     paymentMethods: store.collection<StripePaymentMethod>("stripe.payment_methods", ["stripe_id", "customer_id"]),
     setupIntents: store.collection<StripeSetupIntent>("stripe.setup_intents", ["stripe_id", "customer_id"]),
+    invoices: store.collection<StripeInvoice>("stripe.invoices", ["stripe_id", "customer_id", "subscription_id"]),
+    invoiceItems: store.collection<StripeInvoiceItem>("stripe.invoice_items", [
+      "stripe_id",
+      "customer_id",
+      "invoice_id",
+    ]),
+    invoiceLineItems: store.collection<StripeInvoiceLineItem>("stripe.invoice_line_items", [
+      "stripe_id",
+      "invoice_id",
+      "invoice_item_id",
+    ]),
+    invoicePayments: store.collection<StripeInvoicePayment>("stripe.invoice_payments", [
+      "stripe_id",
+      "invoice_id",
+      "payment_intent_id",
+    ]),
   };
 }
