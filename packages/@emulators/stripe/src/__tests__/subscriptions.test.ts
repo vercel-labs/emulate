@@ -72,6 +72,7 @@ const SUBSCRIPTION_KEYS = [
   "billing_cycle_anchor",
   "billing_cycle_anchor_config",
   "billing_mode",
+  "billing_schedules",
   "billing_thresholds",
   "cancel_at",
   "cancel_at_period_end",
@@ -93,6 +94,7 @@ const SUBSCRIPTION_KEYS = [
   "items",
   "latest_invoice",
   "livemode",
+  "managed_payments",
   "metadata",
   "next_pending_invoice_item_invoice",
   "on_behalf_of",
@@ -159,9 +161,9 @@ describe("POST /v1/subscriptions", () => {
       cancel_at: null,
       cancel_at_period_end: false,
       canceled_at: null,
-      cancellation_details: { comment: null, feedback: null, reason: null },
       billing_mode: { type: "flexible", flexible: { proration_discounts: "included" } },
-      invoice_settings: { account_tax_ids: null, issuer: { type: "self" } },
+      billing_schedules: [],
+      managed_payments: null,
       payment_settings: {
         payment_method_options: null,
         payment_method_types: null,
@@ -177,6 +179,14 @@ describe("POST /v1/subscriptions", () => {
       trial_end: null,
       default_payment_method: null,
       livemode: false,
+    });
+    expect(json.cancellation_details).toEqual({ comment: null, feedback: null, feedback_option: null, reason: null });
+    expect(json.invoice_settings).toEqual({
+      account_tax_ids: null,
+      custom_fields: null,
+      description: null,
+      footer: null,
+      issuer: { type: "self" },
     });
     expect(json).not.toHaveProperty("current_period_start");
     expect(json).not.toHaveProperty("current_period_end");
@@ -549,7 +559,12 @@ describe("POST /v1/subscriptions/:id", () => {
     const periodEnd = updated.items.data[0].current_period_end;
     expect(updated).toMatchObject({ status: "active", cancel_at_period_end: true, cancel_at: periodEnd });
     expect(updated.canceled_at).toBeGreaterThanOrEqual(updated.created);
-    expect(updated.cancellation_details).toEqual({ comment: null, feedback: null, reason: "cancellation_requested" });
+    expect(updated.cancellation_details).toEqual({
+      comment: null,
+      feedback: null,
+      feedback_option: null,
+      reason: "cancellation_requested",
+    });
 
     const event = hooks.ofType("customer.subscription.updated")[0];
     expect(event.data.previous_attributes).toMatchObject({
@@ -587,6 +602,7 @@ describe("POST /v1/subscriptions/:id", () => {
     expect(scheduled.cancellation_details).toEqual({
       comment: null,
       feedback: "too_expensive",
+      feedback_option: null,
       reason: "cancellation_requested",
     });
 
@@ -604,7 +620,7 @@ describe("POST /v1/subscriptions/:id", () => {
     const { priceId } = await recurringPrice(ctx);
     const stripe = sdk(ctx.app);
     const sub = await stripe.subscriptions.create({ customer: customerId, items: [{ price: priceId }] });
-    const cleared = { reason: null, feedback: null, comment: null };
+    const cleared = { reason: null, feedback: null, feedback_option: null, comment: null };
 
     await stripe.subscriptions.update(sub.id, {
       cancel_at_period_end: true,
@@ -645,7 +661,12 @@ describe("POST /v1/subscriptions/:id", () => {
       ],
     });
     expect(updated.metadata).toEqual({ plan: "pro" });
-    expect(updated.cancellation_details).toEqual({ comment: "maybe later", feedback: "too_expensive", reason: null });
+    expect(updated.cancellation_details).toEqual({
+      comment: "maybe later",
+      feedback: "too_expensive",
+      feedback_option: null,
+      reason: null,
+    });
     expect(updated.items.data).toHaveLength(2);
     const [first, added] = updated.items.data;
     expect(first).toMatchObject({ id: itemId, quantity: 2 });
@@ -700,6 +721,7 @@ describe("POST /v1/subscriptions/:id", () => {
     expect(canceledAllowed.body.cancellation_details).toEqual({
       comment: "bye",
       feedback: null,
+      feedback_option: null,
       reason: "cancellation_requested",
     });
   });

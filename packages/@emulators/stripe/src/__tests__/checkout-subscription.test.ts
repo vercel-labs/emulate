@@ -26,6 +26,78 @@ function expectInOrder(events: Stripe.Event[], expected: string[]) {
   }
 }
 
+/** The non-includable keys of the Checkout Session object, in the order of the API reference. */
+const CHECKOUT_SESSION_KEYS = [
+  "id",
+  "object",
+  "adaptive_pricing",
+  "after_expiration",
+  "allow_promotion_codes",
+  "allowed_payment_method_types",
+  "amount_subtotal",
+  "amount_total",
+  "automatic_tax",
+  "billing_address_collection",
+  "branding_settings",
+  "cancel_url",
+  "client_reference_id",
+  "client_secret",
+  "collected_information",
+  "consent",
+  "consent_collection",
+  "created",
+  "currency",
+  "currency_conversion",
+  "custom_fields",
+  "custom_text",
+  "customer",
+  "customer_account",
+  "customer_creation",
+  "customer_details",
+  "customer_email",
+  "discounts",
+  "excluded_payment_method_types",
+  "expires_at",
+  "integration_identifier",
+  "invoice",
+  "invoice_creation",
+  "livemode",
+  "locale",
+  "managed_payments",
+  "marketing_attributions",
+  "metadata",
+  "mode",
+  "name_collection",
+  "origin_context",
+  "payment_intent",
+  "payment_link",
+  "payment_method_collection",
+  "payment_method_configuration_details",
+  "payment_method_options",
+  "payment_method_types",
+  "payment_status",
+  "permissions",
+  "phone_number_collection",
+  "presentment_details",
+  "recovered_from",
+  "redirect_on_completion",
+  "return_url",
+  "saved_payment_method_options",
+  "setup_intent",
+  "shipping_address_collection",
+  "shipping_cost",
+  "shipping_options",
+  "status",
+  "submit_type",
+  "subscription",
+  "success_url",
+  "tax_id_collection",
+  "total_details",
+  "ui_mode",
+  "url",
+  "wallet_options",
+];
+
 async function price(
   ctx: TestApp,
   options: { unitAmount?: number; recurring?: boolean; interval?: string; intervalCount?: number } = {},
@@ -128,9 +200,35 @@ describe("Creating a subscription-mode Checkout Session", () => {
     expect(s.setup_intent).toBeNull();
     expect(s.invoice_creation).toBeNull();
     expect(s.total_details).toEqual({ amount_discount: 0, amount_shipping: 0, amount_tax: 0 });
-    expect(s.automatic_tax).toEqual({ enabled: false, liability: null, status: null });
+    expect(s.automatic_tax).toEqual({
+      address_collection_precision: null,
+      enabled: false,
+      liability: null,
+      provider: null,
+      status: null,
+    });
     expect(s.url).toBe(`${base}/checkout/${s.id}`);
     expect(s).not.toHaveProperty("line_items");
+    expect(s).not.toHaveProperty("optional_items");
+    expect(s).not.toHaveProperty("shipping_details");
+    expect(Object.keys(s)).toEqual(CHECKOUT_SESSION_KEYS);
+    expect(s).toMatchObject({
+      allowed_payment_method_types: null,
+      branding_settings: null,
+      currency_conversion: null,
+      excluded_payment_method_types: null,
+      integration_identifier: null,
+      managed_payments: null,
+      marketing_attributions: null,
+      name_collection: null,
+      origin_context: null,
+      permissions: null,
+      redirect_on_completion: null,
+      tax_id_collection: { enabled: false, required: "never" },
+    });
+
+    const expanded = await api<Json>(ctx.app, "GET", `/v1/checkout/sessions/${s.id}?expand[]=optional_items`);
+    expect(expanded.body.optional_items).toBeNull();
   });
 
   it("charges nothing today during a trial", async () => {
