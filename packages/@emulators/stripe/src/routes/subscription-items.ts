@@ -14,9 +14,11 @@ import { nowFor } from "../clock.js";
 import { formatSubscription, formatSubscriptionItem, stripeExpandResolver, subscriptionItems } from "../formatters.js";
 import { eventBatch } from "../events.js";
 import {
+  changeBillingInterval,
   checkItemSet,
   emitSubscriptionChange,
   isEnded,
+  itemIntervalKey,
   meteredQuantityError,
   readSubscriptionPrice,
 } from "../subscriptions.js";
@@ -178,11 +180,13 @@ export function subscriptionItemRoutes(ctx: RouteContext): void {
     if (metadata) updates.metadata = metadata;
 
     const before = formatSubscription(ss, sub);
-    const updated = ss.subscriptionItems.update(si.id, updates)!;
+    const intervalBefore = itemIntervalKey(ss, sub);
+    ss.subscriptionItems.update(si.id, updates);
     const ev = eventBatch(ctx, c);
-    emitSubscriptionChange(ss, ev, sub, before);
+    if (itemIntervalKey(ss, sub) !== intervalBefore) changeBillingInterval(ctx, ev, sub, before);
+    else emitSubscriptionChange(ss, ev, sub, before);
     await ev.commit();
-    return expandedJson(c, render(updated), expand, body);
+    return expandedJson(c, render(ss.subscriptionItems.get(si.id)!), expand, body);
   });
 
   app.delete("/v1/subscription_items/:id", async (c) => {

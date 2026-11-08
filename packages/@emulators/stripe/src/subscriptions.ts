@@ -431,30 +431,78 @@ export function endTrialNow(
   }
 
   const warned = sub.trial_will_end_sent_for === sub.trial_end;
+  return billNewCycleNow(ctx, ev, sub, before, { status: "active", trial_end: now }, !warned);
+}
+
+/**
+ * Start a new billing period for every item now and invoice it at once with `billing_reason`
+ * `subscription_update`, as ending a trial early and changing the billing interval do:
+ * `billing_cycle_anchor` moves to now and the period runs to the next boundary of the items'
+ * interval. No proration credit is given for the unused part of the old period. Sends
+ * customer.subscription.updated for the whole request, then trial_will_end with `warnTrial`,
+ * before the invoice events. A failed attempt, including one with no payment method to charge,
+ * leaves an `active` subscription `past_due` with retries scheduled.
+ */
+function billNewCycleNow(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  before: Record<string, unknown>,
+  updates: Partial<StripeSubscription>,
+  warnTrial: boolean,
+): StripeSubscription {
+  const ss = getStripeStore(ctx.store);
+  const now = nowFor(ss, { customerId: sub.customer_id });
+  const items = subscriptionItems(ss, sub.stripe_id);
   const { interval, interval_count } = subscriptionInterval(ss, items);
   const end = nextPeriodEnd(now, interval, interval_count, now);
   for (const item of items)
     ss.subscriptionItems.update(item.id, { current_period_start: now, current_period_end: end });
-  const active = ss.subscriptions.update(sub.id, {
-    status: "active",
-    trial_end: now,
+  const restarted = ss.subscriptions.update(sub.id, {
+    ...updates,
     billing_cycle_anchor: now,
     cancel_at: sub.cancel_at_period_end ? end : sub.cancel_at,
   })!;
   const held = deferredBatch();
-  const inv = invoiceSubscription(ctx, held, active, "subscription_update", false, true);
+  const inv = invoiceSubscription(ctx, held, restarted, "subscription_update", false, true);
   const announced = ss.subscriptions.get(sub.id)!;
   emitSubscriptionChange(ss, ev, announced, before);
-  if (!warned) sendTrialWillEnd(ss, ev, announced);
+  if (warnTrial) sendTrialWillEnd(ss, ev, announced);
   held.replay(ev);
 
-  const failure = collectSubscriptionInvoice(ctx, ev, active, ss.invoices.get(inv.id) ?? inv, true);
+  const failure = collectSubscriptionInvoice(ctx, ev, restarted, ss.invoices.get(inv.id) ?? inv, true);
   const current = ss.subscriptions.get(sub.id)!;
   if (!failure || current.status !== "active") return current;
   const unpaid = formatSubscription(ss, current);
   const pastDue = ss.subscriptions.update(sub.id, { status: "past_due" })!;
   emitSubscriptionChange(ss, ev, pastDue, unpaid);
   return pastDue;
+}
+
+/** The `interval/interval_count` the items of a subscription bill on, to tell whether a plan change moved it. */
+export function itemIntervalKey(ss: StripeStore, sub: StripeSubscription): string {
+  const { interval, interval_count } = subscriptionInterval(ss, subscriptionItems(ss, sub.stripe_id));
+  return `${interval}/${interval_count}`;
+}
+
+/**
+ * A plan change that moved a subscription to another billing interval. As on Stripe, the cycle
+ * of an `active` or `past_due` subscription restarts now and the new period is invoiced at once
+ * (see billNewCycleNow), without a credit for the old period. A trialing subscription keeps its
+ * trial and bills the new interval when the trial ends. A paused or `unpaid` one keeps its
+ * period, since neither is collected. `before` is the subscription before the request.
+ */
+export function changeBillingInterval(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  before: Record<string, unknown>,
+): StripeSubscription {
+  if (sub.status !== "active" && sub.status !== "past_due") {
+    emitSubscriptionChange(getStripeStore(ctx.store), ev, sub, before);
+    return sub;
+  }
+  return billNewCycleNow(ctx, ev, sub, before, {}, false);
 }
 
 /** The period the items of a subscription are in now. */

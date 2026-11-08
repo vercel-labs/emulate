@@ -18,6 +18,7 @@ import { formatSubscription, stripeExpandResolver, subscriptionItems } from "../
 import { eventBatch } from "../events.js";
 import {
   cancelSubscription,
+  changeBillingInterval,
   checkItemSet,
   createSubscription,
   currentPeriodEnd,
@@ -25,6 +26,7 @@ import {
   endTrialNow,
   extendTrial,
   isEnded,
+  itemIntervalKey,
   MAX_TRIAL_SECONDS,
   meteredQuantityError,
   pauseSubscription,
@@ -581,10 +583,12 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     }
 
     const before = render(found);
+    const intervalBefore = itemIntervalKey(ss, found);
     if (itemChanges) {
       const failed = applyItemChanges(ss, found, itemChanges, now);
       if (failed) return sendStripeError(c, failed);
     }
+    const intervalChanged = itemIntervalKey(ss, found) !== intervalBefore;
 
     const updates: Partial<StripeSubscription> = {};
     const metadata = mergeMetadata(found.metadata, body.metadata);
@@ -620,6 +624,8 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     let sub = ss.subscriptions.update(found.id, updates)!;
     if (trialEnd === "now") {
       sub = endTrialNow(ctx, ev, sub, before);
+    } else if (intervalChanged && trialEnd === undefined) {
+      sub = changeBillingInterval(ctx, ev, sub, before);
     } else {
       if (trialEnd !== undefined) sub = extendTrial(ss, sub, trialEnd);
       emitSubscriptionChange(ss, ev, sub, before);

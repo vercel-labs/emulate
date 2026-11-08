@@ -245,6 +245,7 @@ The emulator matches Stripe's wire format and deliberately does less in places. 
 - A test clock advance runs synchronously: the response says `advancing`, but the clock is already `ready` when it returns.
 - Retries follow a fixed custom schedule, not Smart Retries.
 - There are no prorations, subscription schedules, quotes, Trial Offers, coupons, discounts, taxes, credit notes or Connect.
+- A plan change to another billing interval restarts the cycle and charges the full new period at once, without a credit for the unused part of the old period.
 - Meter event problems answer 400 at once instead of arriving later as error report events.
 - Webhooks are never retried automatically, and every event uses one `api_version`.
 - Checkout, invoice and portal pages are emulator HTML with a select of test cards, and they approve 3D Secure on the page.
