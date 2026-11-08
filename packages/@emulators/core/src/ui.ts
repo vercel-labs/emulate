@@ -468,12 +468,25 @@ export interface CheckoutPageOptions {
   cancelUrl?: string | null;
   /** When given, a select of these replaces the simulated card fields and posts `payment_method`. */
   paymentMethodOptions?: CheckoutPaymentMethodOption[];
+  /** Shown under the payment method select, to say what the choices do. Defaults to a generic hint. */
+  paymentMethodNote?: string;
   /** Prefills the email field. */
   email?: string;
   /** Shown above the form, for example after a declined card. */
   errorMessage?: string;
   /** Replaces the default `Pay $X` button label. */
   submitLabel?: string;
+}
+
+/** A `<select name="payment_method">` of `options`, with `note` under it when given. */
+export function renderPaymentMethodSelect(options: CheckoutPaymentMethodOption[], note?: string): string {
+  const items = options
+    .map(
+      (o) => `<option value="${escapeAttr(o.value)}"${o.selected ? " selected" : ""}>${escapeHtml(o.label)}</option>`,
+    )
+    .join("");
+  const noteHtml = note ? `<div class="checkout-sim-note">${escapeHtml(note)}</div>` : "";
+  return `<select name="payment_method" class="checkout-input">${items}</select>${noteHtml}`;
 }
 
 export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string): string {
@@ -525,15 +538,7 @@ export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string):
   const errorHtml = opts.errorMessage ? `<div class="checkout-error">${escapeHtml(opts.errorMessage)}</div>` : "";
 
   const cardHtml = opts.paymentMethodOptions
-    ? `<select name="payment_method" class="checkout-input">
-          ${opts.paymentMethodOptions
-            .map(
-              (o) =>
-                `<option value="${escapeAttr(o.value)}"${o.selected ? " selected" : ""}>${escapeHtml(o.label)}</option>`,
-            )
-            .join("")}
-        </select>
-        <div class="checkout-sim-note">Pick a test card. 3D Secure is approved automatically.</div>`
+    ? renderPaymentMethodSelect(opts.paymentMethodOptions, opts.paymentMethodNote ?? "Pick a test payment method.")
     : `<div class="checkout-card-box">
           <input type="text" class="checkout-input" placeholder="1234 1234 1234 1234" disabled/>
           <div class="checkout-card-row">

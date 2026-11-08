@@ -459,7 +459,6 @@ export function billingPortalRoutes(ctx: RouteContext): void {
     <div class="checkout-form-section">
       <label class="checkout-form-label">New card</label>
       ${cardSelect()}
-      <div class="checkout-sim-note">Pick a test card. 3D Secure is approved automatically.</div>
     </div>
     <button type="submit" class="checkout-pay-btn">Update payment method</button>
   </form>

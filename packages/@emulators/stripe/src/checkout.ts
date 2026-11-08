@@ -1,3 +1,4 @@
+import type { CheckoutPaymentMethodOption } from "@emulators/core";
 import { getStripeStore, stripeStoreCheckpoint, type StripeStore } from "./store.js";
 import { generateInvoicePrefix, stripeId } from "./helpers.js";
 import { nowFor } from "./clock.js";
@@ -33,6 +34,9 @@ export const SERVICE_LABEL = "Stripe";
 /** The card the hosted page uses when the form names none. */
 export const DEFAULT_CHECKOUT_CARD = "pm_card_visa";
 
+/** Shown under the hosted pages' card select. The customer is on the page, so 3D Secure passes there. */
+export const HOSTED_CARD_NOTE = "Pick a test card. 3D Secure is approved automatically.";
+
 /** Test cards the hosted pages (Checkout, portal, invoice) offer, with what each one does. */
 export const HOSTED_CARD_CHOICES: ReadonlyArray<readonly [string, string]> = [
   ["pm_card_visa", "Visa 4242 4242 4242 4242 (succeeds)"],
@@ -44,6 +48,11 @@ export const HOSTED_CARD_CHOICES: ReadonlyArray<readonly [string, string]> = [
   ["pm_card_chargeDeclined", "Visa 4000 0000 0000 0002 (declined)"],
   ["pm_card_chargeDeclinedInsufficientFunds", "Visa 4000 0000 0000 9995 (insufficient funds)"],
 ];
+
+/** The test cards the hosted pages offer, as payment method select options. */
+export function cardOptions(chosen: string = DEFAULT_CHECKOUT_CARD): CheckoutPaymentMethodOption[] {
+  return HOSTED_CARD_CHOICES.map(([value, label]) => ({ value, label, selected: value === chosen }));
+}
 
 const DAY = 86400;
 

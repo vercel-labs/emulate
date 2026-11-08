@@ -270,6 +270,7 @@ describe("flow_data", () => {
 
     const html = await (await ctx.app.request(session.url)).text();
     expect(html).toContain("Update payment method");
+    expect(html.split("3D Secure is approved automatically.")).toHaveLength(2);
     expect(html).not.toContain(sub.id);
 
     // Completing the flow goes back to the homepage, which lists the subscription.
@@ -611,6 +612,7 @@ describe("hosted invoice page", () => {
     expect(html).toContain("$20.00");
     expect(html).toContain('name="payment_method"');
     expect(html).toContain("pm_card_visa");
+    expect(html.split("3D Secure is approved automatically.")).toHaveLength(2);
 
     const hooks = captureWebhooks();
     const declined = await submit(ctx, `${invoice.hosted_invoice_url}/pay`, {

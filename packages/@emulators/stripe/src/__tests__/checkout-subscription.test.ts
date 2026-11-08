@@ -526,6 +526,7 @@ describe("Completing a subscription-mode Checkout Session", () => {
     const { session: s } = await subscriptionSession(ctx, { payment_method_collection: "if_required" });
     const page = await (await ctx.app.request(`${base}/checkout/${s.id}`)).text();
     expect(page).not.toContain('value="none"');
+    expect(page.split("3D Secure is approved automatically.")).toHaveLength(2);
     const res = await complete(ctx, s.id, "none");
     expect(res.status).toBe(400);
     expect((await retrieve(ctx, s.id)).status).toBe("open");

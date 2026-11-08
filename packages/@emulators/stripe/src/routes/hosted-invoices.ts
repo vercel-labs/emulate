@@ -1,23 +1,19 @@
 import type { Context, RouteContext } from "@emulators/core";
-import { renderCardPage, escapeAttr, escapeHtml } from "@emulators/core";
+import { renderCardPage, renderPaymentMethodSelect, escapeAttr, escapeHtml } from "@emulators/core";
 import { getStripeStore, type StripeStore } from "../store.js";
 import { parseStripeBody } from "../helpers.js";
 import { defaultInvoicePayment, formatInvoice, hostedInvoiceUrl, invoiceLines } from "../formatters.js";
 import { eventBatch, type EventBatch } from "../events.js";
 import { asksForAuthentication, resolvePaymentMethod } from "../payments.js";
 import { invoicePaymentMethodId, payInvoice, type InvoiceResult, type InvoicingContext } from "../invoicing.js";
-import { DEFAULT_CHECKOUT_CARD, HOSTED_CARD_CHOICES, SERVICE_LABEL } from "../checkout.js";
+import { DEFAULT_CHECKOUT_CARD, HOSTED_CARD_NOTE, SERVICE_LABEL, cardOptions } from "../checkout.js";
 import { formatMoney } from "../lines.js";
 import { testCardByPaymentMethod } from "../test-cards.js";
 import type { StripeInvoice } from "../entities.js";
 
-/** A `<select name="payment_method">` of the test cards the hosted pages offer. */
-export function cardSelect(chosen: string = DEFAULT_CHECKOUT_CARD): string {
-  const options = HOSTED_CARD_CHOICES.map(
-    ([value, label]) =>
-      `<option value="${escapeAttr(value)}"${value === chosen ? " selected" : ""}>${escapeHtml(label)}</option>`,
-  ).join("");
-  return `<select name="payment_method" class="checkout-input">${options}</select>`;
+/** A `<select name="payment_method">` of the test cards the hosted pages offer, with its note. */
+export function cardSelect(chosen?: string): string {
+  return renderPaymentMethodSelect(cardOptions(chosen), HOSTED_CARD_NOTE);
 }
 
 export function money(amount: number, currency: string): string {
@@ -117,7 +113,6 @@ export function hostedInvoiceRoutes(ctx: RouteContext): void {
   <div class="checkout-form-section">
     <label class="checkout-form-label">Card information</label>
     ${cardSelect(options.paymentMethod)}
-    <div class="checkout-sim-note">Pick a test card. 3D Secure is approved automatically.</div>
   </div>
   <button type="submit" class="checkout-pay-btn">Pay ${escapeHtml(money(wire.amount_remaining, wire.currency))}</button>
 </form>`;

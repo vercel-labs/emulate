@@ -72,6 +72,7 @@ export {
   renderInspectorPage,
   renderFormPostPage,
   renderCheckoutPage,
+  renderPaymentMethodSelect,
   renderUserButton,
   type CheckoutLineItem,
   type CheckoutPageOptions,

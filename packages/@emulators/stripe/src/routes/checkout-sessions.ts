@@ -29,8 +29,9 @@ import {
   checkoutCanSkipCard,
   completeCheckoutSession,
   DEFAULT_CHECKOUT_CARD,
-  HOSTED_CARD_CHOICES,
+  HOSTED_CARD_NOTE,
   SERVICE_LABEL,
+  cardOptions,
   NO_CARD,
 } from "../checkout.js";
 import { sendStripeError, type StripeErrorSpec } from "./payment-methods.js";
@@ -399,11 +400,7 @@ export function checkoutSessionRoutes(ctx: RouteContext): void {
     const subscription = session.mode === "subscription";
     const total = subscription ? (session.amount_total ?? 0) : subtotal;
     const chosen = options.paymentMethod ?? DEFAULT_CHECKOUT_CARD;
-    const paymentMethodOptions: CheckoutPaymentMethodOption[] = HOSTED_CARD_CHOICES.map(([value, label]) => ({
-      value,
-      label,
-      selected: value === chosen,
-    }));
+    const paymentMethodOptions: CheckoutPaymentMethodOption[] = cardOptions(chosen);
     if (checkoutCanSkipCard(session)) {
       paymentMethodOptions.push({
         value: NO_CARD,
@@ -422,6 +419,7 @@ export function checkoutSessionRoutes(ctx: RouteContext): void {
         sessionId: session.stripe_id,
         cancelUrl: session.cancel_url,
         paymentMethodOptions,
+        paymentMethodNote: HOSTED_CARD_NOTE,
         email: customer?.email ?? options.email ?? session.customer_email,
         errorMessage: options.errorMessage,
         submitLabel: subscription ? (checkoutHasTrial(session) ? "Start trial" : "Subscribe") : undefined,
