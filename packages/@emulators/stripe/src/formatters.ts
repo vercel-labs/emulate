@@ -1098,8 +1098,8 @@ export function formatSubscriptionItem(ss: StripeStore, si: StripeSubscriptionIt
     metadata: si.metadata,
     plan: price ? formatPlan(price) : null,
     price: price ? formatPrice(price) : null,
-    // Metered items bill their usage, so they have no quantity.
-    quantity: price?.recurring?.usage_type === "metered" ? null : si.quantity,
+    // Metered items bill their usage, so Stripe leaves the key out rather than sending null.
+    ...(price?.recurring?.usage_type !== "metered" && { quantity: si.quantity }),
     subscription: si.subscription_id,
     tax_rates: [] as unknown[],
   };

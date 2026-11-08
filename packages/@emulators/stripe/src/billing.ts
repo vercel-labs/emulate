@@ -311,7 +311,7 @@ function subscriptionActions(ctx: BillingContext, sub: StripeSubscription, froze
     rank: RANK.period,
     key: sub.id,
     run(ev) {
-      if (ending) cancelSubscription(ctx, ev, sub, {}, { scheduled: true });
+      if (ending) cancelSubscription(ctx, ev, sub, {}, { scheduled: true, finalInvoice: "cycle" });
       else if (sub.status === "trialing") endTrialOnSchedule(ctx, ev, sub);
       else renewSubscription(ctx, ev, sub);
     },

@@ -477,7 +477,7 @@ describe("Metered prices and items", () => {
 
     const sub = await subscribe(ctx, customer.id, [{ price: priceId }]);
     expect(sub.status).toBe("active");
-    expect(sub.items.data[0].quantity).toBeNull();
+    expect(sub.items.data[0]).not.toHaveProperty("quantity");
     const [first] = await subInvoices(ctx, sub.id);
     expect(first).toMatchObject({ billing_reason: "subscription_create", amount_due: 0 });
     expect(first.lines.data).toHaveLength(0);

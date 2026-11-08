@@ -88,7 +88,7 @@ A metered price (`recurring[usage_type]=metered`) needs an active billing meter 
 
 - `POST /v1/subscriptions`: subscribe a customer to recurring prices, with an optional trial (`trial_period_days`, `trial_end`) and `trial_settings[end_behavior][missing_payment_method]`. The first invoice is finalized and charged in the request
 - `POST /v1/subscriptions/:id`: change items, `cancel_at_period_end`, `cancel_at`, `default_payment_method` or the trial end
-- `DELETE /v1/subscriptions/:id`: cancel at once
+- `DELETE /v1/subscriptions/:id`: cancel at once; `invoice_now=true` bills the metered usage of the current period on a final invoice
 - `POST /v1/subscriptions/:id/pause` and `POST /v1/subscriptions/:id/resume`: pause and resume
 - `GET /v1/subscriptions/:id`, `GET /v1/subscriptions`: retrieve and list
 - `POST /v1/subscription_items`, `GET /v1/subscription_items/:id`, `POST /v1/subscription_items/:id`, `DELETE /v1/subscription_items/:id`, `GET /v1/subscription_items`: manage items

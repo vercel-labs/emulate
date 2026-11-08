@@ -6,7 +6,7 @@ import { previousAttributes, type EventBatch } from "./events.js";
 import { formatSubscription, subscriptionItems, MAX_SUBSCRIPTION_ITEMS } from "./formatters.js";
 import { priceAmount } from "./pricing.js";
 import { priceLines, productName } from "./lines.js";
-import { usageLines } from "./metering.js";
+import { isMetered, usageLines } from "./metering.js";
 import {
   applyResume,
   createInvoice,
@@ -617,10 +617,53 @@ export function isEnded(sub: StripeSubscription): boolean {
 }
 
 /**
+ * How the final invoice of a subscription that ends with metered items bills their usage:
+ * `cycle` when the period closes on a scheduled cancellation, `now` for `invoice_now`.
+ */
+export type FinalUsageInvoice = "cycle" | "now";
+
+/**
+ * The final invoice of an ending subscription with metered items: the usage of its current
+ * period up to now, billed in arrears, as Stripe bills a period's usage when it closes. `cycle`
+ * creates a `subscription_cycle` draft finalized an hour later, like a renewal; `now` creates
+ * a `subscription_update` invoice that is finalized and attempted at once. Licensed items were
+ * billed in advance and get no line. Without `collect` (an `unpaid` subscription) the invoice
+ * stays an uncollected draft. Creates nothing without a metered item.
+ */
+function invoiceFinalUsage(
+  ctx: InvoicingContext,
+  ev: EventBatch,
+  sub: StripeSubscription,
+  mode: FinalUsageInvoice,
+  collect: boolean,
+): void {
+  const ss = getStripeStore(ctx.store);
+  const items = subscriptionItems(ss, sub.stripe_id);
+  if (!items.some((item) => isMetered(ss, item.price_id))) return;
+  const now = nowFor(ss, { customerId: sub.customer_id });
+  const period = { start: items[0].current_period_start, end: Math.min(now, items[0].current_period_end) };
+  const inv = createInvoice(ctx, ev, {
+    period,
+    customerId: sub.customer_id,
+    currency: sub.currency,
+    collectionMethod: sub.collection_method,
+    autoAdvance: collect,
+    daysUntilDue: sub.collection_method === "send_invoice" ? sub.days_until_due : undefined,
+    billingReason: mode === "cycle" ? "subscription_cycle" : "subscription_update",
+    subscriptionId: sub.stripe_id,
+    subscriptionMetadata: { ...sub.metadata },
+    lines: usageLines(ss, sub, items, period),
+  });
+  const updated = ss.subscriptions.update(sub.id, { latest_invoice: inv.stripe_id })!;
+  if (mode === "now" && collect) collectSubscriptionInvoice(ctx, ev, updated, inv, true);
+}
+
+/**
  * Cancel a subscription now: at once for an API call, or at its `cancel_at` with `scheduled`,
  * which keeps the `canceled_at` of the request that scheduled it. `reason` defaults to
  * `cancellation_requested`; Billing passes `payment_failed` when retries run out. Its unpaid
- * invoices stop being collected automatically.
+ * invoices stop being collected automatically. With `finalInvoice`, the metered usage of a
+ * billed subscription goes on a final invoice (see invoiceFinalUsage), whose events follow.
  * Sends customer.subscription.deleted, and no customer.subscription.updated, as on Stripe.
  */
 export function cancelSubscription(
@@ -628,7 +671,7 @@ export function cancelSubscription(
   ev: EventBatch,
   sub: StripeSubscription,
   details: StripeSubscriptionCancellationDetails = {},
-  options: { scheduled?: boolean; reason?: SubscriptionCancellationReason } = {},
+  options: { scheduled?: boolean; reason?: SubscriptionCancellationReason; finalInvoice?: FinalUsageInvoice } = {},
 ): StripeSubscription {
   const ss = getStripeStore(ctx.store);
   const now = nowFor(ss, { customerId: sub.customer_id });
@@ -650,7 +693,10 @@ export function cancelSubscription(
     },
   })!;
   ev.emit("customer.subscription.deleted", formatSubscription(ss, canceled));
-  return canceled;
+  const billed = sub.status === "active" || sub.status === "past_due" || sub.status === "unpaid";
+  if (!options.finalInvoice || !billed) return canceled;
+  invoiceFinalUsage(ctx, ev, canceled, options.finalInvoice, sub.status !== "unpaid");
+  return ss.subscriptions.get(sub.id)!;
 }
 
 /**

@@ -198,7 +198,7 @@ describe("Billing scenarios through stripe-node", { timeout: 30_000 }, () => {
     expect(flatItem).toMatchObject({ quantity: 1, current_period_start: T, current_period_end: TRIAL_END });
     expect(flatItem.id).toMatch(/^si_/);
     expect(flatItem.plan.interval).toBe("month");
-    expect(meteredItem.quantity).toBeNull();
+    expect(meteredItem).not.toHaveProperty("quantity");
 
     const events = s.hooks.events;
     expectInOrder(events, [

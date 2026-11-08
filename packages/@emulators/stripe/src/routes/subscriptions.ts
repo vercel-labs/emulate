@@ -728,8 +728,10 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     const params = { ...parseStripeQuery(c), ...(await parseStripeBody(c)) };
     const details = readCancellationDetails(params.cancellation_details);
     if (!details.ok) return sendStripeError(c, details.error);
+    // `prorate` is accepted but creates no prorations; `invoice_now` bills the metered usage so far.
+    const invoiceNow = readBool(params.invoice_now) ?? false;
     const ev = eventBatch(ctx, c);
-    const canceled = cancelSubscription(ctx, ev, sub, details.value);
+    const canceled = cancelSubscription(ctx, ev, sub, details.value, invoiceNow ? { finalInvoice: "now" } : {});
     await ev.commit();
     return expandedJson(c, render(canceled), expand, params);
   });
