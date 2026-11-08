@@ -498,7 +498,7 @@ Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `paymen
 
 By default delivery is inline, sequential and in order: the events a request causes are sent one after another, in the order they happened, before the API response returns. A failed delivery is not retried automatically; it stays in the delivery log and keeps the event's `pending_webhooks` above zero until `POST /_stripe/events/:id/redeliver` succeeds.
 
-To test how a handler copes with real-world delivery, turn on chaos. Settings apply to each batch of events a request causes:
+To test how a handler copes with real-world delivery, turn on chaos. Settings apply to each batch of events: the events one API call or hosted page causes, or every event Billing raises during one test clock advance. A single advance is one batch even when its actions are hours or months apart in simulated time, so `reorder` can deliver a trial end's `customer.subscription.updated` after the `invoice.paid` that followed it an hour later. Each event of an advance keeps the `created` of the action that raised it. The advance's own `test_helpers.test_clock.advancing` and `test_helpers.test_clock.ready` are separate batches, sent before and after it:
 
 ```bash
 curl -X POST http://localhost:4000/_stripe/webhooks/chaos \
@@ -599,7 +599,7 @@ A price's `product` names a seeded product by name or id; the older `product_nam
 
 The emulator aims to match Stripe's wire format. These are the places where it deliberately does less:
 
-- Webhooks are delivered inline, one after another and in order, before the API response returns. Failed deliveries are not retried, and redelivery happens only through `POST /_stripe/events/:id/redeliver`. Chaos (drop, duplicate, delay until flush, reorder) is opt-in and seeded.
+- Webhooks are delivered inline, one after another and in order, before the API response returns. Failed deliveries are not retried, and redelivery happens only through `POST /_stripe/events/:id/redeliver`. Chaos (drop, duplicate, delay until flush, reorder) is opt-in and seeded. The events of a test clock advance are delivered together once Billing has caught up to the new `frozen_time`, before the advance call returns, rather than as each action happens.
 - Webhook endpoints accept any `enabled_events` strings without checking them against Stripe's list of event types. `api_version` is stored and returned but events are not rendered in it, and `connect` endpoints are not modelled. Seed endpoints without a `secret` receive unsigned deliveries.
 - All events use one `api_version`. There is no per-endpoint version pinning, no conversion between versions, and no thin or v2 events.
 - `livemode` is always `false`, and events are kept for the life of the emulator rather than 30 days.

@@ -391,23 +391,31 @@ function earliest(actions: DueAction[]): DueAction | undefined {
 
 /**
  * Run Billing on a test clock up to `target`: repeatedly take the earliest action due at or
- * before the target, move the clock's `frozen_time` to it and run it in its own event batch,
- * whose events have no request and are `created` at the simulated time. The caller sets the
- * final `frozen_time` and status. Returns false when the clock keeps finding work, which the
- * caller reports as `internal_failure`.
+ * before the target, move the clock's `frozen_time` to it and run it. Every action of the
+ * advance emits into one event batch, so webhook chaos (reorder, duplicate, drop, delay) acts
+ * on the advance as a whole, as one request's events. The events have no request and each is
+ * `created` at the simulated time of the action that raised it; they are delivered, in emit
+ * order unless chaos reorders them, once Billing has caught up. The caller sets the final
+ * `frozen_time` and status. Returns false when the clock keeps finding work, which the caller
+ * reports as `internal_failure`.
  */
 export async function runBillingUntil(ctx: BillingContext, clockId: string, target: number): Promise<boolean> {
   const ss = getStripeStore(ctx.store);
+  let at = 0;
+  const ev = eventBatch(ctx, undefined, () => at);
+  let finished = false;
   for (let i = 0; i < MAX_ACTIONS; i++) {
     const clock = ss.testClocks.findOneBy("stripe_id", clockId);
-    if (!clock) return true;
-    const next = earliest(scheduledActions(ctx, clock).filter((action) => action.at <= target));
-    if (!next) return true;
+    const next = clock && earliest(scheduledActions(ctx, clock).filter((action) => action.at <= target));
+    if (!clock || !next) {
+      finished = true;
+      break;
+    }
     // A clock only moves forward; every action is clamped to frozen_time, so this never goes back.
     if (next.at > clock.frozen_time) ss.testClocks.update(clock.id, { frozen_time: next.at });
-    const ev = eventBatch(ctx, undefined, next.at);
+    at = next.at;
     next.run(ev);
-    await ev.commit();
   }
-  return false;
+  await ev.commit();
+  return finished;
 }

@@ -312,24 +312,29 @@ async function deliverBatch(
  * request context `c` for events an API call triggered; leave it out for events Stripe
  * raises on its own (hosted pages, billing time) so `request` is all null. `at` sets the
  * events' `created`, such as the simulated time of a test clock action; it defaults to the
- * wall clock.
+ * wall clock at commit. A function is read at each emit, so one batch can span several
+ * points in simulated time, as a test clock advance does.
  */
-export function eventBatch(ctx: EventBatchContext, c?: Context, at?: number): EventBatch {
+export function eventBatch(ctx: EventBatchContext, c?: Context, at?: number | (() => number)): EventBatch {
   const ss = getStripeStore(ctx.store);
-  const pending: Array<{ type: string; object: Record<string, unknown>; previous?: Record<string, unknown> }> = [];
+  const pending: Array<{ type: string; data: StripeEvent["data"]; created?: number }> = [];
 
   return {
     emit(type, object, previous) {
-      pending.push({ type, object, previous });
+      // Snapshot now: a batch that spans several billing actions commits after later changes.
+      const data = structuredClone(
+        previous && Object.keys(previous).length > 0 ? { object, previous_attributes: previous } : { object },
+      );
+      pending.push({ type, data, created: typeof at === "function" ? at() : at });
     },
 
     async commit() {
       const targets = webhookTargets(ctx.store, ctx.webhooks);
       const request = eventRequest(c);
       const apiVersion = getStripeApiVersion(ctx.store);
-      const created = at ?? Math.floor(Date.now() / 1000);
+      const now = Math.floor(Date.now() / 1000);
 
-      const stored = pending.splice(0).map(({ type, object, previous }) => {
+      const stored = pending.splice(0).map(({ type, data, created }) => {
         const webhookTargets = [...targets]
           .filter(([, sub]) => listens(sub, type))
           .map(([endpoint]) => ({ endpoint, delivered: false }));
@@ -337,10 +342,8 @@ export function eventBatch(ctx: EventBatchContext, c?: Context, at?: number): Ev
           stripe_id: stripeId("evt"),
           type,
           api_version: apiVersion,
-          created,
-          data: structuredClone(
-            previous && Object.keys(previous).length > 0 ? { object, previous_attributes: previous } : { object },
-          ),
+          created: created ?? now,
+          data,
           pending_webhooks: webhookTargets.length,
           request: { ...request },
           webhook_targets: webhookTargets,

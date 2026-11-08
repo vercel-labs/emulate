@@ -173,7 +173,7 @@ curl -X POST http://localhost:4009/_stripe/webhooks/chaos \
   -d '{"seed": 42, "drop": {"rate": 0.2}, "duplicate": {"types": ["invoice.paid"]}, "delay": {"types": ["customer.subscription.created"]}, "reorder": "shuffle"}'
 ```
 
-Dropped events are stored but not sent, delayed events wait for `POST /_stripe/webhooks/flush`, duplicates reuse the same `evt_` id, and `reorder` shuffles or reverses each batch. The same `seed` gives the same decisions in every fresh emulator.
+Dropped events are stored but not sent, delayed events wait for `POST /_stripe/webhooks/flush`, duplicates reuse the same `evt_` id, and `reorder` shuffles or reverses each batch: the events of one API call, or every billing event of one test clock advance. The same `seed` gives the same decisions in every fresh emulator.
 
 ## Emulator Controls
 

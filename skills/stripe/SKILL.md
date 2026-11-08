@@ -756,7 +756,7 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver -d "endpoint=we_xxx"
 ```
 
-`rate` is a probability from 0 to 1 (default 1) and `types` accepts `*` wildcards (default every type). Duplicates reuse the same `evt_` id. The same `seed` makes the same decisions in every fresh emulator, and the generator state and held events survive a snapshot and restore.
+`rate` is a probability from 0 to 1 (default 1) and `types` accepts `*` wildcards (default every type). Duplicates reuse the same `evt_` id. Chaos acts per batch: the events of one API call, or every billing event of one test clock advance (so `reorder` can swap a trial end's `customer.subscription.updated` with the `invoice.paid` an hour later). The same `seed` makes the same decisions in every fresh emulator, and the generator state and held events survive a snapshot and restore.
 
 ### Events dispatched
 

@@ -605,3 +605,114 @@ describe("Stripe webhook chaos", () => {
     expect(await form.json()).toMatchObject({ seed: 7, drop: { rate: 0.25, types: ["customer.created"] } });
   });
 });
+
+describe("Stripe webhook chaos during a test clock advance", () => {
+  const T = Math.floor(Date.UTC(2026, 0, 15, 12, 0, 0) / 1000);
+  const DAY = 86400;
+  const TRIAL_END = T + 7 * DAY;
+
+  /** A trialing subscription on a clock; advancing past the trial ends it and pays the first invoice an hour later. */
+  async function trialOnClock(app: Parameters<typeof api>[0]) {
+    const clock = await api<Json>(app, "POST", "/v1/test_helpers/test_clocks", { frozen_time: T });
+    const customer = await api<Json>(app, "POST", "/v1/customers", {
+      test_clock: clock.body.id,
+      payment_method: "pm_card_visa",
+      invoice_settings: { default_payment_method: "pm_card_visa" },
+    });
+    const price = await api<Json>(app, "POST", "/v1/prices", {
+      product_data: { name: "Pro" },
+      currency: "usd",
+      unit_amount: 2000,
+      recurring: { interval: "month" },
+    });
+    const sub = await api<Json>(app, "POST", "/v1/subscriptions", {
+      customer: customer.body.id,
+      items: [{ price: price.body.id }],
+      trial_period_days: 7,
+    });
+    expect(sub.body.status).toBe("trialing");
+    return { clockId: clock.body.id as string, subId: sub.body.id as string };
+  }
+
+  const advance = (app: Parameters<typeof api>[0], clockId: string) =>
+    api(app, "POST", `/v1/test_helpers/test_clocks/${clockId}/advance`, { frozen_time: TRIAL_END + 2 * 3600 });
+
+  /** The billing events of the advance, without the clock's own advancing and ready events. */
+  const billing = (types: string[]) => types.filter((type) => !type.startsWith("test_helpers."));
+
+  it("reverses the events of the whole advance, across billing actions hours apart", async () => {
+    const { app } = createTestApp({ webhook: true });
+    const { clockId } = await trialOnClock(app);
+    const plain = createTestApp({ webhook: true });
+    const reference = await trialOnClock(plain.app);
+    const inOrder = captureWebhooks();
+    await advance(plain.app, reference.clockId);
+    const emitted = billing(inOrder.events.map((e) => e.type));
+    vi.unstubAllGlobals();
+    // Trial end and the first invoice come from different actions an hour apart.
+    expect(emitted.indexOf("customer.subscription.updated")).toBeLessThan(emitted.indexOf("invoice.paid"));
+    expect(emitted.indexOf("invoice.created")).toBeLessThan(emitted.indexOf("invoice.paid"));
+
+    await api(app, "POST", "/_stripe/webhooks/chaos", { reorder: "reverse" });
+    const hooks = captureWebhooks();
+    await advance(app, clockId);
+    const delivered = hooks.events.map((e) => e.type);
+    expect(delivered[0]).toBe("test_helpers.test_clock.advancing");
+    expect(delivered.at(-1)).toBe("test_helpers.test_clock.ready");
+    expect(billing(delivered)).toEqual([...emitted].reverse());
+
+    // Each event keeps the simulated time of the action that raised it.
+    const created = (type: string) => hooks.ofType(type)[0].created;
+    expect(created("customer.subscription.trial_will_end")).toBe(TRIAL_END - 3 * DAY);
+    expect(created("invoice.created")).toBe(TRIAL_END);
+    expect(created("invoice.paid")).toBe(TRIAL_END + 3600);
+    // The delivery log follows the order the events were sent.
+    const log = await api<{ data: Json[] }>(app, "GET", "/_stripe/webhooks/deliveries");
+    const logged = log.body.data.map((d) => d.type);
+    expect(billing(logged.slice(logged.indexOf("test_helpers.test_clock.advancing")))).toEqual([...emitted].reverse());
+  });
+
+  it("shuffles an advance the same way for the same seed", async () => {
+    const orders: string[][] = [];
+    for (let run = 0; run < 2; run++) {
+      const { app } = createTestApp({ webhook: true });
+      const { clockId } = await trialOnClock(app);
+      await api(app, "POST", "/_stripe/webhooks/chaos", { seed: 11, reorder: "shuffle" });
+      const hooks = captureWebhooks();
+      await advance(app, clockId);
+      orders.push(billing(hooks.events.map((e) => e.type)));
+      vi.unstubAllGlobals();
+    }
+    expect(orders[0]).toEqual(orders[1]);
+    expect(orders[0]).toContain("invoice.paid");
+  });
+
+  it("duplicates invoice.paid raised during an advance under the same evt_ id", async () => {
+    const { app } = createTestApp({ webhook: true });
+    const { clockId } = await trialOnClock(app);
+    await api(app, "POST", "/_stripe/webhooks/chaos", { duplicate: { types: ["invoice.paid"], count: 2 } });
+    const hooks = captureWebhooks();
+    await advance(app, clockId);
+    const paid = hooks.ofType("invoice.paid");
+    expect(paid).toHaveLength(3);
+    expect(new Set(paid.map((e) => e.id)).size).toBe(1);
+    for (const delivery of hooks.deliveries) verify(delivery.body, delivery.headers["Stripe-Signature"]);
+  });
+
+  it("holds an event of an advance until it is flushed, after the events that followed it", async () => {
+    const { app } = createTestApp({ webhook: true });
+    const { clockId, subId } = await trialOnClock(app);
+    await api(app, "POST", "/_stripe/webhooks/chaos", { delay: { types: ["customer.subscription.updated"] } });
+    const hooks = captureWebhooks();
+    await advance(app, clockId);
+    expect(hooks.ofType("invoice.paid")).toHaveLength(1);
+    expect(hooks.ofType("customer.subscription.updated")).toHaveLength(0);
+
+    await api(app, "POST", "/_stripe/webhooks/flush", {});
+    const updated = hooks.ofType("customer.subscription.updated");
+    expect(updated.length).toBeGreaterThan(0);
+    expect((updated[0].data.object as Json).id).toBe(subId);
+    const types = hooks.events.map((e) => e.type);
+    expect(types.indexOf("customer.subscription.updated")).toBeGreaterThan(types.indexOf("invoice.paid"));
+  });
+});
