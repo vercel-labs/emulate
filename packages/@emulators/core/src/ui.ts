@@ -273,6 +273,10 @@ body{
 .checkout-cancel{
   text-align:center;margin-top:14px;
 }
+.checkout-error{
+  border:1px solid #ff3333;border-radius:6px;padding:10px 12px;margin-bottom:20px;
+  color:#ff6666;font-size:.8125rem;line-height:1.5;
+}
 .checkout-cancel a{
   color:#1a8c00;text-decoration:none;font-size:.8125rem;
   transition:color .15s;
@@ -443,6 +447,15 @@ export interface CheckoutLineItem {
   unitPrice: number;
   totalPrice: number;
   currency: string;
+  /** Billing interval shown after the price of a recurring item, such as `/ month`. */
+  intervalLabel?: string;
+}
+
+/** One choice in the hosted page's payment method select. */
+export interface CheckoutPaymentMethodOption {
+  value: string;
+  label: string;
+  selected?: boolean;
 }
 
 export interface CheckoutPageOptions {
@@ -453,6 +466,14 @@ export interface CheckoutPageOptions {
   currency: string;
   sessionId: string;
   cancelUrl?: string | null;
+  /** When given, a select of these replaces the simulated card fields and posts `payment_method`. */
+  paymentMethodOptions?: CheckoutPaymentMethodOption[];
+  /** Prefills the email field. */
+  email?: string;
+  /** Shown above the form, for example after a declined card. */
+  errorMessage?: string;
+  /** Replaces the default `Pay $X` button label. */
+  submitLabel?: string;
 }
 
 export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string): string {
@@ -464,8 +485,13 @@ export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string):
       ? opts.lineItems
           .map((li) => {
             const initial = li.name.charAt(0).toUpperCase();
+            const every = li.intervalLabel ? ` ${escapeHtml(li.intervalLabel)}` : "";
             const unitNote =
-              li.quantity > 1 ? `<div class="checkout-item-unit">${fmtShort(li.unitPrice)} each</div>` : "";
+              li.quantity > 1
+                ? `<div class="checkout-item-unit">${fmtShort(li.unitPrice)} each${every}</div>`
+                : every
+                  ? `<div class="checkout-item-unit">${every.trim()}</div>`
+                  : "";
             return `<div class="checkout-line-item">
   <div class="checkout-item-icon">${escapeHtml(initial)}</div>
   <div class="checkout-item-details">
@@ -496,6 +522,30 @@ export function renderCheckoutPage(opts: CheckoutPageOptions, service?: string):
 
   const merchant = opts.merchantName ? escapeHtml(opts.merchantName) : "Checkout";
 
+  const errorHtml = opts.errorMessage ? `<div class="checkout-error">${escapeHtml(opts.errorMessage)}</div>` : "";
+
+  const cardHtml = opts.paymentMethodOptions
+    ? `<select name="payment_method" class="checkout-input">
+          ${opts.paymentMethodOptions
+            .map(
+              (o) =>
+                `<option value="${escapeAttr(o.value)}"${o.selected ? " selected" : ""}>${escapeHtml(o.label)}</option>`,
+            )
+            .join("")}
+        </select>
+        <div class="checkout-sim-note">Pick a test card. 3D Secure is approved automatically.</div>`
+    : `<div class="checkout-card-box">
+          <input type="text" class="checkout-input" placeholder="1234 1234 1234 1234" disabled/>
+          <div class="checkout-card-row">
+            <input type="text" class="checkout-input" placeholder="MM / YY" disabled/>
+            <input type="text" class="checkout-input" placeholder="CVC" disabled/>
+          </div>
+        </div>
+        <div class="checkout-sim-note">Card fields are simulated. Payment will be auto-approved.</div>`;
+
+  const emailValue = opts.email ? ` value="${escapeAttr(opts.email)}"` : "";
+  const submitLabel = opts.submitLabel ? escapeHtml(opts.submitLabel) : `Pay ${fmtShort(opts.total)}`;
+
   return `${head("Checkout")}
 <body>
 ${emuBar(service)}
@@ -511,22 +561,16 @@ ${emuBar(service)}
   </div>
   <div class="checkout-form-side">
     <form method="post" action="/checkout/${escapeAttr(opts.sessionId)}/complete">
+      ${errorHtml}
       <div class="checkout-form-section">
         <label class="checkout-form-label">Email</label>
-        <input type="email" name="email" class="checkout-input" placeholder="you@example.com"/>
+        <input type="email" name="email" class="checkout-input" placeholder="you@example.com"${emailValue}/>
       </div>
       <div class="checkout-form-section">
         <label class="checkout-form-label">Card information</label>
-        <div class="checkout-card-box">
-          <input type="text" class="checkout-input" placeholder="1234 1234 1234 1234" disabled/>
-          <div class="checkout-card-row">
-            <input type="text" class="checkout-input" placeholder="MM / YY" disabled/>
-            <input type="text" class="checkout-input" placeholder="CVC" disabled/>
-          </div>
-        </div>
-        <div class="checkout-sim-note">Card fields are simulated. Payment will be auto-approved.</div>
+        ${cardHtml}
       </div>
-      <button type="submit" class="checkout-pay-btn">Pay ${fmtShort(opts.total)}</button>
+      <button type="submit" class="checkout-pay-btn">${submitLabel}</button>
     </form>
     ${cancelHtml}
   </div>

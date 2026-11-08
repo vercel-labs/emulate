@@ -75,6 +75,7 @@ export {
   renderUserButton,
   type CheckoutLineItem,
   type CheckoutPageOptions,
+  type CheckoutPaymentMethodOption,
   type UserButtonOptions,
   type InspectorTab,
 } from "./ui.js";

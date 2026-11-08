@@ -1,6 +1,6 @@
 import { derivedInvoicePrefix, toUnixTimestamp, type ExpandResolver } from "./helpers.js";
 import { testCardByNumber } from "./test-cards.js";
-import { unitAmountDecimal, wholeAmount } from "./pricing.js";
+import { priceAmount, unitAmountDecimal, wholeAmount } from "./pricing.js";
 import type { StripeStore } from "./store.js";
 import type {
   StripeBillingDetails,
@@ -445,20 +445,151 @@ export function formatPriceCurrencyOptions(p: StripePrice) {
   };
 }
 
+const CHECKOUT_SESSION_LIFETIME = 86400;
+
+/** Whether a subscription-mode session starts its subscription with a trial. */
+export function checkoutHasTrial(s: StripeCheckoutSession): boolean {
+  if (s.mode !== "subscription" || !s.subscription_data) return false;
+  return s.subscription_data.trial_end !== undefined || s.subscription_data.trial_period_days !== undefined;
+}
+
+/** The `li_` id of a session's line item. */
+export function checkoutLineItemId(s: StripeCheckoutSession, index: number): string {
+  return s.line_items[index]?.stripe_id ?? `li_${s.stripe_id.replace(/^cs_(test_)?/, "")}${index}`;
+}
+
+/**
+ * What a session's line item costs when the session completes. Recurring items are free
+ * during a trial, and metered ones are billed in arrears.
+ */
+export function checkoutLineAmount(s: StripeCheckoutSession, price: StripePrice | undefined, quantity: number): number {
+  if (!price) return 0;
+  if (price.recurring && (checkoutHasTrial(s) || price.recurring.usage_type === "metered")) return 0;
+  return priceAmount(price, quantity);
+}
+
+/** A Checkout Session line item (`object: "item"`). */
+export function formatCheckoutLineItem(ss: StripeStore, s: StripeCheckoutSession, index: number) {
+  const li = s.line_items[index];
+  const price = ss.prices.findOneBy("stripe_id", li.price);
+  const product = price ? ss.products.findOneBy("stripe_id", price.product_id) : undefined;
+  const amount = checkoutLineAmount(s, price, li.quantity);
+  return {
+    id: checkoutLineItemId(s, index),
+    object: "item" as const,
+    amount_discount: 0,
+    amount_subtotal: amount,
+    amount_tax: 0,
+    amount_total: amount,
+    currency: price?.currency ?? s.currency ?? null,
+    description: product?.name ?? null,
+    price: price ? formatPrice(price) : null,
+    quantity: li.quantity,
+  };
+}
+
+/** The embedded `line_items` list of a session, as `expand[]=line_items` includes it. */
+export function checkoutLineItemList(ss: StripeStore, s: StripeCheckoutSession) {
+  const items = s.line_items.map((_, index) => formatCheckoutLineItem(ss, s, index));
+  return {
+    object: "list" as const,
+    data: items.slice(0, EMBEDDED_LIST_LIMIT),
+    has_more: items.length > EMBEDDED_LIST_LIMIT,
+    url: `/v1/checkout/sessions/${s.stripe_id}/line_items`,
+  };
+}
+
+function checkoutInvoiceCreation() {
+  return {
+    enabled: false,
+    invoice_data: {
+      account_tax_ids: null,
+      custom_fields: null,
+      description: null,
+      footer: null,
+      issuer: null,
+      metadata: {},
+      rendering_options: null,
+    },
+  };
+}
+
+/**
+ * The Checkout Session object, keys in the alphabetical order of the API reference. Only
+ * cards and the hosted page exist, so the collection, tax, branding and shipping options keep
+ * their empty defaults.
+ */
 export function formatCheckoutSession(s: StripeCheckoutSession, baseUrl: string) {
+  const created = s.created ?? toUnixTimestamp(s.created_at);
+  const details = s.customer_details;
   return {
     id: s.stripe_id,
     object: "checkout.session" as const,
-    mode: s.mode,
-    status: s.status,
-    payment_status: s.payment_status,
-    customer: s.customer_id,
-    success_url: s.success_url,
+    adaptive_pricing: null,
+    after_expiration: null,
+    allow_promotion_codes: null,
+    amount_subtotal: s.amount_subtotal ?? null,
+    amount_total: s.amount_total ?? null,
+    automatic_tax: { enabled: false, liability: null, status: null },
+    billing_address_collection: null,
     cancel_url: s.cancel_url,
-    metadata: s.metadata,
-    created: toUnixTimestamp(s.created_at),
+    client_reference_id: s.client_reference_id ?? null,
+    client_secret: null,
+    collected_information: null,
+    consent: null,
+    consent_collection: null,
+    created,
+    currency: s.currency ?? null,
+    custom_fields: [] as unknown[],
+    custom_text: { after_submit: null, shipping_address: null, submit: null, terms_of_service_acceptance: null },
+    customer: s.customer_id,
+    customer_account: null,
+    customer_creation: s.customer_creation ?? null,
+    customer_details: details
+      ? {
+          address: null,
+          business_name: null,
+          email: details.email ?? null,
+          individual_name: null,
+          name: details.name ?? null,
+          phone: null,
+          tax_exempt: "none" as const,
+          tax_ids: [] as unknown[],
+        }
+      : null,
+    customer_email: s.customer_email ?? null,
+    discounts: [] as unknown[],
+    expires_at: s.expires_at ?? created + CHECKOUT_SESSION_LIFETIME,
+    invoice: s.invoice_id ?? null,
+    invoice_creation: s.mode === "payment" ? checkoutInvoiceCreation() : null,
     livemode: false,
+    locale: null,
+    metadata: s.metadata,
+    mode: s.mode,
+    payment_intent: s.payment_intent_id ?? null,
+    payment_link: null,
+    payment_method_collection: s.payment_method_collection ?? "always",
+    payment_method_configuration_details: null,
+    payment_method_options: {},
+    payment_method_types: ["card"],
+    payment_status: s.payment_status,
+    phone_number_collection: { enabled: false },
+    presentment_details: null,
+    recovered_from: null,
+    return_url: null,
+    saved_payment_method_options: null,
+    setup_intent: null,
+    shipping_address_collection: null,
+    shipping_cost: null,
+    shipping_options: [] as unknown[],
+    status: s.status,
+    submit_type: null,
+    subscription: s.subscription_id ?? null,
+    success_url: s.success_url,
+    total_details: { amount_discount: 0, amount_shipping: 0, amount_tax: 0 },
+    ui_mode: "hosted_page" as const,
     url: s.status === "open" ? `${baseUrl}/checkout/${s.stripe_id}` : null,
+    wallet_options: null,
   };
 }
 
@@ -987,6 +1118,12 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     },
     charge: {
       refunds: (parent) => emptyList(`/v1/charges/${String(parent.id)}/refunds`),
+    },
+    "checkout.session": {
+      line_items: (parent) => {
+        const session = ss.checkoutSessions.findOneBy("stripe_id", String(parent.id));
+        return session ? checkoutLineItemList(ss, session) : undefined;
+      },
     },
     invoice: {
       payments: (parent) =>

@@ -322,9 +322,28 @@ curl http://localhost:4000/v1/checkout/sessions
 
 # Expire a session
 curl -X POST http://localhost:4000/v1/checkout/sessions/cs_xxx/expire
+
+# A subscription with a 7 day trial (line_items needs at least one recurring price)
+curl -X POST http://localhost:4000/v1/checkout/sessions \
+  -d "mode=subscription" \
+  -d "line_items[0][price]=price_monthly" \
+  -d "line_items[0][quantity]=1" \
+  -d "subscription_data[trial_period_days]=7" \
+  -d "payment_method_collection=if_required" \
+  -d "success_url=http://localhost:3000/welcome?session_id={CHECKOUT_SESSION_ID}"
+
+# Line items are includable, or listed on their own
+curl "http://localhost:4000/v1/checkout/sessions/cs_test_xxx?expand[]=line_items&expand[]=subscription"
+curl http://localhost:4000/v1/checkout/sessions/cs_test_xxx/line_items
+
+# Complete the hosted page without a browser: a test card id, or "none" for a trial without a card
+curl -X POST http://localhost:4000/checkout/cs_test_xxx/complete \
+  -d "payment_method=pm_card_visa" -d "email=buyer@example.com"
 ```
 
-The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session, fires the `checkout.session.completed` webhook, and redirects to `success_url`. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
+The session's `url` field points to a hosted checkout page at `/checkout/cs_test_xxx`, where a select picks the test card. Paying completes the session, fires the `checkout.session.completed` webhook last, and redirects to `success_url`. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
+
+In `subscription` mode the page creates the customer and the subscription, with the card as the subscription's `default_payment_method` (the customer's invoice default stays unset). A trial saves the card through a SetupIntent and starts `trialing`; without a trial the first invoice is charged and the subscription turns `active`. The completed session has `customer`, `subscription` and `invoice` ids and `payment_status: "paid"`. In `payment` mode the page charges a PaymentIntent and sets `payment_intent`. A declined card (such as `pm_card_chargeDeclined`) re-renders the page with status 402 and keeps nothing, so no subscription exists. 3D Secure cards are approved on the page. `payment_method_types` is ignored.
 
 ### Payment Intents
 
@@ -661,6 +680,23 @@ const customer = await stripe.customers.retrieve(session.customer as string)
 
 console.log(session.payment_status) // 'paid'
 console.log(customer.name)          // 'Demo Shopper'
+```
+
+### Subscription Checkout with a Trial
+
+```typescript
+const session = await stripe.checkout.sessions.create({
+  mode: 'subscription',
+  line_items: [{ price: 'price_monthly', quantity: 1 }],
+  subscription_data: { trial_period_days: 7, metadata: { plan: 'pro' } },
+  success_url: `${origin}/welcome?session_id={CHECKOUT_SESSION_ID}`,
+})
+
+// After the customer pays on session.url:
+const done = await stripe.checkout.sessions.retrieve(session.id, { expand: ['subscription'] })
+const sub = done.subscription as Stripe.Subscription
+console.log(sub.status)                 // 'trialing'
+console.log(sub.default_payment_method) // 'pm_...', saved through a SetupIntent
 ```
 
 ### Payment Intent Flow (no checkout UI)

@@ -148,7 +148,8 @@ export function formatMoney(amountDecimal: string, currency: string): string {
   return symbol ? `${symbol}${text}` : `${currency.toUpperCase()} ${text}`;
 }
 
-function intervalText(interval: PriceInterval, count: number): string {
+/** How a price's billing interval reads after its amount: `/ month`, or `every 3 months`. */
+export function intervalText(interval: PriceInterval, count: number): string {
   return count === 1 ? `/ ${interval}` : `every ${count} ${interval}s`;
 }
 

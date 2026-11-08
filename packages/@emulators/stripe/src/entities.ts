@@ -219,8 +219,46 @@ export interface StripeCheckoutSession extends Entity {
   customer_id: string | null;
   success_url: string | null;
   cancel_url: string | null;
-  line_items: Array<{ price: string; quantity: number }>;
+  line_items: StripeCheckoutLineItem[];
   metadata: Record<string, string>;
+  /** Unix seconds. Sessions inserted without one use created_at. */
+  created?: number;
+  /** Defaults to 24 hours after `created`. */
+  expires_at?: number;
+  currency?: string;
+  /** What is due when the session completes: 0 during a trial. */
+  amount_subtotal?: number;
+  amount_total?: number;
+  client_reference_id?: string;
+  customer_email?: string;
+  /** Payment and setup mode only. Subscription mode always creates a customer. */
+  customer_creation?: "always" | "if_required";
+  /** Subscription mode only. Defaults to `always`. */
+  payment_method_collection?: "always" | "if_required";
+  subscription_data?: StripeCheckoutSubscriptionData;
+  /** Collected when the session completes. */
+  customer_details?: { email?: string; name?: string };
+  subscription_id?: string;
+  invoice_id?: string;
+  payment_intent_id?: string;
+}
+
+export interface StripeCheckoutLineItem {
+  /** The `li_` id. Sessions stored without one render an id derived from the session. */
+  stripe_id?: string;
+  price: string;
+  quantity: number;
+}
+
+/** The `subscription_data` a subscription-mode session passes on to its subscription. */
+export interface StripeCheckoutSubscriptionData {
+  description?: string;
+  metadata: Record<string, string>;
+  /** An absolute trial end. */
+  trial_end?: number;
+  /** A trial length counted from the moment the session completes. */
+  trial_period_days?: number;
+  missing_payment_method?: "cancel" | "create_invoice" | "pause";
 }
 
 export interface StripeEventRequest {

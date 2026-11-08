@@ -1,6 +1,6 @@
 # @emulators/stripe
 
-Stripe API emulation with customers, payment methods, customer sessions, payment intents, setup intents, charges, subscriptions, invoices, invoice items, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
+Stripe API emulation with customers, payment methods, customer sessions, payment intents, setup intents, charges, subscriptions, invoices, invoice items, products, prices, and checkout sessions (payment and subscription mode). Includes a hosted checkout page and webhook delivery.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -243,12 +243,25 @@ Products have the full shape of the API reference. `default_price`, `package_dim
 Amounts follow Stripe's tiered pricing rules: graduated tiers charge each tier for the units in it plus the flat fee of every tier reached, volume tiers charge every unit at the tier the whole quantity falls in, and a quantity of 0 still bills the first tier's flat fee.
 
 ### Checkout Sessions
-- `POST /v1/checkout/sessions` — create checkout session
-- `GET /v1/checkout/sessions/:id` — retrieve session
-- `POST /v1/checkout/sessions/:id/expire` — expire session
-- `GET /v1/checkout/sessions` — list sessions (filter by `customer`, `status`, `payment_status`)
-- `GET /checkout/:id` — hosted checkout page (HTML)
-- `POST /checkout/:id/complete` — complete payment flow
+- `POST /v1/checkout/sessions`: create a session in `payment`, `subscription` or `setup` mode. Accepts `line_items` (`{price, quantity}`), `customer` or `customer_email`, `customer_creation` (`payment` and `setup` mode only), `client_reference_id`, `success_url`, `cancel_url`, `expires_at` (30 minutes to 24 hours ahead, default 24 hours), `metadata`, and in `subscription` mode `payment_method_collection` (`always` or `if_required`) and `subscription_data` (`trial_period_days`, `trial_end`, `trial_settings[end_behavior][missing_payment_method]`, `description`, `metadata`). `payment_method_types` is ignored, since endive removed it from the request
+- `GET /v1/checkout/sessions/:id`: retrieve a session. `line_items` is includable, and `customer`, `invoice`, `subscription` and `payment_intent` are expandable
+- `GET /v1/checkout/sessions/:id/line_items`: list the line items (`li_`, `object: "item"`)
+- `POST /v1/checkout/sessions/:id/expire`: expire an open session
+- `GET /v1/checkout/sessions`: list sessions, filtered by `customer`, `status`, `payment_status`, `subscription` and `payment_intent`
+- `GET /checkout/:id`: the hosted checkout page (HTML), with a select of test cards
+- `POST /checkout/:id/complete`: what the page posts. Form fields `payment_method` (a test card id, default `pm_card_visa`, or `none` to start a free trial without a card) and `email`
+
+Session ids start with `cs_test_`. `amount_subtotal` and `amount_total` are what is due when the session completes, so a trial session shows 0. `subscription` mode needs at least one recurring price, and `payment` mode accepts only one-time prices; both return 400 with `param: "line_items"` otherwise.
+
+Completing the page in `subscription` mode creates the customer (unless the session has one), then the subscription through the same path as `POST /v1/subscriptions`, with the collected card as the subscription's `default_payment_method`. The customer's `invoice_settings.default_payment_method` is left alone. With a trial the card is saved through a `seti_` SetupIntent and the $0 invoice is paid at once; without one the card is attached and the first invoice charged with the customer present. The session ends `complete` and `paid` with `customer`, `subscription` and `invoice` set:
+
+| Session | Events, in order, ending with `checkout.session.completed` |
+|---------|-------------------------------------------------------------|
+| Trial, card | `customer.created`, `setup_intent.created`, `payment_method.attached`, `setup_intent.succeeded`, `customer.subscription.created` (`trialing`), the invoice events up to `invoice.paid` |
+| No trial | `customer.created`, `payment_method.attached`, `customer.subscription.created` (`incomplete`), the invoice, PaymentIntent and charge events, `invoice.paid`, `customer.subscription.updated` (`active`) |
+| Trial, `payment_method_collection=if_required`, no card | `customer.created`, `customer.subscription.created` (`trialing`, no `default_payment_method`), the invoice events |
+
+A declined card re-renders the page with status 402 and the decline message. Nothing the attempt created is kept (no customer, subscription, invoice or payment method) and no event is sent, so the customer can try another card. Choosing no card when the session needs one returns the page with status 400. In `payment` mode the page charges a `pi_` PaymentIntent (`payment_intent.created`, `payment_intent.succeeded`, `charge.succeeded`) and sets `payment_intent`; a customer is created only with `customer_creation=always`. Every event the page causes carries a `null` request.
 
 ## Webhooks
 
@@ -357,7 +370,11 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - A test card with authentication `on_setup` (3155, 3178) never asks for authentication off-session, whether or not it was set up first.
 - SetupIntents accept only cards. SetupAttempts and mandates are not modelled, so `latest_attempt`, `mandate` and `single_use_mandate` are always `null`, and `automatic_payment_methods` is `null` with `payment_method_types` always `["card"]`. `return_url`, `payment_method_data` and `payment_method_options` params are ignored. Confirmation always runs with the customer present, so every 3D Secure card asks for authentication at setup.
 - The messages for using a payment method that belongs to another customer are the emulator's wording.
-- Payment-mode Checkout Sessions may be created without `line_items`.
+- Payment-mode Checkout Sessions may be created without `line_items`. Such a session has `null` amounts and `currency`, and completing it charges nothing and creates no PaymentIntent.
+- Checkout pages are emulator HTML that offer a select of test cards in place of card fields. 3D Secure is approved on the page, because the customer is present. A declined attempt keeps nothing it created, including the customer and the failed charge.
+- Checkout Sessions never expire on their own at `expires_at`; only `POST /v1/checkout/sessions/:id/expire` expires them. Setup mode only marks the session complete and creates no SetupIntent.
+- Subscription-mode Checkout Sessions reject one-time prices, which Stripe would put on the first invoice. `subscription_data` params other than `trial_period_days`, `trial_end`, `trial_settings`, `description` and `metadata` are ignored, as are `invoice_creation`, `discounts`, `allow_promotion_codes`, tax, shipping, consent and custom field options, which keep their empty defaults. `customer_details` holds only `email` and `name`, and `setup_intent` is always `null`.
+- Subscription-mode sessions without a `customer` report `customer_creation: "always"`, and the line items of a trial session report amounts of 0. Both are the emulator's reading of the docs. Validation messages for Checkout Session params are partly the emulator's wording.
 - Only card payment methods exist, and only the documented test cards. `card[number]` is accepted for those numbers without the raw card data setting real Stripe requires. Fingerprints are derived from the card number, `card.checks.cvc_check` turns `pass` when a `pm_card_*` id or a card created with `card[cvc]` is attached, and `regulated_status` is always `unregulated`.
 - `GET /v1/payment_methods` without `customer` lists every payment method.
 - Detaching a customer's default payment method clears the default and sends `customer.updated`. Deleting a customer detaches its payment methods without sending `payment_method.detached`.
