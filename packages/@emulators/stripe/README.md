@@ -35,13 +35,13 @@ These routes exist only in the emulator. See [Webhook delivery model and chaos](
 - `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure for a SetupIntent in `requires_action`. See [Setup Intents](#setup-intents)
 
 ### Customers
-- `POST /v1/customers` — create customer
-- `GET /v1/customers/:id` — retrieve customer
-- `POST /v1/customers/:id` — update customer
-- `DELETE /v1/customers/:id` — delete customer
-- `GET /v1/customers` — list customers
+- `POST /v1/customers`: create customer
+- `GET /v1/customers/:id`: retrieve customer
+- `POST /v1/customers/:id`: update customer
+- `DELETE /v1/customers/:id`: delete customer
+- `GET /v1/customers`: list customers, filtered by `email` and `test_clock`. Customers on a test clock are listed only with `test_clock`
 
-Create accepts `payment_method`, which attaches that payment method (or a test card id such as `pm_card_visa`) in the same call, and `invoice_settings[default_payment_method]`, which may name the payment method being attached. Update accepts `invoice_settings[default_payment_method]` for a payment method already attached to the customer, or an empty string to clear it. Both accept `invoice_prefix` (3 to 12 uppercase letters or numbers). Customers always carry `address`, `balance` (0), `currency`, `default_source`, `delinquent` (false), `invoice_prefix` (8 characters when generated), `invoice_settings`, `next_invoice_sequence` (1), `phone`, `preferred_locales`, `shipping`, `tax_exempt` (`none`) and `test_clock` (null). Deleting a customer detaches its payment methods.
+Create accepts `payment_method`, which attaches that payment method (or a test card id such as `pm_card_visa`) in the same call, and `invoice_settings[default_payment_method]`, which may name the payment method being attached. Update accepts `invoice_settings[default_payment_method]` for a payment method already attached to the customer, or an empty string to clear it. Both accept `invoice_prefix` (3 to 12 uppercase letters or numbers). Create also accepts `test_clock`, which puts the customer on that [test clock](#test-clocks). Customers always carry `address`, `balance` (0), `currency`, `default_source`, `delinquent` (false), `invoice_prefix` (8 characters when generated), `invoice_settings`, `next_invoice_sequence` (1), `phone`, `preferred_locales`, `shipping`, `tax_exempt` (`none`) and `test_clock` (null unless the customer is on a clock). Deleting a customer detaches its payment methods.
 
 ### Payment Methods
 - `POST /v1/payment_methods`: create a card payment method from `card[token]` (a test token such as `tok_visa`) or `card[number]` with `card[exp_month]` and `card[exp_year]` (a test card number). Also accepts `billing_details`, `metadata` and `allow_redisplay`
@@ -134,7 +134,7 @@ Without a `customer`, a successful setup leaves the card unattached, and it can 
 - `POST /v1/invoices/:id/pay`: pay, finalizing a draft first. Accepts `payment_method`, `off_session` (default `true`), `paid_out_of_band` and `forgive`
 - `POST /v1/invoices/:id/void`: void an `open` or `uncollectible` invoice
 - `POST /v1/invoices/:id/mark_uncollectible`: mark an `open` invoice uncollectible
-- `GET /v1/invoices`: list invoices, filtered by `customer`, `status`, `collection_method` and `subscription`
+- `GET /v1/invoices`: list invoices, filtered by `customer`, `status`, `collection_method`, `subscription` and `test_clock`. Invoices of a test clock customer are listed only when `customer`, `subscription` or `test_clock` is given
 
 Invoices use the wire shape of API versions from basil on. There is no top-level `subscription`, `payment_intent`, `charge` or `paid`; `parent` is `null` for invoices created through the API. `lines` is a list with `total_count` and `url`. `payments`, `confirmation_secret` and `amount_paid_off_stripe` are includable, so they appear only with `expand[]`. `status_details` appears only while the invoice is `uncollectible`.
 
@@ -161,7 +161,7 @@ Completing 3D Secure with `POST /_stripe/simulate/payment_intents/:id/authentica
 - `GET /v1/subscriptions/:id`: retrieve a subscription
 - `POST /v1/subscriptions/:id`: update `items` (`items[i][id]` with `price`, `quantity`, `metadata` or `deleted`; an entry without `id` adds an item), `cancel_at_period_end`, `cancel_at` (`""` clears it), `cancellation_details` (`comment`, `feedback`), `default_payment_method`, `description`, `metadata`, `trial_end` and `trial_settings`. Changes create no prorations or invoices
 - `DELETE /v1/subscriptions/:id`: cancel at once, with optional `cancellation_details`
-- `GET /v1/subscriptions`: list subscriptions, filtered by `customer`, `price`, `collection_method`, `test_clock` and `status`. Without `status`, canceled subscriptions are left out; `status=all` lists every one and `status=ended` the canceled and expired ones
+- `GET /v1/subscriptions`: list subscriptions, filtered by `customer`, `price`, `collection_method`, `test_clock` and `status`. Subscriptions of a test clock customer are listed only when `customer` or `test_clock` is given. Without `status`, canceled subscriptions are left out; `status=all` lists every one and `status=ended` the canceled and expired ones
 
 ### Subscription Items
 - `POST /v1/subscription_items`: add an item to `subscription` from `price`, with `quantity` (default 1) and `metadata`. It joins the current period
@@ -197,6 +197,26 @@ Events: `customer.subscription.created` first, already pointing at `latest_invoi
 | Deleting the customer | Cancels each of its subscriptions the same way, before `customer.deleted` |
 
 A canceled subscription accepts only `metadata` and `cancellation_details`; an `incomplete` one only `metadata` and `default_payment_method`. Other updates answer 400. Every change sends `customer.subscription.updated` with `previous_attributes`, including the old `items` list when items change.
+
+### Test Clocks
+- `POST /v1/test_helpers/test_clocks`: create a clock frozen at `frozen_time` (required), with an optional `name`. `customer` puts an existing customer, with its subscriptions and invoices, on the new clock; its `frozen_time` cannot be in the past
+- `GET /v1/test_helpers/test_clocks/:id`: retrieve a clock
+- `POST /v1/test_helpers/test_clocks/:id/advance`: move `frozen_time` forward
+- `DELETE /v1/test_helpers/test_clocks/:id`: delete a clock and everything on it
+- `GET /v1/test_helpers/test_clocks`: list clocks, newest first
+
+A clock (`clock_...`, object `test_helpers.test_clock`) is created `ready` with `status_details` `{}` and `deletes_after` 30 days after `created`. Pass `test_clock` when creating a customer to put the customer on it. From then on, everything created for that customer (payment methods, subscriptions and their items, invoices, invoice items, PaymentIntents, charges, SetupIntents, Checkout Sessions) takes its `created`, `start_date`, `trial_start` and similar times from the clock's `frozen_time` instead of the wall clock. Subscriptions, invoices and invoice items of the customer carry `test_clock`, which is expandable, as it is on the customer.
+
+| Rule | Result |
+|------|--------|
+| More than 3 customers on a clock | 400, `param` `test_clock` |
+| More than 3 live subscriptions for a clock customer | 400, `param` `customer` |
+| `frozen_time` not after the current one | 400, `param` `frozen_time` |
+| Advancing past two intervals of the shortest live subscription on the clock, counted on the calendar from the current `frozen_time` (two years when the clock has none) | 400, `param` `frozen_time` |
+
+`advance` answers with the clock as Stripe does while it works: `status` `advancing`, the old `frozen_time` and `status_details.advancing.target_frozen_time`. The emulator finishes the advance before responding, so a `GET` right after shows `ready` at the target time. It sends `test_helpers.test_clock.advancing` (with the request's id) and then `test_helpers.test_clock.ready` (with a `null` request). Advancing moves time only: trials, renewals and invoice collection do not run yet.
+
+`DELETE` answers `{id, object: "test_helpers.test_clock", deleted: true}` and removes the clock's customers with their payment methods, subscriptions, invoices, invoice items, PaymentIntents, charges, SetupIntents and Checkout Sessions. Only `test_helpers.test_clock.deleted` is sent; the removed objects send no events of their own.
 
 ### Invoice Items
 - `POST /v1/invoiceitems`: create an item for `customer` (required), from `pricing[price]` (amount is `unit_amount` times `quantity`), `amount` with `currency`, or `unit_amount_decimal`. With `invoice` it goes on that draft; without, it stays pending. Also accepts `quantity`, `description` (defaults to the product name), `discountable`, `period` and `metadata`
@@ -289,7 +309,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
 
-Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.trial_will_end`, `checkout.session.completed` and `checkout.session.expired`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
+Events sent: `customer.created`, `customer.updated`, `customer.deleted`, `payment_method.attached`, `payment_method.detached`, `payment_method.updated`, `product.created`, `price.created`, `price.updated`, `payment_intent.created`, `payment_intent.requires_action`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `setup_intent.created`, `setup_intent.requires_action`, `setup_intent.succeeded`, `setup_intent.setup_failed`, `setup_intent.canceled`, `charge.succeeded`, `charge.failed`, `invoice.created`, `invoice.updated`, `invoice.deleted`, `invoice.finalized`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.voided`, `invoice.marked_uncollectible`, `invoice_payment.paid`, `invoiceitem.created`, `invoiceitem.deleted`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.trial_will_end`, `checkout.session.completed`, `checkout.session.expired`, `test_helpers.test_clock.created`, `test_helpers.test_clock.advancing`, `test_helpers.test_clock.ready` and `test_helpers.test_clock.deleted`. Events raised by the customer completing 3D Secure carry a `null` request, like the hosted checkout page.
 
 ## Webhook delivery model and chaos
 
@@ -386,7 +406,10 @@ The emulator aims to match Stripe's wire format. These are the places where it d
 - `/pay` ignores `forgive`, `mandate` and `source`: card payments either cover the whole amount or fail. A customer with no payment method gets a 400 and the attempt is not counted.
 - Subscriptions have no prorations, `subscription_update` invoices for item changes, schedules, quotes, Trial Offers, `pause_collection`, pause or resume, `billing_cycle_anchor` params, `billing_cycle_anchor_config`, tax, discounts, coupons, pending invoice items, thresholds or Connect: those fields keep their empty or `null` defaults. `billing_mode` is always `flexible`, with `updated_at` equal to `created`. `current_trial` on items is always `null`, because only legacy trials exist, and `trial_from_plan` never starts a trial, because plans have no `trial_period_days`.
 - Every item of a subscription must share one currency and one billing interval. Real Stripe allows mixed intervals under flexible billing mode.
-- Billing time does not pass on its own: trials never end by themselves, periods never renew and `incomplete` subscriptions never expire after 23 hours. `trial_end` can be changed only while the subscription is `trialing`.
+- Billing time does not pass on its own: trials never end by themselves, periods never renew and `incomplete` subscriptions never expire after 23 hours, and advancing a test clock moves its time without running any of them yet. `trial_end` can be changed only while the subscription is `trialing`.
+- Test clock advances run synchronously inside the request. The response says `advancing`, with `status_details.advancing.target_frozen_time`, but the stored clock is already `ready` when it returns. Clocks are never deleted on their own at `deletes_after`, and `internal_failure` never happens.
+- Deleting a test clock removes its customers and their objects without sending `customer.deleted`, `customer.subscription.deleted` or other per-object events. Removing a customer from a clock is not possible, as on Stripe.
+- Clock events (`test_helpers.test_clock.*`) and the events of clock customers carry a wall clock `created`, and Stripe-Signature timestamps stay on the wall clock. Clock customers are hidden from `GET /v1/customers` and their subscriptions and invoices from the unfiltered lists, but other lists (PaymentIntents, charges, payment methods, invoice items) still show their objects. A subscription counts towards the limit of three while it is not `canceled` or `incomplete_expired`. The error messages for test clock limits are the emulator's wording.
 - The first payment of a subscription counts as an automatic collection attempt, so a decline makes the customer `delinquent`. `error_if_incomplete` rolls back everything the attempt created, including the declined charge.
 - Invoice line descriptions for subscription items (`1 × Pro Plan (at $20.00 / month)`, `Free trial for 1 × Pro Plan`, tier lines) and the error messages for subscription updates are the emulator's wording. The pending invoice items of a customer are not pulled into subscription invoices.
 - InvoicePayments are only of type `payment_intent`, and there is no attach-payment or detach-payment API.

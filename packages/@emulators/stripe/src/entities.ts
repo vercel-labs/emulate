@@ -12,6 +12,8 @@ export interface StripeCustomer extends Entity {
   next_invoice_sequence?: number;
   delinquent?: boolean;
   test_clock?: string;
+  /** Unix seconds on the customer's clock. Customers inserted without one use created_at. */
+  created?: number;
 }
 
 export interface StripeAddress {
@@ -485,6 +487,19 @@ export interface StripeSubscriptionItem extends Entity {
   created: number;
   current_period_start: number;
   current_period_end: number;
+}
+
+export type TestClockStatus = "advancing" | "internal_failure" | "ready";
+
+/** A test clock. Customers created on it, and everything billed to them, read its frozen time. */
+export interface StripeTestClock extends Entity {
+  stripe_id: string;
+  name?: string;
+  frozen_time: number;
+  status: TestClockStatus;
+  /** Unix seconds on the wall clock. */
+  created: number;
+  deletes_after: number;
 }
 
 /** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */

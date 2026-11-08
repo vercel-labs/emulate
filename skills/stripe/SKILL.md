@@ -251,7 +251,7 @@ curl -X POST http://localhost:4000/v1/customers/cus_xxx \
 # Delete customer
 curl -X DELETE http://localhost:4000/v1/customers/cus_xxx
 
-# List customers
+# List customers (customers on a test clock only with test_clock=clock_xxx)
 curl http://localhost:4000/v1/customers
 ```
 
@@ -435,6 +435,27 @@ curl "http://localhost:4000/v1/subscription_items?subscription=sub_xxx"
 
 Subscriptions use the current wire shape: billing periods are `items.data[].current_period_start` and `current_period_end`, not top-level fields, and each item carries both `price` and the legacy `plan`. Creating one finalizes its first invoice (`billing_reason` `subscription_create`) and charges the subscription's `default_payment_method` or the customer's default card. A paid invoice makes it `active`; a decline (`pm_card_chargeCustomerFail`) or 3D Secure leaves it `incomplete` with the invoice `open`, and paying that invoice later activates it. `error_if_incomplete` answers 402 and stores nothing. A trial makes it `trialing` with a paid $0 invoice whose lines say "Free trial", and a trial under three days sends `customer.subscription.trial_will_end` at once. `send_invoice` subscriptions are `active` at once with an open invoice due after `days_until_due`. `DELETE` sets `canceled` with `cancellation_details.reason` `cancellation_requested` and sends only `customer.subscription.deleted`. Item and setting changes create no prorations. Billing time does not pass on its own, so trials and periods never roll over by themselves.
 
+### Test Clocks
+
+```bash
+# A clock frozen at a chosen time, and a customer on it with a default card
+curl -X POST http://localhost:4000/v1/test_helpers/test_clocks \
+  -d "frozen_time=1767225600" -d "name=Annual renewal"
+curl -X POST http://localhost:4000/v1/customers \
+  -d "test_clock=clock_xxx" -d "payment_method=pm_card_visa" \
+  -d "invoice_settings[default_payment_method]=pm_card_visa"
+
+# Advance (answers status=advancing with the old frozen_time; a GET right after shows ready)
+curl -X POST http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx/advance -d "frozen_time=1767830400"
+curl http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx
+
+# List the clock's objects, then delete the clock with its customers and their objects
+curl "http://localhost:4000/v1/subscriptions?test_clock=clock_xxx"
+curl -X DELETE http://localhost:4000/v1/test_helpers/test_clocks/clock_xxx
+```
+
+Everything created for a clock customer (subscriptions, invoices, payment methods, PaymentIntents) takes its times from the clock's `frozen_time`, so a subscription created with `trial_period_days=7` has `created`, `start_date` and `trial_start` equal to the frozen time. A clock holds at most 3 customers and each of them at most 3 subscriptions. One advance may move at most two intervals of the shortest subscription on the clock, or two years without subscriptions. Unfiltered `GET /v1/customers`, `/v1/subscriptions` and `/v1/invoices` leave clock objects out; pass `customer`, `subscription` (invoices) or `test_clock` to see them. Advancing moves time only for now: trials, renewals and collection do not run on it yet. Deleting a clock sends only `test_helpers.test_clock.deleted`.
+
 ### Invoices
 
 ```bash
@@ -616,6 +637,10 @@ curl -X POST http://localhost:4000/_stripe/events/evt_xxx/redeliver
 | `customer.subscription.trial_will_end` | Trial ends within three days (sent at once when created that close) |
 | `checkout.session.completed` | Checkout completed via hosted page |
 | `checkout.session.expired` | Checkout session expired |
+| `test_helpers.test_clock.created` | Test clock created |
+| `test_helpers.test_clock.advancing` | Test clock advance started |
+| `test_helpers.test_clock.ready` | Test clock reached its new `frozen_time` |
+| `test_helpers.test_clock.deleted` | Test clock deleted with its customers |
 
 ### Webhook handler example
 

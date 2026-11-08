@@ -19,8 +19,27 @@ import type {
   StripeSetupIntent,
   StripeSubscription,
   StripeSubscriptionItem,
+  StripeTestClock,
   StripeWebhookEndpoint,
 } from "./entities.js";
+
+/**
+ * The Test Clock object. `advancingTo` renders the clock as an advance request sees it:
+ * `advancing` towards that time, still at its old `frozen_time`.
+ */
+export function formatTestClock(clock: StripeTestClock, advancingTo?: number) {
+  return {
+    id: clock.stripe_id,
+    object: "test_helpers.test_clock" as const,
+    created: clock.created,
+    deletes_after: clock.deletes_after,
+    frozen_time: clock.frozen_time,
+    livemode: false,
+    name: clock.name ?? null,
+    status: advancingTo === undefined ? clock.status : ("advancing" as const),
+    status_details: advancingTo === undefined ? {} : { advancing: { target_frozen_time: advancingTo } },
+  };
+}
 
 /** The Webhook Endpoint object. Stripe returns `secret` only in the create response. */
 export function formatWebhookEndpoint(ep: StripeWebhookEndpoint, options: { includeSecret?: boolean } = {}) {
@@ -47,7 +66,7 @@ export function formatCustomer(c: StripeCustomer) {
     object: "customer" as const,
     address: null,
     balance: 0,
-    created: toUnixTimestamp(c.created_at),
+    created: c.created ?? toUnixTimestamp(c.created_at),
     currency: null,
     default_source: null,
     delinquent: c.delinquent ?? false,
@@ -1065,6 +1084,10 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
       const found = ss.subscriptionItems.findOneBy("stripe_id", id);
       return found ? formatSubscriptionItem(ss, found) : undefined;
     },
+    test_clock: (id) => {
+      const found = ss.testClocks.findOneBy("stripe_id", id);
+      return found ? formatTestClock(found) : undefined;
+    },
   };
 
   const fieldTypes: Record<string, string> = {
@@ -1082,6 +1105,7 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     invoice_item: "invoiceitem",
     subscription: "subscription",
     subscription_item: "subscription_item",
+    test_clock: "test_clock",
   };
 
   const prefixTypes: Array<[string, string]> = [
@@ -1099,6 +1123,7 @@ export function stripeExpandResolver(ss: StripeStore, baseUrl: string): ExpandRe
     ["inpay_", "invoice_payment"],
     ["sub_", "subscription"],
     ["si_", "subscription_item"],
+    ["clock_", "test_clock"],
   ];
 
   const storedInvoice = (parent: Record<string, unknown>) => ss.invoices.findOneBy("stripe_id", String(parent.id));

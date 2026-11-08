@@ -1,6 +1,15 @@
 import type { RouteContext } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { stripeId, parseStripeBody, stripeError, stripeList, expandedJson, generateInvoicePrefix } from "../helpers.js";
+import {
+  stripeId,
+  parseStripeBody,
+  stripeError,
+  stripeList,
+  expandedJson,
+  generateInvoicePrefix,
+  toUnixTimestamp,
+} from "../helpers.js";
+import { clockCustomers, MAX_CLOCK_CUSTOMERS } from "../clock.js";
 import { formatCustomer, formatPaymentMethod, stripeExpandResolver } from "../formatters.js";
 import { eventBatch, previousAttributes } from "../events.js";
 import { testCardByPaymentMethod } from "../test-cards.js";
@@ -52,6 +61,28 @@ export function customerRoutes(ctx: RouteContext): void {
     if (defaultPaymentMethod && defaultPaymentMethod !== paymentMethod) {
       return sendStripeError(c, notCustomersPaymentMethod(defaultPaymentMethod));
     }
+    const testClockId = typeof body.test_clock === "string" && body.test_clock !== "" ? body.test_clock : undefined;
+    const testClock = testClockId ? ss.testClocks.findOneBy("stripe_id", testClockId) : undefined;
+    if (testClockId && !testClock) {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `No such test_clock: '${testClockId}'`,
+        "resource_missing",
+        "test_clock",
+      );
+    }
+    if (testClock && clockCustomers(ss, testClock.stripe_id).length >= MAX_CLOCK_CUSTOMERS) {
+      return stripeError(
+        c,
+        400,
+        "invalid_request_error",
+        `A test clock can have at most ${MAX_CLOCK_CUSTOMERS} customers.`,
+        undefined,
+        "test_clock",
+      );
+    }
     if (paymentMethod && !testCardByPaymentMethod(paymentMethod)) {
       const stored = ss.paymentMethods.findOneBy("stripe_id", paymentMethod);
       if (!stored) {
@@ -75,6 +106,7 @@ export function customerRoutes(ctx: RouteContext): void {
       invoice_prefix: typeof body.invoice_prefix === "string" ? body.invoice_prefix : generateInvoicePrefix(),
       next_invoice_sequence: 1,
       delinquent: false,
+      ...(testClock && { test_clock: testClock.stripe_id, created: testClock.frozen_time }),
     });
 
     let attached: StripePaymentMethod | undefined;
@@ -205,9 +237,14 @@ export function customerRoutes(ctx: RouteContext): void {
   });
 
   app.get("/v1/customers", (c) => {
-    let items = ss.customers.all();
+    // Customers on a test clock are listed only when the clock is named.
+    const testClock = c.req.query("test_clock");
+    let items = ss.customers.all().filter((cust) => (testClock ? cust.test_clock === testClock : !cust.test_clock));
     const email = c.req.query("email");
     if (email) items = items.filter((cust) => cust.email === email);
-    return stripeList(c, items, "/v1/customers", formatCustomer, { expand });
+    return stripeList(c, items, "/v1/customers", formatCustomer, {
+      created: (cust) => cust.created ?? toUnixTimestamp(cust.created_at),
+      expand,
+    });
   });
 }

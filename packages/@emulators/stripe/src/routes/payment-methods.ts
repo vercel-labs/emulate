@@ -11,6 +11,7 @@ import {
 } from "../helpers.js";
 import { formatCustomer, formatPaymentMethod, stripeExpandResolver } from "../formatters.js";
 import { eventBatch, previousAttributes } from "../events.js";
+import { nowFor } from "../clock.js";
 import {
   errorDocUrl,
   rawNumberError,
@@ -85,7 +86,7 @@ export function insertCardPaymentMethod(
     billing_details: fields.billing_details ?? {},
     allow_redisplay: fields.allow_redisplay ?? "unspecified",
     metadata: fields.metadata ?? {},
-    created: Math.floor(Date.now() / 1000),
+    created: nowFor(ss, { customerId: fields.customer_id }),
   });
 }
 

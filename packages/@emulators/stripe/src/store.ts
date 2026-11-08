@@ -17,6 +17,7 @@ import type {
   StripeInvoicePayment,
   StripeSubscription,
   StripeSubscriptionItem,
+  StripeTestClock,
 } from "./entities.js";
 
 export interface StripeStore {
@@ -37,6 +38,7 @@ export interface StripeStore {
   invoicePayments: Collection<StripeInvoicePayment>;
   subscriptions: Collection<StripeSubscription>;
   subscriptionItems: Collection<StripeSubscriptionItem>;
+  testClocks: Collection<StripeTestClock>;
 }
 
 export function getStripeStore(store: Store): StripeStore {
@@ -73,6 +75,7 @@ export function getStripeStore(store: Store): StripeStore {
       "stripe_id",
       "subscription_id",
     ]),
+    testClocks: store.collection<StripeTestClock>("stripe.test_clocks", ["stripe_id"]),
   };
 }
 

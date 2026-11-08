@@ -457,6 +457,9 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     else if (status === "ended") items = items.filter(isEnded);
     else if (status !== "all") items = items.filter((sub) => sub.status === status);
     const customer = readString(query.customer);
+    const testClock = readString(query.test_clock);
+    // Subscriptions on a test clock are listed only when their customer or clock is named.
+    if (!customer && !testClock) items = items.filter((sub) => !sub.test_clock);
     if (customer) items = items.filter((sub) => sub.customer_id === customer);
     const price = readString(query.price);
     if (price) {
@@ -464,7 +467,6 @@ export function subscriptionRoutes(ctx: RouteContext): void {
     }
     const collection = readString(query.collection_method);
     if (collection) items = items.filter((sub) => sub.collection_method === collection);
-    const testClock = readString(query.test_clock);
     if (testClock) items = items.filter((sub) => sub.test_clock === testClock);
     return stripeList(c, items, "/v1/subscriptions", render, { created: (sub) => sub.created, expand });
   });

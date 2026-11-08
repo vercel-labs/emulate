@@ -1,6 +1,6 @@
 import { getStripeStore, type StripeStore } from "./store.js";
 import { stripeId } from "./helpers.js";
-import { nowFor } from "./clock.js";
+import { liveSubscriptionCount, MAX_CLOCK_SUBSCRIPTIONS, nowFor } from "./clock.js";
 import { nextPeriodEnd } from "./billing.js";
 import { previousAttributes, type EventBatch } from "./events.js";
 import { formatSubscription, subscriptionItems, MAX_SUBSCRIPTION_ITEMS } from "./formatters.js";
@@ -330,6 +330,15 @@ export function createSubscription(
 ): SubscriptionResult {
   const ss = getStripeStore(ctx.store);
   const customer = ss.customers.findOneBy("stripe_id", params.customerId);
+  if (customer?.test_clock && liveSubscriptionCount(ss, customer.stripe_id) >= MAX_CLOCK_SUBSCRIPTIONS) {
+    return {
+      ok: false,
+      error: invalidRequest(
+        `A customer on a test clock can have at most ${MAX_CLOCK_SUBSCRIPTIONS} subscriptions.`,
+        "customer",
+      ),
+    };
+  }
   const now = nowFor(ss, { customerId: params.customerId });
   const trial = params.trialEnd !== undefined && params.trialEnd > now;
   const recurring = params.items[0].price.recurring!;

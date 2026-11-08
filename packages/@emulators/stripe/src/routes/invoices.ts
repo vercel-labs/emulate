@@ -146,6 +146,10 @@ export function invoiceRoutes(ctx: RouteContext): void {
         "status",
       );
     }
+    const testClock = c.req.query("test_clock");
+    // Invoices on a test clock are listed only when their customer, subscription or clock is named.
+    if (!customer && !subscription && !testClock) items = items.filter((inv) => !inv.test_clock);
+    if (testClock) items = items.filter((inv) => inv.test_clock === testClock);
     if (customer) items = items.filter((inv) => inv.customer_id === customer);
     if (status) items = items.filter((inv) => inv.status === status);
     if (collection) items = items.filter((inv) => inv.collection_method === collection);
