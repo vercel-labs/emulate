@@ -57,9 +57,9 @@ Every `/v1` response carries a `Request-Id: req_...` header. Retrieve, create an
 ### Emulator controls
 These routes exist only in the emulator. See [Webhook delivery model and chaos](#webhook-delivery-model-and-chaos).
 - `GET /_stripe/webhooks/chaos`, `POST /_stripe/webhooks/chaos`, `DELETE /_stripe/webhooks/chaos`: read, replace or clear the delivery chaos settings
-- `POST /_stripe/webhooks/flush`: deliver held events. Body: `order` (`none`, `reverse` or `shuffle`) and `event_ids`
+- `POST /_stripe/webhooks/flush`: deliver held events. Body: `order` (`none`, `reverse` or `shuffle`), `event_ids` and `seed` (for `shuffle`)
 - `GET /_stripe/webhooks/deliveries`: the delivery log. Filters: `event_id`, `status`, `type`
-- `POST /_stripe/events/:id/redeliver`: send a stored event again to every matching endpoint
+- `POST /_stripe/events/:id/redeliver`: send a stored event again to the endpoints it was sent to that have not answered with a 2xx yet. Body: `endpoint` (a `we_` id the event was sent to) resends to that endpoint alone, even after a 2xx
 - `POST /_stripe/simulate/payment_intents/:id/authenticate`: complete or fail 3D Secure for an intent in `requires_action`. See [Payment Intents](#payment-intents)
 - `POST /_stripe/simulate/setup_intents/:id/authenticate`: complete or fail 3D Secure for a SetupIntent in `requires_action`. See [Setup Intents](#setup-intents)
 - `POST /_stripe/simulate/payment_methods/:id`: change how later charges on a saved card behave. See [Test cards](#test-cards)
@@ -478,7 +478,7 @@ Every state change is stored as a Stripe [Event](https://docs.stripe.com/api/eve
 - Endpoints configured with a secret receive `Stripe-Signature: t=<timestamp>,v1=<signature>`, an HMAC SHA-256 over `<timestamp>.<raw body>`.
 - `data.previous_attributes` appears on `*.updated` events and holds the old value of each changed field. Metadata is compared key by key, with `null` for keys that did not exist before. An update that changes nothing sends no event.
 - `request.id` is the `Request-Id` of the API call that caused the event, and `request.idempotency_key` echoes its `Idempotency-Key` header. Events that no API call caused, such as completing the hosted checkout page or a renewal during a test clock advance, have both set to `null`.
-- `pending_webhooks` is the number of endpoints the event was sent to. `GET /v1/events/:id` shows it dropping by one for each endpoint that answered with a 2xx status.
+- `pending_webhooks` is the number of endpoints the event was sent to, fixed when the event is created, as on Stripe. `GET /v1/events/:id` shows it dropping by one for each of those endpoints that answered with a 2xx status. An endpoint created later never receives the event, even on redelivery.
 - `api_version` defaults to `2026-10-28.endive`. Set `api_version` in the seed config to stamp a different version.
 
 Endpoints come from `POST /v1/webhook_endpoints` or from the seed config's `webhooks`. Both are stored in the `stripe.webhook_endpoints` collection, so they are listable and survive a snapshot. After a restore, each stored endpoint is matched to the dispatcher by url and secret and registered only if it is missing, so no endpoint receives an event twice.
@@ -505,9 +505,9 @@ curl -X POST http://localhost:4000/_stripe/webhooks/chaos \
 | `reorder` | `none` (default), `reverse` or `shuffle` the events of a batch that are being sent now. |
 | `seed` | Seed for the decisions. The same seed makes the same decisions in every fresh emulator. Omitted, a random seed is picked and returned. |
 
-`rate` is a probability from 0 to 1 and defaults to 1. `types` lists event types (`*` wildcards allowed) and defaults to every type. Each event is checked for drop, then delay, then duplicate. The generator state and the outbox are kept in the store, so they survive a snapshot and restore. `DELETE /_stripe/webhooks/chaos` returns to normal delivery; held events stay held until flushed. Flushing and redelivering ignore the chaos settings.
+`rate` is a probability from 0 to 1 and defaults to 1. `types` lists event types (`*` wildcards allowed) and defaults to every type. Each event is checked for drop, then delay, then duplicate. The generator state and the outbox are kept in the store, so they survive a snapshot and restore. `DELETE /_stripe/webhooks/chaos` returns to normal delivery; held events stay held until flushed. Flushing and redelivering ignore the chaos settings. A flush with `order` `shuffle` draws from its own generator, seeded by the flush's `seed` (by default the chaos seed, or 0 without chaos settings), so it is repeatable and does not change later chaos decisions.
 
-`GET /_stripe/webhooks/deliveries` lists every attempt, oldest first, each with `event_id`, `type`, `status` (`succeeded`, `failed`, `dropped` or `held`), `status_code`, `url`, `delivery_id` and `created`. `POST /_stripe/webhooks/flush` returns `{flushed: [evt ids], remaining}`.
+`GET /_stripe/webhooks/deliveries` lists every attempt in the order it happened, oldest first (a dropped or held event in the place it was emitted), each with `event_id`, `type`, `status` (`succeeded`, `failed`, `dropped` or `held`), `status_code`, `url`, `delivery_id` and `created`. `POST /_stripe/webhooks/flush` returns `{flushed: [evt ids], remaining}`.
 
 ## Seed Configuration
 

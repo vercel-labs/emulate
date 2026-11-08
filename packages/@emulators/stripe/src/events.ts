@@ -1,5 +1,6 @@
 import type {
   Context,
+  Entity,
   MiddlewareHandler,
   Store,
   WebhookDelivery,
@@ -8,8 +9,8 @@ import type {
 } from "@emulators/core";
 import { getStripeStore } from "./store.js";
 import { randomBase62, stripeId } from "./helpers.js";
-import { holdEvents, planChaos } from "./chaos.js";
-import type { StripeEvent, StripeEventRequest } from "./entities.js";
+import { holdEvents, planChaos, takeHeld, type HeldEvent } from "./chaos.js";
+import type { StripeEvent, StripeEventRequest, StripeEventWebhookTarget, StripeWebhookAttempt } from "./entities.js";
 
 /** The API version events are rendered with unless the seed config pins another. */
 export const STRIPE_API_VERSION = "2026-10-28.endive";
@@ -112,12 +113,6 @@ export interface EventBatch {
   commit(): Promise<void>;
 }
 
-function matchingSubscriptions(webhooks: WebhookDispatcher, type: string): WebhookSubscription[] {
-  return webhooks
-    .getSubscriptions("stripe")
-    .filter((s) => s.active && s.repo === undefined && (s.events.includes("*") || s.events.includes(type)));
-}
-
 /** Subscriptions each dispatcher holds on behalf of a stored webhook endpoint. */
 const endpointSubscriptions = new WeakMap<WebhookDispatcher, Set<number>>();
 
@@ -173,72 +168,142 @@ export function syncWebhookEndpoints(store: Store, webhooks: WebhookDispatcher):
   return mapping;
 }
 
-function succeededHooks(webhooks: WebhookDispatcher, eventId: string): Set<number> {
-  const hooks = new Set<number>();
-  for (const d of webhooks.getDeliveries()) {
-    if (d.success && (d.payload as { id?: unknown } | undefined)?.id === eventId) hooks.add(d.hook_id);
+/**
+ * The Stripe subscriptions of the dispatcher, synced with the endpoint collection, by the key
+ * an event's `webhook_targets` uses: the endpoint's `we_` id, or `hook_<n>` for a subscription
+ * registered directly on the dispatcher.
+ */
+function webhookTargets(store: Store, webhooks: WebhookDispatcher): Map<string, WebhookSubscription> {
+  const mapping = syncWebhookEndpoints(store, webhooks);
+  const endpointOf = new Map<number, string>();
+  for (const endpoint of getStripeStore(store).webhookEndpoints.all()) {
+    const subId = mapping.get(endpoint.id);
+    if (subId !== undefined) endpointOf.set(subId, endpoint.stripe_id);
   }
-  return hooks;
+  const targets = new Map<string, WebhookSubscription>();
+  for (const sub of webhooks.getSubscriptions("stripe")) {
+    if (sub.repo !== undefined) continue;
+    targets.set(endpointOf.get(sub.id) ?? `hook_${sub.id}`, sub);
+  }
+  return targets;
 }
 
-function lastDeliveryId(webhooks: WebhookDispatcher): number {
-  const deliveries = webhooks.getDeliveries();
-  return deliveries.length === 0 ? 0 : deliveries[deliveries.length - 1].id;
+function listens(sub: WebhookSubscription, type: string): boolean {
+  return sub.active && (sub.events.includes("*") || sub.events.includes(type));
+}
+
+/** The targets an event has, falling back for events stored before targets were recorded. */
+function targetsOf(event: StripeEvent, targets: Map<string, WebhookSubscription>): StripeEventWebhookTarget[] {
+  if (event.webhook_targets) return event.webhook_targets;
+  return [...targets]
+    .filter(([, sub]) => listens(sub, event.type))
+    .map(([endpoint]) => ({ endpoint, delivered: event.pending_webhooks === 0 }));
+}
+
+function recordAttempt(store: Store, event: StripeEvent, fields: Omit<StripeWebhookAttempt, keyof Entity | "event_id" | "type" | "created">) {
+  getStripeStore(store).webhookAttempts.insert({
+    event_id: event.stripe_id,
+    type: event.type,
+    created: Math.floor(Date.now() / 1000),
+    ...fields,
+  });
+}
+
+export interface DispatchOptions {
+  /** Sends of the same body to each endpoint, counting the original, for duplicate chaos. */
+  copies?: number;
+  /** Send to this one endpoint of the event's targets, even when it already answered 2xx. */
+  endpoint?: string;
+  /** The dispatcher's subscriptions by target key, when the caller already synced them. */
+  targets?: Map<string, WebhookSubscription>;
 }
 
 /**
- * Send one stored event to every matching endpoint, `copies` times with the same body, and
- * lower its pending_webhooks by the endpoints that newly answered 2xx. Returns the attempts.
+ * Send a stored event to the endpoints it was counted for that have not answered 2xx yet, or
+ * to `options.endpoint` alone, and record each attempt in the delivery log. Every endpoint
+ * that answers 2xx is marked delivered and leaves `pending_webhooks`. Endpoints created after
+ * the event never receive it. Returns the attempts.
  */
 export async function dispatchStoredEvent(
   ctx: EventBatchContext,
   event: StripeEvent,
-  copies = 1,
+  options: DispatchOptions = {},
 ): Promise<WebhookDelivery[]> {
   const ss = getStripeStore(ctx.store);
   const current = ss.events.get(event.id) ?? event;
-  const before = succeededHooks(ctx.webhooks, current.stripe_id);
-  const since = lastDeliveryId(ctx.webhooks);
-  const payload = formatEvent(current);
-
-  for (let i = 0; i < copies; i++) {
-    await ctx.webhooks.dispatch(current.type, undefined, payload, "stripe");
-  }
-
-  const after = succeededHooks(ctx.webhooks, current.stripe_id);
-  const newlyDelivered = [...after].filter((hook) => !before.has(hook)).length;
-  if (newlyDelivered > 0) {
-    ss.events.update(current.id, { pending_webhooks: Math.max(0, current.pending_webhooks - newlyDelivered) });
-  }
-  return ctx.webhooks.getDeliveries().filter((d) => d.id > since);
-}
-
-/** Deliver freshly stored events, applying the chaos settings to the batch as a whole. */
-async function deliverBatch(ctx: EventBatchContext, events: StripeEvent[]): Promise<void> {
-  const ss = getStripeStore(ctx.store);
-  const plan = planChaos(
-    ctx.store,
-    events.filter((e) => e.pending_webhooks > 0),
+  const targets = options.targets ?? webhookTargets(ctx.store, ctx.webhooks);
+  const state = targetsOf(current, targets).map((target) => ({ ...target }));
+  const chosen = state.filter((target) =>
+    options.endpoint ? target.endpoint === options.endpoint : !target.delivered,
   );
+  const payload = formatEvent(current);
+  const attempts: WebhookDelivery[] = [];
 
-  for (const event of plan.dropped) {
-    const created = Math.floor(Date.now() / 1000);
-    for (const sub of matchingSubscriptions(ctx.webhooks, event.type)) {
-      ss.webhookAttempts.insert({
-        event_id: event.stripe_id,
-        type: event.type,
-        status: "dropped",
+  for (const target of chosen) {
+    const sub = targets.get(target.endpoint);
+    if (!sub) continue;
+    for (let i = 0; i < (options.copies ?? 1); i++) {
+      const delivery = await ctx.webhooks.deliverTo(sub.id, current.type, undefined, payload);
+      if (!delivery) continue;
+      attempts.push(delivery);
+      recordAttempt(ctx.store, current, {
+        status: delivery.success ? "succeeded" : "failed",
         url: sub.url,
-        created,
+        status_code: delivery.status_code ?? undefined,
+        delivery_id: delivery.id,
       });
+      if (delivery.success) target.delivered = true;
     }
   }
-  holdEvents(
-    ctx.store,
-    plan.held.map((e) => ({ event_id: e.stripe_id, type: e.type })),
-  );
-  for (const { item, copies } of plan.deliver) {
-    await dispatchStoredEvent(ctx, item, copies);
+
+  ss.events.update(current.id, {
+    webhook_targets: state,
+    pending_webhooks: state.filter((target) => !target.delivered).length,
+  });
+  return attempts;
+}
+
+/** Take held events out of the outbox, with their `held` entries in the delivery log. */
+export function releaseHeld(store: Store, eventIds?: string[]): HeldEvent[] {
+  const taken = takeHeld(store, eventIds);
+  const ss = getStripeStore(store);
+  for (const entry of taken) {
+    for (const attempt of ss.webhookAttempts.findBy("event_id", entry.event_id)) {
+      if (attempt.status === "held") ss.webhookAttempts.delete(attempt.id);
+    }
+  }
+  return taken;
+}
+
+/**
+ * Deliver freshly stored events, applying the chaos settings to the batch as a whole. The
+ * delivery log follows the order the events were emitted: a dropped or held event is logged in
+ * its place, and the events sent now fill the remaining places in their (possibly reordered)
+ * delivery order.
+ */
+async function deliverBatch(
+  ctx: EventBatchContext,
+  events: StripeEvent[],
+  targets: Map<string, WebhookSubscription>,
+): Promise<void> {
+  const sendable = events.filter((e) => e.pending_webhooks > 0);
+  const plan = planChaos(ctx.store, sendable);
+  const dropped = new Set(plan.dropped);
+  const held = new Set(plan.held);
+  const queue = [...plan.deliver];
+
+  for (const event of sendable) {
+    if (dropped.has(event)) {
+      for (const target of event.webhook_targets ?? []) {
+        recordAttempt(ctx.store, event, { status: "dropped", url: targets.get(target.endpoint)?.url });
+      }
+    } else if (held.has(event)) {
+      holdEvents(ctx.store, [{ event_id: event.stripe_id, type: event.type }]);
+      recordAttempt(ctx.store, event, { status: "held" });
+    } else {
+      const next = queue.shift();
+      if (next) await dispatchStoredEvent(ctx, next.item, { copies: next.copies, targets });
+    }
   }
 }
 
@@ -259,13 +324,16 @@ export function eventBatch(ctx: EventBatchContext, c?: Context, at?: number): Ev
     },
 
     async commit() {
-      syncWebhookEndpoints(ctx.store, ctx.webhooks);
+      const targets = webhookTargets(ctx.store, ctx.webhooks);
       const request = eventRequest(c);
       const apiVersion = getStripeApiVersion(ctx.store);
       const created = at ?? Math.floor(Date.now() / 1000);
 
-      const stored = pending.splice(0).map(({ type, object, previous }) =>
-        ss.events.insert({
+      const stored = pending.splice(0).map(({ type, object, previous }) => {
+        const webhookTargets = [...targets]
+          .filter(([, sub]) => listens(sub, type))
+          .map(([endpoint]) => ({ endpoint, delivered: false }));
+        return ss.events.insert({
           stripe_id: stripeId("evt"),
           type,
           api_version: apiVersion,
@@ -273,12 +341,13 @@ export function eventBatch(ctx: EventBatchContext, c?: Context, at?: number): Ev
           data: structuredClone(
             previous && Object.keys(previous).length > 0 ? { object, previous_attributes: previous } : { object },
           ),
-          pending_webhooks: matchingSubscriptions(ctx.webhooks, type).length,
+          pending_webhooks: webhookTargets.length,
           request: { ...request },
-        }),
-      );
+          webhook_targets: webhookTargets,
+        });
+      });
 
-      await deliverBatch(ctx, stored);
+      await deliverBatch(ctx, stored, targets);
     },
   };
 }

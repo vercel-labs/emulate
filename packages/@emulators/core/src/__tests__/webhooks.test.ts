@@ -212,6 +212,23 @@ describe("WebhookDispatcher", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
+    it("delivers to one named subscription only, and to none that is inactive or unknown", async () => {
+      const d = new WebhookDispatcher();
+      d.register({ url: "https://hooks.example/a", events: ["push"], active: true, owner: "o" });
+      const b = d.register({ url: "https://hooks.example/b", events: ["issues"], active: true, owner: "o" });
+      const off = d.register({ url: "https://hooks.example/off", events: ["*"], active: false, owner: "o" });
+
+      const delivery = await d.deliverTo(b.id, "push", undefined, { x: 1 });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0]![0]).toBe("https://hooks.example/b");
+      expect(delivery).toMatchObject({ hook_id: b.id, event: "push", success: true, status_code: 200 });
+      expect(d.getDeliveries()).toEqual([delivery]);
+
+      expect(await d.deliverTo(off.id, "push", undefined, {})).toBeUndefined();
+      expect(await d.deliverTo(999, "push", undefined, {})).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it("skips inactive subscriptions", async () => {
       const d = new WebhookDispatcher();
       d.register({

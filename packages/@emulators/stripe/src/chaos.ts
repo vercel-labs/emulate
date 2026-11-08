@@ -234,6 +234,19 @@ export function chaosRandom(store: Store): () => number {
   };
 }
 
+/**
+ * A mulberry32 stream of its own, for orderings that must be repeatable without drawing from
+ * the chaos generator (so they never shift its later decisions) or from Math.random.
+ */
+export function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    const draw = mulberry32(state);
+    state = draw.state;
+    return draw.value;
+  };
+}
+
 export function reorderItems<T>(items: T[], mode: ReorderMode, random: () => number): T[] {
   if (mode === "reverse") return [...items].reverse();
   if (mode !== "shuffle") return [...items];

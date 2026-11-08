@@ -1,19 +1,19 @@
 import type { Context, RouteContext, WebhookDelivery, WebhookDispatcher } from "@emulators/core";
 import { getStripeStore } from "../store.js";
-import { parseStripeBody, readStringList, stripeError, toUnixTimestamp } from "../helpers.js";
+import { parseStripeBody, readInt, readStringList, stripeError } from "../helpers.js";
 import {
   REORDER_MODES,
-  chaosRandom,
   clearWebhookChaos,
   formatWebhookChaos,
   getOutbox,
+  getWebhookChaos,
   parseChaosConfig,
   reorderItems,
+  seededRandom,
   setWebhookChaos,
-  takeHeld,
   type ReorderMode,
 } from "../chaos.js";
-import { dispatchStoredEvent, eventBatch, syncWebhookEndpoints } from "../events.js";
+import { dispatchStoredEvent, eventBatch, releaseHeld } from "../events.js";
 import { formatPaymentIntent, formatPaymentMethod, formatSetupIntent } from "../formatters.js";
 import {
   completeAuthentication,
@@ -42,10 +42,7 @@ function badParam(c: Context, param: string, message: string) {
   return stripeError(c, 400, "invalid_request_error", message, undefined, param || undefined);
 }
 
-function eventIdOf(delivery: WebhookDelivery): string | undefined {
-  const payload = delivery.payload as { object?: unknown; id?: unknown } | undefined;
-  return payload?.object === "event" && typeof payload.id === "string" ? payload.id : undefined;
-}
+const MAX_FLUSH_SEED = 0xffffffff;
 
 function formatAttempt(webhooks: WebhookDispatcher, d: WebhookDelivery) {
   return {
@@ -175,9 +172,17 @@ export function controlRoutes(ctx: RouteContext): void {
       return badParam(c, "order", `Invalid order: must be one of ${REORDER_MODES.join(", ")}.`);
     }
     const eventIds = body.event_ids === undefined ? undefined : readStringList(body.event_ids);
+    let seed = getWebhookChaos(store)?.seed ?? 0;
+    if (body.seed !== undefined && body.seed !== "") {
+      const parsed = readInt(body.seed);
+      if (parsed === undefined || parsed < 0 || parsed > MAX_FLUSH_SEED) {
+        return badParam(c, "seed", `Invalid seed: must be an integer between 0 and ${MAX_FLUSH_SEED}.`);
+      }
+      seed = parsed;
+    }
 
-    const held = reorderItems(takeHeld(store, eventIds), order, chaosRandom(store));
-    syncWebhookEndpoints(store, webhooks);
+    // A shuffle draws from its own stream, so it is repeatable and leaves the chaos generator alone.
+    const held = reorderItems(releaseHeld(store, eventIds), order, seededRandom(seed));
     const flushed: string[] = [];
     for (const entry of held) {
       const event = ss.events.findOneBy("stripe_id", entry.event_id);
@@ -189,55 +194,24 @@ export function controlRoutes(ctx: RouteContext): void {
   });
 
   app.get("/_stripe/webhooks/deliveries", (c) => {
-    const records: Array<DeliveryRecord & { at: number }> = [];
-
-    for (const attempt of ss.webhookAttempts.all()) {
-      records.push({
-        event_id: attempt.event_id,
-        type: attempt.type,
-        status: attempt.status,
-        status_code: null,
-        url: attempt.url,
-        delivery_id: null,
-        created: attempt.created,
-        at: Date.parse(attempt.created_at),
-      });
-    }
-    for (const d of webhooks.getDeliveries()) {
-      const eventId = eventIdOf(d);
-      if (!eventId) continue;
-      records.push({
-        event_id: eventId,
-        type: d.event,
-        status: d.success ? "succeeded" : "failed",
-        status_code: d.status_code,
-        url: webhooks.getSubscription(d.hook_id)?.url ?? null,
-        delivery_id: d.id,
-        created: toUnixTimestamp(d.delivered_at),
-        at: Date.parse(d.delivered_at),
-      });
-    }
-    for (const h of getOutbox(store)) {
-      records.push({
-        event_id: h.event_id,
-        type: h.type,
-        status: "held",
-        status_code: null,
-        url: null,
-        delivery_id: null,
-        created: toUnixTimestamp(h.held_at),
-        at: Date.parse(h.held_at),
-      });
-    }
-
     const eventId = c.req.query("event_id");
     const status = c.req.query("status");
     const type = c.req.query("type");
-    const data = records
-      .sort((a, b) => a.at - b.at)
+    // Entries are recorded as things happen, so the entity id is the log's order.
+    const data: DeliveryRecord[] = ss.webhookAttempts
+      .all()
+      .sort((a, b) => a.id - b.id)
       .filter((r) => (!eventId || r.event_id === eventId) && (!status || r.status === status))
       .filter((r) => !type || r.type === type)
-      .map(({ at: _at, ...record }) => record);
+      .map((r) => ({
+        event_id: r.event_id,
+        type: r.type,
+        status: r.status,
+        status_code: r.status_code ?? null,
+        url: r.url ?? null,
+        delivery_id: r.delivery_id ?? null,
+        created: r.created,
+      }));
 
     return c.json({ object: "list", url: "/_stripe/webhooks/deliveries", has_more: false, data });
   });
@@ -246,10 +220,14 @@ export function controlRoutes(ctx: RouteContext): void {
     const id = c.req.param("id");
     const event = ss.events.findOneBy("stripe_id", id);
     if (!event) return stripeError(c, 404, "invalid_request_error", `No such event: '${id}'`, "resource_missing", "id");
+    const body = await parseStripeBody(c);
+    const endpoint = typeof body.endpoint === "string" && body.endpoint !== "" ? body.endpoint : undefined;
+    if (endpoint && !event.webhook_targets?.some((target) => target.endpoint === endpoint)) {
+      return badParam(c, "endpoint", `The event ${id} was not sent to webhook endpoint '${endpoint}'.`);
+    }
 
-    takeHeld(store, [id]);
-    syncWebhookEndpoints(store, webhooks);
-    const attempts = await dispatchStoredEvent(ctx, event);
+    releaseHeld(store, [id]);
+    const attempts = await dispatchStoredEvent(ctx, event, { endpoint });
     return c.json({
       object: "webhook_redelivery",
       event_id: id,

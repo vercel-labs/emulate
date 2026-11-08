@@ -289,6 +289,20 @@ export interface StripeEvent extends Entity {
   data: { object: Record<string, unknown>; previous_attributes?: Record<string, unknown> };
   pending_webhooks: number;
   request: StripeEventRequest;
+  /**
+   * The endpoints the event was sent to when it was created, fixed then as on Stripe, and
+   * whether each has answered with a 2xx. `pending_webhooks` counts the ones that have not.
+   */
+  webhook_targets?: StripeEventWebhookTarget[];
+}
+
+export interface StripeEventWebhookTarget {
+  /**
+   * The `we_` id of a webhook endpoint, or `hook_<n>` for a dispatcher subscription registered
+   * outside the endpoint collection.
+   */
+  endpoint: string;
+  delivered: boolean;
 }
 
 export interface StripeWebhookEndpoint extends Entity {
@@ -641,11 +655,21 @@ export interface StripeBillingPortalSession extends Entity {
   created: number;
 }
 
-/** A delivery the chaos settings decided not to send. Sent deliveries live in the core dispatcher. */
+export type StripeWebhookAttemptStatus = "succeeded" | "failed" | "dropped" | "held";
+
+/**
+ * One entry of the delivery log, recorded in the order things happened, so the entity id
+ * orders the log. A `held` entry stands for an event in the outbox and is removed when the
+ * event leaves it.
+ */
 export interface StripeWebhookAttempt extends Entity {
   event_id: string;
   type: string;
-  status: "dropped";
-  url: string;
+  status: StripeWebhookAttemptStatus;
+  /** The endpoint url; a held event has none yet. */
+  url?: string;
+  status_code?: number;
+  /** The core dispatcher's delivery id, for attempts that were sent. */
+  delivery_id?: number;
   created: number;
 }

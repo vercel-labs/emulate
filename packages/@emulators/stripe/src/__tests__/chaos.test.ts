@@ -9,6 +9,21 @@ afterEach(() => {
 
 type Json = Record<string, any>;
 
+/** Stub fetch with a status per endpoint url, recording which event went where. */
+function stubByUrl(statusFor: (url: string) => number) {
+  const calls: Array<{ url: string; id: string; type: string }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit) => {
+      const event = JSON.parse(init.body as string) as { id: string; type: string };
+      calls.push({ url, id: event.id, type: event.type });
+      const code = statusFor(url);
+      return { ok: code >= 200 && code < 300, status: code };
+    }),
+  );
+  return calls;
+}
+
 async function confirmPayment(app: Parameters<typeof api>[0]) {
   const pi = await api(app, "POST", "/v1/payment_intents", {
     amount: 1500,
@@ -313,6 +328,91 @@ describe("Stripe webhook chaos", () => {
     expect(logAfter.body.data[1].status_code).toBe(200);
   });
 
+  it("redelivers only to the endpoints the event was counted for that are still pending", async () => {
+    const { app } = createTestApp({ webhook: true });
+    const status = new Map<string, number>([[WEBHOOK_URL, 500]]);
+    const calls = stubByUrl((url) => status.get(url) ?? 200);
+    const customer = await api<Json>(app, "POST", "/v1/customers", { name: "Retry me" });
+    const [event] = (await api<{ data: Json[] }>(app, "GET", "/v1/events?type=customer.created")).body.data;
+    expect(event.data.object.id).toBe(customer.body.id);
+    expect(event.pending_webhooks).toBe(1);
+
+    const later = await api<Json>(app, "POST", "/v1/webhook_endpoints", {
+      url: "https://later.example/hooks",
+      enabled_events: ["*"],
+    });
+    expect(later.status).toBe(200);
+    calls.length = 0;
+
+    const failing = await api<Json>(app, "POST", `/_stripe/events/${event.id}/redeliver`);
+    expect(failing.body.deliveries).toEqual([expect.objectContaining({ url: WEBHOOK_URL, succeeded: false })]);
+    expect(calls.map((call) => call.url)).toEqual([WEBHOOK_URL]);
+    expect((await api<Json>(app, "GET", `/v1/events/${event.id}`)).body.pending_webhooks).toBe(1);
+    const delivered = await api<{ data: Json[] }>(app, "GET", "/v1/events?delivery_success=true&type=customer.created");
+    expect(delivered.body.data).toHaveLength(0);
+
+    status.set(WEBHOOK_URL, 200);
+    const recovered = await api<Json>(app, "POST", `/_stripe/events/${event.id}/redeliver`);
+    expect(recovered.body.deliveries).toEqual([expect.objectContaining({ url: WEBHOOK_URL, succeeded: true })]);
+    expect((await api<Json>(app, "GET", `/v1/events/${event.id}`)).body.pending_webhooks).toBe(0);
+
+    // Nothing is pending any more, so a plain redelivery sends nothing.
+    calls.length = 0;
+    const done = await api<Json>(app, "POST", `/_stripe/events/${event.id}/redeliver`);
+    expect(done.body.deliveries).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("resends to one named endpoint of the event, even one that already succeeded", async () => {
+    const { app } = createTestApp({ webhook: true });
+    const calls = stubByUrl(() => 200);
+    await api(app, "POST", "/v1/customers", { name: "Again" });
+    const [event] = (await api<{ data: Json[] }>(app, "GET", "/v1/events?type=customer.created")).body.data;
+    const [endpoint] = (await api<{ data: Json[] }>(app, "GET", "/v1/webhook_endpoints")).body.data;
+    calls.length = 0;
+
+    const resent = await api<Json>(app, "POST", `/_stripe/events/${event.id}/redeliver`, { endpoint: endpoint.id });
+    expect(resent.status).toBe(200);
+    expect(resent.body.deliveries).toEqual([expect.objectContaining({ url: WEBHOOK_URL, succeeded: true })]);
+    expect(calls.map((call) => call.id)).toEqual([event.id]);
+
+    const other = await api<Json>(app, "POST", "/v1/webhook_endpoints", {
+      url: "https://later.example/hooks",
+      enabled_events: ["*"],
+    });
+    const refused = await api<Json>(app, "POST", `/_stripe/events/${event.id}/redeliver`, { endpoint: other.body.id });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.param).toBe("endpoint");
+  });
+
+  it("keeps pending_webhooks right after the core delivery log has been trimmed", async () => {
+    const { app } = createTestApp({ webhook: true });
+    await api(app, "POST", "/v1/webhook_endpoints", { url: "https://failing.example/hooks", enabled_events: ["*"] });
+    const calls = stubByUrl((url) => (url === WEBHOOK_URL ? 200 : 500));
+    await api(app, "POST", "/v1/customers", { name: "Old" });
+    const [event] = (await api<{ data: Json[] }>(app, "GET", "/v1/events?type=customer.created")).body.data;
+    expect(event.pending_webhooks).toBe(1);
+
+    // Each product.created goes to both endpoints, pushing the first deliveries out of the core log.
+    for (let i = 0; i < 520; i++) await api(app, "POST", "/v1/products", { name: `P${i}` });
+    calls.length = 0;
+    await api(app, "POST", `/_stripe/events/${event.id}/redeliver`);
+    expect(calls.map((call) => call.url)).toEqual(["https://failing.example/hooks"]);
+    expect((await api<Json>(app, "GET", `/v1/events/${event.id}`)).body.pending_webhooks).toBe(1);
+  });
+
+  it("lists the delivery log in the order events were emitted, dropped ones included", async () => {
+    const { app } = createTestApp({ webhook: true });
+    await api(app, "POST", "/_stripe/webhooks/chaos", { drop: { types: ["payment_method.attached"] } });
+    captureWebhooks();
+    await api(app, "POST", "/v1/customers", { payment_method: "pm_card_visa" });
+    const log = await api<{ data: Json[] }>(app, "GET", "/_stripe/webhooks/deliveries");
+    expect(log.body.data.map((d) => [d.type, d.status])).toEqual([
+      ["customer.created", "succeeded"],
+      ["payment_method.attached", "dropped"],
+    ]);
+  });
+
   it("returns resource_missing when redelivering an unknown event", async () => {
     const { app } = createTestApp({ webhook: true });
     const res = await api<{ error: Json }>(app, "POST", "/_stripe/events/evt_missing/redeliver");
@@ -371,6 +471,52 @@ describe("Stripe webhook chaos", () => {
     const bad = await api<{ error: Json }>(app, "POST", "/_stripe/webhooks/flush", { order: "sideways" });
     expect(bad.status).toBe(400);
     expect(bad.body.error.param).toBe("order");
+  });
+
+  it("shuffles a flush the same way for the same seed, also after chaos is cleared", async () => {
+    async function flushOrder(seed?: number): Promise<number[]> {
+      const { app } = createTestApp({ webhook: true });
+      await api(app, "POST", "/_stripe/webhooks/chaos", { delay: { types: ["customer.created"] } });
+      captureWebhooks();
+      for (let i = 0; i < 8; i++) await api(app, "POST", "/v1/customers", { name: `C${i}` });
+      const held = await api<{ data: Json[] }>(app, "GET", "/_stripe/webhooks/deliveries?status=held");
+      const ids = held.body.data.map((d) => d.event_id as string);
+      await api(app, "DELETE", "/_stripe/webhooks/chaos");
+      const flushed = await api<Json>(app, "POST", "/_stripe/webhooks/flush", {
+        order: "shuffle",
+        ...(seed !== undefined && { seed }),
+      });
+      expect(flushed.status).toBe(200);
+      vi.unstubAllGlobals();
+      return (flushed.body.flushed as string[]).map((id) => ids.indexOf(id));
+    }
+    const a = await flushOrder(7);
+    expect(await flushOrder(7)).toEqual(a);
+    expect([...a].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(await flushOrder()).toEqual(await flushOrder());
+  });
+
+  it("does not let a shuffled flush change later seeded chaos decisions", async () => {
+    async function decisions(flush: boolean): Promise<boolean[]> {
+      const { app } = createTestApp({ webhook: true });
+      await api(app, "POST", "/_stripe/webhooks/chaos", {
+        seed: 42,
+        delay: { types: ["customer.created"] },
+        drop: { rate: 0.5, types: ["product.created"] },
+      });
+      const hooks = captureWebhooks();
+      for (let i = 0; i < 4; i++) await api(app, "POST", "/v1/customers", { name: `C${i}` });
+      if (flush) await api(app, "POST", "/_stripe/webhooks/flush", { order: "shuffle" });
+      const delivered: boolean[] = [];
+      for (let i = 0; i < 20; i++) {
+        const before = hooks.ofType("product.created").length;
+        await api(app, "POST", "/v1/products", { name: `P${i}` });
+        delivered.push(hooks.ofType("product.created").length > before);
+      }
+      vi.unstubAllGlobals();
+      return delivered;
+    }
+    expect(await decisions(true)).toEqual(await decisions(false));
   });
 
   it("reverses a batch so charge.succeeded arrives before payment_intent.succeeded", async () => {
