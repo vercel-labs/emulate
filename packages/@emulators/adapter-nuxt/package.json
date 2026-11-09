@@ -34,7 +34,8 @@
     "dev": "tsup --watch src",
     "clean": "rm -rf dist .turbo",
     "test": "vitest run",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc-ts --noEmit",
+    "type-check:tsc": "tsc --noEmit",
     "lint": "oxlint src",
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@emulators/github": "workspace:*",
+    "tsc-ts": "0.1.3",
     "tsup": "^8",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
