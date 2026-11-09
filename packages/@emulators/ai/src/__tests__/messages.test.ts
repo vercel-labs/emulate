@@ -249,6 +249,49 @@ describe("anthropic messages", () => {
     expect(JSON.stringify(nestedCall.messages)).not.toContain(PDF);
   });
 
+  it("keeps text documents inside a tool result out of the user text", async () => {
+    await setRules([
+      { id: "tool-text", match: { textContains: "from the tool" }, reply: [{ type: "text", text: "wrong match" }] },
+    ]);
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: "look" },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [
+                { type: "text", text: "plain from the tool" },
+                {
+                  type: "document",
+                  source: { type: "text", media_type: "text/plain", data: "text doc from the tool" },
+                },
+                {
+                  type: "document",
+                  source: { type: "content", content: [{ type: "text", text: "content doc from the tool" }] },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+    const call = await lastCall();
+    expect(call.messages.at(-1)?.parts).toEqual([
+      {
+        type: "tool_result",
+        id: "toolu_1",
+        output: "plain from the tool\ntext doc from the tool\ncontent doc from the tool",
+      },
+    ]);
+  });
+
   it("accepts every document source type", async () => {
     const sources: DocumentBlockParam["source"][] = [
       { type: "base64", media_type: "application/pdf", data: PDF },

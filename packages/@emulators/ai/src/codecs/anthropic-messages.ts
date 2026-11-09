@@ -95,7 +95,7 @@ function optionalBoolean(value: unknown, path: string): boolean | undefined {
   return value;
 }
 
-function textOfContent(value: unknown, path: string, nested: InputPart[]): string {
+function textOfContent(value: unknown, path: string, nested: FilePart[]): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) fail("Expected a string or an array of content blocks.", path);
@@ -108,7 +108,10 @@ function textOfContent(value: unknown, path: string, nested: InputPart[]): strin
       return;
     }
     if (block.type === "document") {
-      nested.push(...decodeDocument(block, blockPath));
+      for (const part of decodeDocument(block, blockPath)) {
+        if (part.type === "text") texts.push(part.text);
+        else if (part.type === "file") nested.push(part);
+      }
       return;
     }
     texts.push(block.type === "text" ? requireString(block.text, `${blockPath}.text`) : JSON.stringify(block));
@@ -194,7 +197,7 @@ function decodeBlock(block: unknown, path: string): InputPart[] {
     case "tool_result": {
       const id = requireString(block.tool_use_id, `${path}.tool_use_id`);
       const name = optionalString(block.name, `${path}.name`);
-      const nested: InputPart[] = [];
+      const nested: FilePart[] = [];
       const output = textOfContent(block.content, `${path}.content`, nested);
       return [
         {
