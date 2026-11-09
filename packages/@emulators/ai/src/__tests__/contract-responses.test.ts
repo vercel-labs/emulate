@@ -11,6 +11,7 @@ import {
   tool as toolV6,
 } from "ai-v6";
 import { z } from "zod";
+import { STORED_RESPONSE_LIMIT } from "../state.js";
 import type { CallRecord } from "../types.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
@@ -269,6 +270,77 @@ describe("OpenAI Responses codec", () => {
 
     await expect(client.responses.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
     await expect(client.responses.delete(created.id)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("evicts the oldest stored responses past the limit", async () => {
+    const client = openaiClient();
+    const first = await client.responses.create({ model: "gpt-x", input: "Hi" });
+    let last = first;
+    for (let index = 0; index < STORED_RESPONSE_LIMIT; index++) {
+      last = await client.responses.create({ model: "gpt-x", input: "Hi" });
+    }
+    await expect(client.responses.retrieve(first.id)).rejects.toMatchObject({ status: 404 });
+    expect((await client.responses.retrieve(last.id)).id).toBe(last.id);
+  }, 60_000);
+
+  it("replies to a request with 130000 input items", async () => {
+    const response = await fetch(`${baseURL}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-x", input: Array.from({ length: 130_000 }, () => "a") }),
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("pins created_at so replies repeat exactly", async () => {
+    const client = openaiClient();
+    const first = await client.responses.create({ model: "gpt-x", input: "Hi" });
+    const second = await client.responses.create({ model: "gpt-x", input: "Hi" });
+    expect(first.created_at).toBe(1730000000);
+    expect(second.created_at).toBe(first.created_at);
+  });
+
+  it("names the bare JSON path in validation errors", async () => {
+    const post = async (body: string) => {
+      const response = await fetch(`${baseURL}/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+      return {
+        status: response.status,
+        json: (await response.json()) as { error: { message: string; param: unknown } },
+      };
+    };
+
+    const missing = await post(JSON.stringify({ model: "gpt-x", input: [{ role: "user" }] }));
+    expect(missing.status).toBe(400);
+    expect(missing.json.error.param).toBe("input[0].content");
+    expect(missing.json.error.message).toBe("Missing required parameter: 'input[0].content'.");
+
+    const model = await post(JSON.stringify({ input: "Hi" }));
+    expect(model.json.error.message).toBe("Expected a string for 'model'.");
+
+    const array = await post("[]");
+    expect(array.status).toBe(400);
+    expect(array.json.error.param).toBeNull();
+  });
+
+  it("echoes previous_response_id, max_output_tokens, and truncation on the response", async () => {
+    const client = openaiClient();
+    const plain = await client.responses.create({ model: "gpt-x", input: "Hi" });
+    expect(plain.previous_response_id).toBeNull();
+    expect(plain.max_output_tokens).toBeNull();
+    expect(plain.truncation).toBe("disabled");
+
+    const auto = await client.responses.create({
+      model: "gpt-x",
+      input: "Hi",
+      truncation: "auto",
+      max_output_tokens: 50,
+    });
+    expect(auto.truncation).toBe("auto");
+    expect(auto.max_output_tokens).toBe(50);
   });
 
   it("does not store store:false responses", async () => {

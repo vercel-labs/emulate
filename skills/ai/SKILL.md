@@ -162,6 +162,8 @@ ai:
           text: The temperature in Paris is 20 C.
 
     - id: rate-limit-once
+      match:
+        textContains: retry
       times: 1
       error:
         status: 429
@@ -184,17 +186,17 @@ ai:
 
 ### Replies
 
-A rule has either `reply` or `error`. Reply events are ordered:
+A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 
-| Event     | Shape                                  | Notes                                          |
-| --------- | -------------------------------------- | ---------------------------------------------- |
-| Text      | `{ type: text, text }`                 | Normal assistant text                          |
-| Object    | `{ type: object, value }`              | Sent as JSON text, for structured output       |
-| Tool call | `{ type: tool_call, name, arguments }` | Arguments are a JSON object; ids are generated |
-| Reasoning | `{ type: reasoning, text }`            | Responses only; Chat omits reasoning text      |
-| Refusal   | `{ type: refusal, text }`              | Native refusal shape                           |
+| Event     | Shape                                  | Notes                                                                                                  |
+| --------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Text      | `{ type: text, text }`                 | Normal assistant text                                                                                  |
+| Object    | `{ type: object, value }`              | Sent as JSON text, for structured output                                                               |
+| Tool call | `{ type: tool_call, name, arguments }` | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
+| Reasoning | `{ type: reasoning, text }`            | Responses only; Chat omits reasoning text                                                              |
+| Refusal   | `{ type: refusal, text }`              | Native refusal shape                                                                                   |
 
-A rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Stop reasons are otherwise inferred from the events.
+With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Stop reasons are otherwise inferred from the events.
 
 ### Errors and faults
 
@@ -209,7 +211,7 @@ An `error` rule returns a native HTTP error with optional `type`, `code`, `param
     code: server_error
 ```
 
-A `fault` cuts or pauses a stream after a number of content chunks. The count covers text and argument deltas, not lifecycle events. Faults require a streaming request.
+A `fault` cuts or pauses a stream after a number of content chunks. The count covers text and argument deltas, not lifecycle events. A fault needs a rule with `match: { stream: true }`, or the rule is rejected at startup or on `PUT`.
 
 ```yaml
 - id: cut-stream
@@ -256,7 +258,7 @@ curl -s http://localhost:4014/_ai/calls | jq
 
 Returns a bare JSON array of recorded generation calls, oldest first. Each record includes `seq`, `time`, `format`, `path`, `model`, `stream`, normalized `messages`, declared `tools`, `toolChoice`, `previousResponseId`, `references` with resolved state, `store`, `matched`, a reply summary, `status`, `fault`, `delivery`, and `warnings`. `matched` is `{ "id": "<rule id>", "remaining": <budget left or null>, "rule": <the rule as it was when it answered> }` for a rule, `{ "default": "<kind>" }` when a default answered, and `null` when strict mode rejected the request.
 
-Keys, auth headers, and file bytes never appear. The last 500 calls are kept.
+Keys, auth headers, and file bytes never appear. The last 500 calls are kept. Stored responses are capped at the most recent 1000; older ones are evicted.
 
 ```bash
 curl -X DELETE http://localhost:4014/_ai/calls
@@ -270,7 +272,7 @@ Returns `{ "deleted": <count> }`.
 curl -s http://localhost:4014/_ai/rules | jq
 ```
 
-Returns `{ "rules": [...] }`. Each rule carries its remaining budget as `remaining`; `null` means unlimited. The response does not include `strict`, `timing`, `random`, or `models`.
+Returns `{ "rules": [...], "strict": <bool>, "timing": {...}, "models": [...] }`. Each rule carries its remaining budget as `remaining`; `null` means unlimited. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts.
 
 Replace the whole rule set with a `rules` document:
 
@@ -288,7 +290,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   }'
 ```
 
-`PUT` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. It returns `{ "rules": [...] }` and ignores `remaining` fields. A body with only `rules` resets the other fields to their defaults. An invalid replacement returns 400 with the failing path and leaves the previous rules active. Runtime replacements are ephemeral: reset restores the seeded rules.
+`PUT` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. It returns the same shape as GET and ignores `remaining` fields, so a GET then PUT keeps `rules`, `strict`, `timing`, and `models`. A body with only `rules` resets the other fields to their defaults. An invalid replacement returns 400 with the failing path and leaves the previous rules active. Runtime replacements are ephemeral: reset restores the seeded rules.
 
 ### Reset
 
@@ -497,12 +499,14 @@ The AI SDK validates attachments before sending. `@ai-sdk/openai` sends image by
 Result-changing features outside this version return a native 400 naming the feature:
 
 - hosted tools
+- custom tools
+- allowed tool choice
 - background mode
 - the Conversations API
 - multiple candidates (`n` above 1)
 - audio input
-
-Unknown optional fields are ignored.
+- audio output
+- legacy functions
 
 ## Privacy
 
@@ -520,9 +524,9 @@ Open `http://localhost:4014/` to browse calls and rule budgets in the inspector.
 
 ## Current Limits
 
-Anthropic Messages, Gemini, embeddings, image or audio output, file upload APIs, input item listing, token counting, request cancellation, OpenRouter reasoning fields, and templating inside replies are not implemented.
+Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
-The service records `stop` and max output token settings but never truncates scripted or default replies to them, so use a rule with `finish: length` to test truncation.
+Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
 
 ## Custom emulators alongside built-ins
 

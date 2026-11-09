@@ -32,12 +32,12 @@ import type {
   ToolChoiceOptions,
 } from "openai/resources/responses/responses";
 import type { ErrorObject } from "openai/resources/shared";
-import type { Codec, CodecContext, Decoded } from "../codec.js";
+import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../codec.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
 import { decodeResponsesAttachment } from "../attachments.js";
 import type { SseFrame } from "../sse.js";
 import { payloadChunks, textChunks } from "../chunks.js";
-import type { AiState } from "../state.js";
+import { STORED_RESPONSE_LIMIT, type AiState } from "../state.js";
 import type {
   AIRequest,
   FilePart,
@@ -67,6 +67,8 @@ type WireResponseEvent<T extends { response: OpenAIResponse }> = Omit<T, "respon
   response: WireResponse;
 };
 
+type Unsequenced<T> = Omit<T, "sequence_number">;
+
 type WireCreatedEvent = WireResponseEvent<ResponseCreatedEvent>;
 type WireInProgressEvent = WireResponseEvent<ResponseInProgressEvent>;
 type WireCompletedEvent = WireResponseEvent<ResponseCompletedEvent>;
@@ -81,6 +83,7 @@ interface ResponsesExtras {
   text: NonNullable<OpenAIResponse["text"]>;
   reasoning?: WireReasoning;
   metadata: WireMetadata;
+  truncation: "auto" | "disabled";
   inputItems: Json[];
 }
 
@@ -112,8 +115,8 @@ function invalid(message: string, param?: string): never {
 }
 
 function requireString(value: unknown, param: string, nonEmpty = false): string {
-  if (typeof value !== "string") invalid(`Expected a string for 'input.${param}'.`, param);
-  if (nonEmpty && value.length === 0) invalid(`Expected a non-empty string for 'input.${param}'.`, param);
+  if (typeof value !== "string") invalid(`Expected a string for '${param}'.`, param);
+  if (nonEmpty && value.length === 0) invalid(`Expected a non-empty string for '${param}'.`, param);
   return value;
 }
 
@@ -123,12 +126,12 @@ function optionalString(value: unknown, param: string): string | undefined {
 }
 
 function requireBoolean(value: unknown, param: string): boolean {
-  if (typeof value !== "boolean") invalid(`Expected a boolean for 'input.${param}'.`, param);
+  if (typeof value !== "boolean") invalid(`Expected a boolean for '${param}'.`, param);
   return value;
 }
 
 function requireNumber(value: unknown, param: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) invalid(`Expected a number for 'input.${param}'.`, param);
+  if (typeof value !== "number" || !Number.isFinite(value)) invalid(`Expected a number for '${param}'.`, param);
   return value;
 }
 
@@ -144,7 +147,7 @@ function textOf(value: unknown): string {
 
 function functionOutput(output: unknown, path: string): { text: string; files: InputPart[] } {
   if (typeof output === "string") return { text: output, files: [] };
-  if (!Array.isArray(output)) invalid(`Expected a string or array for 'input.${path}.output'.`, `${path}.output`);
+  if (!Array.isArray(output)) invalid(`Expected a string or array for '${path}.output'.`, `${path}.output`);
   const text: string[] = [];
   const files: InputPart[] = [];
   output.forEach((part, index) => {
@@ -153,9 +156,9 @@ function functionOutput(output: unknown, path: string): { text: string; files: I
       text.push(part);
       return;
     }
-    if (!isRecord(part)) invalid(`Expected a content part for 'input.${partPath}'.`, partPath);
+    if (!isRecord(part)) invalid(`Expected a content part for '${partPath}'.`, partPath);
     if (part.type === "input_text" || part.type === "output_text" || part.type === "text") {
-      if (typeof part.text !== "string") invalid(`Expected a string for 'input.${partPath}.text'.`, `${partPath}.text`);
+      if (typeof part.text !== "string") invalid(`Expected a string for '${partPath}.text'.`, `${partPath}.text`);
       text.push(part.text);
       return;
     }
@@ -171,7 +174,7 @@ function functionOutput(output: unknown, path: string): { text: string; files: I
 
 function decodeReasoning(raw: unknown): WireReasoning | undefined {
   if (raw === undefined || raw === null) return undefined;
-  if (!isRecord(raw)) invalid("Expected an object for 'input.reasoning'.", "reasoning");
+  if (!isRecord(raw)) invalid("Expected an object for 'reasoning'.", "reasoning");
   const reasoning: WireReasoning = {};
   const effort = optionalString(raw.effort, "reasoning.effort");
   if (effort !== undefined) reasoning.effort = effort as WireReasoning["effort"];
@@ -188,10 +191,10 @@ function decodeReasoning(raw: unknown): WireReasoning | undefined {
 
 function decodeMetadata(raw: unknown): WireMetadata {
   if (raw === undefined || raw === null) return {};
-  if (!isRecord(raw)) invalid("Expected an object for 'input.metadata'.", "metadata");
+  if (!isRecord(raw)) invalid("Expected an object for 'metadata'.", "metadata");
   const metadata: WireMetadata = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (typeof value !== "string") invalid(`Expected a string for 'input.metadata.${key}'.`, `metadata.${key}`);
+    if (typeof value !== "string") invalid(`Expected a string for 'metadata.${key}'.`, `metadata.${key}`);
     metadata[key] = value;
   }
   return metadata;
@@ -224,18 +227,14 @@ function notFound(id: string): HttpFailure {
   };
 }
 
-function makeId(ctx: CodecContext, prefix: string): string {
-  return ctx.makeId(prefix);
-}
-
 function decodeTools(raw: unknown): { tools: Tool[]; definitions: ToolDefinition[] } {
   if (raw === undefined || raw === null) return { tools: [], definitions: [] };
-  if (!Array.isArray(raw)) invalid("Expected an array of tools for 'input.tools'.", "tools");
+  if (!Array.isArray(raw)) invalid("Expected an array of tools for 'tools'.", "tools");
   const tools: Tool[] = [];
   const definitions: ToolDefinition[] = [];
   raw.forEach((tool, index) => {
     const path = `tools[${index}]`;
-    if (!isRecord(tool)) invalid(`Expected an object for 'input.${path}'.`, path);
+    if (!isRecord(tool)) invalid(`Expected an object for '${path}'.`, path);
     if (tool.type !== "function") {
       const name = typeof tool.type === "string" ? tool.type : "unknown";
       unsupported(`tool type "${name}"`, `${path}.type`);
@@ -245,7 +244,7 @@ function decodeTools(raw: unknown): { tools: Tool[]; definitions: ToolDefinition
     let parameters: JsonSchema | undefined;
     if (tool.parameters !== undefined && tool.parameters !== null) {
       if (typeof tool.parameters !== "boolean" && !isRecord(tool.parameters)) {
-        invalid(`Expected a JSON Schema object for 'input.${path}.parameters'.`, `${path}.parameters`);
+        invalid(`Expected a JSON Schema object for '${path}.parameters'.`, `${path}.parameters`);
       }
       parameters = tool.parameters as JsonSchema;
     }
@@ -282,25 +281,25 @@ function decodeToolChoice(raw: unknown): { choice: AiToolChoice; wire: WireToolC
     const name = requireString(raw.name, "tool_choice.name", true);
     return { choice: { name }, wire: { type: "function", name } };
   }
-  invalid("Expected a tool choice string or function object for 'input.tool_choice'.", "tool_choice");
+  invalid("Expected a tool choice string or function object for 'tool_choice'.", "tool_choice");
 }
 
 function decodeOutput(raw: unknown): OutputSpec | undefined {
   if (raw === undefined || raw === null) return undefined;
-  if (!isRecord(raw)) invalid("Expected an object for 'input.text'.", "text");
+  if (!isRecord(raw)) invalid("Expected an object for 'text'.", "text");
   const format = raw.format;
   if (format === undefined || format === null) return undefined;
-  if (!isRecord(format)) invalid("Expected an object for 'input.text.format'.", "text.format");
+  if (!isRecord(format)) invalid("Expected an object for 'text.format'.", "text.format");
   if (format.type === "text" || format.type === undefined) return undefined;
   if (format.type === "json_object") return { kind: "json_object" };
   if (format.type === "json_schema") {
     const name = optionalString(format.name, "text.format.name");
     const schema = format.schema;
     if (typeof schema !== "boolean" && !isRecord(schema)) {
-      invalid("Expected a JSON Schema for 'input.text.format.schema'.", "text.format.schema");
+      invalid("Expected a JSON Schema for 'text.format.schema'.", "text.format.schema");
     }
     if (format.strict !== undefined && format.strict !== null && typeof format.strict !== "boolean") {
-      invalid("Expected a boolean for 'input.text.format.strict'.", "text.format.strict");
+      invalid("Expected a boolean for 'text.format.strict'.", "text.format.strict");
     }
     return {
       kind: "json_schema",
@@ -317,11 +316,11 @@ function decodeMessageItem(item: Record<string, unknown>, path: string): Message
     item.role === "system" || item.role === "developer" || item.role === "assistant" || item.role === "user"
       ? item.role
       : undefined;
-  if (!role) invalid(`Unsupported message role for 'input.${path}.role'.`, `${path}.role`);
+  if (!role) invalid(`Unsupported message role for '${path}.role'.`, `${path}.role`);
   const parts: InputPart[] = [];
   const content = item.content;
   if (content === undefined || content === null) {
-    invalid(`Missing required parameter: 'input.${path}.content'.`, `${path}.content`);
+    invalid(`Missing required parameter: '${path}.content'.`, `${path}.content`);
   }
   if (typeof content === "string") {
     parts.push({ type: "text", text: content });
@@ -332,11 +331,10 @@ function decodeMessageItem(item: Record<string, unknown>, path: string): Message
         parts.push({ type: "text", text: part });
         return;
       }
-      if (!isRecord(part)) invalid(`Expected a content part for 'input.${partPath}'.`, partPath);
+      if (!isRecord(part)) invalid(`Expected a content part for '${partPath}'.`, partPath);
       if (part.type === "input_audio") unsupported("audio input", `${partPath}.type`);
       if (part.type === "input_text" || part.type === "output_text" || part.type === "text") {
-        if (typeof part.text !== "string")
-          invalid(`Expected a string for 'input.${partPath}.text'.`, `${partPath}.text`);
+        if (typeof part.text !== "string") invalid(`Expected a string for '${partPath}.text'.`, `${partPath}.text`);
         parts.push({ type: "text", text: part.text });
         return;
       }
@@ -349,7 +347,7 @@ function decodeMessageItem(item: Record<string, unknown>, path: string): Message
       unsupported(`input content type "${String(part.type)}"`, `${partPath}.type`);
     });
   } else {
-    invalid(`Expected a string or array for 'input.${path}.content'.`, `${path}.content`);
+    invalid(`Expected a string or array for '${path}.content'.`, `${path}.content`);
   }
   return { role, parts };
 }
@@ -371,7 +369,7 @@ function decodeFunctionCall(
 function decodeFunctionCallOutput(item: Record<string, unknown>, path: string): Message {
   const callId = requireString(item.call_id, `${path}.call_id`, true);
   if (item.output === undefined || item.output === null) {
-    invalid(`Missing required parameter: 'input.${path}.output'.`, `${path}.output`);
+    invalid(`Missing required parameter: '${path}.output'.`, `${path}.output`);
   }
   const { text, files } = functionOutput(item.output, path);
   return { role: "tool", parts: [...files, { type: "tool_result", id: callId, output: text }] };
@@ -452,7 +450,7 @@ function messageToJson(message: Message): Json {
 }
 
 function decode(body: unknown, ctx: CodecContext): Decoded {
-  if (!isRecord(body)) invalid("Expected a JSON object request body.", "");
+  if (!isRecord(body)) invalid("Expected a JSON object request body.");
   const raw = body;
 
   if (raw.background === true) unsupported("background mode", "background");
@@ -470,7 +468,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       ? undefined
       : requireNumber(raw.max_output_tokens, "max_output_tokens");
   if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 0)) {
-    invalid("Expected a non-negative integer for 'input.max_output_tokens'.", "max_output_tokens");
+    invalid("Expected a non-negative integer for 'max_output_tokens'.", "max_output_tokens");
   }
 
   const { tools, definitions } = decodeTools(raw.tools);
@@ -487,7 +485,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const metadata = decodeMetadata(raw.metadata);
   const previousResponseId = optionalString(raw.previous_response_id, "previous_response_id");
   if (previousResponseId !== undefined && !previousResponseId.startsWith("resp_")) {
-    invalid(`Expected a response id starting with 'resp_' for 'input.previous_response_id'.`, "previous_response_id");
+    invalid(`Expected a response id starting with 'resp_' for 'previous_response_id'.`, "previous_response_id");
   }
 
   const messages: Message[] = [];
@@ -500,7 +498,8 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   if (previousResponseId !== undefined) {
     const stored = ctx.state.responses.get(previousResponseId);
     if (stored) {
-      history.push(...decodeStoredMessages(stored.inputItems), ...storedOutputMessages(stored.outputItems));
+      for (const message of decodeStoredMessages(stored.inputItems)) history.push(message);
+      for (const message of storedOutputMessages(stored.outputItems)) history.push(message);
       references.push({ id: previousResponseId, kind: "previous_response", resolved: true });
     } else {
       references.push({ id: previousResponseId, kind: "previous_response", resolved: false });
@@ -511,7 +510,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const input = raw.input;
   if (input === undefined || input === null) invalid("Missing required parameter: 'input'.", "input");
   const items: unknown[] = typeof input === "string" ? [{ role: "user", content: input }] : (input as unknown[]);
-  if (!Array.isArray(items)) invalid("Expected a string or array for 'input.input'.", "input");
+  if (!Array.isArray(items)) invalid("Expected a string or array for 'input'.", "input");
 
   items.forEach((entry, index) => {
     const path = `input[${index}]`;
@@ -519,7 +518,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       history.push({ role: "user", parts: [{ type: "text", text: entry }] });
       return;
     }
-    if (!isRecord(entry)) invalid(`Expected an item for 'input.${path}'.`, path);
+    if (!isRecord(entry)) invalid(`Expected an item for '${path}'.`, path);
     const type = typeof entry.type === "string" ? entry.type : undefined;
 
     if (type === "item_reference") {
@@ -527,7 +526,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       const found = findStoredItem(ctx.state, id);
       if (found) {
         references.push({ id, kind: "item", resolved: true });
-        history.push(...storedOutputMessages([found.item]));
+        for (const message of storedOutputMessages([found.item])) history.push(message);
       } else {
         references.push({ id, kind: "item", resolved: false });
         warnings.push(`Unknown item_reference "${id}"; dropping it.`);
@@ -573,7 +572,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     unsupported(`input item type "${type}"`, `${path}.type`);
   });
 
-  messages.push(...history);
+  for (const message of history) messages.push(message);
 
   const callNames = new Map<string, string>();
   for (const message of messages) {
@@ -630,6 +629,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       : { format: { type: "text" } },
     ...(reasoning === undefined ? {} : { reasoning }),
     metadata,
+    truncation: raw.truncation === "auto" ? "auto" : "disabled",
     inputItems: history.map(messageToJson),
   };
 
@@ -663,7 +663,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
       logprobs: [],
     };
     output.push({
-      id: makeId(ctx, "msg"),
+      id: ctx.makeId("msg"),
       type: "message",
       role: "assistant",
       status: itemStatus(reply.finish),
@@ -677,7 +677,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
       case "reasoning":
         flushText();
         output.push({
-          id: makeId(ctx, "rs"),
+          id: ctx.makeId("rs"),
           type: "reasoning",
           status: itemStatus(reply.finish),
           summary: [{ type: "summary_text", text: event.text }],
@@ -692,7 +692,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
       case "tool_call":
         flushText();
         output.push({
-          id: makeId(ctx, "fc"),
+          id: ctx.makeId("fc"),
           type: "function_call",
           status: itemStatus(reply.finish),
           call_id: event.id,
@@ -703,7 +703,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
       case "refusal":
         flushText();
         output.push({
-          id: makeId(ctx, "msg"),
+          id: ctx.makeId("msg"),
           type: "message",
           role: "assistant",
           status: "completed",
@@ -753,16 +753,16 @@ function buildResponse(
     model: request.model,
     output,
     parallel_tool_calls: request.parallelToolCalls,
-    ...(request.previousResponseId === undefined ? {} : { previous_response_id: request.previousResponseId }),
+    previous_response_id: request.previousResponseId ?? null,
     reasoning: extras.reasoning ?? { effort: null, summary: null },
     temperature: extras.temperature,
     text: extras.text,
     tool_choice: extras.toolChoice,
     tools: extras.tools,
     top_p: extras.topP,
-    truncation: "disabled",
+    truncation: extras.truncation,
     usage: usageWire(reply.usage),
-    ...(request.maxOutputTokens === undefined ? {} : { max_output_tokens: request.maxOutputTokens }),
+    max_output_tokens: request.maxOutputTokens ?? null,
   };
 }
 
@@ -770,8 +770,8 @@ function preparedFor(reply: Reply, decoded: Decoded, ctx: CodecContext): Prepare
   const cache = decoded.extras as Record<string, unknown>;
   const existing = cache.prepared as PreparedReply | undefined;
   if (existing) return existing;
-  const id = makeId(ctx, "resp");
-  const createdAt = Math.floor(Date.now() / 1000);
+  const id = ctx.makeId("resp");
+  const createdAt = CREATED_AT;
   const output = buildOutput(reply, ctx);
   const response = buildResponse(reply, decoded, id, createdAt, output);
   const prepared: PreparedReply = { id, createdAt, output, response };
@@ -809,224 +809,201 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
     });
   };
 
-  const created: WireCreatedEvent = { type: "response.created", response: emptyResponse(prepared), sequence_number: 0 };
+  const created: Unsequenced<WireCreatedEvent> = { type: "response.created", response: emptyResponse(prepared) };
   add(created);
-  const inProgress: WireInProgressEvent = {
+  const inProgress: Unsequenced<WireInProgressEvent> = {
     type: "response.in_progress",
     response: emptyResponse(prepared),
-    sequence_number: 0,
   };
   add(inProgress);
 
   prepared.output.forEach((item, outputIndex) => {
     if (item.type === "message") {
-      const added: ResponseOutputItemAddedEvent = {
+      const added: Unsequenced<ResponseOutputItemAddedEvent> = {
         type: "response.output_item.added",
         output_index: outputIndex,
         item: { ...item, status: "in_progress", content: [] },
-        sequence_number: 0,
       };
       add(added);
       item.content.forEach((part, contentIndex) => {
         if (part.type === "output_text") {
-          const partAdded: ResponseContentPartAddedEvent = {
+          const partAdded: Unsequenced<ResponseContentPartAddedEvent> = {
             type: "response.content_part.added",
             item_id: item.id,
             output_index: outputIndex,
             content_index: contentIndex,
             part: { type: "output_text", text: "", annotations: [], logprobs: [] },
-            sequence_number: 0,
           };
           add(partAdded);
           for (const delta of payloadChunks(part.text)) {
-            const event: ResponseTextDeltaEvent = {
+            const event: Unsequenced<ResponseTextDeltaEvent> = {
               type: "response.output_text.delta",
               item_id: item.id,
               output_index: outputIndex,
               content_index: contentIndex,
               delta,
               logprobs: [],
-              sequence_number: 0,
             };
             add(event, delta);
           }
-          const done: ResponseTextDoneEvent = {
+          const done: Unsequenced<ResponseTextDoneEvent> = {
             type: "response.output_text.done",
             item_id: item.id,
             output_index: outputIndex,
             content_index: contentIndex,
             text: part.text,
             logprobs: [],
-            sequence_number: 0,
           };
           add(done);
-          const partDone: ResponseContentPartDoneEvent = {
+          const partDone: Unsequenced<ResponseContentPartDoneEvent> = {
             type: "response.content_part.done",
             item_id: item.id,
             output_index: outputIndex,
             content_index: contentIndex,
             part,
-            sequence_number: 0,
           };
           add(partDone);
         } else {
           const refusalPart = part as ResponseOutputRefusal;
-          const partAdded: ResponseContentPartAddedEvent = {
+          const partAdded: Unsequenced<ResponseContentPartAddedEvent> = {
             type: "response.content_part.added",
             item_id: item.id,
             output_index: outputIndex,
             content_index: contentIndex,
             part: { type: "refusal", refusal: "" },
-            sequence_number: 0,
           };
           add(partAdded);
           for (const delta of textChunks(refusalPart.refusal)) {
-            const event: ResponseRefusalDeltaEvent = {
+            const event: Unsequenced<ResponseRefusalDeltaEvent> = {
               type: "response.refusal.delta",
               item_id: item.id,
               output_index: outputIndex,
               content_index: contentIndex,
               delta,
-              sequence_number: 0,
             };
             add(event, delta);
           }
-          const done: ResponseRefusalDoneEvent = {
+          const done: Unsequenced<ResponseRefusalDoneEvent> = {
             type: "response.refusal.done",
             item_id: item.id,
             output_index: outputIndex,
             content_index: contentIndex,
             refusal: refusalPart.refusal,
-            sequence_number: 0,
           };
           add(done);
-          const partDone: ResponseContentPartDoneEvent = {
+          const partDone: Unsequenced<ResponseContentPartDoneEvent> = {
             type: "response.content_part.done",
             item_id: item.id,
             output_index: outputIndex,
             content_index: contentIndex,
             part,
-            sequence_number: 0,
           };
           add(partDone);
         }
       });
-      const itemDone: ResponseOutputItemDoneEvent = {
+      const itemDone: Unsequenced<ResponseOutputItemDoneEvent> = {
         type: "response.output_item.done",
         output_index: outputIndex,
         item,
-        sequence_number: 0,
       };
       add(itemDone);
       return;
     }
 
     if (item.type === "function_call") {
-      const added: ResponseOutputItemAddedEvent = {
+      const added: Unsequenced<ResponseOutputItemAddedEvent> = {
         type: "response.output_item.added",
         output_index: outputIndex,
         item: { ...item, status: "in_progress", arguments: "" },
-        sequence_number: 0,
       };
       add(added);
       for (const delta of chunkArguments(item.arguments)) {
-        const event: ResponseFunctionCallArgumentsDeltaEvent = {
+        const event: Unsequenced<ResponseFunctionCallArgumentsDeltaEvent> = {
           type: "response.function_call_arguments.delta",
           item_id: item.id ?? `fc_${outputIndex}`,
           output_index: outputIndex,
           delta,
-          sequence_number: 0,
         };
         add(event, delta);
       }
-      const done: ResponseFunctionCallArgumentsDoneEvent = {
+      const done: Unsequenced<ResponseFunctionCallArgumentsDoneEvent> = {
         type: "response.function_call_arguments.done",
         item_id: item.id ?? `fc_${outputIndex}`,
         output_index: outputIndex,
         arguments: item.arguments,
-        sequence_number: 0,
       };
       add(done);
-      const itemDone: ResponseOutputItemDoneEvent = {
+      const itemDone: Unsequenced<ResponseOutputItemDoneEvent> = {
         type: "response.output_item.done",
         output_index: outputIndex,
         item,
-        sequence_number: 0,
       };
       add(itemDone);
       return;
     }
 
     const reasoning = item as ResponseReasoningItem;
-    const added: ResponseOutputItemAddedEvent = {
+    const added: Unsequenced<ResponseOutputItemAddedEvent> = {
       type: "response.output_item.added",
       output_index: outputIndex,
       item: { ...reasoning, status: "in_progress", summary: [] },
-      sequence_number: 0,
     };
     add(added);
     reasoning.summary.forEach((summary, summaryIndex) => {
-      const partAdded: ResponseReasoningSummaryPartAddedEvent = {
+      const partAdded: Unsequenced<ResponseReasoningSummaryPartAddedEvent> = {
         type: "response.reasoning_summary_part.added",
         item_id: reasoning.id,
         output_index: outputIndex,
         summary_index: summaryIndex,
         part: { type: "summary_text", text: "" },
-        sequence_number: 0,
       };
       add(partAdded);
       for (const delta of textChunks(summary.text)) {
-        const event: ResponseReasoningSummaryTextDeltaEvent = {
+        const event: Unsequenced<ResponseReasoningSummaryTextDeltaEvent> = {
           type: "response.reasoning_summary_text.delta",
           item_id: reasoning.id,
           output_index: outputIndex,
           summary_index: summaryIndex,
           delta,
-          sequence_number: 0,
         };
         add(event, delta);
       }
-      const textDone: ResponseReasoningSummaryTextDoneEvent = {
+      const textDone: Unsequenced<ResponseReasoningSummaryTextDoneEvent> = {
         type: "response.reasoning_summary_text.done",
         item_id: reasoning.id,
         output_index: outputIndex,
         summary_index: summaryIndex,
         text: summary.text,
-        sequence_number: 0,
       };
       add(textDone);
-      const partDone: ResponseReasoningSummaryPartDoneEvent = {
+      const partDone: Unsequenced<ResponseReasoningSummaryPartDoneEvent> = {
         type: "response.reasoning_summary_part.done",
         item_id: reasoning.id,
         output_index: outputIndex,
         summary_index: summaryIndex,
         part: summary,
-        sequence_number: 0,
       };
       add(partDone);
     });
-    const itemDone: ResponseOutputItemDoneEvent = {
+    const itemDone: Unsequenced<ResponseOutputItemDoneEvent> = {
       type: "response.output_item.done",
       output_index: outputIndex,
       item: reasoning,
-      sequence_number: 0,
     };
     add(itemDone);
   });
 
   const terminal = prepared.response;
   if (terminal.status === "incomplete") {
-    const event: WireIncompleteEvent = {
+    const event: Unsequenced<WireIncompleteEvent> = {
       type: "response.incomplete",
       response: terminal,
-      sequence_number: 0,
     };
     add(event);
   } else {
-    const event: WireCompletedEvent = {
+    const event: Unsequenced<WireCompletedEvent> = {
       type: "response.completed",
       response: terminal,
-      sequence_number: 0,
     };
     add(event);
   }
@@ -1037,7 +1014,8 @@ function afterReply(reply: Reply, decoded: Decoded, ctx: CodecContext): void {
   if (!decoded.request.store) return;
   const extras = extrasOf(decoded);
   const prepared = preparedFor(reply, decoded, ctx);
-  ctx.state.responses.set(prepared.id, {
+  const responses = ctx.state.responses;
+  responses.set(prepared.id, {
     id: prepared.id,
     createdAt: prepared.createdAt,
     model: decoded.request.model,
@@ -1046,6 +1024,11 @@ function afterReply(reply: Reply, decoded: Decoded, ctx: CodecContext): void {
     outputItems: prepared.output as unknown as Json[],
     response: prepared.response as unknown as Json,
   });
+  while (responses.size > STORED_RESPONSE_LIMIT) {
+    const oldest = responses.keys().next();
+    if (oldest.done) break;
+    responses.delete(oldest.value);
+  }
 }
 
 /** Looks up a stored Responses object and returns the wire reply, or the native 404. */

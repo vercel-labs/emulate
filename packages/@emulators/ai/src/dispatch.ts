@@ -1,6 +1,5 @@
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
-import { messagesCodec } from "./codecs/anthropic-messages.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
 import { decide } from "./engine.js";
@@ -55,8 +54,9 @@ export interface AiRoutesOptions {
 const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
   { suffix: "/chat/completions", codec: chatCodec },
   { suffix: "/responses", codec: responsesCodec },
-  { suffix: "/messages", codec: messagesCodec },
 ];
+
+const MAX_SEEN_MODELS = 1000;
 
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
@@ -137,7 +137,7 @@ async function handleControl(
   }
 
   if (path === "/_ai/rules") {
-    if (method === "GET") return c.json({ rules: ruleViews(state) });
+    if (method === "GET") return c.json(configView(state));
     if (method === "PUT") return replaceRules(c, state);
   }
 
@@ -175,7 +175,12 @@ async function replaceRules(c: Context<AppEnv>, state: AiState): Promise<Respons
     throw error;
   }
   setAiConfig(state, config);
-  return c.json({ rules: ruleViews(state) });
+  return c.json(configView(state));
+}
+
+function configView(state: AiState) {
+  const { strict, timing, random, models } = state.config;
+  return { rules: ruleViews(state), strict, timing, random, models };
 }
 
 function ruleViews(state: AiState): RuleView[] {
@@ -210,8 +215,10 @@ async function handleGeneration(
     body = await readJson(c);
   } catch (error) {
     const status = error instanceof AiRequestError ? error.status : 500;
-    recordCall(state, rejectedCall(state, codec.format, path, body, status), stamp);
+    const call = rejectedCall(state, codec.format, path, body, status);
+    recordCall(state, call, stamp);
     scope.dispose();
+    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error), call.seq);
     throw error;
   }
   if (scope.signal.aborted || !isCurrentGeneration(state, stamp)) {
@@ -222,14 +229,18 @@ async function handleGeneration(
     decoded = codec.decode(body, ctx);
   } catch (error) {
     const status = error instanceof AiRequestError ? error.status : 500;
-    recordCall(state, rejectedCall(state, codec.format, path, body, status), stamp);
+    const call = rejectedCall(state, codec.format, path, body, status);
+    recordCall(state, call, stamp);
     scope.dispose();
-    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error));
+    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error), call.seq);
     throw error;
   }
 
   const request = decoded.request;
   state.seenModels.add(request.model);
+  while (state.seenModels.size > MAX_SEEN_MODELS) {
+    state.seenModels.delete(state.seenModels.values().next().value as string);
+  }
 
   let outcome;
   try {
@@ -240,7 +251,7 @@ async function handleGeneration(
     fillCall(call, request);
     recordCall(state, call, stamp);
     scope.dispose();
-    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error));
+    if (error instanceof AiRequestError) return errorResponse(codec, failureOf(error), call.seq);
     throw error;
   }
 
@@ -253,7 +264,7 @@ async function handleGeneration(
     call.delivery = "completed";
     recordCall(state, call, stamp);
     scope.dispose();
-    return errorResponse(codec, outcome.failure);
+    return errorResponse(codec, outcome.failure, call.seq);
   }
 
   call.status = 200;
@@ -275,7 +286,7 @@ async function handleGeneration(
   if (!request.stream) {
     call.delivery = "completed";
     scope.dispose();
-    return Response.json(encoded, { status: 200 });
+    return withRequestId(Response.json(encoded, { status: 200 }), codec, call.seq);
   }
 
   let frames;
@@ -298,7 +309,7 @@ async function handleGeneration(
       scope.dispose();
     },
   };
-  return sseResponse(frames, options);
+  return withRequestId(sseResponse(frames, options), codec, call.seq);
 }
 
 function context(store: Store, state: AiState, path: string): CodecContext {
@@ -384,13 +395,24 @@ function failureOf(error: AiRequestError): HttpFailure {
   };
 }
 
-function errorResponse(codec: Codec, failure: HttpFailure): Response {
+function errorResponse(codec: Codec, failure: HttpFailure, seq: number): Response {
   const headers = new Headers(failure.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
-  return new Response(JSON.stringify(codec.errorBody(failure)), {
-    status: failure.status,
-    headers,
-  });
+  return withRequestId(
+    new Response(JSON.stringify(codec.errorBody(failure)), {
+      status: failure.status,
+      headers,
+    }),
+    codec,
+    seq,
+  );
+}
+
+/** Adds the deterministic request id header for the codec's vendor unless a rule already set it. */
+function withRequestId(response: Response, codec: Codec, seq: number): Response {
+  const name = "x-request-id";
+  if (!response.headers.has(name)) response.headers.set(name, `req_${seq}`);
+  return response;
 }
 
 async function readJson(c: Context<AppEnv>): Promise<unknown> {
