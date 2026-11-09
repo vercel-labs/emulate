@@ -405,15 +405,23 @@ function parseReplyEvent(raw: unknown, path: string): RuleReplyEvent {
       assertKnownKeys(obj, OBJECT_EVENT_KEYS, path);
       if (obj.value === undefined) throw new AiConfigError("expected a JSON value", `${path}.value`);
       return { type, value: expectJson(obj.value, `${path}.value`) };
-    case "tool_call":
+    case "tool_call": {
       assertKnownKeys(obj, TOOL_CALL_EVENT_KEYS, path);
       if (obj.arguments === undefined) throw new AiConfigError("expected tool arguments", `${path}.arguments`);
+      const args = expectJson(obj.arguments, `${path}.arguments`);
+      if (!isRecord(args)) {
+        throw new AiConfigError(
+          "expected a JSON object for tool arguments, not an encoded string; write the fields directly",
+          `${path}.arguments`,
+        );
+      }
       return {
         type,
         name: expectString(obj.name, `${path}.name`, true),
-        arguments: expectJson(obj.arguments, `${path}.arguments`),
+        arguments: args,
         ...(obj.id === undefined ? {} : { id: expectString(obj.id, `${path}.id`, true) }),
       };
+    }
     default:
       throw new AiConfigError(`unknown reply event type "${type}"`, `${path}.type`);
   }
