@@ -3,6 +3,9 @@ import type { SseFrame } from "./sse.js";
 import type { AiState } from "./state.js";
 import type { AIRequest, AiFormat, HttpFailure, Reply } from "./types.js";
 
+/** The fixed `created` timestamp every codec stamps on replies so output repeats exactly. */
+export const CREATED_AT = 1730000000;
+
 /** What a codec receives for one request: the store, its state, and a deterministic id factory. */
 export interface CodecContext {
   store: Store;
