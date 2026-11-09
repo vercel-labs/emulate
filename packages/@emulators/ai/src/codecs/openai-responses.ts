@@ -248,7 +248,8 @@ function decodeTools(raw: unknown): { tools: Tool[]; definitions: ToolDefinition
       }
       parameters = tool.parameters as JsonSchema;
     }
-    const strict = tool.strict === undefined ? false : requireBoolean(tool.strict, `${path}.strict`);
+    const strict =
+      tool.strict === undefined || tool.strict === null ? false : requireBoolean(tool.strict, `${path}.strict`);
     tools.push({
       type: "function",
       name,
@@ -343,7 +344,12 @@ function decodeMessageItem(item: Record<string, unknown>, path: string): Message
         parts.push(attachment);
         return;
       }
-      if (part.type === "refusal") return;
+      if (part.type === "refusal") {
+        if (typeof part.refusal !== "string")
+          invalid(`Expected a string for '${partPath}.refusal'.`, `${partPath}.refusal`);
+        parts.push({ type: "text", text: part.refusal });
+        return;
+      }
       unsupported(`input content type "${String(part.type)}"`, `${partPath}.type`);
     });
   } else {
