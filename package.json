@@ -9,6 +9,7 @@
     "test": "turbo test",
     "clean": "turbo clean",
     "type-check": "turbo type-check",
+    "type-check:tsc": "turbo type-check:tsc",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx}\"",
     "sync-versions": "node scripts/sync-versions.mjs",
