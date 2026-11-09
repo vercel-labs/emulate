@@ -5,6 +5,9 @@ import type { AiConfig, CallRecord, Delivery, StoredResponse, Timing } from "./t
 /** Maximum number of calls kept in the per-instance call record. */
 export const CALL_RECORD_LIMIT = 500;
 
+/** Maximum number of stored Responses objects kept per instance; the oldest are evicted first. */
+export const STORED_RESPONSE_LIMIT = 1000;
+
 /** State owned by one emulator instance, kept off the shared plugin object. */
 export interface AiState {
   config: AiConfig;
@@ -224,11 +227,6 @@ export function resetAiState(store: Store, config?: Partial<AiConfig>): AiState 
 /** Returns the next deterministic id number for this instance. */
 export function nextId(state: AiState): number {
   return state.nextId++;
-}
-
-/** Captures the generations a request writes against. */
-export function captureStamp(state: AiState): CallStamp {
-  return { generation: state.generation, callsGeneration: state.callsGeneration };
 }
 
 /** True when the state generation still matches the one a request captured. */

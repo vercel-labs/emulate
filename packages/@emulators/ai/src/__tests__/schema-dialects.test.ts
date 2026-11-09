@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialectForModel, schemaFailure } from "../schema-dialects.js";
-import type { JsonSchema } from "../types.js";
+import type { Json, JsonSchema } from "../types.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -112,6 +112,46 @@ describe("openai schema dialect", () => {
     const oneOf = await chat(chatBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true));
     expect(oneOf.status).toBe(200);
     expect(oneOf.json.choices[0].message.content).toBe('{"trip":"hello"}');
+  });
+});
+
+describe("schema sampling", () => {
+  const fields = Array.from({ length: 40 }, (_, index) => `field${index}`);
+
+  function fieldsSchema(): JsonSchema {
+    return {
+      type: "object",
+      properties: Object.fromEntries(fields.map((field) => [field, { type: "string" }])),
+      required: fields,
+      additionalProperties: false,
+    } as JsonSchema;
+  }
+
+  it("samples a short slice of the prompt for each string field", async () => {
+    const { status, json } = await chat({
+      ...chatBody(fieldsSchema()),
+      messages: [{ role: "user", content: "x".repeat(7000) }],
+    });
+    expect(status).toBe(200);
+    const value = JSON.parse(json.choices[0].message.content);
+    expect(value.field0).toBe("x".repeat(64));
+    expect(value.field39).toBe("x".repeat(64));
+  });
+
+  it("rejects a const nested past the depth bound with a client error", async () => {
+    let nested: Json = null;
+    for (let index = 0; index < 5000; index += 1) nested = [nested];
+    const { status, json } = await chat(
+      chatBody({
+        type: "object",
+        properties: { trip: { const: nested } },
+        required: ["trip"],
+        additionalProperties: false,
+      } as JsonSchema),
+    );
+    expect(status).toBe(400);
+    expect(json.error.type).toBe("invalid_request_error");
+    expect(json.error.message).toContain("value nesting exceeds 32 levels");
   });
 });
 

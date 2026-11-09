@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
+import { request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Hono, cors, serve } from "../http.js";
 
@@ -17,6 +18,44 @@ describe("HTTP listener", () => {
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("closes the connection when a streamed response errors while the request body is unread", async () => {
+    const parts = ["first|", "second|", "third|"];
+    const encoder = new TextEncoder();
+    const server = serve({
+      port: 0,
+      fetch: () => {
+        let index = 0;
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            if (index < parts.length) {
+              controller.enqueue(encoder.encode(parts[index]));
+              index += 1;
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            controller.error(new Error("stream failed"));
+          },
+        });
+        return new Response(body, { headers: { "Content-Type": "text/plain" } });
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      const result = await postIgnoredBody(port, 512 * 1024);
+
+      expect(result.text).toBe(parts.join(""));
+      expect(result.complete).toBe(false);
+      expect(await waitForConnections(server, 0, 1000)).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
         server.closeAllConnections();
       });
     }
@@ -94,3 +133,54 @@ describe("internal http layer", () => {
     expect(res.headers.get("Access-Control-Max-Age")).toBe("60");
   });
 });
+
+/** POSTs a body the handler never reads and reports what the response stream delivered. */
+function postIgnoredBody(port: number, bytes: number): Promise<{ text: string; complete: boolean }> {
+  return new Promise((resolve) => {
+    const parts: Buffer[] = [];
+    let responded = false;
+    let settled = false;
+    const settle = (complete: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve({ text: Buffer.concat(parts).toString(), complete });
+      request.destroy();
+    };
+    const request = httpRequest(
+      {
+        host: "127.0.0.1",
+        port,
+        method: "POST",
+        path: "/",
+        agent: false,
+        headers: { "Content-Length": String(bytes), "Content-Type": "application/octet-stream" },
+      },
+      (response) => {
+        responded = true;
+        response.on("data", (chunk: Buffer) => parts.push(chunk));
+        response.on("close", () => settle(response.complete));
+      },
+    );
+    request.on("error", () => {
+      if (!responded) settle(false);
+    });
+    request.end(Buffer.alloc(bytes, 0x41));
+  });
+}
+
+/** Polls the server until it reports the expected connection count or the deadline passes. */
+async function waitForConnections(server: Server, expected: number, timeoutMs: number): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let count = await countConnections(server);
+  while (count !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    count = await countConnections(server);
+  }
+  return count;
+}
+
+function countConnections(server: Server): Promise<number> {
+  return new Promise((resolve, reject) =>
+    server.getConnections((error, count) => (error ? reject(error) : resolve(count))),
+  );
+}

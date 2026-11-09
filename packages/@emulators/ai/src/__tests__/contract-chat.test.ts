@@ -176,6 +176,87 @@ describe("openai Chat Completions codec with the official SDK", () => {
     ).rejects.toMatchObject({ status: 400, message: expect.stringContaining("multiple candidates") });
   });
 
+  it("uses chatcmpl- ids and surfaces a request id through the SDK", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL });
+    const messages = [{ role: "user" as const, content: "Hi" }];
+
+    const data = await client.chat.completions.create({ model: "echo-model", messages });
+    expect(data.id).toMatch(/^chatcmpl-\d+$/);
+    expect(data._request_id).toMatch(/^req_\d+$/);
+
+    const stream = await client.chat.completions.create({ model: "echo-model", messages, stream: true });
+    const first = await stream[Symbol.asyncIterator]().next();
+    expect(first.value?.id).toMatch(/^chatcmpl-\d+$/);
+    expect(stream._request_id).toMatch(/^req_\d+$/);
+  });
+
+  it("returns a null error code for plain validation errors and a request id", async () => {
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "m", messages: [{ role: "user" }] }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("x-request-id")).toMatch(/^req_\d+$/);
+    const body = (await response.json()) as { error: { type: string; code: unknown } };
+    expect(body.error).toMatchObject({ type: "invalid_request_error", code: null });
+  });
+
+  it("rejects unpaired tool calls and tool results, and accepts parallel tool calls", async () => {
+    const send = (messages: unknown[]) =>
+      fetch(`${baseURL}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "echo-model", messages }),
+      });
+    const call = (id: string) => ({ id, type: "function", function: { name: "f", arguments: "{}" } });
+    const user = { role: "user", content: "Hi" };
+
+    const orphan = await send([user, { role: "tool", tool_call_id: "x", content: "r" }]);
+    expect(orphan.status).toBe(400);
+    expect(((await orphan.json()) as { error: { param: string } }).error.param).toBe("messages[1].role");
+
+    const missing = await send([
+      user,
+      { role: "assistant", tool_calls: [call("a"), call("b")] },
+      { role: "tool", tool_call_id: "a", content: "r" },
+      user,
+    ]);
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { error: { param: string } }).error.param).toBe("messages[1].role");
+
+    const trailing = await send([user, { role: "assistant", tool_calls: [call("a")] }]);
+    expect(trailing.status).toBe(400);
+
+    const valid = await send([
+      user,
+      { role: "assistant", tool_calls: [call("a"), call("b")] },
+      { role: "tool", tool_call_id: "b", content: "r" },
+      { role: "tool", tool_call_id: "a", content: "r" },
+      user,
+    ]);
+    expect(valid.status).toBe(200);
+  });
+
+  it("round trips GET then PUT of the rules config without loss", async () => {
+    await configureRules({
+      strict: true,
+      timing: { ttftMs: 5, chunkDelayMs: 2 },
+      models: ["m-1"],
+      random: { seed: 7 },
+      rules: toolRules(),
+    });
+    const got = await (await fetch(`${origin}/_ai/rules`)).json();
+    expect(got).toMatchObject({
+      strict: true,
+      timing: { ttftMs: 5, chunkDelayMs: 2 },
+      models: ["m-1"],
+      random: { seed: 7 },
+    });
+    await configureRules(got as Record<string, unknown>);
+    expect(await (await fetch(`${origin}/_ai/rules`)).json()).toEqual(got);
+  });
+
   it("returns a native 400 from strict mode through the server", async () => {
     await configureRules({ strict: true });
     const client = new OpenAI({ apiKey: "test", baseURL });
