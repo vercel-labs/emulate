@@ -610,9 +610,8 @@ async function writeFetchResponse(
       return;
     }
     res.end();
-  } catch {
-    if (res.socket) res.socket.end();
-    else res.destroy();
+  } catch (err) {
+    res.destroy(err instanceof Error ? err : undefined);
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
