@@ -1,6 +1,6 @@
 {
   "name": "@emulators/slack",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,11 +30,12 @@
   ],
   "scripts": {
     "build": "tsup --clean",
-    "dev": "tsup --watch",
+    "dev": "tsup --watch src",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo",
-    "type-check": "tsc --noEmit",
-    "lint": "eslint src",
+    "type-check": "tsc-ts --noEmit",
+    "type-check:tsc": "tsc --noEmit",
+    "lint": "oxlint src",
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
@@ -42,8 +43,9 @@
   },
   "devDependencies": {
     "@slack/web-api": "^7.16.0",
+    "tsc-ts": "0.1.3",
     "tsup": "^8",
-    "typescript": "^5.7",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }
