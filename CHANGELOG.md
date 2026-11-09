@@ -1,8 +1,21 @@
 # Changelog
 
-## 0.13.0
+## 0.13.1
 
 <!-- release:start -->
+
+### Improvements
+
+- Upgraded the build to **TypeScript 7**, with `tsc` emitting package declarations and `rolldown-plugin-dts` bundling the `emulate` API types. `@emulators/*` packages now ship one `.d.ts` file per module instead of a single bundled file; the `types` entry points and exported types are unchanged (#346)
+- Kept **declarations current in watch mode** so `dev` builds re-emit types when type-only source files change (#352)
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
+## 0.13.0
 
 ### New Features
 
@@ -15,8 +28,6 @@
 ### Contributors
 
 - @lahfir
-
-<!-- release:end -->
 
 ## 0.12.3
 
