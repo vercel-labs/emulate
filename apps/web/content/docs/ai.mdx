@@ -199,7 +199,7 @@ A strict JSON Schema is checked against OpenAI's documented subset before anythi
 
 Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. Non-strict schemas are not checked, matching the API.
 
-The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, string `format` values for the common formats, and local `$ref`. `pattern` is accepted and ignored. A schema outside that set returns a 400 naming the schema path.
+The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), string `format` values for the common formats, and local `$ref`. A schema outside that set returns a 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
 
 Provider rules differ, so the dialect is chosen per request: a model name starting with `claude` is checked with Anthropic's rules, anything else with OpenAI's. The error envelope stays the one the endpoint speaks, which is what Anthropic's OpenAI compatibility layer does: same shape, different message.
 

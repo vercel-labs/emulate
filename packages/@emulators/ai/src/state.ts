@@ -174,6 +174,7 @@ export function setSeedConfig(store: Store, config: AiConfig): void {
   store.setData(SEED_KEY, {
     strict: config.strict,
     timing: { ...config.timing },
+    random: { ...config.random },
     models: [...config.models],
     rules: [...config.rules],
   });

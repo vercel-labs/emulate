@@ -164,6 +164,22 @@ describe("OpenAI Responses codec", () => {
     expect(callId).toBe("call_weather");
   });
 
+  it("accepts null optional function tool fields", async () => {
+    const client = openaiClient();
+    const response = await client.responses.create({
+      model: "gpt-x",
+      input: "weather in Paris",
+      tools: [{ type: "function", name: "get_weather", description: null, parameters: null, strict: null }],
+    });
+
+    expect(response.tools[0]).toEqual({
+      type: "function",
+      name: "get_weather",
+      parameters: { type: "object" },
+      strict: false,
+    });
+  });
+
   it("resolves item references and pairs tool results with their calls", async () => {
     const client = openaiClient();
     const tools = [
@@ -380,6 +396,32 @@ describe("OpenAI Responses codec", () => {
     expect(refusal).toBe("I can't help with that.");
     expect(text).toBe("");
     expect(terminal).toBe("response.completed");
+  });
+
+  it("keeps a replayed refusal part in normalized history", async () => {
+    const client = openaiClient();
+    const texts = (call: CallRecord) =>
+      call.messages.flatMap((message) => message.parts.filter((part) => part.type === "text").map((part) => part.text));
+
+    const first = await client.responses.create({ model: "gpt-x", input: "refuse this" });
+    const item = first.output[0];
+    if (!item || item.type !== "message") throw new Error("expected a refusal message");
+
+    const input: ResponseInputItem[] = [item, { role: "user", content: "say hi" }];
+    await client.responses.create({ model: "gpt-x", input });
+    expect(texts(await lastCall())).toEqual(["I can't help with that.", "say hi"]);
+
+    await client.responses.create({ model: "gpt-x", input: "say hi", previous_response_id: first.id });
+    expect(texts(await lastCall())).toEqual(["refuse this", "I can't help with that.", "say hi"]);
+
+    await client.responses.create({
+      model: "gpt-x",
+      input: [
+        { type: "item_reference", id: item.id },
+        { role: "user", content: "say hi" },
+      ],
+    });
+    expect(texts(await lastCall())).toEqual(["I can't help with that.", "say hi"]);
   });
 
   it("marks length replies incomplete", async () => {

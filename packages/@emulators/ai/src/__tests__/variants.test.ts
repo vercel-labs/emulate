@@ -62,7 +62,51 @@ async function sequence(seed: number, count = 3): Promise<string[]> {
   return replies;
 }
 
+async function seededOrder(seededOrigin: string, count: number): Promise<string[]> {
+  const client = new OpenAI({ apiKey: "test", baseURL: `${seededOrigin}/v1` });
+  const replies: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const completion = await client.chat.completions.create({
+      model: "pick-model",
+      messages: [{ role: "user", content: "pick one" }],
+    });
+    replies.push(completion.choices[0].message.content ?? "");
+  }
+  return replies;
+}
+
 describe("seeded reply variants", () => {
+  it("keeps a seeded random seed and variant order across an HTTP reset", async () => {
+    const entry = new URL("../../../../emulate/src/api.ts", import.meta.url).href;
+    const { createEmulator } = (await import(entry)) as {
+      createEmulator(options: {
+        service: "ai";
+        port: number;
+        seed: { ai: Record<string, unknown> };
+      }): Promise<EmulatorHandle>;
+    };
+    const seeded = await createEmulator({
+      service: "ai",
+      port: 0,
+      seed: { ai: { random: { seed: 7 }, rules: [pickRule] } },
+    });
+    const seededOrigin = new URL(seeded.url).origin;
+    try {
+      const before = await seededOrder(seededOrigin, 4);
+      const rulesBefore = (await (await fetch(`${seededOrigin}/_ai/rules`)).json()) as { random: unknown };
+      expect(rulesBefore.random).toEqual({ seed: 7 });
+
+      const reset = await fetch(`${seededOrigin}/_ai/reset`, { method: "POST" });
+      expect(reset.status).toBe(200);
+
+      const rulesAfter = (await (await fetch(`${seededOrigin}/_ai/rules`)).json()) as { random: unknown };
+      expect(rulesAfter.random).toEqual({ seed: 7 });
+      expect(await seededOrder(seededOrigin, 4)).toEqual(before);
+    } finally {
+      await seeded.close();
+    }
+  });
+
   it("replays the same order for a seed and covers every variant", async () => {
     const first = await sequence(7);
     await fetch(`${origin}/_ai/reset`, { method: "POST" });

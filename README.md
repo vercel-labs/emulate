@@ -1439,7 +1439,7 @@ Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default
 
 With no matching rule, the service echoes the latest user text, returns a deterministic schema-valid object when a schema was requested, returns `{}` for JSON mode without a schema, generates a call when a tool is forced, acknowledges a tool result or an attachment-only request, and accepts and echoes any model id.
 
-Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path.
+Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
 
 Set `ai.strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and as a JSON body for the rules endpoint.
 
