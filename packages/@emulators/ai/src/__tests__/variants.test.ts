@@ -221,4 +221,40 @@ describe("seeded reply variants", () => {
 
     expect(response.status).toBe(400);
   });
+
+  it("rejects tool arguments written as an encoded string", async () => {
+    const response = await fetch(`${origin}/_ai/rules`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        rules: [
+          {
+            id: "encoded",
+            match: {},
+            reply: [{ type: "tool_call", name: "lookup", arguments: '{"id":1}' }],
+          },
+        ],
+      }),
+    });
+    const json = (await response.json()) as { error: { message: string } };
+    expect(response.status).toBe(400);
+    expect(json.error.message).toContain("expected a JSON object for tool arguments");
+  });
+});
+
+describe("streamed default echo", () => {
+  it("streams a whitespace-only message in linear time", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL });
+    const text = " ".repeat(200_000);
+    const started = performance.now();
+    const stream = await client.chat.completions.create({
+      model: "pick-model",
+      messages: [{ role: "user", content: text }],
+      stream: true,
+    });
+    let received = "";
+    for await (const chunk of stream) received += chunk.choices[0]?.delta?.content ?? "";
+    expect(received).toBe(text);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
 });
