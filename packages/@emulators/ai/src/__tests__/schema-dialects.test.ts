@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialectForModel, schemaFailure } from "../schema-dialects.js";
-import type { Json, JsonSchema } from "../types.js";
+import type { JsonSchema } from "../types.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -39,10 +39,14 @@ function schema(keyword: string): JsonSchema {
 }
 
 async function chat(body: unknown): Promise<{ status: number; json: Record<string, any> }> {
+  return chatRaw(JSON.stringify(body));
+}
+
+async function chatRaw(body: string): Promise<{ status: number; json: Record<string, any> }> {
   const response = await fetch(`${origin}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body,
   });
   return { status: response.status, json: (await response.json()) as Record<string, any> };
 }
@@ -106,8 +110,9 @@ describe("openai schema dialect", () => {
     expect(email.status).toBe(200);
     expect(email.json.choices[0].message.content).toBe('{"trip":"user@example.com"}');
 
-    const pattern = await chat(chatBody(objectWith({ type: "string", pattern: "^a+$" }), true));
+    const pattern = await chat(chatBody(objectWith({ type: "string", format: "email", pattern: "^a+$" }), true));
     expect(pattern.status).toBe(200);
+    expect(pattern.json.choices[0].message.content).toBe('{"trip":"user@example.com"}');
 
     const oneOf = await chat(chatBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true));
     expect(oneOf.status).toBe(200);
@@ -139,19 +144,33 @@ describe("schema sampling", () => {
   });
 
   it("rejects a const nested past the depth bound with a client error", async () => {
-    let nested: Json = null;
-    for (let index = 0; index < 5000; index += 1) nested = [nested];
-    const { status, json } = await chat(
-      chatBody({
-        type: "object",
-        properties: { trip: { const: nested } },
-        required: ["trip"],
-        additionalProperties: false,
-      } as JsonSchema),
+    const nested = `${"[".repeat(5000)}null${"]".repeat(5000)}`;
+    const { status, json } = await chatRaw(
+      `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"response_format":{"type":"json_schema","json_schema":{"name":"trip","schema":{"type":"object","properties":{"trip":{"const":${nested}}},"required":["trip"],"additionalProperties":false}}}}`,
     );
     expect(status).toBe(400);
     expect(json.error.type).toBe("invalid_request_error");
     expect(json.error.message).toContain("value nesting exceeds 32 levels");
+  });
+
+  it("samples a oneOf branch that matches exactly one branch", async () => {
+    const fallback = await chat(
+      chatBody(objectWith({ oneOf: [{ type: "string", minLength: 100 }, { type: "string" }] }), true),
+    );
+    expect(fallback.status).toBe(200);
+    expect(fallback.json.choices[0].message.content).toBe('{"trip":"hello"}');
+
+    const none = await chat(chatBody(objectWith({ oneOf: [{ type: "string" }, { type: "string" }] }), true));
+    expect(none.status).toBe(400);
+    expect(none.json.error.type).toBe("invalid_request_error");
+    expect(none.json.error.message).toContain("no oneOf branch produces a value that matches exactly one branch");
+  });
+
+  it("rejects a patterned string instead of ignoring the pattern", async () => {
+    const { status, json } = await chat(chatBody(objectWith({ type: "string", pattern: "^a+$" }), true));
+    expect(status).toBe(400);
+    expect(json.error.type).toBe("invalid_request_error");
+    expect(json.error.message).toContain("the sampler cannot generate a string for a pattern");
   });
 });
 
