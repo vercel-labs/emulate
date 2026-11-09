@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { DocumentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CallRecord } from "../types.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -59,6 +62,30 @@ async function setRules(rules: unknown[]): Promise<void> {
     body: JSON.stringify({ rules }),
   });
   expect(response.status).toBe(200);
+}
+
+async function lastCall(): Promise<CallRecord> {
+  const response = await fetch(`${origin}/_ai/calls`);
+  expect(response.status).toBe(200);
+  const calls = (await response.json()) as CallRecord[];
+  const call = calls.at(-1);
+  if (!call) throw new Error("expected a recorded call");
+  return call;
+}
+
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const PDF = Buffer.from("%PDF-1.4\n%%EOF\n").toString("base64");
+
+function sha256(base64: string): string {
+  return createHash("sha256").update(Buffer.from(base64, "base64")).digest("hex");
+}
+
+async function postMessages(body: string): Promise<Response> {
+  return fetch(`${origin}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
 }
 
 describe("anthropic messages", () => {
@@ -135,6 +162,239 @@ describe("anthropic messages", () => {
       ],
     });
     expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+  });
+
+  it("records attachments without credentials, query strings, or file bytes", async () => {
+    await setRules([{ id: "png", match: { file: "image/png" }, reply: [{ type: "text", text: "png matched" }] }]);
+
+    await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "url", url: "https://user:pass@example.com/cat.png?sig=secret#frag" } },
+          ],
+        },
+      ],
+    });
+    const urlCall = await lastCall();
+    expect(urlCall.messages[0].parts).toEqual([
+      { type: "file", mediaType: "image/*", source: "url", ref: "https://example.com/cat.png" },
+    ]);
+
+    const inline = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }] },
+      ],
+    });
+    expect(inline.content).toEqual([{ type: "text", text: "png matched" }]);
+    const inlineCall = await lastCall();
+    expect(inlineCall.messages[0].parts).toEqual([
+      {
+        type: "file",
+        mediaType: "image/png",
+        source: "inline",
+        bytes: Buffer.from(PNG, "base64").length,
+        sha256: sha256(PNG),
+      },
+    ]);
+    expect(JSON.stringify(inlineCall.messages)).not.toContain(PNG);
+
+    const nested = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: "look" },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [
+                { type: "text", text: "here it is" },
+                { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } },
+                { type: "document", source: { type: "base64", media_type: "application/pdf", data: PDF } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(nested.content).toEqual([{ type: "text", text: "png matched" }]);
+    const nestedCall = await lastCall();
+    expect(nestedCall.messages.at(-1)?.parts).toEqual([
+      { type: "tool_result", id: "toolu_1", output: "here it is" },
+      {
+        type: "file",
+        mediaType: "image/png",
+        source: "inline",
+        bytes: Buffer.from(PNG, "base64").length,
+        sha256: sha256(PNG),
+      },
+      {
+        type: "file",
+        mediaType: "application/pdf",
+        source: "inline",
+        bytes: Buffer.from(PDF, "base64").length,
+        sha256: sha256(PDF),
+      },
+    ]);
+    expect(JSON.stringify(nestedCall.messages)).not.toContain(PNG);
+    expect(JSON.stringify(nestedCall.messages)).not.toContain(PDF);
+  });
+
+  it("accepts every document source type", async () => {
+    const sources: DocumentBlockParam["source"][] = [
+      { type: "base64", media_type: "application/pdf", data: PDF },
+      { type: "text", media_type: "text/plain", data: "the document body" },
+      {
+        type: "content",
+        content: [
+          { type: "text", text: "block text" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } },
+        ],
+      },
+      { type: "url", url: "https://example.com/doc.pdf" },
+      { type: "file", file_id: "file_1" },
+    ];
+
+    for (const source of sources) {
+      const message = await client.messages.create({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: [{ type: "document", source }] }],
+      });
+      expect(message.type).toBe("message");
+    }
+
+    await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [{ role: "user", content: [{ type: "document", source: sources[1] }] }],
+    });
+    const call = await lastCall();
+    expect(call.messages[0].parts).toEqual([{ type: "text", text: "the document body" }]);
+  });
+
+  it("rejects a document block nested in a content source", async () => {
+    const response = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: {
+                  type: "content",
+                  content: [{ type: "document", source: { type: "text", media_type: "text/plain", data: "inner" } }],
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { type: string; error: { type: string; message: string } };
+    expect(body).toMatchObject({ type: "error", error: { type: "invalid_request_error" } });
+    expect(body.error.message).toBe('Unsupported content block type "document" in a content source.');
+  });
+
+  it("rejects a nested document inside a tool result", async () => {
+    const response = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [
+          { role: "user", content: "look" },
+          { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_1",
+                content: [
+                  {
+                    type: "document",
+                    source: {
+                      type: "content",
+                      content: [
+                        { type: "document", source: { type: "base64", media_type: "application/pdf", data: PDF } },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { type: string; message: string } };
+    expect(body.error).toMatchObject({
+      type: "invalid_request_error",
+      message: 'Unsupported content block type "document" in a content source.',
+    });
+  });
+
+  it("accepts text and image blocks in a content source", async () => {
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "content",
+                content: [
+                  { type: "text", text: "block text" },
+                  { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(message.type).toBe("message");
+    const call = await lastCall();
+    expect(call.messages[0].parts).toEqual([
+      { type: "text", text: "block text" },
+      {
+        type: "file",
+        mediaType: "image/png",
+        source: "inline",
+        bytes: Buffer.from(PNG, "base64").length,
+        sha256: sha256(PNG),
+      },
+    ]);
+  });
+
+  it("answers deeply nested document sources with 400 instead of overflowing", async () => {
+    let block = '{"type":"text","text":"deep"}';
+    for (let level = 0; level < 3000; level += 1) {
+      block = `{"type":"document","source":{"type":"content","content":[${block}]}}`;
+    }
+    const response = await postMessages(
+      `{"model":"claude-opus-5-5","max_tokens":64,"messages":[{"role":"user","content":[${block}]}]}`,
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { type: string } };
+    expect(body.error.type).toBe("invalid_request_error");
   });
 
   it("fills structured output from the requested schema", async () => {

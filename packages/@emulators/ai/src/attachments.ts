@@ -40,6 +40,14 @@ function inferredMediaType(name: string | undefined): string {
     : "application/octet-stream";
 }
 
+function stripUrl(url: URL): string {
+  url.username = "";
+  url.password = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 function checkedUrl(value: unknown, path: string): string {
   if (typeof value !== "string") fail("Expected an HTTPS URL.", path);
   let url: URL;
@@ -49,11 +57,19 @@ function checkedUrl(value: unknown, path: string): string {
     return fail("Expected an HTTPS URL.", path);
   }
   if (url.protocol !== "https:") fail("Expected an HTTPS URL.", path);
-  url.username = "";
-  url.password = "";
-  url.search = "";
-  url.hash = "";
-  return url.toString();
+  return stripUrl(url);
+}
+
+/** Strips credentials, query, and hash from an attachment URL, keeping its protocol. */
+export function redactedUrl(value: unknown, path: string): string {
+  if (typeof value !== "string") fail("Expected a URL.", path);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return fail("Expected a URL.", path);
+  }
+  return stripUrl(url);
 }
 
 function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
@@ -68,6 +84,25 @@ function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
   if (bytes.toString("base64").replace(/=+$/, "") !== unpadded) fail("Malformed base64 data.", path);
   if (bytes.length > maxBytes) fail("Inline attachment exceeds the size limit.", path);
   return bytes;
+}
+
+/** Records a base64 attachment as size and hash metadata, never the bytes. */
+export function inlineFilePart(
+  value: string,
+  mediaType: string,
+  path: string,
+  maxBytes: number,
+  name?: string,
+): FilePart {
+  const bytes = decodeBase64(value, path, maxBytes);
+  return {
+    type: "file",
+    mediaType,
+    ...(name === undefined ? {} : { name }),
+    source: "inline",
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
 }
 
 function inlineAttachment(
@@ -91,15 +126,7 @@ function inlineAttachment(
   if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) {
     fail("Invalid attachment media type.", path);
   }
-  const bytes = decodeBase64(encoded, path, maxBytes);
-  return {
-    type: "file",
-    mediaType,
-    ...(name === undefined ? {} : { name }),
-    source: "inline",
-    bytes: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-  };
+  return inlineFilePart(encoded, mediaType, path, maxBytes, name);
 }
 
 function requireDetail(value: unknown, path: string, allowed: string[]): void {

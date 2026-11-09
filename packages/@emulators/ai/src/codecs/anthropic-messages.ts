@@ -1,4 +1,5 @@
 import { AiRequestError } from "../errors.js";
+import { inlineFilePart, redactedUrl } from "../attachments.js";
 import { jsonChunks, payloadChunks } from "../chunks.js";
 import type { Codec, CodecContext, Decoded } from "../codec.js";
 import { assertSchemaSupported } from "../schema-dialects.js";
@@ -20,6 +21,7 @@ import type {
 } from "../types.js";
 
 const REQUEST_ID = "req_emulate";
+const MAX_INLINE_BYTES = 32_000_000;
 
 const ERROR_TYPES: Record<number, string> = {
   400: "invalid_request_error",
@@ -93,69 +95,121 @@ function optionalBoolean(value: unknown, path: string): boolean | undefined {
   return value;
 }
 
-function textOfContent(value: unknown, path: string): string {
+function textOfContent(value: unknown, path: string, nested: InputPart[]): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) fail("Expected a string or an array of content blocks.", path);
-  return value
-    .map((block, index) => {
-      if (!isRecord(block)) fail("Expected a content block object.", `${path}.${index}`);
-      if (block.type === "text") return requireString(block.text, `${path}.${index}.text`);
-      return JSON.stringify(block);
-    })
-    .join("\n");
+  const texts: string[] = [];
+  value.forEach((block, index) => {
+    const blockPath = `${path}.${index}`;
+    if (!isRecord(block)) fail("Expected a content block object.", blockPath);
+    if (block.type === "image") {
+      nested.push(decodeFile(block, blockPath, "image"));
+      return;
+    }
+    if (block.type === "document") {
+      nested.push(...decodeDocument(block, blockPath));
+      return;
+    }
+    texts.push(block.type === "text" ? requireString(block.text, `${blockPath}.text`) : JSON.stringify(block));
+  });
+  return texts.join("\n");
 }
 
-function decodeFile(block: Record<string, unknown>, path: string, kind: string): FilePart {
+function decodeFile(block: Record<string, unknown>, path: string, kind: "image" | "document"): FilePart {
   const source = block.source;
   if (!isRecord(source)) fail("Expected a source object.", `${path}.source`);
   if (source.type === "base64") {
     const mediaType = requireString(source.media_type, `${path}.source.media_type`);
     const data = requireString(source.data, `${path}.source.data`);
-    return { type: "file", mediaType, source: "inline", bytes: Math.round((data.length * 3) / 4) };
+    return inlineFilePart(data, mediaType, `${path}.source.data`, MAX_INLINE_BYTES);
   }
   if (source.type === "url") {
     return {
       type: "file",
       mediaType: kind === "image" ? "image/*" : "application/octet-stream",
       source: "url",
-      ref: requireString(source.url, `${path}.source.url`),
+      ref: redactedUrl(source.url, `${path}.source.url`),
+    };
+  }
+  if (source.type === "file") {
+    return {
+      type: "file",
+      mediaType: kind === "image" ? "image/*" : "application/pdf",
+      source: "file_id",
+      ref: requireString(source.file_id, `${path}.source.file_id`),
     };
   }
   return fail(`Unsupported source type "${String(source.type)}".`, `${path}.source.type`);
 }
 
-function decodeBlock(block: unknown, path: string): InputPart {
+function decodeContentSource(content: unknown, path: string): InputPart[] {
+  if (content === undefined || content === null) return [];
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  if (!Array.isArray(content)) fail("Expected a string or an array of text and image blocks.", path);
+  return content.flatMap((block, index): InputPart[] => {
+    const blockPath = `${path}.${index}`;
+    if (!isRecord(block)) fail("Expected a content block object.", blockPath);
+    switch (block.type) {
+      case "text":
+        return [{ type: "text", text: requireString(block.text, `${blockPath}.text`) }];
+      case "image":
+        return [decodeFile(block, blockPath, "image")];
+      default:
+        return fail(`Unsupported content block type "${String(block.type)}" in a content source.`, `${blockPath}.type`);
+    }
+  });
+}
+
+function decodeDocument(block: Record<string, unknown>, path: string): InputPart[] {
+  const source = block.source;
+  if (!isRecord(source)) fail("Expected a source object.", `${path}.source`);
+  if (source.type === "text") {
+    return [{ type: "text", text: requireString(source.data, `${path}.source.data`) }];
+  }
+  if (source.type === "content") {
+    return decodeContentSource(source.content, `${path}.source.content`);
+  }
+  return [decodeFile(block, path, "document")];
+}
+
+function decodeBlock(block: unknown, path: string): InputPart[] {
   if (!isRecord(block)) fail("Expected a content block object.", path);
   switch (block.type) {
     case "text":
-      return { type: "text", text: requireString(block.text, `${path}.text`) };
+      return [{ type: "text", text: requireString(block.text, `${path}.text`) }];
     case "image":
-      return decodeFile(block, path, "image");
+      return [decodeFile(block, path, "image")];
     case "document":
-      return decodeFile(block, path, "document");
+      return decodeDocument(block, path);
     case "tool_use":
-      return {
-        type: "tool_call",
-        id: requireString(block.id, `${path}.id`),
-        name: requireString(block.name, `${path}.name`),
-        arguments: JSON.stringify(block.input ?? {}),
-      };
+      return [
+        {
+          type: "tool_call",
+          id: requireString(block.id, `${path}.id`),
+          name: requireString(block.name, `${path}.name`),
+          arguments: JSON.stringify(block.input ?? {}),
+        },
+      ];
     case "tool_result": {
       const id = requireString(block.tool_use_id, `${path}.tool_use_id`);
-      const output = textOfContent(block.content, `${path}.content`);
       const name = optionalString(block.name, `${path}.name`);
-      return {
-        type: "tool_result",
-        id,
-        ...(name === undefined ? {} : { name }),
-        output,
-        ...(block.is_error === true ? { isError: true } : {}),
-      };
+      const nested: InputPart[] = [];
+      const output = textOfContent(block.content, `${path}.content`, nested);
+      return [
+        {
+          type: "tool_result",
+          id,
+          ...(name === undefined ? {} : { name }),
+          output,
+          ...(block.is_error === true ? { isError: true } : {}),
+        },
+        ...nested,
+      ];
     }
     case "thinking":
     case "redacted_thinking":
-      return { type: "text", text: typeof block.thinking === "string" ? block.thinking : "" };
+      return [{ type: "text", text: typeof block.thinking === "string" ? block.thinking : "" }];
     default:
       return fail(`Unsupported content block type "${String(block.type)}".`, `${path}.type`);
   }
@@ -165,7 +219,7 @@ function decodeContent(content: unknown, path: string): InputPart[] {
   if (content === undefined || content === null) return [];
   if (typeof content === "string") return [{ type: "text", text: content }];
   if (!Array.isArray(content)) fail("Expected a string or an array of content blocks.", path);
-  return content.map((block, index) => decodeBlock(block, `${path}.${index}`));
+  return content.flatMap((block, index) => decodeBlock(block, `${path}.${index}`));
 }
 
 function decodeMessage(raw: unknown, path: string): Message {
