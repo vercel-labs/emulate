@@ -30,6 +30,7 @@ openai.chat("anthropic/claude-sonnet-5");
 - `createOpenAICompatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`, or it sends `json_object` without a schema and the `{}` default fails its schema check.
 - To replace Vercel AI Gateway, swap `https://ai-gateway.vercel.sh/v1` for the emulator URL, or set `OPENAI_BASE_URL`.
 - Keys are never validated, stored, or logged. Some SDKs still need a placeholder.
+- Every generation response carries a deterministic request id in the `x-request-id` header.
 
 ## Routes
 
@@ -85,7 +86,7 @@ ai:
 | `fault`    | Stalls or cuts a streamed reply partway through; the rule-level value is the default for its variants                                                    |
 | `timing`   | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing; `chunkDelayMs` also takes a list, and the rule-level value is the default for its variants |
 
-A rule has one of `reply`, `variants`, or `error`. `fault` and `timing` apply only to replies. Inside `variants`, each variant overrides the rule-level `finish`, `timing`, and `fault`. SDK retries spend the next variant.
+A rule has one of `reply`, `variants`, or `error`. `finish`, `timing`, and `fault` apply only to `reply` and `variants`, and `fault` needs `match.stream: true`. Inside `variants`, each variant overrides the rule-level `finish`, `timing`, and `fault`. SDK retries spend the next variant.
 
 `times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until reset.
 
@@ -107,13 +108,13 @@ Every condition in `match` must hold.
 
 `reply` is a list of events. The service adds ids, usage, and the format's terminal events.
 
-| Event       | Fields                             | Sends                                                           |
-| ----------- | ---------------------------------- | --------------------------------------------------------------- |
-| `text`      | `text`                             | Assistant text                                                  |
-| `object`    | `value`                            | A JSON value for structured output                              |
-| `tool_call` | `name`, `arguments`, optional `id` | A tool call; the id is generated when omitted                   |
-| `reasoning` | `text`                             | Reasoning text in Responses; Chat reports only reasoning tokens |
-| `refusal`   | `text`                             | A refusal in the format's native shape                          |
+| Event       | Fields                             | Sends                                                                                                                              |
+| ----------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `text`      | `text`                             | Assistant text                                                                                                                     |
+| `object`    | `value`                            | A JSON value for structured output                                                                                                 |
+| `tool_call` | `name`, `arguments`, optional `id` | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted |
+| `reasoning` | `text`                             | Reasoning text in Responses; Chat reports only reasoning tokens                                                                    |
+| `refusal`   | `text`                             | A refusal in the format's native shape                                                                                             |
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, a refusal ends with `refusal`, and anything else ends with `stop`. Set `finish` to `length` or `content_filter` to test those outcomes. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
@@ -264,7 +265,7 @@ Responses are stored by default so multi-turn AI SDK sessions work. `previous_re
 
 - `GET /_ai/calls` — call records as a bare array, oldest first
 - `DELETE /_ai/calls` — clear calls; returns `{ "deleted": n }`
-- `GET /_ai/rules` — active rules, each with `remaining` (`null` is unlimited)
+- `GET /_ai/rules` — active rules, each with `remaining` (`null` is unlimited), plus `strict`, `timing`, and `models`
 - `PUT /_ai/rules` — replace the runtime config
 - `POST /_ai/reset` — restore seeded rules and budgets, clear calls and stored responses; returns `{ "reset": true }`
 
@@ -274,7 +275,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   -H 'content-type: application/json' --data @rules.json
 ```
 
-`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
+`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
 
 Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Startup warns when the service listens beyond loopback.
 
@@ -282,7 +283,7 @@ Control routes and the inspector refuse cross-origin browser requests. curl and 
 
 Open `http://localhost:4014/` to browse calls and rules with their remaining budgets.
 
-Each call record keeps the format, path, model, normalized messages, tools, references, `matched`, a reply summary, status, fault, and delivery, for the last 500 generation requests. `matched` is `{ id, remaining, rule }` for a rule, `{ default }` for a default, and `null` for a strict-mode miss.
+Each call record keeps the format, path, model, normalized messages, tools, references, `matched`, a reply summary, status, fault, and delivery, for the last 500 generation requests. Stored responses are capped at the most recent 1000; older ones are evicted. `matched` is `{ id, remaining, rule }` for a rule, `{ default }` for a default, and `null` for a strict-mode miss.
 
 Prompts and tool arguments are recorded. API keys, auth headers, URL credentials, and file bytes are not; attachments keep only name, media type, size, and SHA-256.
 
@@ -291,8 +292,9 @@ Prompts and tool arguments are recorded. API keys, auth headers, URL credentials
 - The Vercel AI SDK cannot parse native refusals. Script refusal-like content as `text`, or use the `openai` SDK.
 - Chat Completions carries no reasoning text, only reasoning tokens in usage, and omits OpenRouter's `reasoning` extensions.
 - The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
-- Hosted tools, background mode, conversations, multiple candidates, and audio input return a 400 naming the feature. Unknown optional fields are ignored.
-- `stop` and max output tokens never truncate replies. Use `finish: length` to test truncation.
-- Usage numbers are deterministic estimates. There are no embeddings, file uploads, conversations, background runs, cancellation, token counting, or audio and image output.
+- Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
+- Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+- Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
+- Usage numbers are deterministic estimates.
 
 An unknown key in the `ai` seed block fails startup with its path. See [Configuration](/docs/configuration) for the file format.

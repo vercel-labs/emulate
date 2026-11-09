@@ -1330,7 +1330,7 @@ Deterministic OpenAI Responses and Chat Completions emulation. Replies are scrip
 npx emulate start --service ai --port 4014
 ```
 
-A single selected service otherwise uses the base port, normally 4000. In an all-services run, `ai` listens on port 4014. Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged.
+A single selected service otherwise uses the base port, normally 4000. In an all-services run, `ai` listens on port 4014. Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged. Every generation response carries a deterministic request id in the `x-request-id` header.
 
 ### Clients
 
@@ -1430,7 +1430,7 @@ ai:
           retry-after: "1"
 ```
 
-Matchers are `model` (with `*` wildcards), `format` (`openai-chat` or `openai-responses`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (Responses only), and `refusal` (native shape). A rule may also set `finish`, `timing`, `error`, or `fault`. A fault disconnects or stalls a stream after a counted number of content chunks.
+Matchers are `model` (with `*` wildcards), `format` (`openai-chat` or `openai-responses`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (Responses only), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default to zero, so streams are instant. Delays are abortable: a client close or reset cancels pending timers.
 
@@ -1438,7 +1438,7 @@ Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default
 
 With no matching rule, the service echoes the latest user text, returns a deterministic schema-valid object when a schema was requested, returns `{}` for JSON mode without a schema, generates a call when a tool is forced, acknowledges a tool result or an attachment-only request, and accepts and echoes any model id.
 
-Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path.
+Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path.
 
 Set `ai.strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and as a JSON body for the rules endpoint.
 
@@ -1446,7 +1446,7 @@ Set `ai.strict: true` to turn every unmatched request into a native 400 naming t
 
 Responses are stored by default so multi-turn sessions and item references resolve. Set `store: false` to skip storage. Unknown `previous_response_id` and item references are treated as empty context, so a request still succeeds.
 
-Every generation request is recorded with its format, model, `matched`, normalized prompt and tool arguments, and outcome. `matched` is `{ "id": "<rule id>", "remaining": <budget left or null>, "rule": <the rule as it was when it answered> }` for a rule, `{ "default": "<kind>" }` when a default answered, and `null` when strict mode rejected the request. The last 500 calls are kept. Keys, auth headers, and file bytes are never recorded. Attachment metadata records the name, media type, size, and hash only.
+Every generation request is recorded with its format, model, `matched`, normalized prompt and tool arguments, and outcome. `matched` is `{ "id": "<rule id>", "remaining": <budget left or null>, "rule": <the rule as it was when it answered> }` for a rule, `{ "default": "<kind>" }` when a default answered, and `null` when strict mode rejected the request. The last 500 calls are kept. Stored responses are capped at the most recent 1000; older ones are evicted. Keys, auth headers, and file bytes are never recorded. Attachment metadata records the name, media type, size, and hash only.
 
 ### Control routes and inspector
 
@@ -1459,7 +1459,7 @@ All control routes and the inspector are same-origin only, reads included. curl 
 - `POST /_ai/reset` - restore seeded rules and budgets, and clear calls and stored responses
 - `GET /` - read-only inspector with Calls and Rules tabs
 
-`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...] }` with each rule's `remaining` budget (`null` means unlimited); the rules response does not include `strict`, `timing`, or `models`. `POST /_ai/reset` returns `{ "reset": true }`.
+`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited). `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
 
 ```bash
 curl -s http://localhost:4014/_ai/calls | jq
@@ -1485,9 +1485,11 @@ A refusal rule produces OpenAI's native refusal shape only when a rule asks for 
 
 Attachments are input only. The emulator never reads their contents to produce an answer; rules decide the reply. Inline bytes are hashed, measured, and dropped. Responses accepts `input_file` with inline data, a URL, or a file id, plus `input_image`. Chat accepts `file` parts with inline data or a file id, and `image_url`; Chat files must be PDFs and Chat does not accept file URLs. Malformed inline data returns a native 400. The AI SDK validates attachments before sending, so `@ai-sdk/openai` rejects `text/plain` and other non-PDF, non-image files client-side unless `passThroughUnsupportedFiles` is set.
 
-Result-changing features outside this version return a native 400 naming the feature: hosted tools, background mode, the Conversations API, multiple candidates, and audio input. Unknown optional fields are ignored.
+Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
 
-Current AI limits: Anthropic Messages, Gemini, embeddings, image or audio output, file upload APIs, input item listing, token counting, request cancellation, OpenRouter reasoning fields, and templating inside replies are not implemented. The service records `stop` and max output token settings but never truncates scripted or default replies to them, so use a rule with `finish: length` to test truncation.
+Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+
+Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
 
 ## Apple Sign In
 
