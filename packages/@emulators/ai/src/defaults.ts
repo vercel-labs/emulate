@@ -104,6 +104,8 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
 
   let remaining = 4096;
   let characters = 262144;
+  const seedLimit = 64;
+  const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
 
   function spend(at: string): void {
     if (--remaining < 0) fail(at, "generation exceeds the bounded schema size or recursion depth");
@@ -157,9 +159,11 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     ) {
       fail(`${at}.required`, "expected property names");
     }
-    if (node.enum !== undefined && (!Array.isArray(node.enum) || !node.enum.length)) {
-      fail(`${at}.enum`, "expected a nonempty array");
+    if (node.enum !== undefined) {
+      if (!Array.isArray(node.enum) || !node.enum.length) fail(`${at}.enum`, "expected a nonempty array");
+      node.enum.forEach((item, index) => checkValue(item, `${at}.enum[${index}]`));
     }
+    if (Object.hasOwn(node, "const")) checkValue(node.const, `${at}.const`);
     if (node.nullable !== undefined && typeof node.nullable !== "boolean") fail(`${at}.nullable`, "expected a boolean");
     if (node.items !== undefined) validate(asSchema(node.items, `${at}.items`), `${at}.items`, depth + 1);
     if (node.additionalProperties !== undefined) {
@@ -199,6 +203,16 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
         fail(`${at}.${key}`, "expected a nonnegative integer");
       }
       if (key === "multipleOf" && bound <= 0) fail(`${at}.${key}`, "expected a positive number");
+    }
+  }
+
+  /** Rejects a const or enum value nested past the depth bound, before it is cloned or compared. */
+  function checkValue(value: Json, at: string, depth = 0): void {
+    if (depth > 32) fail(at, "value nesting exceeds 32 levels");
+    if (Array.isArray(value)) {
+      for (const item of value) checkValue(item, at, depth + 1);
+    } else if (record(value)) {
+      for (const item of Object.values(value)) checkValue(item, at, depth + 1);
     }
   }
 
@@ -321,11 +335,10 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
           }
           const min = typeof node.minLength === "number" ? node.minLength : 0;
           const max = typeof node.maxLength === "number" ? node.maxLength : 65536;
-          const text = Array.from(String(seed) || "sample");
-          const length = Math.max(min, Math.min(text.length, max));
+          const length = Math.max(min, Math.min(seedText.length, max));
           characters -= length;
           if (length > 65536 || characters < 0) fail(at, "string exceeds the bounded output size");
-          value = Array.from({ length }, (_, index) => text[index % text.length]).join("");
+          value = Array.from({ length }, (_, index) => seedText[index % seedText.length]).join("");
           break;
         }
         case "integer":

@@ -1,11 +1,23 @@
 /** Splits text into word-sized pieces, keeping trailing whitespace with the word. */
 export function textChunks(value: string): string[] {
   if (value.length === 0) return [];
-  const pieces = value.match(/\s*\S+\s*/g);
-  return pieces && pieces.length > 0 ? pieces : [value];
+  const pieces: string[] = [];
+  let start = 0;
+  let index = 0;
+  while (index < value.length) {
+    while (index < value.length && space.test(value[index])) index += 1;
+    const wordStart = index;
+    while (index < value.length && !space.test(value[index])) index += 1;
+    if (index === wordStart) break;
+    while (index < value.length && space.test(value[index])) index += 1;
+    pieces.push(value.slice(start, index));
+    start = index;
+  }
+  return pieces.length > 0 ? pieces : [value];
 }
 
 const jsonPieceFloor = 8;
+const space = /\s/;
 
 /**
  * Splits compact JSON into pieces that break between structural characters and never inside a

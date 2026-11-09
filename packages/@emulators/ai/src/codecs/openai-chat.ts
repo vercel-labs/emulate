@@ -9,7 +9,7 @@ import type { CompletionUsage } from "openai/resources/completions";
 import type { ErrorObject } from "openai/resources/shared";
 import { decodeChatAttachment } from "../attachments.js";
 import { jsonChunks, textChunks } from "../chunks.js";
-import type { Codec, CodecContext, Decoded } from "../codec.js";
+import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../codec.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
 import type { SseFrame } from "../sse.js";
 import type {
@@ -26,7 +26,6 @@ import type {
   ToolDefinition,
 } from "../types.js";
 
-const CREATED = 1730000000;
 const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 interface ChatExtras {
@@ -37,7 +36,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function fail(message: string, param?: string, code = "invalid_request_error"): never {
+function fail(message: string, param?: string, code?: string): never {
   throw new AiRequestError(message, param, code);
 }
 
@@ -179,6 +178,33 @@ function decodeMessage(raw: unknown, index: number): Message {
   }
 }
 
+function checkToolPairing(messages: Message[]): void {
+  let pending = new Set<string>();
+  let openedAt = -1;
+  const unanswered = () =>
+    fail(
+      `An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. The following tool_call_ids did not have response messages: ${[...pending].join(", ")}`,
+      `messages[${openedAt}].role`,
+    );
+  messages.forEach((message, index) => {
+    if (message.role === "tool") {
+      const part = message.parts[0];
+      if (part?.type !== "tool_result" || !pending.delete(part.id)) {
+        fail(
+          "Invalid parameter: messages with role 'tool' must be a response to a preceding message with 'tool_calls'.",
+          `messages[${index}].role`,
+        );
+      }
+      return;
+    }
+    if (pending.size > 0) unanswered();
+    const ids = message.parts.flatMap((part) => (part.type === "tool_call" ? [part.id] : []));
+    pending = new Set(ids);
+    openedAt = index;
+  });
+  if (pending.size > 0) unanswered();
+}
+
 function decodeTools(raw: unknown): ToolDefinition[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) fail("Expected an array of tools.", "tools");
@@ -298,6 +324,7 @@ function decodeChat(body: unknown): Decoded {
     fail("Expected a non-empty array of messages.", "messages");
   }
   const messages = body.messages.map((message, index) => decodeMessage(message, index));
+  checkToolPairing(messages);
   const tools = decodeTools(body.tools);
   const toolChoice = decodeToolChoice(body.tool_choice, tools.length > 0);
   const output = decodeOutput(body.response_format);
@@ -415,9 +442,9 @@ function encodeJson(reply: Reply, decoded: Decoded, ctx: CodecContext): ChatComp
     ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
   };
   const body: ChatCompletion = {
-    id: ctx.makeId("chatcmpl"),
+    id: ctx.makeId("chatcmpl").replace("_", "-"),
     object: "chat.completion",
-    created: CREATED,
+    created: CREATED_AT,
     model: decoded.request.model,
     choices: [
       {
@@ -443,7 +470,7 @@ function chunk(
   return {
     id,
     object: "chat.completion.chunk",
-    created: CREATED,
+    created: CREATED_AT,
     model,
     choices: [{ index: 0, delta, logprobs: null, finish_reason: choiceFinish }],
     ...(includeUsage ? { usage } : {}),
@@ -452,7 +479,7 @@ function chunk(
 
 function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFrame[] {
   const { includeUsage } = decoded.extras as unknown as ChatExtras;
-  const id = ctx.makeId("chatcmpl");
+  const id = ctx.makeId("chatcmpl").replace("_", "-");
   const model = decoded.request.model;
   const frames: SseFrame[] = [{ data: chunk(id, model, { role: "assistant", content: "" }, null, includeUsage) }];
 
@@ -522,7 +549,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
       data: {
         id,
         object: "chat.completion.chunk",
-        created: CREATED,
+        created: CREATED_AT,
         model,
         choices: [],
         usage: usageBody(reply),
