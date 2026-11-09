@@ -1,6 +1,6 @@
 {
   "name": "@emulators/clerk",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "tsup --clean",
-    "dev": "tsup --watch",
+    "dev": "tsup --watch src",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo",
     "prepack": "node ../../../scripts/prepare-package.mjs"
@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }
