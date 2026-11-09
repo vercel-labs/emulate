@@ -27,6 +27,9 @@
     },
     "type-check": {
       "dependsOn": ["^build"]
+    },
+    "type-check:tsc": {
+      "dependsOn": ["^build"]
     }
   }
 }
