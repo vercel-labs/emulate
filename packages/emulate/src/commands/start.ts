@@ -338,7 +338,12 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
-      const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
+      const httpServer = serve({
+        fetch: app.fetch,
+        port,
+        hostname: options.host,
+        abortOnClose: preparedService.loadedSvc.plugin.abortOnClose,
+      });
       httpServers.push(httpServer);
     }
 
@@ -368,7 +373,12 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
-      const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
+      const httpServer = serve({
+        fetch: app.fetch,
+        port,
+        hostname: options.host,
+        abortOnClose: preparedService.loadedSvc.plugin.abortOnClose,
+      });
       httpServers.push(httpServer);
       await waitForServerListening(httpServer);
     }
