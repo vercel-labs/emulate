@@ -227,6 +227,14 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       !(node.anyOf as Json[]).some((branch) => matches(value, branch as JsonSchema, depth + 1))
     )
       return false;
+    if (Array.isArray(node.oneOf)) {
+      let matched = 0;
+      for (const branch of node.oneOf as Json[]) {
+        if (matches(value, branch as JsonSchema, depth + 1)) matched += 1;
+        if (matched > 1) return false;
+      }
+      if (matched !== 1) return false;
+    }
     if (Object.hasOwn(node, "const") && !equal(value, node.const)) return false;
     if (Array.isArray(node.enum) && !node.enum.some((item) => equal(item, value))) return false;
     const valueType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
@@ -300,7 +308,16 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     } else if (Array.isArray(node.anyOf)) {
       value = sample(node.anyOf[0] as JsonSchema, `${at}.anyOf[0]`, depth + 1);
     } else if (Array.isArray(node.oneOf)) {
-      value = sample(node.oneOf[0] as JsonSchema, `${at}.oneOf[0]`, depth + 1);
+      let candidate: Json | undefined;
+      for (const [index, branch] of (node.oneOf as Json[]).entries()) {
+        const sampled = sample(branch as JsonSchema, `${at}.oneOf[${index}]`, depth + 1);
+        if (matches(sampled, node)) {
+          candidate = sampled;
+          break;
+        }
+      }
+      if (candidate === undefined) fail(at, "no oneOf branch produces a value that matches exactly one branch");
+      value = candidate;
     } else {
       const type = Array.isArray(node.type)
         ? node.type[0]
@@ -332,6 +349,9 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
             if (characters < 0) fail(at, "sample exceeds the bounded output size");
             value = known;
             break;
+          }
+          if (node.pattern !== undefined) {
+            fail(at, "the sampler cannot generate a string for a pattern");
           }
           const min = typeof node.minLength === "number" ? node.minLength : 0;
           const max = typeof node.maxLength === "number" ? node.maxLength : 65536;
