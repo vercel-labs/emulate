@@ -20,7 +20,7 @@ A single selected service otherwise uses the base port, normally 4000. In an all
 
 ## Base URL
 
-Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged. Every generation response carries a deterministic request id in the `x-request-id` header.
+Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged. Every generation response carries a deterministic request id: `x-request-id` on the OpenAI routes and `request-id` on the Anthropic Messages route.
 
 ```typescript
 import OpenAI from "openai";
@@ -165,7 +165,7 @@ Every generation request is recorded with its format, model, `matched`, normaliz
 
 Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
 
-Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
 

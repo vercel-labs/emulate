@@ -1,5 +1,6 @@
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
+import { messagesCodec } from "./codecs/anthropic-messages.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
 import { decide } from "./engine.js";
@@ -26,7 +27,7 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, GET .../models, GET or DELETE .../responses/{id}";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}";
 
 /** The OpenAI error envelope both V1 formats share. */
 export function aiErrorBody(
@@ -54,6 +55,7 @@ export interface AiRoutesOptions {
 const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
   { suffix: "/chat/completions", codec: chatCodec },
   { suffix: "/responses", codec: responsesCodec },
+  { suffix: "/messages", codec: messagesCodec },
 ];
 
 const MAX_SEEN_MODELS = 1000;
@@ -410,7 +412,7 @@ function errorResponse(codec: Codec, failure: HttpFailure, seq: number): Respons
 
 /** Adds the deterministic request id header for the codec's vendor unless a rule already set it. */
 function withRequestId(response: Response, codec: Codec, seq: number): Response {
-  const name = "x-request-id";
+  const name = codec.format === "anthropic-messages" ? "request-id" : "x-request-id";
   if (!response.headers.has(name)) response.headers.set(name, `req_${seq}`);
   return response;
 }

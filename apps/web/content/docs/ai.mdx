@@ -34,7 +34,7 @@ The Anthropic SDK adds `/v1/messages` itself, so give it the origin without `/v1
 - `createOpenAICompatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`, or it sends `json_object` without a schema and the `{}` default fails its schema check.
 - To replace Vercel AI Gateway, swap `https://ai-gateway.vercel.sh/v1` for the emulator URL, or set `OPENAI_BASE_URL`.
 - Keys are never validated, stored, or logged. Some SDKs still need a placeholder.
-- Every generation response carries a deterministic request id in the `x-request-id` header.
+- Every generation response carries a deterministic request id: `x-request-id` on the OpenAI routes and `request-id` on the Anthropic Messages route.
 
 ## Routes
 
@@ -110,7 +110,7 @@ Every condition in `match` must hold.
 | Matcher         | Matches when                                                                            |
 | --------------- | --------------------------------------------------------------------------------------- |
 | `model`         | The model id matches; `*` wildcards allowed                                             |
-| `format`        | The request format is `openai-chat` or `openai-responses`                               |
+| `format`        | The request format is `openai-chat`, `openai-responses`, or `anthropic-messages`        |
 | `stream`        | The request does or does not stream                                                     |
 | `textContains`  | The latest user text contains the string; tool results are ignored                      |
 | `tool`          | The request declares a matching tool; `*` wildcards allowed                             |
@@ -204,8 +204,6 @@ The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `it
 Provider rules differ, so the dialect is chosen per request: a model name starting with `claude` is checked with Anthropic's rules, anything else with OpenAI's. The error envelope stays the one the endpoint speaks, which is what Anthropic's OpenAI compatibility layer does: same shape, different message.
 
 Anthropic is stricter about the request shape: `response_format` must be `json_schema` with `strict: true`, and `json_object` returns a 400. Its schema rules also reject `oneOf`, numeric and string constraints, array constraints beyond `minItems` 0 or 1, and external references.
-
-The native Anthropic Messages endpoint (`/v1/messages` with `output_config.format`) is not served yet.
 
 Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
 
@@ -306,7 +304,7 @@ Prompts and tool arguments are recorded. API keys, auth headers, URL credentials
 - Chat Completions carries no reasoning text, only reasoning tokens in usage, and omits OpenRouter's `reasoning` extensions.
 - The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
 - Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
-- Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+- Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 - Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
 - Usage numbers are deterministic estimates.
 

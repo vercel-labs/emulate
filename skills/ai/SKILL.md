@@ -40,7 +40,7 @@ const ai = await createEmulator({
 
 ## Point Clients at the Emulator
 
-Any path prefix works, such as `/v1` or `/api/v1`. The format is selected from the end of the path, so `.../chat/completions` uses Chat Completions, `.../responses` uses Responses, and `.../messages` uses Anthropic Messages. The Anthropic SDK appends `/v1/messages`, so point it at the origin without `/v1`. API keys are accepted but never required, stored, or logged. Any model id is accepted and echoed back.
+Any path prefix works, such as `/v1` or `/api/v1`. The format is selected from the end of the path, so `.../chat/completions` uses Chat Completions, `.../responses` uses Responses, and `.../messages` uses Anthropic Messages. The Anthropic SDK appends `/v1/messages`, so point it at the origin without `/v1`. API keys are accepted but never required, stored, or logged. Any model id is accepted and echoed back. Every generation response carries a deterministic request id: `x-request-id` on the OpenAI routes and `request-id` on the Anthropic Messages route.
 
 ### Official OpenAI SDK
 
@@ -126,7 +126,7 @@ A strict JSON Schema is checked against OpenAI's documented subset first, and a 
 
 The generator handles `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `oneOf` or `anyOf` branch, common string `format` values, and local `$ref`, with recursion bounded. `pattern` is accepted and ignored. A schema outside that set returns a native 400 naming the schema path. Provider rules differ, so the dialect is chosen per request: a model name starting with `claude` is checked with Anthropic's rules, anything else with OpenAI's. The error envelope stays the one the endpoint speaks, matching Anthropic's OpenAI compatibility layer.
 
-Anthropic requires `response_format` to be `json_schema` with `strict: true`, rejects `json_object` with a 400, and applies its schema limits on top: no `oneOf`, no numeric or string constraints, no array constraints beyond `minItems` 0 or 1, no external references. The native Messages endpoint (`/v1/messages`) is not served.
+Anthropic requires `response_format` to be `json_schema` with `strict: true`, rejects `json_object` with a 400, and applies its schema limits on top: no `oneOf`, no numeric or string constraints, no array constraints beyond `minItems` 0 or 1, no external references.
 
 ## Rules
 
@@ -524,7 +524,7 @@ Open `http://localhost:4014/` to browse calls and rule budgets in the inspector.
 
 ## Current Limits
 
-Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
 

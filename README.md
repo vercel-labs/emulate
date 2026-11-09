@@ -1330,7 +1330,7 @@ Deterministic OpenAI Responses and Chat Completions emulation. Replies are scrip
 npx emulate start --service ai --port 4014
 ```
 
-A single selected service otherwise uses the base port, normally 4000. In an all-services run, `ai` listens on port 4014. Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged. Every generation response carries a deterministic request id in the `x-request-id` header.
+A single selected service otherwise uses the base port, normally 4000. In an all-services run, `ai` listens on port 4014. Point clients at `http://localhost:4014/v1`. Any path prefix works, such as `/v1` or `/api/v1`; the format is selected from the end of the request path. API keys are accepted but never required, stored, or logged. Every generation response carries a deterministic request id: `x-request-id` on the OpenAI routes and `request-id` on the Anthropic Messages route.
 
 ### Clients
 
@@ -1383,6 +1383,7 @@ const chat = await generateText({
 
 - `POST /v1/chat/completions` - Chat Completions, unary or streamed
 - `POST /v1/responses` - Responses, unary or streamed
+- `POST /v1/messages` - Anthropic Messages, unary or streamed
 - `GET /v1/responses/{id}` - retrieve a stored response
 - `DELETE /v1/responses/{id}` - delete a stored response
 - `GET /v1/models` - list configured and previously requested model ids
@@ -1430,7 +1431,7 @@ ai:
           retry-after: "1"
 ```
 
-Matchers are `model` (with `*` wildcards), `format` (`openai-chat` or `openai-responses`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (Responses only), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
+Matchers are `model` (with `*` wildcards), `format` (`openai-chat`, `openai-responses`, or `anthropic-messages`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (Responses only), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default to zero, so streams are instant. Delays are abortable: a client close or reset cancels pending timers.
 
@@ -1487,7 +1488,7 @@ Attachments are input only. The emulator never reads their contents to produce a
 
 Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
 
-Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
 

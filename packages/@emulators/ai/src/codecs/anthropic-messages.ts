@@ -252,7 +252,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const messages: Message[] = [];
   const system = decodeSystem(body.system);
   if (system.length > 0) messages.push({ role: "system", parts: system });
-  messages.push(...body.messages.map((message, index) => decodeMessage(message, `messages.${index}`)));
+  body.messages.forEach((message, index) => messages.push(decodeMessage(message, `messages.${index}`)));
 
   const request: AIRequest = {
     format: "anthropic-messages",
