@@ -81,6 +81,9 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
       c.header("X-RateLimit-Resource", "core");
 
       if (counter.remaining === 0) {
+        if (plugin.formatError) {
+          return plugin.formatError(Object.assign(new Error("API rate limit exceeded"), { status: 403 }), c, 403);
+        }
         return c.json(
           {
             message: "API rate limit exceeded",
