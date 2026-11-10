@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dialectForModel, schemaFailure } from "../schema-dialects.js";
+import { AiRequestError } from "../errors.js";
+import { assertToolsSupported, dialectForModel, schemaFailure } from "../schema-dialects.js";
 import type { JsonSchema } from "../types.js";
 
 const objectSchema = (trip: JsonSchema): JsonSchema => ({
@@ -8,6 +9,16 @@ const objectSchema = (trip: JsonSchema): JsonSchema => ({
   required: ["trip"],
   additionalProperties: false,
 });
+
+function thrown(run: () => unknown): AiRequestError {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof AiRequestError) return error;
+    throw error;
+  }
+  throw new Error("expected an AiRequestError");
+}
 
 describe("dialectForModel", () => {
   it("recognizes claude at the start of a model id", () => {
@@ -118,6 +129,65 @@ describe("openai schema rules", () => {
   it("accepts a compliant schema", () => {
     expect(schemaFailure("openai", objectSchema({ type: "string" }), "trip")).toBeNull();
   });
+
+  it("names a function subject for tool schemas", () => {
+    const schema: JsonSchema = { type: "object", properties: { city: { type: "string" } } };
+    expect(schemaFailure("openai", schema, "get_weather", "function")).toBe(
+      "Invalid schema for function 'get_weather': In context=(), 'additionalProperties' is required to be supplied and to be false.",
+    );
+  });
+});
+
+describe("strict tool schemas", () => {
+  const loose: JsonSchema = { type: "object", properties: { city: { type: "string" } } };
+
+  it("rejects a strict tool with a noncompliant schema and names the OpenAI code", () => {
+    const error = thrown(() =>
+      assertToolsSupported(
+        "gpt-4o-mini",
+        [{ name: "lookup", parameters: loose, strict: true }],
+        (index) => `tools[${index}].function.parameters`,
+      ),
+    );
+    expect(error.message).toBe(
+      "Invalid schema for function 'lookup': In context=(), 'additionalProperties' is required to be supplied and to be false.",
+    );
+    expect(error.param).toBe("tools[0].function.parameters");
+    expect(error.code).toBe("invalid_function_parameters");
+  });
+
+  it("accepts a strict tool with a compliant schema", () => {
+    expect(() =>
+      assertToolsSupported(
+        "gpt-4o-mini",
+        [{ name: "lookup", parameters: objectSchema({ type: "string" }), strict: true }],
+        (index) => `tools[${index}].parameters`,
+      ),
+    ).not.toThrow();
+  });
+
+  it("leaves a non-strict tool unchecked", () => {
+    expect(() =>
+      assertToolsSupported(
+        "gpt-4o-mini",
+        [{ name: "lookup", parameters: loose }],
+        (index) => `tools[${index}].parameters`,
+      ),
+    ).not.toThrow();
+  });
+
+  it("applies the Anthropic rules to a claude model without the OpenAI code", () => {
+    const error = thrown(() =>
+      assertToolsSupported(
+        "claude-opus-5-5",
+        [{ name: "lookup", parameters: objectSchema({ type: "string", minLength: 3 }), strict: true }],
+        (index) => `tools[${index}].parameters`,
+      ),
+    );
+    expect(error.message).toBe("For 'string' type, property 'minLength' is not supported");
+    expect(error.param).toBe("tools[0].parameters");
+    expect(error.code).toBeUndefined();
+  });
 });
 
 describe("anthropic schema rules", () => {
@@ -134,5 +204,20 @@ describe("anthropic schema rules", () => {
 
   it("accepts a compliant schema", () => {
     expect(schemaFailure("anthropic", objectSchema({ type: "string" }), "trip")).toBeNull();
+  });
+
+  it("rejects an external $ref", () => {
+    const schema: JsonSchema = {
+      type: "object",
+      properties: { trip: { $ref: "https://example.com/schema.json" } },
+      required: ["trip"],
+      additionalProperties: false,
+    };
+    expect(schemaFailure("anthropic", schema, "trip")).toBe("External '$ref' values are not supported");
+  });
+
+  it("accepts a local $ref", () => {
+    const schema: JsonSchema = { $defs: { x: { type: "string" } }, $ref: "#/$defs/x" };
+    expect(schemaFailure("anthropic", schema, "trip")).toBeNull();
   });
 });

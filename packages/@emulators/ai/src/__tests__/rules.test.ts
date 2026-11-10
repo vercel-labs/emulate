@@ -62,6 +62,23 @@ describe("rule parsing errors", () => {
     );
     expect(error.message).toBe("rules[0].variants: reply and variants are mutually exclusive");
   });
+
+  it("rejects a rule reply with no events", () => {
+    const error = configError(() => config([{ id: "a", match: {}, reply: [] }]));
+    expect(error.message).toBe("rules[0].reply: a reply needs at least one event");
+    expect(error.path).toBe("rules[0].reply");
+  });
+
+  it("keeps the variant wording for an empty variant reply", () => {
+    const error = configError(() => config([{ id: "a", match: {}, variants: [{ reply: [] }] }]));
+    expect(error.message).toBe("rules[0].variants[0].reply: a variant needs at least one event");
+    expect(error.path).toBe("rules[0].variants[0].reply");
+  });
+
+  it("accepts a rule reply with one event", () => {
+    const parsed = config([{ id: "a", match: {}, reply: reply() }]);
+    expect(parsed.rules[0].reply).toEqual([{ type: "text", text: "ok" }]);
+  });
 });
 
 describe("rule matching", () => {

@@ -1,5 +1,5 @@
 import { AiRequestError } from "./errors.js";
-import type { Json, JsonSchema, OutputSpec } from "./types.js";
+import type { Json, JsonSchema, OutputSpec, ToolDefinition } from "./types.js";
 
 /** Which provider's structured output rules apply to a request. */
 export type SchemaDialect = "openai" | "anthropic";
@@ -68,6 +68,9 @@ function children(node: Record<string, Json>): Array<[string[], JsonSchema]> {
 
 function findAnthropicViolation(schema: JsonSchema, depth = 0): string | null {
   if (depth > 40 || typeof schema === "boolean" || !record(schema)) return null;
+  if (typeof schema.$ref === "string" && !schema.$ref.startsWith("#")) {
+    return "External '$ref' values are not supported";
+  }
   for (const keyword of ANTHROPIC_REJECTED) {
     if (Object.hasOwn(schema, keyword)) {
       const type = typeof schema.type === "string" ? schema.type : undefined;
@@ -95,10 +98,15 @@ function isObjectNode(schema: Record<string, Json>): boolean {
   return type === "object" || (Array.isArray(type) && type.includes("object")) || record(schema.properties);
 }
 
-function findOpenaiViolation(schema: JsonSchema, name: string, path: string[] = [], depth = 0): string | null {
+function findOpenaiViolation(
+  schema: JsonSchema,
+  name: string,
+  subject: string,
+  path: string[] = [],
+  depth = 0,
+): string | null {
   if (depth > 40 || typeof schema === "boolean" || !record(schema)) return null;
-  const at = (detail: string) =>
-    `Invalid schema for response_format '${name}': In context=${contextOf(path)}, ${detail}`;
+  const at = (detail: string) => `Invalid schema for ${subject} '${name}': In context=${contextOf(path)}, ${detail}`;
   for (const keyword of OPENAI_REJECTED) {
     if (Object.hasOwn(schema, keyword)) return at(`'${keyword}' is not permitted.`);
   }
@@ -116,16 +124,37 @@ function findOpenaiViolation(schema: JsonSchema, name: string, path: string[] = 
     }
   }
   for (const [segment, child] of children(schema)) {
-    const message = findOpenaiViolation(child, name, [...path, ...segment], depth + 1);
+    const message = findOpenaiViolation(child, name, subject, [...path, ...segment], depth + 1);
     if (message) return message;
   }
   return null;
 }
 
 /** Describes why a schema is rejected, in the wording the provider uses, or null when it is acceptable. */
-export function schemaFailure(dialect: SchemaDialect, schema: JsonSchema, name: string): string | null {
-  if (dialect === "openai") return findOpenaiViolation(schema, name);
+export function schemaFailure(
+  dialect: SchemaDialect,
+  schema: JsonSchema,
+  name: string,
+  subject = "response_format",
+): string | null {
+  if (dialect === "openai") return findOpenaiViolation(schema, name, subject);
   return findAnthropicViolation(schema);
+}
+
+/** Applies the model's provider rules to every strict tool schema, naming errors with the caller's param. */
+export function assertToolsSupported(model: string, tools: ToolDefinition[], paramOf: (index: number) => string): void {
+  const dialect = dialectForModel(model);
+  tools.forEach((tool, index) => {
+    if (tool.strict !== true || tool.parameters === undefined) return;
+    const message = schemaFailure(dialect, tool.parameters, tool.name, "function");
+    if (message) {
+      throw new AiRequestError(
+        message,
+        paramOf(index),
+        dialect === "openai" ? "invalid_function_parameters" : undefined,
+      );
+    }
+  });
 }
 
 /** Throws the provider's schema rejection in the caller's error envelope. */

@@ -36,6 +36,7 @@ export interface ToolDefinition {
   name: string;
   description?: string;
   parameters?: JsonSchema;
+  strict?: boolean;
 }
 
 /** How the client constrained tool use. */
