@@ -184,7 +184,7 @@ A strict JSON Schema is checked against OpenAI's documented subset before anythi
 }
 ```
 
-Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. An object that does not set `additionalProperties: false`, or leaves a property out of `required`, is rejected the same way. Non-strict schemas are not checked, matching the API.
+Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. An object that does not set `additionalProperties: false`, or leaves a property out of `required`, is rejected the same way. A function tool marked `strict` gets the same checks on its parameters, worded `Invalid schema for function '<name>'` with code `invalid_function_parameters`. Non-strict schemas are not checked, matching the API.
 
 The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), string `format` values for the common formats, and local `$ref`. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
 
