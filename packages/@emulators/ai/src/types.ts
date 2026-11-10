@@ -36,6 +36,7 @@ export interface ToolDefinition {
   name: string;
   description?: string;
   parameters?: JsonSchema;
+  strict?: boolean;
 }
 
 /** How the client constrained tool use. */
@@ -216,6 +217,7 @@ export interface StoredResponse {
   createdAt: number;
   model: string;
   instructions?: string;
+  previousResponseId?: string;
   inputItems: Json[];
   outputItems: Json[];
   response: Json;

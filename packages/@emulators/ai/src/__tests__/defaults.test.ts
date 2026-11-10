@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { sampleSchema } from "../defaults.js";
+import { defaultReply, sampleSchema } from "../defaults.js";
 import { AiRequestError } from "../errors.js";
-import type { JsonSchema } from "../types.js";
+import type { AIRequest, JsonSchema } from "../types.js";
 
 function thrown(run: () => unknown): AiRequestError {
   try {
@@ -118,5 +118,43 @@ describe("sampleSchema core behavior", () => {
       required: ["tags", "level"],
     };
     expect(sampleSchema(schema, "repeat")).toEqual(sampleSchema(schema, "repeat"));
+  });
+});
+
+describe("defaultReply tool results", () => {
+  function request(messages: AIRequest["messages"]): AIRequest {
+    return {
+      format: "openai-chat",
+      model: "gpt-4o",
+      messages,
+      tools: [],
+      toolChoice: "auto",
+      parallelToolCalls: false,
+      stream: false,
+      reasoning: false,
+      store: false,
+      references: [],
+      warnings: [],
+    };
+  }
+
+  it("uses the name from the matching tool call", () => {
+    const reply = defaultReply(
+      request([
+        { role: "user", parts: [{ type: "text", text: "weather?" }] },
+        { role: "assistant", parts: [{ type: "tool_call", id: "call_1", name: "get_weather", arguments: "{}" }] },
+        { role: "tool", parts: [{ type: "tool_result", id: "call_1", output: "18C" }] },
+      ]),
+      (prefix) => `${prefix}_1`,
+    );
+    expect(reply.events).toEqual([{ type: "text", text: "Received the result of get_weather." }]);
+  });
+
+  it("falls back to the id when no tool call matches", () => {
+    const reply = defaultReply(
+      request([{ role: "tool", parts: [{ type: "tool_result", id: "call_missing", output: "18C" }] }]),
+      (prefix) => `${prefix}_1`,
+    );
+    expect(reply.events).toEqual([{ type: "text", text: "Received the result of call_missing." }]);
   });
 });

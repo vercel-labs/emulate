@@ -120,6 +120,78 @@ describe("openai schema dialect", () => {
   });
 });
 
+describe("strict function tools", () => {
+  const loose: JsonSchema = { type: "object", properties: { trip: { type: "string" } } };
+
+  function chatToolBody(parameters: JsonSchema, strict: boolean): Record<string, unknown> {
+    return {
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: "hello" }],
+      tool_choice: "required",
+      tools: [{ type: "function", function: { name: "lookup", parameters, strict } }],
+    };
+  }
+
+  async function responsesTool(
+    parameters: JsonSchema,
+    strict: boolean,
+  ): Promise<{ status: number; json: Record<string, any> }> {
+    const response = await fetch(`${origin}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        input: "hello",
+        tool_choice: "required",
+        tools: [{ type: "function", name: "lookup", parameters, strict }],
+      }),
+    });
+    return { status: response.status, json: (await response.json()) as Record<string, any> };
+  }
+
+  it("rejects a noncompliant strict tool on Chat Completions", async () => {
+    const { status, json } = await chat(chatToolBody(loose, true));
+    expect(status).toBe(400);
+    expect(json.error).toEqual({
+      message:
+        "Invalid schema for function 'lookup': In context=(), 'additionalProperties' is required to be supplied and to be false.",
+      type: "invalid_request_error",
+      param: "tools[0].function.parameters",
+      code: "invalid_function_parameters",
+    });
+  });
+
+  it("rejects a noncompliant strict tool on Responses", async () => {
+    const { status, json } = await responsesTool(loose, true);
+    expect(status).toBe(400);
+    expect(json.error).toEqual({
+      message:
+        "Invalid schema for function 'lookup': In context=(), 'additionalProperties' is required to be supplied and to be false.",
+      type: "invalid_request_error",
+      param: "tools[0].parameters",
+      code: "invalid_function_parameters",
+    });
+  });
+
+  it("returns a tool call for a compliant strict tool on Chat Completions", async () => {
+    const { status, json } = await chat(chatToolBody(objectWith({ type: "string" }), true));
+    expect(status).toBe(200);
+    expect(json.choices[0].message.tool_calls[0]).toMatchObject({
+      type: "function",
+      function: { name: "lookup", arguments: '{"trip":"hello"}' },
+    });
+  });
+
+  it("returns a tool call for a compliant strict tool on Responses", async () => {
+    const { status, json } = await responsesTool(objectWith({ type: "string" }), true);
+    expect(status).toBe(200);
+    expect(json.output.find((item: Record<string, any>) => item.type === "function_call")).toMatchObject({
+      name: "lookup",
+      arguments: '{"trip":"hello"}',
+    });
+  });
+});
+
 describe("schema sampling", () => {
   const fields = Array.from({ length: 40 }, (_, index) => `field${index}`);
 
@@ -241,6 +313,24 @@ describe("anthropic rules on the OpenAI wire", () => {
   it("still accepts the same schema for an OpenAI model", async () => {
     const { status } = await chat(chatBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true));
     expect(status).toBe(200);
+  });
+
+  it("rejects an external $ref even when a rule would match", async () => {
+    await fetch(`${origin}/_ai/rules`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        rules: [{ id: "hello", match: { textContains: "hello" }, reply: [{ type: "text", text: "ok" }] }],
+      }),
+    });
+    const { status, json } = await chat(claudeBody(objectWith({ $ref: "https://example.com/schema.json" }), true));
+    expect(status).toBe(400);
+    expect(json.error).toEqual({
+      message: "External '$ref' values are not supported",
+      type: "invalid_request_error",
+      param: "response_format",
+      code: null,
+    });
   });
 });
 

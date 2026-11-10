@@ -2,6 +2,7 @@ import type { AppEnv, ContentfulStatusCode, Context, ServicePlugin, Store } from
 import { aiErrorBody, registerAiRoutes, setAiSeed, SUPPORTED_DATA_PATHS } from "./dispatch.js";
 import { AiRequestError } from "./errors.js";
 import { parseConfig } from "./rules.js";
+import type { AiConfig, Rule } from "./types.js";
 
 export type * from "./types.js";
 export { AiRequestError, AiConfigError } from "./errors.js";
@@ -10,10 +11,11 @@ export { AiRequestError, AiConfigError } from "./errors.js";
 export interface AiSeedConfig {
   port?: number;
   baseUrl?: string;
-  strict?: boolean;
-  timing?: { ttftMs?: number; chunkDelayMs?: number };
-  models?: string[];
-  rules?: unknown[];
+  strict?: AiConfig["strict"];
+  timing?: Partial<AiConfig["timing"]>;
+  random?: Partial<AiConfig["random"]>;
+  models?: AiConfig["models"];
+  rules?: Array<Omit<Rule, "match"> & { match?: Rule["match"] }>;
 }
 
 /** Renders every AI error and unmatched path in the OpenAI error envelope. */
