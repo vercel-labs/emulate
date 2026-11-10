@@ -114,9 +114,30 @@ function textOfContent(value: unknown, path: string, nested: FilePart[]): string
       }
       return;
     }
-    texts.push(block.type === "text" ? requireString(block.text, `${blockPath}.text`) : JSON.stringify(block));
+    if (block.type === "text") {
+      texts.push(requireString(block.text, `${blockPath}.text`));
+      return;
+    }
+    if (block.type === "search_result") {
+      texts.push(searchResultText(block, blockPath));
+      return;
+    }
+    fail(`Unsupported content block type "${String(block.type)}" in a tool result.`, `${blockPath}.type`);
   });
   return texts.join("\n");
+}
+
+function searchResultText(block: Record<string, unknown>, path: string): string {
+  requireString(block.source, `${path}.source`);
+  const title = requireString(block.title, `${path}.title`);
+  const content = block.content;
+  if (!Array.isArray(content)) fail("Expected an array of text blocks.", `${path}.content`);
+  const texts = content.map((item, index) => {
+    const itemPath = `${path}.content.${index}`;
+    if (!isRecord(item) || item.type !== "text") fail("Expected a text block.", itemPath);
+    return requireString(item.text, `${itemPath}.text`);
+  });
+  return [title, ...texts].join("\n");
 }
 
 function decodeFile(block: Record<string, unknown>, path: string, kind: "image" | "document"): FilePart {
@@ -185,6 +206,8 @@ function decodeBlock(block: unknown, path: string): InputPart[] {
       return [decodeFile(block, path, "image")];
     case "document":
       return decodeDocument(block, path);
+    case "search_result":
+      return [{ type: "text", text: searchResultText(block, path) }];
     case "tool_use":
       return [
         {
@@ -200,6 +223,7 @@ function decodeBlock(block: unknown, path: string): InputPart[] {
       const nested: FilePart[] = [];
       const output = textOfContent(block.content, `${path}.content`, nested);
       return [
+        ...nested,
         {
           type: "tool_result",
           id,
@@ -207,7 +231,6 @@ function decodeBlock(block: unknown, path: string): InputPart[] {
           output,
           ...(block.is_error === true ? { isError: true } : {}),
         },
-        ...nested,
       ];
     }
     case "thinking":
@@ -225,11 +248,28 @@ function decodeContent(content: unknown, path: string): InputPart[] {
   return content.flatMap((block, index) => decodeBlock(block, `${path}.${index}`));
 }
 
-function decodeMessage(raw: unknown, path: string): Message {
+/** Splits a user turn so tool results sit in a tool message, the way the OpenAI codecs record them. */
+function decodeUserMessage(content: unknown, path: string): Message[] {
+  if (!Array.isArray(content)) return [{ role: "user", parts: decodeContent(content, path) }];
+  const toolParts: InputPart[] = [];
+  const userParts: InputPart[] = [];
+  content.forEach((block, index) => {
+    const parts = decodeBlock(block, `${path}.${index}`);
+    if (isRecord(block) && block.type === "tool_result") toolParts.push(...parts);
+    else userParts.push(...parts);
+  });
+  const messages: Message[] = [];
+  if (toolParts.length > 0) messages.push({ role: "tool", parts: toolParts });
+  if (userParts.length > 0 || messages.length === 0) messages.push({ role: "user", parts: userParts });
+  return messages;
+}
+
+function decodeMessage(raw: unknown, path: string): Message[] {
   if (!isRecord(raw)) fail("Expected a message object.", path);
   const role = raw.role;
   if (role !== "user" && role !== "assistant") fail('Expected "user" or "assistant".', `${path}.role`);
-  return { role, parts: decodeContent(raw.content, `${path}.content`) };
+  if (role === "assistant") return [{ role, parts: decodeContent(raw.content, `${path}.content`) }];
+  return decodeUserMessage(raw.content, `${path}.content`);
 }
 
 function decodeSystem(raw: unknown): InputPart[] {
@@ -309,7 +349,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const messages: Message[] = [];
   const system = decodeSystem(body.system);
   if (system.length > 0) messages.push({ role: "system", parts: system });
-  body.messages.forEach((message, index) => messages.push(decodeMessage(message, `messages.${index}`)));
+  body.messages.forEach((message, index) => messages.push(...decodeMessage(message, `messages.${index}`)));
 
   const request: AIRequest = {
     format: "anthropic-messages",

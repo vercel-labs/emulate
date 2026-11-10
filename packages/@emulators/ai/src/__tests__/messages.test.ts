@@ -226,25 +226,28 @@ describe("anthropic messages", () => {
         },
       ],
     });
-    expect(nested.content).toEqual([{ type: "text", text: "png matched" }]);
+    expect(nested.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
     const nestedCall = await lastCall();
-    expect(nestedCall.messages.at(-1)?.parts).toEqual([
-      { type: "tool_result", id: "toolu_1", output: "here it is" },
-      {
-        type: "file",
-        mediaType: "image/png",
-        source: "inline",
-        bytes: Buffer.from(PNG, "base64").length,
-        sha256: sha256(PNG),
-      },
-      {
-        type: "file",
-        mediaType: "application/pdf",
-        source: "inline",
-        bytes: Buffer.from(PDF, "base64").length,
-        sha256: sha256(PDF),
-      },
-    ]);
+    expect(nestedCall.messages.at(-1)).toEqual({
+      role: "tool",
+      parts: [
+        {
+          type: "file",
+          mediaType: "image/png",
+          source: "inline",
+          bytes: Buffer.from(PNG, "base64").length,
+          sha256: sha256(PNG),
+        },
+        {
+          type: "file",
+          mediaType: "application/pdf",
+          source: "inline",
+          bytes: Buffer.from(PDF, "base64").length,
+          sha256: sha256(PDF),
+        },
+        { type: "tool_result", id: "toolu_1", output: "here it is" },
+      ],
+    });
     expect(JSON.stringify(nestedCall.messages)).not.toContain(PNG);
     expect(JSON.stringify(nestedCall.messages)).not.toContain(PDF);
   });
@@ -283,13 +286,16 @@ describe("anthropic messages", () => {
     });
     expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
     const call = await lastCall();
-    expect(call.messages.at(-1)?.parts).toEqual([
-      {
-        type: "tool_result",
-        id: "toolu_1",
-        output: "plain from the tool\ntext doc from the tool\ncontent doc from the tool",
-      },
-    ]);
+    expect(call.messages.at(-1)).toEqual({
+      role: "tool",
+      parts: [
+        {
+          type: "tool_result",
+          id: "toolu_1",
+          output: "plain from the tool\ntext doc from the tool\ncontent doc from the tool",
+        },
+      ],
+    });
   });
 
   it("accepts every document source type", async () => {
@@ -499,5 +505,176 @@ describe("anthropic messages", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { message: string } };
     expect(body.error.message).toBe("Expected a number.");
+  });
+
+  it("rejects data URLs in image and document url sources without recording the payload", async () => {
+    const dataUrl = `data:image/png;base64,${PNG}`;
+    for (const block of [
+      { type: "image", source: { type: "url", url: dataUrl } },
+      { type: "document", source: { type: "url", url: dataUrl } },
+    ]) {
+      const response = await postMessages(
+        JSON.stringify({
+          model: "claude-opus-5-5",
+          max_tokens: 64,
+          messages: [{ role: "user", content: [block] }],
+        }),
+      );
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: { type: string; message: string } };
+      expect(body.error).toMatchObject({
+        type: "invalid_request_error",
+        message: "Expected an HTTP or HTTPS URL.",
+      });
+    }
+    const calls = await fetch(`${origin}/_ai/calls`);
+    expect(await calls.text()).not.toContain(PNG);
+  });
+
+  const searchResult = {
+    type: "search_result",
+    source: "https://example.com/page?q=secret#frag",
+    title: "Search title",
+    content: [{ type: "text", text: "search body" }],
+  };
+
+  it("records only the title and text of a search result inside a tool result", async () => {
+    const response = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [
+          { role: "user", content: "look" },
+          { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "search", input: {} }] },
+          {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "toolu_1", content: [searchResult] }],
+          },
+        ],
+      }),
+    );
+    expect(response.status).toBe(200);
+    const call = await lastCall();
+    expect(call.messages.at(-1)).toEqual({
+      role: "tool",
+      parts: [{ type: "tool_result", id: "toolu_1", output: "Search title\nsearch body" }],
+    });
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).not.toContain("q=secret");
+    expect(calls).not.toContain("#frag");
+    expect(calls).not.toContain("https://example.com/page");
+  });
+
+  it("accepts a search result at message level and matches its text", async () => {
+    await setRules([
+      { id: "search", match: { textContains: "search body" }, reply: [{ type: "text", text: "search matched" }] },
+    ]);
+    const response = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: [searchResult] }],
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { content: unknown };
+    expect(body.content).toEqual([{ type: "text", text: "search matched" }]);
+  });
+
+  it("rejects an unknown block type inside a tool result", async () => {
+    const response = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [
+          { role: "user", content: "look" },
+          { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_1",
+                content: [{ type: "video", source: "https://example.com/clip" }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { type: string; message: string } };
+    expect(body.error).toMatchObject({
+      type: "invalid_request_error",
+      message: 'Unsupported content block type "video" in a tool result.',
+    });
+  });
+
+  it("matches textContains and hasToolResult on a tool continuation", async () => {
+    await setRules([
+      {
+        id: "look-result",
+        match: { textContains: "look", hasToolResult: true },
+        reply: [{ type: "text", text: "look matched" }],
+      },
+    ]);
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: "look" },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "here" }] },
+      ],
+    });
+    expect(message.content).toEqual([{ type: "text", text: "look matched" }]);
+  });
+
+  it("replies to a tool result that nests an image by default", async () => {
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: "look" },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+    const call = await lastCall();
+    expect(call.matched).toEqual({ default: "tool_result" });
+  });
+
+  it("echoes text that follows a tool result in the same user turn", async () => {
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: "look" },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: {} }] },
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_1", content: "here" },
+            { type: "text", text: "what now" },
+          ],
+        },
+      ],
+    });
+    expect(message.content).toEqual([{ type: "text", text: "what now" }]);
+    const call = await lastCall();
+    expect(call.messages.slice(-2)).toEqual([
+      { role: "tool", parts: [{ type: "tool_result", id: "toolu_1", output: "here" }] },
+      { role: "user", parts: [{ type: "text", text: "what now" }] },
+    ]);
   });
 });

@@ -60,15 +60,16 @@ function checkedUrl(value: unknown, path: string): string {
   return stripUrl(url);
 }
 
-/** Strips credentials, query, and hash from an attachment URL, keeping its protocol. */
+/** Accepts only an HTTP or HTTPS URL, stripping credentials, query, and hash. */
 export function redactedUrl(value: unknown, path: string): string {
-  if (typeof value !== "string") fail("Expected a URL.", path);
+  if (typeof value !== "string") fail("Expected an HTTP or HTTPS URL.", path);
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return fail("Expected a URL.", path);
+    return fail("Expected an HTTP or HTTPS URL.", path);
   }
+  if (url.protocol !== "http:" && url.protocol !== "https:") fail("Expected an HTTP or HTTPS URL.", path);
   return stripUrl(url);
 }
 
