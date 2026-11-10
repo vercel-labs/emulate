@@ -101,7 +101,7 @@ function openaiClient(): OpenAI {
 
 async function postResponses(body: unknown): Promise<{
   status: number;
-  json: { error?: { message?: string; param?: unknown } };
+  json: { error?: { message?: string; param?: unknown; code?: unknown } };
 }> {
   const response = await fetch(`${baseURL}/responses`, {
     method: "POST",
@@ -110,7 +110,7 @@ async function postResponses(body: unknown): Promise<{
   });
   return {
     status: response.status,
-    json: (await response.json()) as { error?: { message?: string; param?: unknown } },
+    json: (await response.json()) as { error?: { message?: string; param?: unknown; code?: unknown } },
   };
 }
 
@@ -473,6 +473,27 @@ describe("OpenAI Responses codec", () => {
     });
     expect(auto.truncation).toBe("auto");
     expect(auto.max_output_tokens).toBe(50);
+  });
+
+  it("rejects an unsupported truncation value instead of echoing disabled", async () => {
+    const client = openaiClient();
+    const omitted = await client.responses.create({ model: "gpt-x", input: "Hi" });
+    expect(omitted.truncation).toBe("disabled");
+
+    const disabled = await client.responses.create({ model: "gpt-x", input: "Hi", truncation: "disabled" });
+    expect(disabled.truncation).toBe("disabled");
+
+    const auto = await client.responses.create({ model: "gpt-x", input: "Hi", truncation: "auto" });
+    expect(auto.truncation).toBe("auto");
+
+    const invalid = await postResponses({ model: "gpt-x", input: "Hi", truncation: "fast" });
+    expect(invalid.status).toBe(400);
+    expect(invalid.json.error).toEqual({
+      message: "Invalid value: 'fast'. Supported values are: 'auto' and 'disabled'.",
+      type: "invalid_request_error",
+      param: "truncation",
+      code: "invalid_value",
+    });
   });
 
   it("does not store store:false responses", async () => {
