@@ -606,7 +606,8 @@ async function writeFetchResponse(
       const { done, value } = await reader.read();
       if (done) break;
       if (aborted) break;
-      await writeChunk(res, value, signal);
+      const pending = writeChunk(res, value, signal);
+      if (pending) await pending;
     }
     if (aborted) {
       res.destroy();
@@ -621,18 +622,30 @@ async function writeFetchResponse(
   }
 }
 
-function writeChunk(res: ServerResponse, chunk: Uint8Array, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const done = () => {
-      signal?.removeEventListener("abort", done);
+function writeChunk(res: ServerResponse, chunk: Uint8Array, signal?: AbortSignal): Promise<void> | undefined {
+  if (signal?.aborted) return undefined;
+  if (res.destroyed) throw new Error("Response closed before write");
+  if (res.write(chunk)) return undefined;
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onDrain = () => {
+      cleanup();
       resolve();
     };
-    signal?.addEventListener("abort", done, { once: true });
-    res.write(chunk, (error) => {
-      signal?.removeEventListener("abort", done);
-      if (error) reject(error);
-      else resolve();
-    });
+    const onClose = () => {
+      cleanup();
+      reject(new Error("Response closed before drain"));
+    };
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

@@ -1,5 +1,5 @@
 import type { Store } from "@emulators/core";
-import { assertOutputSupported } from "../schema-dialects.js";
+import { assertOutputSupported, assertToolsSupported } from "../schema-dialects.js";
 import type {
   Response as OpenAIResponse,
   ResponseCompletedEvent,
@@ -50,6 +50,7 @@ import type {
   Message,
   OutputSpec,
   Reply,
+  StoredResponse,
   ToolChoice as AiToolChoice,
   ToolDefinition,
   Usage,
@@ -112,8 +113,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function invalid(message: string, param?: string): never {
-  throw new AiRequestError(message, param);
+function invalid(message: string, param?: string, code?: string): never {
+  throw new AiRequestError(message, param, code);
 }
 
 function requireString(value: unknown, param: string, nonEmpty = false): string {
@@ -202,6 +203,16 @@ function decodeMetadata(raw: unknown): WireMetadata {
   return metadata;
 }
 
+function decodeTruncation(raw: unknown): "auto" | "disabled" {
+  if (raw === undefined || raw === null) return "disabled";
+  if (raw === "auto" || raw === "disabled") return raw;
+  invalid(
+    `Invalid value: '${textOf(raw)}'. Supported values are: 'auto' and 'disabled'.`,
+    "truncation",
+    "invalid_value",
+  );
+}
+
 function extrasOf(decoded: Decoded): ResponsesExtras {
   return decoded.extras as unknown as ResponsesExtras;
 }
@@ -263,6 +274,7 @@ function decodeTools(raw: unknown): { tools: Tool[]; definitions: ToolDefinition
       name,
       ...(description === undefined ? {} : { description }),
       ...(parameters === undefined ? {} : { parameters }),
+      ...(strict ? { strict: true } : {}),
     });
   });
   return { tools, definitions };
@@ -444,6 +456,58 @@ function storedOutputMessages(items: Json[]): Message[] {
   return messages;
 }
 
+interface ReplayedHistory {
+  messages: Message[];
+  unresolvedHistory: boolean;
+  missingParentId?: string;
+}
+
+function replayStoredHistory(state: AiState, id: string): ReplayedHistory | undefined {
+  const head = state.responses.get(id);
+  if (!head) return undefined;
+  const chain: StoredResponse[] = [];
+  const seen = new Set<string>();
+  let current: StoredResponse | undefined = head;
+  let missingParentId: string | undefined;
+  while (current !== undefined && chain.length < state.responses.size) {
+    if (seen.has(current.id)) {
+      missingParentId = current.id;
+      break;
+    }
+    seen.add(current.id);
+    chain.push(current);
+    const parentId = current.previousResponseId;
+    if (parentId === undefined) break;
+    const parent = state.responses.get(parentId);
+    if (!parent) missingParentId = parentId;
+    current = parent;
+  }
+  const messages: Message[] = [];
+  for (const entry of chain.reverse()) {
+    messages.push(...decodeStoredMessages(entry.inputItems), ...storedOutputMessages(entry.outputItems));
+  }
+  return {
+    messages,
+    unresolvedHistory: chain.some((entry) => entry.unresolvedHistory === true),
+    ...(missingParentId === undefined ? {} : { missingParentId }),
+  };
+}
+
+/** Removes a stored response, first folding its items into every stored response that links to it. */
+function removeStoredResponse(state: AiState, id: string): void {
+  const removed = state.responses.get(id);
+  if (!removed) return;
+  const folded = [...removed.inputItems, ...storedOutputMessages(removed.outputItems).map(messageToJson)];
+  for (const child of state.responses.values()) {
+    if (child === removed || child.previousResponseId !== id) continue;
+    child.inputItems = [...folded, ...child.inputItems];
+    if (removed.previousResponseId === undefined) delete child.previousResponseId;
+    else child.previousResponseId = removed.previousResponseId;
+    if (removed.unresolvedHistory === true) child.unresolvedHistory = true;
+  }
+  state.responses.delete(id);
+}
+
 function findStoredItem(state: AiState, id: string): StoredLookup | undefined {
   for (const stored of state.responses.values()) {
     for (const item of stored.outputItems) {
@@ -480,6 +544,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   }
 
   const { tools, definitions } = decodeTools(raw.tools);
+  assertToolsSupported(model, definitions, (index) => `tools[${index}].parameters`);
   const { choice, wire: toolChoiceWire } = decodeToolChoice(raw.tool_choice);
   const parallelToolCalls =
     raw.parallel_tool_calls === undefined || raw.parallel_tool_calls === null
@@ -498,19 +563,24 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   if (instructions !== undefined) messages.push({ role: "system", parts: [{ type: "text", text: instructions }] });
 
   const history: Message[] = [];
+  const ownItems: Message[] = [];
   const references: HistoryReference[] = [];
   const warnings: string[] = [];
   let inheritedUnresolved = false;
 
   if (previousResponseId !== undefined) {
-    const stored = ctx.state.responses.get(previousResponseId);
-    if (stored) {
-      for (const message of decodeStoredMessages(stored.inputItems)) history.push(message);
-      for (const message of storedOutputMessages(stored.outputItems)) history.push(message);
+    const replay = replayStoredHistory(ctx.state, previousResponseId);
+    if (replay) {
+      for (const message of replay.messages) history.push(message);
       references.push({ id: previousResponseId, kind: "previous_response", resolved: true });
-      if (stored.unresolvedHistory === true) {
+      if (replay.unresolvedHistory || replay.missingParentId !== undefined) {
         inheritedUnresolved = true;
         warnings.push(`Response "${previousResponseId}" has unresolved history; continuing with partial context.`);
+      }
+      if (replay.missingParentId !== undefined) {
+        warnings.push(
+          `Unknown response "${replay.missingParentId}" in the history chain; continuing with partial context.`,
+        );
       }
     } else {
       references.push({ id: previousResponseId, kind: "previous_response", resolved: false });
@@ -526,7 +596,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   items.forEach((entry, index) => {
     const path = `input[${index}]`;
     if (typeof entry === "string") {
-      history.push({ role: "user", parts: [{ type: "text", text: entry }] });
+      ownItems.push({ role: "user", parts: [{ type: "text", text: entry }] });
       return;
     }
     if (!isRecord(entry)) invalid(`Expected an item for '${path}'.`, path);
@@ -537,7 +607,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       const found = findStoredItem(ctx.state, id);
       if (found) {
         references.push({ id, kind: "item", resolved: true });
-        for (const message of storedOutputMessages([found.item])) history.push(message);
+        for (const message of storedOutputMessages([found.item])) ownItems.push(message);
       } else {
         references.push({ id, kind: "item", resolved: false });
         warnings.push(`Unknown item_reference "${id}"; dropping it.`);
@@ -546,19 +616,19 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     }
 
     if (type === "function_call") {
-      history.push(decodeFunctionCall(entry, path).message);
+      ownItems.push(decodeFunctionCall(entry, path).message);
       return;
     }
 
     if (type === "function_call_output") {
-      history.push(decodeFunctionCallOutput(entry, path));
+      ownItems.push(decodeFunctionCallOutput(entry, path));
       return;
     }
 
     if (type === "reasoning") return;
 
     if (type === undefined || type === "message") {
-      history.push(decodeMessageItem(entry, path));
+      ownItems.push(decodeMessageItem(entry, path));
       return;
     }
 
@@ -584,6 +654,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   });
 
   for (const message of history) messages.push(message);
+  for (const message of ownItems) messages.push(message);
 
   const callNames = new Map<string, string>();
   for (const message of messages) {
@@ -647,8 +718,8 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       : { format: { type: "text" } },
     ...(reasoning === undefined ? {} : { reasoning }),
     metadata,
-    truncation: raw.truncation === "auto" ? "auto" : "disabled",
-    inputItems: history.map(messageToJson),
+    truncation: decodeTruncation(raw.truncation),
+    inputItems: ownItems.map(messageToJson),
     unresolvedHistory,
   };
 
@@ -1046,11 +1117,15 @@ function afterReply(reply: Reply, decoded: Decoded, ctx: CodecContext): void {
   const extras = extrasOf(decoded);
   const prepared = preparedFor(reply, decoded, ctx);
   const responses = ctx.state.responses;
+  const parent = decoded.request.references.find(
+    (reference) => reference.kind === "previous_response" && reference.resolved,
+  );
   responses.set(prepared.id, {
     id: prepared.id,
     createdAt: prepared.createdAt,
     model: decoded.request.model,
     ...(extras.instructions === undefined ? {} : { instructions: extras.instructions }),
+    ...(parent === undefined ? {} : { previousResponseId: parent.id }),
     inputItems: extras.inputItems,
     outputItems: prepared.output as unknown as Json[],
     response: prepared.response as unknown as Json,
@@ -1059,7 +1134,7 @@ function afterReply(reply: Reply, decoded: Decoded, ctx: CodecContext): void {
   while (responses.size > STORED_RESPONSE_LIMIT) {
     const oldest = responses.keys().next();
     if (oldest.done) break;
-    responses.delete(oldest.value);
+    removeStoredResponse(ctx.state, oldest.value);
   }
 }
 
@@ -1074,7 +1149,7 @@ export function getStoredResponse(ctx: ResponsesStoreContext, id: string): Respo
 export function deleteStoredResponse(ctx: ResponsesStoreContext, id: string): Response {
   const stored = ctx.state.responses.get(id);
   if (!stored) return sendJson(errorBody(notFound(id)), 404);
-  ctx.state.responses.delete(id);
+  removeStoredResponse(ctx.state, id);
   return sendJson({ id, object: "response.deleted", deleted: true });
 }
 
