@@ -75,6 +75,14 @@ async function seededOrder(seededOrigin: string, count: number): Promise<string[
   return replies;
 }
 
+async function ask(client: OpenAI, content: string): Promise<string> {
+  const completion = await client.chat.completions.create({
+    model: "pick-model",
+    messages: [{ role: "user", content }],
+  });
+  return completion.choices[0].message.content ?? "";
+}
+
 describe("seeded reply variants", () => {
   it("keeps a seeded random seed and variant order across an HTTP reset", async () => {
     const entry = new URL("../../../../emulate/src/api.ts", import.meta.url).href;
@@ -122,6 +130,45 @@ describe("seeded reply variants", () => {
     const other = await sequence(42);
 
     expect(other).not.toEqual(seven);
+  });
+
+  it("picks both variants when unrelated calls interleave", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL });
+    await configure(7, [{ id: "pick", match: { textContains: "pick" }, variants: variants.slice(0, 2) }]);
+
+    const first = await ask(client, "pick one");
+    await ask(client, "unrelated");
+    const second = await ask(client, "pick one");
+
+    expect(new Set([first, second])).toEqual(new Set(["one", "two"]));
+  });
+
+  it("cycles every variant while unrelated requests interleave", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL });
+    await configure(7);
+
+    const picks: string[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      picks.push(await ask(client, "pick one"));
+      await ask(client, "unrelated");
+      await ask(client, "unrelated again");
+    }
+
+    expect(new Set(picks)).toEqual(new Set(["one", "two", "three"]));
+  });
+
+  it("restarts the variant cycle after a reset", async () => {
+    const client = new OpenAI({ apiKey: "test", baseURL });
+    await configure(7);
+    const before = [await ask(client, "pick one"), await ask(client, "pick one")];
+    expect(before[0]).not.toBe(before[1]);
+
+    const reset = await fetch(`${origin}/_ai/reset`, { method: "POST" });
+    expect(reset.status).toBe(200);
+    await configure(7);
+    const after = [await ask(client, "pick one"), await ask(client, "pick one")];
+
+    expect(after).toEqual(before);
   });
 
   it("cycles an injected error among reply variants", async () => {

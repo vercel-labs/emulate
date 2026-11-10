@@ -1,0 +1,119 @@
+import { describe, expect, it } from "vitest";
+import { AiConfigError } from "../errors.js";
+import { initialBudgets, matchRule, parseConfig } from "../rules.js";
+import type { AIRequest, AiConfig } from "../types.js";
+
+function configError(run: () => unknown): AiConfigError {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof AiConfigError) return error;
+    throw error;
+  }
+  throw new Error("expected an AiConfigError");
+}
+
+function reply(text = "ok") {
+  return [{ type: "text", text }];
+}
+
+function config(rules: unknown[]): AiConfig {
+  return parseConfig({ rules });
+}
+
+function request(overrides: Partial<AIRequest> = {}): AIRequest {
+  return {
+    format: "openai-chat",
+    model: "gpt-4o",
+    messages: [{ role: "user", parts: [{ type: "text", text: "hello there" }] }],
+    tools: [],
+    toolChoice: "auto",
+    parallelToolCalls: true,
+    stream: false,
+    reasoning: false,
+    store: false,
+    references: [],
+    warnings: [],
+    ...overrides,
+  };
+}
+
+describe("rule parsing errors", () => {
+  it("rejects an unknown match key", () => {
+    const error = configError(() => config([{ id: "a", match: { colour: "red" }, reply: reply() }]));
+    expect(error.message).toBe('rules[0].match.colour: unknown key "colour"');
+  });
+
+  it("rejects a negative times value", () => {
+    const error = configError(() => config([{ id: "a", times: -1, match: {}, reply: reply() }]));
+    expect(error.message).toBe("rules[0].times: expected an integer greater than or equal to 0");
+  });
+
+  it("rejects reply and variants together", () => {
+    const error = configError(() =>
+      config([
+        {
+          id: "a",
+          match: {},
+          reply: reply(),
+          variants: [{ reply: reply("variant") }],
+        },
+      ]),
+    );
+    expect(error.message).toBe("rules[0].variants: reply and variants are mutually exclusive");
+  });
+});
+
+describe("rule matching", () => {
+  it("matches a model glob", () => {
+    const parsed = config([{ id: "glob", match: { model: "gpt-*" }, reply: reply() }]);
+    const budgets = initialBudgets(parsed);
+
+    const hit = matchRule(parsed, budgets, request({ model: "gpt-4o-mini" }));
+    expect("rule" in hit && hit.rule.id).toBe("glob");
+
+    expect(matchRule(parsed, budgets, request({ model: "claude-opus-5-5" }))).toEqual({ exhausted: [] });
+  });
+
+  it("matches text in the latest user turn", () => {
+    const parsed = config([{ id: "refund", match: { textContains: "refund" }, reply: reply() }]);
+    const budgets = initialBudgets(parsed);
+
+    const hit = matchRule(parsed, budgets, request());
+    expect(hit).toEqual({ exhausted: [] });
+
+    const messages: AIRequest["messages"] = [{ role: "user", parts: [{ type: "text", text: "where is my refund?" }] }];
+    const matched = matchRule(parsed, budgets, request({ messages }));
+    expect("rule" in matched && matched.rule.id).toBe("refund");
+  });
+
+  it("matches a tool name glob", () => {
+    const parsed = config([{ id: "search", match: { tool: "search*" }, reply: reply() }]);
+    const budgets = initialBudgets(parsed);
+
+    const hit = matchRule(parsed, budgets, request({ tools: [{ name: "search_web" }] }));
+    expect("rule" in hit && hit.rule.id).toBe("search");
+
+    expect(matchRule(parsed, budgets, request({ tools: [{ name: "lookup" }] }))).toEqual({ exhausted: [] });
+  });
+
+  it("picks the first matching rule", () => {
+    const parsed = config([
+      { id: "first", match: { textContains: "hello" }, reply: reply("first") },
+      { id: "second", match: { model: "*" }, reply: reply("second") },
+    ]);
+
+    const hit = matchRule(parsed, initialBudgets(parsed), request());
+    expect("rule" in hit && hit.rule.id).toBe("first");
+  });
+
+  it("reports rules whose budget is used up", () => {
+    const parsed = config([{ id: "once", times: 1, match: {}, reply: reply() }]);
+    const budgets = initialBudgets(parsed);
+
+    const first = matchRule(parsed, budgets, request());
+    expect("rule" in first && first.snapshot.remaining).toBe(0);
+
+    expect(matchRule(parsed, budgets, request())).toEqual({ exhausted: ["once"] });
+  });
+});

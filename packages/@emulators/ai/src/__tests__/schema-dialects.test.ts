@@ -243,3 +243,41 @@ describe("anthropic rules on the OpenAI wire", () => {
     expect(status).toBe(200);
   });
 });
+
+describe("provider rules follow the model on every OpenAI wire", () => {
+  it("applies the Anthropic rules on the Responses wire", async () => {
+    const response = await fetch(`${origin}/v1/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-opus-5-5",
+        input: "hello",
+        text: {
+          format: {
+            type: "json_schema",
+            name: "trip",
+            strict: true,
+            schema: objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }),
+          },
+        },
+      }),
+    });
+    const json = (await response.json()) as Record<string, any>;
+    expect(response.status).toBe(400);
+    expect(json.error.param).toBe("text.format");
+    expect(json.error.message).toBe("Schema type 'oneOf' is not supported");
+  });
+
+  it("applies the Anthropic rules to a gateway model id on Chat Completions", async () => {
+    const body = chatBody(objectWith({ oneOf: [{ type: "string" }, { type: "number" }] }), true);
+    body.model = "anthropic/claude-sonnet-4";
+    const { status, json } = await chat(body);
+    expect(status).toBe(400);
+    expect(json.error).toEqual({
+      message: "Schema type 'oneOf' is not supported",
+      type: "invalid_request_error",
+      param: "response_format",
+      code: null,
+    });
+  });
+});
