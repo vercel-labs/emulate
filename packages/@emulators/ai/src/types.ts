@@ -219,4 +219,6 @@ export interface StoredResponse {
   inputItems: Json[];
   outputItems: Json[];
   response: Json;
+  /** Set when the request referred to history that could not be resolved, so later turns skip tool pairing checks. */
+  unresolvedHistory?: boolean;
 }

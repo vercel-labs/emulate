@@ -449,7 +449,10 @@ export function serve(options: ServeOptions): Server {
       res.setHeader("Content-Type", "text/plain; charset=UTF-8");
       res.end(message);
     } finally {
-      if (controller) res.off("close", onClose);
+      if (controller) {
+        if (!res.writableEnded) controller.abort();
+        res.off("close", onClose);
+      }
     }
   });
   server.listen(port, options.hostname ?? "127.0.0.1");
@@ -611,6 +614,7 @@ async function writeFetchResponse(
     }
     res.end();
   } catch (err) {
+    void reader.cancel().catch(() => {});
     res.destroy(err instanceof Error ? err : undefined);
   } finally {
     signal?.removeEventListener("abort", onAbort);

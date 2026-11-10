@@ -459,8 +459,8 @@ function staleStateError(): AiRequestError {
 }
 
 function isForeignOrigin(origin: string | undefined, expectedOrigin: string | undefined): boolean {
-  if (!origin || !expectedOrigin) return false;
-  return origin !== expectedOrigin;
+  if (!origin) return false;
+  return expectedOrigin === undefined || origin !== expectedOrigin;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

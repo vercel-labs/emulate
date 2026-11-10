@@ -140,7 +140,7 @@ Reply events:
 - `reasoning` — `{ type: reasoning, text }`, Responses only
 - `refusal` — `{ type: refusal, text }`, native refusal shape
 
-A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and calls walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. A variant holds either `reply` or `error`, and SDK retries spend the next variant. It may also override `finish`, `timing`, and `fault`, with the rule-level values as defaults. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`, and `fault` also requires `match.stream: true`. A fault disconnects or stalls a stream after a counted number of content chunks.
+A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and each rule's own matches walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. A variant holds either `reply` or `error`, and SDK retries spend the next variant. It may also override `finish`, `timing`, and `fault`, with the rule-level values as defaults. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`, and `fault` also requires `match.stream: true`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 ## Defaults
 
@@ -157,7 +157,7 @@ Set `strict: true` to turn every unmatched request into a native 400 naming the 
 
 ## State and Privacy
 
-Responses are stored by default so multi-turn sessions and item references resolve. Set `store: false` to skip storage. Unknown `previous_response_id` and item references are treated as empty context, so a request still succeeds.
+Responses are stored by default so multi-turn sessions and item references resolve. Set `store: false` to skip storage. Unknown `previous_response_id` and item references are treated as empty context, so a request still succeeds. A function call with no matching `function_call_output` returns OpenAI's 400, `No tool output found for function call <id>.`, unless the history it refers to is missing.
 
 Every generation request is recorded with its format, model, `matched`, normalized prompt and tool arguments, and outcome. `matched` is `{ "id": "<rule id>", "remaining": <budget left or null>, "rule": <the rule as it was when it answered> }` for a rule, `{ "default": "<kind>" }` when a default answered, and `null` when strict mode rejected the request. The last 500 calls are kept. Stored responses are capped at the most recent 1000; older ones are evicted. Keys, auth headers, and file bytes are never recorded. Attachment metadata records the name, media type, size, and hash only.
 

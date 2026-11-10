@@ -12,6 +12,7 @@ export const STORED_RESPONSE_LIMIT = 1000;
 export interface AiState {
   config: AiConfig;
   budgets: RuleBudgets;
+  variantHits: Map<string, number>;
   generation: number;
   controller: AbortController;
   callSeq: number;
@@ -36,6 +37,7 @@ export interface RequestScope extends CallStamp {
 
 const CONFIG_KEY = "ai.state.config";
 const BUDGETS_KEY = "ai.state.budgets";
+const VARIANT_HITS_KEY = "ai.state.variantHits";
 const CALL_SEQ_KEY = "ai.state.callSeq";
 const CALLS_KEY = "ai.state.calls";
 const RESPONSES_KEY = "ai.state.responses";
@@ -90,6 +92,14 @@ class StoreBackedAiState implements AiState {
 
   set budgets(value: RuleBudgets) {
     this.store.setData(BUDGETS_KEY, value);
+  }
+
+  get variantHits(): Map<string, number> {
+    return this.read(VARIANT_HITS_KEY, () => new Map<string, number>());
+  }
+
+  set variantHits(value: Map<string, number>) {
+    this.store.setData(VARIANT_HITS_KEY, value);
   }
 
   get generation(): number {
@@ -187,16 +197,17 @@ export function getSeedConfig(store: Store): AiConfig {
 }
 
 /**
- * Replaces an instance's config and rebuilds its budgets from the new rules.
- * Runtime rule replacement uses this so no rule keeps a budget across a swap.
+ * Replaces an instance's config and rebuilds its budgets and variant counters from the new rules.
+ * Runtime rule replacement uses this so no rule keeps a budget or a variant position across a swap.
  */
 export function setAiConfig(state: AiState, config: AiConfig): void {
   state.config = config;
   state.budgets = initialBudgets(config);
+  state.variantHits = new Map();
 }
 
 /**
- * Resets an instance's rules, budgets, ids, call record, and stored responses.
+ * Resets an instance's rules, budgets, variant positions, ids, call record, and stored responses.
  * Aborts any stream still running under the previous generation.
  */
 export function resetAiState(store: Store, config?: Partial<AiConfig>): AiState {
