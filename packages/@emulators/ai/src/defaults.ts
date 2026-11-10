@@ -283,6 +283,46 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     return true;
   }
 
+  function siblings(node: Record<string, Json>, keyword: string): Record<string, Json> {
+    return Object.fromEntries(Object.entries(node).filter(([key]) => key !== keyword));
+  }
+
+  /** Adds the sibling keywords a branch does not set itself, so the sample honors both where they do not conflict. */
+  function mergeSchema(branch: JsonSchema, rest: Record<string, Json>): JsonSchema {
+    if (typeof branch === "boolean") return branch === false ? false : rest;
+    const merged: Record<string, Json> = { ...rest, ...branch };
+    if (record(rest.properties) && record(branch.properties)) {
+      merged.properties = { ...rest.properties, ...branch.properties };
+    }
+    if (Array.isArray(rest.required) && Array.isArray(branch.required)) {
+      merged.required = [...new Set([...rest.required, ...branch.required])];
+    }
+    return merged;
+  }
+
+  /** Sample branches in order and return the first value that satisfies the node, skipping branches it cannot sample. */
+  function sampleAlternative(node: Record<string, Json>, keyword: "anyOf" | "oneOf", at: string, depth: number): Json {
+    const rest = siblings(node, keyword);
+    const branches = node[keyword] as Json[];
+    let sampled = false;
+    let firstError: AiRequestError | undefined;
+    for (const [index, branch] of branches.entries()) {
+      const before = characters;
+      try {
+        const value = sample(mergeSchema(branch as JsonSchema, rest), `${at}.${keyword}[${index}]`, depth + 1);
+        sampled = true;
+        if (matches(value, node)) return value;
+      } catch (error) {
+        if (!(error instanceof AiRequestError)) throw error;
+        firstError ??= error;
+        characters = before;
+      }
+    }
+    if (!sampled && firstError) throw firstError;
+    if (keyword === "oneOf") fail(at, "no oneOf branch produces a value that matches exactly one branch");
+    fail(at, "no anyOf branch produces a value that satisfies the schema");
+  }
+
   function sample(node: JsonSchema, at: string, depth = 0): Json {
     if (depth > 32) fail(at, "generation exceeds the bounded schema size or recursion depth");
     spend(at);
@@ -304,20 +344,12 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     if ((node.nullable === true || depth > 8) && matches(null, node)) return null;
     let value: Json;
     if (node.$ref !== undefined) {
-      value = sample(resolve(node.$ref, `${at}.$ref`), `${at}.$ref`, depth + 1);
+      const resolved = resolve(node.$ref, `${at}.$ref`);
+      value = sample(mergeSchema(resolved, siblings(node, "$ref")), `${at}.$ref`, depth + 1);
     } else if (Array.isArray(node.anyOf)) {
-      value = sample(node.anyOf[0] as JsonSchema, `${at}.anyOf[0]`, depth + 1);
+      value = sampleAlternative(node, "anyOf", at, depth);
     } else if (Array.isArray(node.oneOf)) {
-      let candidate: Json | undefined;
-      for (const [index, branch] of (node.oneOf as Json[]).entries()) {
-        const sampled = sample(branch as JsonSchema, `${at}.oneOf[${index}]`, depth + 1);
-        if (matches(sampled, node)) {
-          candidate = sampled;
-          break;
-        }
-      }
-      if (candidate === undefined) fail(at, "no oneOf branch produces a value that matches exactly one branch");
-      value = candidate;
+      value = sampleAlternative(node, "oneOf", at, depth);
     } else {
       const type = Array.isArray(node.type)
         ? node.type[0]
