@@ -148,6 +148,79 @@ describe("anthropic messages", () => {
     });
   });
 
+  it("rejects a hosted server tool in its own envelope", async () => {
+    const response = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "search the web" }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { type: string; error: { type: string; message: string } };
+    expect(body).toMatchObject({ type: "error", error: { type: "invalid_request_error" } });
+    expect(body.error.message).toBe("Unsupported Messages feature: hosted tools (tools.0.type).");
+  });
+
+  it("accepts a custom tool and a tool with no type", async () => {
+    for (const type of [undefined, "custom"]) {
+      const response = await postMessages(
+        JSON.stringify({
+          model: "claude-opus-5-5",
+          max_tokens: 64,
+          messages: [{ role: "user", content: "weather in paris" }],
+          tools: [{ ...weatherTool, ...(type === undefined ? {} : { type }) }],
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect((await lastCall()).tools).toEqual(["get_weather"]);
+    }
+  });
+
+  it("validates the schema of a strict tool and skips it without strict", async () => {
+    const tool = {
+      name: "get_temperature",
+      input_schema: { type: "object", properties: { celsius: { type: "number", minimum: 0 } } },
+    };
+    const strict = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "hello" }],
+        tools: [{ ...tool, strict: true }],
+      }),
+    );
+    expect(strict.status).toBe(400);
+    const body = (await strict.json()) as { error: { type: string; message: string } };
+    expect(body.error).toMatchObject({
+      type: "invalid_request_error",
+      message: "For 'number' type, property 'minimum' is not supported",
+    });
+
+    const loose = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "hello" }],
+        tools: [tool],
+      }),
+    );
+    expect(loose.status).toBe(200);
+
+    const invalid = await postMessages(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 64,
+        messages: [{ role: "user", content: "hello" }],
+        tools: [{ ...tool, strict: "yes" }],
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    const invalidBody = (await invalid.json()) as { error: { message: string } };
+    expect(invalidBody.error.message).toBe("Expected a boolean.");
+  });
+
   it("accepts a tool result from a previous turn", async () => {
     const message = await client.messages.create({
       model: "claude-opus-5-5",
@@ -161,13 +234,13 @@ describe("anthropic messages", () => {
         { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "18C and sunny" }] },
       ],
     });
-    expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+    expect(message.content).toEqual([{ type: "text", text: "Received the result of get_weather." }]);
   });
 
   it("records attachments without credentials, query strings, or file bytes", async () => {
     await setRules([{ id: "png", match: { file: "image/png" }, reply: [{ type: "text", text: "png matched" }] }]);
 
-    await client.messages.create({
+    const urlMessage = await client.messages.create({
       model: "claude-opus-5-5",
       max_tokens: 64,
       messages: [
@@ -179,9 +252,10 @@ describe("anthropic messages", () => {
         },
       ],
     });
+    expect(urlMessage.content).toEqual([{ type: "text", text: "png matched" }]);
     const urlCall = await lastCall();
     expect(urlCall.messages[0].parts).toEqual([
-      { type: "file", mediaType: "image/*", source: "url", ref: "https://example.com/cat.png" },
+      { type: "file", mediaType: "image/png", source: "url", ref: "https://example.com/cat.png" },
     ]);
 
     const inline = await client.messages.create({
@@ -226,7 +300,7 @@ describe("anthropic messages", () => {
         },
       ],
     });
-    expect(nested.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+    expect(nested.content).toEqual([{ type: "text", text: "Received the result of read_file." }]);
     const nestedCall = await lastCall();
     expect(nestedCall.messages.at(-1)).toEqual({
       role: "tool",
@@ -284,7 +358,7 @@ describe("anthropic messages", () => {
         },
       ],
     });
-    expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+    expect(message.content).toEqual([{ type: "text", text: "Received the result of read_file." }]);
     const call = await lastCall();
     expect(call.messages.at(-1)).toEqual({
       role: "tool",
@@ -329,6 +403,36 @@ describe("anthropic messages", () => {
     });
     const call = await lastCall();
     expect(call.messages[0].parts).toEqual([{ type: "text", text: "the document body" }]);
+  });
+
+  it("records the media type of a URL document from its path", async () => {
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: [{ type: "document", source: { type: "url", url: "https://example.com/doc.pdf" } }] },
+      ],
+    });
+    expect(message.type).toBe("message");
+    const call = await lastCall();
+    expect(call.messages[0].parts).toEqual([
+      { type: "file", mediaType: "application/pdf", source: "url", ref: "https://example.com/doc.pdf" },
+    ]);
+  });
+
+  it("keeps image/* for an image URL with no known extension", async () => {
+    const message = await client.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [
+        { role: "user", content: [{ type: "image", source: { type: "url", url: "https://example.com/cat" } }] },
+      ],
+    });
+    expect(message.type).toBe("message");
+    const call = await lastCall();
+    expect(call.messages[0].parts).toEqual([
+      { type: "file", mediaType: "image/*", source: "url", ref: "https://example.com/cat" },
+    ]);
   });
 
   it("rejects a document block nested in a content source", async () => {
@@ -496,6 +600,44 @@ describe("anthropic messages", () => {
     });
   });
 
+  it("sends the same request id in a validation error body and header", async () => {
+    const response = await postMessages(
+      JSON.stringify({ model: "claude-opus-5-5", messages: [{ role: "user", content: "hi" }] }),
+    );
+    expect(response.status).toBe(400);
+    expect(response.headers.get("request-id")).toMatch(/^req_\d+$/);
+    const body = (await response.json()) as { request_id: string };
+    expect(body.request_id).toBe(response.headers.get("request-id"));
+  });
+
+  it("sends the same request id in a rule error body and header", async () => {
+    await setRules([{ id: "busy", match: { textContains: "busy" }, error: { status: 429, message: "Slow down." } }]);
+    const response = await postMessages(
+      JSON.stringify({ model: "claude-opus-5-5", max_tokens: 64, messages: [{ role: "user", content: "busy" }] }),
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get("request-id")).toMatch(/^req_\d+$/);
+    const body = (await response.json()) as { request_id: string };
+    expect(body.request_id).toBe(response.headers.get("request-id"));
+  });
+
+  it("keeps a request id header a rule sets in the error body", async () => {
+    await setRules([
+      {
+        id: "broken",
+        match: { textContains: "broken" },
+        error: { status: 500, message: "Broken.", headers: { "request-id": "req_from_rule" } },
+      },
+    ]);
+    const response = await postMessages(
+      JSON.stringify({ model: "claude-opus-5-5", max_tokens: 64, messages: [{ role: "user", content: "broken" }] }),
+    );
+    expect(response.status).toBe(500);
+    expect(response.headers.get("request-id")).toBe("req_from_rule");
+    const body = (await response.json()) as { request_id: string };
+    expect(body.request_id).toBe("req_from_rule");
+  });
+
   it("requires max_tokens", async () => {
     const response = await fetch(`${origin}/v1/messages`, {
       method: "POST",
@@ -649,7 +791,7 @@ describe("anthropic messages", () => {
         },
       ],
     });
-    expect(message.content).toEqual([{ type: "text", text: "Received the result of toolu_1." }]);
+    expect(message.content).toEqual([{ type: "text", text: "Received the result of read_file." }]);
     const call = await lastCall();
     expect(call.matched).toEqual({ default: "tool_result" });
   });

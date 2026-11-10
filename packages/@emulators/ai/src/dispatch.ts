@@ -400,19 +400,22 @@ function failureOf(error: AiRequestError): HttpFailure {
 function errorResponse(codec: Codec, failure: HttpFailure, seq: number): Response {
   const headers = new Headers(failure.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
-  return withRequestId(
-    new Response(JSON.stringify(codec.errorBody(failure)), {
-      status: failure.status,
-      headers,
-    }),
-    codec,
-    seq,
-  );
+  const name = requestIdHeader(codec);
+  const requestId = headers.get(name) ?? `req_${seq}`;
+  headers.set(name, requestId);
+  return new Response(JSON.stringify(codec.errorBody(failure, requestId)), {
+    status: failure.status,
+    headers,
+  });
+}
+
+function requestIdHeader(codec: Codec): string {
+  return codec.format === "anthropic-messages" ? "request-id" : "x-request-id";
 }
 
 /** Adds the deterministic request id header for the codec's vendor unless a rule already set it. */
 function withRequestId(response: Response, codec: Codec, seq: number): Response {
-  const name = codec.format === "anthropic-messages" ? "request-id" : "x-request-id";
+  const name = requestIdHeader(codec);
   if (!response.headers.has(name)) response.headers.set(name, `req_${seq}`);
   return response;
 }

@@ -184,6 +184,17 @@ function responsesImage(part: Record<string, unknown>, path: string): FilePart {
   return imageAttachment(part.image_url, `${path}.image_url`);
 }
 
+/** Builds the file part for a URL reference, inferring the media type from the path extension. */
+export function urlAttachment(ref: string, kind: "image" | "file"): FilePart {
+  const mediaType = inferredMediaType(new URL(ref).pathname);
+  return {
+    type: "file",
+    mediaType: kind === "image" && !mediaType.startsWith("image/") ? "image/*" : mediaType,
+    source: "url",
+    ref,
+  };
+}
+
 function imageAttachment(value: unknown, path: string): FilePart {
   if (typeof value !== "string") fail("Expected an image URL.", path);
   if (value.startsWith("data:")) {
@@ -191,9 +202,7 @@ function imageAttachment(value: unknown, path: string): FilePart {
     if (!IMAGE_TYPES.has(result.mediaType)) fail("Unsupported image media type.", path);
     return result;
   }
-  const ref = checkedUrl(value, path);
-  const mediaType = inferredMediaType(new URL(ref).pathname);
-  return { type: "file", mediaType: mediaType.startsWith("image/") ? mediaType : "image/*", source: "url", ref };
+  return urlAttachment(checkedUrl(value, path), "image");
 }
 
 function chatFile(part: Record<string, unknown>, path: string): FilePart {

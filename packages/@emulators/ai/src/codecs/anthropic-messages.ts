@@ -1,5 +1,5 @@
 import { AiRequestError } from "../errors.js";
-import { inlineFilePart, redactedUrl } from "../attachments.js";
+import { inlineFilePart, redactedUrl, urlAttachment } from "../attachments.js";
 import { jsonChunks, payloadChunks } from "../chunks.js";
 import type { Codec, CodecContext, Decoded } from "../codec.js";
 import { assertSchemaSupported } from "../schema-dialects.js";
@@ -20,7 +20,6 @@ import type {
   ToolDefinition,
 } from "../types.js";
 
-const REQUEST_ID = "req_emulate";
 const MAX_INLINE_BYTES = 32_000_000;
 
 const ERROR_TYPES: Record<number, string> = {
@@ -67,6 +66,10 @@ interface ErrorBody {
 
 function fail(message: string, param?: string): never {
   throw new AiRequestError(message, param);
+}
+
+function unsupported(feature: string, param: string): never {
+  throw new AiRequestError(`Unsupported Messages feature: ${feature} (${param}).`, param, "unsupported_feature");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -149,12 +152,7 @@ function decodeFile(block: Record<string, unknown>, path: string, kind: "image" 
     return inlineFilePart(data, mediaType, `${path}.source.data`, MAX_INLINE_BYTES);
   }
   if (source.type === "url") {
-    return {
-      type: "file",
-      mediaType: kind === "image" ? "image/*" : "application/octet-stream",
-      source: "url",
-      ref: redactedUrl(source.url, `${path}.source.url`),
-    };
+    return urlAttachment(redactedUrl(source.url, `${path}.source.url`), kind === "image" ? "image" : "file");
   }
   if (source.type === "file") {
     return {
@@ -283,11 +281,15 @@ function decodeTools(raw: unknown): ToolDefinition[] {
   return raw.map((tool, index) => {
     const path = `tools.${index}`;
     if (!isRecord(tool)) fail("Expected a tool object.", path);
+    if (tool.type !== undefined && tool.type !== "custom") unsupported("hosted tools", `${path}.type`);
     const name = requireString(tool.name, `${path}.name`);
     const description = optionalString(tool.description, `${path}.description`);
     const parameters = tool.input_schema;
     if (parameters !== undefined && typeof parameters !== "boolean" && !isRecord(parameters)) {
       fail("Expected a JSON Schema.", `${path}.input_schema`);
+    }
+    if (optionalBoolean(tool.strict, `${path}.strict`) === true && parameters !== undefined) {
+      assertSchemaSupported("anthropic", parameters as JsonSchema, name, `${path}.input_schema`);
     }
     return {
       name,
@@ -506,11 +508,11 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
   return frames;
 }
 
-function errorBody(failure: HttpFailure): ErrorBody {
+function errorBody(failure: HttpFailure, requestId: string): ErrorBody {
   return {
     type: "error",
     error: { type: failure.type ?? ERROR_TYPES[failure.status] ?? "api_error", message: failure.message },
-    request_id: REQUEST_ID,
+    request_id: requestId,
   };
 }
 

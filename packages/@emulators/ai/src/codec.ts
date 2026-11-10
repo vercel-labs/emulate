@@ -30,7 +30,7 @@ export interface Codec {
   /** Renders a complete reply as ordered SSE frames, ending with the format's terminal event. */
   streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFrame[];
   /** Renders an HTTP failure as the format's native error body. */
-  errorBody(failure: HttpFailure): unknown;
+  errorBody(failure: HttpFailure, requestId: string): unknown;
   /** Called with the encoded reply before any byte is sent, so a codec can persist state such as stored responses. */
   afterReply?(reply: Reply, decoded: Decoded, ctx: CodecContext, body: unknown): void;
 }
