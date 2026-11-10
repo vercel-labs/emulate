@@ -99,6 +99,32 @@ function openaiClient(): OpenAI {
   return new OpenAI({ apiKey: "test", baseURL });
 }
 
+async function postResponses(body: unknown): Promise<{
+  status: number;
+  json: { error?: { message?: string; param?: unknown } };
+}> {
+  const response = await fetch(`${baseURL}/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    json: (await response.json()) as { error?: { message?: string; param?: unknown } },
+  };
+}
+
+function hasBalancedQuotes(value: string): boolean {
+  let inString = false;
+  let escaped = false;
+  for (const char of value) {
+    if (escaped) escaped = false;
+    else if (char === "\\") escaped = true;
+    else if (char === '"') inString = !inString;
+  }
+  return !inString;
+}
+
 describe("OpenAI Responses codec", () => {
   it("serves unary text through the official client", async () => {
     const client = openaiClient();
@@ -274,6 +300,96 @@ describe("OpenAI Responses codec", () => {
     expect(request.warnings.some((warning) => warning.includes("accepting it"))).toBe(true);
   });
 
+  it("carries unresolved history through a previous_response_id chain", async () => {
+    const client = openaiClient();
+    const input: ResponseInputItem[] = [
+      { type: "function_call_output", call_id: "call_missing", output: "x" },
+      { role: "user", content: "Continue" },
+    ];
+    const first = await client.responses.create({
+      model: "gpt-x",
+      input,
+      previous_response_id: "resp_missing",
+    });
+    const second = await client.responses.create({
+      model: "gpt-x",
+      input: "Again",
+      previous_response_id: first.id,
+    });
+    const third = await client.responses.create({
+      model: "gpt-x",
+      input: "Once more",
+      previous_response_id: second.id,
+    });
+
+    expect([first.status, second.status, third.status]).toEqual(["completed", "completed", "completed"]);
+    const request = await lastCall();
+    expect(request.warnings.some((warning) => warning.includes("unresolved history"))).toBe(true);
+  });
+
+  it("rejects a function call with no tool output", async () => {
+    const { status, json } = await postResponses({
+      model: "gpt-x",
+      input: [
+        { type: "function_call", call_id: "call_pending", name: "get_weather", arguments: "{}" },
+        { role: "user", content: "Continue" },
+      ],
+    });
+
+    expect(status).toBe(400);
+    expect(json.error?.message).toBe("No tool output found for function call call_pending.");
+    expect(json.error?.param).toBe("input");
+  });
+
+  it("requires the missing tool output when continuing a response that ended with a call", async () => {
+    const client = openaiClient();
+    const tools = [
+      {
+        type: "function" as const,
+        name: "get_weather",
+        description: "Get the weather",
+        parameters: { type: "object", properties: { city: { type: "string" } } },
+        strict: false,
+      },
+    ];
+    const first = await client.responses.create({ model: "gpt-x", input: "weather in Paris", tools });
+    const call = first.output.find((item) => item.type === "function_call");
+    if (!call || call.type !== "function_call") throw new Error("expected a function call");
+
+    const missing = await postResponses({
+      model: "gpt-x",
+      input: "Next",
+      previous_response_id: first.id,
+      tools,
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.json.error?.message).toBe(`No tool output found for function call ${call.call_id}.`);
+
+    const output: ResponseInputItem[] = [
+      { type: "function_call_output", call_id: call.call_id, output: '{"tempC":20}' },
+    ];
+    const answered = await client.responses.create({
+      model: "gpt-x",
+      tools,
+      previous_response_id: first.id,
+      input: output,
+    });
+    expect(answered.output_text).toBe("The weather is 20 C.");
+  });
+
+  it("accepts an unanswered function call when referenced history is missing", async () => {
+    const { status } = await postResponses({
+      model: "gpt-x",
+      previous_response_id: "resp_missing",
+      input: [
+        { type: "function_call", call_id: "call_pending", name: "get_weather", arguments: "{}" },
+        { role: "user", content: "Continue" },
+      ],
+    });
+
+    expect(status).toBe(200);
+  });
+
   it("stores, retrieves, and deletes responses", async () => {
     const client = openaiClient();
     const created = await client.responses.create({ model: "gpt-x", input: "Hi" });
@@ -396,6 +512,42 @@ describe("OpenAI Responses codec", () => {
     expect(refusal).toBe("I can't help with that.");
     expect(text).toBe("");
     expect(terminal).toBe("response.completed");
+  });
+
+  it("never splits a structured output delta inside a JSON string", async () => {
+    const client = openaiClient();
+    const stream = await client.responses.create({
+      model: "gpt-x",
+      input: "plan a short run",
+      stream: true,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "plan",
+          schema: {
+            type: "object",
+            properties: { name: { type: "string" }, note: { type: "string" } },
+            required: ["name", "note"],
+          },
+          strict: false,
+        },
+      },
+    });
+
+    const deltas: string[] = [];
+    let done = "";
+    for await (const event of stream) {
+      if (event.type === "response.output_text.delta") deltas.push(event.delta);
+      if (event.type === "response.output_text.done") done = event.text;
+    }
+
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(deltas.join("")).toBe(done);
+    let prefix = "";
+    for (const delta of deltas) {
+      prefix += delta;
+      expect(hasBalancedQuotes(prefix)).toBe(true);
+    }
   });
 
   it("keeps a replayed refusal part in normalized history", async () => {
