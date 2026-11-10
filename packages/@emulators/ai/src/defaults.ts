@@ -475,6 +475,15 @@ export function estimateUsage(request: AIRequest, events: ReplyEvent[]): Usage {
   return { input: Math.ceil(input / 4), output, reasoning };
 }
 
+function toolCallName(request: AIRequest, id: string): string | undefined {
+  for (const message of request.messages) {
+    for (const part of message.parts) {
+      if (part.type === "tool_call" && part.id === id) return part.name;
+    }
+  }
+  return undefined;
+}
+
 /** Apply permissive defaults, choosing forced tools before structured output and text. */
 export function defaultReply(request: AIRequest, makeId: (prefix: string) => string): Reply {
   const text = latestUserText(request);
@@ -500,7 +509,9 @@ export function defaultReply(request: AIRequest, makeId: (prefix: string) => str
         .find((message) => message.role === "user")
         ?.parts.filter((part) => part.type === "file") ?? [];
     const acknowledgement =
-      result?.type === "tool_result" ? `Received the result of ${result.name ?? result.id}.` : undefined;
+      result?.type === "tool_result"
+        ? `Received the result of ${result.name ?? toolCallName(request, result.id) ?? result.id}.`
+        : undefined;
     event = {
       type: "text",
       text:
