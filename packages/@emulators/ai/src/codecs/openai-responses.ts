@@ -1,5 +1,5 @@
 import type { Store } from "@emulators/core";
-import { assertSchemaSupported } from "../schema-dialects.js";
+import { assertOutputSupported } from "../schema-dialects.js";
 import type {
   Response as OpenAIResponse,
   ResponseCompletedEvent,
@@ -36,7 +36,7 @@ import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../code
 import { AiRequestError, defaultErrorType } from "../errors.js";
 import { decodeResponsesAttachment } from "../attachments.js";
 import type { SseFrame } from "../sse.js";
-import { payloadChunks, textChunks } from "../chunks.js";
+import { jsonChunks, payloadChunks, textChunks } from "../chunks.js";
 import { STORED_RESPONSE_LIMIT, type AiState } from "../state.js";
 import type {
   AIRequest,
@@ -85,12 +85,14 @@ interface ResponsesExtras {
   metadata: WireMetadata;
   truncation: "auto" | "disabled";
   inputItems: Json[];
+  unresolvedHistory: boolean;
 }
 
 interface PreparedReply {
   id: string;
   createdAt: number;
   output: ResponseOutputItem[];
+  structured: Set<ResponseOutputText>;
   response: WireResponse;
 }
 
@@ -484,9 +486,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       ? true
       : requireBoolean(raw.parallel_tool_calls, "parallel_tool_calls");
   const output = decodeOutput(raw.text);
-  if (output?.kind === "json_schema" && output.strict === true) {
-    assertSchemaSupported("openai", output.schema, output.name ?? "response", "text.format");
-  }
+  assertOutputSupported(model, output, { format: "text.format", strict: "text.format.strict" });
   const reasoning = decodeReasoning(raw.reasoning);
   const metadata = decodeMetadata(raw.metadata);
   const previousResponseId = optionalString(raw.previous_response_id, "previous_response_id");
@@ -500,6 +500,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const history: Message[] = [];
   const references: HistoryReference[] = [];
   const warnings: string[] = [];
+  let inheritedUnresolved = false;
 
   if (previousResponseId !== undefined) {
     const stored = ctx.state.responses.get(previousResponseId);
@@ -507,6 +508,10 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       for (const message of decodeStoredMessages(stored.inputItems)) history.push(message);
       for (const message of storedOutputMessages(stored.outputItems)) history.push(message);
       references.push({ id: previousResponseId, kind: "previous_response", resolved: true });
+      if (stored.unresolvedHistory === true) {
+        inheritedUnresolved = true;
+        warnings.push(`Response "${previousResponseId}" has unresolved history; continuing with partial context.`);
+      }
     } else {
       references.push({ id: previousResponseId, kind: "previous_response", resolved: false });
       warnings.push(`Unknown previous_response_id "${previousResponseId}"; continuing with empty context.`);
@@ -587,7 +592,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     }
   }
 
-  const unresolvedHistory = references.some((reference) => !reference.resolved);
+  const unresolvedHistory = inheritedUnresolved || references.some((reference) => !reference.resolved);
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type !== "tool_result") continue;
@@ -604,6 +609,13 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       }
       invalid(`No function call found for tool output "${part.id}".`, "input");
     }
+  }
+
+  if (!unresolvedHistory) {
+    const parts = messages.flatMap((message) => message.parts);
+    const answered = new Set(parts.flatMap((part) => (part.type === "tool_result" ? [part.id] : [])));
+    const pending = parts.find((part) => part.type === "tool_call" && !answered.has(part.id));
+    if (pending?.type === "tool_call") invalid(`No tool output found for function call ${pending.id}.`, "input");
   }
 
   const request: AIRequest = {
@@ -637,6 +649,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     metadata,
     truncation: raw.truncation === "auto" ? "auto" : "disabled",
     inputItems: history.map(messageToJson),
+    unresolvedHistory,
   };
 
   return { request, extras: extras as unknown as Record<string, unknown> };
@@ -656,9 +669,14 @@ function itemStatus(finish: FinishReason): ResponseOutputMessage["status"] {
   return finish === "length" || finish === "content_filter" ? "incomplete" : "completed";
 }
 
-function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
+function buildOutput(
+  reply: Reply,
+  ctx: CodecContext,
+): { output: ResponseOutputItem[]; structured: Set<ResponseOutputText> } {
   const output: ResponseOutputItem[] = [];
+  const structured = new Set<ResponseOutputText>();
   let text: string[] = [];
+  let kind: "text" | "object" | undefined;
 
   const flushText = () => {
     if (text.length === 0) return;
@@ -668,6 +686,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
       annotations: [],
       logprobs: [],
     };
+    if (kind === "object") structured.add(part);
     output.push({
       id: ctx.makeId("msg"),
       type: "message",
@@ -676,6 +695,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
       content: [part],
     });
     text = [];
+    kind = undefined;
   };
 
   for (const event of reply.events) {
@@ -690,9 +710,13 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
         });
         break;
       case "text":
+        if (kind === "object") flushText();
+        kind = "text";
         text.push(event.text);
         break;
       case "object":
+        if (kind === "text") flushText();
+        kind = "object";
         text.push(JSON.stringify(event.value));
         break;
       case "tool_call":
@@ -719,7 +743,7 @@ function buildOutput(reply: Reply, ctx: CodecContext): ResponseOutputItem[] {
     }
   }
   flushText();
-  return output;
+  return { output, structured };
 }
 
 function responseStatus(finish: FinishReason): {
@@ -778,9 +802,9 @@ function preparedFor(reply: Reply, decoded: Decoded, ctx: CodecContext): Prepare
   if (existing) return existing;
   const id = ctx.makeId("resp");
   const createdAt = CREATED_AT;
-  const output = buildOutput(reply, ctx);
+  const { output, structured } = buildOutput(reply, ctx);
   const response = buildResponse(reply, decoded, id, createdAt, output);
-  const prepared: PreparedReply = { id, createdAt, output, response };
+  const prepared: PreparedReply = { id, createdAt, output, structured, response };
   cache.prepared = prepared;
   return prepared;
 }
@@ -841,7 +865,8 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
             part: { type: "output_text", text: "", annotations: [], logprobs: [] },
           };
           add(partAdded);
-          for (const delta of payloadChunks(part.text)) {
+          const deltas = prepared.structured.has(part) ? jsonChunks(part.text) : payloadChunks(part.text);
+          for (const delta of deltas) {
             const event: Unsequenced<ResponseTextDeltaEvent> = {
               type: "response.output_text.delta",
               item_id: item.id,
@@ -1029,6 +1054,7 @@ function afterReply(reply: Reply, decoded: Decoded, ctx: CodecContext): void {
     inputItems: extras.inputItems,
     outputItems: prepared.output as unknown as Json[],
     response: prepared.response as unknown as Json,
+    ...(extras.unresolvedHistory ? { unresolvedHistory: true } : {}),
   });
   while (responses.size > STORED_RESPONSE_LIMIT) {
     const oldest = responses.keys().next();
