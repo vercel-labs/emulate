@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { Agent, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -94,6 +95,91 @@ describe("HTTP listener", () => {
 
       expect(await waitFor(() => signal?.aborted === true, 2000)).toBe(true);
       expect(await waitFor(() => streamCancelled, 2000)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("cancels the body stream when a client destroys its socket without abortOnClose", async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x43);
+    let produced = 0;
+    let producedAtCancel = -1;
+    let cancelled = false;
+    const server = serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              produced += 1;
+              controller.enqueue(chunk);
+            },
+            cancel() {
+              cancelled = true;
+              producedAtCancel = produced;
+            },
+          }),
+        ),
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      await readThenDestroy(port, 1024 * 1024);
+
+      expect(await waitFor(() => cancelled, 2000)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(produced).toBe(producedAtCancel);
+      expect(await waitForConnections(server, 0, 1000)).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("delivers a large body to a slow reader intact", async () => {
+    const chunkSize = 64 * 1024;
+    const chunkCount = 128;
+    const chunks: Uint8Array[] = [];
+    const expected = createHash("sha256");
+    for (let index = 0; index < chunkCount; index++) {
+      const chunk = new Uint8Array(chunkSize);
+      chunk.fill(index & 0xff);
+      new DataView(chunk.buffer).setUint32(0, index);
+      chunks.push(chunk);
+      expected.update(chunk);
+    }
+    const server = serve({
+      port: 0,
+      fetch: () => {
+        let index = 0;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (index >= chunks.length) {
+                controller.close();
+                return;
+              }
+              controller.enqueue(chunks[index]);
+              index += 1;
+            },
+          }),
+        );
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      const result = await readSlowly(port);
+
+      expect(result.bytes).toBe(chunkSize * chunkCount);
+      expect(result.digest).toBe(expected.digest("hex"));
     } finally {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -247,6 +333,26 @@ function readThenDestroy(port: number, bytes: number): Promise<void> {
       });
     });
     request.on("error", () => resolve());
+    request.end();
+  });
+}
+
+/** Reads the response while pausing between chunks and returns the byte count and SHA-256 digest. */
+function readSlowly(port: number): Promise<{ bytes: number; digest: string }> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    let bytes = 0;
+    const request = httpRequest({ host: "127.0.0.1", port, path: "/", agent: false }, (response) => {
+      response.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+        hash.update(chunk);
+        response.pause();
+        setTimeout(() => response.resume(), 2);
+      });
+      response.on("end", () => resolve({ bytes, digest: hash.digest("hex") }));
+      response.on("error", reject);
+    });
+    request.on("error", reject);
     request.end();
   });
 }

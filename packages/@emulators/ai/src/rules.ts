@@ -270,10 +270,7 @@ function parseVariants(raw: unknown, path: string, stream: boolean): RuleVariant
 
     const parsed: RuleVariant = hasError
       ? { error: parseError(obj.error, `${at}.error`) }
-      : { reply: parseReply(obj.reply, `${at}.reply`) };
-    if (parsed.reply && parsed.reply.length === 0) {
-      throw new AiConfigError("a variant needs at least one event", `${at}.reply`);
-    }
+      : { reply: parseReply(obj.reply, `${at}.reply`, "a variant needs at least one event") };
 
     if (obj.finish !== undefined) {
       if (hasError) throw new AiConfigError("finish does not apply to an error variant", `${at}.finish`);
@@ -382,8 +379,9 @@ function parseFinish(value: unknown, path: string): FinishReason {
   return finish as FinishReason;
 }
 
-function parseReply(raw: unknown, path: string): RuleReplyEvent[] {
+function parseReply(raw: unknown, path: string, emptyMessage = "a reply needs at least one event"): RuleReplyEvent[] {
   if (!Array.isArray(raw)) throw new AiConfigError("expected an array of reply events", path);
+  if (raw.length === 0) throw new AiConfigError(emptyMessage, path);
   return raw.map((event, index) => parseReplyEvent(event, `${path}[${index}]`));
 }
 
