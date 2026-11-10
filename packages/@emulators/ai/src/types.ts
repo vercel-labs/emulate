@@ -217,6 +217,7 @@ export interface StoredResponse {
   createdAt: number;
   model: string;
   instructions?: string;
+  previousResponseId?: string;
   inputItems: Json[];
   outputItems: Json[];
   response: Json;
