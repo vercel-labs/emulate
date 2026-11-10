@@ -30,14 +30,16 @@ function hashText(value: string): number {
 }
 
 /**
- * Picks a variant from a seed-shuffled cycle, so every variant appears once per cycle of calls
- * and the same seed and call ordinal always land on the same variant.
+ * Builds the rule body for one hit, folding its seeded variant over the rule-level defaults.
+ * Each rule counts its own hits, so interleaved calls still rotate through the shuffled order.
  */
-/** Builds the rule body for this call, folding the seeded variant over the rule-level defaults. */
 function applyVariant(rule: Rule, state: AiState): Rule {
   const variants = rule.variants;
   if (!variants || variants.length === 0) return rule;
-  const variant = variants[variantIndex(state.config.random.seed, rule.id, state.callSeq, variants.length)];
+  const hits = state.variantHits;
+  const hit = hits.get(rule.id) ?? 0;
+  hits.set(rule.id, hit + 1);
+  const variant = variants[variantIndex(state.config.random.seed, rule.id, hit, variants.length)];
   if (!variant) return rule;
 
   const finish = variant.finish ?? rule.finish;
@@ -55,7 +57,7 @@ function applyVariant(rule: Rule, state: AiState): Rule {
   };
 }
 
-function variantIndex(seed: number, ruleId: string, call: number, length: number): number {
+function variantIndex(seed: number, ruleId: string, hit: number, length: number): number {
   if (length <= 1) return 0;
   let state = (seed ^ hashText(ruleId)) >>> 0;
   const order = Array.from({ length }, (_, index) => index);
@@ -66,7 +68,7 @@ function variantIndex(seed: number, ruleId: string, call: number, length: number
     order[index] = order[swap];
     order[swap] = value;
   }
-  return order[call % length];
+  return order[hit % length];
 }
 
 function idFactory(state: AiState): (prefix: string) => string {

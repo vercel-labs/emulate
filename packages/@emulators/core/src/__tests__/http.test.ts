@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
-import { request as httpRequest, type Server } from "node:http";
+import { Agent, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Hono, cors, serve } from "../http.js";
 
@@ -50,9 +50,50 @@ describe("HTTP listener", () => {
 
       const result = await postIgnoredBody(port, 512 * 1024);
 
-      expect(result.text).toBe(parts.join(""));
-      expect(result.complete).toBe(false);
-      expect(await waitForConnections(server, 0, 1000)).toBe(0);
+      try {
+        expect(result.text).toBe(parts.join(""));
+        expect(result.complete).toBe(false);
+        expect(await waitForConnections(server, 0, 1000)).toBe(0);
+      } finally {
+        result.cleanup();
+      }
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("aborts the request signal and cancels the body when a write fails", async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x42);
+    let signal: AbortSignal | undefined;
+    let streamCancelled = false;
+    const server = serve({
+      port: 0,
+      abortOnClose: true,
+      fetch: (request) => {
+        signal = request.signal;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(chunk);
+            },
+            cancel() {
+              streamCancelled = true;
+            },
+          }),
+        );
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      await readThenDestroy(port, 1024 * 1024);
+
+      expect(await waitFor(() => signal?.aborted === true, 2000)).toBe(true);
+      expect(await waitFor(() => streamCancelled, 2000)).toBe(true);
     } finally {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -135,16 +176,26 @@ describe("internal http layer", () => {
 });
 
 /** POSTs a body the handler never reads and reports what the response stream delivered. */
-function postIgnoredBody(port: number, bytes: number): Promise<{ text: string; complete: boolean }> {
+function postIgnoredBody(
+  port: number,
+  bytes: number,
+): Promise<{ text: string; complete: boolean; cleanup: () => void }> {
   return new Promise((resolve) => {
     const parts: Buffer[] = [];
+    const agent = new Agent({ keepAlive: true });
     let responded = false;
     let settled = false;
     const settle = (complete: boolean) => {
       if (settled) return;
       settled = true;
-      resolve({ text: Buffer.concat(parts).toString(), complete });
-      request.destroy();
+      resolve({
+        text: Buffer.concat(parts).toString(),
+        complete,
+        cleanup: () => {
+          request.destroy();
+          agent.destroy();
+        },
+      });
     };
     const request = httpRequest(
       {
@@ -152,13 +203,15 @@ function postIgnoredBody(port: number, bytes: number): Promise<{ text: string; c
         port,
         method: "POST",
         path: "/",
-        agent: false,
+        agent,
         headers: { "Content-Length": String(bytes), "Content-Type": "application/octet-stream" },
       },
       (response) => {
         responded = true;
         response.on("data", (chunk: Buffer) => parts.push(chunk));
-        response.on("close", () => settle(response.complete));
+        response.on("end", () => settle(response.complete));
+        response.on("error", () => settle(false));
+        response.on("close", () => settle(false));
       },
     );
     request.on("error", () => {
@@ -177,6 +230,34 @@ async function waitForConnections(server: Server, expected: number, timeoutMs: n
     count = await countConnections(server);
   }
   return count;
+}
+
+/** Requests the path, destroys the client socket after reading the given number of bytes, and settles. */
+function readThenDestroy(port: number, bytes: number): Promise<void> {
+  return new Promise((resolve) => {
+    const request = httpRequest({ host: "127.0.0.1", port, path: "/", agent: false }, (response) => {
+      let received = 0;
+      response.on("data", (chunk: Buffer) => {
+        received += chunk.length;
+        if (received >= bytes) {
+          response.destroy();
+          request.destroy();
+          resolve();
+        }
+      });
+    });
+    request.on("error", () => resolve());
+    request.end();
+  });
+}
+
+async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
 }
 
 function countConnections(server: Server): Promise<number> {
