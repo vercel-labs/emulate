@@ -4,7 +4,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
-import { assertOutputSupported } from "../schema-dialects.js";
+import { assertOutputSupported, assertToolsSupported } from "../schema-dialects.js";
 import type { CompletionUsage } from "openai/resources/completions";
 import type { ErrorObject } from "openai/resources/shared";
 import { decodeChatAttachment } from "../attachments.js";
@@ -225,6 +225,9 @@ function decodeTools(raw: unknown): ToolDefinition[] {
       definition.description = expectString(fn.description, `${at}.function.description`);
     }
     if (parameters !== undefined) definition.parameters = parameters as JsonSchema;
+    if (fn.strict !== undefined && fn.strict !== null && expectBoolean(fn.strict, `${at}.function.strict`)) {
+      definition.strict = true;
+    }
     return definition;
   });
 }
@@ -326,6 +329,7 @@ function decodeChat(body: unknown): Decoded {
   const messages = body.messages.map((message, index) => decodeMessage(message, index));
   checkToolPairing(messages);
   const tools = decodeTools(body.tools);
+  assertToolsSupported(model, tools, (index) => `tools[${index}].function.parameters`);
   const toolChoice = decodeToolChoice(body.tool_choice, tools.length > 0);
   const output = decodeOutput(body.response_format);
   assertOutputSupported(model, output, { format: "response_format", strict: "response_format.json_schema.strict" });
