@@ -1438,13 +1438,13 @@ Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default
 
 With no matching rule, the service echoes the latest user text, returns a deterministic schema-valid object when a schema was requested, returns `{}` for JSON mode without a schema, generates a call when a tool is forced, acknowledges a tool result or an attachment-only request, and accepts and echoes any model id.
 
-Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), and local `$ref`, with recursion bounded. A schema outside that subset returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
+Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), and local `$ref`, with recursion bounded. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that subset returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
 
 Set `ai.strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and as a JSON body for the rules endpoint.
 
 ### Stored responses and the call record
 
-Responses are stored by default so multi-turn sessions and item references resolve. Set `store: false` to skip storage. Unknown `previous_response_id` and item references are treated as empty context, so a request still succeeds.
+Responses are stored by default so multi-turn sessions and item references resolve. Set `store: false` to skip storage. Unknown `previous_response_id` and item references are treated as empty context, so a request still succeeds. A function call with no matching `function_call_output` returns OpenAI's 400, `No tool output found for function call <id>.`, unless the history it refers to is missing.
 
 Every generation request is recorded with its format, model, `matched`, normalized prompt and tool arguments, and outcome. `matched` is `{ "id": "<rule id>", "remaining": <budget left or null>, "rule": <the rule as it was when it answered> }` for a rule, `{ "default": "<kind>" }` when a default answered, and `null` when strict mode rejected the request. The last 500 calls are kept. Stored responses are capped at the most recent 1000; older ones are evicted. Keys, auth headers, and file bytes are never recorded. Attachment metadata records the name, media type, size, and hash only.
 
