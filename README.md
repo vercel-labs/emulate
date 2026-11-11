@@ -1263,6 +1263,8 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 Twilio uses multiple product hosts. For local SDK tests, rewrite Twilio SDK requests to the emulator and map `messaging.twilio.com` to `/messaging`, `verify.twilio.com` to `/verify`, and `conversations.twilio.com` to `/conversations`.
 
+Only an `active` account can send messages or place calls. Set the seeded account `status` to `suspended` or `closed`, or update it with `POST /2010-04-01/Accounts/{AccountSid}.json` and `Status`, to test the failure: message and call creation return HTTP 401 with error `20005`, "Account not active". Set the status back to `active` to restore them.
+
 ### SMS And OTP Testing
 
 For the common SMS verification loop, the seeded Verify Service uses code `123456`. Start a verification through the normal Verify API, then either submit `123456` in your app test or fetch the latest local code with the authenticated helper route:
