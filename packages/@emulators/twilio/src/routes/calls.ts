@@ -14,6 +14,7 @@ import {
   requireTwilioAuth,
   twilioError,
   twilioList,
+  requireActiveAccount,
 } from "../helpers.js";
 
 export function callRoutes({ app, store }: RouteContext): void {
@@ -34,6 +35,8 @@ export function callRoutes({ app, store }: RouteContext): void {
   app.post("/2010-04-01/Accounts/:accountSid/Calls.json", async (c) => {
     const account = authenticatedAccount(c);
     if (account instanceof Response) return account;
+    const inactive = requireActiveAccount(c, account);
+    if (inactive) return inactive;
     const body = await parseTwilioBody(c);
     const to = normalizePhoneNumber(bodyString(body, "To"));
     const from = normalizePhoneNumber(bodyString(body, "From"));

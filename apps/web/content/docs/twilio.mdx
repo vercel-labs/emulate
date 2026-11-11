@@ -37,6 +37,8 @@ The official Node SDK builds absolute Twilio product URLs. In SDK tests, use a c
 
 ## Supported Routes
 
+An account whose `Status` is `suspended` or `closed` cannot send messages or place calls: those requests return `401` with error `20005` (`Account not active`). Setting the status back to `active` restores them.
+
 - `GET /2010-04-01/Accounts/{AccountSid}.json`
 - `GET /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`
 - `POST /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`

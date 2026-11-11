@@ -1248,6 +1248,8 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 ### REST Routes
 
+An account whose `Status` is `suspended` or `closed` cannot send messages or place calls: those requests return `401` with error `20005` (`Account not active`). Setting the status back to `active` restores them.
+
 - `GET /2010-04-01/Accounts/{AccountSid}.json` - fetch account
 - `GET /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json` - list phone numbers
 - `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` - create outbound message
