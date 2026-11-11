@@ -92,7 +92,7 @@ describe("GitHub OAuth app token revocation", () => {
     const app = createTestApp();
     const token = await issueToken(app, "alice");
     const wrongSecret = { ...apps.portal, client_secret: "wrong" };
-    expect((await revoke(app, "token", token, wrongSecret)).status).toBe(404);
+    expect((await revoke(app, "token", token, wrongSecret)).status).toBe(401);
     expect(await userStatus(app, token)).toBe(200);
   });
 

@@ -554,12 +554,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return user ? { token, user: { login: user.login, id: user.id } } : undefined;
   }
 
-  const notFound = { message: "Not Found", documentation_url: "https://docs.github.com/rest" };
+  const badCredentials = { message: "Bad credentials", documentation_url: "https://docs.github.com/rest" };
   const validationFailed = { message: "Validation Failed", documentation_url: "https://docs.github.com/rest" };
 
   app.delete("/applications/:client_id/token", async (c) => {
     const clientId = c.req.param("client_id");
-    if (!authenticateOAuthApp(c, clientId)) return c.json(notFound, 404);
+    if (!authenticateOAuthApp(c, clientId)) return c.json(badCredentials, 401);
     const owner = await appTokenOwner(c, clientId);
     if (!owner) return c.json(validationFailed, 422);
     tokenMap?.delete(owner.token);
@@ -569,7 +569,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
   app.delete("/applications/:client_id/grant", async (c) => {
     const clientId = c.req.param("client_id");
-    if (!authenticateOAuthApp(c, clientId)) return c.json(notFound, 404);
+    if (!authenticateOAuthApp(c, clientId)) return c.json(badCredentials, 401);
     const owner = await appTokenOwner(c, clientId);
     if (!owner) return c.json(validationFailed, 422);
     revokeGrant(owner.user, clientId);
