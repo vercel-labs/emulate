@@ -1,6 +1,7 @@
 import { createServer } from "@emulators/core";
 import { describe, expect, it } from "vitest";
-import { seedFromConfig, slackPlugin } from "../index.js";
+import { getSlackStore, seedFromConfig, slackPlugin } from "../index.js";
+import { revokeSlackTokens } from "../tokens.js";
 import { slackTestBaseUrl as base, slackTestToken } from "./helpers.js";
 
 function setupApp() {
@@ -51,6 +52,17 @@ describe("Slack auth.revoke", () => {
     const setup = setupApp();
     expect(await call(setup, "auth.revoke", "xoxp-alice", { test: true })).toEqual({ ok: true, revoked: false });
     expect((await call(setup, "auth.test", "xoxp-alice")).ok).toBe(true);
+  });
+
+  it("reports a token revoked by apps.uninstall when it is passed in the body", async () => {
+    const setup = setupApp();
+    revokeSlackTokens(setup.store, [getSlackStore(setup.store).tokens.findOneBy("token", "xoxp-alice")!]);
+    const response = await setup.app.request(`${base}/api/auth.revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: "xoxp-alice" }),
+    });
+    expect(await response.json()).toEqual({ ok: false, error: "token_revoked" });
   });
 
   it("rejects a token the emulator never issued", async () => {
