@@ -75,7 +75,7 @@ curl http://localhost:4001/user \
   -H "Authorization: Bearer test_token_admin"
 ```
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. When no token is provided, requests fall back to the first seeded user.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. When no token is provided, requests fall back to the first seeded user. Set `github.strict_scopes: true` in seed config to reject tokens the emulator did not issue: a token that does not come from seed config, server options, an OAuth exchange, or an installation token request returns `401 Bad credentials` instead of acting as the default user.
 
 Installation access tokens act as the configured GitHub App bot for repository writes. Repository ownership, selected repository access, and requested App permissions remain enforced. Pull request merges require `contents: write` on the base repository. Pull request branch updates require `pull_requests: write` on the pull request repository and `contents: write` on the head repository.
 

@@ -41,6 +41,7 @@ export * from "./entities.js";
 
 export interface GitHubSeedConfig {
   port?: number;
+  strict_scopes?: boolean;
   users?: Array<{
     login: string;
     name?: string;
@@ -285,6 +286,9 @@ function seedDefaults(store: Store, baseUrl: string): void {
 }
 
 export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  if (config.strict_scopes !== undefined) {
+    store.setData("github.strict_scopes", config.strict_scopes);
+  }
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
       throw new Error(
@@ -655,6 +659,15 @@ export const githubPlugin: ServicePlugin = {
       await originalDispatch(event, action, enrichedPayload, owner, repo);
       await deliverToAppWebhookUrls(gh, event, action, payload, owner, repo);
     };
+
+    app.use("*", async (c, next) => {
+      const token = c.get("authToken");
+      if (store.getData<boolean>("github.strict_scopes") === true && token && !tokenMap?.has(token)) {
+        const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
+        return c.json({ message: "Bad credentials", documentation_url: docsUrl, status: "401" }, 401);
+      }
+      await next();
+    });
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     usersRoutes(ctx);

@@ -68,6 +68,7 @@ GitHub API coverage:
   Suites are separated by App and commit; latest runs are grouped by App and check name.
   User-token checks return app: null; request-body app_id cannot change attribution.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
+  Set github.strict_scopes: true in seed config to reject tokens the emulator did not issue with 401 Bad credentials.
 
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.

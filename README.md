@@ -1672,7 +1672,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Vercel**: All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
 
-**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Set `github.strict_scopes: true` in seed config to reject tokens the emulator did not issue: a token that does not come from seed config, server options, an OAuth exchange, or an installation token request returns `401 Bad credentials` instead of acting as the default user. Pagination uses `page`/`per_page` with `Link` headers.
 
 **Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued tokens. Configure clients in the seed config.
 

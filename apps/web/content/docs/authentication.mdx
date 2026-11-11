@@ -15,7 +15,7 @@ curl -H "Authorization: Bearer <token>" \
 
 ## GitHub
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. Set `github.strict_scopes: true` in seed config to reject tokens the emulator did not issue: a token that does not come from seed config, server options, an OAuth exchange, or an installation token request returns `401 Bad credentials` instead of acting as the default user. Pagination uses `page`/`per_page` with `Link` headers.
 
 ```yaml
 tokens:
