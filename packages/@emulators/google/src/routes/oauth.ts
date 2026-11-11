@@ -6,6 +6,7 @@ import {
   escapeAttr,
   renderCardPage,
   renderErrorPage,
+  renderFormPostPage,
   renderUserButton,
   matchesRedirectUri,
   constantTimeSecretEqual,
@@ -16,6 +17,7 @@ import {
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 import { getRefreshTokens, issueAccessToken, revokeToken } from "../oauth-tokens.js";
+import { createAuthnRequest, getWebSessionUser, ssoProfileForUser } from "../saml.js";
 
 // RSA key pair generated at module load for signing ID tokens.
 const keyPairPromise = generateKeyPair("RS256");
@@ -166,7 +168,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       ? `Sign in to <strong>${escapeHtml(clientName)}</strong> with your Google account.`
       : "Choose a seeded user to continue.";
 
-    const users = gs.users.all();
+    // A browser signed in with SAML single sign-on authorizes as its signed-in user.
+    const signedIn = getWebSessionUser(store, c);
+    const users = signedIn ? [signedIn] : gs.users.all();
     const userButtons = users
       .map((user) => {
         return renderUserButton({
@@ -206,6 +210,23 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const nonce = bodyStr(body.nonce);
     const code_challenge = bodyStr(body.code_challenge);
     const code_challenge_method = bodyStr(body.code_challenge_method);
+
+    // A user assigned to an SSO profile signs in at the profile's identity provider first: Google
+    // sends it an unsigned AuthnRequest with the HTTP POST binding, then returns to this page.
+    const profile = ssoProfileForUser(store, gs.users.findOneBy("email", email as GoogleUser["email"]));
+    if (profile && getWebSessionUser(store, c)?.email !== email) {
+      const params = new URLSearchParams();
+      const fields = { client_id, redirect_uri, scope, state, nonce, code_challenge, code_challenge_method };
+      for (const [name, value] of Object.entries(fields)) if (value) params.set(name, value);
+      const request = createAuthnRequest(store, baseUrl, profile, `/o/oauth2/v2/auth?${params.toString()}`);
+      return c.html(
+        renderFormPostPage(
+          profile.sign_in_page_url,
+          { SAMLRequest: Buffer.from(request.xml, "utf8").toString("base64"), RelayState: request.relayState },
+          SERVICE_LABEL,
+        ),
+      );
+    }
 
     const code = randomBytes(20).toString("hex");
 
