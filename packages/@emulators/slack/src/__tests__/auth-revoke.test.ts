@@ -37,14 +37,14 @@ describe("Slack auth.revoke", () => {
   it("revokes the calling token and leaves the others working", async () => {
     const setup = setupApp();
     expect(await call(setup, "auth.revoke", "xoxp-alice")).toEqual({ ok: true, revoked: true });
-    expect(await call(setup, "auth.test", "xoxp-alice")).toEqual({ ok: false, error: "token_revoked" });
+    expect(await call(setup, "auth.test", "xoxp-alice")).toEqual({ ok: false, error: "invalid_auth" });
     expect((await call(setup, "auth.test", "xoxp-other")).ok).toBe(true);
   });
 
   it("revokes a token from server options", async () => {
     const setup = setupApp();
     expect(await call(setup, "auth.revoke", slackTestToken)).toEqual({ ok: true, revoked: true });
-    expect(await call(setup, "auth.test", slackTestToken)).toEqual({ ok: false, error: "token_revoked" });
+    expect(await call(setup, "auth.test", slackTestToken)).toEqual({ ok: false, error: "invalid_auth" });
   });
 
   it("checks without revoking when test is set", async () => {

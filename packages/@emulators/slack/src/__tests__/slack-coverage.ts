@@ -43,7 +43,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/auth.revoke",
     status: "supported",
     testedBy: ["auth-revoke.test.ts"],
-    notes: "Revokes the calling token; later Web API calls return token_revoked. test=true checks without revoking.",
+    notes: "Revokes the calling token; later Web API calls return invalid_auth. test=true checks without revoking.",
   },
   {
     family: "auth",

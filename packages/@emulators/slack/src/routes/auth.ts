@@ -1,7 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
 import { parseSlackBody, slackOk, slackError } from "../helpers.js";
-import { revokeSlackTokens, revokeSlackTokenValues, slackRequestToken } from "../tokens.js";
+import { invalidateSlackToken, slackRequestToken } from "../tokens.js";
 
 export function authRoutes(ctx: RouteContext): void {
   const { app, store, tokenMap } = ctx;
@@ -63,8 +63,7 @@ export function authRoutes(ctx: RouteContext): void {
     const test = body.test === true || body.test === "true" || body.test === "1";
     if (test) return slackOk(c, { revoked: false });
 
-    if (record) revokeSlackTokens(store, [record], tokenMap);
-    else revokeSlackTokenValues(store, [token], tokenMap);
+    invalidateSlackToken(store, token, tokenMap);
     return slackOk(c, { revoked: true });
   });
 }

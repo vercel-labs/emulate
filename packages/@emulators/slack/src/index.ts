@@ -2,7 +2,7 @@ import type { Context, Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getSlackStore } from "./store.js";
 import { generateSlackId, slackError } from "./helpers.js";
-import { isSlackTokenRevoked, slackRequestToken } from "./tokens.js";
+import { isSlackTokenInvalidated, isSlackTokenRevoked, slackRequestToken } from "./tokens.js";
 import type { SlackOAuthApp, SlackPresence, SlackTokenType, SlackUserProfile } from "./entities.js";
 import { authRoutes } from "./routes/auth.js";
 import { appsRoutes } from "./routes/apps.js";
@@ -395,6 +395,9 @@ export const slackPlugin: ServicePlugin = {
       const token = slackRequestToken(c);
       if (c.req.path.startsWith("/api/") && token && isSlackTokenRevoked(store, token)) {
         return slackError(c, "token_revoked");
+      }
+      if (c.req.path.startsWith("/api/") && token && isSlackTokenInvalidated(store, token)) {
+        return slackError(c, "invalid_auth");
       }
       applySlackTokenAuth(c, store);
       await next();
