@@ -531,3 +531,19 @@ export interface GitHubOAuthGrant extends Entity {
   scopes: string[];
   org_access: Record<string, "granted" | "denied" | "requested">;
 }
+
+export interface GitHubOrgSamlConfig extends Entity {
+  org_id: number;
+  sign_on_url: string;
+  issuer: string | null;
+  public_certificate: string;
+  signature_method: "RSA-SHA256";
+  digest_method: "SHA256";
+  enforced: boolean;
+}
+
+export interface GitHubSamlIdentity extends Entity {
+  org_id: number;
+  user_id: number;
+  name_id: string;
+}

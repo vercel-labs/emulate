@@ -36,6 +36,8 @@ import type {
   GitHubAppInstallation,
   GitHubInstallationTokenMetadata,
   GitHubOAuthGrant,
+  GitHubOrgSamlConfig,
+  GitHubSamlIdentity,
 } from "./entities.js";
 
 export interface GitHubStore {
@@ -75,6 +77,8 @@ export interface GitHubStore {
   appInstallations: Collection<GitHubAppInstallation>;
   installationTokenMetadata: Collection<GitHubInstallationTokenMetadata>;
   oauthGrants: Collection<GitHubOAuthGrant>;
+  orgSamlConfigs: Collection<GitHubOrgSamlConfig>;
+  samlIdentities: Collection<GitHubSamlIdentity>;
 }
 
 export function getGitHubStore(store: Store): GitHubStore {
@@ -121,5 +125,7 @@ export function getGitHubStore(store: Store): GitHubStore {
       "installation_id",
     ]),
     oauthGrants: store.collection<GitHubOAuthGrant>("github.oauth_grants", ["user_id", "client_id"]),
+    orgSamlConfigs: store.collection<GitHubOrgSamlConfig>("github.org_saml_configs", ["org_id"]),
+    samlIdentities: store.collection<GitHubSamlIdentity>("github.saml_identities", ["org_id", "user_id", "name_id"]),
   };
 }

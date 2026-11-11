@@ -34,10 +34,13 @@ import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
 import { installationTokenRoutes } from "./routes/installation-tokens.js";
+import { samlRoutes } from "./routes/saml.js";
+import { seedOrgSamlConfig, type OrgSamlSeedConfig } from "./saml.js";
 import { findOrCreateBlob, findOrCreateCommit, findOrCreateTree } from "./git-helpers.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
+export type { OrgSamlSeedConfig } from "./saml.js";
 
 export interface GitHubSeedConfig {
   port?: number;
@@ -61,6 +64,7 @@ export interface GitHubSeedConfig {
       login: string;
       role?: "member" | "admin";
     }>;
+    saml?: OrgSamlSeedConfig;
   }>;
   tokens?: Record<string, { login: string; scopes?: string[] }>;
   repos?: Array<{
@@ -356,6 +360,8 @@ export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeed
     for (const orgConfig of config.orgs) {
       const org = gh.orgs.findOneBy("login", orgConfig.login);
       if (!org) continue;
+
+      if (orgConfig.saml) seedOrgSamlConfig(store, org, orgConfig.saml);
 
       const membersTeam = getOrCreateMembersTeam(gh, org);
       for (const memberConfig of orgConfig.members ?? []) {
@@ -676,6 +682,7 @@ export const githubPlugin: ServicePlugin = {
     oauthRoutes(ctx);
     appsRoutes(ctx);
     installationTokenRoutes(ctx);
+    samlRoutes(ctx);
     contentsRoutes(ctx);
     // Registered last: the catch-all /commits/:ref{.+} route must not shadow
     // /commits/:sha/comments (comments.ts) or /commits/:ref/check-* (checks.ts).

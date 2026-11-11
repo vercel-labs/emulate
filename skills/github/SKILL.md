@@ -206,6 +206,33 @@ Organization `members` are optional. Each entry references a seeded user by `log
 
 Repos are auto-initialized with a commit, branch, and README unless `auto_init: false` is set.
 
+## Organization SAML SSO
+
+```yaml
+github:
+  users:
+    - login: octocat
+  orgs:
+    - login: my-org
+      members:
+        - login: octocat
+      saml:
+        sign_on_url: http://localhost:4010/app/my-github/exk1/sso/saml
+        issuer: http://www.okta.com/exk1
+        public_certificate: |
+          -----BEGIN CERTIFICATE-----
+          MIIC...
+          -----END CERTIFICATE-----
+```
+
+An organization with `saml` is a SAML service provider, as an organization with SAML single sign-on on GitHub Enterprise Cloud. `sign_on_url` is the identity provider's single sign-on URL, `issuer` (optional) must match the `Issuer` of the response, and `public_certificate` verifies its signature. `signature_method` and `digest_method` accept `RSA-SHA256` and `SHA256`, their defaults. `enforced` is stored but does not restrict tokens yet.
+
+- `GET /orgs/:org/saml/metadata` returns the service provider metadata: entity ID `BASE_URL/orgs/:org`, assertion consumer service `BASE_URL/orgs/:org/saml/consume` with the HTTP-POST binding.
+- `GET /orgs/:org/sso` asks the browser to sign in to a personal account with the user picker when it has no session, then posts a SAML `AuthnRequest` to `sign_on_url`. A local `return_to` path is sent as `RelayState`.
+- `POST /orgs/:org/saml/consume` accepts a response with a single assertion, signed on the assertion or on the response with `public_certificate`, that answers a request from the same browser, with `Recipient` set to the consumer URL, `Audience` set to the entity ID, a current `NotBefore` and `NotOnOrAfter` window, and `Destination` set to the consumer URL when the response is signed. Responses without `InResponseTo` are refused, so identity provider dashboards should link to `/orgs/:org/sso`.
+
+The first sign-in links the `NameID` to the personal account. A different `NameID` for that account, or a `NameID` linked to another account, is refused. The SAML session of the browser lasts 24 hours, or until the assertion's `SessionNotOnOrAfter`. Then the browser is redirected to `RelayState` or `/orgs/:org`. A refused response returns an HTML error page with status 403, or 400 when it is not a SAML response.
+
 ## Pagination
 
 All list endpoints support `page` and `per_page` query params with `Link` headers:
