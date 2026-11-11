@@ -33,6 +33,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /api/v1/users/:userId/lifecycle/suspend` — suspend
 - `POST /api/v1/users/:userId/lifecycle/unsuspend` — unsuspend
 - `POST /api/v1/users/:userId/lifecycle/reactivate` — reactivate
+- `DELETE /api/v1/users/:userId/sessions` — revoke the user's sessions; with `oauthTokens=true`, also revoke the OAuth access and refresh tokens issued to the user (the emulator does not model Okta sessions, so only the token revocation has an effect)
 
 ## Groups
 

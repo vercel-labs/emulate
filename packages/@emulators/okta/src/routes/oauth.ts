@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { Context } from "@emulators/core";
-import type { AppEnv, RouteContext, Store } from "@emulators/core";
+import type { AppEnv, RouteContext, Store, TokenMap } from "@emulators/core";
 import {
   bodyStr,
   constantTimeSecretEqual,
@@ -321,6 +321,17 @@ function unauthorizedOAuthError(): Response {
     status: 401,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+export function revokeUserOAuthTokens(store: Store, userOktaId: string, tokenMap?: TokenMap): void {
+  for (const [token, access] of getAccessTokens(store)) {
+    if (access.userOktaId !== userOktaId) continue;
+    getAccessTokens(store).delete(token);
+    tokenMap?.delete(token);
+  }
+  for (const [token, refresh] of getRefreshTokens(store)) {
+    if (refresh.userOktaId === userOktaId) getRefreshTokens(store).delete(token);
+  }
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
