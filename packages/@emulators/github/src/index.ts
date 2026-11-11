@@ -661,8 +661,13 @@ export const githubPlugin: ServicePlugin = {
     };
 
     app.use("*", async (c, next) => {
-      const token = c.get("authToken");
-      if (store.getData<boolean>("github.strict_scopes") === true && token && !tokenMap?.has(token)) {
+      const token = c.req.header("Authorization")?.match(/^(?:Bearer|token)\s+(\S+)/i)?.[1];
+      if (
+        store.getData<boolean>("github.strict_scopes") === true &&
+        token &&
+        !c.get("authApp") &&
+        !tokenMap?.has(token)
+      ) {
         const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
         return c.json({ message: "Bad credentials", documentation_url: docsUrl, status: "401" }, 401);
       }
