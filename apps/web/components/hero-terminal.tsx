@@ -30,10 +30,13 @@ export function HeroTerminal({ pixelFont }: { pixelFont: string }) {
         <div className="flex items-center gap-2 px-2 py-1 text-[11px] text-neutral-500">
           <span className={portless ? "text-emerald-400" : ""}>{portless ? "HTTPS" : "HTTP"}</span>
           <button
+            type="button"
             onClick={() => setPortless((p) => !p)}
             className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
               portless ? "bg-emerald-500" : "bg-neutral-700"
             }`}
+            role="switch"
+            aria-checked={portless}
             aria-label="Toggle portless"
           >
             <span
