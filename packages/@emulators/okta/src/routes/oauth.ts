@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { Context } from "@emulators/core";
-import type { AppEnv, RouteContext, Store } from "@emulators/core";
+import type { AppEnv, RouteContext, Store, TokenMap } from "@emulators/core";
 import {
   bodyStr,
   constantTimeSecretEqual,
@@ -323,6 +323,18 @@ function unauthorizedOAuthError(): Response {
   });
 }
 
+/** Drops every access and refresh token issued to a user, for DELETE /api/v1/users/:userId/sessions. */
+export function revokeUserOAuthTokens(store: Store, userOktaId: string, tokenMap?: TokenMap): void {
+  for (const [token, access] of getAccessTokens(store)) {
+    if (access.userOktaId !== userOktaId) continue;
+    getAccessTokens(store).delete(token);
+    tokenMap?.delete(token);
+  }
+  for (const [token, refresh] of getRefreshTokens(store)) {
+    if (refresh.userOktaId === userOktaId) getRefreshTokens(store).delete(token);
+  }
+}
+
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const oktaStore = getOktaStore(store);
   const SERVICE_LABEL = "Okta";
@@ -481,6 +493,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.html(renderErrorPage("Unknown user", "The selected user is not available.", SERVICE_LABEL), 400);
     }
 
+    // Okta only lets an ACTIVE user sign in; a suspended, deactivated, staged, or provisioned user is refused.
+    if (user.status !== "ACTIVE") {
+      return c.html(renderErrorPage("User not active", "The selected user cannot sign in.", SERVICE_LABEL), 400);
+    }
+
     const configuredClients = getClientsForServer(oktaStore.oauthClients.all(), authServerId);
     if (configuredClients.length > 0) {
       const client = configuredClients.find((entry) => entry.client_id === clientId);
@@ -500,6 +517,30 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           400,
         );
       }
+    }
+
+    // Okta only lets users assigned to an app sign in to it. The app is the one whose
+    // credentials.oauthClient.client_id is this client; clients without such an app are not checked.
+    const linkedApp = oktaStore.apps
+      .all()
+      .find((app) => (app.credentials.oauthClient as { client_id?: unknown } | undefined)?.client_id === clientId);
+    if (
+      linkedApp &&
+      !oktaStore.appAssignments
+        .findBy("app_okta_id", linkedApp.okta_id)
+        .some((assignment) => assignment.user_okta_id === user.okta_id)
+    ) {
+      const denial: Record<string, string> = {
+        error: "access_denied",
+        error_description: "User is not assigned to the client application.",
+      };
+      if (state) denial.state = state;
+      if (responseMode === "form_post") {
+        return c.html(renderFormPostPage(redirectUri, denial, SERVICE_LABEL));
+      }
+      const denialUrl = new URL(redirectUri);
+      for (const [key, value] of Object.entries(denial)) denialUrl.searchParams.set(key, value);
+      return c.redirect(denialUrl.toString(), 302);
     }
 
     const code = randomBytes(20).toString("hex");
