@@ -492,16 +492,36 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     method: "oauth.v2.authorize",
     route: "GET /oauth/v2/authorize",
     status: "partial",
-    testedBy: ["slack.test.ts"],
-    notes: "Renders emulator user picker and validates configured OAuth apps.",
+    testedBy: ["slack.test.ts", "workspace-saml.test.ts"],
+    notes:
+      "Renders emulator user picker and validates configured OAuth apps. With workspace SAML, authorizes the member signed in with SSO and offers only members allowed to sign in without SSO.",
   },
   {
     family: "oauth",
     method: "oauth.v2.authorize.callback",
     route: "POST /oauth/v2/authorize/callback",
     status: "partial",
-    testedBy: ["slack.test.ts"],
-    notes: "Stores a temporary code and redirects back to the configured OAuth redirect URI.",
+    testedBy: ["slack.test.ts", "workspace-saml.test.ts"],
+    notes:
+      "Stores a temporary code and redirects back to the configured OAuth redirect URI. Refuses members who must sign in with SAML SSO first.",
+  },
+  {
+    family: "sso",
+    method: "sso.saml.start",
+    route: ["GET /sso/saml/start", "POST /sso/saml/start"],
+    status: "supported",
+    testedBy: ["workspace-saml.test.ts"],
+    notes:
+      "Service provider initiated SAML sign-in: posts an AuthnRequest from https://slack.com to the configured SAML 2.0 Endpoint URL with the HTTP-POST binding.",
+  },
+  {
+    family: "sso",
+    method: "sso.saml",
+    route: ["GET /sso/saml", "POST /sso/saml"],
+    status: "partial",
+    testedBy: ["workspace-saml.test.ts"],
+    notes:
+      "Assertion consumer service: validates signed responses, links the persistent NameID to the member with the User.Email address or creates it Just In Time, and opens a web session. Encrypted assertions and Sign AuthnRequest are not simulated.",
   },
   {
     family: "webhooks",
