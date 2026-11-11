@@ -15,7 +15,7 @@ curl -H "Authorization: Bearer <token>" \
 
 ## GitHub
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. A private repository the caller cannot see returns `404 Not Found`, as on GitHub, rather than `401` or `403`; installation tokens keep their existing errors. Pagination uses `page`/`per_page` with `Link` headers.
 
 ```yaml
 tokens:

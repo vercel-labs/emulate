@@ -75,10 +75,12 @@ export function canAccessRepo(gh: GitHubStore, authUser: AuthUser | undefined, r
   return Boolean(gh.collaborators.findBy("repo_id", repo.id).find((c) => c.user_id === user.id));
 }
 
+// GitHub answers 404, not 401 or 403, to a user or anonymous caller for a private repository they cannot see, so as
+// not to confirm it exists. Installation tokens keep their existing errors.
 export function assertRepoRead(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): void {
   if (canAccessRepo(gh, authUser, repo)) return;
-  if (!authUser) throw unauthorized();
-  throw forbidden();
+  if (authUser?.installation) throw forbidden();
+  throw notFound();
 }
 
 function hasInstallationPermission(authUser: AuthUser, permissions: string[], required: "read" | "write"): boolean {
@@ -112,6 +114,7 @@ export function assertRepoPermission(
   required: "read" | "write" = "read",
 ): void {
   const accepted = Array.isArray(permissions) ? permissions : [permissions];
+  if (!authUser?.installation && !canAccessRepo(gh, authUser, repo)) throw notFound();
   if (!canAccessRepoWithPermission(gh, authUser, repo, accepted, required)) {
     if (!authUser) throw unauthorized();
     throw forbidden();
@@ -323,7 +326,7 @@ export function assertRepoWrite(
 
   const user = assertAuthenticatedUser(gh, authUser);
   if (!repo.private) return user;
-  if (!canAccessRepo(gh, authUser, repo)) throw forbidden();
+  if (!canAccessRepo(gh, authUser, repo)) throw notFound();
   return user;
 }
 
