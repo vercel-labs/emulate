@@ -19,12 +19,14 @@ import { authorizationServerRoutes } from "./routes/auth-servers.js";
 import { groupRoutes } from "./routes/groups.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { userRoutes } from "./routes/users.js";
+import { oktaError } from "./route-helpers.js";
 import { getOktaStore } from "./store.js";
 
 export { getOktaStore, type OktaStore } from "./store.js";
 export * from "./entities.js";
 
 export interface OktaSeedConfig {
+  strict_scopes?: boolean;
   users?: Array<{
     okta_id?: string;
     status?: OktaUserStatus;
@@ -155,6 +157,9 @@ function seedDefaults(store: Store, _baseUrl: string): void {
 
 export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedConfig): void {
   const okta = getOktaStore(store);
+  if (config.strict_scopes !== undefined) {
+    store.setData("okta.strict_scopes", config.strict_scopes);
+  }
 
   if (config.authorization_servers) {
     for (const server of config.authorization_servers) {
@@ -263,6 +268,18 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
 export const oktaPlugin: ServicePlugin = {
   name: "okta",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    app.use("*", async (c, next) => {
+      if (c.req.path.startsWith("/api/v1/") && store.getData<boolean>("okta.strict_scopes") === true) {
+        const token = (c.req.header("Authorization") ?? "").replace(/^(SSWS|Bearer)\s+/i, "").trim();
+        const user = token ? tokenMap?.get(token) : undefined;
+        if (!user) return oktaError(c, 401, "E0000011", "Invalid token provided");
+        c.set("authUser", user);
+        c.set("authToken", token);
+        c.set("authScopes", user.scopes);
+      }
+      await next();
+    });
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userRoutes(ctx);

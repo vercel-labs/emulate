@@ -4,6 +4,8 @@ title: "Okta"
 
 Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
 
+Management API authentication is permissive by default for local workflows. Set `okta.strict_scopes: true` in seed config to require a known token on `/api/v1` routes: an `SSWS` API token or bearer access token that does not come from seed config, server options, or an OAuth exchange returns `401` with `E0000011` instead of acting as the default user, and a revoked access token stops working.
+
 ## OAuth / OIDC
 
 Default org server and custom authorization server paths (`/oauth2/:authServerId/...`):
