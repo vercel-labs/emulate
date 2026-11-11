@@ -13,12 +13,20 @@ export function isSlackTokenRevoked(store: Store, token: string): boolean {
 }
 
 export function revokeSlackTokens(store: Store, tokens: SlackToken[], tokenMap?: TokenMap): void {
-  const revoked = store.getData<Set<string>>("slack.revoked_tokens") ?? new Set<string>();
   const ss = getSlackStore(store);
+  for (const token of tokens) ss.tokens.delete(token.id);
+  revokeSlackTokenValues(
+    store,
+    tokens.map((token) => token.token),
+    tokenMap,
+  );
+}
+
+export function revokeSlackTokenValues(store: Store, tokens: string[], tokenMap?: TokenMap): void {
+  const revoked = store.getData<Set<string>>("slack.revoked_tokens") ?? new Set<string>();
   for (const token of tokens) {
-    revoked.add(token.token);
-    ss.tokens.delete(token.id);
-    tokenMap?.delete(token.token);
+    revoked.add(token);
+    tokenMap?.delete(token);
   }
   store.setData("slack.revoked_tokens", revoked);
 }

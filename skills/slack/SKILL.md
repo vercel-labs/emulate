@@ -212,6 +212,10 @@ When no OAuth apps are configured, the emulator accepts any `client_id`. With ap
 # Test authentication
 curl -X POST http://localhost:4003/api/auth.test \
   -H "Authorization: Bearer $TOKEN"
+
+# Revoke the calling token (add -d "test=true" to check without revoking)
+curl -X POST http://localhost:4003/api/auth.revoke \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Chat
