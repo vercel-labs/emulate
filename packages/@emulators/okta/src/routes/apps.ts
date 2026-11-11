@@ -1,5 +1,5 @@
 import { parsePagination, setLinkHeader, type RouteContext } from "@emulators/core";
-import { generateOktaId, normalizeAppStatus } from "../helpers.js";
+import { generateOktaId, normalizeAppStatus, resolveExternalKey } from "../helpers.js";
 import {
   appResponse,
   findAppByRef,
@@ -54,6 +54,7 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
       sign_on_mode: signOnMode,
       settings,
       credentials,
+      external_key: resolveExternalKey(signOnMode, undefined),
     });
 
     return c.json(appResponse(baseUrl, created), 201);
@@ -156,11 +157,13 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
     if (!appEntity) return oktaError(c, 404, "E0000007", "Not found: app");
 
     const body = await readJsonObject(c);
+    const signOnMode = typeof body.signOnMode === "string" ? body.signOnMode : appEntity.sign_on_mode;
     const updated = oktaStore.apps.update(appEntity.id, {
       name: typeof body.name === "string" ? body.name : appEntity.name,
       label: typeof body.label === "string" ? body.label : appEntity.label,
       status: normalizeAppStatus(typeof body.status === "string" ? body.status : undefined, appEntity.status),
-      sign_on_mode: typeof body.signOnMode === "string" ? body.signOnMode : appEntity.sign_on_mode,
+      sign_on_mode: signOnMode,
+      external_key: resolveExternalKey(signOnMode, appEntity.external_key),
       settings:
         body.settings && typeof body.settings === "object"
           ? (body.settings as Record<string, unknown>)

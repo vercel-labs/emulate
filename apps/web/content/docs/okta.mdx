@@ -2,7 +2,7 @@
 title: "Okta"
 ---
 
-Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
+Okta identity provider emulation with OAuth 2.0 / OIDC, SAML 2.0 single sign-on, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
 
 ## OAuth / OIDC
 
@@ -17,6 +17,57 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /oauth2/v1/revoke` — token revocation
 - `POST /oauth2/v1/introspect` — token introspection
 - `GET /oauth2/v1/logout` — end session
+
+## SAML 2.0
+
+An app with `sign_on_mode: SAML_2_0` (or `signOnMode: "SAML_2_0"` through the Apps API) is a SAML 2.0 identity provider for one service provider. Each SAML app has an external key (`exk...`): set it with `external_key` in the seed config, or let the emulator generate one. The issuer and metadata entity ID are `http://www.okta.com/{externalKey}`.
+
+- `GET /app/:appName/:externalKey/sso/saml`: single sign-on URL, HTTP-Redirect binding (`SAMLRequest` deflated and base64 encoded in the query)
+- `POST /app/:appName/:externalKey/sso/saml`: single sign-on URL, HTTP-POST binding (`SAMLRequest` base64 encoded in the form)
+- `GET /app/:externalKey/sso/saml/metadata`: identity provider metadata
+- `GET /api/v1/apps/:appId/sso/saml/metadata`: the same metadata through the management API (requires an API token)
+
+A request with a `SAMLRequest` is a service-provider-initiated sign-in, and the response carries its `ID` as `InResponseTo`. A request without one is an IdP-initiated sign-in. The emulator shows the user picker, then auto-submits a form that posts `SAMLResponse` (and `RelayState`, unchanged, when the request had one) to `ssoAcsUrl`.
+
+The assertion uses these `settings.signOn` fields:
+
+| Field                  | Effect                                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ssoAcsUrl`            | Where the response is posted. Required.                                                                                                                |
+| `destination`          | Response `Destination`. Defaults to `ssoAcsUrl`.                                                                                                       |
+| `recipient`            | `SubjectConfirmationData` `Recipient`. Defaults to `ssoAcsUrl`.                                                                                        |
+| `audience`             | The service provider's entity ID, sent as the `Audience`.                                                                                              |
+| `subjectNameIdFormat`  | NameID format URN: `emailAddress`, `persistent`, `transient`, `unspecified` (default) or `x509SubjectName`. The NameID value is the user's Okta login. |
+| `assertionSigned`      | Sign the assertion. Defaults to `true`.                                                                                                                |
+| `responseSigned`       | Sign the response. Defaults to `false`. When both are `false`, the assertion is signed.                                                                |
+| `signatureAlgorithm`   | `RSA_SHA256` (default) or `RSA_SHA1`.                                                                                                                  |
+| `digestAlgorithm`      | `SHA256` (default) or `SHA1`.                                                                                                                          |
+| `authnContextClassRef` | Defaults to `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport`.                                                                       |
+
+The assertion is valid from 5 minutes before to 5 minutes after it is issued, and has no `SessionNotOnOrAfter`. One signing key and self-signed certificate is generated per emulator instance and shared by every SAML app; the metadata publishes that certificate.
+
+Okta refuses to sign in a user who is not `ACTIVE` (status 403), and shows a user who is not assigned to the app the "App Not Assigned" page (status 403); neither gets a SAML response. Assign users with `app_assignments` in the seed config or `PUT /api/v1/apps/:appId/users/:userId`.
+
+```yaml
+okta:
+  users:
+    - okta_id: 00u_alice
+      login: alice@example.com
+  apps:
+    - okta_id: 0oa_saml_app
+      name: example_saml
+      label: Example SAML App
+      sign_on_mode: SAML_2_0
+      external_key: exk_example_saml
+      settings:
+        signOn:
+          ssoAcsUrl: https://sp.example.com/saml/acs
+          audience: https://sp.example.com/metadata
+          subjectNameIdFormat: urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress
+  app_assignments:
+    - app_okta_id: 0oa_saml_app
+      user_okta_id: 00u_alice
+```
 
 ## Users
 

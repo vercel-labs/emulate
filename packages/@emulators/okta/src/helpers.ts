@@ -25,6 +25,13 @@ export function generateOktaId(prefix: string): string {
   return `${prefix}${compact.slice(0, 17)}`;
 }
 
+export const SAML_2_0_SIGN_ON_MODE = "SAML_2_0";
+
+export function resolveExternalKey(signOnMode: string, externalKey: string | undefined): string | undefined {
+  if (externalKey) return externalKey;
+  return signOnMode === SAML_2_0_SIGN_ON_MODE ? generateOktaId("exk") : undefined;
+}
+
 export function normalizeStatus(status: string | undefined, fallback: OktaUserStatus): OktaUserStatus {
   if (
     status === "STAGED" ||

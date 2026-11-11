@@ -13,11 +13,13 @@ import {
   normalizeAuthServerStatus,
   normalizeGroupType,
   normalizeStatus,
+  resolveExternalKey,
 } from "./helpers.js";
 import { appRoutes } from "./routes/apps.js";
 import { authorizationServerRoutes } from "./routes/auth-servers.js";
 import { groupRoutes } from "./routes/groups.js";
 import { oauthRoutes } from "./routes/oauth.js";
+import { samlRoutes } from "./routes/saml.js";
 import { userRoutes } from "./routes/users.js";
 import { getOktaStore } from "./store.js";
 
@@ -50,6 +52,7 @@ export interface OktaSeedConfig {
     sign_on_mode?: string;
     settings?: Record<string, unknown>;
     credentials?: Record<string, unknown>;
+    external_key?: string;
   }>;
   oauth_clients?: Array<{
     client_id: string;
@@ -211,14 +214,16 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
     for (const app of config.apps) {
       const byName = okta.apps.findOneBy("name", app.name);
       if (byName) continue;
+      const signOnMode = app.sign_on_mode ?? "OPENID_CONNECT";
       okta.apps.insert({
         okta_id: app.okta_id ?? generateOktaId("0oa"),
         name: app.name,
         label: app.label ?? app.name,
         status: normalizeAppStatus(app.status, "ACTIVE"),
-        sign_on_mode: app.sign_on_mode ?? "OPENID_CONNECT",
+        sign_on_mode: signOnMode,
         settings: app.settings ?? {},
         credentials: app.credentials ?? {},
+        external_key: resolveExternalKey(signOnMode, app.external_key),
       });
     }
   }
@@ -269,6 +274,7 @@ export const oktaPlugin: ServicePlugin = {
     groupRoutes(ctx);
     appRoutes(ctx);
     authorizationServerRoutes(ctx);
+    samlRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

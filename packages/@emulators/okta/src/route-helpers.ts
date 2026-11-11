@@ -3,7 +3,7 @@ import type { ContentfulStatusCode } from "@emulators/core";
 import type { AuthUser, TokenMap, AppEnv } from "@emulators/core";
 import type { OktaApp, OktaAuthorizationServer, OktaGroup, OktaUser } from "./entities.js";
 import type { OktaStore } from "./store.js";
-import { resolveOktaIssuer, userDisplayName } from "./helpers.js";
+import { resolveOktaIssuer, SAML_2_0_SIGN_ON_MODE, userDisplayName } from "./helpers.js";
 
 type OktaErrorCause = { errorSummary: string };
 
@@ -137,6 +137,17 @@ export function groupResponse(baseUrl: string, group: OktaGroup): Record<string,
 }
 
 export function appResponse(baseUrl: string, app: OktaApp): Record<string, unknown> {
+  const links: Record<string, unknown> = {
+    self: {
+      href: `${baseUrl}/api/v1/apps/${encodeURIComponent(app.okta_id)}`,
+    },
+  };
+  if (app.sign_on_mode === SAML_2_0_SIGN_ON_MODE) {
+    links.metadata = {
+      href: `${baseUrl}/api/v1/apps/${encodeURIComponent(app.okta_id)}/sso/saml/metadata`,
+      type: "application/xml",
+    };
+  }
   return {
     id: app.okta_id,
     name: app.name,
@@ -147,11 +158,7 @@ export function appResponse(baseUrl: string, app: OktaApp): Record<string, unkno
     signOnMode: app.sign_on_mode,
     credentials: app.credentials,
     settings: app.settings,
-    _links: {
-      self: {
-        href: `${baseUrl}/api/v1/apps/${encodeURIComponent(app.okta_id)}`,
-      },
-    },
+    _links: links,
   };
 }
 

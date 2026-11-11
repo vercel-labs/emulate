@@ -547,6 +547,10 @@ okta:
       email: testuser@okta.local
       first_name: Test
       last_name: User
+    - okta_id: 00u_alice
+      login: alice@example.com
+      first_name: Alice
+      last_name: Example
   groups:
     - name: Everyone
       description: All users
@@ -563,6 +567,20 @@ okta:
       redirect_uris:
         - http://localhost:3000/callback
       auth_server_id: default
+  apps:
+    - okta_id: 0oa_saml_app
+      name: example_saml
+      label: Example SAML App
+      sign_on_mode: SAML_2_0
+      external_key: exk_example_saml
+      settings:
+        signOn:
+          ssoAcsUrl: https://sp.example.com/saml/acs
+          audience: https://sp.example.com/metadata
+          subjectNameIdFormat: urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress
+  app_assignments:
+    - app_okta_id: 0oa_saml_app
+      user_okta_id: 00u_alice
 
 resend:
   domains:
