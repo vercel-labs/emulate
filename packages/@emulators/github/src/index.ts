@@ -664,10 +664,16 @@ export const githubPlugin: ServicePlugin = {
     app.use("*", async (c, next) => {
       const header = c.req.header("Authorization")?.trim();
       if (store.getData<boolean>("github.strict_scopes") === true && header && !c.get("authApp")) {
-        const known = /^Basic\s/i.test(header)
-          ? isOAuthAppCredential(gh, header)
-          : tokenMap?.has(header.replace(/^(Bearer|token)\s+/i, "").trim());
-        if (known) return next();
+        if (/^Basic\s/i.test(header) && isOAuthAppCredential(gh, header)) {
+          // OAuth app credentials belong to the app, not to a user: drop the fallback identity.
+          c.set("authUser", undefined);
+          c.set("authToken", undefined);
+          c.set("authScopes", undefined);
+          return next();
+        }
+        if (!/^Basic\s/i.test(header) && tokenMap?.has(header.replace(/^(Bearer|token)\s+/i, "").trim())) {
+          return next();
+        }
         const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
         return c.json({ message: "Bad credentials", documentation_url: docsUrl, status: "401" }, 401);
       }

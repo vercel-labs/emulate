@@ -81,6 +81,12 @@ describe("GitHub strict mode tokens", () => {
     expect((await app.request(`${base}/users/alice`, { headers: basic("app-client:app-secret") })).status).toBe(200);
   });
 
+  it("does not give OAuth app credentials a user identity", async () => {
+    const { app } = createTestApp(true);
+    const headers = { Authorization: `Basic ${Buffer.from("app-client:app-secret").toString("base64")}` };
+    expect((await app.request(`${base}/user`, { headers })).status).toBe(401);
+  });
+
   it("keeps the fallback user for unknown tokens by default", async () => {
     const { app } = createTestApp(false);
     const res = await getUser(app, "ghp_never_issued");
