@@ -27,10 +27,10 @@ function setupApp(strict: boolean) {
   return setup;
 }
 
-async function authTest(setup: ReturnType<typeof setupApp>, token: string) {
+async function authTest(setup: ReturnType<typeof setupApp>, token: string, authorization = `Bearer ${token}`) {
   const response = await setup.app.request(`${base}/api/auth.test`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: authorization },
   });
   expect(response.status).toBe(200);
   return (await response.json()) as Record<string, unknown>;
@@ -70,6 +70,15 @@ describe("Slack strict mode tokens", () => {
       body: new URLSearchParams({ code, redirect_uri: "https://example.com/callback" }),
     });
     expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+  });
+
+  it("rejects HTTP Basic credentials on other Web API methods", async () => {
+    const body = await authTest(
+      setupApp(true),
+      "",
+      `Basic ${Buffer.from("strict-client:strict-secret").toString("base64")}`,
+    );
+    expect(body).toEqual({ ok: false, error: "invalid_auth" });
   });
 
   it("keeps the fallback user for unknown tokens by default", async () => {

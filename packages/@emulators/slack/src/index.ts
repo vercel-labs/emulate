@@ -399,7 +399,7 @@ export const slackPlugin: ServicePlugin = {
       if (
         c.req.path.startsWith("/api/") &&
         token &&
-        !/^Basic\s/i.test(c.req.header("Authorization") ?? "") &&
+        !(c.req.path === "/api/oauth.v2.access" && /^Basic\s/i.test(c.req.header("Authorization") ?? "")) &&
         isSlackStrictScopes(store) &&
         !getSlackStore(store).tokens.findOneBy("token", token) &&
         !tokenMap?.has(token)
