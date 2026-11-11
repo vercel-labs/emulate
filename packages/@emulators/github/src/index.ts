@@ -9,6 +9,7 @@ import type {
   RouteContext,
   AppKeyResolver,
 } from "@emulators/core";
+import { constantTimeSecretEqual } from "@emulators/core";
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
@@ -661,13 +662,12 @@ export const githubPlugin: ServicePlugin = {
     };
 
     app.use("*", async (c, next) => {
-      const token = c.req.header("Authorization")?.match(/^(?:Bearer|token)\s+(\S+)/i)?.[1];
-      if (
-        store.getData<boolean>("github.strict_scopes") === true &&
-        token &&
-        !c.get("authApp") &&
-        !tokenMap?.has(token)
-      ) {
+      const header = c.req.header("Authorization")?.trim();
+      if (store.getData<boolean>("github.strict_scopes") === true && header && !c.get("authApp")) {
+        const known = /^Basic\s/i.test(header)
+          ? isOAuthAppCredential(gh, header)
+          : tokenMap?.has(header.replace(/^(Bearer|token)\s+/i, "").trim());
+        if (known) return next();
         const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
         return c.json({ message: "Bad credentials", documentation_url: docsUrl, status: "401" }, 401);
       }
@@ -705,3 +705,11 @@ export const githubPlugin: ServicePlugin = {
 };
 
 export default githubPlugin;
+
+function isOAuthAppCredential(gh: GitHubStore, header: string): boolean {
+  const decoded = Buffer.from(header.replace(/^Basic\s+/i, ""), "base64").toString();
+  const separator = decoded.indexOf(":");
+  if (separator < 0) return false;
+  const oauthApp = gh.oauthApps.findOneBy("client_id", decoded.slice(0, separator));
+  return !!oauthApp && constantTimeSecretEqual(decoded.slice(separator + 1), oauthApp.client_secret);
+}

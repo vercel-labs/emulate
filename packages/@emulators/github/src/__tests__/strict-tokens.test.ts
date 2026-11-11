@@ -25,7 +25,13 @@ function createTestApp(strict: boolean, fallback = true) {
   );
   githubPlugin.register(app as any, store, new WebhookDispatcher(), base, tokenMap);
   githubPlugin.seed?.(store, base);
-  seedFromConfig(store, base, { users: [{ login: "admin" }, { login: "alice" }], strict_scopes: strict });
+  seedFromConfig(store, base, {
+    users: [{ login: "admin" }, { login: "alice" }],
+    oauth_apps: [
+      { client_id: "app-client", client_secret: "app-secret", name: "App", redirect_uris: ["http://localhost/cb"] },
+    ],
+    strict_scopes: strict,
+  });
   return { app, tokenMap };
 }
 
@@ -60,6 +66,19 @@ describe("GitHub strict mode tokens", () => {
       headers: { Authorization: "Bearer eyJhbGciOiJub25lIn0.e30." },
     });
     expect(res.status).toBe(401);
+  });
+
+  it("rejects an unknown token sent without a scheme", async () => {
+    const { app } = createTestApp(true);
+    const res = await app.request(`${base}/users/alice`, { headers: { Authorization: "ghp_never_issued" } });
+    expect(res.status).toBe(401);
+  });
+
+  it("accepts HTTP Basic credentials only for a configured OAuth app", async () => {
+    const { app } = createTestApp(true);
+    const basic = (credentials: string) => ({ Authorization: `Basic ${Buffer.from(credentials).toString("base64")}` });
+    expect((await app.request(`${base}/users/alice`, { headers: basic("app-client:wrong") })).status).toBe(401);
+    expect((await app.request(`${base}/users/alice`, { headers: basic("app-client:app-secret") })).status).toBe(200);
   });
 
   it("keeps the fallback user for unknown tokens by default", async () => {
