@@ -5,6 +5,7 @@ export const PAGE_TITLES: Record<string, string> = {
   configuration: "Configuration",
   nextjs: "Next.js Integration",
   nuxt: "Nuxt Integration",
+  msw: "Mock Service Worker",
   vercel: "Vercel API",
   github: "GitHub API",
   google: "Google API",

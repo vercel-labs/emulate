@@ -19,6 +19,7 @@ export const docsSections: NavSection[] = [
       { name: "MCP Server", href: "/docs/mcp" },
       { name: "Next.js Integration", href: "/docs/nextjs" },
       { name: "Nuxt Integration", href: "/docs/nuxt" },
+      { name: "Mock Service Worker", href: "/docs/msw" },
     ],
   },
   {

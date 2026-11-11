@@ -234,3 +234,5 @@ export const clerkPlugin: ServicePlugin = {
 };
 
 export default clerkPlugin;
+
+export { hosts } from "./hosts.js";
