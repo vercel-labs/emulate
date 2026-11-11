@@ -502,6 +502,24 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       }
     }
 
+    // Okta lets only users assigned to an app sign in to it; the app is the one whose
+    // credentials.oauthClient.client_id is this client. Clients without such an app are not checked.
+    const linkedApp = oktaStore.apps
+      .all()
+      .find((app) => (app.credentials.oauthClient as { client_id?: unknown } | undefined)?.client_id === clientId);
+    if (
+      linkedApp &&
+      !oktaStore.appAssignments
+        .findBy("app_okta_id", linkedApp.okta_id)
+        .some((assignment) => assignment.user_okta_id === user.okta_id)
+    ) {
+      const url = new URL(redirectUri);
+      url.searchParams.set("error", "access_denied");
+      url.searchParams.set("error_description", "User is not assigned to the client application.");
+      if (state) url.searchParams.set("state", state);
+      return c.redirect(url.toString(), 302);
+    }
+
     const code = randomBytes(20).toString("hex");
     getPendingCodes(store).set(code, {
       userRef: user.okta_id,
