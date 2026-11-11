@@ -47,7 +47,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 
 ## Apps
 
-An app whose `credentials.oauthClient.client_id` names an OIDC client restricts that client's sign-in to the users assigned to the app: an unassigned user is redirected to the `redirect_uri` with `error=access_denied`. Clients that no app links to are not checked.
+An app whose `credentials.oauthClient.client_id` names an OIDC client restricts that client's sign-in to the users assigned to the app: an unassigned user is sent back to the `redirect_uri` with `error=access_denied`, in the request's `response_mode` (`query` or `form_post`). Clients that no app links to are not checked.
 
 - `GET /api/v1/apps` — list apps
 - `POST /api/v1/apps` — create app

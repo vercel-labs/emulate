@@ -513,10 +513,16 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
         .findBy("app_okta_id", linkedApp.okta_id)
         .some((assignment) => assignment.user_okta_id === user.okta_id)
     ) {
+      const denial: Record<string, string> = {
+        error: "access_denied",
+        error_description: "User is not assigned to the client application.",
+      };
+      if (state) denial.state = state;
+      if (responseMode === "form_post") {
+        return c.html(renderFormPostPage(redirectUri, denial, SERVICE_LABEL));
+      }
       const url = new URL(redirectUri);
-      url.searchParams.set("error", "access_denied");
-      url.searchParams.set("error_description", "User is not assigned to the client application.");
-      if (state) url.searchParams.set("state", state);
+      for (const [key, value] of Object.entries(denial)) url.searchParams.set(key, value);
       return c.redirect(url.toString(), 302);
     }
 
