@@ -17,13 +17,13 @@ const apps = {
   other: { client_id: "other-client", client_secret: "other-secret" },
 };
 
-function createTestApp() {
+function createTestApp(fallback = false) {
   const store = new Store();
   const tokenMap: TokenMap = new Map();
   const app = new Hono();
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
-  app.use("*", authMiddleware(tokenMap));
+  app.use("*", authMiddleware(tokenMap, undefined, fallback ? { login: "bob", id: 99, scopes: [] } : undefined));
   githubPlugin.register(app as any, store, new WebhookDispatcher(), base, tokenMap);
   githubPlugin.seed?.(store, base);
   seedFromConfig(store, base, {
@@ -86,6 +86,16 @@ describe("GitHub OAuth app token revocation", () => {
     expect(await userStatus(app, second)).toBe(401);
     expect(await userStatus(app, bob)).toBe(200);
     expect(await userStatus(app, otherApp)).toBe(200);
+  });
+
+  it("rejects revoked tokens even when unknown tokens fall back to a default user", async () => {
+    const app = createTestApp(true);
+    const token = await issueToken(app, "alice");
+    const grantToken = await issueToken(app, "alice");
+    expect((await revoke(app, "token", token)).status).toBe(204);
+    expect(await userStatus(app, token)).toBe(401);
+    expect((await revoke(app, "grant", grantToken)).status).toBe(204);
+    expect(await userStatus(app, grantToken)).toBe(401);
   });
 
   it("requires the app's client credentials", async () => {

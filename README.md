@@ -676,7 +676,7 @@ github:
 
 If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced.
 
-`DELETE /applications/:client_id/token` and `DELETE /applications/:client_id/grant` take the app's `client_id` and `client_secret` as HTTP Basic credentials and an `access_token` in the JSON body. The first revokes that token; the second revokes the user's grant and every token the app holds for that user. Wrong client credentials return `401`, and a token that is unknown or belongs to another app returns `422`.
+`DELETE /applications/:client_id/token` and `DELETE /applications/:client_id/grant` take the app's `client_id` and `client_secret` as HTTP Basic credentials and an `access_token` in the JSON body. The first revokes that token; the second revokes the user's grant and every token the app holds for that user. Wrong client credentials return `401`, and a token that is unknown or belongs to another app returns `422`. A revoked token, from these endpoints or the settings page, then returns `401 Bad credentials`, even when unknown tokens fall back to a default user.
 
 ### GitHub Apps
 

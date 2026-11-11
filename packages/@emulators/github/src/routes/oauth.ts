@@ -519,6 +519,21 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
   // ---------- OAuth app token and grant revocation (REST API) ----------
 
+  const badCredentials = { message: "Bad credentials", documentation_url: "https://docs.github.com/rest" };
+  const validationFailed = { message: "Validation Failed", documentation_url: "https://docs.github.com/rest" };
+
+  function revokedTokens(): Set<string> {
+    const revoked = store.getData<Set<string>>("github.revoked_tokens") ?? new Set<string>();
+    store.setData("github.revoked_tokens", revoked);
+    return revoked;
+  }
+
+  function revokeToken(token: string): void {
+    tokenMap?.delete(token);
+    getTokenToClientId(store).delete(token);
+    revokedTokens().add(token);
+  }
+
   function revokeGrant(user: { login: string; id: number }, clientId: string): void {
     const grant = gh.oauthGrants.all().find((g) => g.user_id === user.id && g.client_id === clientId);
     if (grant) {
@@ -528,12 +543,23 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     if (tokenMap) {
       for (const [token, tokenUser] of tokenMap.entries()) {
         if (tokenUser.login === user.login && getTokenToClientId(store).get(token) === clientId) {
-          tokenMap.delete(token);
-          getTokenToClientId(store).delete(token);
+          revokeToken(token);
         }
       }
     }
   }
+
+  // A revoked token is invalid credentials, not an unknown token for the fallback user.
+  app.use("*", async (c, next) => {
+    const token = c.req
+      .header("Authorization")
+      ?.replace(/^(Bearer|token)\s+/i, "")
+      .trim();
+    if (token && store.getData<Set<string>>("github.revoked_tokens")?.has(token)) {
+      return c.json(badCredentials, 401);
+    }
+    await next();
+  });
 
   function authenticateOAuthApp(c: Context<AppEnv>, clientId: string): boolean {
     const header = c.req.header("Authorization") ?? "";
@@ -554,16 +580,12 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return user ? { token, user: { login: user.login, id: user.id } } : undefined;
   }
 
-  const badCredentials = { message: "Bad credentials", documentation_url: "https://docs.github.com/rest" };
-  const validationFailed = { message: "Validation Failed", documentation_url: "https://docs.github.com/rest" };
-
   app.delete("/applications/:client_id/token", async (c) => {
     const clientId = c.req.param("client_id");
     if (!authenticateOAuthApp(c, clientId)) return c.json(badCredentials, 401);
     const owner = await appTokenOwner(c, clientId);
     if (!owner) return c.json(validationFailed, 422);
-    tokenMap?.delete(owner.token);
-    getTokenToClientId(store).delete(owner.token);
+    revokeToken(owner.token);
     return c.body(null, 204);
   });
 
