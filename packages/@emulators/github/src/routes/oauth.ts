@@ -54,6 +54,53 @@ function getSessionMap(store: Store): Map<string, string> {
   return map;
 }
 
+/**
+ * The personal account signed in to this browser through the emulator's sign-in
+ * picker, identified by the `_emu_session` cookie.
+ */
+export function getBrowserSession(store: Store, c: Context<AppEnv>): { sessionId: string; login: string } | null {
+  const sessionId = parseCookies(c.req.header("Cookie") ?? "")["_emu_session"];
+  if (!sessionId) return null;
+  const login = getSessionMap(store).get(sessionId);
+  if (!login) return null;
+  return { sessionId, login };
+}
+
+/** The personal account signed in to a browser session, by its `_emu_session` id. */
+export function getBrowserSessionLogin(store: Store, sessionId: string): string | null {
+  return getSessionMap(store).get(sessionId) ?? null;
+}
+
+/** The sign-in picker: one button per seeded user, posting to the OAuth callback. */
+export function renderSignInPicker(
+  store: Store,
+  baseUrl: string,
+  subtitle: string,
+  hiddenFields: { redirect_uri: string; scope: string; state: string; client_id: string },
+): string {
+  const gh = getGitHubStore(store);
+  const users = [...gh.users.all()].sort((a, b) => a.login.localeCompare(b.login));
+
+  const userButtons = users
+    .map((u) => {
+      const brief = formatUser(u, baseUrl);
+      const full = formatUserFull(u, baseUrl);
+      return renderUserButton({
+        letter: (brief.login[0] ?? "?").toUpperCase(),
+        login: full.login,
+        name: full.name ?? undefined,
+        email: full.email ?? undefined,
+        formAction: "/login/oauth/callback",
+        hiddenFields: { login: u.login, ...hiddenFields },
+      });
+    })
+    .join("\n");
+
+  const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
+
+  return renderCardPage("Sign in to GitHub", subtitle, body, SERVICE_LABEL);
+}
+
 /** On read: drops entries older than {@link PENDING_CODE_TTL_MS}. */
 function getPendingCodeIfValid(store: Store, code: string): PendingCode | undefined {
   const map = getPendingCodes(store);
@@ -77,15 +124,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       const user = gh.users.findOneBy("login", authUser.login);
       if (user) return { login: user.login, id: user.id };
     }
-    const cookieHeader = c.req.header("Cookie") ?? "";
-    const cookies = parseCookies(cookieHeader);
-    const sessionId = cookies["_emu_session"];
-    if (sessionId) {
-      const login = getSessionMap(store).get(sessionId);
-      if (login) {
-        const user = gh.users.findOneBy("login", login);
-        if (user) return { login: user.login, id: user.id };
-      }
+    const session = getBrowserSession(store, c);
+    if (session) {
+      const user = gh.users.findOneBy("login", session.login);
+      if (user) return { login: user.login, id: user.id };
     }
     return null;
   }
@@ -124,36 +166,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       oauthAppForSubtitle = oauthApp;
     }
 
-    const users = [...gh.users.all()].sort((a, b) => a.login.localeCompare(b.login));
-
     const subtitleText = oauthAppForSubtitle
       ? `Authorize <strong>${escapeHtml(oauthAppForSubtitle.name)}</strong> to access your account.`
       : "Choose a seeded user to authorize this application.";
 
-    const userButtons = users
-      .map((u) => {
-        const brief = formatUser(u, baseUrl);
-        const full = formatUserFull(u, baseUrl);
-        return renderUserButton({
-          letter: (brief.login[0] ?? "?").toUpperCase(),
-          login: full.login,
-          name: full.name ?? undefined,
-          email: full.email ?? undefined,
-          formAction: "/login/oauth/callback",
-          hiddenFields: {
-            login: u.login,
-            redirect_uri,
-            scope,
-            state,
-            client_id,
-          },
-        });
-      })
-      .join("\n");
-
-    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
-
-    return c.html(renderCardPage("Sign in to GitHub", subtitleText, body, SERVICE_LABEL));
+    return c.html(renderSignInPicker(store, baseUrl, subtitleText, { redirect_uri, scope, state, client_id }));
   });
 
   // ---------- OAuth callback (user selection) ----------

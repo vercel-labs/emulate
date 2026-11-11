@@ -99,6 +99,7 @@ npm install @emulators/github
 - Orgs: get, update, list
 - Org members: list, check, remove, get/set membership
 - Teams: full CRUD, members, repos
+- Organization SAML SSO: `GET /orgs/:org/saml/metadata`, `GET /orgs/:org/sso`, `POST /orgs/:org/saml/consume`, `POST /orgs/:org/saml/relink` (seed `orgs[].saml`)
 
 ### Releases
 - Releases: full CRUD, latest, by tag

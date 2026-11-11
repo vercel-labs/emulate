@@ -21,6 +21,11 @@ github:
     - login: my-org
       name: My Organization
       description: A test organization
+      # SAML single sign-on, with the identity provider's sign-on URL, issuer, and certificate:
+      # saml:
+      #   sign_on_url: http://localhost:4010/app/my-github/exk1/sso/saml
+      #   issuer: http://www.okta.com/exk1
+      #   public_certificate: <the identity provider's PEM certificate>
   repos:
     - owner: octocat
       name: hello-world

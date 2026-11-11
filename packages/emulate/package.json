@@ -55,8 +55,10 @@
     "lint": "oxlint src"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
     "commander": "^14",
     "picocolors": "^1.1.1",
+    "xml-crypto": "^6.4.0",
     "yaml": "^2"
   },
   "devDependencies": {
