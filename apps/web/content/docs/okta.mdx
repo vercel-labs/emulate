@@ -34,6 +34,8 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /api/v1/users/:userId/lifecycle/unsuspend` — unsuspend
 - `POST /api/v1/users/:userId/lifecycle/reactivate` — reactivate
 
+Only `ACTIVE` users can sign in. A suspended, deactivated, staged, or provisioned user is refused at the sign-in page, and the token endpoint returns `invalid_grant` for their pending authorization codes and refresh tokens.
+
 ## Groups
 
 - `GET /api/v1/groups` — list groups
