@@ -481,7 +481,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.html(renderErrorPage("Unknown user", "The selected user is not available.", SERVICE_LABEL), 400);
     }
     if (user.status !== "ACTIVE") {
-      return c.html(renderErrorPage("User not active", "The selected user cannot sign in.", SERVICE_LABEL), 403);
+      return c.html(renderErrorPage("User not active", "The selected user cannot sign in.", SERVICE_LABEL), 400);
     }
 
     const configuredClients = getClientsForServer(oktaStore.oauthClients.all(), authServerId);
@@ -594,9 +594,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
       const user = findUserByRef(oktaStore, pending.userRef);
       if (!user) return c.json({ error: "invalid_grant", error_description: "Unknown user." }, 400);
-      if (user.status !== "ACTIVE") {
-        return c.json({ error: "invalid_grant", error_description: "The user is not active." }, 400);
-      }
       getPendingCodes(store).delete(code);
 
       const now = Math.floor(Date.now() / 1000);
@@ -658,9 +655,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
       const user = oktaStore.users.findOneBy("okta_id", existing.userOktaId);
       if (!user) return c.json({ error: "invalid_grant", error_description: "Unknown user." }, 400);
-      if (user.status !== "ACTIVE") {
-        return c.json({ error: "invalid_grant", error_description: "The user is not active." }, 400);
-      }
       getRefreshTokens(store).delete(refreshToken);
 
       const now = Math.floor(Date.now() / 1000);

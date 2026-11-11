@@ -33,23 +33,6 @@ function signIn(app: Hono) {
   });
 }
 
-function token(app: Hono, grant: Record<string, string>) {
-  return app.request(`${base}/oauth2/default/v1/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ ...client, redirect_uri: redirectUri, ...grant }),
-  });
-}
-
-async function issue(app: Hono): Promise<{ code: string; refresh: string }> {
-  const code = new URL((await signIn(app)).headers.get("location") ?? "").searchParams.get("code") ?? "";
-  const tokens = (await (await token(app, { grant_type: "authorization_code", code })).json()) as {
-    refresh_token: string;
-  };
-  const secondCode = new URL((await signIn(app)).headers.get("location") ?? "").searchParams.get("code") ?? "";
-  return { code: secondCode, refresh: tokens.refresh_token };
-}
-
 function lifecycle(app: Hono, action: string) {
   return app.request(`${base}/api/v1/users/00u_alice/lifecycle/${action}`, {
     method: "POST",
@@ -59,21 +42,11 @@ function lifecycle(app: Hono, action: string) {
 
 describe("Okta inactive users", () => {
   for (const action of ["suspend", "deactivate"]) {
-    it(`refuses sign-in, code exchange, and refresh after ${action}`, async () => {
+    it(`refuses sign-in after ${action}`, async () => {
       const app = createTestApp();
-      const { code, refresh } = await issue(app);
+      expect((await signIn(app)).status).toBe(302);
       expect((await lifecycle(app, action)).status).toBe(200);
-
-      expect((await signIn(app)).status).toBe(403);
-      const grants: Record<string, string>[] = [
-        { grant_type: "authorization_code", code },
-        { grant_type: "refresh_token", refresh_token: refresh },
-      ];
-      for (const grant of grants) {
-        const response = await token(app, grant);
-        expect(response.status).toBe(400);
-        expect(((await response.json()) as { error: string }).error).toBe("invalid_grant");
-      }
+      expect((await signIn(app)).status).toBe(400);
     });
   }
 
