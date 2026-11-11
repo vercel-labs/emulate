@@ -202,6 +202,30 @@ describe("Okta SAML 2.0 identity provider", () => {
     expect(app._links.metadata.href).toBe(`${base}/api/v1/apps/0oasaml/sso/saml/metadata`);
   });
 
+  it("refuses a SAML app that signs neither the response nor the assertion", async () => {
+    const server = setup();
+    const unsigned = { ssoAcsUrl: ACS, audience: SP_ENTITY_ID, responseSigned: false, assertionSigned: false };
+    const created = await server.app.request(`${base}/api/v1/apps`, {
+      method: "POST",
+      headers: { Authorization: "SSWS ssws-token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "unsigned",
+        label: "Unsigned",
+        signOnMode: "SAML_2_0",
+        settings: { signOn: unsigned },
+      }),
+    });
+    expect(created.status).toBe(400);
+    expect(((await created.json()) as { errorCode: string }).errorCode).toBe("E0000001");
+
+    const updated = await server.app.request(`${base}/api/v1/apps/0oasaml`, {
+      method: "PUT",
+      headers: { Authorization: "SSWS ssws-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ signOnMode: "SAML_2_0", settings: { signOn: unsigned } }),
+    });
+    expect(updated.status).toBe(400);
+  });
+
   it("gives an app created through the Apps API an external key and metadata", async () => {
     const server = setup();
     const created = await server.app.request(`${base}/api/v1/apps`, {
@@ -394,7 +418,7 @@ describe("Okta SAML 2.0 identity provider", () => {
   it("refuses a suspended user without a SAML response", async () => {
     const server = setup();
     const res = await signIn(server, "00ubob", { requestId: "_req-suspended" });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
     const html = await res.text();
     expect(html).toContain("SUSPENDED");
     expect(html).not.toContain("SAMLResponse");

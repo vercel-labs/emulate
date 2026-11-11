@@ -14,6 +14,7 @@ import {
   normalizeGroupType,
   normalizeStatus,
   resolveExternalKey,
+  samlSigningSettingsError,
 } from "./helpers.js";
 import { appRoutes } from "./routes/apps.js";
 import { authorizationServerRoutes } from "./routes/auth-servers.js";
@@ -215,6 +216,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
       const byName = okta.apps.findOneBy("name", app.name);
       if (byName) continue;
       const signOnMode = app.sign_on_mode ?? "OPENID_CONNECT";
+      const signingError = samlSigningSettingsError(signOnMode, app.settings ?? {});
+      if (signingError) throw new Error(`Okta app "${app.name}": ${signingError}`);
       okta.apps.insert({
         okta_id: app.okta_id ?? generateOktaId("0oa"),
         name: app.name,

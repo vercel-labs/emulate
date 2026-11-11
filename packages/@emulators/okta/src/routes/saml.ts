@@ -214,7 +214,7 @@ export function samlRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
           `${user.login} cannot sign in because the user is ${user.status}.`,
           SERVICE_LABEL,
         ),
-        403,
+        400,
       );
     }
 
