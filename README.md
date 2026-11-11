@@ -584,6 +584,7 @@ stripe:
     - product_name: Pro Plan
       currency: usd
       unit_amount: 2000
+  strict_scopes: false
 
 mongoatlas:
   projects:
