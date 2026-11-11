@@ -41,6 +41,13 @@ describe("Okta strict mode management tokens", () => {
     expect((await listUsers(app, "Bearer access-token")).status).toBe(401);
   });
 
+  it("leaves a request without credentials to the existing authentication error", async () => {
+    const { app } = createTestApp(true);
+    const res = await app.request(`${base}/api/v1/users`);
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { errorCode: string }).errorCode).toBe("E0000004");
+  });
+
   it("keeps the fallback user for unknown tokens by default", async () => {
     const { app } = createTestApp(false);
     expect((await listUsers(app, "SSWS never-issued")).status).toBe(200);

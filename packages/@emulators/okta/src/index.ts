@@ -271,7 +271,8 @@ export const oktaPlugin: ServicePlugin = {
     app.use("*", async (c, next) => {
       if (c.req.path.startsWith("/api/v1/") && store.getData<boolean>("okta.strict_scopes") === true) {
         const token = (c.req.header("Authorization") ?? "").replace(/^(SSWS|Bearer)\s+/i, "").trim();
-        const user = token ? tokenMap?.get(token) : undefined;
+        if (!token) return next();
+        const user = tokenMap?.get(token);
         if (!user) return oktaError(c, 401, "E0000011", "Invalid token provided");
         c.set("authUser", user);
         c.set("authToken", token);
