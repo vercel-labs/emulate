@@ -424,6 +424,28 @@ describe("Okta SAML 2.0 identity provider", () => {
     expect(html).not.toContain("SAMLResponse");
   });
 
+  it("refuses sign-in through a deactivated SAML app", async () => {
+    const server = setup();
+    const picker = await openSso(server, { requestId: "_req-inactive" });
+    const form = parseForms(await picker.text()).find((entry) => entry.fields.user_ref === "00ualice");
+    expect(form).toBeDefined();
+
+    const deactivated = await server.app.request(`${base}/api/v1/apps/0oasaml/lifecycle/deactivate`, {
+      method: "POST",
+      headers: { Authorization: "SSWS ssws-token" },
+    });
+    expect(deactivated.status).toBe(200);
+
+    expect((await openSso(server, { requestId: "_req-inactive-2" })).status).toBe(404);
+    const callback = await server.app.request(`${base}${form!.action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(form!.fields).toString(),
+    });
+    expect(callback.status).toBe(404);
+    expect(await callback.text()).not.toContain("SAMLResponse");
+  });
+
   it("rejects an undecodable SAMLRequest and an unknown external key", async () => {
     const server = setup();
     const invalid = await server.app.request(`${base}${SSO_PATH}?SAMLRequest=not-a-request`);

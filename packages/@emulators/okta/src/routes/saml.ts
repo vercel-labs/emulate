@@ -106,6 +106,13 @@ export function samlRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       .find((entry) => entry.sign_on_mode === SAML_2_0_SIGN_ON_MODE && entry.external_key === decoded);
   };
 
+  // Okta refuses SSO through a deactivated app integration; it does not document the response, so the emulator
+  // answers as for an unknown app.
+  const findActiveSamlApp = (externalKey: string): OktaApp | undefined => {
+    const samlApp = findSamlApp(externalKey);
+    return samlApp?.status === "ACTIVE" ? samlApp : undefined;
+  };
+
   const appNotFound = (c: Context<AppEnv>): Response =>
     c.html(renderErrorPage("App not found", "No SAML 2.0 app has this external key.", SERVICE_LABEL), 404);
 
@@ -181,21 +188,21 @@ export function samlRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
 
   // HTTP-Redirect binding (SAMLRequest deflated and base64 encoded in the query) or IdP-initiated sign-in.
   app.get("/app/:appName/:externalKey/sso/saml", (c) => {
-    const samlApp = findSamlApp(c.req.param("externalKey"));
+    const samlApp = findActiveSamlApp(c.req.param("externalKey"));
     if (!samlApp) return appNotFound(c);
     return renderPicker(c, samlApp, c.req.query("SAMLRequest") ?? "", c.req.query("RelayState") ?? "", true);
   });
 
   // HTTP-POST binding (SAMLRequest base64 encoded in the form).
   app.post("/app/:appName/:externalKey/sso/saml", async (c) => {
-    const samlApp = findSamlApp(c.req.param("externalKey"));
+    const samlApp = findActiveSamlApp(c.req.param("externalKey"));
     if (!samlApp) return appNotFound(c);
     const body = await c.req.parseBody();
     return renderPicker(c, samlApp, bodyStr(body.SAMLRequest), bodyStr(body.RelayState), false);
   });
 
   app.post("/app/:appName/:externalKey/sso/saml/callback", async (c) => {
-    const samlApp = findSamlApp(c.req.param("externalKey"));
+    const samlApp = findActiveSamlApp(c.req.param("externalKey"));
     if (!samlApp) return appNotFound(c);
 
     const body = await c.req.parseBody();
