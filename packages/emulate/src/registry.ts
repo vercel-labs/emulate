@@ -178,6 +178,14 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             color_text: "#111111",
           },
         ],
+        send_as: [
+          {
+            user_email: "testuser@example.com",
+            send_as_email: "support@example.com",
+            display_name: "Support Team",
+            signature: "<div>The Support Team</div>",
+          },
+        ],
         messages: [
           {
             id: "msg_welcome",

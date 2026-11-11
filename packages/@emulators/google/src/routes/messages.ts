@@ -16,6 +16,8 @@ import {
   parseBooleanParam,
   parseFormat,
   parseOffset,
+  readRawFrom,
+  resolveSendAsFrom,
   trashLabelIds,
   untrashLabelIds,
 } from "../helpers.js";
@@ -51,9 +53,10 @@ export function messageRoutes({ app, store }: RouteContext): void {
       );
     }
 
-    const messageInput = parseMessageInputFromBody(body, {
-      from: mode === "send" ? authEmail : undefined,
-    });
+    const messageInput = parseMessageInputFromBody(body);
+    if (mode === "send") {
+      messageInput.from = resolveSendAsFrom(gs, authEmail, messageInput.from ?? readRawFrom(messageInput.raw));
+    }
     if (!messageInput.raw && (!messageInput.from || !messageInput.to)) {
       return googleApiError(
         c,

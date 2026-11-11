@@ -133,6 +133,11 @@ google:
       name: Ops/Review
       color_background: "#DDEEFF"
       color_text: "#111111"
+  send_as:
+    - user_email: testuser@gmail.com
+      send_as_email: support@example.com
+      display_name: Support Team
+      signature: "<div>The Support Team</div>"
   messages:
     - id: msg_welcome
       user_email: testuser@gmail.com
@@ -469,7 +474,19 @@ curl http://localhost:4002/gmail/v1/users/me/settings/forwardingAddresses \
 # List send-as aliases
 curl http://localhost:4002/gmail/v1/users/me/settings/sendAs \
   -H "Authorization: Bearer $TOKEN"
+
+# Create a send-as alias (accepted at once unless verificationStatus is "pending")
+curl -X POST http://localhost:4002/gmail/v1/users/me/settings/sendAs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sendAsEmail": "support@example.com", "displayName": "Support Team"}'
+
+# Delete a send-as alias
+curl -X DELETE http://localhost:4002/gmail/v1/users/me/settings/sendAs/support@example.com \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+Seed extra send-as aliases with `send_as` (`send_as_email`, optional `display_name`, `signature`, `is_default`, and `verification_status` of `accepted` or `pending`). Like Gmail, sent messages and drafts keep a From header naming a verified send-as address; any other From, or none, becomes the default send-as address.
 
 ## Google Calendar API
 

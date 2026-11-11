@@ -101,6 +101,8 @@ export interface GoogleSendAs extends Entity {
   display_name: string | null;
   is_default: boolean;
   signature: string;
+  /** Gmail only sends from an alias once its ownership is confirmed. */
+  verification_status: "accepted" | "pending";
 }
 
 export interface GoogleCalendar extends Entity {

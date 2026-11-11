@@ -692,12 +692,15 @@ export function updateDraftMessage(
 }
 
 export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMessage | null {
-  const message = getDraftMessage(gs, draft);
-  if (!message) {
+  const draftMessage = getDraftMessage(gs, draft);
+  if (!draftMessage) {
     gs.drafts.delete(draft.id);
     return null;
   }
 
+  const from = resolveSendAsFrom(gs, draftMessage.user_email, draftMessage.from);
+  const message =
+    from === draftMessage.from ? draftMessage : (gs.messages.update(draftMessage.id, { from }) ?? draftMessage);
   const sent = markMessageModified(
     gs,
     message,
@@ -837,11 +840,80 @@ export function formatSendAsResource(entry: GoogleSendAs) {
     displayName: entry.display_name ?? undefined,
     replyToAddress: entry.send_as_email,
     signature: entry.signature,
-    isPrimary: entry.is_default,
+    isPrimary: isPrimarySendAs(entry),
     isDefault: entry.is_default,
     treatAsAlias: false,
-    verificationStatus: "accepted",
+    // Gmail leaves the status off the account's own address.
+    ...(isPrimarySendAs(entry) ? {} : { verificationStatus: entry.verification_status }),
   };
+}
+
+/**
+ * The From a sent message carries. Like Gmail, a verified send-as address is
+ * kept as written; anything else, including no From at all, becomes the
+ * default send-as address.
+ */
+export function resolveSendAsFrom(gs: GoogleStore, userEmail: string, from: string | null | undefined): string {
+  const addresses = listSendAsForUser(gs, userEmail);
+  const requested = from ? extractHeaderAddress(from) : null;
+  const match = requested
+    ? addresses.find(
+        (entry) => entry.verification_status === "accepted" && entry.send_as_email.toLowerCase() === requested,
+      )
+    : undefined;
+  if (match && from) return from.trim();
+
+  const fallback = addresses.find((entry) => entry.is_default) ?? addresses[0];
+  return fallback.display_name ? `${fallback.display_name} <${fallback.send_as_email}>` : fallback.send_as_email;
+}
+
+export function readRawFrom(raw: string | null | undefined): string | undefined {
+  if (!raw) return;
+  try {
+    return parseRawMessage(raw).from || undefined;
+  } catch {
+    // An unreadable message is rejected when it is stored.
+    return;
+  }
+}
+
+export function seedSendAsEntry(
+  gs: GoogleStore,
+  entry: {
+    user_email: string;
+    send_as_email: string;
+    display_name?: string | null;
+    signature?: string;
+    is_default?: boolean;
+    verification_status?: "accepted" | "pending";
+  },
+): GoogleSendAs {
+  const addresses = listSendAsForUser(gs, entry.user_email);
+  if (entry.is_default) {
+    for (const address of addresses.filter((item) => item.is_default)) {
+      gs.sendAs.update(address.id, { is_default: false });
+    }
+  }
+
+  const existing = addresses.find(
+    (address) => address.send_as_email.toLowerCase() === entry.send_as_email.toLowerCase(),
+  );
+  const fields = {
+    ...(entry.display_name !== undefined ? { display_name: entry.display_name } : {}),
+    ...(entry.signature !== undefined ? { signature: entry.signature } : {}),
+    ...(entry.is_default ? { is_default: true } : {}),
+    ...(entry.verification_status ? { verification_status: entry.verification_status } : {}),
+  };
+  if (existing) return gs.sendAs.update(existing.id, fields) ?? existing;
+
+  return gs.sendAs.insert({
+    user_email: entry.user_email,
+    send_as_email: entry.send_as_email,
+    display_name: entry.display_name ?? null,
+    signature: entry.signature ?? "",
+    is_default: entry.is_default ?? false,
+    verification_status: entry.verification_status ?? "accepted",
+  });
 }
 
 export function listMessagesForUser(
@@ -1436,7 +1508,18 @@ function ensureDefaultSendAs(gs: GoogleStore, userEmail: string): void {
     display_name: user?.name?.trim() || userEmail.split("@")[0],
     is_default: true,
     signature: "",
+    verification_status: "accepted",
   });
+}
+
+function isPrimarySendAs(entry: GoogleSendAs): boolean {
+  return entry.send_as_email.toLowerCase() === entry.user_email.toLowerCase();
+}
+
+function extractHeaderAddress(header: string): string | null {
+  const bracketed = header.match(/<([^<>]+)>\s*$/);
+  const address = (bracketed?.[1] ?? header).trim().toLowerCase();
+  return address.includes("@") ? address : null;
 }
 
 function matchesFilter(filter: GoogleFilter, from: string): boolean {
