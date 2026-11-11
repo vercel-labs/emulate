@@ -1,6 +1,7 @@
 // Required by @peculiar/x509's tsyringe dependency injection
 import "reflect-metadata";
-import { generateKeyPairSync, webcrypto } from "node:crypto";
+import { generateKeyPair, webcrypto } from "node:crypto";
+import { promisify } from "node:util";
 import type { Store } from "@emulators/core";
 
 export interface SamlSigningMaterial {
@@ -9,27 +10,21 @@ export interface SamlSigningMaterial {
 }
 
 const SIGNING_MATERIAL_KEY = "okta.saml.signingMaterial";
-const inFlight = new WeakMap<Store, Promise<SamlSigningMaterial>>();
+let processMaterial: Promise<SamlSigningMaterial> | undefined;
 
-// One signing key and certificate per emulator instance, kept in the store so snapshots preserve it.
-export function getSamlSigningMaterial(store: Store): Promise<SamlSigningMaterial> {
+// One signing key and certificate per process, generated once in the background and recorded in each store so
+// snapshots preserve it; a store restored from a snapshot keeps its own.
+export async function getSamlSigningMaterial(store: Store): Promise<SamlSigningMaterial> {
   const existing = store.getData<SamlSigningMaterial>(SIGNING_MATERIAL_KEY);
-  if (existing?.privateKeyPem && existing.certBase64) return Promise.resolve(existing);
-
-  let pending = inFlight.get(store);
-  if (!pending) {
-    pending = createSigningMaterial().then((material) => {
-      store.setData(SIGNING_MATERIAL_KEY, material);
-      inFlight.delete(store);
-      return material;
-    });
-    inFlight.set(store, pending);
-  }
-  return pending;
+  if (existing?.privateKeyPem && existing.certBase64) return existing;
+  processMaterial ??= createSigningMaterial();
+  const material = await processMaterial;
+  store.setData(SIGNING_MATERIAL_KEY, material);
+  return material;
 }
 
 async function createSigningMaterial(): Promise<SamlSigningMaterial> {
-  const { privateKey } = generateKeyPairSync("rsa", {
+  const { privateKey } = await promisify(generateKeyPair)("rsa", {
     modulusLength: 2048,
     publicKeyEncoding: { type: "spki", format: "pem" },
     privateKeyEncoding: { type: "pkcs8", format: "pem" },

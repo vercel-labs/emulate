@@ -44,7 +44,7 @@ The assertion uses these `settings.signOn` fields:
 | `digestAlgorithm`      | `SHA256` (default) or `SHA1`.                                                                                                                          |
 | `authnContextClassRef` | Defaults to `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport`.                                                                       |
 
-The assertion is valid from 5 minutes before to 5 minutes after it is issued, and has no `SessionNotOnOrAfter`. One signing key and self-signed certificate is generated per emulator instance and shared by every SAML app; the metadata publishes that certificate.
+The assertion is valid from 5 minutes before to 5 minutes after it is issued, and has no `SessionNotOnOrAfter`. One signing key and self-signed certificate is generated once per process and shared by every SAML app; the metadata publishes that certificate.
 
 Okta refuses to sign in a user who is not `ACTIVE` (status 400), and shows a user who is not assigned to the app the "App Not Assigned" page (status 403); neither gets a SAML response. Creating or updating a SAML app with both `responseSigned` and `assertionSigned` set to `false` returns `400` with `E0000001`, as Okta requires at least one of them; a seed config with such an app fails to load. Assign users with `app_assignments` in the seed config or `PUT /api/v1/apps/:appId/users/:userId`.
 
