@@ -12,6 +12,21 @@ export function isSlackTokenRevoked(store: Store, token: string): boolean {
   return store.getData<Set<string>>("slack.revoked_tokens")?.has(token) ?? false;
 }
 
+/** Tokens revoked by auth.revoke fail later calls with invalid_auth, not token_revoked, which Slack reserves for
+ * deleted users or workspaces and removed apps. */
+export function isSlackTokenInvalidated(store: Store, token: string): boolean {
+  return store.getData<Set<string>>("slack.invalidated_tokens")?.has(token) ?? false;
+}
+
+export function invalidateSlackToken(store: Store, token: string, tokenMap?: TokenMap): void {
+  const invalidated = store.getData<Set<string>>("slack.invalidated_tokens") ?? new Set<string>();
+  invalidated.add(token);
+  const record = getSlackStore(store).tokens.findOneBy("token", token);
+  if (record) getSlackStore(store).tokens.delete(record.id);
+  tokenMap?.delete(token);
+  store.setData("slack.invalidated_tokens", invalidated);
+}
+
 export function revokeSlackTokens(store: Store, tokens: SlackToken[], tokenMap?: TokenMap): void {
   const revoked = store.getData<Set<string>>("slack.revoked_tokens") ?? new Set<string>();
   const ss = getSlackStore(store);
