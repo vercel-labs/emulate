@@ -189,6 +189,7 @@ export function assertRepoContentsWrite(gh: GitHubStore, authUser: AuthUser | un
     if (repo.archived) throw new ApiError(403, "Repository was archived so is read-only.");
     return installationActor(gh, authUser);
   }
+  if (!canAccessRepo(gh, authUser, repo)) throw notFound();
   const user = assertAuthenticatedUser(gh, authUser);
   if (!hasRepoContentsWrite(gh, user, repo)) throw forbidden();
   if (repo.archived) throw new ApiError(403, "Repository was archived so is read-only.");
@@ -308,6 +309,7 @@ export function assertRepoAdmin(gh: GitHubStore, authUser: AuthUser | undefined,
     return assertAuthenticatedActor(gh, authUser);
   }
 
+  if (!canAccessRepo(gh, authUser, repo)) throw notFound();
   const user = assertAuthenticatedUser(gh, authUser);
   if (hasRepoAdmin(gh, user, repo)) return user;
   throw forbidden();
@@ -324,10 +326,8 @@ export function assertRepoWrite(
     return assertAuthenticatedActor(gh, authUser);
   }
 
-  const user = assertAuthenticatedUser(gh, authUser);
-  if (!repo.private) return user;
   if (!canAccessRepo(gh, authUser, repo)) throw notFound();
-  return user;
+  return assertAuthenticatedUser(gh, authUser);
 }
 
 export function assertIssueWrite(gh: GitHubStore, authUser: AuthUser | undefined, repo: GitHubRepo): GitHubUser {
