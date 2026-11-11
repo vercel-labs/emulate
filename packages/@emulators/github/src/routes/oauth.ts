@@ -240,6 +240,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       );
     };
 
+    const badVerificationCode = () =>
+      c.json({ error: "bad_verification_code", error_description: "The code passed is incorrect or expired." }, 200);
+
     const oauthAppsConfigured = gh.oauthApps.all().length > 0;
     if (oauthAppsConfigured) {
       const oauthApp = gh.oauthApps.findOneBy("client_id", bodyClientId);
@@ -259,10 +262,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const pending = getPendingCodeIfValid(store, code);
     if (!pending) {
       debug("github.oauth", `[OAuth token] REJECTED: code not found in pendingCodes or expired`);
-      return c.json(
-        { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
-        200,
-      );
+      return badVerificationCode();
+    }
+
+    // A code issued to another app is an incorrect code for this one, and stays usable by its own app.
+    if (oauthAppsConfigured && pending.clientId !== bodyClientId) {
+      debug("github.oauth", `[OAuth token] REJECTED: code was issued to another client_id`);
+      return badVerificationCode();
     }
 
     debug("github.oauth", `[OAuth token] code valid, login=${pending.login}, scope=${pending.scope}`);
@@ -271,10 +277,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const user = gh.users.findOneBy("login", pending.login);
     if (!user) {
       debug("github.oauth", `[OAuth token] REJECTED: user "${pending.login}" not found in store`);
-      return c.json(
-        { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
-        200,
-      );
+      return badVerificationCode();
     }
 
     const token = "gho_" + randomBytes(20).toString("base64url");
