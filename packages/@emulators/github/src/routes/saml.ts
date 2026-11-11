@@ -1,15 +1,18 @@
 import type { RouteContext } from "@emulators/core";
-import { renderErrorPage, renderFormPostPage } from "@emulators/core";
+import { escapeHtml, renderCardPage, renderErrorPage, renderFormPostPage, renderUserButton } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import { getBrowserSession, renderSignInPicker } from "./oauth.js";
 import {
   SamlResponseError,
   createAuthnRequest,
+  createPendingRelink,
   getOrgSamlConfig,
   linkSamlIdentity,
   openSamlSession,
+  relinkSamlIdentity,
   renderSpMetadata,
   takePendingAuthnRequest,
+  takePendingRelink,
   validateSamlResponse,
 } from "../saml.js";
 
@@ -92,12 +95,24 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
       );
     }
 
+    const relayState = typeof body.RelayState === "string" ? localPath(body.RelayState) : null;
+
     try {
       const assertion = validateSamlResponse(samlResponse, baseUrl, org, config);
       if (!takePendingAuthnRequest(store, assertion.inResponseTo, session.sessionId, org.id)) {
         throw new SamlResponseError("The SAML response does not answer a sign-in request from this browser.", 403);
       }
-      linkSamlIdentity(store, org.id, user.id, assertion.nameId);
+      if (linkSamlIdentity(store, org.id, user.id, assertion.nameId) === "relink") {
+        const token = createPendingRelink(store, {
+          session_id: session.sessionId,
+          org_id: org.id,
+          user_id: user.id,
+          name_id: assertion.nameId,
+          session_not_on_or_after: assertion.sessionNotOnOrAfter,
+          relay_state: relayState,
+        });
+        return c.html(renderRelinkWarning(org.login, user.login, assertion.nameId, token));
+      }
       openSamlSession(store, session.sessionId, org.id, user.id, assertion.nameId, assertion.sessionNotOnOrAfter);
     } catch (error) {
       if (error instanceof SamlResponseError) {
@@ -106,7 +121,54 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
       throw error;
     }
 
-    const relayState = typeof body.RelayState === "string" ? localPath(body.RelayState) : null;
     return c.redirect(relayState ?? `/orgs/${org.login}`, 302);
+  });
+
+  // GitHub warns before it relinks an account to another external identity, and relinks only if the
+  // user continues.
+  function renderRelinkWarning(orgLogin: string, login: string, nameId: string, token: string): string {
+    const subtitle =
+      `The external identity <strong>${escapeHtml(nameId)}</strong> does not match the external identity ` +
+      `linked to your account in ${escapeHtml(orgLogin)}. You are about to relink your account. ` +
+      "As your external identity is used to govern access and team membership, continuing with the new external " +
+      "identity can cause you to lose access to teams and organizations. Only continue if you know that you're " +
+      "supposed to use that new external identity for authentication in the future.";
+    const button = renderUserButton({
+      letter: (login[0] ?? "?").toUpperCase(),
+      login,
+      name: `Continue and relink to ${nameId}`,
+      formAction: `/orgs/${orgLogin}/saml/relink`,
+      hiddenFields: { relink_token: token },
+    });
+    return renderCardPage("Relink your account?", subtitle, button, SERVICE_LABEL);
+  }
+
+  app.post("/orgs/:org/saml/relink", async (c) => {
+    const found = findSamlOrg(c.req.param("org"));
+    if (!found) return c.html(notConfigured(), 404);
+    const { org } = found;
+
+    const body = (await c.req.parseBody()) as Record<string, string>;
+    const token = typeof body.relink_token === "string" ? body.relink_token : "";
+    const session = getBrowserSession(store, c);
+    const relink = session && token ? takePendingRelink(store, token, session.sessionId, org.id) : null;
+    const user = relink ? gh.users.get(relink.user_id) : undefined;
+    if (!session || !relink || !user || user.login !== session.login) {
+      return c.html(
+        renderErrorPage("SAML sign-in failed", "This relink request is not valid for this browser.", SERVICE_LABEL),
+        403,
+      );
+    }
+
+    try {
+      relinkSamlIdentity(store, org.id, user.id, relink.name_id);
+    } catch (error) {
+      if (error instanceof SamlResponseError) {
+        return c.html(renderErrorPage("SAML sign-in failed", error.message, SERVICE_LABEL), error.status);
+      }
+      throw error;
+    }
+    openSamlSession(store, session.sessionId, org.id, user.id, relink.name_id, relink.session_not_on_or_after);
+    return c.redirect(relink.relay_state ?? `/orgs/${org.login}`, 302);
   });
 }

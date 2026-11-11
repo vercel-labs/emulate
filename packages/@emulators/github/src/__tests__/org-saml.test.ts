@@ -461,13 +461,58 @@ describe("GitHub organization SAML response", () => {
     expect((await consume(app, sessionId, xml)).status).toBe(403);
   });
 
-  it("refuses a NameID other than the one linked to the account", async () => {
+  async function linkFirstIdentity() {
     const first = await startSso(app, sessionId);
     expect((await consume(app, sessionId, buildResponse({ requestId: first.requestId }))).status).toBe(302);
-
     sessionId = await signIn(app, "octocat");
-    await expectRefused((requestId) => buildResponse({ requestId, nameId: "someone-else@acme.test" }));
+  }
+
+  async function startRelink(relayState?: string): Promise<string> {
+    const { requestId } = await startSso(app, sessionId);
+    const res = await consume(app, sessionId, buildResponse({ requestId, nameId: "new@acme.test" }), relayState);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("You are about to relink your account.");
+    expect(html).toContain('action="/orgs/acme/saml/relink"');
+    return hiddenField(html, "relink_token")!;
+  }
+
+  function confirmRelink(browserSession: string, token: string) {
+    return app.request(`${base}/orgs/acme/saml/relink`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: `_emu_session=${browserSession}` },
+      body: new URLSearchParams({ relink_token: token }),
+    });
+  }
+
+  it("warns before relinking the account to a different NameID", async () => {
+    await linkFirstIdentity();
+    const token = await startRelink();
+    expect(token).toMatch(/^[0-9a-f]+$/);
     expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "octocat"))).toBe("octocat@acme.test");
+    expect(getActiveSamlSession(store, sessionId, acme(store).id)).toBeNull();
+  });
+
+  it("relinks the account and opens the SAML session when the user continues", async () => {
+    await linkFirstIdentity();
+    const token = await startRelink("/acme/repo");
+    const res = await confirmRelink(sessionId, token);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/acme/repo");
+    expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "octocat"))).toBe("new@acme.test");
+    expect(getActiveSamlSession(store, sessionId, acme(store).id)?.name_id).toBe("new@acme.test");
+    expect((await confirmRelink(sessionId, token)).status).toBe(403);
+  });
+
+  it("changes nothing without the user's confirmation", async () => {
+    await linkFirstIdentity();
+    const token = await startRelink();
+    const otherBrowser = await signIn(app, "octocat");
+    expect((await confirmRelink(otherBrowser, token)).status).toBe(403);
+    expect((await confirmRelink(sessionId, "unknown")).status).toBe(403);
+    expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "octocat"))).toBe("octocat@acme.test");
+    expect(getActiveSamlSession(store, sessionId, acme(store).id)).toBeNull();
+    expect(getActiveSamlSession(store, otherBrowser, acme(store).id)).toBeNull();
   });
 
   it("refuses a NameID linked to another account", async () => {

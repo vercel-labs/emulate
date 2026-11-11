@@ -394,18 +394,65 @@ export function getLinkedSamlIdentity(store: Store, orgId: number, userId: numbe
 
 /**
  * Links `nameId` to the personal account on first use. Refuses a NameID linked to another account in
- * the organization, and a NameID other than the one already linked to this account.
+ * the organization. Returns `"relink"` without changing anything when the account is linked to
+ * another NameID: GitHub then warns that the account is about to be relinked.
  */
-export function linkSamlIdentity(store: Store, orgId: number, userId: number, nameId: string): void {
+export function linkSamlIdentity(store: Store, orgId: number, userId: number, nameId: string): "linked" | "relink" {
   const gh = getGitHubStore(store);
   const identities = gh.samlIdentities.findBy("org_id", orgId);
   const forNameId = identities.find((row) => row.name_id === nameId);
   if (forNameId && forNameId.user_id !== userId) {
-    refuse("This external identity is already linked to another GitHub account in this organization.");
+    refuse("You cannot sign in with this external identity: it is linked to another GitHub account.");
   }
   const forUser = identities.find((row) => row.user_id === userId);
-  if (forUser && forUser.name_id !== nameId) {
-    refuse("Your GitHub account is linked to another external identity in this organization.");
-  }
+  if (forUser && forUser.name_id !== nameId) return "relink";
   if (!forUser) gh.samlIdentities.insert({ org_id: orgId, user_id: userId, name_id: nameId });
+  return "linked";
+}
+
+/** Links the personal account to `nameId` in place of the identity it was linked to. */
+export function relinkSamlIdentity(store: Store, orgId: number, userId: number, nameId: string): void {
+  const gh = getGitHubStore(store);
+  const identities = gh.samlIdentities.findBy("org_id", orgId);
+  const forNameId = identities.find((row) => row.name_id === nameId);
+  if (forNameId && forNameId.user_id !== userId) {
+    refuse("You cannot sign in with this external identity: it is linked to another GitHub account.");
+  }
+  const forUser = identities.find((row) => row.user_id === userId);
+  if (forUser) gh.samlIdentities.update(forUser.id, { name_id: nameId });
+  else gh.samlIdentities.insert({ org_id: orgId, user_id: userId, name_id: nameId });
+}
+
+export interface PendingRelink {
+  session_id: string;
+  org_id: number;
+  user_id: number;
+  name_id: string;
+  session_not_on_or_after: number | null;
+  relay_state: string | null;
+}
+
+function getPendingRelinks(store: Store): Map<string, PendingRelink> {
+  let map = store.getData<Map<string, PendingRelink>>("github.saml.pendingRelinks");
+  if (!map) {
+    map = new Map();
+    store.setData("github.saml.pendingRelinks", map);
+  }
+  return map;
+}
+
+/** Keeps a validated assertion that needs the user's confirmation to relink, and returns its token. */
+export function createPendingRelink(store: Store, relink: PendingRelink): string {
+  const token = randomBytes(20).toString("hex");
+  getPendingRelinks(store).set(token, relink);
+  return token;
+}
+
+/** Consumes a pending relink if this browser session holds it for this organization. */
+export function takePendingRelink(store: Store, token: string, sessionId: string, orgId: number): PendingRelink | null {
+  const pending = getPendingRelinks(store);
+  const relink = pending.get(token);
+  if (!relink || relink.session_id !== sessionId || relink.org_id !== orgId) return null;
+  pending.delete(token);
+  return relink;
 }
