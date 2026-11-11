@@ -165,6 +165,8 @@ stripe:
 
 The `product_name` field in prices links to the product by name. Use `events: ['*']` to receive all webhook events, or specify individual event types.
 
+API keys are accepted without checks by default. Set `stripe.strict_scopes: true` in seed config to require a key from seed config or server options on `/v1` routes, sent as the HTTP Basic username or a bearer token: a request without a key returns `401` with `You did not provide an API key.` and an unknown key returns `401` with `Invalid API Key provided`, both as `invalid_request_error`. The hosted checkout pages stay public.
+
 ## API Endpoints
 
 ### Customers
