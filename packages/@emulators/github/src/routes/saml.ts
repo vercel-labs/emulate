@@ -1,7 +1,7 @@
 import type { RouteContext } from "@emulators/core";
 import { escapeHtml, renderCardPage, renderErrorPage, renderFormPostPage, renderUserButton } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import { getBrowserSession, renderSignInPicker } from "./oauth.js";
+import { getBrowserSession, getBrowserSessionLogin, renderSignInPicker } from "./oauth.js";
 import {
   SamlResponseError,
   createAuthnRequest,
@@ -11,17 +11,31 @@ import {
   openSamlSession,
   relinkSamlIdentity,
   renderSpMetadata,
-  takePendingAuthnRequest,
+  deletePendingAuthnRequest,
+  findPendingAuthnRequest,
   takePendingRelink,
   validateSamlResponse,
 } from "../saml.js";
 
 const SERVICE_LABEL = "GitHub";
 
-/** A path on this host, so that a redirect after sign-in cannot leave the emulator. */
-function localPath(value: string | undefined): string | null {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return null;
-  return value;
+/**
+ * A path on this host, so that a redirect after sign-in cannot leave the emulator: a single leading
+ * "/", no backslash, no ASCII control or whitespace character, and a URL that resolves to the
+ * emulator's own origin. Returns the normalized path, query, and fragment.
+ */
+export function localPath(value: string | undefined, baseUrl: string): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\u0000-\u0020\u007f]/.test(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value, baseUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(baseUrl).origin) return null;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
@@ -50,7 +64,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
     const found = findSamlOrg(c.req.param("org"));
     if (!found) return c.html(notConfigured(), 404);
     const { org, config } = found;
-    const returnTo = localPath(c.req.query("return_to"));
+    const returnTo = localPath(c.req.query("return_to"), baseUrl);
 
     const session = getBrowserSession(store, c);
     if (!session || !gh.users.findOneBy("login", session.login)) {
@@ -82,29 +96,32 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
       return c.html(renderErrorPage("Bad Request", "The SAMLResponse parameter is missing.", SERVICE_LABEL), 400);
     }
 
-    const session = getBrowserSession(store, c);
-    const user = session ? gh.users.findOneBy("login", session.login) : undefined;
-    if (!session || !user) {
-      return c.html(
-        renderErrorPage(
-          "SAML sign-in failed",
-          "Sign in to your personal account before you sign in with your identity provider.",
-          SERVICE_LABEL,
-        ),
-        403,
-      );
-    }
-
-    const relayState = typeof body.RelayState === "string" ? localPath(body.RelayState) : null;
+    const relayState = typeof body.RelayState === "string" ? localPath(body.RelayState, baseUrl) : null;
+    const notThisRequest = "The SAML response does not answer a sign-in request from this browser.";
 
     try {
       const assertion = validateSamlResponse(samlResponse, baseUrl, org, config);
-      if (!takePendingAuthnRequest(store, assertion.inResponseTo, session.sessionId, org.id)) {
-        throw new SamlResponseError("The SAML response does not answer a sign-in request from this browser.", 403);
+      // The browser session comes from the request the signed response answers, not from a cookie:
+      // an identity provider on another site posts here without the SameSite=Lax session cookie.
+      const pending = findPendingAuthnRequest(store, assertion.inResponseTo, org.id);
+      if (!pending) throw new SamlResponseError(notThisRequest, 403);
+      const cookieSession = getBrowserSession(store, c);
+      if (cookieSession && cookieSession.sessionId !== pending.sessionId)
+        throw new SamlResponseError(notThisRequest, 403);
+      const sessionId = pending.sessionId;
+      const login = getBrowserSessionLogin(store, sessionId);
+      const user = login ? gh.users.findOneBy("login", login) : undefined;
+      if (!user) {
+        throw new SamlResponseError(
+          "Sign in to your personal account before you sign in with your identity provider.",
+          403,
+        );
       }
+      deletePendingAuthnRequest(store, assertion.inResponseTo);
+
       if (linkSamlIdentity(store, org.id, user.id, assertion.nameId) === "relink") {
         const token = createPendingRelink(store, {
-          session_id: session.sessionId,
+          session_id: sessionId,
           org_id: org.id,
           user_id: user.id,
           name_id: assertion.nameId,
@@ -113,7 +130,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
         });
         return c.html(renderRelinkWarning(org.login, user.login, assertion.nameId, token));
       }
-      openSamlSession(store, session.sessionId, org.id, user.id, assertion.nameId, assertion.sessionNotOnOrAfter);
+      openSamlSession(store, sessionId, org.id, user.id, assertion.nameId, assertion.sessionNotOnOrAfter);
     } catch (error) {
       if (error instanceof SamlResponseError) {
         return c.html(renderErrorPage("SAML sign-in failed", error.message, SERVICE_LABEL), error.status);

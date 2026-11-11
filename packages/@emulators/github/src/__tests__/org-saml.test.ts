@@ -242,12 +242,16 @@ function buildResponse(options: ResponseOptions = {}): string {
   return signer.getSignedXml();
 }
 
-function consume(app: Hono, sessionId: string, xml: string, relayState?: string) {
+/** Posts the response as the browser would; `sessionId: null` is a cross-site POST without the session cookie. */
+function consume(app: Hono, sessionId: string | null, xml: string, relayState?: string) {
   const form = new URLSearchParams({ SAMLResponse: Buffer.from(xml, "utf8").toString("base64") });
   if (relayState !== undefined) form.set("RelayState", relayState);
   return app.request(`${base}/orgs/acme/saml/consume`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: `_emu_session=${sessionId}` },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...(sessionId === null ? {} : { Cookie: `_emu_session=${sessionId}` }),
+    },
     body: form,
   });
 }
@@ -365,9 +369,29 @@ describe("GitHub organization SAML response", () => {
   });
 
   it("does not redirect to another host from RelayState", async () => {
+    for (const relayState of [
+      "/\t/evil.example/",
+      "/ /evil.example",
+      "//evil.example",
+      "/\\evil.example",
+      "https://evil.example",
+    ]) {
+      const { requestId } = await startSso(app, sessionId);
+      const res = await consume(app, sessionId, buildResponse({ requestId }), relayState);
+      expect(res.status, relayState).toBe(302);
+      expect(res.headers.get("Location"), relayState).toBe("/orgs/acme");
+    }
+  });
+
+  it("redirects to a local RelayState path", async () => {
     const { requestId } = await startSso(app, sessionId);
-    const res = await consume(app, sessionId, buildResponse({ requestId }), "https://evil.example/");
-    expect(res.headers.get("Location")).toBe("/orgs/acme");
+    const res = await consume(app, sessionId, buildResponse({ requestId }), "/acme/repo?tab=code#readme");
+    expect(res.headers.get("Location")).toBe("/acme/repo?tab=code#readme");
+  });
+
+  it("does not send an external return_to as RelayState", async () => {
+    const { html } = await startSso(app, sessionId, `?return_to=${encodeURIComponent("/\t/evil.example/")}`);
+    expect(hiddenField(html, "RelayState")).toBeNull();
   });
 
   it("refuses an unsigned response", async () => {
@@ -504,6 +528,17 @@ describe("GitHub organization SAML response", () => {
     expect((await confirmRelink(sessionId, token)).status).toBe(403);
   });
 
+  it("relinks after a response posted without the session cookie, from GitHub's own page", async () => {
+    await linkFirstIdentity();
+    const { requestId } = await startSso(app, sessionId);
+    const warning = await consume(app, null, buildResponse({ requestId, nameId: "new@acme.test" }));
+    expect(warning.status).toBe(200);
+    const token = hiddenField(await warning.text(), "relink_token")!;
+    expect((await confirmRelink("unknown-session", token)).status).toBe(403);
+    expect((await confirmRelink(sessionId, token)).status).toBe(302);
+    expect(getActiveSamlSession(store, sessionId, acme(store).id)?.name_id).toBe("new@acme.test");
+  });
+
   it("changes nothing without the user's confirmation", async () => {
     await linkFirstIdentity();
     const token = await startRelink();
@@ -524,10 +559,28 @@ describe("GitHub organization SAML response", () => {
     expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "hubot"))).toBeNull();
   });
 
-  it("refuses a response without a GitHub session in the browser", async () => {
+  it("accepts a cross-site POST without the session cookie for the browser that sent the request", async () => {
+    const otherSession = await signIn(app, "hubot");
     const { requestId } = await startSso(app, sessionId);
-    const res = await consume(app, "unknown-session", buildResponse({ requestId }));
+    const res = await consume(app, null, buildResponse({ requestId }), "/acme/repo");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/acme/repo");
+
+    expect(getActiveSamlSession(store, sessionId, acme(store).id)?.user_id).toBe(userId(store, "octocat"));
+    expect(getActiveSamlSession(store, otherSession, acme(store).id)).toBeNull();
+    expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "octocat"))).toBe("octocat@acme.test");
+    expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "hubot"))).toBeNull();
+    expect((await consume(app, null, buildResponse({ requestId }))).status).toBe(403);
+  });
+
+  it("does not open a session for the browser that posts a response to another browser's request", async () => {
+    const posterSession = await signIn(app, "hubot");
+    const { requestId } = await startSso(app, sessionId);
+    const res = await consume(app, posterSession, buildResponse({ requestId }));
     expect(res.status).toBe(403);
+    expect(getActiveSamlSession(store, posterSession, acme(store).id)).toBeNull();
+    expect(getActiveSamlSession(store, sessionId, acme(store).id)).toBeNull();
+    expect(getLinkedSamlIdentity(store, acme(store).id, userId(store, "hubot"))).toBeNull();
   });
 
   it("refuses a response that is not SAML", async () => {

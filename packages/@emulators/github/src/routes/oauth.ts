@@ -66,6 +66,11 @@ export function getBrowserSession(store: Store, c: Context<AppEnv>): { sessionId
   return { sessionId, login };
 }
 
+/** The personal account signed in to a browser session, by its `_emu_session` id. */
+export function getBrowserSessionLogin(store: Store, sessionId: string): string | null {
+  return getSessionMap(store).get(sessionId) ?? null;
+}
+
 /** The sign-in picker: one button per seeded user, posting to the OAuth callback. */
 export function renderSignInPicker(
   store: Store,

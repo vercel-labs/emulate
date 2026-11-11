@@ -342,12 +342,20 @@ export function validateSamlResponse(
 }
 
 /** Consumes the pending AuthnRequest `requestId` if this browser session sent it for this organization. */
-export function takePendingAuthnRequest(store: Store, requestId: string, sessionId: string, orgId: number): boolean {
-  const pending = getPendingRequests(store);
-  const request = pending.get(requestId);
-  if (!request || request.session_id !== sessionId || request.org_id !== orgId) return false;
-  pending.delete(requestId);
-  return true;
+/**
+ * The browser session that sent the pending AuthnRequest `requestId` for this organization. The
+ * response is bound to it server-side: the identity provider's cross-site POST to the consumer URL
+ * does not carry the SameSite=Lax session cookie.
+ */
+export function findPendingAuthnRequest(store: Store, requestId: string, orgId: number): { sessionId: string } | null {
+  const request = getPendingRequests(store).get(requestId);
+  if (!request || request.org_id !== orgId) return null;
+  return { sessionId: request.session_id };
+}
+
+/** Consumes a pending AuthnRequest: each request opens at most one SAML session. */
+export function deletePendingAuthnRequest(store: Store, requestId: string): void {
+  getPendingRequests(store).delete(requestId);
 }
 
 export function openSamlSession(
