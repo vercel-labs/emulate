@@ -513,22 +513,66 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       );
     }
 
-    const clientId = c.req.param("client_id");
+    revokeGrant(sessionUser, c.req.param("client_id"));
+    return c.redirect("/settings/applications", 302);
+  });
 
-    const grant = gh.oauthGrants.all().find((g) => g.user_id === sessionUser.id && g.client_id === clientId);
+  // ---------- OAuth app token and grant revocation (REST API) ----------
+
+  function revokeGrant(user: { login: string; id: number }, clientId: string): void {
+    const grant = gh.oauthGrants.all().find((g) => g.user_id === user.id && g.client_id === clientId);
     if (grant) {
       gh.oauthGrants.delete(grant.id);
     }
 
     if (tokenMap) {
       for (const [token, tokenUser] of tokenMap.entries()) {
-        if (tokenUser.login === sessionUser.login && getTokenToClientId(store).get(token) === clientId) {
+        if (tokenUser.login === user.login && getTokenToClientId(store).get(token) === clientId) {
           tokenMap.delete(token);
           getTokenToClientId(store).delete(token);
         }
       }
     }
+  }
 
-    return c.redirect("/settings/applications", 302);
+  function authenticateOAuthApp(c: Context<AppEnv>, clientId: string): boolean {
+    const header = c.req.header("Authorization") ?? "";
+    if (!header.startsWith("Basic ")) return false;
+    const decoded = Buffer.from(header.slice(6), "base64").toString();
+    const separator = decoded.indexOf(":");
+    if (separator < 0 || decoded.slice(0, separator) !== clientId) return false;
+    const oauthApp = gh.oauthApps.findOneBy("client_id", clientId);
+    return !!oauthApp && constantTimeSecretEqual(decoded.slice(separator + 1), oauthApp.client_secret);
+  }
+
+  async function appTokenOwner(c: Context<AppEnv>, clientId: string) {
+    const body = (await c.req.json().catch(() => ({}))) as { access_token?: unknown };
+    const token = typeof body.access_token === "string" ? body.access_token : "";
+    const tokenUser = token ? tokenMap?.get(token) : undefined;
+    if (!tokenUser || getTokenToClientId(store).get(token) !== clientId) return undefined;
+    const user = gh.users.findOneBy("login", tokenUser.login);
+    return user ? { token, user: { login: user.login, id: user.id } } : undefined;
+  }
+
+  const notFound = { message: "Not Found", documentation_url: "https://docs.github.com/rest" };
+  const validationFailed = { message: "Validation Failed", documentation_url: "https://docs.github.com/rest" };
+
+  app.delete("/applications/:client_id/token", async (c) => {
+    const clientId = c.req.param("client_id");
+    if (!authenticateOAuthApp(c, clientId)) return c.json(notFound, 404);
+    const owner = await appTokenOwner(c, clientId);
+    if (!owner) return c.json(validationFailed, 422);
+    tokenMap?.delete(owner.token);
+    getTokenToClientId(store).delete(owner.token);
+    return c.body(null, 204);
+  });
+
+  app.delete("/applications/:client_id/grant", async (c) => {
+    const clientId = c.req.param("client_id");
+    if (!authenticateOAuthApp(c, clientId)) return c.json(notFound, 404);
+    const owner = await appTokenOwner(c, clientId);
+    if (!owner) return c.json(validationFailed, 422);
+    revokeGrant(owner.user, clientId);
+    return c.body(null, 204);
   });
 }
