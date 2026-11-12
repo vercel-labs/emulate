@@ -140,7 +140,7 @@ describe("createEmulator", () => {
           headers: { Authorization: `Bearer ${firstTokenValue}` },
         })
       ).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
       (
         await fetch(`${github.url}/user`, {
@@ -270,7 +270,7 @@ describe("createEmulator", () => {
     await expect(fetch("http://localhost:14044/user")).rejects.toThrow();
   });
 
-  it("does not grant Slack fallback scopes in strict mode", async () => {
+  it("rejects unknown Slack tokens in strict mode", async () => {
     const slack = await createEmulator({
       service: "slack",
       port: 14030,
@@ -285,13 +285,31 @@ describe("createEmulator", () => {
       },
       body: JSON.stringify({ channel: "C000000001", text: "strict fallback" }),
     });
-    const body = (await res.json()) as { ok: boolean; error: string; needed: string; provided: string };
-    expect(body).toMatchObject({
-      ok: false,
-      error: "missing_scope",
-      needed: "chat:write",
-      provided: "",
+    expect(await res.json()).toEqual({ ok: false, error: "invalid_auth" });
+
+    await slack.close();
+  });
+
+  it.each([true, false])("restores a revoked startup token on reset (strict_scopes: %s)", async (strict) => {
+    const slack = await createEmulator({
+      service: "slack",
+      port: 0,
+      seed: {
+        tokens: { "xoxb-opt": { login: "bob", scopes: ["chat:write"] } },
+        slack: { strict_scopes: strict, users: [{ name: "bob" }] },
+      },
     });
+    const call = async (method: string) =>
+      (await (
+        await fetch(`${slack.url}/api/${method}`, { method: "POST", headers: { Authorization: "Bearer xoxb-opt" } })
+      ).json()) as Record<string, unknown>;
+
+    expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
+    expect(await call("auth.revoke")).toEqual({ ok: true, revoked: true });
+    expect(await call("auth.test")).toEqual({ ok: false, error: "invalid_auth" });
+
+    slack.reset();
+    expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
 
     await slack.close();
   });

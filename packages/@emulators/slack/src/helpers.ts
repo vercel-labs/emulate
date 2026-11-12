@@ -468,7 +468,7 @@ function parseSlackObject(value: unknown, error: string): ParsedField<SlackJsonO
   return { value: parsed };
 }
 
-function parseSlackBoolean(value: unknown): boolean | undefined {
+export function parseSlackBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") {
     if (value === 1) return true;
