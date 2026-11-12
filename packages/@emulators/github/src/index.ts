@@ -1,5 +1,6 @@
 import { createHmac, generateKeyPair } from "crypto";
-import type { Hono } from "@emulators/core";
+import { constantTimeSecretEqual } from "@emulators/core";
+import type { Context, Hono } from "@emulators/core";
 import type {
   ServicePlugin,
   Store,
@@ -11,6 +12,7 @@ import type {
 } from "@emulators/core";
 import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
+import { isRevokedToken } from "./tokens.js";
 import type { GitHubAppInstallation } from "./entities.js";
 import { generateNodeId } from "./helpers.js";
 import { usersRoutes } from "./routes/users.js";
@@ -41,6 +43,7 @@ export * from "./entities.js";
 
 export interface GitHubSeedConfig {
   port?: number;
+  strict_scopes?: boolean;
   users?: Array<{
     login: string;
     name?: string;
@@ -285,6 +288,9 @@ function seedDefaults(store: Store, baseUrl: string): void {
 }
 
 export function seedFromConfig(store: Store, baseUrl: string, config: GitHubSeedConfig): void {
+  if (config.strict_scopes !== undefined) {
+    store.setData("github.strict_scopes", config.strict_scopes);
+  }
   for (const app of config.apps ?? []) {
     if (!app.private_key) {
       throw new Error(
@@ -656,6 +662,30 @@ export const githubPlugin: ServicePlugin = {
       await deliverToAppWebhookUrls(gh, event, action, payload, owner, repo);
     };
 
+    // GitHub rejects credentials it cannot resolve. The default remains permissive: an unknown token acts as the
+    // default user, and strict mode turns that fallback off. Revoked tokens are invalid in either mode.
+    app.use("*", async (c, next) => {
+      const header = c.req.header("Authorization")?.trim();
+      if (!header) return next();
+
+      const presented = header.replace(/^(Bearer|token)\s+/i, "").trim();
+      if (isRevokedToken(store, presented)) return badCredentials(c);
+
+      if (store.getData<boolean>("github.strict_scopes") !== true || c.get("authApp")) return next();
+      if (tokenMap?.has(presented)) return next();
+
+      if (/^Basic\s/i.test(header)) {
+        if (!isOAuthAppCredential(gh, header)) return badCredentials(c);
+        // OAuth app credentials belong to the app, not to a user: drop the fallback identity.
+        c.set("authUser", undefined);
+        c.set("authToken", undefined);
+        c.set("authScopes", undefined);
+        return next();
+      }
+
+      return badCredentials(c);
+    });
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     usersRoutes(ctx);
     reposRoutes(ctx);
@@ -687,3 +717,16 @@ export const githubPlugin: ServicePlugin = {
 };
 
 export default githubPlugin;
+
+function badCredentials(c: Context<AppEnv>) {
+  const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
+  return c.json({ message: "Bad credentials", documentation_url: docsUrl }, 401);
+}
+
+function isOAuthAppCredential(gh: GitHubStore, header: string): boolean {
+  const decoded = Buffer.from(header.replace(/^Basic\s+/i, ""), "base64").toString();
+  const separator = decoded.indexOf(":");
+  if (separator < 0) return false;
+  const oauthApp = gh.oauthApps.findOneBy("client_id", decoded.slice(0, separator));
+  return !!oauthApp && constantTimeSecretEqual(decoded.slice(separator + 1), oauthApp.client_secret);
+}

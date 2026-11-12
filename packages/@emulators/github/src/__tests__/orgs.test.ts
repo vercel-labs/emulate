@@ -106,7 +106,7 @@ describe("GitHub organization seed memberships", () => {
     const outsiderRepo = await app.request(`${base}/repos/acme/private-repo`, {
       headers: authHeaders("outsider-token"),
     });
-    expect(outsiderRepo.status).toBe(403);
+    expect(outsiderRepo.status).toBe(404);
 
     const adminUpdate = await app.request(`${base}/orgs/acme`, {
       method: "PATCH",

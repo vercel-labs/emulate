@@ -139,7 +139,7 @@ describe("createEmulator", () => {
           headers: { Authorization: `Bearer ${firstTokenValue}` },
         })
       ).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
       (
         await fetch(`${github.url}/user`, {

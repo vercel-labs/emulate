@@ -309,6 +309,7 @@ github:
       name: hello-world
       language: JavaScript
       auto_init: true
+  strict_scopes: false
 
 google:
   users:
@@ -674,7 +675,9 @@ github:
         - "http://localhost:3000/api/auth/callback/github"
 ```
 
-If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced.
+If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced, and an authorization code can only be exchanged by the app it was issued to.
+
+`DELETE /applications/:client_id/token` and `DELETE /applications/:client_id/grant` take the app's `client_id` and `client_secret` as HTTP Basic credentials and an `access_token` in the JSON body. The first revokes that token; the second revokes the user's grant and every token the app holds for that user. Wrong client credentials return `401`, and a token that is unknown or belongs to another app returns `422`. A revoked token then fails as `401 Bad credentials`, even when unknown tokens fall back to a default user.
 
 ### GitHub Apps
 
@@ -1674,7 +1677,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Vercel**: All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
 
-**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. A private repository the caller cannot see returns `404 Not Found`, as on GitHub. Set `github.strict_scopes: true` in seed config to reject tokens the emulator did not issue: a token that does not come from seed config, server options, an OAuth exchange, or an installation token request returns `401 Bad credentials` instead of acting as the default user. Pagination uses `page`/`per_page` with `Link` headers.
 
 **Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued tokens. Configure clients in the seed config.
 
