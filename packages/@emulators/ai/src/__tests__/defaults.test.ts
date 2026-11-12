@@ -121,6 +121,42 @@ describe("sampleSchema core behavior", () => {
   });
 });
 
+describe("sampleSchema patterns", () => {
+  it("picks an enum value that satisfies the pattern", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^a+$", enum: ["zzz", "aaa"] };
+    expect(sampleSchema(schema, "seed")).toBe("aaa");
+  });
+
+  it("rejects an enum whose values all violate the pattern", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^a+$", enum: ["zzz"] };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.message).toContain("no enum value satisfies the schema");
+  });
+
+  it("rejects a const that violates the pattern", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^a+$", const: "zzz" };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.message).toContain("const does not satisfy the schema");
+  });
+
+  it("keeps a format sample that satisfies the pattern", () => {
+    const schema: JsonSchema = { type: "string", format: "email", pattern: "@" };
+    expect(sampleSchema(schema, "seed")).toBe("user@example.com");
+  });
+
+  it("rejects a format sample that violates the pattern", () => {
+    const schema: JsonSchema = { type: "string", format: "email", pattern: "^a+$" };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.message).toContain("constraints do not permit the generated sample");
+  });
+
+  it("rejects an invalid pattern with its own path", () => {
+    const schema: JsonSchema = { type: "string", pattern: "(", enum: ["a"] };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.param?.endsWith(".pattern")).toBe(true);
+  });
+});
+
 describe("defaultReply tool results", () => {
   function request(messages: AIRequest["messages"]): AIRequest {
     return {

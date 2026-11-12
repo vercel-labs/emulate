@@ -164,6 +164,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       node.enum.forEach((item, index) => checkValue(item, `${at}.enum[${index}]`));
     }
     if (Object.hasOwn(node, "const")) checkValue(node.const, `${at}.const`);
+    if (node.pattern !== undefined) patternMatches(node.pattern, "", at);
     if (node.nullable !== undefined && typeof node.nullable !== "boolean") fail(`${at}.nullable`, "expected a boolean");
     if (node.items !== undefined) validate(asSchema(node.items, `${at}.items`), `${at}.items`, depth + 1);
     if (node.additionalProperties !== undefined) {
@@ -216,6 +217,15 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
+  function patternMatches(pattern: Json, value: string, at: string): boolean {
+    if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
+    try {
+      return new RegExp(pattern, "u").test(value);
+    } catch {
+      fail(`${at}.pattern`, "expected a valid regular expression");
+    }
+  }
+
   function matches(value: Json, node: JsonSchema, depth = 0): boolean {
     spend(path);
     if (depth > 32) return false;
@@ -257,6 +267,9 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
         Math.abs(value / node.multipleOf - Math.round(value / node.multipleOf)) > 1e-8
       )
         return false;
+    }
+    if (typeof value === "string" && node.pattern !== undefined && !patternMatches(node.pattern, value, path)) {
+      return false;
     }
     if (typeof value === "string" || Array.isArray(value)) {
       const length = typeof value === "string" ? Array.from(value).length : value.length;
