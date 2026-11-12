@@ -35,6 +35,8 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 The official Node SDK builds absolute Twilio product URLs. In SDK tests, use a custom request client that rewrites those hosts to the emulator prefixes above.
 
+Only an `active` account can send messages or place calls. Set the seeded account `status` to `suspended` or `closed`, or update it with `POST /2010-04-01/Accounts/{AccountSid}.json` and `Status`, to test the failure: message and call creation return HTTP 401 with error `20005`, "Account not active". Set the status back to `active` to restore them.
+
 ## Supported Routes
 
 - `GET /2010-04-01/Accounts/{AccountSid}.json`
