@@ -4,6 +4,8 @@ title: "Okta"
 
 Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
 
+Management API authentication is permissive by default for local workflows. Set `okta.strict_scopes: true` in seed config to require a known token on `/api/v1` routes: an `SSWS` API token or bearer access token that does not come from seed config, server options, or an OAuth exchange returns `401` with `E0000011` instead of acting as the default user.
+
 ## OAuth / OIDC
 
 Default org server and custom authorization server paths (`/oauth2/:authServerId/...`):
@@ -17,6 +19,8 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /oauth2/v1/revoke` — token revocation
 - `POST /oauth2/v1/introspect` — token introspection
 - `GET /oauth2/v1/logout` — end session
+
+Only `ACTIVE` users can sign in: a suspended, deactivated, staged, or provisioned user is refused at the sign-in page.
 
 ## Users
 
@@ -33,6 +37,7 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `POST /api/v1/users/:userId/lifecycle/suspend` — suspend
 - `POST /api/v1/users/:userId/lifecycle/unsuspend` — unsuspend
 - `POST /api/v1/users/:userId/lifecycle/reactivate` — reactivate
+- `DELETE /api/v1/users/:userId/sessions` — revoke the user's sessions; with `oauthTokens=true`, also revoke the OAuth access and refresh tokens issued to the user (the emulator does not model Okta sessions, so only the token revocation has an effect)
 
 ## Groups
 
@@ -46,6 +51,8 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `DELETE /api/v1/groups/:groupId/users/:userId` — remove user from group
 
 ## Apps
+
+An app whose `credentials.oauthClient.client_id` names an OIDC client restricts that client's sign-in to the users assigned to the app: an unassigned user is sent back to the `redirect_uri` with `error=access_denied`, in the request's `response_mode` (`query` or `form_post`). Clients that no app links to are not checked.
 
 - `GET /api/v1/apps` — list apps
 - `POST /api/v1/apps` — create app
