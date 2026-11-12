@@ -26,6 +26,9 @@ export * from "./entities.js";
 export interface StripeSeedConfig {
   port?: number;
   strict_scopes?: boolean;
+  /** Secret keys accepted in strict mode, in addition to the top-level `tokens` config. The next and nuxt adapters
+   * don't read top-level `tokens`, so strict mode there accepts only these. */
+  api_keys?: string[];
   customers?: Array<{
     id?: string;
     email?: string;
@@ -86,6 +89,10 @@ export function seedFromConfig(
 
   if (config.strict_scopes !== undefined) {
     store.setData("stripe.strict_scopes", config.strict_scopes);
+  }
+
+  if (config.api_keys) {
+    store.setData("stripe.api_keys", [...config.api_keys]);
   }
 
   if (config.customers) {
@@ -149,7 +156,7 @@ export const stripePlugin: ServicePlugin = {
     webhooks.setHeaderFactory(stripeWebhookHeaders);
 
     // API keys are unchecked by default so local clients can use any placeholder.
-    // Strict mode requires a key from seed config or server options on API routes, as Stripe does.
+    // Strict mode requires a known key on API routes, as Stripe does: one from the top-level tokens config or stripe.api_keys.
     app.use("*", async (c, next) => {
       if (store.getData<boolean>("stripe.strict_scopes") !== true) return next();
       if (!c.req.path.startsWith("/v1/")) return next();
@@ -159,7 +166,7 @@ export const stripePlugin: ServicePlugin = {
         c.header("WWW-Authenticate", 'Basic realm="Stripe"');
         return stripeError(c, 401, "invalid_request_error", MISSING_API_KEY_MESSAGE);
       }
-      if (!tokenMap?.has(key)) {
+      if (!tokenMap?.has(key) && !(store.getData<string[]>("stripe.api_keys") ?? []).includes(key)) {
         c.header("WWW-Authenticate", 'Basic realm="Stripe"');
         return stripeError(c, 401, "invalid_request_error", `Invalid API Key provided: ${maskStripeKey(key)}`);
       }

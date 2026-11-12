@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createAdapterRuntime,
   Hono,
   Store,
   WebhookDispatcher,
@@ -13,7 +14,7 @@ import { seedFromConfig, stripePlugin } from "../index.js";
 const base = "http://localhost:4000";
 const key = "sk_test_emulated_secret_key_0001";
 
-function createTestApp(strict: boolean, fallback = true) {
+function createTestApp(strict: boolean, fallback = true, apiKeys?: string[]) {
   const tokenMap: TokenMap = new Map([[key, { login: "stripe", id: 1, scopes: [] }]]);
   const app = new Hono();
   app.onError(createApiErrorHandler());
@@ -22,7 +23,7 @@ function createTestApp(strict: boolean, fallback = true) {
   const store = new Store();
   stripePlugin.register(app as any, store, new WebhookDispatcher(), base, tokenMap);
   stripePlugin.seed?.(store, base);
-  seedFromConfig(store, base, { strict_scopes: strict });
+  seedFromConfig(store, base, { strict_scopes: strict, ...(apiKeys ? { api_keys: apiKeys } : {}) });
   return app;
 }
 
@@ -63,6 +64,41 @@ describe("Stripe strict mode API keys", () => {
     expect((await listCustomers(app, "Bearer sk_test_fake")).body.error?.message).toBe(
       "Invalid API Key provided: sk_test_fake",
     );
+  });
+
+  it("accepts a key from stripe.api_keys", async () => {
+    const app = createTestApp(true, true, ["sk_test_seeded"]);
+    expect((await listCustomers(app, "Bearer sk_test_seeded")).status).toBe(200);
+    expect((await listCustomers(app, `Bearer ${key}`)).status).toBe(200);
+    expect((await listCustomers(app, "Bearer sk_test_other")).status).toBe(401);
+  });
+
+  it("accepts stripe.api_keys under the framework adapters, which ignore top-level tokens", async () => {
+    const runtime = createAdapterRuntime(
+      {
+        services: {
+          stripe: {
+            emulator: { plugin: stripePlugin, seedFromConfig },
+            seed: { strict_scopes: true, api_keys: ["sk_test_emulated"] },
+          },
+        },
+      },
+      (mount, service) => `${mount}/${service}`,
+    );
+    const request = (token: string) =>
+      runtime.handle(
+        new Request("http://localhost:3000/emulate/stripe/v1/customers", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        ["stripe", "v1", "customers"],
+        "/emulate",
+      );
+    try {
+      expect((await request("sk_test_emulated")).status).toBe(200);
+      expect((await request("sk_test_admin")).status).toBe(401);
+    } finally {
+      await runtime.close();
+    }
   });
 
   it("keeps hosted checkout pages public", async () => {
