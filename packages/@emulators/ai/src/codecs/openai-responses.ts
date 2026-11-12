@@ -37,6 +37,7 @@ import { AiRequestError, defaultErrorType } from "../errors.js";
 import { decodeResponsesAttachment } from "../attachments.js";
 import type { SseFrame } from "../sse.js";
 import { jsonChunks, payloadChunks, textChunks } from "../chunks.js";
+import { REASONING_EFFORTS } from "./openai-chat.js";
 import { STORED_RESPONSE_LIMIT, type AiState } from "../state.js";
 import type {
   AIRequest,
@@ -148,6 +149,42 @@ function textOf(value: unknown): string {
   return JSON.stringify(value);
 }
 
+const LIST = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+
+/** Returns the raw value when it is one of `values`; anything else is the native invalid_value error. */
+function optionalEnum<T extends string>(raw: unknown, param: string, values: readonly T[]): T | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!values.includes(raw as T)) {
+    invalid(
+      `Invalid value: '${textOf(raw)}'. Supported values are: ${LIST.format(values.map((value) => `'${value}'`))}.`,
+      param,
+      "invalid_value",
+    );
+  }
+  return raw as T;
+}
+
+/** Returns the number when it lies within `min` and `max`; outside that range it is the native decimal error. */
+function optionalDecimal(raw: unknown, param: string, min: number, max: number): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = requireNumber(raw, param);
+  if (value > max) {
+    invalid(
+      `Invalid '${param}': decimal above maximum value. Expected a value <= ${max}, but got ${value} instead.`,
+      param,
+      "decimal_above_max_value",
+    );
+  }
+  if (value < min) {
+    invalid(
+      `Invalid '${param}': decimal below minimum value. Expected a value >= ${min}, but got ${value} instead.`,
+      param,
+      "decimal_below_min_value",
+    );
+  }
+  return value;
+}
+
 function functionOutput(output: unknown, path: string): { text: string; files: InputPart[] } {
   if (typeof output === "string") return { text: output, files: [] };
   if (!Array.isArray(output)) invalid(`Expected a string or array for '${path}.output'.`, `${path}.output`);
@@ -179,14 +216,18 @@ function decodeReasoning(raw: unknown): WireReasoning | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!isRecord(raw)) invalid("Expected an object for 'reasoning'.", "reasoning");
   const reasoning: WireReasoning = {};
-  const effort = optionalString(raw.effort, "reasoning.effort");
-  if (effort !== undefined) reasoning.effort = effort as WireReasoning["effort"];
-  const summary = optionalString(raw.summary, "reasoning.summary");
-  if (summary !== undefined) reasoning.summary = summary as WireReasoning["summary"];
-  const generateSummary = optionalString(raw.generate_summary, "reasoning.generate_summary");
-  if (generateSummary !== undefined) reasoning.generate_summary = generateSummary as WireReasoning["generate_summary"];
-  const context = optionalString(raw.context, "reasoning.context");
-  if (context !== undefined) reasoning.context = context as WireReasoning["context"];
+  const effort = optionalEnum(raw.effort, "reasoning.effort", REASONING_EFFORTS);
+  if (effort !== undefined) reasoning.effort = effort;
+  const summary = optionalEnum(raw.summary, "reasoning.summary", ["auto", "concise", "detailed"] as const);
+  if (summary !== undefined) reasoning.summary = summary;
+  const generateSummary = optionalEnum(raw.generate_summary, "reasoning.generate_summary", [
+    "auto",
+    "concise",
+    "detailed",
+  ] as const);
+  if (generateSummary !== undefined) reasoning.generate_summary = generateSummary;
+  const context = optionalEnum(raw.context, "reasoning.context", ["auto", "current_turn", "all_turns"] as const);
+  if (context !== undefined) reasoning.context = context;
   const mode = optionalString(raw.mode, "reasoning.mode");
   if (mode !== undefined) reasoning.mode = mode;
   return reasoning;
@@ -204,13 +245,7 @@ function decodeMetadata(raw: unknown): WireMetadata {
 }
 
 function decodeTruncation(raw: unknown): "auto" | "disabled" {
-  if (raw === undefined || raw === null) return "disabled";
-  if (raw === "auto" || raw === "disabled") return raw;
-  invalid(
-    `Invalid value: '${textOf(raw)}'. Supported values are: 'auto' and 'disabled'.`,
-    "truncation",
-    "invalid_value",
-  );
+  return optionalEnum(raw, "truncation", ["auto", "disabled"] as const) ?? "disabled";
 }
 
 function extrasOf(decoded: Decoded): ResponsesExtras {
@@ -710,9 +745,8 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     ...(instructions === undefined ? {} : { instructions }),
     tools,
     toolChoice: toolChoiceWire,
-    temperature:
-      raw.temperature === undefined || raw.temperature === null ? 1 : requireNumber(raw.temperature, "temperature"),
-    topP: raw.top_p === undefined || raw.top_p === null ? 1 : requireNumber(raw.top_p, "top_p"),
+    temperature: optionalDecimal(raw.temperature, "temperature", 0, 2) ?? 1,
+    topP: optionalDecimal(raw.top_p, "top_p", 0, 1) ?? 1,
     text: isRecord(raw.text)
       ? (raw.text as unknown as NonNullable<OpenAIResponse["text"]>)
       : { format: { type: "text" } },
