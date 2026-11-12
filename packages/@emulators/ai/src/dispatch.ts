@@ -62,12 +62,7 @@ const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
 /** Installs the anchored data router and the control routes; control routes are checked first. */
 export function registerAiRoutes({ app, store, baseUrl }: AiRoutesOptions): void {
-  let expectedOrigin: string | undefined;
-  try {
-    expectedOrigin = new URL(baseUrl).origin;
-  } catch {
-    expectedOrigin = undefined;
-  }
+  const expectedOrigin = originKey(baseUrl);
 
   app.use("*", async (c, next) => {
     if (c.req.path.startsWith("/_emulate/")) {
@@ -456,9 +451,23 @@ function staleStateError(): AiRequestError {
   );
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Reduces an origin to scheme, host, and port, with every loopback name written as localhost. */
+function originKey(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+  const host = LOOPBACK_HOSTS.has(url.hostname) ? "localhost" : url.hostname;
+  return `${url.protocol}//${host}:${url.port}`;
+}
+
 function isForeignOrigin(origin: string | undefined, expectedOrigin: string | undefined): boolean {
   if (!origin) return false;
-  return expectedOrigin === undefined || origin !== expectedOrigin;
+  return expectedOrigin === undefined || originKey(origin) !== expectedOrigin;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
