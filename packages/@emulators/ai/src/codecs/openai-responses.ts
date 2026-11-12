@@ -57,6 +57,8 @@ import type {
   Usage,
 } from "../types.js";
 
+const FORMAT = "openai-responses";
+
 type WireResponse = Omit<OpenAIResponse, "output_text">;
 
 type WireToolChoice = ToolChoiceOptions | ToolChoiceFunction;
@@ -725,7 +727,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   }
 
   const request: AIRequest = {
-    format: "openai-responses",
+    format: FORMAT,
     model,
     messages,
     tools: definitions,
@@ -771,7 +773,7 @@ function usageWire(usage: Usage): ResponseUsage {
 }
 
 function itemStatus(finish: FinishReason): ResponseOutputMessage["status"] {
-  return finish === "length" || finish === "content_filter" ? "incomplete" : "completed";
+  return responseStatus(finish).status;
 }
 
 function buildOutput(
@@ -1189,7 +1191,7 @@ export function deleteStoredResponse(ctx: ResponsesStoreContext, id: string): Re
 
 /** The OpenAI Responses wire codec, including its stored-response helpers. */
 export const responsesCodec: Codec = {
-  format: "openai-responses",
+  format: FORMAT,
   decode,
   encodeJson(reply, decoded, ctx) {
     return preparedFor(reply, decoded, ctx).response;
