@@ -289,6 +289,30 @@ describe("createEmulator", () => {
     await slack.close();
   });
 
+  it.each([true, false])("restores a revoked startup token on reset (strict_scopes: %s)", async (strict) => {
+    const slack = await createEmulator({
+      service: "slack",
+      port: 0,
+      seed: {
+        tokens: { "xoxb-opt": { login: "bob", scopes: ["chat:write"] } },
+        slack: { strict_scopes: strict, users: [{ name: "bob" }] },
+      },
+    });
+    const call = async (method: string) =>
+      (await (
+        await fetch(`${slack.url}/api/${method}`, { method: "POST", headers: { Authorization: "Bearer xoxb-opt" } })
+      ).json()) as Record<string, unknown>;
+
+    expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
+    expect(await call("auth.revoke")).toEqual({ ok: true, revoked: true });
+    expect(await call("auth.test")).toEqual({ ok: false, error: "invalid_auth" });
+
+    slack.reset();
+    expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
+
+    await slack.close();
+  });
+
   it("throws on unknown service", async () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");

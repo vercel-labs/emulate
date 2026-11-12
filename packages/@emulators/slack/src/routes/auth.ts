@@ -1,6 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { parseSlackBody, slackOk, slackError } from "../helpers.js";
+import { parseSlackBody, parseSlackBoolean, slackOk, slackError } from "../helpers.js";
 import { invalidateSlackToken, isSlackTokenInvalidated, isSlackTokenRevoked, slackRequestToken } from "../tokens.js";
 
 export function authRoutes(ctx: RouteContext): void {
@@ -62,8 +62,7 @@ export function authRoutes(ctx: RouteContext): void {
     const record = ss().tokens.findOneBy("token", token);
     if (!record && !tokenMap?.has(token)) return slackError(c, "invalid_auth");
 
-    const test = body.test === true || body.test === "true" || body.test === "1";
-    if (test) return slackOk(c, { revoked: false });
+    if (parseSlackBoolean(body.test) === true) return slackOk(c, { revoked: false });
 
     invalidateSlackToken(store, token, tokenMap);
     return slackOk(c, { revoked: true });

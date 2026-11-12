@@ -44,9 +44,20 @@ describe("Slack auth.revoke", () => {
     expect(await (await authTest(app, slackTestToken)).json()).toEqual({ ok: false, error: "invalid_auth" });
   });
 
-  it("does not revoke anything with test=1", async () => {
+  it.each(["1", "true", "True"])("does not revoke anything with test=%s", async (test) => {
     const { app } = createSlackTestApp();
-    expect(await (await revoke(app, slackTestToken, { test: "1" })).json()).toEqual({ ok: true, revoked: false });
+    expect(await (await revoke(app, slackTestToken, { test })).json()).toEqual({ ok: true, revoked: false });
+    expect(((await (await authTest(app, slackTestToken)).json()) as { ok: boolean }).ok).toBe(true);
+  });
+
+  it.each([1, true, "1"])("does not revoke anything with a JSON test value of %j", async (test) => {
+    const { app } = createSlackTestApp();
+    const res = await app.request(`${slackTestBaseUrl}/api/auth.revoke`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ test }),
+    });
+    expect(await res.json()).toEqual({ ok: true, revoked: false });
     expect(((await (await authTest(app, slackTestToken)).json()) as { ok: boolean }).ok).toBe(true);
   });
 
@@ -189,6 +200,27 @@ describe("Slack auth.revoke with a bot token", () => {
     expect(ss.users.findOneBy("user_id", botUserId)!.deleted).toBe(false);
     expect(ss.bots.findOneBy("bot_id", botId)!.deleted).toBe(false);
     expect(ss.channels.findOneBy("channel_id", channel)!.members).toContain(botUserId);
+  });
+
+  it("keeps the bot user active while a newer bot token from a reinstall is still valid", async () => {
+    const setup = setupBotApp();
+    const ss = getSlackStore(setup.store);
+    const { bot: oldToken } = await install(setup);
+    const channel = ss.channels.findOneBy("name", "bot-room")!.channel_id;
+    expect((await call(setup, "conversations.invite", { channel, users: botUserId })).ok).toBe(true);
+    const { bot: newToken } = await install(setup);
+
+    expect(await (await revoke(setup.app, oldToken)).json()).toEqual({ ok: true, revoked: true });
+    expect(await (await authTest(setup.app, oldToken)).json()).toEqual({ ok: false, error: "invalid_auth" });
+    expect(await (await authTest(setup.app, newToken)).json()).toMatchObject({ ok: true, user_id: botUserId });
+    expect(ss.users.findOneBy("user_id", botUserId)!.deleted).toBe(false);
+    expect(ss.bots.findOneBy("bot_id", botId)!.deleted).toBe(false);
+    expect(ss.channels.findOneBy("channel_id", channel)!.members).toContain(botUserId);
+
+    expect(await (await revoke(setup.app, newToken)).json()).toEqual({ ok: true, revoked: true });
+    expect(ss.users.findOneBy("user_id", botUserId)!.deleted).toBe(true);
+    expect(ss.bots.findOneBy("bot_id", botId)!.deleted).toBe(true);
+    expect(ss.channels.findOneBy("channel_id", channel)!.members).not.toContain(botUserId);
   });
 
   it("reactivates the bot user when the app is installed again", async () => {

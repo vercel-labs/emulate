@@ -33,11 +33,35 @@ export function invalidateSlackToken(store: Store, token: string, tokenMap?: Tok
   tokenMap?.delete(token);
   store.setData("slack.invalidated_tokens", invalidated);
 
-  if (record?.token_type === "bot") {
-    deactivateSlackBotUser(store, record.bot_user_id ?? record.user_id, record.bot_id);
-  } else if (tokenUser?.is_bot) {
-    deactivateSlackBotUser(store, tokenUser.user_id);
+  const botUserId =
+    record?.token_type === "bot"
+      ? (record.bot_user_id ?? record.user_id)
+      : tokenUser?.is_bot
+        ? tokenUser.user_id
+        : undefined;
+  if (botUserId && !hasLiveSlackBotToken(store, botUserId, tokenMap)) {
+    deactivateSlackBotUser(store, botUserId, record?.bot_id);
   }
+}
+
+/** Every oauth.v2.access exchange issues a new bot token and keeps the old ones, so the bot stays active while any
+ * other token still authenticates as it. */
+function hasLiveSlackBotToken(store: Store, botUserId: string, tokenMap?: TokenMap): boolean {
+  const ss = getSlackStore(store);
+  if (
+    ss.tokens.all().some((token) => token.token_type === "bot" && (token.bot_user_id ?? token.user_id) === botUserId)
+  ) {
+    return true;
+  }
+  if (!tokenMap) return false;
+  const user = ss.users.findOneBy("user_id", botUserId);
+  const aliases = new Set([botUserId, user?.name].filter((value): value is string => Boolean(value)));
+  for (const [token, entry] of tokenMap) {
+    if (aliases.has(entry.login) && !isSlackTokenRevoked(store, token) && !isSlackTokenInvalidated(store, token)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Revoking a bot token keeps the app installed but deactivates the bot user and removes its channel memberships. */
