@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import type { Context } from "@emulators/core";
 import type { RouteContext, Store, AuthUser, AppEnv } from "@emulators/core";
 import {
+  ApiError,
   unauthorized,
   escapeHtml,
   escapeAttr,
@@ -16,6 +17,7 @@ import {
 } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
 import { formatUser, formatUserFull } from "../helpers.js";
+import { getTokenToClientId, revokeOAuthGrant, revokeOAuthToken } from "../tokens.js";
 
 type PendingCode = {
   login: string;
@@ -32,15 +34,6 @@ function getPendingCodes(store: Store): Map<string, PendingCode> {
   if (!map) {
     map = new Map();
     store.setData("github.oauth.pendingCodes", map);
-  }
-  return map;
-}
-
-function getTokenToClientId(store: Store): Map<string, string> {
-  let map = store.getData<Map<string, string>>("github.oauth.tokenToClientId");
-  if (!map) {
-    map = new Map();
-    store.setData("github.oauth.tokenToClientId", map);
   }
   return map;
 }
@@ -256,13 +249,19 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       debug("github.oauth", `[OAuth token] no oauth apps configured, skipping client validation`);
     }
 
+    const badVerificationCode = () =>
+      c.json({ error: "bad_verification_code", error_description: "The code passed is incorrect or expired." }, 200);
+
     const pending = getPendingCodeIfValid(store, code);
     if (!pending) {
       debug("github.oauth", `[OAuth token] REJECTED: code not found in pendingCodes or expired`);
-      return c.json(
-        { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
-        200,
-      );
+      return badVerificationCode();
+    }
+
+    // A code issued to another app is an incorrect code for this one, and stays usable by its own app.
+    if (oauthAppsConfigured && pending.clientId !== bodyClientId) {
+      debug("github.oauth", `[OAuth token] REJECTED: code was issued to another client_id`);
+      return badVerificationCode();
     }
 
     debug("github.oauth", `[OAuth token] code valid, login=${pending.login}, scope=${pending.scope}`);
@@ -271,10 +270,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const user = gh.users.findOneBy("login", pending.login);
     if (!user) {
       debug("github.oauth", `[OAuth token] REJECTED: user "${pending.login}" not found in store`);
-      return c.json(
-        { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
-        200,
-      );
+      return badVerificationCode();
     }
 
     const token = "gho_" + randomBytes(20).toString("base64url");
@@ -515,20 +511,51 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     const clientId = c.req.param("client_id");
 
-    const grant = gh.oauthGrants.all().find((g) => g.user_id === sessionUser.id && g.client_id === clientId);
-    if (grant) {
-      gh.oauthGrants.delete(grant.id);
-    }
-
-    if (tokenMap) {
-      for (const [token, tokenUser] of tokenMap.entries()) {
-        if (tokenUser.login === sessionUser.login && getTokenToClientId(store).get(token) === clientId) {
-          tokenMap.delete(token);
-          getTokenToClientId(store).delete(token);
-        }
-      }
-    }
-
+    revokeOAuthGrant(store, { login: sessionUser.login, id: sessionUser.id }, clientId, tokenMap);
     return c.redirect("/settings/applications", 302);
+  });
+
+  // ---------- OAuth app token and grant revocation (REST API) ----------
+  // DELETE /applications/:client_id/token revokes one access token; /grant revokes the user's grant and every token
+  // the app holds for that user. Both take the app's client_id and client_secret as HTTP Basic credentials.
+
+  function authenticateOAuthApp(c: Context<AppEnv>, clientId: string): boolean {
+    const header = c.req.header("Authorization") ?? "";
+    if (!/^Basic\s/i.test(header)) return false;
+    const decoded = Buffer.from(header.replace(/^Basic\s+/i, ""), "base64").toString();
+    const separator = decoded.indexOf(":");
+    if (separator < 0 || decoded.slice(0, separator) !== clientId) return false;
+    const oauthApp = gh.oauthApps.findOneBy("client_id", clientId);
+    return !!oauthApp && constantTimeSecretEqual(decoded.slice(separator + 1), oauthApp.client_secret);
+  }
+
+  async function appTokenOwner(
+    c: Context<AppEnv>,
+    clientId: string,
+  ): Promise<{ token: string; login: string; id: number } | undefined> {
+    const body = (await c.req.json().catch(() => ({}))) as { access_token?: unknown };
+    const token = typeof body.access_token === "string" ? body.access_token.trim() : "";
+    if (!token) return undefined;
+    const tokenUser = tokenMap?.get(token);
+    if (!tokenUser || getTokenToClientId(store).get(token) !== clientId) return undefined;
+    return { token, login: tokenUser.login, id: tokenUser.id };
+  }
+
+  app.delete("/applications/:client_id/token", async (c) => {
+    const clientId = c.req.param("client_id");
+    if (!authenticateOAuthApp(c, clientId)) throw new ApiError(401, "Bad credentials");
+    const owner = await appTokenOwner(c, clientId);
+    if (!owner) throw new ApiError(422, "Validation Failed");
+    revokeOAuthToken(store, tokenMap, owner.token);
+    return c.body(null, 204);
+  });
+
+  app.delete("/applications/:client_id/grant", async (c) => {
+    const clientId = c.req.param("client_id");
+    if (!authenticateOAuthApp(c, clientId)) throw new ApiError(401, "Bad credentials");
+    const owner = await appTokenOwner(c, clientId);
+    if (!owner) throw new ApiError(422, "Validation Failed");
+    revokeOAuthGrant(store, { login: owner.login, id: owner.id }, clientId, tokenMap);
+    return c.body(null, 204);
   });
 }

@@ -2,6 +2,7 @@ import { parsePagination, setLinkHeader, type RouteContext } from "@emulators/co
 import { boolFromQuery, generateOktaId, nowIso, userDisplayName } from "../helpers.js";
 import { findUserByRef, oktaError, readJsonObject, requireManagementAuth, userResponse } from "../route-helpers.js";
 import { getOktaStore } from "../store.js";
+import { revokeUserOAuthTokens } from "./oauth.js";
 import type { OktaUser, OktaUserStatus } from "../entities.js";
 
 function updateUserProfile(user: OktaUser, profile: Record<string, unknown>): Partial<OktaUser> {
@@ -175,6 +176,15 @@ export function userRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
     if (!user) return oktaError(c, 404, "E0000007", "Not found: user");
     const updated = oktaStore.users.update(user.id, setLifecycleStatus(user, "ACTIVE"));
     return c.json(userResponse(baseUrl, updated ?? user));
+  });
+
+  app.delete("/api/v1/users/:userId/sessions", (c) => {
+    const auth = requireManagementAuth(c, tokenMap);
+    if (auth instanceof Response) return auth;
+    const user = findUserByRef(oktaStore, c.req.param("userId"));
+    if (!user) return oktaError(c, 404, "E0000007", "Not found: user");
+    if (c.req.query("oauthTokens") === "true") revokeUserOAuthTokens(store, user.okta_id, tokenMap);
+    return c.body(null, 204);
   });
 
   app.post("/api/v1/users/:userId/lifecycle/deactivate", (c) => {

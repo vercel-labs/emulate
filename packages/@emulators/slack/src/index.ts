@@ -1,8 +1,8 @@
 import type { Context, Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getSlackStore } from "./store.js";
-import { generateSlackId, slackError } from "./helpers.js";
-import { isSlackTokenRevoked, slackRequestToken } from "./tokens.js";
+import { generateSlackId, isSlackStrictScopes, slackError } from "./helpers.js";
+import { isSlackTokenInvalidated, isSlackTokenRevoked, slackRequestToken } from "./tokens.js";
 import type { SlackOAuthApp, SlackPresence, SlackTokenType, SlackUserProfile } from "./entities.js";
 import { authRoutes } from "./routes/auth.js";
 import { appsRoutes } from "./routes/apps.js";
@@ -395,6 +395,22 @@ export const slackPlugin: ServicePlugin = {
       const token = slackRequestToken(c);
       if (c.req.path.startsWith("/api/") && token && isSlackTokenRevoked(store, token)) {
         return slackError(c, "token_revoked");
+      }
+      // auth.revoke leaves the token invalid in every mode, so the fallback user does not take over.
+      if (c.req.path.startsWith("/api/") && token && isSlackTokenInvalidated(store, token)) {
+        return slackError(c, "invalid_auth");
+      }
+      // In strict mode an unknown token is invalid credentials instead of the fallback user. oauth.v2.access takes
+      // HTTP Basic client credentials, not a Slack token, so it is not checked.
+      if (
+        c.req.path.startsWith("/api/") &&
+        token &&
+        isSlackStrictScopes(store) &&
+        !(c.req.path === "/api/oauth.v2.access" && /^Basic\s/i.test(c.req.header("Authorization") ?? "")) &&
+        !getSlackStore(store).tokens.findOneBy("token", token) &&
+        !tokenMap?.has(token)
+      ) {
+        return slackError(c, "invalid_auth");
       }
       applySlackTokenAuth(c, store);
       await next();

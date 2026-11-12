@@ -309,6 +309,7 @@ github:
       name: hello-world
       language: JavaScript
       auto_init: true
+  strict_scopes: false
 
 google:
   users:
@@ -563,6 +564,7 @@ okta:
       redirect_uris:
         - http://localhost:3000/callback
       auth_server_id: default
+  strict_scopes: false
 
 resend:
   domains:
@@ -584,6 +586,7 @@ stripe:
     - product_name: Pro Plan
       currency: usd
       unit_amount: 2000
+  strict_scopes: false
 
 mongoatlas:
   projects:
@@ -674,7 +677,9 @@ github:
         - "http://localhost:3000/api/auth/callback/github"
 ```
 
-If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced.
+If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced, and an authorization code can only be exchanged by the app it was issued to.
+
+`DELETE /applications/:client_id/token` and `DELETE /applications/:client_id/grant` take the app's `client_id` and `client_secret` as HTTP Basic credentials and an `access_token` in the JSON body. The first revokes that token; the second revokes the user's grant and every token the app holds for that user. Wrong client credentials return `401`, and a token that is unknown or belongs to another app returns `422`. A revoked token then fails as `401 Bad credentials`, even when unknown tokens fall back to a default user.
 
 ### GitHub Apps
 
@@ -1016,6 +1021,7 @@ Slack message text is limited to 40,000 Unicode characters across chat writes, i
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
+- `POST /api/auth.revoke` - revoke the calling token (`test=1` checks without revoking); later Web API calls with it return `invalid_auth`. Revoking a bot token keeps the app installed but deactivates the bot user and removes it from its channels, so it gets no more `app_mention` events until the app is installed again
 - `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields
@@ -1175,7 +1181,7 @@ Every inner event includes `event_ts`. Message events include `channel_type` (`c
 
 To test bot handlers, invite an installed app's `bot_user_id` with `conversations.invite`, subscribe to `app_mention`, then post text containing `<@BOT_USER_ID>` with `chat.postMessage`. Channel mentions produce one callback per mentioned app, with outer `api_app_id`, inner `event_ts`, and the original message and thread identity. DMs and MPIMs use `message` events.
 
-Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods. Strict mode also rejects tokens the emulator did not issue: a token that does not come from seed config, server options, or an OAuth exchange returns `invalid_auth` instead of acting as the default user.
 
 Current Slack limits: Slack Connect invitation and approval flows, per-workspace channel settings, other Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash commands, shortcuts, and interaction types other than button actions and modal submissions, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
@@ -1262,6 +1268,8 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 - `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Messages` - add message
 
 Twilio uses multiple product hosts. For local SDK tests, rewrite Twilio SDK requests to the emulator and map `messaging.twilio.com` to `/messaging`, `verify.twilio.com` to `/verify`, and `conversations.twilio.com` to `/conversations`.
+
+Only an `active` account can send messages or place calls. Set the seeded account `status` to `suspended` or `closed`, or update it with `POST /2010-04-01/Accounts/{AccountSid}.json` and `Status`, to test the failure: message and call creation return HTTP 401 with error `20005`, "Account not active". Set the status back to `active` to restore them.
 
 ### SMS And OTP Testing
 
@@ -1672,7 +1680,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Vercel**: All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
 
-**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+**GitHub**: Public repo endpoints work without auth. Private repos and write operations require a valid token. A private repository the caller cannot see returns `404 Not Found`, as on GitHub. Set `github.strict_scopes: true` in seed config to reject tokens the emulator did not issue: a token that does not come from seed config, server options, an OAuth exchange, or an installation token request returns `401 Bad credentials` instead of acting as the default user. Pagination uses `page`/`per_page` with `Link` headers.
 
 **Google**: Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued tokens. Configure clients in the seed config.
 

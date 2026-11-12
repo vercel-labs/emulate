@@ -10,7 +10,7 @@ import type {
   RouteContext,
 } from "@emulators/core";
 import { getStripeStore } from "./store.js";
-import { stripeId } from "./helpers.js";
+import { MISSING_API_KEY_MESSAGE, maskStripeKey, stripeError, stripeId, stripeRequestKey } from "./helpers.js";
 import { customerRoutes } from "./routes/customers.js";
 import { paymentIntentRoutes } from "./routes/payment-intents.js";
 import { paymentMethodRoutes } from "./routes/payment-methods.js";
@@ -25,6 +25,10 @@ export * from "./entities.js";
 
 export interface StripeSeedConfig {
   port?: number;
+  strict_scopes?: boolean;
+  /** Secret keys accepted in strict mode, in addition to the top-level `tokens` config. The next and nuxt adapters
+   * don't read top-level `tokens`, so strict mode there accepts only these. */
+  api_keys?: string[];
   customers?: Array<{
     id?: string;
     email?: string;
@@ -82,6 +86,14 @@ export function seedFromConfig(
   webhooks?: WebhookDispatcher,
 ): void {
   const ss = getStripeStore(store);
+
+  if (config.strict_scopes !== undefined) {
+    store.setData("stripe.strict_scopes", config.strict_scopes);
+  }
+
+  if (config.api_keys) {
+    store.setData("stripe.api_keys", [...config.api_keys]);
+  }
 
   if (config.customers) {
     for (const c of config.customers) {
@@ -142,6 +154,24 @@ export const stripePlugin: ServicePlugin = {
   name: "stripe",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     webhooks.setHeaderFactory(stripeWebhookHeaders);
+
+    // API keys are unchecked by default so local clients can use any placeholder.
+    // Strict mode requires a known key on API routes, as Stripe does: one from the top-level tokens config or stripe.api_keys.
+    app.use("*", async (c, next) => {
+      if (store.getData<boolean>("stripe.strict_scopes") !== true) return next();
+      if (!c.req.path.startsWith("/v1/")) return next();
+
+      const key = stripeRequestKey(c.req.header("Authorization"));
+      if (!key) {
+        c.header("WWW-Authenticate", 'Basic realm="Stripe"');
+        return stripeError(c, 401, "invalid_request_error", MISSING_API_KEY_MESSAGE);
+      }
+      if (!tokenMap?.has(key) && !(store.getData<string[]>("stripe.api_keys") ?? []).includes(key)) {
+        c.header("WWW-Authenticate", 'Basic realm="Stripe"');
+        return stripeError(c, 401, "invalid_request_error", `Invalid API Key provided: ${maskStripeKey(key)}`);
+      }
+      return next();
+    });
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     customerRoutes(ctx);
