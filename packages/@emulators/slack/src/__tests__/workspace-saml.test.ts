@@ -195,6 +195,7 @@ interface ResponseOptions {
   version?: string;
   notBefore?: Date;
   notOnOrAfter?: Date;
+  omitNotOnOrAfter?: "confirmation" | "conditions" | "both";
   assertionId?: string;
   sign?: "response" | "assertion" | "both" | "none";
   key?: TestKey;
@@ -236,6 +237,9 @@ function buildResponse(options: ResponseOptions = {}): string {
     (options.nameQualifier ? ` NameQualifier="${options.nameQualifier}"` : "") +
     (options.spNameQualifier ? ` SPNameQualifier="${options.spNameQualifier}"` : "");
   const version = options.version ?? "2.0";
+  const omit = options.omitNotOnOrAfter;
+  const confirmationLimit = omit === "confirmation" || omit === "both" ? "" : ` NotOnOrAfter="${notOnOrAfter}"`;
+  const conditionsLimit = omit === "conditions" || omit === "both" ? "" : ` NotOnOrAfter="${notOnOrAfter}"`;
   const xml =
     `<samlp:Response xmlns:samlp="${SAMLP_NS}" xmlns:saml="${SAML_NS}" ID="_response1" Version="${version}"` +
     ` IssueInstant="${issueInstant}" Destination="${options.destination ?? acsUrl}"${inResponseTo}>` +
@@ -246,10 +250,10 @@ function buildResponse(options: ResponseOptions = {}): string {
     `<saml:Subject>` +
     `<saml:NameID Format="${options.nameIdFormat ?? PERSISTENT}"${qualifiers}>${options.nameId ?? "00u-alice"}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">` +
-    `<saml:SubjectConfirmationData${inResponseTo} NotOnOrAfter="${notOnOrAfter}" Recipient="${options.recipient ?? acsUrl}"/>` +
+    `<saml:SubjectConfirmationData${inResponseTo}${confirmationLimit} Recipient="${options.recipient ?? acsUrl}"/>` +
     `</saml:SubjectConfirmation>` +
     `</saml:Subject>` +
-    `<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">` +
+    `<saml:Conditions NotBefore="${notBefore}"${conditionsLimit}>` +
     `<saml:AudienceRestriction><saml:Audience>${options.audience ?? "https://slack.com"}</saml:Audience></saml:AudienceRestriction>` +
     `</saml:Conditions>` +
     `<saml:AuthnStatement AuthnInstant="${issueInstant}">` +
@@ -366,6 +370,25 @@ describe("Slack workspace SAML single sign-on", () => {
       const offsite = await consume(app, buildResponse({ requestId: null }), "https://evil.test/");
       expect(offsite.status).toBe(200);
       expect(await offsite.text()).toContain("You are signed in to <strong>Acme</strong> as <strong>alice</strong>");
+    });
+
+    it("does not redirect to another host from RelayState or redir", async () => {
+      const { app } = createTestApp();
+      for (const relayState of [
+        "/\t/evil.test/",
+        "/ /evil.test",
+        "//evil.test",
+        "/\\evil.test",
+        "/a/..//evil.test/",
+        "/a/../..//evil.test/",
+      ]) {
+        const res = await consume(app, buildResponse({ requestId: null }), relayState);
+        expect(res.status, relayState).toBe(200);
+        expect(res.headers.get("Location"), relayState).toBeNull();
+
+        const { html } = await startSso(app, relayState);
+        expect(hiddenField(html, "RelayState"), relayState).toBeNull();
+      }
     });
 
     it("refuses a response sent with the HTTP-Redirect binding", async () => {
@@ -487,6 +510,21 @@ describe("Slack workspace SAML single sign-on", () => {
         403,
         "The SAML Response is not valid yet.",
       );
+    });
+
+    it("refuses a bearer confirmation without NotOnOrAfter", async () => {
+      const { app } = createTestApp();
+      for (const omitNotOnOrAfter of ["confirmation", "both"] as const) {
+        const { requestId } = await startSso(app);
+        await expectRefused(
+          await consume(app, buildResponse({ requestId, omitNotOnOrAfter })),
+          403,
+          "The SAML Response does not limit when it can be delivered",
+        );
+      }
+      const { requestId } = await startSso(app);
+      const res = await consume(app, buildResponse({ requestId, omitNotOnOrAfter: "conditions" }));
+      expect(res.status).toBe(200);
     });
 
     it("refuses a response to a request the emulator never sent, or already answered", async () => {

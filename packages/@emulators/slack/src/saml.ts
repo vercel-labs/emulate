@@ -98,10 +98,24 @@ export function samlAcsUrl(baseUrl: string): string {
   return `${baseUrl}/sso/saml`;
 }
 
-/** A path on this host, so that a redirect after sign-in cannot leave the emulator. */
-export function localPath(value: string | undefined | null): string | null {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return null;
-  return value;
+/**
+ * A path on this host, so that a redirect after sign-in cannot leave the emulator: a single leading
+ * "/", no backslash, no ASCII control or whitespace character (URL parsing drops tabs and newlines),
+ * and a URL that resolves to the emulator's own origin with a path that still starts with a single
+ * "/" once dot segments are removed. Returns the normalized path, query, and fragment.
+ */
+export function localPath(value: string | undefined | null, baseUrl: string): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\u0000-\u0020\u007f]/.test(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value, baseUrl);
+  } catch {
+    return null;
+  }
+  if (url.origin !== new URL(baseUrl).origin || url.pathname.startsWith("//")) return null;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 /** Builds an AuthnRequest for the HTTP-POST binding and remembers its ID until a response answers it. */
@@ -349,7 +363,8 @@ export function validateSamlResponse(
   }
 
   const now = Date.now();
-  // Bearer subject confirmation (SAML 2.0 Profiles, 4.1.4.2): Recipient is the ACS URL, NotOnOrAfter bounds it.
+  // Bearer subject confirmation (SAML 2.0 Profiles, 4.1.4.2): it MUST carry the ACS URL as Recipient and a
+  // NotOnOrAfter that limits the window during which the assertion can be delivered.
   const confirmationData = childElement(
     childElement(subject, SAML_NS, "SubjectConfirmation"),
     SAML_NS,
@@ -359,7 +374,10 @@ export function validateSamlResponse(
     refuse(`The SAML Response does not contain the correct Recipient, which should be ${acsUrl}.`);
   }
   const confirmationNotOnOrAfter = parseInstant(confirmationData.getAttribute("NotOnOrAfter"));
-  if (confirmationNotOnOrAfter !== null && now >= confirmationNotOnOrAfter) refuse("The SAML Response has expired.");
+  if (confirmationNotOnOrAfter === null) {
+    refuse("The SAML Response does not limit when it can be delivered: SubjectConfirmationData has no NotOnOrAfter.");
+  }
+  if (now >= confirmationNotOnOrAfter) refuse("The SAML Response has expired.");
 
   const conditions = childElement(assertion, SAML_NS, "Conditions");
   const notBefore = parseInstant(conditions?.getAttribute("NotBefore") ?? null);
@@ -402,7 +420,7 @@ export function validateSamlResponse(
     assertionId,
     nameId,
     inResponseTo,
-    expiresAt: Math.min(confirmationNotOnOrAfter ?? Infinity, notOnOrAfter ?? Infinity),
+    expiresAt: Math.min(confirmationNotOnOrAfter, notOnOrAfter ?? Infinity),
     email,
     username: attributeValue(assertion, "User.Username"),
     firstName: attributeValue(assertion, "first_name"),
@@ -416,7 +434,7 @@ export function consumeAssertionId(store: Store, assertion: ValidatedAssertion):
   const now = Date.now();
   for (const [id, expiresAt] of used) if (expiresAt <= now) used.delete(id);
   if (used.has(assertion.assertionId)) refuse("This SAML Response has already been used.");
-  used.set(assertion.assertionId, Number.isFinite(assertion.expiresAt) ? assertion.expiresAt : Infinity);
+  used.set(assertion.assertionId, assertion.expiresAt);
 }
 
 /**

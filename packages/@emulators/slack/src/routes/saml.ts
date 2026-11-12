@@ -31,7 +31,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
       const body = await c.req.parseBody();
       redir = bodyStr(body.redir) || redir;
     }
-    const target = localPath(redir);
+    const target = localPath(redir, baseUrl);
     const request = createAuthnRequest(store, baseUrl, config, target);
     const fields: Record<string, string> = { SAMLRequest: Buffer.from(request.xml, "utf8").toString("base64") };
     if (target) fields.RelayState = target;
@@ -69,7 +69,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
           throw new SamlResponseError("The SAML Response does not answer a sign-in request from Slack.", 403);
         redir = pending.redir;
       } else {
-        redir = localPath(bodyStr(body.RelayState));
+        redir = localPath(bodyStr(body.RelayState), baseUrl);
       }
       consumeAssertionId(store, assertion);
       const member = resolveSamlMember(store, team, assertion);
