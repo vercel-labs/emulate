@@ -375,6 +375,8 @@ describe("GitHub organization SAML response", () => {
       "//evil.example",
       "/\\evil.example",
       "https://evil.example",
+      "/a/..//evil.example/",
+      "/a/../..//evil.example/",
     ]) {
       const { requestId } = await startSso(app, sessionId);
       const res = await consume(app, sessionId, buildResponse({ requestId }), relayState);

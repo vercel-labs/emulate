@@ -22,7 +22,9 @@ const SERVICE_LABEL = "GitHub";
 /**
  * A path on this host, so that a redirect after sign-in cannot leave the emulator: a single leading
  * "/", no backslash, no ASCII control or whitespace character, and a URL that resolves to the
- * emulator's own origin. Returns the normalized path, query, and fragment.
+ * emulator's own origin with a path that still starts with a single "/" once dot segments are
+ * removed (`/a/..//evil.example/` normalizes to `//evil.example/`). Returns the normalized path,
+ * query, and fragment.
  */
 export function localPath(value: string | undefined, baseUrl: string): string | null {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
@@ -34,7 +36,7 @@ export function localPath(value: string | undefined, baseUrl: string): string | 
   } catch {
     return null;
   }
-  if (url.origin !== new URL(baseUrl).origin) return null;
+  if (url.origin !== new URL(baseUrl).origin || url.pathname.startsWith("//")) return null;
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
