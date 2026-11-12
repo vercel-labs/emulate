@@ -1438,7 +1438,7 @@ ai:
           retry-after: "1"
 ```
 
-Matchers are `model` (with `*` wildcards), `format` (`openai-chat` or `openai-responses`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (Responses only), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
+Matchers are `model` (with `*` wildcards), `format` (`openai-chat` or `openai-responses`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment, including one returned inside a tool result, or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (Responses only), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default to zero, so streams are instant. Delays are abortable: a client close or reset cancels pending timers.
 
@@ -1446,7 +1446,7 @@ Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default
 
 With no matching rule, the service echoes the latest user text, returns a deterministic schema-valid object when a schema was requested, returns `{}` for JSON mode without a schema, generates a call when a tool is forced, acknowledges a tool result or an attachment-only request, and accepts and echoes any model id.
 
-Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), and local `$ref`, with recursion bounded. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that subset returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
+Supported schema features are `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), and local `$ref`, with recursion bounded. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that subset returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule. A format sample, `enum` value, or `const` that fails the pattern returns the same 400, and pattern checks run under a time limit.
 
 Set `ai.strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and as a JSON body for the rules endpoint.
 
@@ -1467,7 +1467,7 @@ All control routes and the inspector are same-origin only, reads included. curl 
 - `POST /_ai/reset` - restore seeded rules and budgets, and clear calls and stored responses
 - `GET /` - read-only inspector with Calls and Rules tabs
 
-`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited). `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
+`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "random": { "seed": <number> }, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited), in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
 
 ```bash
 curl -s http://localhost:4014/_ai/calls | jq
@@ -1485,7 +1485,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   }'
 ```
 
-An invalid replacement returns 400 with the failing path and leaves the previous rules active. `PUT` replaces the whole runtime config, so include `strict`, `timing`, and `models` in the body to keep them; a body with only `rules` resets them to their defaults. Runtime replacements are ephemeral: reset restores the seeded rules.
+An invalid replacement returns 400 with the failing path and leaves the previous rules active. `PUT` replaces the whole runtime config, so include `strict`, `timing`, `random`, and `models` in the body to keep them; a body with only `rules` resets them to their defaults, and a reset seed changes the order of seeded variants. Every replacement also restores each rule's full `times` budget. Runtime replacements are ephemeral: reset restores the seeded rules.
 
 ### Refusals, attachments, and limits
 
