@@ -1,5 +1,6 @@
 import { AiRequestError } from "./errors.js";
-import type { AIRequest, HttpFailure, Json, JsonSchema, Reply, ReplyEvent, Usage } from "./types.js";
+import { currentTurn } from "./turn.js";
+import type { AIRequest, DefaultKind, HttpFailure, Json, JsonSchema, ReplyEvent, Usage } from "./types.js";
 
 const keywords = new Set([
   "$schema",
@@ -82,17 +83,6 @@ function adjacentNumber(value: number, direction: 1 | -1): number {
   view.setFloat64(0, value);
   view.setBigUint64(0, view.getBigUint64(0) + (value > 0 === direction > 0 ? 1n : -1n));
   return view.getFloat64(0);
-}
-
-/** Return text parts from the latest user turn, excluding tool results. */
-export function latestUserText(request: AIRequest): string {
-  const message = [...request.messages].reverse().find((message) => message.role === "user");
-  return (
-    message?.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("") ?? ""
-  );
 }
 
 /** Generate a deterministic value for the supported schema subset, or throw a path-specific client error. */
@@ -497,46 +487,41 @@ function toolCallName(request: AIRequest, id: string): string | undefined {
   return undefined;
 }
 
-/** Apply permissive defaults, choosing forced tools before structured output and text. */
-export function defaultReply(request: AIRequest, makeId: (prefix: string) => string): Reply {
-  const text = latestUserText(request);
+/** Answers a request no rule matched: a forced tool call, then structured output, a tool result or attachment acknowledgement, and last an echo. */
+export function defaultEvents(
+  request: AIRequest,
+  makeId: (prefix: string) => string,
+): { kind: DefaultKind; events: ReplyEvent[] } {
+  const turn = currentTurn(request);
+  let kind: DefaultKind;
   let event: ReplyEvent;
-  if (request.toolChoice === "required" || typeof request.toolChoice === "object") {
-    const choice = request.toolChoice;
-    const tool =
-      typeof choice === "object" ? request.tools.find((tool) => tool.name === choice.name) : request.tools[0];
-    if (!tool) throw new AiRequestError("Forced tool choice requires a declared tool.", "tool_choice");
-    const args = sampleSchema(tool.parameters ?? { type: "object" }, text, `tools.${tool.name}.parameters`);
+  if (turn.forcedTool) {
+    const tool = turn.forcedTool;
+    const args = sampleSchema(tool.parameters ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
+    kind = "forced_tool";
     event = { type: "tool_call", id: makeId("call"), name: tool.name, arguments: JSON.stringify(args) };
   } else if (request.output) {
+    kind = request.output.kind;
     event = {
       type: "object",
-      value: request.output.kind === "json_object" ? {} : sampleSchema(request.output.schema, text),
+      value: request.output.kind === "json_object" ? {} : sampleSchema(request.output.schema, turn.text),
     };
-  } else {
-    const latest = request.messages.at(-1);
-    const result = latest?.parts.at(-1);
-    const files =
-      [...request.messages]
-        .reverse()
-        .find((message) => message.role === "user")
-        ?.parts.filter((part) => part.type === "file") ?? [];
-    const acknowledgement =
-      result?.type === "tool_result"
-        ? `Received the result of ${result.name ?? toolCallName(request, result.id) ?? result.id}.`
-        : undefined;
+  } else if (turn.pendingResult) {
+    const result = turn.pendingResult;
+    kind = "tool_result";
     event = {
       type: "text",
-      text:
-        acknowledgement ??
-        (text ||
-          (files.length
-            ? `Received ${files.length} files (${files.map((file) => file.name ?? file.mediaType).join(", ")}).`
-            : "")),
+      text: `Received the result of ${result.name ?? toolCallName(request, result.id) ?? result.id}.`,
     };
+  } else if (!turn.text && turn.files.length > 0) {
+    const names = turn.files.map((file) => file.name ?? file.mediaType).join(", ");
+    kind = "attachments";
+    event = { type: "text", text: `Received ${turn.files.length} files (${names}).` };
+  } else {
+    kind = "echo";
+    event = { type: "text", text: turn.text };
   }
-  const events = [event];
-  return { events, finish: event.type === "tool_call" ? "tool_calls" : "stop", usage: estimateUsage(request, events) };
+  return { kind, events: [event] };
 }
 
 /** Describe a strict miss with a seed rule and a rules-endpoint replacement body. */
