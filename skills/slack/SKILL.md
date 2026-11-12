@@ -42,7 +42,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 Requests without a token return `not_authed`. In relaxed scope mode, any non-empty unknown bearer token maps to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods. Strict mode also rejects tokens the emulator did not issue: a token that does not come from seed config, server options, or an OAuth exchange returns `invalid_auth` instead of acting as the default user.
 
 ## Pointing Your App at the Emulator
 
@@ -211,6 +211,11 @@ When no OAuth apps are configured, the emulator accepts any `client_id`. With ap
 ```bash
 # Test authentication
 curl -X POST http://localhost:4003/api/auth.test \
+  -H "Authorization: Bearer $TOKEN"
+
+# Revoke the calling token; test=1 checks without revoking. A revoked bot token
+# deactivates the bot user and removes it from its channels until the app is reinstalled.
+curl -X POST http://localhost:4003/api/auth.revoke \
   -H "Authorization: Bearer $TOKEN"
 ```
 
