@@ -78,7 +78,7 @@ npm install @emulators/google
 
 ## Auth
 
-Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. Configure clients in the seed config. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued ID tokens.
+Standard OAuth 2.0 authorization code flow with RS256-signed OIDC ID tokens. Configure clients in the seed config. The token endpoint accepts the client's credentials in the request body (`client_secret_post`) or in an HTTP Basic `Authorization` header (`client_secret_basic`), the two methods Google's discovery document lists. The discovery document advertises RS256 and `/oauth2/v3/certs` returns the RSA public key used to verify issued ID tokens.
 
 ## Seed Configuration
 

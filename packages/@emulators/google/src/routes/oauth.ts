@@ -250,8 +250,27 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const redirect_uri = typeof body.redirect_uri === "string" ? body.redirect_uri : "";
     const grant_type = typeof body.grant_type === "string" ? body.grant_type : "";
     const code_verifier = typeof body.code_verifier === "string" ? body.code_verifier : undefined;
-    const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
-    const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+    let bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
+    let bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+
+    // client_secret_basic, which Google's discovery document lists beside client_secret_post: the client's
+    // credentials in an HTTP Basic Authorization header, each form-urlencoded (RFC 6749, section 2.3.1).
+    const authHeader = c.req.header("Authorization") ?? "";
+    if (authHeader.startsWith("Basic ")) {
+      const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
+      const sep = decoded.indexOf(":");
+      if (sep !== -1) {
+        const formDecode = (value: string) => {
+          try {
+            return decodeURIComponent(value.replace(/\+/g, " "));
+          } catch {
+            return value;
+          }
+        };
+        if (!bodyClientId) bodyClientId = formDecode(decoded.slice(0, sep));
+        if (!bodyClientSecret) bodyClientSecret = formDecode(decoded.slice(sep + 1));
+      }
+    }
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
     if (clientsConfigured) {
