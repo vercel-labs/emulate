@@ -1,9 +1,10 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { slackOk, slackError } from "../helpers.js";
+import { parseSlackBody, parseSlackBoolean, slackOk, slackError } from "../helpers.js";
+import { invalidateSlackToken, isSlackTokenInvalidated, isSlackTokenRevoked, slackRequestToken } from "../tokens.js";
 
 export function authRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, tokenMap } = ctx;
   const ss = () => getSlackStore(store);
 
   // auth.test - verify token, return user/team info
@@ -48,5 +49,22 @@ export function authRoutes(ctx: RouteContext): void {
       app_id: tokenRecord?.app_id,
       app_name: installation?.app_name,
     });
+  });
+
+  // auth.revoke - revoke the calling token
+  app.post("/api/auth.revoke", async (c) => {
+    const body = await parseSlackBody(c);
+    const token = slackRequestToken(c) ?? (typeof body.token === "string" ? body.token.trim() : "");
+    if (!token) return slackError(c, "not_authed");
+    if (isSlackTokenRevoked(store, token)) return slackError(c, "token_revoked");
+    if (isSlackTokenInvalidated(store, token)) return slackError(c, "invalid_auth");
+
+    const record = ss().tokens.findOneBy("token", token);
+    if (!record && !tokenMap?.has(token)) return slackError(c, "invalid_auth");
+
+    if (parseSlackBoolean(body.test) === true) return slackOk(c, { revoked: false });
+
+    invalidateSlackToken(store, token, tokenMap);
+    return slackOk(c, { revoked: true });
   });
 }
