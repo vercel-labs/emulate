@@ -1,3 +1,4 @@
+import { createContext, Script } from "node:vm";
 import { AiRequestError } from "./errors.js";
 import { currentTurn } from "./turn.js";
 import type { AIRequest, DefaultKind, HttpFailure, Json, JsonSchema, ReplyEvent, Usage } from "./types.js";
@@ -35,6 +36,12 @@ const keywords = new Set([
   "pattern",
 ]);
 const types = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
+
+const PATTERN_BUDGET_MS = 250;
+const patternSandbox = createContext({ pattern: "", value: "" });
+const patternTest = new Script(
+  "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { regex = new RegExp(pattern); } return regex.test(value); })()",
+);
 
 const formatSamples: Record<string, string> = {
   email: "user@example.com",
@@ -94,6 +101,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
 
   let remaining = 4096;
   let characters = 262144;
+  let patternMs = PATTERN_BUDGET_MS;
   const seedLimit = 64;
   const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
 
@@ -207,12 +215,18 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
+  /** Tests a string against a client pattern inside one time budget per schema, so a pathological expression cannot stall the emulator. */
   function patternMatches(pattern: Json, value: string, at: string): boolean {
     if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
+    if (patternMs <= 0) fail(`${at}.pattern`, "pattern checks exceed the time limit");
+    const started = performance.now();
     try {
-      return new RegExp(pattern, "u").test(value);
+      Object.assign(patternSandbox, { pattern, value });
+      return patternTest.runInContext(patternSandbox, { timeout: Math.ceil(patternMs) }) === true;
     } catch {
-      fail(`${at}.pattern`, "expected a valid regular expression");
+      fail(`${at}.pattern`, "expected a regular expression that evaluates within the time limit");
+    } finally {
+      patternMs -= performance.now() - started;
     }
   }
 
