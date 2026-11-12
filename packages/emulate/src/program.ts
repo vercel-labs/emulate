@@ -68,6 +68,9 @@ GitHub API coverage:
   Suites are separated by App and commit; latest runs are grouped by App and check name.
   User-token checks return app: null; request-body app_id cannot change attribution.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
+  A private repository the caller cannot see returns 404, as on GitHub.
+  DELETE /applications/:client_id/token and /grant revoke an OAuth app's token or grant.
+  Set github.strict_scopes: true to reject tokens the emulator did not issue with 401 Bad credentials.
 
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.

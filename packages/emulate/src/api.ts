@@ -2,6 +2,8 @@ import {
   createServer,
   serve,
   createCustomRuntime,
+  restoreTokenMap,
+  serializeTokenMap,
   type AppKeyResolver,
   type EmulatorDefinition,
   type CustomRuntime,
@@ -203,6 +205,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
       fallbackUser,
     });
     cachedResolver = loaded.createAppKeyResolver?.(store);
+    const startupTokens = structuredClone(serializeTokenMap(tokenMap));
 
     const seed = () => {
       loaded.plugin.seed?.(store, baseUrl);
@@ -222,9 +225,8 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
       url: baseUrl,
       generatedSecrets,
       reset() {
-        for (const [token, user] of tokenMap) {
-          if (user.installation) tokenMap.delete(token);
-        }
+        // Tokens issued or revoked at runtime belong to the store state being wiped, so go back to the startup tokens.
+        restoreTokenMap(tokenMap, structuredClone(startupTokens));
         store.reset();
         webhooks.clear();
         seed();

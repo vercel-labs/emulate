@@ -46,6 +46,15 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     notes: "Bearer token auth returns user and team identity.",
   },
   {
+    family: "auth",
+    method: "auth.revoke",
+    route: "POST /api/auth.revoke",
+    status: "supported",
+    testedBy: ["auth-revoke.test.ts"],
+    notes:
+      "Revokes the calling token; test=1 reports revoked: false without revoking. Later calls with the token return invalid_auth. Revoking a bot token deactivates the bot user and removes its channel memberships until the app is reinstalled.",
+  },
+  {
     family: "chat",
     method: "chat.postMessage",
     route: "POST /api/chat.postMessage",
