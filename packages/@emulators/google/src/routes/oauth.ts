@@ -218,7 +218,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       const params = new URLSearchParams();
       const fields = { client_id, redirect_uri, scope, state, nonce, code_challenge, code_challenge_method };
       for (const [name, value] of Object.entries(fields)) if (value) params.set(name, value);
-      const request = createAuthnRequest(store, baseUrl, profile, `/o/oauth2/v2/auth?${params.toString()}`);
+      const request = createAuthnRequest(store, baseUrl, profile, `/o/oauth2/v2/auth?${params.toString()}`, c);
+      if (request.setCookie) c.header("Set-Cookie", request.setCookie);
       return c.html(
         renderFormPostPage(
           profile.sign_in_page_url,

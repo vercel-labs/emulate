@@ -99,8 +99,9 @@ Google OIDC:
 Google SAML single sign-on:
   Set google.sso_profiles (id, sign_in_page_url, certificates, users) to sign assigned users in with a SAML identity provider.
   Picking an assigned user on /o/oauth2/v2/auth posts an unsigned AuthnRequest; POST /samlrp/<id>/acs validates the signed
-  assertion and opens a 14-day web session. The identity provider uses the ACS <base URL>/samlrp/<id>/acs and the
-  audience <base URL>/samlrp/<id>. Users without a profile and super administrators (is_admin) keep the user picker.
+  assertion (with idp_entity_id as Issuer when set) from the browser that started the sign-in, and opens a 14-day web
+  session. The identity provider uses the ACS <base URL>/samlrp/<id>/acs and the audience <base URL>/samlrp/<id>.
+  Users without a profile and super administrators (is_admin) keep the user picker.
 
 Resend API coverage:
   POST /emails and POST /emails/batch support 24-hour Idempotency-Key replay without duplicate emails or webhooks.

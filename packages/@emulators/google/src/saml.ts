@@ -14,6 +14,8 @@ const EMAIL_NAME_ID = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress";
 const RSA_SHA256 = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
 
 export const GOOGLE_SESSION_COOKIE = "_emu_google_session";
+/** Identifies the browser that starts a sign-in, so that only that browser can complete it at the ACS. */
+const SSO_BROWSER_COOKIE = "_emu_google_sso_browser";
 /** "By default, the web session length for Google services is 14 days." */
 export const WEB_SESSION_LENGTH_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -44,6 +46,7 @@ export interface GoogleSsoProfile {
 
 interface PendingAuthnRequest {
   profile_id: string;
+  browser_id: string;
   continue_url: string;
   created_at: number;
 }
@@ -148,13 +151,29 @@ export function samlAcsUrl(baseUrl: string, profile: GoogleSsoProfile): string {
   return `${baseUrl}/samlrp/${profile.id}/acs`;
 }
 
-/** Builds the unsigned AuthnRequest for the HTTP-POST binding and remembers it until a response answers it. */
+/** The SSO browser ID of the browser sending `c`, if it has one. */
+export function getSsoBrowserId(c: Context): string | null {
+  return parseCookies(c.req.header("Cookie") ?? "")[SSO_BROWSER_COOKIE] || null;
+}
+
+/**
+ * Builds the unsigned AuthnRequest for the HTTP-POST binding and remembers it, bound to the browser
+ * that sends `c`, until a response answers it. `setCookie` is the browser cookie to set, if the
+ * browser has none yet.
+ */
 export function createAuthnRequest(
   store: Store,
   baseUrl: string,
   profile: GoogleSsoProfile,
   continueUrl: string,
-): { id: string; xml: string; relayState: string } {
+  c: Context,
+): { id: string; xml: string; relayState: string; setCookie: string | null } {
+  let browserId = getSsoBrowserId(c);
+  let setCookie: string | null = null;
+  if (!browserId) {
+    browserId = randomBytes(24).toString("hex");
+    setCookie = `${SSO_BROWSER_COOKIE}=${browserId}; Path=/; HttpOnly; SameSite=Lax`;
+  }
   const id = `_${randomBytes(20).toString("hex")}`;
   const xml =
     `<samlp:AuthnRequest xmlns:samlp="${SAMLP_NS}" xmlns:saml="${SAML_NS}" ID="${id}" Version="2.0"` +
@@ -164,10 +183,11 @@ export function createAuthnRequest(
     `</samlp:AuthnRequest>`;
   dataMap<PendingAuthnRequest>(store, "google.sso.pendingRequests").set(id, {
     profile_id: profile.id,
+    browser_id: browserId,
     continue_url: continueUrl,
     created_at: Date.now(),
   });
-  return { id, xml, relayState: randomBytes(16).toString("hex") };
+  return { id, xml, relayState: randomBytes(16).toString("hex"), setCookie };
 }
 
 export class SamlResponseError extends Error {
@@ -185,6 +205,7 @@ function refuse(message: string): never {
 
 const NOT_SIGNED = "The SAML assertion is not signed with the profile's verification certificate.";
 const NOT_REQUESTED = "Google did not request this SAML response. Sign-in must start at Google.";
+const NOT_THIS_BROWSER = "The SAML response does not answer a sign-in request from this browser.";
 
 function childElements(parent: Element, ns: string, localName: string): Element[] {
   const result: Element[] = [];
@@ -336,6 +357,19 @@ export function validateSamlResponse(
     refuse("The identity provider did not authenticate the user.");
   }
 
+  // The IdP entity ID is "how your IdP identifies itself when communicating with Google": when the
+  // profile sets one, it must be the assertion's Issuer, and the Response's when it names one.
+  if (profile.idp_entity_id !== null) {
+    const assertionIssuer = childElement(assertion, SAML_NS, "Issuer")?.textContent?.trim();
+    const responseIssuer = childElement(response, SAML_NS, "Issuer")?.textContent?.trim();
+    if (
+      assertionIssuer !== profile.idp_entity_id ||
+      (responseIssuer !== undefined && responseIssuer !== profile.idp_entity_id)
+    ) {
+      refuse(`The SAML Issuer must be the profile's IdP entity ID, ${profile.idp_entity_id}.`);
+    }
+  }
+
   // "NameID identifies the subject which is the user's primary email address. It is case-sensitive."
   const subject = childElement(assertion, SAML_NS, "Subject");
   const nameIdElement = childElement(subject, SAML_NS, "NameID");
@@ -358,8 +392,13 @@ export function validateSamlResponse(
   if (confirmationData?.getAttribute("Recipient") !== acsUrl) {
     refuse(`The SAML assertion Recipient must be the profile's ACS URL, ${acsUrl}.`);
   }
+  // The bearer SubjectConfirmationData MUST carry "a NotOnOrAfter attribute that limits the window
+  // during which the assertion can be delivered" (SAML 2.0 Profiles, 4.1.4.2).
   const confirmationNotOnOrAfter = parseInstant(confirmationData.getAttribute("NotOnOrAfter"));
-  if (confirmationNotOnOrAfter !== null && now >= confirmationNotOnOrAfter) refuse("The SAML assertion has expired.");
+  if (confirmationNotOnOrAfter === null) {
+    refuse("The SAML assertion does not limit when it can be delivered: SubjectConfirmationData has no NotOnOrAfter.");
+  }
+  if (now >= confirmationNotOnOrAfter) refuse("The SAML assertion has expired.");
 
   const conditions = childElement(assertion, SAML_NS, "Conditions");
   const notBefore = parseInstant(conditions?.getAttribute("NotBefore") ?? null);
@@ -394,19 +433,24 @@ export function validateSamlResponse(
     assertionId: assertion.getAttribute("ID") ?? "",
     user,
     inResponseTo,
-    expiresAt: Math.min(confirmationNotOnOrAfter ?? Infinity, notOnOrAfter ?? Infinity),
+    expiresAt: Math.min(confirmationNotOnOrAfter, notOnOrAfter ?? Infinity),
   };
 }
 
-/** Consumes the pending AuthnRequest the response answers; refuses one Google never sent for this profile. */
+/**
+ * Consumes the pending AuthnRequest the response answers; refuses one Google never sent for this
+ * profile, or sent for another browser than the one posting the response (`browserId`).
+ */
 export function takePendingAuthnRequest(
   store: Store,
   profile: GoogleSsoProfile,
   assertion: ValidatedAssertion,
+  browserId: string | null,
 ): PendingAuthnRequest {
   const pending = dataMap<PendingAuthnRequest>(store, "google.sso.pendingRequests");
   const request = pending.get(assertion.inResponseTo);
   if (!request || request.profile_id !== profile.id) refuse(NOT_REQUESTED);
+  if (request.browser_id !== browserId) refuse(NOT_THIS_BROWSER);
   pending.delete(assertion.inResponseTo);
   return request;
 }

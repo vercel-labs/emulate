@@ -177,15 +177,24 @@ function authorizeCallback(app: Hono, email: string, cookie?: string) {
 
 const authorizePath = `/o/oauth2/v2/auth?client_id=${client.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=openid+email+profile&state=xyz`;
 
+// The browser of each test app: its SSO browser cookie, sent with the sign-in requests it starts.
+const browsers = new WeakMap<Hono, string>();
+
+function browserCookie(res: Response): string | null {
+  return /(_emu_google_sso_browser=[^;]+)/.exec(res.headers.get("Set-Cookie") ?? "")?.[1] ?? null;
+}
+
 async function startSso(app: Hono, email = "alice@acme.test") {
-  const res = await authorizeCallback(app, email);
+  const res = await authorizeCallback(app, email, browsers.get(app));
   expect(res.status).toBe(200);
+  const cookie = browserCookie(res);
+  if (cookie) browsers.set(app, cookie);
   const html = await res.text();
   const samlRequest = hiddenField(html, "SAMLRequest");
   expect(samlRequest).not.toBeNull();
   const xml = Buffer.from(samlRequest!, "base64").toString("utf8");
   const request = new DOMParser().parseFromString(xml, "text/xml").documentElement as Element;
-  return { html, xml, request, requestId: request.getAttribute("ID")! };
+  return { html, xml, request, requestId: request.getAttribute("ID")!, browser: browsers.get(app)! };
 }
 
 interface ResponseOptions {
@@ -197,6 +206,9 @@ interface ResponseOptions {
   destination?: string | null;
   notBefore?: Date;
   notOnOrAfter?: Date;
+  omitNotOnOrAfter?: "confirmation" | "conditions" | "both";
+  issuer?: string;
+  responseIssuer?: string;
   assertionId?: string;
   sign?: "response" | "assertion" | "both" | "none";
   key?: TestKey;
@@ -222,26 +234,30 @@ function signElement(xml: string, target: "Response" | "Assertion", key: TestKey
 
 function buildResponse(options: ResponseOptions = {}): string {
   const now = Date.now();
-  const issuer = "http://www.okta.com/exk1";
+  const issuer = options.issuer ?? "http://www.okta.com/exk1";
+  const responseIssuer = options.responseIssuer ?? issuer;
+  const omit = options.omitNotOnOrAfter;
   const inResponseTo = options.requestId ? ` InResponseTo="${options.requestId}"` : "";
   const notBefore = (options.notBefore ?? new Date(now - 5 * 60 * 1000)).toISOString();
   const notOnOrAfter = (options.notOnOrAfter ?? new Date(now + 5 * 60 * 1000)).toISOString();
   const issueInstant = new Date(now).toISOString();
+  const confirmationLimit = omit === "confirmation" || omit === "both" ? "" : ` NotOnOrAfter="${notOnOrAfter}"`;
+  const conditionsLimit = omit === "conditions" || omit === "both" ? "" : ` NotOnOrAfter="${notOnOrAfter}"`;
   const destination = options.destination === null ? "" : ` Destination="${options.destination ?? acsUrl}"`;
   const xml =
     `<samlp:Response xmlns:samlp="${SAMLP_NS}" xmlns:saml="${SAML_NS}" ID="_response1" Version="2.0"` +
     ` IssueInstant="${issueInstant}"${destination}${inResponseTo}>` +
-    `<saml:Issuer>${issuer}</saml:Issuer>` +
+    `<saml:Issuer>${responseIssuer}</saml:Issuer>` +
     `<samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>` +
     `<saml:Assertion ID="${options.assertionId ?? `_a${Math.random().toString(16).slice(2)}`}" Version="2.0" IssueInstant="${issueInstant}">` +
     `<saml:Issuer>${issuer}</saml:Issuer>` +
     `<saml:Subject>` +
     `<saml:NameID Format="${options.nameIdFormat ?? EMAIL_FORMAT}">${options.nameId ?? "alice@acme.test"}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">` +
-    `<saml:SubjectConfirmationData${inResponseTo} NotOnOrAfter="${notOnOrAfter}" Recipient="${options.recipient ?? acsUrl}"/>` +
+    `<saml:SubjectConfirmationData${inResponseTo}${confirmationLimit} Recipient="${options.recipient ?? acsUrl}"/>` +
     `</saml:SubjectConfirmation>` +
     `</saml:Subject>` +
-    `<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">` +
+    `<saml:Conditions NotBefore="${notBefore}"${conditionsLimit}>` +
     `<saml:AudienceRestriction><saml:Audience>${options.audience ?? entityId}</saml:Audience></saml:AudienceRestriction>` +
     `</saml:Conditions>` +
     `<saml:AuthnStatement AuthnInstant="${issueInstant}">` +
@@ -259,12 +275,30 @@ function buildResponse(options: ResponseOptions = {}): string {
   return signElement(signElement(xml, "Assertion", key, algorithm), "Response", key, algorithm);
 }
 
-function consume(app: Hono, xml: string, url = acsUrl) {
-  return app.request(url, {
+interface ConsumeOptions {
+  url?: string;
+  /** The posting browser's cookie; by default the browser that started the test app's sign-ins, null for none. */
+  cookie?: string | null;
+  fields?: Record<string, string>;
+}
+
+function consume(app: Hono, xml: string, options: ConsumeOptions = {}) {
+  const cookie = options.cookie === undefined ? browsers.get(app) : options.cookie;
+  return app.request(options.url ?? acsUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ SAMLResponse: Buffer.from(xml, "utf8").toString("base64"), RelayState: "relay" }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) },
+    body: new URLSearchParams(
+      options.fields ?? { SAMLResponse: Buffer.from(xml, "utf8").toString("base64"), RelayState: "relay" },
+    ),
   });
+}
+
+function formFields(html: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const match of html.matchAll(/name="([^"]+)" value="([^"]*)"/g)) {
+    fields[match[1]] = match[2].replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+  }
+  return fields;
 }
 
 function sessionCookie(res: Response): string {
@@ -372,6 +406,20 @@ describe("Google Workspace SAML single sign-on", () => {
       }
     });
 
+    it("sets an HttpOnly SameSite=Lax browser cookie once, and accepts any issuer without an IdP entity ID", async () => {
+      const { app } = createTestApp([
+        { id: "okta", sign_in_page_url: idpUrl, certificates: [idpKey.certificate], users: ["alice@acme.test"] },
+      ]);
+      const res = await authorizeCallback(app, "alice@acme.test");
+      expect(res.headers.get("Set-Cookie")).toMatch(/_emu_google_sso_browser=\w+; Path=\/; HttpOnly; SameSite=Lax/);
+      const browser = browserCookie(res)!;
+      browsers.set(app, browser);
+      const { requestId } = await startSso(app);
+      expect(browsers.get(app)).toBe(browser);
+      const signedIn = await consume(app, buildResponse({ requestId, issuer: "http://www.okta.com/other" }));
+      expect(signedIn.status).toBe(302);
+    });
+
     it("accepts a response without a Destination, which is optional", async () => {
       const { app } = createTestApp();
       await signInWithSaml(app, { destination: null });
@@ -460,6 +508,54 @@ describe("Google Workspace SAML single sign-on", () => {
         await expectRefused(await consume(app, xml), "has expired");
       });
 
+      it("an assertion whose bearer confirmation has no NotOnOrAfter", async () => {
+        const { app } = createTestApp();
+        for (const omitNotOnOrAfter of ["confirmation", "both"] as const) {
+          const { requestId } = await startSso(app);
+          const xml = buildResponse({ requestId, omitNotOnOrAfter });
+          await expectRefused(await consume(app, xml), "does not limit when it can be delivered");
+        }
+      });
+
+      it("an assertion or response from another issuer than the profile's IdP entity ID", async () => {
+        const { app } = createTestApp();
+        for (const options of [
+          { issuer: "http://www.okta.com/other" },
+          { responseIssuer: "http://www.okta.com/other", sign: "both" as const },
+        ]) {
+          const { requestId } = await startSso(app);
+          await expectRefused(await consume(app, buildResponse({ requestId, ...options })), "Issuer");
+        }
+      });
+
+      it("a response posted by another browser than the one that started the sign-in", async () => {
+        const { app, store } = createTestApp();
+        const { requestId } = await startSso(app);
+        const xml = buildResponse({ requestId });
+
+        // A cross-site post carries no SameSite=Lax cookie: the emulator posts it again from its own origin.
+        const crossSite = await consume(app, xml, { cookie: null });
+        expect(crossSite.status).toBe(200);
+        expect(crossSite.headers.get("Set-Cookie")).toBeNull();
+        const html = await crossSite.text();
+        expect(html).toContain(`action="${acsUrl}"`);
+        const fields = formFields(html);
+        expect(fields.SAMLResponse).toBe(Buffer.from(xml, "utf8").toString("base64"));
+        expect(fields.RelayState).toBe("relay");
+
+        const victim = createTestApp().app;
+        const { browser: otherBrowser } = await startSso(victim);
+        for (const cookie of [null, otherBrowser]) {
+          await expectRefused(await consume(app, xml, { cookie, fields }), "from this browser");
+        }
+        await expectRefused(await consume(app, xml, { cookie: otherBrowser }), "from this browser");
+        expect(store.getData<Map<string, unknown>>("google.sso.sessions")?.size ?? 0).toBe(0);
+
+        const res = await consume(app, xml, { fields });
+        expect(res.status).toBe(302);
+        sessionCookie(res);
+      });
+
       it("a response to a request Google did not send", async () => {
         const { app } = createTestApp();
         await startSso(app);
@@ -474,6 +570,7 @@ describe("Google Workspace SAML single sign-on", () => {
 
       it("an identity-provider-initiated response", async () => {
         const { app } = createTestApp();
+        await startSso(app);
         await expectRefused(await consume(app, buildResponse({ requestId: null, sign: "both" })), "did not request");
       });
 
@@ -529,7 +626,7 @@ describe("Google Workspace SAML single sign-on", () => {
 
       it("a response posted to an unknown profile", async () => {
         const { app } = createTestApp();
-        const res = await consume(app, buildResponse(), `${base}/samlrp/missing/acs`);
+        const res = await consume(app, buildResponse(), { url: `${base}/samlrp/missing/acs` });
         expect(res.status).toBe(404);
         expect(await res.text()).toContain("There is no SSO profile with this ID.");
       });
