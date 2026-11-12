@@ -142,51 +142,58 @@ describe("HTTP listener", () => {
     }
   });
 
-  it("delivers a large body to a slow reader intact", async () => {
-    const chunkSize = 64 * 1024;
-    const chunkCount = 128;
-    const chunks: Uint8Array[] = [];
-    const expected = createHash("sha256");
-    for (let index = 0; index < chunkCount; index++) {
-      const chunk = new Uint8Array(chunkSize);
-      chunk.fill(index & 0xff);
-      new DataView(chunk.buffer).setUint32(0, index);
-      chunks.push(chunk);
-      expected.update(chunk);
-    }
-    const server = serve({
-      port: 0,
-      fetch: () => {
-        let index = 0;
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            pull(controller) {
-              if (index >= chunks.length) {
-                controller.close();
-                return;
-              }
-              controller.enqueue(chunks[index]);
-              index += 1;
-            },
-          }),
-        );
-      },
-    });
-    try {
-      await once(server, "listening");
-      const { port } = server.address() as AddressInfo;
-
-      const result = await readSlowly(port);
-
-      expect(result.bytes).toBe(chunkSize * chunkCount);
-      expect(result.digest).toBe(expected.digest("hex"));
-    } finally {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
+  it.each([{ abortOnClose: false }, { abortOnClose: true }])(
+    "delivers a large body to a slow reader intact with abortOnClose $abortOnClose",
+    async ({ abortOnClose }) => {
+      const chunkSize = 64 * 1024;
+      const chunkCount = 128;
+      const chunks: Uint8Array[] = [];
+      const expected = createHash("sha256");
+      for (let index = 0; index < chunkCount; index++) {
+        const chunk = new Uint8Array(chunkSize);
+        chunk.fill(index & 0xff);
+        new DataView(chunk.buffer).setUint32(0, index);
+        chunks.push(chunk);
+        expected.update(chunk);
+      }
+      let signal: AbortSignal | undefined;
+      const server = serve({
+        port: 0,
+        abortOnClose,
+        fetch: (request) => {
+          signal = request.signal;
+          let index = 0;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                if (index >= chunks.length) {
+                  controller.close();
+                  return;
+                }
+                controller.enqueue(chunks[index]);
+                index += 1;
+              },
+            }),
+          );
+        },
       });
-    }
-  });
+      try {
+        await once(server, "listening");
+        const { port } = server.address() as AddressInfo;
+
+        const result = await readSlowly(port);
+
+        expect(result.bytes).toBe(chunkSize * chunkCount);
+        expect(result.digest).toBe(expected.digest("hex"));
+        expect(await waitFor(() => signal?.aborted === true, 200)).toBe(false);
+      } finally {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          server.closeAllConnections();
+        });
+      }
+    },
+  );
 });
 
 describe("internal http layer", () => {

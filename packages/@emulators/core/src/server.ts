@@ -1,7 +1,13 @@
-import { Hono, cors } from "./http.js";
+import { Hono, cors, type Context } from "./http.js";
 import { Store } from "./store.js";
 import { WebhookDispatcher } from "./webhooks.js";
-import { createApiErrorHandler, createErrorHandler } from "./middleware/error-handler.js";
+import {
+  ApiError,
+  createApiErrorHandler,
+  createErrorHandler,
+  errorStatus,
+  notFound,
+} from "./middleware/error-handler.js";
 import {
   authMiddleware,
   type AuthFallback,
@@ -45,9 +51,9 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   registerFontRoutes(app);
 
   const defaultErrorHandler = createApiErrorHandler(docsUrl);
-  app.onError((err, c) =>
-    plugin.formatError ? plugin.formatError(err, c, errorStatus(err)) : defaultErrorHandler(err, c),
-  );
+  const renderError = (err: unknown, c: Context<AppEnv>) =>
+    plugin.formatError ? plugin.formatError(err, c, errorStatus(err)) : defaultErrorHandler(err, c);
+  app.onError(renderError);
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
   app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
@@ -81,16 +87,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
       c.header("X-RateLimit-Resource", "core");
 
       if (counter.remaining === 0) {
-        if (plugin.formatError) {
-          return plugin.formatError(Object.assign(new Error("API rate limit exceeded"), { status: 403 }), c, 403);
-        }
-        return c.json(
-          {
-            message: "API rate limit exceeded",
-            documentation_url: docsUrl,
-          },
-          403,
-        );
+        return renderError(new ApiError(403, "API rate limit exceeded"), c);
       }
 
       await next();
@@ -99,24 +96,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
 
   plugin.register(app, store, webhooks, baseUrl, tokenMap);
 
-  app.notFound((c) => {
-    if (plugin.formatError) return plugin.formatError(new Error("Not Found"), c, 404);
-    return c.json(
-      {
-        message: "Not Found",
-        documentation_url: docsUrl,
-      },
-      404,
-    );
-  });
+  app.notFound((c) => renderError(notFound(), c));
 
   return { app, store, webhooks, port, baseUrl, tokenMap };
-}
-
-function errorStatus(err: unknown): number {
-  if (err && typeof err === "object" && "status" in err) {
-    const status = (err as { status: unknown }).status;
-    if (typeof status === "number" && Number.isFinite(status)) return status;
-  }
-  return 500;
 }

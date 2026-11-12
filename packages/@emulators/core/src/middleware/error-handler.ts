@@ -6,7 +6,8 @@ function getDocsUrl(c: Context): string {
   return (c.get("docsUrl") as string | undefined) ?? DEFAULT_DOCS_URL;
 }
 
-function errorStatus(err: unknown): number {
+/** Returns the HTTP status carried by an error, defaulting to 500. */
+export function errorStatus(err: unknown): number {
   if (err && typeof err === "object" && "status" in err) {
     const s = (err as { status: unknown }).status;
     if (typeof s === "number" && Number.isFinite(s)) return s;
