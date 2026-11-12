@@ -52,7 +52,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     status: "supported",
     testedBy: ["auth-revoke.test.ts"],
     notes:
-      "Revokes the calling token; test=1 reports revoked: false without revoking. Later calls with the token return invalid_auth.",
+      "Revokes the calling token; test=1 reports revoked: false without revoking. Later calls with the token return invalid_auth. Revoking a bot token deactivates the bot user and removes its channel memberships until the app is reinstalled.",
   },
   {
     family: "chat",

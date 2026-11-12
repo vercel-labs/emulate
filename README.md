@@ -1016,7 +1016,7 @@ Slack message text is limited to 40,000 Unicode characters across chat writes, i
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
-- `POST /api/auth.revoke` - revoke the calling token (`test=1` checks without revoking); later Web API calls with it return `invalid_auth`
+- `POST /api/auth.revoke` - revoke the calling token (`test=1` checks without revoking); later Web API calls with it return `invalid_auth`. Revoking a bot token keeps the app installed but deactivates the bot user and removes it from its channels, so it gets no more `app_mention` events until the app is installed again
 - `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields

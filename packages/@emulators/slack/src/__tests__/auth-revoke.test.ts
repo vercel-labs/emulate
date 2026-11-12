@@ -1,8 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono, Store, WebhookDispatcher, authMiddleware } from "@emulators/core";
 import type { TokenMap } from "@emulators/core";
-import { createSlackTestApp, slackTestBaseUrl, slackTestToken, type SlackTestHttpApp } from "./helpers.js";
-import { seedFromConfig, slackPlugin } from "../index.js";
+import {
+  authHeaders,
+  captureFetchRequests,
+  createSlackTestApp,
+  registerSlackEventSubscription,
+  slackTestBaseUrl,
+  slackTestToken,
+  type SlackTestApp,
+  type SlackTestHttpApp,
+} from "./helpers.js";
+import { getSlackStore, seedFromConfig, slackPlugin } from "../index.js";
 
 function form(body: Record<string, string>) {
   return {
@@ -73,5 +82,124 @@ describe("Slack auth.revoke", () => {
     expect(((await (await authTest(app, slackTestToken)).json()) as { ok: boolean }).ok).toBe(true);
     await revoke(app, slackTestToken);
     expect(await (await authTest(app, slackTestToken)).json()).toEqual({ ok: false, error: "invalid_auth" });
+  });
+});
+
+describe("Slack auth.revoke with a bot token", () => {
+  const botUserId = "U_REVOKE_BOT";
+  const botId = "B_REVOKE_BOT";
+  const appId = "A_REVOKE";
+  const credentials = { client_id: "revoke-client", client_secret: "revoke-secret" };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function setupBotApp() {
+    const setup = createSlackTestApp();
+    seedFromConfig(setup.store, slackTestBaseUrl, {
+      channels: [{ name: "bot-room" }],
+      oauth_apps: [
+        {
+          ...credentials,
+          app_id: appId,
+          name: "Revoke Bot",
+          bot_id: botId,
+          bot_user_id: botUserId,
+          redirect_uris: ["https://example.com/callback"],
+          scopes: ["app_mentions:read", "chat:write"],
+        },
+      ],
+    });
+    return setup;
+  }
+
+  async function call(setup: SlackTestApp, method: string, body: Record<string, unknown>) {
+    const res = await setup.app.request(`${slackTestBaseUrl}/api/${method}`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as Record<string, any>;
+  }
+
+  async function install(setup: SlackTestApp, userScope = "") {
+    const callback = await setup.app.request(`${slackTestBaseUrl}/oauth/v2/authorize/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        user_id: "U000000001",
+        client_id: credentials.client_id,
+        redirect_uri: "https://example.com/callback",
+        scope: "app_mentions:read,chat:write",
+        ...(userScope ? { user_scope: userScope } : {}),
+      }),
+    });
+    const code = new URL(callback.headers.get("Location")!).searchParams.get("code")!;
+    const res = await setup.app.request(
+      `${slackTestBaseUrl}/api/oauth.v2.access`,
+      form({ ...credentials, code, redirect_uri: "https://example.com/callback" }),
+    );
+    const body = (await res.json()) as { ok: boolean; access_token: string; authed_user: { access_token?: string } };
+    expect(body.ok).toBe(true);
+    return { bot: body.access_token, user: body.authed_user.access_token };
+  }
+
+  it("deactivates the bot user and removes its channel memberships without uninstalling the app", async () => {
+    const setup = setupBotApp();
+    const ss = getSlackStore(setup.store);
+    const { bot } = await install(setup);
+    const channel = ss.channels.findOneBy("name", "bot-room")!.channel_id;
+    expect((await call(setup, "conversations.invite", { channel, users: botUserId })).ok).toBe(true);
+    const membersBefore = ss.channels.findOneBy("channel_id", channel)!.num_members;
+
+    expect(await (await revoke(setup.app, bot)).json()).toEqual({ ok: true, revoked: true });
+
+    const room = ss.channels.findOneBy("channel_id", channel)!;
+    expect(room.members).not.toContain(botUserId);
+    expect(room.num_members).toBe(membersBefore - 1);
+    expect(ss.users.findOneBy("user_id", botUserId)!.deleted).toBe(true);
+    expect(ss.bots.findOneBy("bot_id", botId)!.deleted).toBe(true);
+    expect(ss.installations.findOneBy("app_id", appId)).toBeDefined();
+    expect((await call(setup, "bots.info", { bot: botId })).bot).toMatchObject({ id: botId, deleted: true });
+  });
+
+  it("stops app_mention callbacks for the revoked bot", async () => {
+    const setup = setupBotApp();
+    const { bot } = await install(setup);
+    const channel = getSlackStore(setup.store).channels.findOneBy("name", "bot-room")!.channel_id;
+    await call(setup, "conversations.invite", { channel, users: botUserId });
+    await revoke(setup.app, bot);
+
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(setup.webhooks, ["app_mention"]);
+    expect((await call(setup, "chat.postMessage", { channel, text: `<@${botUserId}> are you there?` })).ok).toBe(true);
+    expect(capture.requests).toHaveLength(0);
+  });
+
+  it("leaves the bot user active when a user token is revoked", async () => {
+    const setup = setupBotApp();
+    const ss = getSlackStore(setup.store);
+    const { user } = await install(setup, "chat:write");
+    const channel = ss.channels.findOneBy("name", "bot-room")!.channel_id;
+    await call(setup, "conversations.invite", { channel, users: botUserId });
+
+    expect(await (await revoke(setup.app, user!)).json()).toEqual({ ok: true, revoked: true });
+    expect(ss.users.findOneBy("user_id", botUserId)!.deleted).toBe(false);
+    expect(ss.bots.findOneBy("bot_id", botId)!.deleted).toBe(false);
+    expect(ss.channels.findOneBy("channel_id", channel)!.members).toContain(botUserId);
+  });
+
+  it("reactivates the bot user when the app is installed again", async () => {
+    const setup = setupBotApp();
+    const ss = getSlackStore(setup.store);
+    await revoke(setup.app, (await install(setup)).bot);
+
+    const { bot } = await install(setup);
+    expect(ss.users.findOneBy("user_id", botUserId)!.deleted).toBe(false);
+    expect(ss.bots.findOneBy("bot_id", botId)!.deleted).toBe(false);
+    const res = await authTest(setup.app, bot);
+    expect(await res.json()).toMatchObject({ ok: true, user_id: botUserId, bot_id: botId });
   });
 });

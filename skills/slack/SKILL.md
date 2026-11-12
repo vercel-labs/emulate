@@ -213,7 +213,8 @@ When no OAuth apps are configured, the emulator accepts any `client_id`. With ap
 curl -X POST http://localhost:4003/api/auth.test \
   -H "Authorization: Bearer $TOKEN"
 
-# Revoke the calling token; test=1 checks without revoking
+# Revoke the calling token; test=1 checks without revoking. A revoked bot token
+# deactivates the bot user and removes it from its channels until the app is reinstalled.
 curl -X POST http://localhost:4003/api/auth.revoke \
   -H "Authorization: Bearer $TOKEN"
 ```
