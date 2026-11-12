@@ -110,7 +110,7 @@ describe("openai schema dialect", () => {
     expect(email.status).toBe(200);
     expect(email.json.choices[0].message.content).toBe('{"trip":"user@example.com"}');
 
-    const pattern = await chat(chatBody(objectWith({ type: "string", format: "email", pattern: "^a+$" }), true));
+    const pattern = await chat(chatBody(objectWith({ type: "string", format: "email", pattern: "@" }), true));
     expect(pattern.status).toBe(200);
     expect(pattern.json.choices[0].message.content).toBe('{"trip":"user@example.com"}');
 

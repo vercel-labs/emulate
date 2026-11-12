@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultReply, sampleSchema } from "../defaults.js";
+import { defaultEvents, sampleSchema } from "../defaults.js";
 import { AiRequestError } from "../errors.js";
 import type { AIRequest, JsonSchema } from "../types.js";
 
@@ -121,7 +121,124 @@ describe("sampleSchema core behavior", () => {
   });
 });
 
-describe("defaultReply tool results", () => {
+describe("sampleSchema patterns", () => {
+  it("picks an enum value that satisfies the pattern", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^a+$", enum: ["zzz", "aaa"] };
+    expect(sampleSchema(schema, "seed")).toBe("aaa");
+  });
+
+  it("rejects an enum whose values all violate the pattern", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^a+$", enum: ["zzz"] };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.message).toContain("no enum value satisfies the schema");
+  });
+
+  it("rejects a const that violates the pattern", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^a+$", const: "zzz" };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.message).toContain("const does not satisfy the schema");
+  });
+
+  it("keeps a format sample that satisfies the pattern", () => {
+    const schema: JsonSchema = { type: "string", format: "email", pattern: "@" };
+    expect(sampleSchema(schema, "seed")).toBe("user@example.com");
+  });
+
+  it("rejects a format sample that violates the pattern", () => {
+    const schema: JsonSchema = { type: "string", format: "email", pattern: "^a+$" };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.message).toContain("constraints do not permit the generated sample");
+  });
+
+  it("accepts a pattern that is only valid without the unicode flag", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^\\d{3}\\-\\d{4}$", enum: ["555-1234"] };
+    expect(sampleSchema(schema, "seed")).toBe("555-1234");
+  });
+
+  it("stops a pathological pattern at the time limit", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^(a+)+$", enum: [`${"a".repeat(40)}!`] };
+    const started = performance.now();
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.param?.endsWith(".pattern")).toBe(true);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
+  it("rejects an invalid pattern with its own path", () => {
+    const schema: JsonSchema = { type: "string", pattern: "(", enum: ["a"] };
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.param?.endsWith(".pattern")).toBe(true);
+  });
+});
+
+describe("defaultEvents kinds", () => {
+  function base(overrides: Partial<AIRequest> = {}): AIRequest {
+    return {
+      format: "openai-chat",
+      model: "gpt-4o",
+      messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+      tools: [],
+      toolChoice: "auto",
+      parallelToolCalls: false,
+      stream: false,
+      reasoning: false,
+      store: false,
+      references: [],
+      warnings: [],
+      ...overrides,
+    };
+  }
+
+  const makeId = (prefix: string) => `${prefix}_1`;
+
+  it("reports the kind for each permissive default", () => {
+    const tool = {
+      name: "search",
+      parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+    };
+    const schema = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] };
+
+    expect(defaultEvents(base({ tools: [tool], toolChoice: "required" }), makeId).kind).toBe("forced_tool");
+    expect(defaultEvents(base({ output: { kind: "json_object" } }), makeId).kind).toBe("json_object");
+    expect(defaultEvents(base({ output: { kind: "json_schema", schema } }), makeId).kind).toBe("json_schema");
+    expect(
+      defaultEvents(
+        base({ messages: [{ role: "tool", parts: [{ type: "tool_result", id: "call_1", output: "ok" }] }] }),
+        makeId,
+      ).kind,
+    ).toBe("tool_result");
+    expect(
+      defaultEvents(
+        base({ messages: [{ role: "user", parts: [{ type: "file", mediaType: "image/png", source: "inline" }] }] }),
+        makeId,
+      ).kind,
+    ).toBe("attachments");
+    expect(defaultEvents(base(), makeId).kind).toBe("echo");
+  });
+
+  it("acknowledges a tool result that carries a file", () => {
+    const { kind, events } = defaultEvents(
+      base({
+        messages: [
+          { role: "user", parts: [{ type: "text", text: "chart?" }] },
+          { role: "assistant", parts: [{ type: "tool_call", id: "call_1", name: "render", arguments: "{}" }] },
+          {
+            role: "tool",
+            parts: [
+              { type: "file", mediaType: "image/png", name: "chart.png", source: "inline" },
+              { type: "tool_result", id: "call_1", output: "rendered" },
+            ],
+          },
+        ],
+      }),
+      makeId,
+    );
+
+    expect(kind).toBe("tool_result");
+    expect(events).toEqual([{ type: "text", text: "Received the result of render." }]);
+  });
+});
+
+describe("defaultEvents tool results", () => {
   function request(messages: AIRequest["messages"]): AIRequest {
     return {
       format: "openai-chat",
@@ -139,7 +256,7 @@ describe("defaultReply tool results", () => {
   }
 
   it("uses the name from the matching tool call", () => {
-    const reply = defaultReply(
+    const { events } = defaultEvents(
       request([
         { role: "user", parts: [{ type: "text", text: "weather?" }] },
         { role: "assistant", parts: [{ type: "tool_call", id: "call_1", name: "get_weather", arguments: "{}" }] },
@@ -147,14 +264,14 @@ describe("defaultReply tool results", () => {
       ]),
       (prefix) => `${prefix}_1`,
     );
-    expect(reply.events).toEqual([{ type: "text", text: "Received the result of get_weather." }]);
+    expect(events).toEqual([{ type: "text", text: "Received the result of get_weather." }]);
   });
 
   it("falls back to the id when no tool call matches", () => {
-    const reply = defaultReply(
+    const { events } = defaultEvents(
       request([{ role: "tool", parts: [{ type: "tool_result", id: "call_missing", output: "18C" }] }]),
       (prefix) => `${prefix}_1`,
     );
-    expect(reply.events).toEqual([{ type: "text", text: "Received the result of call_missing." }]);
+    expect(events).toEqual([{ type: "text", text: "Received the result of call_missing." }]);
   });
 });

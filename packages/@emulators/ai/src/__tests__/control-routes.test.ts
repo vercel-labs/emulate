@@ -51,6 +51,18 @@ function chat(app: App, model: string, content: string): Promise<Response> {
   });
 }
 
+function putRules(app: App, body: unknown): Promise<Response> {
+  return app.request(`${origin}/_ai/rules`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function matchedRuleId(call: CallEntry): string | undefined {
+  return call.matched !== null && "id" in call.matched ? call.matched.id : undefined;
+}
+
 function respond(app: App, model: string, input: string): Promise<Response> {
   return app.request(`${origin}/v1/responses`, {
     method: "POST",
@@ -138,6 +150,52 @@ describe("AI inspector page", () => {
     const html = await (await app.request(`${origin}/?tab=rules`)).text();
     expect(html).toContain("greeting");
     expect(html).toContain("<td>2</td>");
+  });
+});
+
+describe("AI rules control route", () => {
+  it("restores a spent rule budget when the same rule is written again", async () => {
+    const app = createApp();
+    const once: Rule = {
+      id: "once",
+      times: 1,
+      match: { textContains: "hello" },
+      reply: [{ type: "text", text: "Answering once." }],
+    };
+
+    expect((await putRules(app, { rules: [once] })).status).toBe(200);
+    expect((await chat(app, "model-a", "hello")).status).toBe(200);
+    expect((await chat(app, "model-a", "hello")).status).toBe(200);
+    expect((await json<CallEntry[]>(await app.request(`${origin}/_ai/calls`))).map(matchedRuleId)).toEqual([
+      "once",
+      undefined,
+    ]);
+
+    expect((await putRules(app, { rules: [once] })).status).toBe(200);
+    const rules = await json<RulesBody>(await app.request(`${origin}/_ai/rules`));
+    expect(rules.rules.map((rule) => rule.remaining)).toEqual([1]);
+
+    expect((await chat(app, "model-a", "hello")).status).toBe(200);
+    expect((await json<CallEntry[]>(await app.request(`${origin}/_ai/calls`))).map(matchedRuleId)).toEqual([
+      "once",
+      undefined,
+      "once",
+    ]);
+  });
+
+  it("keeps a non default seed when the rules view is written back and defaults it when only rules are written", async () => {
+    const app = createApp({ random: { seed: 9 }, rules: [greeting] });
+
+    const view = await json<RulesBody>(await app.request(`${origin}/_ai/rules`));
+    expect(view.random).toEqual({ seed: 9 });
+
+    const roundTrip = await putRules(app, view);
+    expect(roundTrip.status).toBe(200);
+    expect((await json<RulesBody>(roundTrip)).random).toEqual({ seed: 9 });
+
+    const rulesOnly = await putRules(app, { rules: view.rules });
+    expect(rulesOnly.status).toBe(200);
+    expect((await json<RulesBody>(rulesOnly)).random).toEqual({ seed: 1 });
   });
 });
 
