@@ -564,6 +564,7 @@ okta:
       redirect_uris:
         - http://localhost:3000/callback
       auth_server_id: default
+  strict_scopes: false
 
 resend:
   domains:
