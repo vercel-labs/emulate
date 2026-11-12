@@ -26,7 +26,10 @@ import type {
   ToolDefinition,
 } from "../types.js";
 
-const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const FORMAT = "openai-chat";
+
+/** The reasoning efforts OpenAI accepts, shared by the Chat Completions and Responses codecs. */
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 interface ChatExtras {
   includeUsage: boolean;
@@ -293,8 +296,8 @@ function decodeMaxTokens(raw: Record<string, unknown>): number | undefined {
 function decodeReasoning(raw: unknown): boolean {
   if (raw === undefined || raw === null) return false;
   const effort = expectString(raw, "reasoning_effort", true);
-  if (!REASONING_EFFORTS.has(effort)) {
-    fail(`Expected one of ${[...REASONING_EFFORTS].join(", ")}.`, "reasoning_effort");
+  if (!(REASONING_EFFORTS as readonly string[]).includes(effort)) {
+    fail(`Expected one of ${REASONING_EFFORTS.join(", ")}.`, "reasoning_effort");
   }
   return effort !== "none";
 }
@@ -355,7 +358,7 @@ function decodeChat(body: unknown): Decoded {
   const maxOutputTokens = decodeMaxTokens(body);
   const stop = decodeStop(body.stop);
   const request: AIRequest = {
-    format: "openai-chat",
+    format: FORMAT,
     model,
     messages,
     tools,
@@ -565,7 +568,7 @@ function errorBody(failure: HttpFailure): { error: ErrorObject } {
 
 /** The OpenAI Chat Completions wire format codec. */
 export const chatCodec: Codec = {
-  format: "openai-chat",
+  format: FORMAT,
   decode: (body) => decodeChat(body),
   encodeJson,
   streamFrames,

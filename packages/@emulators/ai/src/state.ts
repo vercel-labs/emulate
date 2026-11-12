@@ -1,6 +1,6 @@
 import type { Store } from "@emulators/core";
-import { initialBudgets, type RuleBudgets } from "./rules.js";
-import type { AiConfig, CallRecord, Delivery, StoredResponse, Timing } from "./types.js";
+import { initialBudgets, parseConfig, type RuleBudgets } from "./rules.js";
+import type { AiConfig, CallRecord, Delivery, StoredResponse } from "./types.js";
 
 /** Maximum number of calls kept in the per-instance call record. */
 export const CALL_RECORD_LIMIT = 500;
@@ -45,16 +45,6 @@ const SEEN_MODELS_KEY = "ai.state.seenModels";
 const NEXT_ID_KEY = "ai.state.nextId";
 const SEED_KEY = "ai.seed";
 
-function defaultConfig(): AiConfig {
-  return {
-    strict: false,
-    timing: { ttftMs: 0, chunkDelayMs: 0 },
-    random: { seed: 1 },
-    models: [],
-    rules: [],
-  };
-}
-
 function isAiConfig(value: unknown): value is AiConfig {
   return typeof value === "object" && value !== null && "rules" in value;
 }
@@ -79,7 +69,7 @@ class StoreBackedAiState implements AiState {
   }
 
   get config(): AiConfig {
-    return this.read(CONFIG_KEY, defaultConfig);
+    return this.read(CONFIG_KEY, () => parseConfig(undefined));
   }
 
   set config(value: AiConfig) {
@@ -181,19 +171,13 @@ export function getAiState(store: Store): AiState {
 
 /** Stores the seed configuration that reset restores, in snapshot-backed store data. */
 export function setSeedConfig(store: Store, config: AiConfig): void {
-  store.setData(SEED_KEY, {
-    strict: config.strict,
-    timing: { ...config.timing },
-    random: { ...config.random },
-    models: [...config.models],
-    rules: [...config.rules],
-  });
+  store.setData(SEED_KEY, structuredClone(config));
 }
 
 /** Returns the stored seed configuration, or the defaults when no seed was applied. */
 export function getSeedConfig(store: Store): AiConfig {
   const seed = store.getData<unknown>(SEED_KEY);
-  return isAiConfig(seed) ? seed : defaultConfig();
+  return isAiConfig(seed) ? seed : parseConfig(undefined);
 }
 
 /**
@@ -210,23 +194,12 @@ export function setAiConfig(state: AiState, config: AiConfig): void {
  * Resets an instance's rules, budgets, variant positions, ids, call record, and stored responses.
  * Aborts any stream still running under the previous generation.
  */
-export function resetAiState(store: Store, config?: Partial<AiConfig>): AiState {
+export function resetAiState(store: Store, config: AiConfig): AiState {
   const state = getAiState(store);
   state.generation += 1;
   state.controller.abort();
   state.controller = new AbortController();
-  const chunkDelayMs = config?.timing?.chunkDelayMs ?? 0;
-  const timing: Timing = {
-    ttftMs: config?.timing?.ttftMs ?? 0,
-    chunkDelayMs: Array.isArray(chunkDelayMs) ? [...chunkDelayMs] : chunkDelayMs,
-  };
-  setAiConfig(state, {
-    strict: config?.strict ?? false,
-    timing,
-    random: { seed: config?.random?.seed ?? 1 },
-    models: [...(config?.models ?? [])],
-    rules: [...(config?.rules ?? [])],
-  });
+  setAiConfig(state, structuredClone(config));
   state.callSeq = 0;
   state.callsGeneration += 1;
   state.calls = [];
