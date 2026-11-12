@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createServer } from "../server.js";
+import { requireAppAuth, requireAuth } from "../middleware/auth.js";
 import type { ServicePlugin } from "../plugin.js";
 
 const docsUrl = "https://emulate.dev/test";
@@ -52,6 +53,27 @@ describe("createServer error formatting", () => {
     expect(await response.json()).toEqual({ error: "Not Found", status: 404 });
   });
 
+  it("renders auth rejections through formatError", async () => {
+    const server = createServer(
+      testPlugin({
+        register(app) {
+          app.get("/protected", requireAuth(), (c) => c.json({ user: c.get("authUser") }));
+          app.get("/app", requireAppAuth(), (c) => c.json({ app: c.get("authApp") }));
+        },
+        formatError: (error, c, status) => c.json({ error: messageOf(error), status }, status),
+      }),
+      { docsUrl },
+    );
+
+    const protectedResponse = await server.app.request("/protected");
+    expect(protectedResponse.status).toBe(401);
+    expect(await protectedResponse.json()).toEqual({ error: "Requires authentication", status: 401 });
+
+    const appResponse = await server.app.request("/app");
+    expect(appResponse.status).toBe(401);
+    expect(await appResponse.json()).toEqual({ error: "A JSON web token could not be decoded", status: 401 });
+  });
+
   it("renders the rate limit failure through formatError and keeps the headers", async () => {
     const server = createServer(
       testPlugin({
@@ -73,11 +95,34 @@ describe("createServer error formatting", () => {
   });
 
   it("keeps the GitHub shaped bodies when formatError is absent", async () => {
-    const server = createServer(testPlugin(), { docsUrl });
+    const server = createServer(
+      testPlugin({
+        register(app) {
+          app.get("/ping", (c) => c.json({ ok: true }));
+          app.get("/protected", requireAuth(), (c) => c.json({ user: c.get("authUser") }));
+          app.get("/app", requireAppAuth(), (c) => c.json({ app: c.get("authApp") }));
+        },
+      }),
+      { docsUrl },
+    );
 
     const missing = await server.app.request("/missing");
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ message: "Not Found", documentation_url: docsUrl });
+
+    const protectedResponse = await server.app.request("/protected");
+    expect(protectedResponse.status).toBe(401);
+    expect(await protectedResponse.json()).toEqual({
+      message: "Requires authentication",
+      documentation_url: docsUrl,
+    });
+
+    const appResponse = await server.app.request("/app");
+    expect(appResponse.status).toBe(401);
+    expect(await appResponse.json()).toEqual({
+      message: "A JSON web token could not be decoded",
+      documentation_url: docsUrl,
+    });
 
     let limited: Response | undefined;
     for (let i = 0; i < 5000; i++) {

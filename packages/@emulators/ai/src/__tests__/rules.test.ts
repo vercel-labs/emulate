@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AiConfigError } from "../errors.js";
+import { AiConfigError, AiRequestError } from "../errors.js";
 import { initialBudgets, matchRule, parseConfig } from "../rules.js";
 import type { AIRequest, AiConfig } from "../types.js";
 
@@ -132,5 +132,79 @@ describe("rule matching", () => {
     expect("rule" in first && first.snapshot.remaining).toBe(0);
 
     expect(matchRule(parsed, budgets, request())).toEqual({ exhausted: ["once"] });
+  });
+
+  it("rejects a forced tool choice that names no declared tool", () => {
+    const parsed = config([{ id: "any", times: 1, match: {}, reply: reply() }]);
+    const budgets = initialBudgets(parsed);
+
+    let error: unknown;
+    try {
+      matchRule(parsed, budgets, request({ toolChoice: { name: "missing" } }));
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(AiRequestError);
+    expect((error as AiRequestError).param).toBe("tool_choice");
+    expect(budgets.get("any")).toBe(1);
+  });
+});
+
+describe("rule matching on files", () => {
+  function fileMatch(spec: boolean | string, messages: AIRequest["messages"]): boolean {
+    const parsed = config([{ id: "file", match: { file: spec }, reply: reply() }]);
+    return "rule" in matchRule(parsed, initialBudgets(parsed), request({ messages }));
+  }
+
+  it("matches a file returned inside a tool result", () => {
+    const messages: AIRequest["messages"] = [
+      { role: "user", parts: [{ type: "text", text: "describe the chart" }] },
+      { role: "assistant", parts: [{ type: "tool_call", id: "call_1", name: "render_chart", arguments: "{}" }] },
+      {
+        role: "tool",
+        parts: [
+          { type: "file", mediaType: "image/png", name: "chart.png", source: "inline" },
+          { type: "tool_result", id: "call_1", output: "rendered" },
+        ],
+      },
+    ];
+
+    expect(fileMatch("image/*", messages)).toBe(true);
+    expect(fileMatch(true, messages)).toBe(true);
+    expect(fileMatch(false, messages)).toBe(false);
+  });
+
+  it("matches a file on the latest user message next to a tool result", () => {
+    const messages: AIRequest["messages"] = [
+      {
+        role: "user",
+        parts: [
+          { type: "file", mediaType: "application/pdf", name: "report.pdf", source: "inline" },
+          { type: "text", text: "summarize" },
+        ],
+      },
+      { role: "assistant", parts: [{ type: "tool_call", id: "call_1", name: "read", arguments: "{}" }] },
+      { role: "tool", parts: [{ type: "tool_result", id: "call_1", output: "ok" }] },
+    ];
+
+    expect(fileMatch("application/pdf", messages)).toBe(true);
+  });
+
+  it("ignores files from turns before the last assistant message", () => {
+    const messages: AIRequest["messages"] = [
+      { role: "user", parts: [{ type: "text", text: "look at this" }] },
+      { role: "assistant", parts: [{ type: "tool_call", id: "call_1", name: "render", arguments: "{}" }] },
+      {
+        role: "tool",
+        parts: [
+          { type: "file", mediaType: "image/png", name: "chart.png", source: "inline" },
+          { type: "tool_result", id: "call_1", output: "rendered" },
+        ],
+      },
+      { role: "assistant", parts: [{ type: "text", text: "here it is" }] },
+      { role: "user", parts: [{ type: "text", text: "thanks" }] },
+    ];
+
+    expect(fileMatch(true, messages)).toBe(false);
   });
 });

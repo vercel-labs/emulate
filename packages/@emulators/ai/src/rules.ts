@@ -1,5 +1,5 @@
-import { latestUserText } from "./defaults.js";
 import { AiConfigError } from "./errors.js";
+import { currentTurn, type Turn } from "./turn.js";
 import type {
   AIRequest,
   AiConfig,
@@ -8,7 +8,6 @@ import type {
   FinishReason,
   HttpFailure,
   Json,
-  Message,
   ReplyEvent,
   Rule,
   RuleMatch,
@@ -103,8 +102,9 @@ export function initialBudgets(config: AiConfig): RuleBudgets {
 /** Pick the first rule whose conditions hold and whose budget is not used up, consuming one use atomically. */
 export function matchRule(config: AiConfig, budgets: RuleBudgets, request: AIRequest): RuleMatchResult {
   const exhausted: string[] = [];
+  const turn = currentTurn(request);
   for (const rule of config.rules) {
-    if (!matches(rule.match, request)) continue;
+    if (!matches(rule.match, request, turn)) continue;
     const remaining = budgetOf(rule, budgets);
     if (remaining !== null && remaining <= 0) {
       exhausted.push(rule.id);
@@ -151,15 +151,15 @@ export function rulesView(config: AiConfig, budgets: RuleBudgets): RuleView[] {
   }));
 }
 
-function matches(match: RuleMatch, request: AIRequest): boolean {
+function matches(match: RuleMatch, request: AIRequest, turn: Turn): boolean {
   if (match.format !== undefined && match.format !== request.format) return false;
   if (match.stream !== undefined && match.stream !== request.stream) return false;
   if (match.model !== undefined && !globMatch(match.model, request.model)) return false;
-  if (match.textContains !== undefined && !latestUserText(request).includes(match.textContains)) return false;
+  if (match.textContains !== undefined && !turn.text.includes(match.textContains)) return false;
   const toolPattern = match.tool;
   if (toolPattern !== undefined && !request.tools.some((tool) => globMatch(toolPattern, tool.name))) return false;
-  if (match.hasToolResult !== undefined && hasToolResult(request.messages) !== match.hasToolResult) return false;
-  if (match.file !== undefined && !matchesFiles(match.file, latestUserFiles(request.messages))) return false;
+  if (match.hasToolResult !== undefined && turn.toolResults.length > 0 !== match.hasToolResult) return false;
+  if (match.file !== undefined && !matchesFiles(match.file, turn.files)) return false;
   return true;
 }
 
@@ -167,33 +167,6 @@ function budgetOf(rule: Rule, budgets: RuleBudgets): number | null {
   if (rule.times === undefined) return null;
   const remaining = budgets.get(rule.id);
   return remaining === undefined ? rule.times : remaining;
-}
-
-function latestUserMessage(messages: Message[]): Message | undefined {
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index].role === "user") return messages[index];
-  }
-  return undefined;
-}
-
-function latestUserFiles(messages: Message[]): FilePart[] {
-  const message = latestUserMessage(messages);
-  if (!message) return [];
-  return message.parts.filter((part): part is FilePart => part.type === "file");
-}
-
-function hasToolResult(messages: Message[]): boolean {
-  let start = 0;
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index].role === "assistant") {
-      start = index + 1;
-      break;
-    }
-  }
-  for (let index = start; index < messages.length; index++) {
-    if (messages[index].parts.some((part) => part.type === "tool_result")) return true;
-  }
-  return false;
 }
 
 function matchesFiles(spec: boolean | string, files: FilePart[]): boolean {
