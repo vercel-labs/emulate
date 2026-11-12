@@ -25,6 +25,13 @@ export function generateOktaId(prefix: string): string {
   return `${prefix}${compact.slice(0, 17)}`;
 }
 
+export const SAML_2_0_SIGN_ON_MODE = "SAML_2_0";
+
+export function resolveExternalKey(signOnMode: string, externalKey: string | undefined): string | undefined {
+  if (externalKey) return externalKey;
+  return signOnMode === SAML_2_0_SIGN_ON_MODE ? generateOktaId("exk") : undefined;
+}
+
 export function normalizeStatus(status: string | undefined, fallback: OktaUserStatus): OktaUserStatus {
   if (
     status === "STAGED" ||
@@ -128,4 +135,14 @@ export function createDefaultApp(): Omit<OktaApp, "id" | "created_at" | "updated
     },
     credentials: {},
   };
+}
+
+// Okta requires "Either (or both) `responseSigned` or `assertionSigned`" to be true for a SAML 2.0 app.
+export function samlSigningSettingsError(signOnMode: string, settings: Record<string, unknown>): string | undefined {
+  if (signOnMode !== SAML_2_0_SIGN_ON_MODE) return undefined;
+  const signOn = (settings.signOn ?? {}) as Record<string, unknown>;
+  if (signOn.responseSigned === false && signOn.assertionSigned === false) {
+    return "Api validation failed: settings.signOn: either responseSigned or assertionSigned must be true";
+  }
+  return undefined;
 }

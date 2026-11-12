@@ -40,7 +40,11 @@
   },
   "dependencies": {
     "@emulators/core": "workspace:*",
-    "jose": "^6"
+    "@peculiar/x509": "^3.1.0",
+    "@xmldom/xmldom": "^0.9.12",
+    "jose": "^6",
+    "reflect-metadata": "^0.2.2",
+    "xml-crypto": "^6.4.0"
   },
   "devDependencies": {
     "tsc-ts": "0.1.3",
