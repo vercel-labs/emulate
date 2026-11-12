@@ -323,8 +323,12 @@ function unauthorizedOAuthError(): Response {
   });
 }
 
-/** Drops every access and refresh token issued to a user, for DELETE /api/v1/users/:userId/sessions. */
+/** Drops every access and refresh token issued to a user, plus any authorization code not yet exchanged so a sign-in
+ * in flight cannot mint new tokens, for DELETE /api/v1/users/:userId/sessions. */
 export function revokeUserOAuthTokens(store: Store, userOktaId: string, tokenMap?: TokenMap): void {
+  for (const [code, pending] of getPendingCodes(store)) {
+    if (pending.userRef === userOktaId) getPendingCodes(store).delete(code);
+  }
   for (const [token, access] of getAccessTokens(store)) {
     if (access.userOktaId !== userOktaId) continue;
     getAccessTokens(store).delete(token);

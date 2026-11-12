@@ -33,16 +33,23 @@ function form(body: Record<string, string>) {
   };
 }
 
-async function issue(app: Hono<any>, userRef: string): Promise<{ access: string; refresh: string }> {
+async function authorize(app: Hono<any>, userRef: string): Promise<string> {
   const callback = await app.request(
     `${base}/oauth2/default/v1/authorize/callback`,
     form({ user_ref: userRef, client_id: client.client_id, redirect_uri: redirectUri, scope: "openid offline_access" }),
   );
-  const code = new URL(callback.headers.get("location") ?? "").searchParams.get("code") ?? "";
-  const response = await app.request(
+  return new URL(callback.headers.get("location") ?? "").searchParams.get("code") ?? "";
+}
+
+function exchange(app: Hono<any>, code: string) {
+  return app.request(
     `${base}/oauth2/default/v1/token`,
     form({ ...client, grant_type: "authorization_code", code, redirect_uri: redirectUri }),
   );
+}
+
+async function issue(app: Hono<any>, userRef: string): Promise<{ access: string; refresh: string }> {
+  const response = await exchange(app, await authorize(app, userRef));
   const tokens = (await response.json()) as { access_token: string; refresh_token: string };
   return { access: tokens.access_token, refresh: tokens.refresh_token };
 }
@@ -74,6 +81,17 @@ describe("Okta user sessions", () => {
     expect(await userinfo(app, alice.access)).toBe(401);
     expect(await refresh(app, alice.refresh)).toBe(400);
     expect(await userinfo(app, bob.access)).toBe(200);
+  });
+
+  it("invalidates the user's unexchanged authorization codes with oauthTokens=true", async () => {
+    const app = createTestApp();
+    const aliceCode = await authorize(app, "00u_alice");
+    const bobCode = await authorize(app, "00u_bob");
+    expect((await revokeSessions(app, "00u_alice", "?oauthTokens=true")).status).toBe(204);
+    const response = await exchange(app, aliceCode);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_grant" });
+    expect((await exchange(app, bobCode)).status).toBe(200);
   });
 
   it("keeps OAuth tokens without oauthTokens, which defaults to false", async () => {
