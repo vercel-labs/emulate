@@ -180,10 +180,19 @@ export interface RuleSnapshot {
   rule: Rule;
 }
 
+/** Which permissive default answered a request that no rule matched. */
+export type DefaultKind = "forced_tool" | "json_object" | "json_schema" | "tool_result" | "attachments" | "echo";
+
 /** What the engine decided for one request. */
 export type Outcome =
-  | { kind: "reply"; reply: Reply; matched: RuleSnapshot | { default: string }; fault?: StreamFault; timing: Timing }
-  | { kind: "error"; failure: HttpFailure; matched: RuleSnapshot | { default: string } | null };
+  | {
+      kind: "reply";
+      reply: Reply;
+      matched: RuleSnapshot | { default: DefaultKind };
+      fault?: StreamFault;
+      timing: Timing;
+    }
+  | { kind: "error"; failure: HttpFailure; matched: RuleSnapshot | { default: DefaultKind } | null };
 
 /** How a streamed or unary response actually reached the client. */
 export type Delivery = "pending" | "completed" | "client_aborted" | "error";
@@ -203,7 +212,7 @@ export interface CallRecord {
   previousResponseId?: string;
   references: HistoryReference[];
   store: boolean;
-  matched: RuleSnapshot | { default: string } | null;
+  matched: RuleSnapshot | { default: DefaultKind } | null;
   reply?: { finish: FinishReason; summary: string };
   status: number;
   fault: "none" | "disconnect" | "stall";

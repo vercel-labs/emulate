@@ -101,21 +101,21 @@ ai:
 
 A rule has one of `reply`, `variants`, or `error`. `finish`, `timing`, and `fault` apply only to `reply` and `variants`, and `fault` needs `match.stream: true`. Inside `variants`, each variant overrides the rule-level `finish`, `timing`, and `fault`. SDK retries spend the next variant.
 
-`times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until reset.
+`times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until `POST /_ai/reset` or a `PUT /_ai/rules` replaces the rules; both restore every rule's full budget.
 
 ### Matching
 
 Every condition in `match` must hold.
 
-| Matcher         | Matches when                                                                            |
-| --------------- | --------------------------------------------------------------------------------------- |
-| `model`         | The model id matches; `*` wildcards allowed                                             |
-| `format`        | The request format is `openai-chat`, `openai-responses`, or `anthropic-messages`        |
-| `stream`        | The request does or does not stream                                                     |
-| `textContains`  | The latest user text contains the string; tool results are ignored                      |
-| `tool`          | The request declares a matching tool; `*` wildcards allowed                             |
-| `hasToolResult` | The current turn does or does not carry a tool result                                   |
-| `file`          | `true` matches any attachment; a media type or glob such as `image/*` matches that type |
+| Matcher         | Matches when                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `model`         | The model id matches; `*` wildcards allowed                                                                                          |
+| `format`        | The request format is `openai-chat`, `openai-responses`, or `anthropic-messages`                                                     |
+| `stream`        | The request does or does not stream                                                                                                  |
+| `textContains`  | The latest user text contains the string; tool results are ignored                                                                   |
+| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                          |
+| `hasToolResult` | The current turn does or does not carry a tool result                                                                                |
+| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type |
 
 ### Replies
 
@@ -199,7 +199,7 @@ A strict JSON Schema is checked against OpenAI's documented subset before anythi
 
 Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. An object that does not set `additionalProperties: false`, or leaves a property out of `required`, is rejected the same way. A function tool marked `strict` gets the same checks on its parameters, worded `Invalid schema for function '<name>'` with code `invalid_function_parameters`. Non-strict schemas are not checked, matching the API.
 
-The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), string `format` values for the common formats, and local `$ref`. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run.
+The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), string `format` values for the common formats, and local `$ref`. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule. A format sample, `enum` value, or `const` that fails the pattern returns the same 400, and pattern checks run under a time limit.
 
 Provider rules differ, so the dialect is chosen per request: a model name starting with `claude`, with or without a provider prefix such as `anthropic/`, is checked with Anthropic's rules, anything else with OpenAI's, on Chat Completions and Responses alike. The error envelope stays the one the endpoint speaks, which is what Anthropic's OpenAI compatibility layer does: same shape, different message.
 
@@ -287,7 +287,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   -H 'content-type: application/json' --data @rules.json
 ```
 
-`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
+`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. Every replacement restores each rule's full `times` budget. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
 
 Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Startup warns when the service listens beyond loopback.
 

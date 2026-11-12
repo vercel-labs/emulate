@@ -71,7 +71,7 @@ An unsupported data path returns the native 404 naming the supported paths.
 - `POST /_ai/reset` — restore seeded rules and budgets, and clear calls and stored responses
 - `GET /` — read-only inspector with Calls and Rules tabs
 
-`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited). `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
+`GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "random": { "seed": <number> }, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited), in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
 
 Control routes and the inspector refuse cross-origin browser requests, reads included. Requests without an `Origin` header, such as curl or a test, are accepted. Startup warns when the service listens beyond loopback.
 
@@ -118,7 +118,7 @@ ai:
           retry-after: "1"
 ```
 
-Rules are evaluated in order and the first match wins. Every supplied matcher must hold. `times` limits how many times a rule can fire. An unknown configuration key fails at startup with its path. `PUT /_ai/rules` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. A body with only `rules` resets the other fields to their defaults.
+Rules are evaluated in order and the first match wins. Every supplied matcher must hold. `times` limits how many times a rule can fire. An unknown configuration key fails at startup with its path. `PUT /_ai/rules` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. A body with only `rules` resets the other fields to their defaults. Every replacement restores each rule's full `times` budget.
 
 ## Rules
 
@@ -130,7 +130,7 @@ Matchers:
 - `textContains` — case-sensitive text in the latest user instruction, excluding tool results
 - `tool` — a declared tool name, with `*` wildcards
 - `hasToolResult` — whether the current continuation carries a tool result
-- `file` — `true` for any attachment, or a media-type glob such as `application/pdf`
+- `file` — `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/pdf`
 
 Reply events:
 

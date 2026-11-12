@@ -15,7 +15,7 @@ export interface ServicePlugin {
   name: string;
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void;
   seed?(store: Store, baseUrl: string): void;
-  /** Renders thrown errors and unmatched routes in the service's native error format instead of the default GitHub-shaped body. */
+  /** Renders every error core produces for the service (thrown errors, unmatched routes, rate limit and auth rejections) in the service's native format instead of the default GitHub-shaped body. */
   formatError?(error: unknown, c: Context<AppEnv>, status: number): Response;
   /** Set to false to skip the shared GitHub-style rate limiter and its X-RateLimit headers. */
   rateLimit?: false;

@@ -124,7 +124,7 @@ With no matching rule:
 
 A strict JSON Schema is checked against OpenAI's documented subset first, and a rejected keyword returns OpenAI's own error, for example `Invalid schema for response_format 'trip': In context=('properties', 'trip'), 'allOf' is not permitted.` with `param: "response_format"`, or `param: "text.format"` on the Responses endpoint. Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected. An object that does not set `additionalProperties: false`, or leaves a property out of `required`, is rejected the same way. A function tool marked `strict` gets the same checks on its parameters, worded `Invalid schema for function '<name>'` with code `invalid_function_parameters`. Non-strict schemas are not checked.
 
-The generator handles `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), common string `format` values, and local `$ref`, with recursion bounded. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule, and the pattern is never run. Provider rules differ, so the dialect is chosen per request: a model name starting with `claude`, with or without a provider prefix such as `anthropic/`, is checked with Anthropic's rules, anything else with OpenAI's, on Chat Completions and Responses alike. The error envelope stays the one the endpoint speaks, matching Anthropic's OpenAI compatibility layer.
+The generator handles `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), common string `format` values, and local `$ref`, with recursion bounded. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a native 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule. A format sample, `enum` value, or `const` that fails the pattern returns the same 400, and pattern checks run under a time limit. Provider rules differ, so the dialect is chosen per request: a model name starting with `claude`, with or without a provider prefix such as `anthropic/`, is checked with Anthropic's rules, anything else with OpenAI's, on Chat Completions and Responses alike. The error envelope stays the one the endpoint speaks, matching Anthropic's OpenAI compatibility layer.
 
 Anthropic requires `response_format` to be `json_schema` with `strict: true`, rejects `json_object` with a 400, and applies its schema limits on top: no `oneOf`, no numeric or string constraints, no array constraints beyond `minItems` 0 or 1, no external references.
 
@@ -174,15 +174,15 @@ ai:
 
 ### Matchers
 
-| Key             | Matches                                                                    |
-| --------------- | -------------------------------------------------------------------------- |
-| `model`         | Model id, with `*` wildcards                                               |
-| `format`        | `openai-chat`, `openai-responses`, or `anthropic-messages`                 |
-| `stream`        | Boolean                                                                    |
-| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results |
-| `tool`          | A declared tool name, with `*` wildcards                                   |
-| `hasToolResult` | Whether the current continuation carries a tool result                     |
-| `file`          | `true` for any attachment, or a media-type glob such as `application/*`    |
+| Key             | Matches                                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `model`         | Model id, with `*` wildcards                                                                                         |
+| `format`        | `openai-chat`, `openai-responses`, or `anthropic-messages`                                                           |
+| `stream`        | Boolean                                                                                                              |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                           |
+| `tool`          | A declared tool name, with `*` wildcards                                                                             |
+| `hasToolResult` | Whether the current continuation carries a tool result                                                               |
+| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*` |
 
 ### Replies
 
@@ -272,7 +272,7 @@ Returns `{ "deleted": <count> }`.
 curl -s http://localhost:4014/_ai/rules | jq
 ```
 
-Returns `{ "rules": [...], "strict": <bool>, "timing": {...}, "models": [...] }`. Each rule carries its remaining budget as `remaining`; `null` means unlimited. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts.
+Returns `{ "rules": [...], "strict": <bool>, "timing": {...}, "random": { "seed": <number> }, "models": [...] }`. Each rule carries its remaining budget as `remaining`; `null` means unlimited. The shape is what `PUT` accepts.
 
 Replace the whole rule set with a `rules` document:
 
@@ -290,7 +290,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
   }'
 ```
 
-`PUT` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. It returns the same shape as GET and ignores `remaining` fields, so a GET then PUT keeps `rules`, `strict`, `timing`, and `models`. A body with only `rules` resets the other fields to their defaults. An invalid replacement returns 400 with the failing path and leaves the previous rules active. Runtime replacements are ephemeral: reset restores the seeded rules.
+`PUT` accepts the config fields of the seed `ai` block (`rules`, plus optional `strict`, `timing`, `random`, and `models`); `port` and `baseUrl` are ignored. It returns the same shape as GET and ignores `remaining` fields, so a GET then PUT keeps `rules`, `strict`, `timing`, `random`, and `models`. A body with only `rules` resets the other fields to their defaults. Every replacement restores each rule's full `times` budget. An invalid replacement returns 400 with the failing path and leaves the previous rules active. Runtime replacements are ephemeral: reset restores the seeded rules.
 
 ### Reset
 
