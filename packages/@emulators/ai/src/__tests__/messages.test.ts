@@ -163,8 +163,8 @@ describe("anthropic messages", () => {
     expect(body.error.message).toBe("Unsupported Messages feature: hosted tools (tools.0.type).");
   });
 
-  it("accepts a custom tool and a tool with no type", async () => {
-    for (const type of [undefined, "custom"]) {
+  it("accepts a custom tool, a null type, and a tool with no type", async () => {
+    for (const type of [undefined, null, "custom"]) {
       const response = await postMessages(
         JSON.stringify({
           model: "claude-opus-5-5",
@@ -300,7 +300,7 @@ describe("anthropic messages", () => {
         },
       ],
     });
-    expect(nested.content).toEqual([{ type: "text", text: "Received the result of read_file." }]);
+    expect(nested.content).toEqual([{ type: "text", text: "png matched" }]);
     const nestedCall = await lastCall();
     expect(nestedCall.messages.at(-1)).toEqual({
       role: "tool",

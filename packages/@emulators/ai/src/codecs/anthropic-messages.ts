@@ -64,6 +64,8 @@ interface ErrorBody {
   request_id: string;
 }
 
+const FORMAT = "anthropic-messages";
+
 function fail(message: string, param?: string): never {
   throw new AiRequestError(message, param);
 }
@@ -281,7 +283,7 @@ function decodeTools(raw: unknown): ToolDefinition[] {
   return raw.map((tool, index) => {
     const path = `tools.${index}`;
     if (!isRecord(tool)) fail("Expected a tool object.", path);
-    if (tool.type !== undefined && tool.type !== "custom") unsupported("hosted tools", `${path}.type`);
+    if ((tool.type ?? "custom") !== "custom") unsupported("hosted tools", `${path}.type`);
     const name = requireString(tool.name, `${path}.name`);
     const description = optionalString(tool.description, `${path}.description`);
     const parameters = tool.input_schema;
@@ -354,7 +356,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   body.messages.forEach((message, index) => messages.push(...decodeMessage(message, `messages.${index}`)));
 
   const request: AIRequest = {
-    format: "anthropic-messages",
+    format: FORMAT,
     model,
     messages,
     tools: decodeTools(body.tools),
@@ -518,7 +520,7 @@ function errorBody(failure: HttpFailure, requestId: string): ErrorBody {
 
 /** The Anthropic Messages wire format codec. */
 export const messagesCodec: Codec = {
-  format: "anthropic-messages",
+  format: FORMAT,
   decode,
   encodeJson,
   streamFrames,
