@@ -150,6 +150,19 @@ describe("sampleSchema patterns", () => {
     expect(error.message).toContain("constraints do not permit the generated sample");
   });
 
+  it("accepts a pattern that is only valid without the unicode flag", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^\\d{3}\\-\\d{4}$", enum: ["555-1234"] };
+    expect(sampleSchema(schema, "seed")).toBe("555-1234");
+  });
+
+  it("stops a pathological pattern at the time limit", () => {
+    const schema: JsonSchema = { type: "string", pattern: "^(a+)+$", enum: [`${"a".repeat(40)}!`] };
+    const started = performance.now();
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.param?.endsWith(".pattern")).toBe(true);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
   it("rejects an invalid pattern with its own path", () => {
     const schema: JsonSchema = { type: "string", pattern: "(", enum: ["a"] };
     const error = thrown(() => sampleSchema(schema, "seed"));
