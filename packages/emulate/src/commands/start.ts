@@ -439,6 +439,7 @@ export function aiSetupLines(serviceUrl: string, host?: string): string[] {
     `  ${pc.dim("AI base URL")} ${pc.bold(baseUrl)}`,
     `  ${pc.dim("OpenAI SDK")} new OpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
     `  ${pc.dim("AI SDK")} createOpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+    `  ${pc.dim("Anthropic SDK")} new Anthropic({ baseURL: "${serviceUrl}", apiKey: "test" })`,
     `  ${pc.dim("API key")} any value works`,
   ];
   if (host !== undefined && !isLoopbackHost(host)) {

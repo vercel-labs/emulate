@@ -112,7 +112,8 @@ AI API coverage:
   ai.timing.chunkDelayMs accepts a list to vary the gap between frames, and structured output streams between JSON tokens.
   With no matching rule, deterministic defaults echo the latest user text, return schema-valid data,
   or generate a forced tool call.
-  Set baseURL to http://localhost:<port>/v1 for the openai SDK, @ai-sdk/openai, and compatible providers.
+  Set baseURL to http://localhost:<port>/v1 for the openai SDK, @ai-sdk/openai, and compatible providers,
+  and to http://localhost:<port> for @anthropic-ai/sdk.
   Any model id and any API key are accepted; keys are never required, stored, or logged.
   Control calls, rules, and reset at /_ai/calls, /_ai/rules, and /_ai/reset; inspect at /.
   Docs: https://emulate.dev/docs/ai

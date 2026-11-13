@@ -16,6 +16,7 @@ describe("AI startup output", () => {
     const output = aiSetupLines(serviceUrl).join("\n");
 
     expect(output).toContain(`${serviceUrl}/v1`);
+    expect(output).toContain(`new Anthropic({ baseURL: "${serviceUrl}", apiKey: "test" })`);
     expect(output).not.toContain("Warning:");
   });
 
