@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*)
 
 # Linear API Emulator
 
-Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions.
+Stateful Linear GraphQL API emulation with organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and agent sessions.
 
 ## Start
 
@@ -91,7 +91,7 @@ Supported queries:
 - `projects`, `project`
 - `cycles`, `cycle`
 - `webhooks`, `webhook`
-- `agentSessions`, `agentSession`
+- `agentSessions`, `agentSession`, `agentActivities`, `agentActivity`
 
 Supported mutations:
 
@@ -100,7 +100,7 @@ Supported mutations:
 - `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`
 - `issueAddLabel`, `issueRemoveLabel`
 - `webhookCreate`, `webhookDelete`
-- `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`
+- `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentSessionUpdateExternalUrl`
 - `agentActivityCreate`
 
 Connections use Relay-style cursors with `nodes`, `edges`, and `pageInfo`.
@@ -114,19 +114,64 @@ Issue selections expose both numeric `priority` and Linear's derived `priorityLa
 - `POST /oauth/token` - authorization code, refresh token, and client credentials grants
 - `POST /oauth/revoke` - revoke access or refresh tokens
 
-OAuth apps can use `actor: user` or `actor: app`. The configured actor is authoritative. User actor apps use authorization code flows. App actor apps use the app install flow and can request client credentials tokens. App actor support is sufficient for local agent and service-account tests, but it is not full production Linear agent behavior.
+OAuth apps can use `actor: user` or `actor: app`. The configured actor is authoritative. User actor apps use authorization code flows. App actor apps use the app install flow and can request client credentials tokens.
 
 ## Webhooks
 
-Create local webhook subscriptions through `webhookCreate` or seed config. Supported writes dispatch Linear-shaped payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when a secret is configured.
+Create local webhook subscriptions through `webhookCreate` or seed config. Supported writes dispatch Linear-shaped payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Timestamp` headers, plus `Linear-Signature` when a secret is configured. Issue payloads include the workflow `state` (`id`, `name`, `type`, `color`), and `updatedFrom` on updates lists only the previous values of the properties that changed.
 
-## Inspector
+## Agent Sessions
+
+Agents call the API with an app actor token: a token for an OAuth app configured with `actor: app`. The app's user owns the sessions it works in. A session is created with status `pending` when an issue is delegated to the app user, when a comment mentions it, or when the agent calls `agentSessionCreateOnIssue` or `agentSessionCreateOnComment`.
+
+```yaml
+linear:
+  oauth_apps:
+    - client_id: agent_client
+      client_secret: agent_secret
+      name: Emulate Agent
+      redirect_uris:
+        - http://localhost:3000/callback
+      actor: app
+      mentionable: true
+  tokens:
+    - token: lin_agent
+      type: oauth_access
+      app: agent_client
+  webhooks:
+    - url: http://localhost:3000/api/linear/webhook
+      resource_types: [AgentSessionEvent]
+      secret: local-secret
+```
+
+`agentActivityCreate` takes Linear's `AgentActivityCreateInput`, so `@linear/sdk`'s `createAgentActivity` works against the emulator:
+
+- `content` is `thought`, `elicitation`, `response`, or `error` with a Markdown `body` (errors also take a `reasonCode`), or `action` with `action`, `parameter`, and an optional `result`.
+- `ephemeral` is allowed only on thought and action activities.
+- `signal` is `continue` on a response, or `auth` (with `signalMetadata.url`) or `select` (with 1 to 100 `signalMetadata.options`) on an elicitation.
+- `id` optionally sets the activity's UUID.
+
+Invalid shapes are rejected, as are prompts and the `stop` signal from an agent token and activities on another agent's session. `AgentActivity.content` is the `AgentActivityContent` union, so select its fields with inline fragments.
+
+The session's `status` follows the latest activity: a thought or action makes it `active`, an elicitation `awaitingInput`, a response `complete` (or keeps it `active` with `continue`), and an error `error`, which also clears the plan. `startedAt` and `endedAt` track the latest turn.
+
+`agentSessionUpdate` sets the `plan` (1 to 100 `{ content, status }` entries, returned as `{ entries, updatedAt }`), the `summary`, and the links through `externalLink`, `externalUrls`, `addedExternalUrls`, and `removedExternalUrls`. `agentSessionUpdateExternalUrl` changes only the links. Any update other than a summary moves a `pending` session to `active`. As in Linear, JSON fields such as `plan`, `externalUrls`, and `signalMetadata` are returned as JSON-encoded strings, which `@linear/sdk` parses.
+
+`agentActivities`, `agentActivity`, and `AgentSession.activities` read activities, filtered by `agentSessionId`, `id`, or `type` and ordered by `createdAt` or `updatedAt`.
+
+In Linear, prompts come from users writing in the app. To simulate one, call `agentActivityCreate` with a human token such as `lin_test_admin` and `content: { type: "prompt", body }`. The prompt starts a new turn and makes the session `active`, or `stopping` with `signal: stop`.
+
+Webhooks subscribed to `AgentSessionEvent` receive Linear's `AgentSessionEventWebhookPayload`: `agentSession` (with its issue, comment, and creator), `appUserId`, `oauthClientId`, and `organizationId`. A `created` event adds `promptContext`, built from the issue, its team, labels, and project, the comment that started the session, and the issue's other comments. A `prompted` event adds the prompt as `agentActivity`.
+
+The emulator's earlier agent inputs still work: `agentActivityCreate` with `{ sessionId, type, body }`, which also accepts `type: prompt` from a human token, `agentUserId`, string `plan`, and `externalUrl` on session inputs, and `state` on `agentSessionUpdate`. Sessions keep their `state`, `externalUrl`, and `agentUser` fields, and activities keep `type`, `body`, and `session`.
+
+
 
 Open `GET /` in the Linear emulator to inspect issues, teams, users, projects, agent sessions, OAuth apps, tokens, webhook subscriptions, and webhook deliveries.
 
 ## Current Limits
 
-Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and full production agent behavior are not implemented.
+Full Linear schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, archiving agent sessions and activities, session dismissal by users, agent guidance, repository suggestions, and routing `AgentSessionEvent` webhooks to the owning app alone are not implemented.
 
 ## Custom emulators alongside built-ins
 

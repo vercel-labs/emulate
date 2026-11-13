@@ -213,6 +213,7 @@
         "OAuth",
         "Seed Config",
         "Webhooks",
+        "Agent Sessions",
         "Inspector",
         "Current Limits"
       ]
