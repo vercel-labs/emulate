@@ -42,7 +42,7 @@ export function seedServiceAccounts(
   if (delegation) store.setData(DELEGATION_KEY, delegation);
 }
 
-function error(c: Context, code: string, description: string, status: 400 | 401 = 400) {
+function error(c: Context, code: string, description: string, status: 400 | 401 | 403 = 400) {
   return c.json({ error: code, error_description: description }, status);
 }
 
@@ -115,11 +115,11 @@ export async function jwtBearerGrant(c: Context, store: Store, tokenMap: TokenMa
     const authorized = delegation.find((entry) => entry.client_id === account.client_id);
     // Google's JWT error table: a client not authorized for domain-wide delegation is `unauthorized_client`, a
     // requested scope missing from its authorization is `access_denied` ("any value" as description). Neither status
-    // is documented: `401` is what Google answers for `unauthorized_client` in captured responses, and `access_denied`
-    // keeps RFC 6749's default `400`.
+    // is documented; both are what Google answers in captured responses: `401` for `unauthorized_client` and `403`
+    // for `access_denied`.
     if (!authorized) return error(c, "unauthorized_client", "Unauthorized client or scope in request.", 401);
     if (!scopes.every((requested) => authorized.scopes.includes(requested))) {
-      return error(c, "access_denied", "Requested client not authorized.");
+      return error(c, "access_denied", "Requested client not authorized.", 403);
     }
     email = user.email;
   }
