@@ -2,7 +2,7 @@
 title: "Okta"
 ---
 
-Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
+Okta identity provider emulation with OAuth 2.0 / OIDC, SAML 2.0 apps, user management, groups, apps, and authorization servers. Supports both default org server and custom authorization server paths.
 
 Management API authentication is permissive by default for local workflows. Set `okta.strict_scopes: true` in seed config to require a known token on `/api/v1` routes: an `SSWS` API token or bearer access token that does not come from seed config, server options, or an OAuth exchange returns `401` with `E0000011` instead of acting as the default user.
 
@@ -64,6 +64,49 @@ An app whose `credentials.oauthClient.client_id` names an OIDC client restricts 
 - `DELETE /api/v1/apps/:appId/users/:userId` — unassign user
 - `POST /api/v1/apps/:appId/lifecycle/activate` — activate app
 - `POST /api/v1/apps/:appId/lifecycle/deactivate` — deactivate app
+
+## SAML 2.0 Apps
+
+An app with `signOnMode: SAML_2_0` acts as a SAML identity provider for a service provider. Okta gives it an external key (`exk...`), which you can also set with `external_key` in seed config. `settings.signOn` configures the assertion: `ssoAcsUrl`, `audience`, `recipient`, `destination`, `subjectNameIdFormat`, `responseSigned`, `assertionSigned`, `signatureAlgorithm` (`RSA_SHA256` or `RSA_SHA1`), `digestAlgorithm`, `authnContextClassRef`, `defaultRelayState`, and `attributeStatements`.
+
+- `GET /app/:appName/:externalKey/sso/saml` — SSO URL for the HTTP-Redirect binding, or IdP-initiated sign-in without a `SAMLRequest`
+- `POST /app/:appName/:externalKey/sso/saml` — SSO URL for the HTTP-POST binding
+- `GET /app/:externalKey/sso/saml/metadata` — IdP metadata with the signing certificate
+- `GET /api/v1/apps/:appId/sso/saml/metadata` — the same metadata through the Apps API
+
+The issuer is `http://www.okta.com/:externalKey`. The response answers the request's `InResponseTo`, carries the `RelayState` through, and uses the user's login as the NameID unless `credentials.userNameTemplate` is `${source.email}` or another profile field. In attribute statements, an `EXPRESSION` value like `user.email` reads the profile and any other value is sent as written; a `GROUP` statement sends the user's groups that match `filterType` (`STARTS_WITH`, `EQUALS`, `CONTAINS`, or `REGEX`) and `filterValue`.
+
+Okta sends no assertion for a user who is not `ACTIVE`, or who is not assigned to the app (the `403` App Not Assigned page), and none through a deactivated app. Creating or updating an app that sets both `responseSigned` and `assertionSigned` to `false` returns `400` with `E0000001`.
+
+The signing key is generated once per process. To keep the certificate a service provider trusts across restarts, pin a key in seed config with `saml_signing_key`:
+
+```yaml
+okta:
+  saml_signing_key:
+    private_key: |
+      -----BEGIN PRIVATE KEY-----
+      ...
+    certificate: |
+      -----BEGIN CERTIFICATE-----
+      ...
+  users:
+    - okta_id: 00u_alice
+      login: alice@example.com
+  apps:
+    - okta_id: 0oa_portal
+      name: portal_saml
+      label: Portal
+      sign_on_mode: SAML_2_0
+      external_key: exkportal
+      settings:
+        signOn:
+          ssoAcsUrl: http://localhost:3000/saml/acs
+          audience: https://portal.example.com
+          subjectNameIdFormat: urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress
+  app_assignments:
+    - app_okta_id: 0oa_portal
+      user_okta_id: 00u_alice
+```
 
 ## Authorization Servers
 

@@ -4,6 +4,7 @@ import type { AuthUser, TokenMap, AppEnv } from "@emulators/core";
 import type { OktaApp, OktaAuthorizationServer, OktaGroup, OktaUser } from "./entities.js";
 import type { OktaStore } from "./store.js";
 import { resolveOktaIssuer, userDisplayName } from "./helpers.js";
+import { isSamlApp } from "./saml.js";
 
 type OktaErrorCause = { errorSummary: string };
 
@@ -137,6 +138,9 @@ export function groupResponse(baseUrl: string, group: OktaGroup): Record<string,
 }
 
 export function appResponse(baseUrl: string, app: OktaApp): Record<string, unknown> {
+  const self = `${baseUrl}/api/v1/apps/${encodeURIComponent(app.okta_id)}`;
+  const links: Record<string, unknown> = { self: { href: self } };
+  if (isSamlApp(app)) links.metadata = { href: `${self}/sso/saml/metadata`, type: "application/xml" };
   return {
     id: app.okta_id,
     name: app.name,
@@ -147,11 +151,7 @@ export function appResponse(baseUrl: string, app: OktaApp): Record<string, unkno
     signOnMode: app.sign_on_mode,
     credentials: app.credentials,
     settings: app.settings,
-    _links: {
-      self: {
-        href: `${baseUrl}/api/v1/apps/${encodeURIComponent(app.okta_id)}`,
-      },
-    },
+    _links: links,
   };
 }
 

@@ -1,5 +1,6 @@
 import { parsePagination, setLinkHeader, type RouteContext } from "@emulators/core";
 import { generateOktaId, normalizeAppStatus } from "../helpers.js";
+import { resolveExternalKey, samlSettingsError } from "../saml.js";
 import {
   appResponse,
   findAppByRef,
@@ -45,6 +46,9 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
       body.settings && typeof body.settings === "object" ? (body.settings as Record<string, unknown>) : {};
     const credentials =
       body.credentials && typeof body.credentials === "object" ? (body.credentials as Record<string, unknown>) : {};
+    const samlError = samlSettingsError(signOnMode, settings);
+    if (samlError)
+      return oktaError(c, 400, "E0000001", "Api validation failed: settings", [{ errorSummary: samlError }]);
 
     const created = oktaStore.apps.insert({
       okta_id: generateOktaId("0oa"),
@@ -54,6 +58,7 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
       sign_on_mode: signOnMode,
       settings,
       credentials,
+      external_key: resolveExternalKey(signOnMode, undefined),
     });
 
     return c.json(appResponse(baseUrl, created), 201);
@@ -156,15 +161,22 @@ export function appRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void
     if (!appEntity) return oktaError(c, 404, "E0000007", "Not found: app");
 
     const body = await readJsonObject(c);
+    const signOnMode = typeof body.signOnMode === "string" ? body.signOnMode : appEntity.sign_on_mode;
+    const settings =
+      body.settings && typeof body.settings === "object"
+        ? (body.settings as Record<string, unknown>)
+        : appEntity.settings;
+    const samlError = samlSettingsError(signOnMode, settings);
+    if (samlError)
+      return oktaError(c, 400, "E0000001", "Api validation failed: settings", [{ errorSummary: samlError }]);
+
     const updated = oktaStore.apps.update(appEntity.id, {
       name: typeof body.name === "string" ? body.name : appEntity.name,
       label: typeof body.label === "string" ? body.label : appEntity.label,
       status: normalizeAppStatus(typeof body.status === "string" ? body.status : undefined, appEntity.status),
-      sign_on_mode: typeof body.signOnMode === "string" ? body.signOnMode : appEntity.sign_on_mode,
-      settings:
-        body.settings && typeof body.settings === "object"
-          ? (body.settings as Record<string, unknown>)
-          : appEntity.settings,
+      sign_on_mode: signOnMode,
+      external_key: resolveExternalKey(signOnMode, appEntity.external_key),
+      settings,
       credentials:
         body.credentials && typeof body.credentials === "object"
           ? (body.credentials as Record<string, unknown>)

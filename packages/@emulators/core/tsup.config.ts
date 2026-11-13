@@ -4,7 +4,7 @@ import { cpSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/saml.ts"],
   format: ["esm"],
   dts: false,
   sourcemap: true,

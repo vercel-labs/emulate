@@ -349,6 +349,14 @@ okta:
       redirect_uris:
         - http://localhost:3000/callback
       auth_server_id: default
+  apps:
+    - name: portal_saml
+      label: Portal
+      sign_on_mode: SAML_2_0
+      settings:
+        signOn:
+          ssoAcsUrl: http://localhost:3000/saml/acs
+          audience: https://portal.example.com
 
 resend:
   domains:
