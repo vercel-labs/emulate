@@ -221,7 +221,7 @@
         <button class="button small" id="reset" type="button">Reset</button>
       </div>
       <textarea id="rules" class="code" spellcheck="false"></textarea>
-      <p class="hint">Edits are sent to <code>PUT /_ai/rules</code> on the next run. The first matching rule answers. An unstreamed reply waits ttftMs, then arrives whole. Reset restores budgets and the variant order.</p>
+      <p class="hint">Every change is sent to <code>PUT /_ai/rules</code> at once, except text typed here, which waits for the next run. The first matching rule answers. An unstreamed reply waits ttftMs, then arrives whole. Reset restores budgets and the variant order.</p>
     </div>
   </main>
 
@@ -550,6 +550,7 @@ const APIS = {
 let scenario = SCENARIOS[0];
 let applied = null;
 let rulesError = null;
+let rulesSeq = 0;
 let active = null;
 let lastSeq = 0;
 const wireOpen = { events: false, request: false, response: false };
@@ -603,11 +604,15 @@ function setRules(config) {
 /** Rewrites the rules editor through one edit, leaving it alone while its JSON is invalid. */
 function editRules(edit) {
   const config = parseJson($("rules").value).value;
-  if (config) setRules(edit(config));
-  else showRulesState();
+  if (config) {
+    setRules(edit(config));
+    void applyRules(false);
+  } else {
+    showRulesState();
+  }
 }
 
-function selectScenario(next) {
+function selectScenario(next, sync = true) {
   scenario = next;
   for (const button of document.querySelectorAll(".scenario")) button.setAttribute("aria-pressed", String(button.dataset.id === next.id));
   $("title").textContent = next.label;
@@ -619,24 +624,28 @@ function selectScenario(next) {
   if (next.stream) $("stream").checked = true;
   const current = parseJson($("rules").value).value;
   setRules(withReasoning({ timing: current?.timing ?? PACING.realistic, ...next.config }, $("reasoning").checked));
+  if (sync) void applyRules(false);
 }
 
 /** Sends the rules to the emulator when they changed, and reports whether the emulator accepted them. */
 async function applyRules(force) {
   const text = $("rules").value;
   if (!force && text === applied) return true;
+  const seq = ++rulesSeq;
   rulesError = null;
   if (!parseJson(text).error) {
     try {
       const response = await fetch("/_ai/rules", { method: "PUT", headers: { "content-type": "application/json" }, body: text });
+      if (seq !== rulesSeq) return false;
       if (response.ok) applied = text;
       else rulesError = (await response.json().catch(() => null))?.error?.message ?? "Rejected with status " + response.status;
     } catch {
+      if (seq !== rulesSeq) return false;
       rulesError = "The emulator is not reachable.";
     }
   }
   showRulesState();
-  return applied === text;
+  return applied === $("rules").value;
 }
 
 async function* sse(body, onText) {
@@ -953,6 +962,7 @@ async function connect() {
     lastSeq = (await response.json()).at(-1)?.seq ?? 0;
     conn.dataset.state = "ok";
     conn.textContent = "Connected";
+    await applyRules(false);
     clearOutput("Pick a scenario and press Run.");
   } catch {
     conn.dataset.state = "down";
@@ -972,7 +982,7 @@ document.addEventListener("keydown", (event) => {
 
 $("schema").value = pretty(SCHEMA);
 buildScenarioList();
-selectScenario(SCENARIOS[0]);
+selectScenario(SCENARIOS[0], false);
 setRunning(false);
 connect();
 </script>
