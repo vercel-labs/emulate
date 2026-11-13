@@ -261,7 +261,7 @@
       "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
       "ogImage": "/og/aws",
       "ogTitle": "AWS | emulate",
-      "headings": ["S3", "SQS", "IAM", "STS", "Inspector"]
+      "headings": ["S3", "SQS", "IAM", "STS", "KMS", "Inspector"]
     },
     "/docs/okta": {
       "title": "Okta | emulate",

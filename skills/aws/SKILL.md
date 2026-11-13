@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # AWS Emulator
 
-S3, SQS, Cognito, IAM, and STS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query. All state is in-memory.
+S3, SQS, Cognito, IAM, STS, and KMS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query; KMS uses AWS JSON 1.1. All state is in-memory.
 
 ## Start
 
@@ -114,9 +114,14 @@ aws:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
         assume_role_policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+  kms:
+    keys:
+      - key_id: 1234abcd-12ab-34cd-56ef-1234567890ab
+        description: App data key
+        aliases: [alias/my-app-key]
 ```
 
-Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`).
+Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`), KMS key with alias `alias/emulate-default`.
 
 ## API Endpoints
 
@@ -372,7 +377,42 @@ curl -X POST http://localhost:4006/sts/ \
 curl -X POST http://localhost:4006/sts/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session"
+
+# Exchange an OpenID Connect ID token for credentials (unsigned)
+curl -X POST http://localhost:4006/sts/ \
+  -d "Action=AssumeRoleWithWebIdentity&RoleArn=arn:aws:iam::123456789012:role/my-role&RoleSessionName=my-session" \
+  --data-urlencode "WebIdentityToken=$ID_TOKEN"
 ```
+
+`AssumeRoleWithWebIdentity` exchanges an OpenID Connect ID token for temporary credentials. The request needs no signature or `Authorization` header, so `STSClient` works with the `/sts` endpoint and no credentials. The role must exist: seed it with `aws.iam.roles` or create it with `CreateRole`. An unknown role ARN returns `AccessDenied` (403). The token's `iss`, `sub`, and `aud` claims become `Provider`, `SubjectFromWebIdentityToken`, and `Audience`. A token that is not a JWT returns `InvalidIdentityToken`, and a token whose `exp` has passed returns `ExpiredToken`. With `ProviderId`, the token is treated as an opaque OAuth 2.0 access token. `DurationSeconds` defaults to 3600 and accepts 900 through 43200. Token signatures, IAM OIDC providers, role trust policies, session policies, and the role's maximum session duration are not evaluated.
+
+### KMS
+
+KMS accepts AWS JSON 1.1 requests at `POST /kms/` with `Content-Type: application/x-amz-json-1.1` and `X-Amz-Target: TrentService.<Action>`, returning JSON results and `__type` errors. Use `KMSClient` with endpoint `/kms`.
+
+```typescript
+import { KMSClient, EncryptCommand, DecryptCommand } from "@aws-sdk/client-kms";
+
+const kms = new KMSClient({
+  endpoint: "http://localhost:4007/kms",
+  region: "us-east-1",
+  credentials: { accessKeyId: "local-access-key", secretAccessKey: "local-secret" },
+});
+const { CiphertextBlob } = await kms.send(new EncryptCommand({
+  KeyId: "alias/emulate-default",
+  Plaintext: new TextEncoder().encode("secret"),
+  EncryptionContext: { purpose: "test" },
+}));
+const { Plaintext } = await kms.send(new DecryptCommand({ CiphertextBlob, EncryptionContext: { purpose: "test" } }));
+```
+
+- `CreateKey` - create a symmetric encryption key
+- `DescribeKey` - get key metadata
+- `ListKeys` - list keys (supports `Limit` and `Marker`)
+- `Encrypt` - encrypt data under a key
+- `Decrypt` - decrypt a ciphertext blob
+
+Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
 
 ### Inspector
 
