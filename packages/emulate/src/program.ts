@@ -95,7 +95,7 @@ Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 
 Google OIDC:
-  The token endpoint accepts client credentials in the body or an HTTP Basic header (client_secret_basic).
+  The token endpoint accepts client credentials in the body or an HTTP Basic header (client_secret_basic); with OAuth clients configured, both return 400 invalid_request.
   Discovery advertises RS256 ID tokens, and GET /oauth2/v3/certs returns the RSA public key used to verify them.
   Set google.strict_scopes: true in seed config to validate issued access tokens, expiry, revocation, and method scopes.
   Strict mode returns Google-style 401/403 errors and limits userinfo claims; bearer-token defaults remain permissive.

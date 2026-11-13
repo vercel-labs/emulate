@@ -255,6 +255,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     // client_secret_basic, which Google's discovery document lists beside client_secret_post: the client's
     // credentials in an HTTP Basic Authorization header, each form-urlencoded (RFC 6749, section 2.3.1).
+    let basic: { id: string; secret: string } | undefined;
     const authHeader = c.req.header("Authorization") ?? "";
     if (authHeader.startsWith("Basic ")) {
       const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
@@ -267,12 +268,24 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
             return value;
           }
         };
-        if (!bodyClientId) bodyClientId = formDecode(decoded.slice(0, sep));
-        if (!bodyClientSecret) bodyClientSecret = formDecode(decoded.slice(sep + 1));
+        basic = { id: formDecode(decoded.slice(0, sep)), secret: formDecode(decoded.slice(sep + 1)) };
       }
     }
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
+    // A client secret in the body beside the header, or a different client_id, is more than one mechanism for
+    // authenticating the client, which RFC 6749 (section 5.2) answers with invalid_request.
+    if (clientsConfigured && basic && (bodyClientSecret || (bodyClientId && bodyClientId !== basic.id))) {
+      return c.json(
+        { error: "invalid_request", error_description: "The client used more than one authentication method." },
+        400,
+      );
+    }
+    if (basic) {
+      bodyClientId ||= basic.id;
+      bodyClientSecret ||= basic.secret;
+    }
+
     if (clientsConfigured) {
       const client = gs.oauthClients.findOneBy("client_id", bodyClientId);
       if (!client) {

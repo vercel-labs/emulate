@@ -76,6 +76,31 @@ describe("Google token endpoint client authentication", () => {
     }
   });
 
+  it("refuses client credentials in both the header and the body", async () => {
+    const { form, code } = fixture();
+    const extras: Record<string, string>[] = [
+      { client_secret: client.client_secret },
+      { client_id: client.client_id, client_secret: client.client_secret },
+      { client_id: "123-other.apps.googleusercontent.com" },
+    ];
+    for (const extra of extras) {
+      const exchange = await form(
+        "/oauth2/token",
+        { grant_type: "authorization_code", code: await code(), redirect_uri: redirectUri, ...extra },
+        { Authorization: basic(client.client_id, client.client_secret) },
+      );
+      expect(exchange.status).toBe(400);
+      expect(await exchange.json()).toMatchObject({ error: "invalid_request" });
+    }
+
+    const sameClientId = await form(
+      "/oauth2/token",
+      { grant_type: "authorization_code", code: await code(), redirect_uri: redirectUri, client_id: client.client_id },
+      { Authorization: basic(client.client_id, client.client_secret) },
+    );
+    expect(sameClientId.status).toBe(200);
+  });
+
   it("keeps client credentials in the body", async () => {
     const { form, code } = fixture();
     const exchange = await form("/oauth2/token", {
