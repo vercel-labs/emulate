@@ -207,7 +207,7 @@ Anthropic is stricter about the request shape: `response_format` must be `json_s
 
 Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
 
-Streams are instant by default. Set `ai.timing.ttftMs` for the delay before the first frame and `ai.timing.chunkDelayMs` for the gap between frames. `chunkDelayMs` also takes a list, used in frame order with the last entry repeating, so a reply can start fast, slow down, and speed up again.
+Replies are instant by default. Set `ai.timing.ttftMs` for the delay before the first byte of any reply, streamed or not, and `ai.timing.chunkDelayMs` for the gap between the frames of a stream. `chunkDelayMs` also takes a list, used in frame order with the last entry repeating, so a reply can start fast, slow down, and speed up again.
 
 Streamed structured output is split between JSON structural characters, never inside a string, so a client can parse partial values as they arrive.
 

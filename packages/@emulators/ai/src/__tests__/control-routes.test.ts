@@ -1,5 +1,5 @@
 import { createServer } from "@emulators/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { aiPlugin, seedFromConfig, type AiSeedConfig } from "../index.js";
 import type { Rule } from "../types.js";
 
@@ -30,6 +30,7 @@ interface RulesBody {
 interface CallEntry {
   seq: number;
   model: string;
+  delivery: string;
   matched: { id: string } | { default: string } | null;
 }
 
@@ -228,5 +229,54 @@ describe("AI reset control route", () => {
     expect(rules.models).toEqual(["seeded-model"]);
     expect(rules.rules.map((rule) => rule.id)).toEqual(["greeting"]);
     expect(await json<CallEntry[]>(await app.request(`${origin}/_ai/calls`))).toEqual([]);
+  });
+});
+
+describe("AI unstreamed reply timing", () => {
+  const slow: AiSeedConfig = {
+    timing: { ttftMs: 200 },
+    rules: [
+      { id: "limited", match: { textContains: "limit" }, error: { status: 429, message: "Slow down." } },
+      { id: "slow", reply: [{ type: "text", text: "done" }] },
+    ],
+  };
+
+  async function lastDelivery(app: App): Promise<string | undefined> {
+    return (await json<CallEntry[]>(await app.request(`${origin}/_ai/calls`))).at(-1)?.delivery;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("holds an unstreamed reply for ttftMs and answers a scripted error at once", async () => {
+    vi.useFakeTimers();
+    const app = createApp(slow);
+    expect((await chat(app, "gpt-x", "over the limit")).status).toBe(429);
+
+    let answered = false;
+    const pending = chat(app, "gpt-x", "hello").then((response) => {
+      answered = true;
+      return response;
+    });
+    await vi.advanceTimersByTimeAsync(199);
+    expect(answered).toBe(false);
+    expect(await lastDelivery(app)).toBe("pending");
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await pending).status).toBe(200);
+    expect(await lastDelivery(app)).toBe("completed");
+  });
+
+  it("ends a held reply with the state reset error when the emulator is reset", async () => {
+    vi.useFakeTimers();
+    const app = createApp(slow);
+    const pending = chat(app, "gpt-x", "hello");
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect((await app.request(`${origin}/_ai/reset`, { method: "POST" })).status).toBe(200);
+    const response = await pending;
+    expect(response.status).toBe(409);
+    expect((await json<{ error: { code: string } }>(response)).error.code).toBe("state_reset");
   });
 });
