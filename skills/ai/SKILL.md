@@ -236,7 +236,7 @@ A `fault` cuts or pauses a stream after a number of content chunks. The count co
 
 ### Timing
 
-Set `timing.ttftMs` and `timing.chunkDelayMs` globally under `ai.timing`, or per rule with a `timing` object. Both default to zero, so streams are instant. Delays are abortable: a client close or reset cancels pending timers.
+Set `timing.ttftMs` and `timing.chunkDelayMs` globally under `ai.timing`, or per rule with a `timing` object. Both default to zero, so replies are instant. `ttftMs` is the wait before the first byte of any reply, streamed or not, and `chunkDelayMs` is the gap between the frames of a stream. Delays are abortable: a client close or reset cancels pending timers.
 
 `chunkDelayMs` also accepts a list, used in frame order and repeating the last entry, which gives a reply an uneven rhythm. Streamed structured output is split between JSON structural characters, never inside a string, so partial values parse as they arrive.
 

@@ -109,6 +109,7 @@ AI API coverage:
   Serves OpenAI Responses and Chat Completions at any path prefix, unary and streamed.
   Rules script text, structured output, tool calls, reasoning, refusals, errors, and stream faults.
   Rules may list reply variants; ai.random.seed makes the pick repeat on every run.
+  ai.timing.ttftMs delays the first byte of every reply, streamed or not.
   ai.timing.chunkDelayMs accepts a list to vary the gap between frames, and structured output streams between JSON tokens.
   With no matching rule, deterministic defaults echo the latest user text, return schema-valid data,
   or generate a forced tool call.
