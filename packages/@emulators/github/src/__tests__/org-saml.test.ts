@@ -184,6 +184,8 @@ interface ResponseOptions {
   issuer?: string;
   notBefore?: Date;
   notOnOrAfter?: Date;
+  /** `null` leaves NotOnOrAfter out of the bearer SubjectConfirmationData. */
+  confirmationNotOnOrAfter?: Date | null;
   sessionNotOnOrAfter?: Date;
   sign?: "assertion" | "response" | "none";
   key?: TestKey;
@@ -196,6 +198,10 @@ function buildResponse(options: ResponseOptions = {}): string {
   const inResponseTo = options.requestId === null ? "" : ` InResponseTo="${options.requestId}"`;
   const notBefore = (options.notBefore ?? new Date(now - 5 * 60 * 1000)).toISOString();
   const notOnOrAfter = (options.notOnOrAfter ?? new Date(now + 5 * 60 * 1000)).toISOString();
+  const confirmationNotOnOrAfter =
+    options.confirmationNotOnOrAfter === null
+      ? ""
+      : ` NotOnOrAfter="${options.confirmationNotOnOrAfter?.toISOString() ?? notOnOrAfter}"`;
   const sessionNotOnOrAfter = options.sessionNotOnOrAfter
     ? ` SessionNotOnOrAfter="${options.sessionNotOnOrAfter.toISOString()}"`
     : "";
@@ -210,7 +216,7 @@ function buildResponse(options: ResponseOptions = {}): string {
     `<saml:Subject>` +
     `<saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent">${options.nameId ?? "octocat@acme.test"}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">` +
-    `<saml:SubjectConfirmationData${inResponseTo} NotOnOrAfter="${notOnOrAfter}" Recipient="${options.recipient ?? acsUrl}"/>` +
+    `<saml:SubjectConfirmationData${inResponseTo}${confirmationNotOnOrAfter} Recipient="${options.recipient ?? acsUrl}"/>` +
     `</saml:SubjectConfirmation>` +
     `</saml:Subject>` +
     `<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">` +
@@ -458,6 +464,12 @@ describe("GitHub organization SAML response", () => {
         notOnOrAfter: new Date(Date.now() - 60 * 1000),
       }),
     );
+  });
+
+  it("refuses an assertion whose bearer subject confirmation has no NotOnOrAfter", async () => {
+    const html = await expectRefused((requestId) => buildResponse({ requestId, confirmationNotOnOrAfter: null }));
+    expect(html).toContain("SubjectConfirmationData has no NotOnOrAfter");
+    await expectRefused((requestId) => buildResponse({ requestId, sign: "response", confirmationNotOnOrAfter: null }));
   });
 
   it("refuses a response that is not yet valid", async () => {

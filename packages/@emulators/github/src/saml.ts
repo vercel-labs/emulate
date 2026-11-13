@@ -309,8 +309,13 @@ export function validateSamlResponse(
   const recipient = confirmationData?.getAttribute("Recipient");
   if (!recipient) refuse("Recipient in the SAML response must not be blank.");
   if (recipient !== acsUrl) refuse("Recipient in the SAML response was not valid.");
+  // The bearer SubjectConfirmationData MUST carry "a NotOnOrAfter attribute that limits the window
+  // during which the assertion can be delivered" (SAML 2.0 Profiles, 4.1.4.2).
   const confirmationNotOnOrAfter = parseInstant(confirmationData?.getAttribute("NotOnOrAfter") ?? null);
-  if (confirmationNotOnOrAfter !== null && now >= confirmationNotOnOrAfter) refuse("The SAML response has expired.");
+  if (confirmationNotOnOrAfter === null) {
+    refuse("The SAML response does not limit when it can be delivered: SubjectConfirmationData has no NotOnOrAfter.");
+  }
+  if (now >= confirmationNotOnOrAfter) refuse("The SAML response has expired.");
 
   const conditions = childElement(assertion, SAML_NS, "Conditions");
   const notBefore = parseInstant(conditions?.getAttribute("NotBefore") ?? null);
