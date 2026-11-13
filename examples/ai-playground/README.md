@@ -4,27 +4,30 @@ An interactive playground for the `@emulators/ai` emulator covering OpenAI Chat 
 
 ## Getting started
 
-Requires Node 24 or later. From the repository root:
+From the repository root:
 
 ```bash
 pnpm install
 pnpm --filter ai-playground dev
 ```
 
-Open [http://localhost:8000](http://localhost:8000). The emulator runs on [http://localhost:4123](http://localhost:4123), where you can also open the read-only inspector.
+Open [http://localhost:3000](http://localhost:3000). The emulator is embedded in the app, and its read-only inspector is at [http://localhost:3000/emulate/ai](http://localhost:3000/emulate/ai).
 
-Run the server tests with:
+## How it works
 
-```bash
-pnpm --filter ai-playground test
-```
+`src/app/emulate/[...path]/route.ts` mounts the AI emulator with `createEmulateHandler` from `@emulators/adapter-next`, seeded with realistic timing and one greeting rule.
+
+Two same-origin routes forward the playground's requests to that mount, so the page can edit rules and read response headers such as `retry-after` without any cross-origin setup:
+
+- `/v1/*` forwards to `/emulate/ai/v1/*`, the three provider endpoints.
+- `/api/ai/*` forwards to `/emulate/ai/_ai/*`, the rules, calls, and reset routes. Next.js treats folders starting with `_` as private, so the control routes cannot live at `/_ai` directly.
+
+`next.config.ts` wraps the config with `withEmulate`, which keeps the emulator fonts in the serverless output trace.
 
 ## Scenarios
 
 - **Replies**: Text, Structured output, Tool call, Refusal, Truncated, Text match (`textContains`), File attachment (inline PNG and PDF), Variants (seeded order), and No rule (built-in defaults).
-- **Failures**: Rate limit then success (`retry-after` retry flow), Server error (500), Stream drops, Stream stalls, and Strict miss (400 with rule template).
-- **Controls**: API switcher (Chat Completions, Responses, Messages), Stream toggle, Pacing presets (`ttftMs` and `chunkDelayMs`), Reasoning toggle, live JSON rules editor, and Reset.
+- **Failures**: Rate limit then success (`retry-after` retry flow), Server error (500), Stream drops, Stream stalls, and Strict miss (400 with a rule template).
+- **Controls**: API switcher, Stream toggle, Pacing presets, Reasoning toggle, live JSON rules editor, and Reset.
 
-## How it works
-
-`server.ts` starts an in-process AI emulator via `createEmulator({ service: "ai" })` and serves `index.html` on the same origin as a scoped proxy for `/v1/*`, `/_ai/*`, and `/_emulate/fonts/*`. Same-origin hosting lets the browser edit rules via `PUT /_ai/rules` and read response headers such as `retry-after`, while refusing cross-origin requests and unknown hosts.
+Every change is sent to `PUT /_ai/rules` at once, except text typed in the rules editor, which waits for the next run.

@@ -111,19 +111,49 @@ importers:
 
   examples/ai-playground:
     dependencies:
-      emulate:
+      '@emulators/adapter-next':
         specifier: workspace:*
-        version: link:../../packages/emulate
+        version: link:../../packages/@emulators/adapter-next
+      '@emulators/ai':
+        specifier: workspace:*
+        version: link:../../packages/@emulators/ai
+      geist:
+        specifier: ^1.7.0
+        version: 1.7.1(next@16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
+      next:
+        specifier: 16.2.0
+        version: 16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
     devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4
+        version: 4.2.2
       '@types/node':
-        specifier: ^22
-        version: 22.19.17
-      tsc-ts:
-        specifier: 0.1.3
-        version: 0.1.3
+        specifier: ^20
+        version: 20.19.39
+      '@types/react':
+        specifier: ^19
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.2.3(@types/react@19.2.14)
+      eslint:
+        specifier: ^9
+        version: 9.39.4(jiti@2.7.0)
+      eslint-config-next:
+        specifier: 16.2.0
+        version: 16.2.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint-plugin-import-x@4.17.1(@typescript-eslint/utils@8.62.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint@9.39.4(jiti@2.7.0)))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+      tailwindcss:
+        specifier: ^4
+        version: 4.2.2
       typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
+        specifier: ^5
+        version: 5.9.3
 
   examples/custom-api:
     devDependencies:
@@ -193,7 +223,7 @@ importers:
         version: 9.39.4(jiti@2.7.0)
       eslint-config-next:
         specifier: 16.2.0
-        version: 16.2.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint-plugin-import-x@4.17.1(@typescript-eslint/utils@8.62.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint@9.39.4(jiti@2.7.0)))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+        version: 16.2.0(eslint-plugin-import-x@4.17.1(@typescript-eslint/utils@8.62.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-node@0.3.9)(eslint@9.39.4(jiti@2.7.0)))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
       tailwindcss:
         specifier: ^4
         version: 4.2.2
@@ -1642,9 +1672,6 @@ packages:
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
-
-  '@emnapi/runtime@1.9.1':
-    resolution: {integrity: sha512-VYi5+ZVLhpgK4hQ0TAjiQiZ6ol0oe4mBx7mVv7IflsiEp0OWoVsp/+f9Vc1hOhE0TtkORVrI1GvzyreqpgWtkA==}
 
   '@emnapi/wasi-threads@1.2.1':
     resolution: {integrity: sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==}
@@ -5994,9 +6021,6 @@ packages:
   '@types/estree-jsx@1.0.5':
     resolution: {integrity: sha512-52CcUVNFyfb1A2ALocQw/Dd1BQFNmSdkuC3BkZ6iqhdMfQz7JWOFRuJFloOzjk+6WijU56m9oKXFAXc7o3Towg==}
 
-  '@types/estree@1.0.8':
-    resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
-
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
@@ -6892,11 +6916,6 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  baseline-browser-mapping@2.10.9:
-    resolution: {integrity: sha512-OZd0e2mU11ClX8+IdXe3r0dbqMEznRiT4TfbhYIbcRPZkqJ7Qwer8ij3GZAmLsRKa+II9V1v5czCkvmHH3XZBg==}
-    engines: {node: '>=6.0.0'}
-    hasBin: true
-
   bash-tool@1.3.16:
     resolution: {integrity: sha512-2xuprVBzUOYw4+QCpeSwvkuXuHkjKRtMzh+nTpEidROsNnglr5xRs3mdeOmwFVkjB4JhE/uZqIXE+tabbJI7QQ==}
     engines: {node: '>=18'}
@@ -7014,9 +7033,6 @@ packages:
 
   caniuse-api@4.0.0:
     resolution: {integrity: sha512-B0hQ1OLyJuHTQSOWXvwibWqM6DCoqJdvBA6X1S/53bd4XU7LJ1yurIPlrsouol3mw1jh9pGI4ivubSpmJeIqCA==}
-
-  caniuse-lite@1.0.30001780:
-    resolution: {integrity: sha512-llngX0E7nQci5BPJDqoZSbuZ5Bcs9F5db7EtgfwBerX9XGtkkiO4NwfDDIRzHTTwcYC8vC7bmeUEPGrKlR/TkQ==}
 
   caniuse-lite@1.0.30001799:
     resolution: {integrity: sha512-hG1bReV+OUU+MOqK4t/ZWI0tZOyz3rqS9XuhOUz1cIcbwBKjOyJEJuw9ER5JuNyqxNk8u/JUVbGibBOL1yrjFw==}
@@ -13209,11 +13225,6 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@emnapi/runtime@1.9.1':
-    dependencies:
-      tslib: 2.8.1
-    optional: true
-
   '@emnapi/wasi-threads@1.2.1':
     dependencies:
       tslib: 2.8.1
@@ -13688,7 +13699,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.34.5':
     dependencies:
-      '@emnapi/runtime': 1.9.1
+      '@emnapi/runtime': 1.11.3
     optional: true
 
   '@img/sharp-wasm32@0.35.5':
@@ -13897,7 +13908,7 @@ snapshots:
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
       '@emnapi/core': 1.10.0
-      '@emnapi/runtime': 1.10.0
+      '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.3
     optional: true
 
@@ -17298,8 +17309,6 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  '@types/estree@1.0.8': {}
-
   '@types/estree@1.0.9': {}
 
   '@types/geojson@7946.0.16': {}
@@ -17409,8 +17418,8 @@ snapshots:
 
   '@typescript-eslint/project-service@8.58.0(typescript@5.9.3)':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.58.0(typescript@5.9.3)
-      '@typescript-eslint/types': 8.58.0
+      '@typescript-eslint/tsconfig-utils': 8.62.0(typescript@5.9.3)
+      '@typescript-eslint/types': 8.62.0
       debug: 4.4.3
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -18290,8 +18299,6 @@ snapshots:
 
   baseline-browser-mapping@2.10.40: {}
 
-  baseline-browser-mapping@2.10.9: {}
-
   bash-tool@1.3.16(ai@6.0.151(zod@4.6.7))(just-bash@2.14.0):
     dependencies:
       ai: 6.0.151(zod@4.6.7)
@@ -18419,8 +18426,6 @@ snapshots:
     dependencies:
       browserslist: 4.28.4
       caniuse-lite: 1.0.30001799
-
-  caniuse-lite@1.0.30001780: {}
 
   caniuse-lite@1.0.30001799: {}
 
@@ -19545,8 +19550,8 @@ snapshots:
       '@babel/parser': 7.29.7
       eslint: 9.39.4(jiti@2.7.0)
       hermes-parser: 0.25.1
-      zod: 4.6.5
-      zod-validation-error: 4.0.2(zod@4.6.5)
+      zod: 4.6.7
+      zod-validation-error: 4.0.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
 
@@ -19651,7 +19656,7 @@ snapshots:
       '@humanfs/node': 0.16.7
       '@humanwhocodes/module-importer': 1.0.1
       '@humanwhocodes/retry': 0.4.3
-      '@types/estree': 1.0.8
+      '@types/estree': 1.0.9
       ajv: 6.14.0
       chalk: 4.1.2
       cross-spawn: 7.0.6
@@ -20057,6 +20062,10 @@ snapshots:
   geist@1.7.0(next@16.3.4(patch_hash=a620718f9d934500c4f0364aa9312b2539559e0ac911cdc37c97b92e1e9b4550)(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)):
     dependencies:
       next: 16.3.4(patch_hash=a620718f9d934500c4f0364aa9312b2539559e0ac911cdc37c97b92e1e9b4550)(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+
+  geist@1.7.1(next@16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)):
+    dependencies:
+      next: 16.2.0(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
 
   geist@1.7.1(next@16.3.4(patch_hash=a620718f9d934500c4f0364aa9312b2539559e0ac911cdc37c97b92e1e9b4550)(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)):
     dependencies:
@@ -21675,8 +21684,8 @@ snapshots:
     dependencies:
       '@next/env': 16.2.0
       '@swc/helpers': 0.5.15
-      baseline-browser-mapping: 2.10.9
-      caniuse-lite: 1.0.30001780
+      baseline-browser-mapping: 2.10.40
+      caniuse-lite: 1.0.30001799
       postcss: 8.4.31
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
@@ -21835,7 +21844,7 @@ snapshots:
 
   node-abi@3.89.0:
     dependencies:
-      semver: 7.7.4
+      semver: 7.8.5
     optional: true
 
   node-addon-api@7.1.1: {}
@@ -22620,7 +22629,7 @@ snapshots:
 
   postcss@8.4.31:
     dependencies:
-      nanoid: 3.3.11
+      nanoid: 3.3.19
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
@@ -23449,7 +23458,7 @@ snapshots:
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
-      semver: 7.7.4
+      semver: 7.8.5
     optionalDependencies:
       '@img/sharp-darwin-arm64': 0.34.5
       '@img/sharp-darwin-x64': 0.34.5
@@ -24591,7 +24600,7 @@ snapshots:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.16
+      postcss: 8.5.23
       rollup: 4.62.2
       tinyglobby: 0.2.17
     optionalDependencies:
@@ -24608,7 +24617,7 @@ snapshots:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.16
+      postcss: 8.5.23
       rollup: 4.62.2
       tinyglobby: 0.2.17
     optionalDependencies:
@@ -24712,7 +24721,7 @@ snapshots:
       eslint: 9.39.4(jiti@2.7.0)
       eslint-scope: 8.4.0
       eslint-visitor-keys: 5.0.1
-      espree: 10.4.0
+      espree: 11.2.0
       esquery: 1.7.0
       semver: 7.8.5
     transitivePeerDependencies:
@@ -24939,9 +24948,9 @@ snapshots:
       compress-commons: 6.0.2
       readable-stream: 4.7.0
 
-  zod-validation-error@4.0.2(zod@4.6.5):
+  zod-validation-error@4.0.2(zod@4.6.7):
     dependencies:
-      zod: 4.6.5
+      zod: 4.6.7
 
   zod@3.25.76: {}
 
