@@ -984,7 +984,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and `/oauth2/v3/certs` returns the matching RSA public key used to verify issued tokens.
 
-The token endpoint accepts the client's credentials in the request body (`client_secret_post`) or in an HTTP Basic `Authorization` header (`client_secret_basic`), the two methods Google's discovery document lists. With OAuth clients configured, a request that uses both returns `400 invalid_request`.
+The token endpoint accepts the client's credentials in the request body (`client_secret_post`) or in an HTTP Basic `Authorization` header (`client_secret_basic`), the two methods Google's discovery document lists. With OAuth clients configured, a request whose body credentials do not match the header returns `400 invalid_request`.
 
 Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
 

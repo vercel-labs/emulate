@@ -273,11 +273,19 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
-    // A client secret in the body beside the header, or a different client_id, is more than one mechanism for
-    // authenticating the client, which RFC 6749 (section 5.2) answers with invalid_request.
-    if (clientsConfigured && basic && (bodyClientSecret || (bodyClientId && bodyClientId !== basic.id))) {
+    // Google refuses body credentials that do not match the header, and accepts an identical duplicate: a body
+    // client_secret needs the same client_id and secret, a body client_id alone the same client_id.
+    if (
+      clientsConfigured &&
+      basic &&
+      ((bodyClientSecret && !constantTimeSecretEqual(bodyClientSecret, basic.secret)) ||
+        ((bodyClientId || bodyClientSecret) && bodyClientId !== basic.id))
+    ) {
       return c.json(
-        { error: "invalid_request", error_description: "The client used more than one authentication method." },
+        {
+          error: "invalid_request",
+          error_description: "Credentials in post body and basic Authorization header do not match",
+        },
         400,
       );
     }

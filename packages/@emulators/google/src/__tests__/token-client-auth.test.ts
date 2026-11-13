@@ -72,33 +72,50 @@ describe("Google token endpoint client authentication", () => {
         { Authorization: header },
       );
       expect(exchange.status).toBe(401);
+      // Google's token endpoint sends no WWW-Authenticate challenge here, despite RFC 6749 section 5.2.
+      expect(exchange.headers.get("WWW-Authenticate")).toBeNull();
       expect(await exchange.json()).toMatchObject({ error: "invalid_client" });
     }
   });
 
-  it("refuses client credentials in both the header and the body", async () => {
+  it("refuses body credentials that do not match the header", async () => {
     const { form, code } = fixture();
-    const extras: Record<string, string>[] = [
+    const mismatches: Record<string, string>[] = [
+      { client_id: client.client_id, client_secret: "GOCSPX-other" },
+      { client_secret: "GOCSPX-other" },
       { client_secret: client.client_secret },
-      { client_id: client.client_id, client_secret: client.client_secret },
       { client_id: "123-other.apps.googleusercontent.com" },
     ];
-    for (const extra of extras) {
+    for (const extra of mismatches) {
       const exchange = await form(
         "/oauth2/token",
         { grant_type: "authorization_code", code: await code(), redirect_uri: redirectUri, ...extra },
         { Authorization: basic(client.client_id, client.client_secret) },
       );
       expect(exchange.status).toBe(400);
-      expect(await exchange.json()).toMatchObject({ error: "invalid_request" });
+      expect(exchange.headers.get("WWW-Authenticate")).toBeNull();
+      expect(await exchange.json()).toEqual({
+        error: "invalid_request",
+        error_description: "Credentials in post body and basic Authorization header do not match",
+      });
     }
+  });
 
-    const sameClientId = await form(
-      "/oauth2/token",
-      { grant_type: "authorization_code", code: await code(), redirect_uri: redirectUri, client_id: client.client_id },
-      { Authorization: basic(client.client_id, client.client_secret) },
-    );
-    expect(sameClientId.status).toBe(200);
+  it("accepts body credentials that match the header, and ignores an empty body secret", async () => {
+    const { form, code } = fixture();
+    const matches: Record<string, string>[] = [
+      { client_id: client.client_id, client_secret: client.client_secret },
+      { client_id: client.client_id },
+      { client_secret: "" },
+    ];
+    for (const extra of matches) {
+      const exchange = await form(
+        "/oauth2/token",
+        { grant_type: "authorization_code", code: await code(), redirect_uri: redirectUri, ...extra },
+        { Authorization: basic(client.client_id, client.client_secret) },
+      );
+      expect(exchange.status).toBe(200);
+    }
   });
 
   it("keeps client credentials in the body", async () => {

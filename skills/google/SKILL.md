@@ -245,7 +245,7 @@ Also accepts `application/json` body. Returns:
 }
 ```
 
-The token endpoint accepts the client's credentials in the request body (`client_secret_post`) or in an HTTP Basic `Authorization` header (`client_secret_basic`), the two methods Google's discovery document lists. With OAuth clients configured, a request that uses both returns `400 invalid_request`.
+The token endpoint accepts the client's credentials in the request body (`client_secret_post`) or in an HTTP Basic `Authorization` header (`client_secret_basic`), the two methods Google's discovery document lists. With OAuth clients configured, a request whose body credentials do not match the header returns `400 invalid_request`.
 
 ### Refresh Token
 
