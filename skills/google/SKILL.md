@@ -183,6 +183,26 @@ When no OAuth clients are configured, the emulator accepts any `client_id`. With
 
 Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
 
+Set `google.sso_profiles` to sign users in with a third-party SAML identity provider. Each profile has an `id`, the identity provider's `sign_in_page_url`, one or two RSA verification `certificates` (PEM), optional `idp_entity_id` and `sign_out_page_url`, and the primary emails of the `users` it is assigned to (Google assigns profiles to organizational units or groups, which the emulator does not model). The profile's entity ID is `<base URL>/samlrp/<id>` and its ACS URL is `<base URL>/samlrp/<id>/acs`. Picking an assigned user on `/o/oauth2/v2/auth` posts an unsigned AuthnRequest to the sign-in page URL with the HTTP POST binding. The ACS accepts an assertion signed with RSA-SHA256 by a profile certificate, whose `emailAddress` NameID is the user's primary email (case-sensitive), with the ACS URL as Recipient and a `NotOnOrAfter` on its bearer subject confirmation, the entity ID as Audience, the ACS URL as Destination when one is set, the `idp_entity_id` as Issuer when the profile sets one, and that answers a request the emulator sent to the same browser, posted with that request's exact `RelayState`: identity-provider-initiated responses are refused with `403`, as Google does not support them. Starting a sign-in sets a `_emu_google_sso_browser` cookie (`SameSite=Lax`) that the ACS requires; a cross-site post without it is posted again from the emulator's origin once. A valid response opens a 14-day web session, and the authorization page then authorizes only the signed-in user. Users without a profile and super administrators (`is_admin: true` on a seeded user) keep the user picker.
+
+```yaml
+google:
+  users:
+    - email: alice@acme.com
+    - email: admin@acme.com
+      is_admin: true
+  sso_profiles:
+    - id: okta
+      idp_entity_id: http://www.okta.com/exk1
+      sign_in_page_url: https://acme.okta.com/app/google/exk1/sso/saml
+      certificates:
+        - |
+          -----BEGIN CERTIFICATE-----
+          ...
+          -----END CERTIFICATE-----
+      users: [alice@acme.com, admin@acme.com]
+```
+
 ### Hosted domain (hd) claim
 
 Google Workspace accounts include an `hd` claim in ID tokens and userinfo responses identifying the user's hosted domain. The emulator derives this automatically from the user's email domain. Consumer domains (`gmail.com`, `googlemail.com`) omit the claim, matching real Google behavior.
