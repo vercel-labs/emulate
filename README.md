@@ -1459,7 +1459,7 @@ Every generation request is recorded with its format, model, `matched`, normaliz
 
 ### Control routes and inspector
 
-All control routes and the inspector are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page from another origin gets 403. Startup warns when the service listens beyond loopback.
+All control routes and the inspector are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback.
 
 - `GET /_ai/calls` - recorded calls
 - `DELETE /_ai/calls` - clear the call record
@@ -1895,7 +1895,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Twilio**: HTTP Basic auth accepts the seeded Account SID/Auth Token pair or API Key/API Secret pair. Product-host APIs are exposed under local prefixes such as `/messaging/v1` and `/verify/v2`; the 2010 API lives at `/2010-04-01`.
 
-**AI**: OpenAI-compatible clients accept any API key, or none. Keys are never required, stored, or logged. Control routes and the inspector are same-origin only.
+**AI**: OpenAI-compatible clients accept any API key, or none. Keys are never required, stored, or logged. Control routes and the inspector are same-origin only. Data routes refuse browser pages from other websites.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 

@@ -64,7 +64,8 @@ const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
 /** Installs the anchored data router and the control routes; control routes are checked first. */
 export function registerAiRoutes({ app, store, baseUrl }: AiRoutesOptions): void {
-  const expectedOrigin = originKey(baseUrl);
+  const base = parseUrl(baseUrl);
+  const expectedOrigin = base && originKey(base);
 
   app.use("*", async (c, next) => {
     if (c.req.path.startsWith("/_emulate/")) {
@@ -93,11 +94,23 @@ async function handleRequest(c: Context<AppEnv>, store: Store, expectedOrigin: s
   const method = requested === "HEAD" ? "GET" : requested;
   const state = getAiState(store);
 
+  const caller = callerOf(c.req.header("origin"), expectedOrigin);
+
   if (path === "/_ai" || path.startsWith("/_ai/") || (method === "GET" && path === "/")) {
-    if (isForeignOrigin(c.req.header("origin"), expectedOrigin)) {
+    if (caller !== "direct" && caller !== "same-origin") {
       return c.json(aiErrorBody(403, "Cross-origin requests are not allowed on AI control routes."), 403);
     }
     return handleControl(c, method, path, store, state);
+  }
+
+  if (caller === "foreign") {
+    return c.json(
+      aiErrorBody(
+        403,
+        "Requests from other websites are not allowed on AI data routes. Call the emulator from a server, from its own origin, or from a page served on this machine.",
+      ),
+      403,
+    );
   }
 
   if (method === "POST") {
@@ -458,21 +471,32 @@ function staleStateError(): AiRequestError {
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** Reduces an origin to scheme, host, and port, with every loopback name written as localhost. */
-function originKey(value: string): string | undefined {
-  let url: URL;
+/**
+ * Who sent a request, judged from its Origin header: a client that is not a browser page, one of the emulator's own
+ * pages, another page served on this machine, or any other website.
+ */
+type Caller = "direct" | "same-origin" | "local" | "foreign";
+
+function callerOf(origin: string | undefined, expectedOrigin: string | undefined): Caller {
+  if (!origin) return "direct";
+  const url = parseUrl(origin);
+  if (!url) return "foreign";
+  if (originKey(url) === expectedOrigin) return "same-origin";
+  return LOOPBACK_HOSTS.has(url.hostname) || url.hostname.endsWith(".localhost") ? "local" : "foreign";
+}
+
+function parseUrl(value: string): URL | undefined {
   try {
-    url = new URL(value);
+    return new URL(value);
   } catch {
     return undefined;
   }
-  const host = LOOPBACK_HOSTS.has(url.hostname) ? "localhost" : url.hostname;
-  return `${url.protocol}//${host}:${url.port}`;
 }
 
-function isForeignOrigin(origin: string | undefined, expectedOrigin: string | undefined): boolean {
-  if (!origin) return false;
-  return expectedOrigin === undefined || originKey(origin) !== expectedOrigin;
+/** Reduces an origin to scheme, host, and port, with every loopback name written as localhost. */
+function originKey(url: URL): string {
+  const host = LOOPBACK_HOSTS.has(url.hostname) ? "localhost" : url.hostname;
+  return `${url.protocol}//${host}:${url.port}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
