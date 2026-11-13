@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI playground · emulate</title>
+<style>
+  @font-face {
+    font-family: "Geist";
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("/_emulate/fonts/geist-sans.woff2") format("woff2");
+  }
+  :root {
+    color-scheme: light dark;
+    --bg: #fff;
+    --raised: #f2f2f2;
+    --fg: #171717;
+    --muted: #666;
+    --line: #eaeaea;
+    --line-strong: #c9c9c9;
+    --red: #cb2a2f;
+    --green: #297a3a;
+    --amber: #a35200;
+    --blue: #0068d6;
+    --sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000;
+      --raised: #1a1a1a;
+      --fg: #ededed;
+      --muted: #a1a1a1;
+      --line: #2e2e2e;
+      --line-strong: #454545;
+      --red: #ff6166;
+      --green: #62c073;
+      --amber: #ff990a;
+      --blue: #52a8ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  a { color: inherit; text-underline-offset: 3px; }
+  code { font: 12.5px var(--mono); }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  .top { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 24px; border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 600; }
+  .brand span { margin-left: 8px; color: var(--muted); font-weight: 400; }
+  .top-right { display: flex; align-items: center; gap: 20px; color: var(--muted); font-size: 13px; }
+  .conn::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--line-strong); }
+  .conn[data-state="ok"]::before { background: var(--green); }
+  .conn[data-state="down"]::before { background: var(--red); }
+
+  .shell { display: grid; grid-template-columns: 216px minmax(0, 1fr) minmax(0, 1fr); height: calc(100dvh - 57px); }
+  .col { overflow: auto; padding: 24px; }
+  .scenarios { padding: 12px; border-right: 1px solid var(--line); }
+  .response { border-left: 1px solid var(--line); }
+
+  .scenarios h2 { margin: 12px 8px 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
+  .scenario { display: block; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--muted); text-align: left; cursor: pointer; }
+  .scenario[aria-pressed="true"] { background: var(--raised); color: var(--fg); }
+
+  .request { display: flex; flex-direction: column; gap: 20px; }
+  .intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .intro h1 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  .intro p { margin: 0; color: var(--muted); }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .check input { margin: 0; accent-color: var(--fg); }
+  .check:has(input:disabled) { opacity: 0.6; }
+
+  .segmented { display: flex; padding: 2px; border: 1px solid var(--line); border-radius: 6px; }
+  .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+  .segmented span { display: block; padding: 3px 10px; border-radius: 4px; color: var(--muted); font-size: 13px; cursor: pointer; }
+  .segmented input:checked + span { background: var(--raised); color: var(--fg); }
+  .segmented input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { color: var(--muted); font-size: 13px; }
+  .field-head { display: flex; align-items: center; gap: 12px; }
+  .field-head .state { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; }
+  .field-head .state[data-kind="bad"] { color: var(--red); }
+  .hint { margin: 0; color: var(--muted); font-size: 12px; }
+  textarea, select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+  textarea { width: 100%; min-height: 56px; max-height: 46vh; padding: 8px 10px; resize: vertical; field-sizing: content; }
+  textarea.code { font: 12.5px/1.6 var(--mono); }
+  select { height: 24px; padding: 0 4px; font-size: 12px; }
+  textarea:focus-visible, select:focus-visible { outline-offset: -1px; }
+
+  .button { height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); cursor: pointer; white-space: nowrap; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+  .button:active { transform: scale(0.97); }
+  .button.primary { border-color: var(--fg); background: var(--fg); color: var(--bg); font-weight: 500; }
+  .button.small { height: 24px; padding: 0 8px; font-size: 12px; }
+  .button kbd { margin-left: 6px; font: 12px var(--sans); opacity: 0.6; }
+
+  @media (hover: hover) and (pointer: fine) {
+    .scenario:hover, .segmented span:hover, .wire summary:hover { color: var(--fg); }
+    textarea:hover, select:hover, .button:not(.primary):hover { border-color: var(--line-strong); }
+    .event:hover { background: var(--raised); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .button { transition: none; }
+    .button:active { transform: none; }
+  }
+
+  .output { display: flex; flex-direction: column; gap: 12px; }
+  .empty, .between { margin: 0; color: var(--muted); }
+  .between { padding: 0 14px; font-size: 13px; }
+  .step { border: 1px solid var(--line); border-radius: 8px; }
+  .step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 14px; }
+  .step-title { font-weight: 500; }
+  .step-path { color: var(--muted); }
+  .step-status { margin-left: auto; color: var(--muted); font: 12.5px var(--mono); white-space: nowrap; }
+  .step-status[data-kind="ok"] { color: var(--green); }
+  .step-status[data-kind="bad"] { color: var(--red); }
+  .step-body { padding: 12px 14px 2px; border-top: 1px solid var(--line); }
+  .step-body:empty { display: none; }
+  .part { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .part.mono { font: 12.5px/1.6 var(--mono); }
+  .part.quiet { color: var(--muted); }
+  .part-label { display: block; margin-bottom: 2px; color: var(--muted); font: 12px/1.5 var(--sans); }
+  .note { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+  .note[data-kind="bad"] { color: var(--red); }
+  .note[data-kind="ok"] { color: var(--green); }
+  .note[data-kind="warn"] { color: var(--amber); }
+  .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 16px; margin: 0; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 12px; }
+  .facts:empty { display: none; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; overflow-wrap: anywhere; }
+  .facts dd[data-kind="warn"] { color: var(--amber); }
+  .wire { border-top: 1px solid var(--line); }
+  .wire summary { padding: 8px 14px; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .wire .count { margin-left: 6px; }
+  .wire-body { margin: 0; padding: 0 14px 12px; font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .events { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); column-gap: 12px; }
+  .event { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; margin: 0 -4px; padding: 1px 4px; border: 0; border-radius: 4px; background: none; font: inherit; text-align: left; cursor: pointer; }
+  .event span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event .at { text-align: right; }
+  .event .at, .event .name { color: var(--muted); }
+  .event-json { grid-column: 1 / -1; margin: 2px 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--raised); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  @media (max-width: 1100px) {
+    .shell { grid-template-columns: 200px minmax(0, 1fr); height: auto; }
+    .col { overflow: visible; }
+    .response { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 720px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .scenarios { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .scenarios h2 { width: 100%; margin: 4px 8px 0; }
+    .scenario { width: auto; }
+    .response { grid-column: 1; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">emulate<span>AI playground</span></div>
+  <div class="top-right">
+    <span class="conn" id="conn">Connecting</span>
+    <a href="http://localhost:4123/" target="_blank" rel="noreferrer">Inspector</a>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="col scenarios" id="scenarios" aria-label="Scenarios"></nav>
+
+  <main class="col request">
+    <header class="intro">
+      <div>
+        <h1 id="title"></h1>
+        <p id="about"></p>
+      </div>
+      <button class="button primary" id="run" type="button"></button>
+    </header>
+
+    <div class="controls">
+      <div class="segmented" role="radiogroup" aria-label="API">
+        <label><input type="radio" name="api" value="chat" checked><span>Chat Completions</span></label>
+        <label><input type="radio" name="api" value="responses"><span>Responses</span></label>
+        <label><input type="radio" name="api" value="messages"><span>Messages</span></label>
+      </div>
+      <label class="check"><input type="checkbox" id="stream" checked>Stream</label>
+    </div>
+
+    <div class="field">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" rows="2"></textarea>
+    </div>
+
+    <div class="field" id="schema-field" hidden>
+      <label for="schema">JSON Schema</label>
+      <textarea id="schema" class="code" spellcheck="false"></textarea>
+    </div>
+
+    <div class="field" id="attachment-field" hidden>
+      <label class="inline">Attachment
+        <select id="attachment">
+          <option value="image">Image (chart.png, inline PNG)</option>
+          <option value="pdf">PDF (report.pdf, inline PDF)</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="field">
+      <div class="field-head">
+        <label for="rules">Rules</label>
+        <select id="pacing" aria-label="Pacing">
+          <option value="instant">Instant pacing</option>
+          <option value="realistic">Realistic pacing</option>
+          <option value="slow">Slow pacing</option>
+          <option value="custom" disabled>Custom pacing</option>
+        </select>
+        <label class="check"><input type="checkbox" id="reasoning">Reasoning</label>
+        <span class="state" id="rules-state"></span>
+        <button class="button small" id="reset" type="button">Reset</button>
+      </div>
+      <textarea id="rules" class="code" spellcheck="false"></textarea>
+      <p class="hint">Edits are sent to <code>PUT /_ai/rules</code> on the next run. The first matching rule answers. An unstreamed reply waits ttftMs, then arrives whole. Reset restores budgets and the variant order.</p>
+    </div>
+  </main>
+
+  <section class="col response" aria-label="Response">
+    <div class="output" id="output"></div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const pretty = (value) => JSON.stringify(value, null, 2).replace(/\[\n\s+([^\[\]{}]*?)\n\s+\]/g, (_, items) => "[" + items.replace(/,\n\s+/g, ", ") + "]");
+const seconds = (ms) => (ms < 1000 ? Math.round(ms) + " ms" : (ms / 1000).toFixed(2) + " s");
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function parseJson(text) {
+  try {
+    return { value: JSON.parse(text) };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+const PACING = {
+  instant: { ttftMs: 0, chunkDelayMs: 0 },
+  realistic: { ttftMs: 400, chunkDelayMs: [45, 20, 70, 30, 110, 25, 55] },
+  slow: { ttftMs: 1500, chunkDelayMs: 140 },
+};
+
+const PLAN = "Ship it in three steps. First, put the change behind a flag and turn it on for your own team. Second, send five percent of traffic through it and watch error rates and latency for a day. Third, widen the rollout in stages, and keep the old path until the new one has run clean for a week.";
+const ASK = "How do I roll out a risky change safely?";
+const reply = (text) => [{ type: "text", text }];
+
+const SCHEMA = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    price: { type: "number" },
+    currency: { type: "string" },
+    in_stock: { type: "boolean" },
+    tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["name", "price", "currency", "in_stock", "tags"],
+  additionalProperties: false,
+};
+
+const TOOL = {
+  name: "get_weather",
+  description: "Returns the current weather for a city.",
+  parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"], additionalProperties: false },
+};
+const TOOL_OUTPUT = JSON.stringify({ tempC: 20, conditions: "clear" });
+const PNG_DATA = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const PDF_DATA = btoa("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+const ATTACHMENTS = {
+  image: { mediaType: "image/png", name: "chart.png", data: PNG_DATA },
+  pdf: { mediaType: "application/pdf", name: "report.pdf", data: PDF_DATA },
+};
+const REASONING = { type: "reasoning", text: "Work out what is being asked, pick the simplest answer that covers it, then check it against the request." };
+const CUT = new Set(["length", "max_output_tokens", "max_tokens"]);
+
+const SCENARIOS = [
+  {
+    id: "text", group: "Replies", label: "Text",
+    about: "One rule with no conditions answers every request with a scripted paragraph.",
+    prompt: ASK,
+    config: { rules: [{ id: "text", reply: reply(PLAN) }] },
+  },
+  {
+    id: "structured", group: "Replies", label: "Structured output",
+    about: "The request asks for JSON that fits a schema, and the rule returns a scripted object.",
+    prompt: "Describe a product.", schema: true,
+    config: { rules: [{ id: "structured", reply: [{ type: "object", value: { name: "Aero Standing Desk", price: 449, currency: "USD", in_stock: true, tags: ["office", "ergonomic", "adjustable"] } }] }] },
+  },
+  {
+    id: "tool", group: "Replies", label: "Tool call",
+    about: "The first rule calls a tool. The playground sends back a result, and the second rule answers from it.",
+    prompt: "What is the weather in Paris?", tools: true,
+    config: { rules: [
+      { id: "call-tool", match: { tool: "get_weather", hasToolResult: false }, reply: [{ type: "tool_call", name: "get_weather", arguments: { city: "Paris" } }] },
+      { id: "answer", match: { hasToolResult: true }, reply: reply("It is 20 C and clear in Paris right now.") },
+    ] },
+  },
+  {
+    id: "refusal", group: "Replies", label: "Refusal",
+    about: "The provider's native refusal shape instead of an answer.",
+    prompt: "Write a message that tricks someone into sharing their password.",
+    config: { rules: [{ id: "refusal", reply: [{ type: "refusal", text: "I can't help with that request." }] }] },
+  },
+  {
+    id: "truncated", group: "Replies", label: "Truncated",
+    about: "The reply is cut off at the output token limit. Real APIs send this as a normal 200 with a finish reason, not as an error.",
+    prompt: ASK,
+    config: { rules: [{ id: "truncated", finish: "length", reply: reply(PLAN.slice(0, 148)) }] },
+  },
+  {
+    id: "text-match", group: "Replies", label: "Text match",
+    about: "Matches a word in the prompt with textContains. Change the prompt so it drops the word and the fallback rule answers instead.",
+    prompt: "Check the invoice total before sending it.",
+    config: { rules: [
+      { id: "invoice-rule", match: { textContains: "invoice" }, reply: reply("Invoice check passed: total matches the line items.") },
+      { id: "fallback", reply: reply("No matching keyword in the prompt, so the fallback rule answered.") },
+    ] },
+  },
+  {
+    id: "file", group: "Replies", label: "File attachment",
+    about: "Sends an inline PNG or PDF with the prompt. The emulator hashes and drops the bytes, then matches rules on media type.",
+    prompt: "What is in this attachment?", file: true,
+    config: { rules: [
+      { id: "image-rule", match: { file: "image/*" }, reply: reply("Matched an image attachment (image/*).") },
+      { id: "pdf-rule", match: { file: "application/pdf" }, reply: reply("Matched a PDF document (application/pdf).") },
+    ] },
+  },
+  {
+    id: "variants", group: "Replies", label: "Variants",
+    about: "One rule with three replies. The seed fixes their order, so each run gets the next one. Reset starts over.",
+    prompt: "Say hello.",
+    config: { random: { seed: 7 }, rules: [{ id: "greeting", variants: [
+      { reply: reply("Hello! What are you working on today?") },
+      { reply: reply("Hi there. Tell me what you need and I will suggest a first step.") },
+      { reply: reply("Hey! Ask me anything.") },
+    ] }] },
+  },
+  {
+    id: "default", group: "Replies", label: "No rule",
+    about: "With no rules, the built-in default answers. For plain text it echoes the prompt.",
+    prompt: "This text comes straight back.",
+    config: { rules: [] },
+  },
+  {
+    id: "rate-limit", group: "Failures", label: "Rate limit, then success",
+    about: "The first rule returns a 429 once. The playground waits for retry-after and tries again, as an SDK would.",
+    prompt: ASK,
+    config: { rules: [
+      { id: "rate-limit", times: 1, error: { status: 429, message: "Rate limit reached for requests. Try again in 1 second.", headers: { "retry-after": "1" } } },
+      { id: "text", reply: reply(PLAN) },
+    ] },
+  },
+  {
+    id: "server-error", group: "Failures", label: "Server error",
+    about: "Every request fails with a 500 in the provider's own error format.",
+    prompt: ASK,
+    config: { rules: [{ id: "server-error", error: { status: 500, message: "The server had an error while processing your request." } }] },
+  },
+  {
+    id: "disconnect", group: "Failures", label: "Stream drops",
+    about: "The connection closes after twelve chunks, before the stream finishes.",
+    prompt: ASK, stream: true,
+    config: { rules: [{ id: "disconnect", match: { stream: true }, fault: { afterChunks: 12, kind: "disconnect" }, reply: reply(PLAN) }] },
+  },
+  {
+    id: "stall", group: "Failures", label: "Stream stalls",
+    about: "The stream goes silent for three seconds after ten chunks, then carries on.",
+    prompt: ASK, stream: true,
+    config: { rules: [{ id: "stall", match: { stream: true }, fault: { afterChunks: 10, kind: "stall", stallMs: 3000 }, reply: reply(PLAN) }] },
+  },
+  {
+    id: "strict", group: "Failures", label: "Strict miss",
+    about: "Strict mode turns an unmatched request into a 400 that says which rule to add.",
+    prompt: ASK,
+    config: { strict: true, rules: [] },
+  },
+];
+
+const done = { kind: "done" };
+
+const APIS = {
+  chat: {
+    path: "/v1/chat/completions",
+    body({ prompt, stream, schema, tools, calls, file }) {
+      const userContent = file
+        ? [
+            { type: "text", text: prompt },
+            file.mediaType === "application/pdf"
+              ? { type: "file", file: { filename: file.name, file_data: "data:application/pdf;base64," + file.data } }
+              : { type: "image_url", image_url: { url: "data:image/png;base64," + file.data } },
+          ]
+        : prompt;
+      const messages = [{ role: "user", content: userContent }];
+      if (calls) {
+        messages.push({ role: "assistant", content: null, tool_calls: calls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.text } })) });
+        for (const call of calls) messages.push({ role: "tool", tool_call_id: call.id, content: TOOL_OUTPUT });
+      }
+      return {
+        model: "gpt-4o-mini",
+        messages,
+        stream,
+        ...(schema ? { response_format: { type: "json_schema", json_schema: { name: "output", strict: true, schema } } } : {}),
+        ...(tools ? { tools: [{ type: "function", function: TOOL }] } : {}),
+      };
+    },
+    read(json) {
+      const choice = json.choices?.[0];
+      if (!choice) return [];
+      const delta = choice.delta ?? {};
+      return [
+        ...(delta.content ? [{ kind: "text", text: delta.content }] : []),
+        ...(delta.refusal ? [{ kind: "refusal", text: delta.refusal }] : []),
+        ...(delta.tool_calls ?? []).map((call) => ({ kind: "tool", key: call.index, id: call.id, name: call.function?.name, text: call.function?.arguments ?? "" })),
+        ...(choice.finish_reason ? [{ kind: "finish", text: choice.finish_reason }] : []),
+      ];
+    },
+    parse(json) {
+      const choice = json.choices?.[0] ?? {};
+      const message = choice.message ?? {};
+      return [
+        ...(message.content ? [{ kind: "text", text: message.content }] : []),
+        ...(message.refusal ? [{ kind: "refusal", text: message.refusal }] : []),
+        ...(message.tool_calls ?? []).map((call, index) => ({ kind: "tool", key: index, id: call.id, name: call.function.name, text: call.function.arguments })),
+        { kind: "finish", text: choice.finish_reason ?? "" },
+        done,
+      ];
+    },
+  },
+  responses: {
+    path: "/v1/responses",
+    body({ prompt, stream, schema, tools, calls, file }) {
+      const userInput = file
+        ? [
+            { type: "input_text", text: prompt },
+            file.mediaType === "application/pdf"
+              ? { type: "input_file", filename: file.name, file_data: "data:application/pdf;base64," + file.data }
+              : { type: "input_image", image_url: "data:image/png;base64," + file.data },
+          ]
+        : prompt;
+      const input = calls
+        ? [
+            { role: "user", content: userInput },
+            ...calls.map((call) => ({ type: "function_call", call_id: call.id, name: call.name, arguments: call.text })),
+            ...calls.map((call) => ({ type: "function_call_output", call_id: call.id, output: TOOL_OUTPUT })),
+          ]
+        : file
+          ? [{ role: "user", content: userInput }]
+          : prompt;
+      return {
+        model: "gpt-5",
+        input,
+        stream,
+        ...(schema ? { text: { format: { type: "json_schema", name: "output", strict: true, schema } } } : {}),
+        ...(tools ? { tools: [{ type: "function", ...TOOL }] } : {}),
+      };
+    },
+    read(json) {
+      switch (json.type) {
+        case "response.output_text.delta": return [{ kind: "text", text: json.delta }];
+        case "response.refusal.delta": return [{ kind: "refusal", text: json.delta }];
+        case "response.reasoning_summary_text.delta": return [{ kind: "reasoning", text: json.delta }];
+        case "response.function_call_arguments.delta": return [{ kind: "tool", key: json.output_index, text: json.delta }];
+        case "response.output_item.added":
+          return json.item.type === "function_call" ? [{ kind: "tool", key: json.output_index, id: json.item.call_id, name: json.item.name, text: "" }] : [];
+        case "response.completed": return [{ kind: "finish", text: "completed" }, done];
+        case "response.incomplete": return [{ kind: "finish", text: json.response.incomplete_details?.reason ?? "incomplete" }, done];
+        default: return [];
+      }
+    },
+    parse(json) {
+      const events = [];
+      for (const [index, item] of (json.output ?? []).entries()) {
+        if (item.type === "reasoning") for (const part of item.summary ?? []) events.push({ kind: "reasoning", text: part.text });
+        if (item.type === "function_call") events.push({ kind: "tool", key: index, id: item.call_id, name: item.name, text: item.arguments });
+        if (item.type === "message") {
+          for (const part of item.content ?? []) {
+            events.push(part.type === "refusal" ? { kind: "refusal", text: part.refusal } : { kind: "text", text: part.text ?? "" });
+          }
+        }
+      }
+      return [...events, { kind: "finish", text: json.incomplete_details?.reason ?? json.status ?? "" }, done];
+    },
+  },
+  messages: {
+    path: "/v1/messages",
+    body({ prompt, stream, schema, tools, calls, thoughts, file }) {
+      const userContent = file
+        ? [
+            { type: "text", text: prompt },
+            file.mediaType === "application/pdf"
+              ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: file.data } }
+              : { type: "image", source: { type: "base64", media_type: "image/png", data: file.data } },
+          ]
+        : prompt;
+      const messages = [{ role: "user", content: userContent }];
+      if (calls) {
+        messages.push({ role: "assistant", content: [
+          ...thoughts.map((thought) => ({ type: "thinking", thinking: thought.text, signature: thought.signature })),
+          ...calls.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: JSON.parse(call.text || "{}") })),
+        ] });
+        messages.push({ role: "user", content: calls.map((call) => ({ type: "tool_result", tool_use_id: call.id, content: TOOL_OUTPUT })) });
+      }
+      return {
+        model: "claude-sonnet-4-5",
+        max_tokens: 1024,
+        messages,
+        stream,
+        ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {}),
+        ...(tools ? { tools: [{ name: TOOL.name, description: TOOL.description, input_schema: TOOL.parameters }] } : {}),
+      };
+    },
+    read(json) {
+      if (json.type === "content_block_start" && json.content_block.type === "tool_use") {
+        return [{ kind: "tool", key: json.index, id: json.content_block.id, name: json.content_block.name, text: "" }];
+      }
+      if (json.type === "content_block_delta" && json.delta.type === "text_delta") return [{ kind: "text", text: json.delta.text }];
+      if (json.type === "content_block_delta" && json.delta.type === "thinking_delta") return [{ kind: "reasoning", text: json.delta.thinking }];
+      if (json.type === "content_block_delta" && json.delta.type === "signature_delta") return [{ kind: "reasoning", text: "", signature: json.delta.signature }];
+      if (json.type === "content_block_delta" && json.delta.type === "input_json_delta") return [{ kind: "tool", key: json.index, text: json.delta.partial_json }];
+      if (json.type === "message_delta" && json.delta.stop_reason) return [{ kind: "finish", text: json.delta.stop_reason }];
+      if (json.type === "message_stop") return [done];
+      return [];
+    },
+    parse(json) {
+      const events = (json.content ?? []).map((block, index) => {
+        if (block.type === "tool_use") return { kind: "tool", key: index, id: block.id, name: block.name, text: JSON.stringify(block.input) };
+        if (block.type === "thinking") return { kind: "reasoning", text: block.thinking, signature: block.signature };
+        return { kind: "text", text: block.text ?? "" };
+      });
+      return [...events, { kind: "finish", text: json.stop_reason ?? "" }, done];
+    },
+  },
+};
+
+let scenario = SCENARIOS[0];
+let applied = null;
+let rulesError = null;
+let active = null;
+let lastSeq = 0;
+const wireOpen = { events: false, request: false, response: false };
+
+const currentApi = () => APIS[document.querySelector("input[name=api]:checked").value];
+
+function pacingOf(config) {
+  const timing = JSON.stringify(config?.timing);
+  return Object.keys(PACING).find((name) => JSON.stringify(PACING[name]) === timing) ?? "custom";
+}
+
+/** Every reply array in a config: rule replies and variant replies. */
+function repliesOf(config) {
+  return (config?.rules ?? [])
+    .flatMap((rule) => [rule, ...(rule?.variants ?? [])])
+    .map((item) => item?.reply)
+    .filter(Array.isArray);
+}
+
+const scriptsReasoning = (config) => repliesOf(config).some((events) => events.some((event) => event?.type === "reasoning"));
+
+/** Returns the config with a reasoning event at the start of every reply, or with none. */
+function withReasoning(config, on) {
+  const next = structuredClone(config);
+  for (const events of repliesOf(next)) {
+    const rest = events.filter((event) => event?.type !== "reasoning");
+    events.splice(0, events.length, ...(on ? [REASONING, ...rest] : rest));
+  }
+  return next;
+}
+
+function showRulesState() {
+  const text = $("rules").value;
+  const parsed = parseJson(text);
+  const state = $("rules-state");
+  state.dataset.kind = rulesError || parsed.error ? "bad" : "";
+  state.textContent = rulesError ?? (parsed.error ? "Invalid JSON: " + parsed.error : applied === null ? "Not applied yet" : text === applied ? "Applied" : "Edited");
+  if (parsed.error) return;
+  $("pacing").value = pacingOf(parsed.value);
+  const scripted = repliesOf(parsed.value).length > 0;
+  $("reasoning").disabled = !scripted;
+  if (scripted) $("reasoning").checked = scriptsReasoning(parsed.value);
+}
+
+function setRules(config) {
+  $("rules").value = pretty(config);
+  rulesError = null;
+  showRulesState();
+}
+
+/** Rewrites the rules editor through one edit, leaving it alone while its JSON is invalid. */
+function editRules(edit) {
+  const config = parseJson($("rules").value).value;
+  if (config) setRules(edit(config));
+  else showRulesState();
+}
+
+function selectScenario(next) {
+  scenario = next;
+  for (const button of document.querySelectorAll(".scenario")) button.setAttribute("aria-pressed", String(button.dataset.id === next.id));
+  $("title").textContent = next.label;
+  $("about").textContent = next.about;
+  $("prompt").value = next.prompt;
+  $("schema-field").hidden = !next.schema;
+  $("attachment-field").hidden = !next.file;
+  $("stream").disabled = next.stream === true;
+  if (next.stream) $("stream").checked = true;
+  const current = parseJson($("rules").value).value;
+  setRules(withReasoning({ timing: current?.timing ?? PACING.realistic, ...next.config }, $("reasoning").checked));
+}
+
+/** Sends the rules to the emulator when they changed, and reports whether the emulator accepted them. */
+async function applyRules(force) {
+  const text = $("rules").value;
+  if (!force && text === applied) return true;
+  rulesError = null;
+  if (!parseJson(text).error) {
+    try {
+      const response = await fetch("/_ai/rules", { method: "PUT", headers: { "content-type": "application/json" }, body: text });
+      if (response.ok) applied = text;
+      else rulesError = (await response.json().catch(() => null))?.error?.message ?? "Rejected with status " + response.status;
+    } catch {
+      rulesError = "The emulator is not reachable.";
+    }
+  }
+  showRulesState();
+  return applied === text;
+}
+
+async function* sse(body, onText) {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { done: finished, value } = await reader.read();
+    if (finished) return;
+    onText(value);
+    buffer += value;
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop();
+    for (const block of blocks) {
+      const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+      if (data) yield data;
+    }
+  }
+}
+
+/** Says in a few words what one normalized event carried, for the event log. */
+function describe(event) {
+  switch (event.kind) {
+    case "text":
+    case "reasoning":
+    case "refusal":
+      return event.signature && !event.text ? "signature" : event.kind + " " + JSON.stringify(event.text);
+    case "tool":
+      return event.name ? "tool call " + event.name + (event.text ? " " + event.text : "") : "arguments " + JSON.stringify(event.text);
+    case "finish":
+      return "finish " + event.text;
+    default:
+      return "";
+  }
+}
+
+function answeredBy(matched) {
+  if (!matched) return "no rule matched";
+  if (matched.default) return "built-in default (" + matched.default + ")";
+  return "rule " + matched.id + (matched.remaining === null ? "" : ", " + matched.remaining + " uses left");
+}
+
+/** A collapsed section of a step that remembers whether the user last left it open. */
+function wire(kind, label, content, count) {
+  const details = el("details", "wire");
+  details.open = wireOpen[kind];
+  details.addEventListener("toggle", () => { wireOpen[kind] = details.open; });
+  const summary = el("summary", "", label);
+  if (count) summary.append(count);
+  details.append(summary, content);
+  return details;
+}
+
+const PART_LABELS = { reasoning: "Reasoning", refusal: "Refusal", tool: "Tool call" };
+
+/** One HTTP exchange on screen: its status, the reply, what answered it, and the events and bodies on the wire. */
+function createStep(title, path, requestBody) {
+  const root = el("article", "step");
+  const head = el("header", "step-head");
+  const status = el("span", "step-status");
+  const body = el("div", "step-body");
+  const facts = el("dl", "facts");
+  const events = el("div", "wire-body events");
+  const count = el("span", "count");
+  const received = el("pre", "wire-body");
+  head.append(el("span", "step-title", title), el("code", "step-path", "POST " + path), status);
+  root.append(head, body, facts, wire("events", "Events", events, count), wire("request", "Request body", el("pre", "wire-body", pretty(requestBody))), wire("response", "Response body", received));
+  $("output").append(root);
+
+  const step = { status: null, outcome: null, terminal: false, finish: "", parts: [], tools: new Map(), call: null, retryAfter: null, errorFacts: {}, started: performance.now(), first: 0, last: 0, longest: 0, chunks: 0, logged: 0, total: 0, streamed: false };
+
+  const addPart = (kind) => {
+    const node = el("div", "part" + (kind === "tool" || (kind === "text" && scenario.schema) ? " mono" : "") + (kind === "reasoning" ? " quiet" : ""));
+    if (PART_LABELS[kind]) node.append(el("span", "part-label", PART_LABELS[kind]));
+    const content = el("span");
+    node.append(content);
+    body.append(node);
+    const part = { kind, text: "", name: "", id: "", content };
+    step.parts.push(part);
+    return part;
+  };
+
+  step.apply = (event) => {
+    if (event.kind === "finish") return void (step.finish = event.text);
+    if (event.kind === "done") return void (step.terminal = true);
+    const now = performance.now();
+    if (step.first) step.longest = Math.max(step.longest, now - step.last);
+    else step.first = now;
+    step.last = now;
+    step.chunks += 1;
+    let part;
+    if (event.kind === "tool") {
+      part = step.tools.get(event.key) ?? addPart("tool");
+      step.tools.set(event.key, part);
+      part.id = event.id ?? part.id;
+      part.name = event.name ?? part.name;
+    } else {
+      part = step.parts.at(-1)?.kind === event.kind ? step.parts.at(-1) : addPart(event.kind);
+    }
+    part.text += event.text;
+    if (event.signature) part.signature = event.signature;
+    part.content.textContent = part.kind === "tool" ? part.name + " " + part.text : part.text;
+  };
+
+  step.log = (name, data, carried) => {
+    const row = el("button", "event");
+    row.type = "button";
+    row.append(el("span", "at", "+" + Math.round(performance.now() - step.started)), el("span", "name", name), el("span", "what", carried.map(describe).filter(Boolean).join(", ")));
+    row.addEventListener("click", () => {
+      if (row.nextElementSibling?.classList.contains("event-json")) return row.nextElementSibling.remove();
+      const parsed = parseJson(data);
+      row.after(el("pre", "event-json", parsed.error ? data : pretty(parsed.value)));
+    });
+    events.append(row);
+    step.logged += 1;
+    count.textContent = step.logged;
+  };
+
+  step.receive = (text) => received.append(text);
+
+  step.note = (text, kind) => {
+    const note = el("p", "note", text);
+    if (kind) note.dataset.kind = kind;
+    body.append(note);
+  };
+
+  step.fail = (error) => {
+    body.append(el("div", "part mono", error.message));
+    step.errorFacts = error.facts;
+  };
+
+  step.paint = () => {
+    const code = step.status ?? (step.outcome ? "no response" : "");
+    status.textContent = [code, step.total ? seconds(step.total) : ""].filter(Boolean).join(" · ");
+    status.dataset.kind = step.status === null ? (step.outcome ? "bad" : "") : step.status < 400 ? "ok" : "bad";
+    facts.textContent = "";
+    const fact = (name, value, kind) => {
+      const cell = el("dd", "", value);
+      if (kind) cell.dataset.kind = kind;
+      facts.append(el("dt", "", name), cell);
+    };
+    for (const [name, value] of Object.entries(step.errorFacts)) if (value) fact(name, value);
+    if (step.call) fact("Answered by", answeredBy(step.call.matched));
+    if (step.call && step.call.fault !== "none") fact("Injected fault", step.call.fault, "warn");
+    if (step.finish) fact("Finish reason", step.finish, CUT.has(step.finish) ? "warn" : "");
+    if (step.streamed && step.first) {
+      fact("Stream", "first token " + seconds(step.first - step.started) + ", " + step.chunks + " chunks, longest gap " + seconds(step.longest), step.longest >= 1000 ? "warn" : "");
+    }
+  };
+
+  step.paint();
+  return step;
+}
+
+function errorOf(json, text, response) {
+  const error = json?.error ?? {};
+  return {
+    message: error.message ?? text,
+    facts: {
+      "Error type": error.type,
+      "Error code": error.code,
+      "Retry after": response.headers.get("retry-after") && response.headers.get("retry-after") + " s",
+      "Request ID": response.headers.get("x-request-id") ?? response.headers.get("request-id"),
+    },
+  };
+}
+
+/** Shows a structured reply as formatted JSON and says whether it has the fields the schema requires. */
+function checkStructured(step, schema) {
+  const part = step.parts.find((item) => item.kind === "text");
+  if (!part) return;
+  const parsed = parseJson(part.text);
+  if (parsed.error) return step.note("The reply is not valid JSON.", "bad");
+  part.content.textContent = pretty(parsed.value);
+  const missing = (schema.required ?? []).filter((name) => parsed.value === null || typeof parsed.value !== "object" || !(name in parsed.value));
+  if (missing.length) step.note("Missing required fields: " + missing.join(", ") + ".", "bad");
+  else step.note("Valid JSON with every required field.", "ok");
+}
+
+async function lastCall() {
+  try {
+    const calls = await (await fetch("/_ai/calls")).json();
+    const call = calls.at(-1);
+    if (!call || call.seq === lastSeq) return null;
+    lastSeq = call.seq;
+    return call;
+  } catch {
+    return null;
+  }
+}
+
+/** Runs one request and renders it. The outcome is ok, error, dropped, or stopped. */
+async function exchange(api, body, title, schema, signal) {
+  const step = createStep(title, api.path, body);
+  try {
+    const response = await fetch(api.path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+    step.status = response.status;
+    step.retryAfter = response.headers.get("retry-after");
+    step.paint();
+    if (response.headers.get("content-type")?.includes("text/event-stream")) {
+      step.streamed = true;
+      for await (const data of sse(response.body, step.receive)) {
+        const json = data === "[DONE]" ? null : JSON.parse(data);
+        const carried = json ? api.read(json) : [done];
+        step.log(json ? (json.type ?? "chunk") : data, data, carried);
+        for (const event of carried) step.apply(event);
+      }
+      step.outcome = step.terminal ? "ok" : "dropped";
+    } else {
+      const text = await response.text();
+      const json = parseJson(text).value;
+      step.receive(json === undefined ? text : pretty(json));
+      const carried = response.ok && json ? api.parse(json) : [];
+      step.log(response.ok ? "response" : "error", text, carried);
+      for (const event of carried) step.apply(event);
+      if (!carried.length) step.fail(errorOf(json, text, response));
+      step.outcome = response.ok ? "ok" : "error";
+    }
+  } catch {
+    step.outcome = signal.aborted ? "stopped" : "dropped";
+  }
+  step.total = performance.now() - step.started;
+  step.call = await lastCall();
+  if (step.outcome === "dropped") step.note("The connection closed before the reply finished.", "bad");
+  if (step.outcome === "stopped") step.note("Stopped.");
+  if (CUT.has(step.finish)) step.note("Cut off at the output token limit. The API still answers 200, so the finish reason is the only sign.", "warn");
+  if (step.outcome === "ok" && schema) checkStructured(step, schema);
+  if (step.outcome === "ok" && scriptsReasoning({ rules: [step.call?.matched?.rule] }) && !step.parts.some((part) => part.kind === "reasoning")) {
+    step.note("The rule scripts reasoning, but this API sent none. Chat Completions has no field for it and reports only reasoning tokens.");
+  }
+  step.paint();
+  return step;
+}
+
+function pause(ms, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+const narrate = (text) => $("output").append(el("p", "between", text));
+
+/** Decides what follows an exchange: a retry after a 429, a second request carrying tool results, or nothing. */
+async function followUp(step, plan, signal) {
+  const wait = Number(step.retryAfter);
+  if (step.status === 429 && step.retryAfter !== null && Number.isFinite(wait) && !plan.retried) {
+    narrate("The playground waits " + wait + " s, as retry-after asks, then sends the same request again.");
+    await pause(wait * 1000, signal);
+    return signal.aborted ? null : { ...plan, title: "Retry", retried: true };
+  }
+  const calls = [...step.tools.values()];
+  if (step.outcome === "ok" && scenario.tools && calls.length && !plan.calls) {
+    narrate("The playground answers the tool call with " + TOOL_OUTPUT + " and sends the conversation back.");
+    return { ...plan, title: "Request with the tool result", calls, thoughts: step.parts.filter((part) => part.kind === "reasoning") };
+  }
+  return null;
+}
+
+function setRunning(running) {
+  const key = navigator.platform.includes("Mac") ? "⌘↵" : "Ctrl ↵";
+  const button = $("run");
+  button.textContent = running ? "Stop" : "Run";
+  if (!running) button.append(el("kbd", "", key));
+}
+
+function clearOutput(message) {
+  $("output").textContent = "";
+  if (message) $("output").append(el("p", "empty", message));
+}
+
+async function run() {
+  const schema = scenario.schema ? parseJson($("schema").value) : {};
+  if (schema.error) return clearOutput("The JSON Schema is not valid JSON: " + schema.error);
+  if (!(await applyRules(false))) return clearOutput("The rules were not applied. See the message above the rules.");
+  const api = currentApi();
+  const request = {
+    prompt: $("prompt").value,
+    stream: $("stream").checked,
+    schema: schema.value,
+    tools: scenario.tools === true,
+    file: scenario.file ? ATTACHMENTS[$("attachment").value] : null,
+  };
+  clearOutput();
+  active = new AbortController();
+  setRunning(true);
+  let plan = { title: "Request", calls: null, thoughts: [], retried: false };
+  while (plan) {
+    const step = await exchange(api, api.body({ ...request, calls: plan.calls, thoughts: plan.thoughts }), plan.title, schema.value, active.signal);
+    plan = await followUp(step, plan, active.signal);
+  }
+  active = null;
+  setRunning(false);
+}
+
+function buildScenarioList() {
+  const nav = $("scenarios");
+  for (const group of new Set(SCENARIOS.map((item) => item.group))) {
+    nav.append(el("h2", "", group));
+    for (const item of SCENARIOS.filter((entry) => entry.group === group)) {
+      const button = el("button", "scenario", item.label);
+      button.type = "button";
+      button.dataset.id = item.id;
+      button.addEventListener("click", () => selectScenario(item));
+      nav.append(button);
+    }
+  }
+}
+
+async function connect() {
+  const conn = $("conn");
+  try {
+    const response = await fetch("/_ai/calls");
+    if (!response.ok) throw new Error();
+    lastSeq = (await response.json()).at(-1)?.seq ?? 0;
+    conn.dataset.state = "ok";
+    conn.textContent = "Connected";
+    clearOutput("Pick a scenario and press Run.");
+  } catch {
+    conn.dataset.state = "down";
+    conn.textContent = "Not connected";
+    clearOutput("The emulator is not reachable. Start the playground with pnpm --filter ai-playground dev and open http://localhost:8000.");
+  }
+}
+
+$("run").addEventListener("click", () => (active ? active.abort() : run()));
+$("reset").addEventListener("click", () => applyRules(true));
+$("rules").addEventListener("input", () => { rulesError = null; showRulesState(); });
+$("pacing").addEventListener("change", () => editRules((config) => ({ ...config, timing: PACING[$("pacing").value] })));
+$("reasoning").addEventListener("change", () => editRules((config) => withReasoning(config, $("reasoning").checked)));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !active) run();
+});
+
+$("schema").value = pretty(SCHEMA);
+buildScenarioList();
+selectScenario(SCENARIOS[0]);
+setRunning(false);
+connect();
+</script>
+</body>
+</html>

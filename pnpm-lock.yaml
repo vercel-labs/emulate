@@ -109,6 +109,22 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  examples/ai-playground:
+    dependencies:
+      emulate:
+        specifier: workspace:*
+        version: link:../../packages/emulate
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.19.17
+      tsc-ts:
+        specifier: 0.1.3
+        version: 0.1.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   examples/custom-api:
     devDependencies:
       emulate:
