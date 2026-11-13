@@ -33,6 +33,13 @@ const describe = (part: Part) =>
         ? "signature"
         : `${part.kind} ${JSON.stringify(part.text)}`;
 
+const snapshot = (step: Step): Step => ({
+  ...step,
+  parts: step.parts.map((part) => ({ ...part })),
+  events: [...step.events],
+  errorFacts: { ...step.errorFacts },
+});
+
 const pause = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, ms);
@@ -57,6 +64,7 @@ export function Playground() {
   const [applied, setApplied] = useState<string | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
+  const [live, setLive] = useState<Step | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [message, setMessage] = useState("Connecting.");
   const [running, setRunning] = useState(false);
@@ -171,7 +179,7 @@ export function Playground() {
   }, []);
 
   const exchange = useCallback(
-    async (input: RequestInput, title: string): Promise<Step> => {
+    async (input: RequestInput, title: string, onProgress: (step: Step) => void): Promise<Step> => {
       const protocol = PROTOCOLS[api];
       const body = protocol.body(input);
       const step: Step = {
@@ -233,6 +241,14 @@ export function Playground() {
         }
       };
 
+      let painted = 0;
+      const progress = (force = false) => {
+        const now = performance.now();
+        if (!force && now - painted < 40) return;
+        painted = now;
+        onProgress(snapshot(step));
+      };
+
       try {
         const response = await fetch(protocol.path, {
           method: "POST",
@@ -242,6 +258,7 @@ export function Playground() {
         });
         step.status = response.status;
         step.retryAfter = response.headers.get("retry-after");
+        progress(true);
         if (response.headers.get("content-type")?.includes("text/event-stream") && response.body) {
           step.streamed = true;
           const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -273,6 +290,7 @@ export function Playground() {
                 data,
               });
               for (const part of carried) apply(part);
+              progress();
             }
           }
           step.outcome = terminal ? "ok" : "dropped";
@@ -289,6 +307,7 @@ export function Playground() {
               data: step.response,
             });
             for (const part of carried) apply(part);
+            progress(true);
           } else {
             const error = (json as { error?: { message?: string; type?: string; code?: string } } | undefined)?.error;
             step.message = error?.message ?? text;
@@ -327,6 +346,7 @@ export function Playground() {
 
       const thinks = scriptsReasoning((config ?? {}) as Config);
       step.reasoningMissing = thinks && api !== "responses" && !step.parts.some((part) => part.kind === "reasoning");
+      progress(true);
       return step;
     },
     [api, config, lastCall],
@@ -356,49 +376,56 @@ export function Playground() {
       thoughts: [],
       retried: false,
     };
-    for (;;) {
-      const step = await exchange(
-        {
-          prompt,
-          stream,
-          schema: schema.value as Record<string, unknown> | undefined,
-          scenario,
-          attachment: scenario.file ? attachment : undefined,
-          calls: plan.calls,
-          thoughts: plan.thoughts,
-        },
-        plan.title,
-      );
-      produced.push(step);
-      setSteps([...produced]);
+    try {
+      for (;;) {
+        setLive(null);
+        const step = await exchange(
+          {
+            prompt,
+            stream,
+            schema: schema.value as Record<string, unknown> | undefined,
+            scenario,
+            attachment: scenario.file ? attachment : undefined,
+            calls: plan.calls,
+            thoughts: plan.thoughts,
+          },
+          plan.title,
+          setLive,
+        );
+        produced.push(step);
+        setLive(null);
+        setSteps([...produced]);
 
+        setNotes([...trail]);
+
+        const wait = Number(step.retryAfter);
+        if (step.status === 429 && step.retryAfter && Number.isFinite(wait) && !plan.retried) {
+          trail.push(`The playground waits ${wait} s, as retry-after asks, then sends the same request again.`);
+          await pause(wait * 1000, abortRef.current.signal);
+          plan = { ...plan, title: "Retry", retried: true };
+          continue;
+        }
+
+        const calls = step.parts.filter((part) => part.kind === "tool" && part.id) as ToolCall[];
+        if (step.outcome === "ok" && scenario.tools && calls.length > 0 && !plan.calls) {
+          trail.push(`The playground answers the tool call with ${TOOL_OUTPUT} and sends the conversation back.`);
+          plan = {
+            ...plan,
+            title: "Request with the tool result",
+            calls,
+            thoughts: step.parts.filter((part) => part.kind === "reasoning"),
+          };
+          continue;
+        }
+
+        break;
+      }
       setNotes([...trail]);
-
-      const wait = Number(step.retryAfter);
-      if (step.status === 429 && step.retryAfter && Number.isFinite(wait) && !plan.retried) {
-        trail.push(`The playground waits ${wait} s, as retry-after asks, then sends the same request again.`);
-        await pause(wait * 1000, abortRef.current.signal);
-        plan = { ...plan, title: "Retry", retried: true };
-        continue;
-      }
-
-      const calls = step.parts.filter((part) => part.kind === "tool" && part.id) as ToolCall[];
-      if (step.outcome === "ok" && scenario.tools && calls.length > 0 && !plan.calls) {
-        trail.push(`The playground answers the tool call with ${TOOL_OUTPUT} and sends the conversation back.`);
-        plan = {
-          ...plan,
-          title: "Request with the tool result",
-          calls,
-          thoughts: step.parts.filter((part) => part.kind === "reasoning"),
-        };
-        continue;
-      }
-
-      break;
+    } finally {
+      setLive(null);
+      setRunning(false);
+      abortRef.current = null;
     }
-    setNotes([...trail]);
-    setRunning(false);
-    abortRef.current = null;
   }, [applyRules, attachment, exchange, prompt, rulesText, running, scenario, schemaText, stream]);
 
   return (
@@ -580,8 +607,8 @@ export function Playground() {
         </section>
 
         <section className="flex flex-col gap-3 p-6 lg:overflow-auto" aria-label="Response">
-          {steps.length === 0 && message && <p className="text-sm text-muted-foreground">{message}</p>}
-          {steps.map((step, index) => (
+          {steps.length === 0 && !live && message && <p className="text-sm text-muted-foreground">{message}</p>}
+          {[...steps, ...(live ? [live] : [])].map((step, index) => (
             <div key={index} className="flex flex-col gap-3">
               {index > 0 && notes[index - 1] && (
                 <p className="px-1 text-sm text-muted-foreground">{notes[index - 1]}</p>
