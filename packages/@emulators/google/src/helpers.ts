@@ -707,6 +707,59 @@ export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMes
   return sent;
 }
 
+/**
+ * Delivers a sent message the way `users.messages.send` documents it: "Sends the specified message to the recipients
+ * in the To, Cc, and Bcc headers." Each recipient who is a user of the emulator gets a copy in their own mailbox,
+ * labeled `INBOX` and `UNREAD` like a received message, without the `Bcc` header. When the sender is a recipient, the
+ * sent message itself gets `INBOX` and `UNREAD` instead of a second copy, as Gmail shows a message sent to oneself.
+ */
+export function deliverSentMessage(gs: GoogleStore, message: GoogleMessage): void {
+  const sender = message.user_email.toLowerCase();
+  const users = new Map(gs.users.all().map((user) => [user.email.toLowerCase(), user.email]));
+  const raw = message.raw ? removeBccHeader(message.raw) : null;
+
+  for (const address of parseAddressList([message.to, message.cc, message.bcc])) {
+    const recipient = users.get(address);
+    if (!recipient) continue;
+    if (address === sender) {
+      markMessageModified(gs, message, [...message.label_ids, "INBOX", "UNREAD"]);
+      continue;
+    }
+
+    createStoredMessage(gs, {
+      user_email: recipient,
+      raw,
+      message_id: message.message_id,
+      label_ids: ["INBOX", "UNREAD"],
+    });
+  }
+}
+
+/** The addresses of RFC 5322 address lists (`Name <a@example.com>, b@example.com`), lowercased, each once. */
+export function parseAddressList(values: Array<string | null | undefined>): string[] {
+  const addresses = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    // Commas inside quoted display names or angle brackets do not separate addresses.
+    for (const entry of value.match(/(?:"(?:[^"\\]|\\.)*"|<[^>]*>|[^,"<])+/g) ?? []) {
+      const address = (entry.match(/<([^>]*)>/)?.[1] ?? entry.replace(/^[^:]*:/, "").replace(/;$/, "")).trim();
+      if (address.includes("@")) addresses.add(address.toLowerCase());
+    }
+  }
+  return [...addresses];
+}
+
+function removeBccHeader(raw: string): string {
+  const source = decodeBase64Like(raw).toString("utf8");
+  const separator = source.search(/\r?\n\r?\n/);
+  const head = separator >= 0 ? source.slice(0, separator) : source;
+  const rest = separator >= 0 ? source.slice(separator) : "";
+  // A header field continues on the lines that start with whitespace (RFC 5322, section 2.2.3).
+  const kept = head.split(/\r?\n(?![ \t])/).filter((field) => !/^bcc:/i.test(field));
+  const newline = head.includes("\r\n") ? "\r\n" : "\n";
+  return Buffer.from(kept.join(newline) + rest, "utf8").toString("base64url");
+}
+
 export function deleteDraftMessage(gs: GoogleStore, draft: GoogleDraft): boolean {
   const message = getDraftMessage(gs, draft);
   if (!message) return gs.drafts.delete(draft.id);

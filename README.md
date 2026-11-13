@@ -986,6 +986,8 @@ Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256,
 
 Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
 
+Sending a message or a draft delivers a copy to each recipient in its `To`, `Cc`, and `Bcc` headers who is a user of the emulator, labeled `INBOX` and `UNREAD`, without the `Bcc` header. When the sender is a recipient, the sent message itself is labeled `INBOX` and `UNREAD` instead of a second copy.
+
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
 - `GET /oauth2/v2/userinfo` - get user info
