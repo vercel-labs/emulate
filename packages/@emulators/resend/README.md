@@ -62,6 +62,15 @@ Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/r
 - `GET /audiences/:audience_id/contacts` — list contacts
 - `DELETE /audiences/:audience_id/contacts/:id` — delete contact
 
+### Webhooks
+- `POST /webhooks` — create webhook and return its `signing_secret`
+- `GET /webhooks` — list webhooks
+- `GET /webhooks/:id` — get webhook, including its `signing_secret`
+- `PATCH /webhooks/:id` — update `endpoint`, `events`, or `status`
+- `DELETE /webhooks/:id` — delete webhook
+
+Deliveries are signed with Svix, as Resend signs them. Each request carries `svix-id`, `svix-timestamp`, and `svix-signature` headers, so `resend.webhooks.verify()` and the `svix` library accept them when given the webhook's signing secret. The emulator sends `email.sent` and `email.delivered` for each email that isn't scheduled, `domain.created` and `domain.deleted`, and `contact.created` and `contact.deleted`. A webhook receives only the events in its `events` list, and a `disabled` webhook receives none. Each event is attempted once, with a 10-second timeout and no retries.
+
 ### Inbox
 - `GET /inbox` — list captured emails
 - `GET /inbox/:id` — view captured email
@@ -74,7 +83,12 @@ resend:
     - name: example.com
   api_keys:
     - name: default
+  webhooks:
+    - endpoint: http://localhost:3000/api/webhooks/resend
+      events: [email.sent, email.delivered]
 ```
+
+Without `events`, a seeded webhook subscribes to every event the emulator sends. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts; read it with `GET /webhooks/:id`.
 
 ## Links
 

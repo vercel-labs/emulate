@@ -7,6 +7,8 @@ import { domainRoutes } from "./routes/domains.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
 import { contactRoutes } from "./routes/contacts.js";
 import { inboxRoutes } from "./routes/inbox.js";
+import { webhookRoutes } from "./routes/webhooks.js";
+import { RESEND_WEBHOOK_EVENTS, seededSigningSecret, subscribeWebhook, svixWebhookHeaders } from "./webhooks.js";
 
 export { getResendStore, type ResendStore } from "./store.js";
 export * from "./entities.js";
@@ -24,9 +26,20 @@ export interface ResendSeedConfig {
     last_name?: string;
     audience?: string;
   }>;
+  webhooks?: Array<{
+    endpoint: string;
+    events?: string[];
+    status?: "enabled" | "disabled";
+    signing_secret?: string;
+  }>;
 }
 
-export function seedFromConfig(store: Store, _baseUrl: string, config: ResendSeedConfig): void {
+export function seedFromConfig(
+  store: Store,
+  _baseUrl: string,
+  config: ResendSeedConfig,
+  webhooks?: WebhookDispatcher,
+): void {
   if (config.allowlist !== undefined) {
     if (
       !Array.isArray(config.allowlist) ||
@@ -111,17 +124,35 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: ResendSee
       });
     }
   }
+
+  if (config.webhooks && webhooks) {
+    webhooks.setHeaderFactory(svixWebhookHeaders);
+    for (const wh of config.webhooks) {
+      if (rs.webhooks.all().some((existing) => existing.endpoint === wh.endpoint)) continue;
+      const webhook = rs.webhooks.insert({
+        uuid: generateUuid(),
+        endpoint: wh.endpoint,
+        events: wh.events ?? [...RESEND_WEBHOOK_EVENTS],
+        status: wh.status ?? "enabled",
+        signing_secret: wh.signing_secret ?? seededSigningSecret(wh.endpoint),
+      });
+      subscribeWebhook(webhooks, webhook);
+    }
+  }
 }
 
 export const resendPlugin: ServicePlugin = {
   name: "resend",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    webhooks.setHeaderFactory(svixWebhookHeaders);
+
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     emailRoutes(ctx);
     domainRoutes(ctx);
     apiKeyRoutes(ctx);
     contactRoutes(ctx);
     inboxRoutes(ctx);
+    webhookRoutes(ctx);
   },
   seed(_store: Store, _baseUrl: string): void {
     // No default seed data - inbox starts empty

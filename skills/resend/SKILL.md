@@ -317,11 +317,33 @@ curl -X DELETE http://localhost:4000/audiences/<audience_id>/contacts/<id> \
 
 ## Webhooks
 
+Register an endpoint with the Webhooks API. The response includes the webhook's `signing_secret`:
+
+```bash
+curl -X POST http://localhost:4000/webhooks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint": "http://localhost:3000/api/webhooks/resend", "events": ["email.sent", "email.delivered"]}'
+```
+
+`GET /webhooks`, `GET /webhooks/:id` (which also returns `signing_secret`), `PATCH /webhooks/:id` (`endpoint`, `events`, or `status` of `enabled` or `disabled`), and `DELETE /webhooks/:id` manage registered webhooks.
+
 The emulator dispatches webhook events when state changes:
 
-- `email.sent` and `email.delivered` on `POST /emails`
+- `email.sent` and `email.delivered` on `POST /emails` and `POST /emails/batch`, except for scheduled emails
 - `domain.created` and `domain.deleted` on domain operations
 - `contact.created` and `contact.deleted` on contact operations
+
+Each delivery is signed with Svix, as Resend signs them, through the `svix-id`, `svix-timestamp`, and `svix-signature` headers. Verify it in your handler with `resend.webhooks.verify({ payload, headers: { id, timestamp, signature }, webhookSecret })` or the `svix` library, using the raw request body. A webhook receives only the events in its `events` list, a `disabled` webhook receives none, and each event is attempted once without retries.
+
+Webhooks can also be seeded. Without `events`, a seeded webhook subscribes to every event above. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts:
+
+```yaml
+resend:
+  webhooks:
+    - endpoint: http://localhost:3000/api/webhooks/resend
+      signing_secret: whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
+```
 
 ## Common Patterns
 

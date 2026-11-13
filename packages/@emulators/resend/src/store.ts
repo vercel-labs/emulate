@@ -7,6 +7,7 @@ import type {
   ResendContact,
   ResendIdempotencyRecord,
   ResendSendAttempt,
+  ResendWebhook,
 } from "./entities.js";
 
 export interface ResendStore {
@@ -17,6 +18,7 @@ export interface ResendStore {
   apiKeys: Collection<ResendApiKey>;
   audiences: Collection<ResendAudience>;
   contacts: Collection<ResendContact>;
+  webhooks: Collection<ResendWebhook>;
 }
 
 export function getResendStore(store: Store): ResendStore {
@@ -28,5 +30,6 @@ export function getResendStore(store: Store): ResendStore {
     apiKeys: store.collection<ResendApiKey>("resend.api_keys", ["uuid"]),
     audiences: store.collection<ResendAudience>("resend.audiences", ["uuid"]),
     contacts: store.collection<ResendContact>("resend.contacts", ["uuid", "audience_id"]),
+    webhooks: store.collection<ResendWebhook>("resend.webhooks", ["uuid"]),
   };
 }

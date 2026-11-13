@@ -282,7 +282,7 @@
       "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
       "ogImage": "/og/resend",
       "ogTitle": "Resend | emulate",
-      "headings": ["Emails", "Idempotency", "Domains", "API Keys", "Audiences & Contacts", "Inbox"]
+      "headings": ["Emails", "Idempotency", "Domains", "API Keys", "Audiences & Contacts", "Webhooks", "Inbox"]
     },
     "/docs/stripe": {
       "title": "Stripe | emulate",
