@@ -71,7 +71,7 @@ describe("Gmail delivery of sent messages", () => {
       'To: "Bob, the builder" <bob@example.com>, outside@elsewhere.test',
       "Cc: carol@example.com",
       "Bcc: dave@example.com,",
-      " alice@example.com",
+      " other@elsewhere.test",
       "Subject: Rounds",
       "Message-ID: <rounds-1@example.com>",
       "",
@@ -93,7 +93,35 @@ describe("Gmail delivery of sent messages", () => {
 
     const own = await call("alice@example.com", "GET", `/gmail/v1/users/me/messages/${sent.body.id}?format=raw`);
     expect(header(own.body.raw, "Bcc")).toBe("dave@example.com,");
-    expect(await inbox("alice@example.com")).toHaveLength(0);
+  });
+
+  it("labels the sender's own message INBOX and UNREAD when the sender is a recipient, without a second copy", async () => {
+    const raw = encode([
+      "From: alice@example.com",
+      "To: bob@example.com",
+      "Cc: Alice@Example.com",
+      "Subject: Note",
+      "",
+      "Hi.",
+    ]);
+    const sent = await call("alice@example.com", "POST", "/gmail/v1/users/me/messages/send", { raw });
+    expect(sent.status).toBe(200);
+    expect([...sent.body.labelIds].sort()).toEqual(["INBOX", "SENT", "UNREAD"]);
+
+    const all = await call("alice@example.com", "GET", "/gmail/v1/users/me/messages");
+    expect(all.body.messages.map((ref: { id: string }) => ref.id)).toEqual([sent.body.id]);
+    const [own] = await inbox("alice@example.com");
+    expect(own.id).toBe(sent.body.id);
+    expect([...own.labelIds].sort()).toEqual(["INBOX", "SENT", "UNREAD"]);
+    expect(await inbox("bob@example.com")).toHaveLength(1);
+
+    const draft = await call("carol@example.com", "POST", "/gmail/v1/users/me/drafts", {
+      message: { raw: encode(["From: carol@example.com", "To: carol@example.com", "Subject: Reminder", "", "Later."]) },
+    });
+    const sentDraft = await call("carol@example.com", "POST", "/gmail/v1/users/me/drafts/send", { id: draft.body.id });
+    expect([...sentDraft.body.labelIds].sort()).toEqual(["INBOX", "SENT", "UNREAD"]);
+    const carol = await inbox("carol@example.com");
+    expect(carol.map((message) => message.id)).toEqual([sentDraft.body.id]);
   });
 
   it("delivers messages built from fields, and threads replies in each mailbox", async () => {

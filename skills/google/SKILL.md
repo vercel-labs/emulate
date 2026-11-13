@@ -341,7 +341,7 @@ curl http://localhost:4002/gmail/v1/users/me/messages/msg_id/attachments/att_id 
 
 Upload variants also available at `/upload/gmail/v1/users/:userId/messages`, `.../messages/send`, `.../messages/import`.
 
-Sending a message or a draft delivers a copy to each recipient in its `To`, `Cc`, and `Bcc` headers who is a user of the emulator, labeled `INBOX` and `UNREAD`, without the `Bcc` header.
+Sending a message or a draft delivers a copy to each recipient in its `To`, `Cc`, and `Bcc` headers who is a user of the emulator, labeled `INBOX` and `UNREAD`, without the `Bcc` header. When the sender is a recipient, the sent message itself is labeled `INBOX` and `UNREAD` instead of a second copy.
 
 ### Drafts
 

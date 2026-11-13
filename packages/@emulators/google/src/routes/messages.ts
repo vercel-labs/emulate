@@ -73,7 +73,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
       });
       if (mode === "send") deliverSentMessage(gs, message);
 
-      return c.json(formatMessageResource(gs, message, "full"));
+      return c.json(formatMessageResource(gs, gs.messages.get(message.id) ?? message, "full"));
     } catch {
       return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
     }

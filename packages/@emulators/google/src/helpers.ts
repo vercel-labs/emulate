@@ -710,22 +710,21 @@ export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMes
 /**
  * Delivers a sent message the way `users.messages.send` documents it: "Sends the specified message to the recipients
  * in the To, Cc, and Bcc headers." Each recipient who is a user of the emulator gets a copy in their own mailbox,
- * labeled `INBOX` and `UNREAD` like a received message, without the `Bcc` header. Returns the recipients who are not
- * users of the emulator.
+ * labeled `INBOX` and `UNREAD` like a received message, without the `Bcc` header. When the sender is a recipient, the
+ * sent message itself gets `INBOX` and `UNREAD` instead of a second copy, as Gmail shows a message sent to oneself.
  */
-export function deliverSentMessage(gs: GoogleStore, message: GoogleMessage): string[] {
+export function deliverSentMessage(gs: GoogleStore, message: GoogleMessage): void {
   const sender = message.user_email.toLowerCase();
   const users = new Map(gs.users.all().map((user) => [user.email.toLowerCase(), user.email]));
   const raw = message.raw ? removeBccHeader(message.raw) : null;
-  const others: string[] = [];
 
   for (const address of parseAddressList([message.to, message.cc, message.bcc])) {
     const recipient = users.get(address);
-    if (!recipient) {
-      others.push(address);
+    if (!recipient) continue;
+    if (address === sender) {
+      markMessageModified(gs, message, [...message.label_ids, "INBOX", "UNREAD"]);
       continue;
     }
-    if (address === sender) continue;
 
     createStoredMessage(gs, {
       user_email: recipient,
@@ -734,8 +733,6 @@ export function deliverSentMessage(gs: GoogleStore, message: GoogleMessage): str
       label_ids: ["INBOX", "UNREAD"],
     });
   }
-
-  return others;
 }
 
 /** The addresses of RFC 5322 address lists (`Name <a@example.com>, b@example.com`), lowercased, each once. */
