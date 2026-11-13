@@ -248,7 +248,7 @@ The seed shuffles the variants per rule and calls walk that order in a cycle, so
 
 ## Control Endpoints
 
-Read and edit the live state without restarting. All control routes are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page served from another origin gets 403.
+Read and edit the live state without restarting. All control routes are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page served from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403.
 
 ### Calls
 

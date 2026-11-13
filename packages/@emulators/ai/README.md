@@ -72,7 +72,7 @@ An unsupported data path returns the native 404 naming the supported paths.
 
 `GET /_ai/calls` returns a bare JSON array, oldest first. `DELETE /_ai/calls` returns `{ "deleted": <count> }`. `GET /_ai/rules` and `PUT /_ai/rules` return `{ "rules": [...], "strict": <bool>, "timing": {...}, "random": { "seed": <number> }, "models": [...] }` with each rule's `remaining` budget (`null` means unlimited), in the shape `PUT` accepts. `POST /_ai/reset` returns `{ "reset": true }`.
 
-Control routes and the inspector refuse cross-origin browser requests, reads included. Requests without an `Origin` header, such as curl or a test, are accepted. Startup warns when the service listens beyond loopback.
+Control routes and the inspector refuse cross-origin browser requests, reads included. Requests without an `Origin` header, such as curl or a test, are accepted. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback.
 
 ## Seed Configuration
 
