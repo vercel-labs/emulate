@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AiRequestError } from "../errors.js";
 import { inlineFilePart, redactedUrl, urlAttachment } from "../attachments.js";
 import { jsonChunks, payloadChunks } from "../chunks.js";
@@ -45,7 +46,13 @@ interface ToolUseBlock {
   input: Json;
 }
 
-type ContentBlock = TextBlock | ToolUseBlock;
+interface ThinkingBlock {
+  type: "thinking";
+  thinking: string;
+  signature: string;
+}
+
+type ContentBlock = ThinkingBlock | TextBlock | ToolUseBlock;
 
 interface WireMessage {
   id: string;
@@ -398,10 +405,18 @@ function toolInput(argumentsText: string): Json {
   }
 }
 
+/** Derives a thinking block's opaque signature from its text, so the same thought is signed the same way on every run. */
+function signatureOf(thinking: string): string {
+  return createHash("sha256").update(thinking).digest("base64");
+}
+
 function contentBlocks(events: ReplyEvent[]): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   for (const event of events) {
     switch (event.type) {
+      case "reasoning":
+        blocks.push({ type: "thinking", thinking: event.text, signature: signatureOf(event.text) });
+        break;
       case "text":
       case "refusal":
         blocks.push({ type: "text", text: event.text });
@@ -411,8 +426,6 @@ function contentBlocks(events: ReplyEvent[]): ContentBlock[] {
         break;
       case "tool_call":
         blocks.push({ type: "tool_use", id: event.id, name: event.name, input: toolInput(event.arguments) });
-        break;
-      default:
         break;
     }
   }
@@ -457,44 +470,48 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
   });
 
   let index = 0;
-  const emitText = (text: string, asJson: boolean): void => {
-    const pieces = asJson ? jsonChunks(text) : payloadChunks(text);
-    frames.push({
-      event: "content_block_start",
-      data: { type: "content_block_start", index, content_block: { type: "text", text: "" } },
-    });
-    for (const piece of pieces) {
+  const emit = (block: ContentBlock, deltas: Array<{ delta: Record<string, string>; content?: string }>): void => {
+    frames.push({ event: "content_block_start", data: { type: "content_block_start", index, content_block: block } });
+    for (const { delta, content } of deltas) {
       frames.push({
         event: "content_block_delta",
-        data: { type: "content_block_delta", index, delta: { type: "text_delta", text: piece } },
-        content: piece,
+        data: { type: "content_block_delta", index, delta },
+        ...(content === undefined ? {} : { content }),
       });
     }
     frames.push({ event: "content_block_stop", data: { type: "content_block_stop", index } });
     index += 1;
   };
+  const textDeltas = (pieces: string[]) =>
+    pieces.map((piece) => ({ delta: { type: "text_delta", text: piece }, content: piece }));
 
   for (const event of reply.events) {
-    if (event.type === "text" || event.type === "refusal") emitText(event.text, false);
-    else if (event.type === "object") emitText(JSON.stringify(event.value), true);
-    else if (event.type === "tool_call") {
-      frames.push({
-        event: "content_block_start",
-        data: {
-          type: "content_block_start",
-          index,
-          content_block: { type: "tool_use", id: event.id, name: event.name, input: {} },
-        },
-      });
-      for (const piece of jsonChunks(event.arguments)) {
-        frames.push({
-          event: "content_block_delta",
-          data: { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: piece } },
-          content: piece,
-        });
-      }
-      frames.push({ event: "content_block_stop", data: { type: "content_block_stop", index } });
-      index += 1;
+    switch (event.type) {
+      case "reasoning":
+        emit({ type: "thinking", thinking: "", signature: "" }, [
+          ...payloadChunks(event.text).map((piece) => ({
+            delta: { type: "thinking_delta", thinking: piece },
+            content: piece,
+          })),
+          { delta: { type: "signature_delta", signature: signatureOf(event.text) } },
+        ]);
+        break;
+      case "text":
+      case "refusal":
+        emit({ type: "text", text: "" }, textDeltas(payloadChunks(event.text)));
+        break;
+      case "object":
+        emit({ type: "text", text: "" }, textDeltas(jsonChunks(JSON.stringify(event.value))));
+        break;
+      case "tool_call":
+        emit(
+          { type: "tool_use", id: event.id, name: event.name, input: {} },
+          jsonChunks(event.arguments).map((piece) => ({
+            delta: { type: "input_json_delta", partial_json: piece },
+            content: piece,
+          })),
+        );
+        break;
     }
   }
 

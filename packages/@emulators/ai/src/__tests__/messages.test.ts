@@ -819,4 +819,101 @@ describe("anthropic messages", () => {
       { role: "user", parts: [{ type: "text", text: "what now" }] },
     ]);
   });
+
+  describe("thinking", () => {
+    const thought = "The user wants the weather, so call the tool before answering.";
+    const answer = "It is 20 C in Paris.";
+
+    it("returns scripted reasoning as a signed thinking block, unstreamed and streamed", async () => {
+      await setRules([
+        {
+          id: "think",
+          reply: [
+            { type: "reasoning", text: thought },
+            { type: "text", text: answer },
+          ],
+        },
+      ]);
+      const params = {
+        model: "claude-opus-5-5",
+        max_tokens: 2048,
+        thinking: { type: "adaptive" as const },
+        messages: [{ role: "user" as const, content: "weather in paris" }],
+      };
+
+      const message = await client.messages.create(params);
+      expect(message.content).toEqual([
+        { type: "thinking", thinking: thought, signature: expect.stringMatching(/^.+$/) },
+        { type: "text", text: answer },
+      ]);
+      expect(message.stop_reason).toBe("end_turn");
+
+      const stream = client.messages.stream(params);
+      const order: string[] = [];
+      const signatures: string[] = [];
+      let streamedThinking = "";
+      stream.on("streamEvent", (event) => {
+        if (event.type === "content_block_start") order.push(`start:${event.content_block.type}`);
+        if (event.type === "content_block_delta") order.push(event.delta.type);
+        if (event.type === "content_block_stop") order.push("stop");
+      });
+      stream.on("thinking", (delta) => {
+        streamedThinking += delta;
+      });
+      stream.on("signature", (signature) => {
+        signatures.push(signature);
+      });
+      const final = await stream.finalMessage();
+
+      expect(final.content).toEqual(message.content);
+      expect(streamedThinking).toBe(thought);
+      expect(signatures).toHaveLength(1);
+      expect([...new Set(order)]).toEqual([
+        "start:thinking",
+        "thinking_delta",
+        "signature_delta",
+        "stop",
+        "start:text",
+        "text_delta",
+      ]);
+      expect(order.indexOf("signature_delta")).toBe(order.indexOf("stop") - 1);
+    });
+
+    it("puts thinking before a tool call and accepts the block when the conversation is sent back", async () => {
+      await setRules([
+        {
+          id: "call",
+          match: { hasToolResult: false },
+          reply: [
+            { type: "reasoning", text: thought },
+            { type: "tool_call", name: "get_weather", arguments: { city: "Paris" } },
+          ],
+        },
+        { id: "answer", match: { hasToolResult: true }, reply: [{ type: "text", text: answer }] },
+      ]);
+      const user = { role: "user" as const, content: "weather in paris" };
+      const first = await client.messages.create({
+        model: "claude-opus-5-5",
+        max_tokens: 2048,
+        tools: [weatherTool],
+        messages: [user],
+      });
+      expect(first.content.map((block) => block.type)).toEqual(["thinking", "tool_use"]);
+      expect(first.stop_reason).toBe("tool_use");
+      const toolUse = first.content.find((block) => block.type === "tool_use");
+      if (toolUse?.type !== "tool_use") throw new Error("expected a tool_use block");
+
+      const second = await client.messages.create({
+        model: "claude-opus-5-5",
+        max_tokens: 2048,
+        tools: [weatherTool],
+        messages: [
+          user,
+          { role: "assistant", content: first.content },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: toolUse.id, content: "20 C" }] },
+        ],
+      });
+      expect(second.content).toEqual([{ type: "text", text: answer }]);
+    });
+  });
 });

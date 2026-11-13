@@ -126,7 +126,7 @@ Every condition in `match` must hold.
 | `text`      | `text`                             | Assistant text                                                                                                                     |
 | `object`    | `value`                            | A JSON value for structured output                                                                                                 |
 | `tool_call` | `name`, `arguments`, optional `id` | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted |
-| `reasoning` | `text`                             | Reasoning text in Responses; Chat reports only reasoning tokens                                                                    |
+| `reasoning` | `text`                             | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                     |
 | `refusal`   | `text`                             | A refusal in the format's native shape                                                                                             |
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, a refusal ends with `refusal`, and anything else ends with `stop`. Set `finish` to `length` or `content_filter` to test those outcomes. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.

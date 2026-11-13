@@ -193,7 +193,7 @@ A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 | Text      | `{ type: text, text }`                 | Normal assistant text                                                                                  |
 | Object    | `{ type: object, value }`              | Sent as JSON text, for structured output                                                               |
 | Tool call | `{ type: tool_call, name, arguments }` | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
-| Reasoning | `{ type: reasoning, text }`            | Responses only; Chat omits reasoning text                                                              |
+| Reasoning | `{ type: reasoning, text }`            | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
 | Refusal   | `{ type: refusal, text }`              | Native refusal shape                                                                                   |
 
 With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Stop reasons are otherwise inferred from the events.
@@ -435,7 +435,7 @@ To script a specific object, add an `object` reply:
 
 ### Reasoning
 
-Reasoning appears in Responses replies only. Chat Completions replies carry no reasoning text.
+Reasoning appears as a reasoning summary in Responses replies and as a signed `thinking` block, before the text or tool call, in Messages replies. Chat Completions replies carry no reasoning text, because the OpenAI API has no field for it; usage reports `reasoning_tokens`.
 
 ```yaml
 - id: think-first
