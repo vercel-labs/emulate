@@ -250,10 +250,50 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const redirect_uri = typeof body.redirect_uri === "string" ? body.redirect_uri : "";
     const grant_type = typeof body.grant_type === "string" ? body.grant_type : "";
     const code_verifier = typeof body.code_verifier === "string" ? body.code_verifier : undefined;
-    const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
-    const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+    let bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
+    let bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+
+    // client_secret_basic, which Google's discovery document lists beside client_secret_post: the client's
+    // credentials in an HTTP Basic Authorization header, each form-urlencoded (RFC 6749, section 2.3.1).
+    let basic: { id: string; secret: string } | undefined;
+    const authHeader = c.req.header("Authorization") ?? "";
+    if (authHeader.startsWith("Basic ")) {
+      const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
+      const sep = decoded.indexOf(":");
+      if (sep !== -1) {
+        const formDecode = (value: string) => {
+          try {
+            return decodeURIComponent(value.replace(/\+/g, " "));
+          } catch {
+            return value;
+          }
+        };
+        basic = { id: formDecode(decoded.slice(0, sep)), secret: formDecode(decoded.slice(sep + 1)) };
+      }
+    }
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
+    // Google refuses body credentials that do not match the header, and accepts an identical duplicate: a body
+    // client_secret needs the same client_id and secret, a body client_id alone the same client_id.
+    if (
+      clientsConfigured &&
+      basic &&
+      ((bodyClientSecret && !constantTimeSecretEqual(bodyClientSecret, basic.secret)) ||
+        ((bodyClientId || bodyClientSecret) && bodyClientId !== basic.id))
+    ) {
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: "Credentials in post body and basic Authorization header do not match",
+        },
+        400,
+      );
+    }
+    if (basic) {
+      bodyClientId ||= basic.id;
+      bodyClientSecret ||= basic.secret;
+    }
+
     if (clientsConfigured) {
       const client = gs.oauthClients.findOneBy("client_id", bodyClientId);
       if (!client) {
