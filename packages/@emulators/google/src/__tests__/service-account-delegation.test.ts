@@ -21,7 +21,7 @@ beforeAll(async () => {
   otherKey = (await generateKeyPair("RS256")).privateKey;
 });
 
-function fixture(delegatedScopes: string[] = [gmailInsert]) {
+function fixture(delegatedScopes: string[] | null = [gmailInsert]) {
   const app = new Hono<AppEnv>();
   const store = new Store();
   const tokens: TokenMap = new Map();
@@ -42,7 +42,7 @@ function fixture(delegatedScopes: string[] = [gmailInsert]) {
         ],
       },
     ],
-    domain_wide_delegation: [{ client_id: clientId, scopes: delegatedScopes }],
+    domain_wide_delegation: delegatedScopes ? [{ client_id: clientId, scopes: delegatedScopes }] : [],
   });
 
   async function exchange(assertion: string) {
@@ -103,14 +103,23 @@ describe("Google service accounts with domain-wide delegation", () => {
     expect((await exchange(await assertion({ sub: "alice@clinic.example" }, { kid: "unknown" }))).status).toBe(200);
   });
 
-  it("refuses scopes the delegation does not grant, and tokens used beyond their scopes", async () => {
-    const { exchange, insert } = fixture([gmailReadonly]);
+  it("refuses a client not authorized for domain-wide delegation", async () => {
+    const { exchange } = fixture(null);
     const refused = await exchange(await assertion({ sub: "alice@clinic.example" }));
+    expect(refused.status).toBe(401);
     expect(refused.body).toEqual({
       error: "unauthorized_client",
-      error_description:
-        "Client is unauthorized to retrieve access tokens using this method, or client not authorized for any of the scopes requested.",
+      error_description: "Unauthorized client or scope in request.",
     });
+  });
+
+  it("refuses scopes the delegation does not grant, and tokens used beyond their scopes", async () => {
+    const { exchange, insert } = fixture([gmailReadonly]);
+    const refused = await exchange(
+      await assertion({ sub: "alice@clinic.example", scope: `${gmailReadonly} ${gmailInsert}` }),
+    );
+    expect(refused.status).toBe(401);
+    expect(refused.body).toEqual({ error: "access_denied", error_description: "Requested client not authorized." });
 
     const reader = await exchange(await assertion({ sub: "alice@clinic.example", scope: gmailReadonly }));
     expect(reader.status).toBe(200);

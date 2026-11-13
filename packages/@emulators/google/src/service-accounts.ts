@@ -112,14 +112,13 @@ export async function jwtBearerGrant(c: Context, store: Store, tokenMap: TokenMa
       .find((entry) => entry.email.toLowerCase() === String(claims.sub).toLowerCase());
     if (!user) return error(c, "invalid_grant", "Invalid email or User ID");
     const delegation = store.getData<GoogleDomainWideDelegationSeed[]>(DELEGATION_KEY) ?? [];
-    const granted = delegation.find((entry) => entry.client_id === account.client_id)?.scopes ?? [];
-    if (!scopes.every((requested) => granted.includes(requested))) {
-      return error(
-        c,
-        "unauthorized_client",
-        "Client is unauthorized to retrieve access tokens using this method, or client not authorized for any of the scopes requested.",
-        401,
-      );
+    const authorized = delegation.find((entry) => entry.client_id === account.client_id);
+    // Google's JWT error table: a client not authorized for domain-wide delegation is `unauthorized_client`, a
+    // requested scope missing from its authorization is `access_denied` ("any value" as description). The statuses
+    // are not documented.
+    if (!authorized) return error(c, "unauthorized_client", "Unauthorized client or scope in request.", 401);
+    if (!scopes.every((requested) => authorized.scopes.includes(requested))) {
+      return error(c, "access_denied", "Requested client not authorized.", 401);
     }
     email = user.email;
   }
