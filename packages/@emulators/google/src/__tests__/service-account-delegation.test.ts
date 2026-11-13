@@ -118,7 +118,7 @@ describe("Google service accounts with domain-wide delegation", () => {
     const refused = await exchange(
       await assertion({ sub: "alice@clinic.example", scope: `${gmailReadonly} ${gmailInsert}` }),
     );
-    expect(refused.status).toBe(401);
+    expect(refused.status).toBe(400);
     expect(refused.body).toEqual({ error: "access_denied", error_description: "Requested client not authorized." });
 
     const reader = await exchange(await assertion({ sub: "alice@clinic.example", scope: gmailReadonly }));

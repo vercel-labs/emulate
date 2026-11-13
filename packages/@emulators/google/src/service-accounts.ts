@@ -114,11 +114,12 @@ export async function jwtBearerGrant(c: Context, store: Store, tokenMap: TokenMa
     const delegation = store.getData<GoogleDomainWideDelegationSeed[]>(DELEGATION_KEY) ?? [];
     const authorized = delegation.find((entry) => entry.client_id === account.client_id);
     // Google's JWT error table: a client not authorized for domain-wide delegation is `unauthorized_client`, a
-    // requested scope missing from its authorization is `access_denied` ("any value" as description). The statuses
-    // are not documented.
+    // requested scope missing from its authorization is `access_denied` ("any value" as description). Neither status
+    // is documented: `401` is what Google answers for `unauthorized_client` in captured responses, and `access_denied`
+    // keeps RFC 6749's default `400`.
     if (!authorized) return error(c, "unauthorized_client", "Unauthorized client or scope in request.", 401);
     if (!scopes.every((requested) => authorized.scopes.includes(requested))) {
-      return error(c, "access_denied", "Requested client not authorized.", 401);
+      return error(c, "access_denied", "Requested client not authorized.");
     }
     email = user.email;
   }
