@@ -21,7 +21,7 @@ import {
   type AiState,
   type CallStamp,
 } from "./state.js";
-import { sseResponse, type SseOptions } from "./sse.js";
+import { delay, sseResponse, type SseOptions } from "./sse.js";
 import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, Json, Reply, Rule } from "./types.js";
 
 /** The data paths the service answers; the native 404 and startup output name them. */
@@ -292,8 +292,10 @@ async function handleGeneration(
   recordCall(state, call, stamp);
 
   if (!request.stream) {
-    call.delivery = "completed";
+    const sent = await delay(outcome.timing.ttftMs, scope.signal);
+    settleCall(state, call, stamp, sent ? "completed" : "client_aborted");
     scope.dispose();
+    if (!sent) throw staleStateError();
     return withRequestId(Response.json(encoded, { status: 200 }), codec, call.seq);
   }
 
@@ -457,7 +459,7 @@ function unsupportedPath(path: string): AiRequestError {
 
 function staleStateError(): AiRequestError {
   return new AiRequestError(
-    "The emulator state was reset while this request was being read.",
+    "The emulator state was reset while this request was in progress.",
     undefined,
     "state_reset",
     409,
