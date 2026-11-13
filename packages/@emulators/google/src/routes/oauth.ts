@@ -16,6 +16,7 @@ import {
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 import { getRefreshTokens, issueAccessToken, revokeToken } from "../oauth-tokens.js";
+import { JWT_BEARER_GRANT, jwtBearerGrant } from "../service-accounts.js";
 
 // RSA key pair generated at module load for signing ID tokens.
 const keyPairPromise = generateKeyPair("RS256");
@@ -252,6 +253,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const code_verifier = typeof body.code_verifier === "string" ? body.code_verifier : undefined;
     const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
     const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+
+    // A service account authenticates with its signed assertion, not with an OAuth client's credentials.
+    if (grant_type === JWT_BEARER_GRANT) {
+      return jwtBearerGrant(c, store, tokenMap, typeof body.assertion === "string" ? body.assertion : "");
+    }
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
     if (clientsConfigured) {

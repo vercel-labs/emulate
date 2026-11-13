@@ -183,6 +183,8 @@ When no OAuth clients are configured, the emulator accepts any `client_id`. With
 
 Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
 
+The token endpoint also accepts a service account's signed assertion (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`). Seed `google.service_accounts` (`client_email`, `client_id`, and `keys` with an `id` and a PEM `public_key`) and `google.domain_wide_delegation` (`client_id`, `scopes`); an assertion whose `sub` names a user gets a token acting as that user when domain-wide delegation grants the account every requested scope, and Google's `invalid_grant`, `invalid_scope`, `unauthorized_client` (client not authorized for delegation), and `access_denied` (a requested scope not delegated) errors otherwise.
+
 ### Hosted domain (hd) claim
 
 Google Workspace accounts include an `hd` claim in ID tokens and userinfo responses identifying the user's hosted domain. The emulator derives this automatically from the user's email domain. Consumer domains (`gmail.com`, `googlemail.com`) omit the claim, matching real Google behavior.

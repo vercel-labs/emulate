@@ -20,10 +20,16 @@ import { oauthRoutes } from "./routes/oauth.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { threadRoutes } from "./routes/threads.js";
 import { getGoogleStore } from "./store.js";
+import {
+  seedServiceAccounts,
+  type GoogleDomainWideDelegationSeed,
+  type GoogleServiceAccountSeed,
+} from "./service-accounts.js";
 import { googleAuthMiddleware } from "./auth.js";
 
 export { getGoogleStore, type GoogleStore } from "./store.js";
 export * from "./entities.js";
+export type { GoogleDomainWideDelegationSeed, GoogleServiceAccountSeed } from "./service-accounts.js";
 
 export interface GoogleSeedUser {
   email: string;
@@ -116,6 +122,10 @@ export interface GoogleSeedDriveItem {
 export interface GoogleSeedConfig {
   port?: number;
   strict_scopes?: boolean;
+  /** Service accounts that obtain tokens with the JWT bearer grant. */
+  service_accounts?: GoogleServiceAccountSeed[];
+  /** Domain-wide delegation: the client IDs of service accounts allowed to act as the domain's users, with their scopes. */
+  domain_wide_delegation?: GoogleDomainWideDelegationSeed[];
   users?: GoogleSeedUser[];
   oauth_clients?: Array<{
     client_id: string;
@@ -298,6 +308,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
   if (config.strict_scopes !== undefined) {
     store.setData("google.strict_scopes", config.strict_scopes);
   }
+  seedServiceAccounts(store, config.service_accounts, config.domain_wide_delegation);
 
   if (config.users) {
     for (const user of config.users) {
