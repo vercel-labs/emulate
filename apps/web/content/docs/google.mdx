@@ -30,6 +30,8 @@ Google authentication is permissive by default for local bearer-token workflows.
 - `POST /gmail/v1/users/:userId/messages/:id/trash` - trash message
 - `POST /gmail/v1/users/:userId/messages/:id/untrash` - untrash message
 
+Sending a message or a draft delivers a copy to each recipient in its `To`, `Cc`, and `Bcc` headers who is a user of the emulator, labeled `INBOX` and `UNREAD`, without the `Bcc` header.
+
 ## Gmail Drafts
 
 - `GET /gmail/v1/users/:userId/drafts` - list drafts

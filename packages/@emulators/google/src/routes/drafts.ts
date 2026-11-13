@@ -3,6 +3,7 @@ import type { Context } from "@emulators/core";
 import {
   createDraftMessage,
   deleteDraftMessage,
+  deliverSentMessage,
   formatDraftResource,
   getDraftById,
   getDraftMessage,
@@ -64,6 +65,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
     if (!message) {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
+    deliverSentMessage(gs, message);
 
     return c.json({
       id: message.gmail_id,

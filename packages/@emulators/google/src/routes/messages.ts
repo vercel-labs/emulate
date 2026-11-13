@@ -5,6 +5,7 @@ import {
   createStoredMessage,
   deleteMessage,
   dedupeLabelIds,
+  deliverSentMessage,
   findMissingLabelIds,
   formatMessageResource,
   getAttachmentById,
@@ -70,6 +71,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
         ...messageInput,
         label_ids: defaultLabelIds,
       });
+      if (mode === "send") deliverSentMessage(gs, message);
 
       return c.json(formatMessageResource(gs, message, "full"));
     } catch {
