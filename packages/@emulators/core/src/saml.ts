@@ -227,6 +227,10 @@ export interface ParsedAuthnRequest {
   forceAuthn: boolean;
 }
 
+// An AuthnRequest is a few kilobytes. The SSO URL inflates whatever arrives in the query string, so a cap keeps a
+// small, highly compressed SAMLRequest from expanding into megabytes.
+const MAX_AUTHN_REQUEST_BYTES = 64 * 1024;
+
 /**
  * Decodes an AuthnRequest from the HTTP-Redirect binding (deflated, then base64) or the HTTP-POST binding
  * (base64). Returns null when the value is not an AuthnRequest.
@@ -241,7 +245,7 @@ export function parseAuthnRequest(encoded: string, binding: "redirect" | "post")
   let xml: string;
   if (binding === "redirect") {
     try {
-      xml = inflateRawSync(raw).toString("utf-8");
+      xml = inflateRawSync(raw, { maxOutputLength: MAX_AUTHN_REQUEST_BYTES }).toString("utf-8");
     } catch {
       return null;
     }

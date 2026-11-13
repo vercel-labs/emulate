@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import type { Store } from "@emulators/core";
 import {
   certificateMatchesKey,
@@ -155,6 +156,31 @@ export function samlNameId(app: OktaApp, user: OktaUser): string {
   return (match && profileValue(user, match[1]!)) || user.login;
 }
 
+// Any management token can write a REGEX filter, so a pattern that backtracks catastrophically must not stall the
+// emulator: matching runs under a time limit, and a pattern that is invalid or runs out of time matches no group.
+const REGEX_FILTER_TIMEOUT_MS = 50;
+
+function groupsMatchingRegex(pattern: string, names: string[]): string[] {
+  let regex: RegExp;
+  try {
+    regex = new RegExp(`^(?:${pattern})$`);
+  } catch {
+    return [];
+  }
+  try {
+    const matched = runInNewContext(
+      "names.filter((name) => regex.test(name))",
+      { names, regex },
+      {
+        timeout: REGEX_FILTER_TIMEOUT_MS,
+      },
+    ) as string[];
+    return [...matched];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Attribute statements from `settings.signOn.attributeStatements`. EXPRESSION values of the form `user.<field>` read
  * the user's profile and any other value is sent as written; GROUP statements send the names of the user's groups
@@ -179,17 +205,16 @@ export function samlAttributes(statements: unknown[], user: OktaUser, groups: Ok
             return group === filterValue;
           case "CONTAINS":
             return group.includes(filterValue);
-          case "REGEX":
-            try {
-              return new RegExp(`^(?:${filterValue})$`).test(group);
-            } catch {
-              return false;
-            }
           default:
             return false;
         }
       };
-      attributes.push({ name, nameFormat, values: groups.map((group) => group.name).filter(matches) });
+      const names = groups.map((group) => group.name);
+      attributes.push({
+        name,
+        nameFormat,
+        values: statement.filterType === "REGEX" ? groupsMatchingRegex(filterValue, names) : names.filter(matches),
+      });
       continue;
     }
 

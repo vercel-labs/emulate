@@ -74,7 +74,7 @@ An app with `signOnMode: SAML_2_0` acts as a SAML identity provider for a servic
 - `GET /app/:externalKey/sso/saml/metadata` — IdP metadata with the signing certificate
 - `GET /api/v1/apps/:appId/sso/saml/metadata` — the same metadata through the Apps API
 
-The issuer is `http://www.okta.com/:externalKey`. The response answers the request's `InResponseTo`, carries the `RelayState` through, and uses the user's login as the NameID unless `credentials.userNameTemplate` is `${source.email}` or another profile field. In attribute statements, an `EXPRESSION` value like `user.email` reads the profile and any other value is sent as written; a `GROUP` statement sends the user's groups that match `filterType` (`STARTS_WITH`, `EQUALS`, `CONTAINS`, or `REGEX`) and `filterValue`.
+The issuer is `http://www.okta.com/:externalKey`. The response answers the request's `InResponseTo`, carries the `RelayState` through, and uses the user's login as the NameID unless `credentials.userNameTemplate` is `${source.email}` or another profile field. In attribute statements, an `EXPRESSION` value like `user.email` reads the profile and any other value is sent as written; a `GROUP` statement sends the user's groups that match `filterType` (`STARTS_WITH`, `EQUALS`, `CONTAINS`, or `REGEX`) and `filterValue`. A `REGEX` filter that is invalid or takes longer than 50 ms to match matches no groups.
 
 Okta sends no assertion for a user who is not `ACTIVE`, or who is not assigned to the app (the `403` App Not Assigned page), and none through a deactivated app. Creating or updating an app that sets both `responseSigned` and `assertionSigned` to `false` returns `400` with `E0000001`.
 

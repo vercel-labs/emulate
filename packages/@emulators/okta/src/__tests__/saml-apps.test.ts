@@ -170,6 +170,28 @@ describe("Okta SAML 2.0 apps", () => {
     expect(formField(await page.text(), "in_response_to")).toBe(request.id);
   });
 
+  it("matches REGEX group filters and gives up on a pattern that backtracks without end", async () => {
+    const groupsFor = async (filterValue: string, extra: Partial<OktaSeedConfig> = {}) => {
+      const app = createTestApp(extra, {
+        attributeStatements: [{ type: "GROUP", name: "groups", filterType: "REGEX", filterValue }],
+      });
+      const result = await verify(app, await (await choose(app, "00u_alice")).text(), null);
+      return result.ok ? (result.assertion.attributes.groups ?? []) : undefined;
+    };
+
+    expect(await groupsFor("eng-.*|ops")).toEqual(["eng-platform", "ops"]);
+    expect(await groupsFor("[")).toEqual([]);
+
+    const longName = {
+      groups: [{ okta_id: "00g_long", name: "engineering-platform-infrastructure-team" }],
+      group_memberships: [{ group_okta_id: "00g_long", user_okta_id: "00u_alice" }],
+    };
+    expect(await groupsFor("engineering-.*", longName)).toEqual(["engineering-platform-infrastructure-team"]);
+    const started = Date.now();
+    expect(await groupsFor("([a-z-]+)+X", longName)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("rejects a SAMLRequest it cannot decode", async () => {
     expect((await createTestApp().request(`${ssoUrl}?SAMLRequest=bm9wZQ`)).status).toBe(400);
   });
