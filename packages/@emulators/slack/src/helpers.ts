@@ -413,6 +413,30 @@ export function parseSlackRichMessageFields(body: Record<string, unknown>): Slac
   return { fields, providedFields };
 }
 
+export interface SlackMessageTextInput {
+  /** The message text: `markdown_text` when present, otherwise `text`. */
+  text: string;
+  /** Whether the request set `text` or `markdown_text`. */
+  provided: boolean;
+  error?: string;
+}
+
+/**
+ * Reads the message text from `text` or `markdown_text`. Slack rejects `markdown_text` together with a non-empty
+ * `text` or with `blocks` (`markdown_text_conflict`). The emulator stores the Markdown source as the message text.
+ */
+export function parseSlackMessageText(
+  body: Record<string, unknown>,
+  richMessage: SlackRichMessageParseResult,
+): SlackMessageTextInput {
+  const text = typeof body.text === "string" ? body.text : undefined;
+  if (typeof body.markdown_text !== "string") return { text: text ?? "", provided: text !== undefined };
+  if (text || richMessage.providedFields.includes("blocks")) {
+    return { text: "", provided: false, error: "markdown_text_conflict" };
+  }
+  return { text: body.markdown_text, provided: true };
+}
+
 export function hasSlackMessageContent(text: string, fields: SlackRichMessageFields): boolean {
   return text.length > 0 || (fields.blocks?.length ?? 0) > 0 || (fields.attachments?.length ?? 0) > 0;
 }

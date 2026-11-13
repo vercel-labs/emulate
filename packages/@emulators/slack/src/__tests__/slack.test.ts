@@ -4857,3 +4857,112 @@ describe("Slack plugin - Message Inspector", () => {
     expect(eventsHtml).toContain("Last Errors");
   });
 });
+
+describe("Slack plugin - markdown_text", () => {
+  let app: SlackTestApp["app"];
+  let store: Store;
+
+  beforeEach(() => {
+    ({ app, store } = createTestApp());
+  });
+
+  async function call(method: string, body: Record<string, unknown>) {
+    const res = await app.request(`${base}/api/${method}`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as any;
+  }
+
+  it("posts markdown_text as the message text", async () => {
+    const ch = getSlackStore(store).channels.all()[0];
+
+    const posted = await call("chat.postMessage", { channel: ch.channel_id, markdown_text: "**Deploy** done" });
+    expect(posted.ok).toBe(true);
+    expect(posted.message.text).toBe("**Deploy** done");
+
+    const history = await call("conversations.history", { channel: ch.channel_id });
+    expect(history.messages[0].text).toBe("**Deploy** done");
+  });
+
+  it("accepts form-encoded markdown_text", async () => {
+    const ch = getSlackStore(store).channels.all()[0];
+    const form = new URLSearchParams({ channel: ch.channel_id, markdown_text: "_form_ markdown" });
+
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-test-token", "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.message.text).toBe("_form_ markdown");
+  });
+
+  it.each([
+    ["text", { text: "plain" }],
+    ["blocks", { blocks: [{ type: "section", text: { type: "plain_text", text: "block" } }] }],
+  ])("rejects markdown_text combined with %s", async (_field, extra) => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    const posted = await call("chat.postMessage", { channel: ch.channel_id, markdown_text: "**bold**", ...extra });
+    expect(posted.ok).toBe(false);
+    expect(posted.error).toBe("markdown_text_conflict");
+    expect(ss.messages.all()).toHaveLength(0);
+  });
+
+  it("returns no_text for empty markdown_text", async () => {
+    const ch = getSlackStore(store).channels.all()[0];
+
+    const posted = await call("chat.postMessage", { channel: ch.channel_id, markdown_text: "" });
+    expect(posted.ok).toBe(false);
+    expect(posted.error).toBe("no_text");
+  });
+
+  it("updates a message with markdown_text and clears its blocks", async () => {
+    const ch = getSlackStore(store).channels.all()[0];
+    const posted = await call("chat.postMessage", {
+      channel: ch.channel_id,
+      text: "Working on it",
+      blocks: [{ type: "section", text: { type: "plain_text", text: "Working on it" } }],
+    });
+
+    const updated = await call("chat.update", { channel: ch.channel_id, ts: posted.ts, markdown_text: "## Result" });
+    expect(updated.ok).toBe(true);
+    expect(updated.text).toBe("## Result");
+    expect(updated.message.blocks).toBeUndefined();
+
+    const conflict = await call("chat.update", {
+      channel: ch.channel_id,
+      ts: posted.ts,
+      markdown_text: "## Result",
+      text: "plain",
+    });
+    expect(conflict.error).toBe("markdown_text_conflict");
+  });
+
+  it("accepts markdown_text for ephemeral and scheduled messages", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    const ephemeral = await call("chat.postEphemeral", {
+      channel: ch.channel_id,
+      user: "U000000001",
+      markdown_text: "*only you*",
+    });
+    expect(ephemeral.ok).toBe(true);
+    expect(ss.ephemeralMessages.findOneBy("ts", ephemeral.message_ts)?.text).toBe("*only you*");
+
+    const scheduled = await call("chat.scheduleMessage", {
+      channel: ch.channel_id,
+      markdown_text: "*later*",
+      post_at: Math.floor(Date.now() / 1000) + 3600,
+    });
+    expect(scheduled.ok).toBe(true);
+    expect(ss.scheduledMessages.findOneBy("scheduled_message_id", scheduled.scheduled_message_id)?.text).toBe(
+      "*later*",
+    );
+  });
+});

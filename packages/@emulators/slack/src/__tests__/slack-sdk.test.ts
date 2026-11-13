@@ -170,6 +170,25 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(message.metadata).toEqual(metadata);
   });
 
+  it("posts and updates markdown_text messages through the Slack SDK", async () => {
+    expect(emulator).toBeDefined();
+    const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;
+
+    const posted = await client.chat.postMessage({ channel, markdown_text: "**Working** on it" });
+    expect(posted.ok).toBe(true);
+    expect(posted.message?.text).toBe("**Working** on it");
+
+    const updated = await client.chat.update({ channel, ts: posted.ts!, markdown_text: "## Done" });
+    expect(updated.ok).toBe(true);
+
+    const replies = await client.conversations.replies({ channel, ts: posted.ts! });
+    expect(replies.messages?.[0]?.text).toBe("## Done");
+
+    await expect(client.chat.postMessage({ channel, markdown_text: "**x**", text: "x" } as any)).rejects.toMatchObject({
+      data: { ok: false, error: "markdown_text_conflict" },
+    });
+  });
+
   it("exposes Slack truncation warnings through the WebClient", async () => {
     expect(emulator).toBeDefined();
     const channel = getSlackStore(emulator!.store).channels.findOneBy("name", "general")!.channel_id;

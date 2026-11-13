@@ -223,6 +223,8 @@ curl -X POST http://localhost:4003/api/auth.revoke \
 
 `chat.postMessage`, `chat.update`, `conversations.history`, and `conversations.replies` round trip text plus common rich message fields: `blocks`, `attachments`, `metadata`, `mrkdwn`, `parse`, `link_names`, `unfurl_links`, `unfurl_media`, `username`, `icon_url`, `icon_emoji`, `bot_id`, `app_id`, `client_msg_id`, and `reply_broadcast`. `chat.postMessage` can also post to opened DM conversations or supported Slack user IDs.
 
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` also accept `markdown_text`. The emulator stores the Markdown source as the message `text`. Combining `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`.
+
 `chat.postEphemeral` stores ephemeral messages outside channel history. `chat.scheduleMessage`, `chat.deleteScheduledMessage`, and `chat.scheduledMessages.list` keep scheduled messages pending until deleted or inspected.
 
 ```bash

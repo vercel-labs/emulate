@@ -67,7 +67,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
       "slack-events.test.ts",
     ],
     notes:
-      "Text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, client message ids, and DM user id posting round trip. Bot messages persist bot_id, app_id, and bot_profile; callbacks include recipient app authorization, channel_type, and event_ts. Full membership checks are future work.",
+      "Text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Thread replies, blocks, attachments, metadata, formatting flags, unfurl flags, client message ids, and DM user id posting round trip. Bot messages persist bot_id, app_id, and bot_profile; callbacks include recipient app authorization, channel_type, and event_ts. Full membership checks are future work. markdown_text is stored as text and rejected with markdown_text_conflict when combined with text or blocks.",
   },
   {
     family: "chat",
@@ -76,7 +76,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     status: "partial",
     testedBy: ["event-payloads.test.ts", "slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
     notes:
-      "Stored text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Rich message fields are updated and message_changed events are dispatched.",
+      "Stored text is limited to 40,000 Unicode code points with Slack message_truncated warning metadata. Rich message fields are updated and message_changed events are dispatched. markdown_text is stored as text and rejected with markdown_text_conflict when combined with text or blocks.",
   },
   {
     family: "chat",
@@ -101,7 +101,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes:
-      "Stores ephemeral messages outside channel history, truncates text at 40,000 Unicode code points with Slack warning metadata, and validates target channel membership.",
+      "Stores ephemeral messages outside channel history, truncates text at 40,000 Unicode code points with Slack warning metadata, and validates target channel membership. markdown_text is stored as text and rejected with markdown_text_conflict when combined with text or blocks.",
   },
   {
     family: "chat",
@@ -110,7 +110,7 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts"],
     notes:
-      "Stores pending messages with text limited to 40,000 Unicode code points and warning metadata, preserves rich payload fields, and validates post_at bounds.",
+      "Stores pending messages with text limited to 40,000 Unicode code points and warning metadata, preserves rich payload fields, and validates post_at bounds. markdown_text is stored as text and rejected with markdown_text_conflict when combined with text or blocks.",
   },
   {
     family: "chat",
