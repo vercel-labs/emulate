@@ -227,6 +227,7 @@
         "Defaults",
         "URL Mapping",
         "Supported Routes",
+        "SendGrid Mail Send",
         "SMS And OTP Testing",
         "Simulator",
         "Seed Config",

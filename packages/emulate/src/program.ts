@@ -126,6 +126,8 @@ Configuration:
 
 Twilio API coverage:
   Accounts, API keys, phone numbers, Messaging, Verify, Voice, Conversations, webhooks, simulators, and inspector.
+  SendGrid Mail Send at POST /v3/mail/send uses Bearer keys (seeded SG.emulate_local_key.twilio_test_sendgrid_api_key),
+  returns an empty 202 with X-Message-Id, and stores mail for the inspector's SendGrid tab.
 
 Slack interactivity:
   Configure slack.oauth_apps[].interactivity_url and slack.signing_secret for signed button and modal callbacks.
