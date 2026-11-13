@@ -179,6 +179,8 @@ const authorizePath = `/o/oauth2/v2/auth?client_id=${client.client_id}&redirect_
 
 // The browser of each test app: its SSO browser cookie, sent with the sign-in requests it starts.
 const browsers = new WeakMap<Hono, string>();
+/** The RelayState of the test app's latest sign-in request, which the identity provider returns. */
+const relayStates = new WeakMap<Hono, string>();
 
 function browserCookie(res: Response): string | null {
   return /(_emu_google_sso_browser=[^;]+)/.exec(res.headers.get("Set-Cookie") ?? "")?.[1] ?? null;
@@ -192,9 +194,19 @@ async function startSso(app: Hono, email = "alice@acme.test") {
   const html = await res.text();
   const samlRequest = hiddenField(html, "SAMLRequest");
   expect(samlRequest).not.toBeNull();
+  const relayState = hiddenField(html, "RelayState");
+  expect(relayState).not.toBeNull();
+  relayStates.set(app, relayState!);
   const xml = Buffer.from(samlRequest!, "base64").toString("utf8");
   const request = new DOMParser().parseFromString(xml, "text/xml").documentElement as Element;
-  return { html, xml, request, requestId: request.getAttribute("ID")!, browser: browsers.get(app)! };
+  return {
+    html,
+    xml,
+    request,
+    requestId: request.getAttribute("ID")!,
+    relayState: relayState!,
+    browser: browsers.get(app)!,
+  };
 }
 
 interface ResponseOptions {
@@ -279,17 +291,22 @@ interface ConsumeOptions {
   url?: string;
   /** The posting browser's cookie; by default the browser that started the test app's sign-ins, null for none. */
   cookie?: string | null;
+  /** The RelayState returned; by default the latest sign-in request's, null for none. */
+  relayState?: string | null;
   fields?: Record<string, string>;
 }
 
 function consume(app: Hono, xml: string, options: ConsumeOptions = {}) {
   const cookie = options.cookie === undefined ? browsers.get(app) : options.cookie;
+  const relayState = options.relayState === undefined ? relayStates.get(app) : options.relayState;
+  const fields = options.fields ?? {
+    SAMLResponse: Buffer.from(xml, "utf8").toString("base64"),
+    ...(relayState ? { RelayState: relayState } : {}),
+  };
   return app.request(options.url ?? acsUrl, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) },
-    body: new URLSearchParams(
-      options.fields ?? { SAMLResponse: Buffer.from(xml, "utf8").toString("base64"), RelayState: "relay" },
-    ),
+    body: new URLSearchParams(fields),
   });
 }
 
@@ -530,7 +547,7 @@ describe("Google Workspace SAML single sign-on", () => {
 
       it("a response posted by another browser than the one that started the sign-in", async () => {
         const { app, store } = createTestApp();
-        const { requestId } = await startSso(app);
+        const { requestId, relayState } = await startSso(app);
         const xml = buildResponse({ requestId });
 
         // A cross-site post carries no SameSite=Lax cookie: the emulator posts it again from its own origin.
@@ -541,7 +558,7 @@ describe("Google Workspace SAML single sign-on", () => {
         expect(html).toContain(`action="${acsUrl}"`);
         const fields = formFields(html);
         expect(fields.SAMLResponse).toBe(Buffer.from(xml, "utf8").toString("base64"));
-        expect(fields.RelayState).toBe("relay");
+        expect(fields.RelayState).toBe(relayState);
 
         const victim = createTestApp().app;
         const { browser: otherBrowser } = await startSso(victim);
@@ -552,6 +569,24 @@ describe("Google Workspace SAML single sign-on", () => {
         expect(store.getData<Map<string, unknown>>("google.sso.sessions")?.size ?? 0).toBe(0);
 
         const res = await consume(app, xml, { fields });
+        expect(res.status).toBe(302);
+        sessionCookie(res);
+      });
+
+      it("a response without the RelayState of the sign-in request, or with another one", async () => {
+        const { app, store } = createTestApp();
+        const first = await startSso(app);
+        const second = await startSso(app);
+        const xml = buildResponse({ requestId: second.requestId });
+        for (const relayState of [null, "", first.relayState, `${second.relayState}x`]) {
+          await expectRefused(
+            await consume(app, xml, { relayState }),
+            "The required response parameter RelayState was missing",
+          );
+        }
+        expect(store.getData<Map<string, unknown>>("google.sso.sessions")?.size ?? 0).toBe(0);
+
+        const res = await consume(app, xml, { relayState: second.relayState });
         expect(res.status).toBe(302);
         sessionCookie(res);
       });

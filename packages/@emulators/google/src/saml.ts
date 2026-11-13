@@ -47,6 +47,7 @@ export interface GoogleSsoProfile {
 interface PendingAuthnRequest {
   profile_id: string;
   browser_id: string;
+  relay_state: string;
   continue_url: string;
   created_at: number;
 }
@@ -181,13 +182,15 @@ export function createAuthnRequest(
     ` AssertionConsumerServiceURL="${escapeAttr(samlAcsUrl(baseUrl, profile))}" ProtocolBinding="${HTTP_POST_BINDING}">` +
     `<saml:Issuer>${escapeAttr(samlEntityId(baseUrl, profile))}</saml:Issuer>` +
     `</samlp:AuthnRequest>`;
+  const relayState = randomBytes(16).toString("hex");
   dataMap<PendingAuthnRequest>(store, "google.sso.pendingRequests").set(id, {
     profile_id: profile.id,
     browser_id: browserId,
+    relay_state: relayState,
     continue_url: continueUrl,
     created_at: Date.now(),
   });
-  return { id, xml, relayState: randomBytes(16).toString("hex"), setCookie };
+  return { id, xml, relayState, setCookie };
 }
 
 export class SamlResponseError extends Error {
@@ -206,6 +209,7 @@ function refuse(message: string): never {
 const NOT_SIGNED = "The SAML assertion is not signed with the profile's verification certificate.";
 const NOT_REQUESTED = "Google did not request this SAML response. Sign-in must start at Google.";
 const NOT_THIS_BROWSER = "The SAML response does not answer a sign-in request from this browser.";
+const RELAY_STATE_MISSING = "The required response parameter RelayState was missing.";
 
 function childElements(parent: Element, ns: string, localName: string): Element[] {
   const result: Element[] = [];
@@ -439,18 +443,23 @@ export function validateSamlResponse(
 
 /**
  * Consumes the pending AuthnRequest the response answers; refuses one Google never sent for this
- * profile, or sent for another browser than the one posting the response (`browserId`).
+ * profile, sent for another browser than the one posting the response (`browserId`), or posted
+ * without the request's exact RelayState.
  */
 export function takePendingAuthnRequest(
   store: Store,
   profile: GoogleSsoProfile,
   assertion: ValidatedAssertion,
   browserId: string | null,
+  relayState: string,
 ): PendingAuthnRequest {
   const pending = dataMap<PendingAuthnRequest>(store, "google.sso.pendingRequests");
   const request = pending.get(assertion.inResponseTo);
   if (!request || request.profile_id !== profile.id) refuse(NOT_REQUESTED);
   if (request.browser_id !== browserId) refuse(NOT_THIS_BROWSER);
+  // "For authentication to complete successfully, the exact RelayState must be returned in the SAML
+  // Response" (Google's SSO troubleshooting); SAML 2.0 Bindings 3.5.3 requires the IdP to return it.
+  if (relayState !== request.relay_state) refuse(RELAY_STATE_MISSING);
   pending.delete(assertion.inResponseTo);
   return request;
 }

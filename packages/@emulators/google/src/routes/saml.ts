@@ -44,7 +44,7 @@ export function samlRoutes({ app, store, baseUrl }: RouteContext): void {
 
     try {
       const assertion = validateSamlResponse(store, samlResponse, baseUrl, profile);
-      const request = takePendingAuthnRequest(store, profile, assertion, browserId);
+      const request = takePendingAuthnRequest(store, profile, assertion, browserId, bodyStr(body.RelayState));
       consumeAssertionId(store, assertion);
       c.header("Set-Cookie", openWebSession(store, assertion.user, profile));
       return c.redirect(request.continue_url, 302);
