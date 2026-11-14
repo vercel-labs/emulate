@@ -66,6 +66,51 @@ describe("HTTP listener", () => {
     }
   });
 
+  it("delivers headers and queued chunks before tearing down a stream that errors immediately", async () => {
+    const encoder = new TextEncoder();
+    const server = serve({
+      port: 0,
+      fetch: () => {
+        let sent = 0;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (sent < 2) {
+                sent += 1;
+                controller.enqueue(encoder.encode(`frame${sent}|`));
+                return;
+              }
+              controller.error(new Error("stream failed"));
+            },
+          }),
+        );
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      const received = await new Promise<{ text: string; failed: boolean }>((resolve, reject) => {
+        const req = httpRequest({ port, host: "127.0.0.1", agent: false }, (res) => {
+          let text = "";
+          res.on("data", (data: Buffer) => (text += data.toString()));
+          res.on("error", () => resolve({ text, failed: true }));
+          res.on("aborted", () => resolve({ text, failed: true }));
+          res.on("end", () => resolve({ text, failed: false }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+
+      expect(received).toEqual({ text: "frame1|frame2|", failed: true });
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
   it("aborts the request signal and cancels the body when a write fails", async () => {
     const chunk = new Uint8Array(64 * 1024).fill(0x42);
     let signal: AbortSignal | undefined;

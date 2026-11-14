@@ -636,10 +636,16 @@ async function writeFetchResponse(
     res.end();
   } catch (err) {
     void reader.cancel().catch(() => {});
-    res.destroy(err instanceof Error ? err : undefined);
+    destroyAfterFlush(res, err instanceof Error ? err : undefined);
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/** Destroys the response once everything already written, headers included, has been handed to the socket. */
+function destroyAfterFlush(res: ServerResponse, err?: Error): void {
+  if (res.destroyed) return;
+  res.write("", () => res.destroy(err));
 }
 
 function writeChunk(res: ServerResponse, chunk: Uint8Array, signal?: AbortSignal): Promise<void> | undefined {
