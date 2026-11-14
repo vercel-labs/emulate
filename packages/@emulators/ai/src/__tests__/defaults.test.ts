@@ -121,6 +121,11 @@ describe("sampleSchema siblings next to composition keywords", () => {
     expect(sampleSchema({ oneOf: [branch], maxLength: 2 }, "hello")).toBe("he");
   });
 
+  it("does not let a sibling nullable widen a non-nullable $ref target", () => {
+    const schema: JsonSchema = { nullable: true, $ref: "#/$defs/s", $defs: { s: { type: "string" } } };
+    expect(sampleSchema(schema, "hello")).toBe("hello");
+  });
+
   it("keeps a larger sibling minimum next to $ref", () => {
     const schema: JsonSchema = {
       minimum: 7,

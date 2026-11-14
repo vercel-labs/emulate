@@ -249,7 +249,6 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     spend(path);
     if (depth > 32) return false;
     if (typeof node === "boolean") return node;
-    if (node.nullable === true && value === null) return true;
     if (node.$ref !== undefined && !matches(value, resolve(node.$ref, path), depth + 1, at)) return false;
     if (
       node.anyOf !== undefined &&
@@ -269,7 +268,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     if (Object.hasOwn(node, "const") && !equal(value, node.const)) return false;
     if (Array.isArray(node.enum) && !node.enum.some((item) => equal(item, value))) return false;
     const valueType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-    if (node.type !== undefined) {
+    if (node.type !== undefined && !(node.nullable === true && value === null)) {
       const list = Array.isArray(node.type) ? node.type : [node.type];
       if (
         !list.some(
@@ -346,6 +345,10 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       }
       if (!types.size) return false;
       merged.type = types.size === 1 ? [...types][0] : [...types];
+    }
+    if (merged.nullable === true) {
+      const typedStrict = (side: Record<string, Json>) => side.type !== undefined && side.nullable !== true;
+      if (typedStrict(rest) || typedStrict(branch)) delete merged.nullable;
     }
     if (typeof rest.multipleOf === "number" && typeof branch.multipleOf === "number") {
       const [small, large] = [rest.multipleOf, branch.multipleOf].sort((a, b) => a - b);
