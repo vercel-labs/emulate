@@ -441,55 +441,46 @@ export function serve(options: ServeOptions): Server {
       res.end(message);
     }
   });
-  const hostname = options.hostname ?? "127.0.0.1";
-  if (port === 0 || hostname === "0.0.0.0" || hostname === "::") {
-    server.listen(port, hostname);
-    return server;
-  }
-  let closed = false;
-  server.once("close", () => {
-    closed = true;
-  });
-  void findListener(hostname, port).then((busy) => {
-    if (closed) return;
-    if (busy) server.emit("error", busy);
-    else server.listen(port, hostname);
-  });
+  server.listen(port, options.hostname ?? "127.0.0.1");
   return server;
 }
 
 /**
- * Resolves with an EADDRINUSE error when something already accepts connections on the address that listen will
- * bind, which macOS does not report when another process holds the wildcard address. The other process sees
- * one short connection.
+ * Rejects with an EADDRINUSE error when something already accepts connections on the address a listener is about to
+ * bind. Await it before `serve`: macOS lets a specific address bind a port another process holds on the wildcard
+ * address. The other process sees one short connection.
  */
-async function findListener(hostname: string, port: number): Promise<Error | undefined> {
-  const address = isIP(hostname)
-    ? hostname
-    : await lookup(hostname).then(
+export async function assertPortFree(hostname: string | undefined, port: number): Promise<void> {
+  const host = hostname ?? "127.0.0.1";
+  if (port === 0 || host === "0.0.0.0" || host === "::") return;
+  const address = isIP(host)
+    ? host
+    : await lookup(host).then(
         (r) => r.address,
         () => undefined,
       );
-  if (!address) return undefined;
-  return new Promise((resolve) => {
-    const socket = connect({ host: address, port, timeout: 300 });
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(
-        Object.assign(new Error(`listen EADDRINUSE: address already in use ${address}:${port}`), {
-          code: "EADDRINUSE",
-          errno: -48,
-          syscall: "listen",
-          address,
-          port,
-        }),
-      );
-    });
-    socket.once("timeout", () => {
-      socket.destroy();
-      resolve(undefined);
-    });
-    socket.once("error", () => resolve(undefined));
+  if (!address) return;
+  const taken = await new Promise<boolean>((resolve) => {
+    try {
+      const socket = connect({ host: address, port, timeout: 300 });
+      const settle = (value: boolean) => {
+        socket.destroy();
+        resolve(value);
+      };
+      socket.once("connect", () => settle(true));
+      socket.once("timeout", () => settle(false));
+      socket.once("error", () => settle(false));
+    } catch {
+      resolve(false);
+    }
+  });
+  if (!taken) return;
+  throw Object.assign(new Error(`listen EADDRINUSE: address already in use ${address}:${port}`), {
+    code: "EADDRINUSE",
+    errno: -48,
+    syscall: "listen",
+    address,
+    port,
   });
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
 import { createServer, type AddressInfo, type Server } from "node:net";
-import { Hono, cors, serve } from "../http.js";
+import { Hono, assertPortFree, cors, serve } from "../http.js";
 
 describe("HTTP listener", () => {
   it.each([
@@ -105,28 +105,40 @@ describe("internal http layer", () => {
     }
   }
 
-  it("fails when a wildcard listener holds the port", async () => {
+  it("reports a port that a wildcard listener holds", async () => {
     const holder = (await hold())!;
     const { port } = holder.address() as AddressInfo;
-    const server = serve({ fetch: () => new Response("ready"), port });
     try {
-      const [error] = await once(server, "error");
-      expect(error).toMatchObject({ code: "EADDRINUSE" });
+      await expect(assertPortFree("127.0.0.1", port)).rejects.toMatchObject({ code: "EADDRINUSE" });
     } finally {
       holder.close();
     }
   });
 
-  it("starts when only another address holds the port", async () => {
+  it("accepts a port that only another address holds", async () => {
     const holder = await hold("::1");
     if (!holder) return;
     const { port } = holder.address() as AddressInfo;
-    const server = serve({ fetch: () => new Response("ready"), port });
     try {
-      await once(server, "listening");
-      expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe("ready");
+      await expect(assertPortFree("127.0.0.1", port)).resolves.toBeUndefined();
     } finally {
       holder.close();
+    }
+  });
+
+  it("leaves an invalid port for listen to report", async () => {
+    await expect(assertPortFree("127.0.0.1", 70000)).resolves.toBeUndefined();
+    expect(() => serve({ fetch: () => new Response("ready"), port: 70000 })).toThrow();
+  });
+
+  it("accepts a connection made right after serve returns", async () => {
+    const holder = (await hold("127.0.0.1"))!;
+    const { port } = holder.address() as AddressInfo;
+    await new Promise((resolve) => holder.close(resolve));
+    const server = serve({ fetch: () => new Response("ready"), port });
+    try {
+      expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe("ready");
+    } finally {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         server.closeAllConnections();

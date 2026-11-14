@@ -98,7 +98,6 @@ describe.each([
     try {
       const port = await unusedPort();
       await startCommand({ port, service: "resend", host: hostname });
-      await vi.waitFor(() => expect(servers).toHaveLength(1));
       const server = servers[0];
       await waitForListening(server);
       expect(server.address()).toMatchObject({ address });
@@ -112,5 +111,15 @@ describe.each([
         if (!beforeSigterm.includes(listener)) process.removeListener("SIGTERM", listener);
       }
     }
+  });
+});
+
+describe("invalid ports", () => {
+  it.each(["builtin", "custom"])("rejects an invalid port for a %s emulator instead of hanging", async (kind) => {
+    const starting =
+      kind === "builtin"
+        ? createEmulator({ service: "resend", port: 70000 })
+        : createEmulator({ service: counter, port: 70000 });
+    await expect(starting).rejects.toThrow();
   });
 });

@@ -1,4 +1,5 @@
 import {
+  assertPortFree,
   createServer,
   serve,
   createCustomRuntime,
@@ -81,6 +82,7 @@ export async function createEmulator(
   if (opts.listen === false)
     return { ...(await createCustomRuntime(opts.service, opts)), generatedSecrets: Object.freeze([]) };
   let runtime: CustomRuntime | undefined;
+  await assertPortFree(opts.hostname, opts.port ?? 4000);
   const server = serve({
     fetch: (request) => (runtime ? runtime.fetch(request) : Response.json({ error: "Starting" }, { status: 503 })),
     port: opts.port ?? 4000,
@@ -153,6 +155,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
   const loaded = await entry.load();
 
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
+  await assertPortFree(options.hostname, port);
   const httpServer = serve({
     fetch: (request) => (handler ? handler(request) : new Response("Starting", { status: 503 })),
     port,
