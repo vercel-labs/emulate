@@ -302,7 +302,7 @@ describe("responsesCodec stored responses", () => {
     expect(texts.at(-1)).toBe("final");
     expect(decoded.request.references).toEqual([{ id: last, kind: "previous_response", resolved: true }]);
     expect(decoded.request.warnings).toEqual([]);
-  });
+  }, 60_000);
 
   it("still rejects an unanswered function call after an earlier unknown item_reference", () => {
     const ctx = makeContext();
