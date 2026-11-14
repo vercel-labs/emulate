@@ -37,7 +37,8 @@ const keywords = new Set([
 ]);
 const types = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
 
-const PATTERN_BUDGET_MS = 250;
+const PATTERN_TIMEOUT_MS = 250;
+const PATTERN_CHECK_COST = 4;
 const patternSandbox = createContext({ pattern: "", value: "" });
 const patternTest = new Script(
   "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { regex = new RegExp(pattern); } return regex.test(value); })()",
@@ -101,7 +102,6 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
 
   let remaining = 4096;
   let characters = 262144;
-  let patternMs = PATTERN_BUDGET_MS;
   const seedLimit = 64;
   const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
 
@@ -215,18 +215,16 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
-  /** Tests a string against a client pattern inside one time budget per schema, so a pathological expression cannot stall the emulator. */
+  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget and capping each run at a constant timeout. */
   function patternMatches(pattern: Json, value: string, at: string): boolean {
     if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
-    if (patternMs <= 0) fail(`${at}.pattern`, "pattern checks exceed the time limit");
-    const started = performance.now();
+    remaining -= PATTERN_CHECK_COST - 1;
+    spend(`${at}.pattern`);
     try {
       Object.assign(patternSandbox, { pattern, value });
-      return patternTest.runInContext(patternSandbox, { timeout: Math.ceil(patternMs) }) === true;
+      return patternTest.runInContext(patternSandbox, { timeout: PATTERN_TIMEOUT_MS }) === true;
     } catch {
       fail(`${at}.pattern`, "expected a regular expression that evaluates within the time limit");
-    } finally {
-      patternMs -= performance.now() - started;
     }
   }
 
@@ -304,15 +302,53 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     return Object.fromEntries(Object.entries(node).filter(([key]) => key !== keyword));
   }
 
-  /** Adds the sibling keywords a branch does not set itself, so the sample honors both where they do not conflict. */
+  /** Intersects a branch with its sibling keywords, so the sample satisfies both where the sampler can express it. */
   function mergeSchema(branch: JsonSchema, rest: Record<string, Json>): JsonSchema {
     if (typeof branch === "boolean") return branch === false ? false : rest;
     const merged: Record<string, Json> = { ...rest, ...branch };
-    if (record(rest.properties) && record(branch.properties)) {
-      merged.properties = { ...rest.properties, ...branch.properties };
+    for (const key of ["maximum", "exclusiveMaximum", "maxLength", "maxItems"]) {
+      if (typeof rest[key] === "number" && typeof branch[key] === "number")
+        merged[key] = Math.min(rest[key], branch[key]);
+    }
+    for (const key of ["minimum", "exclusiveMinimum", "minLength", "minItems"]) {
+      if (typeof rest[key] === "number" && typeof branch[key] === "number")
+        merged[key] = Math.max(rest[key], branch[key]);
+    }
+    if (rest.type !== undefined && branch.type !== undefined) {
+      const left = (Array.isArray(rest.type) ? rest.type : [rest.type]) as string[];
+      const right = (Array.isArray(branch.type) ? branch.type : [branch.type]) as string[];
+      const types = new Set<string>();
+      for (const a of left) {
+        for (const b of right) {
+          if (a === b) types.add(a);
+          else if ((a === "integer" && b === "number") || (a === "number" && b === "integer")) types.add("integer");
+        }
+      }
+      if (!types.size) return false;
+      merged.type = types.size === 1 ? [...types][0] : [...types];
+    }
+    if (Object.hasOwn(rest, "const") && Object.hasOwn(branch, "const") && !equal(rest.const, branch.const))
+      return false;
+    if (Array.isArray(rest.enum) && Array.isArray(branch.enum)) {
+      merged.enum = branch.enum.filter((item) => (rest.enum as Json[]).some((other) => equal(item, other)));
     }
     if (Array.isArray(rest.required) && Array.isArray(branch.required)) {
       merged.required = [...new Set([...rest.required, ...branch.required])];
+    }
+    if (record(rest.properties) && record(branch.properties)) {
+      const properties: Record<string, Json> = { ...rest.properties, ...branch.properties };
+      for (const key of Object.keys(branch.properties)) {
+        const other = rest.properties[key];
+        if (Object.hasOwn(rest.properties, key) && record(other)) {
+          properties[key] = mergeSchema(branch.properties[key] as JsonSchema, other) as Json;
+        }
+      }
+      merged.properties = properties;
+    }
+    for (const key of ["items", "additionalProperties"]) {
+      if (record(rest[key]) && record(branch[key])) {
+        merged[key] = mergeSchema(branch[key] as JsonSchema, rest[key]) as Json;
+      }
     }
     return merged;
   }
@@ -511,7 +547,9 @@ export function defaultEvents(
   let event: ReplyEvent;
   if (turn.forcedTool) {
     const tool = turn.forcedTool;
-    const args = sampleSchema(tool.parameters ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
+    const parameters = tool.parameters;
+    const schema = record(parameters) && parameters.type === undefined ? { ...parameters, type: "object" } : parameters;
+    const args = sampleSchema(schema ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
     kind = "forced_tool";
     event = { type: "tool_call", id: makeId("call"), name: tool.name, arguments: JSON.stringify(args) };
   } else if (request.output) {

@@ -120,6 +120,17 @@ describe("requireAuth", () => {
     tokenMap.set("ok-token", { login: "alice", id: 1, scopes: [] });
   });
 
+  it("returns a JSON 401 on an app without an error handler", async () => {
+    const app = new Hono<AppEnv>();
+    app.use("*", requireAuth());
+    app.get("/protected", (c) => c.json({ ok: true }));
+
+    const res = await app.request("/protected");
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ message: "Requires authentication", documentation_url: "https://emulate.dev" });
+  });
+
   it("returns 401 when authUser is not set", async () => {
     const app = new Hono<AppEnv>();
     app.onError(createApiErrorHandler());
