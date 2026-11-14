@@ -547,7 +547,9 @@ export function defaultEvents(
   let event: ReplyEvent;
   if (turn.forcedTool) {
     const tool = turn.forcedTool;
-    const args = sampleSchema(tool.parameters ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
+    const parameters = tool.parameters;
+    const schema = record(parameters) && parameters.type === undefined ? { ...parameters, type: "object" } : parameters;
+    const args = sampleSchema(schema ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
     kind = "forced_tool";
     event = { type: "tool_call", id: makeId("call"), name: tool.name, arguments: JSON.stringify(args) };
   } else if (request.output) {

@@ -233,6 +233,16 @@ describe("defaultEvents kinds", () => {
 
   const makeId = (prefix: string) => `${prefix}_1`;
 
+  it("samples an object for forced tool parameters without a type", () => {
+    const schemas: JsonSchema[] = [{}, { properties: { q: { type: "string" } }, required: ["q"] }];
+    for (const parameters of schemas) {
+      const { events } = defaultEvents(base({ tools: [{ name: "ping", parameters }], toolChoice: "required" }), makeId);
+      const args = JSON.parse((events[0] as { arguments: string }).arguments);
+      expect(args).not.toBeNull();
+      expect(typeof args).toBe("object");
+    }
+  });
+
   it("reports the kind for each permissive default", () => {
     const tool = {
       name: "search",
