@@ -644,6 +644,11 @@ function toolArgumentSchema(tool: ToolDefinition): JsonSchema {
   return { ...rest, type: "object" };
 }
 
+/** The id prefix for a generated tool call: Anthropic's `toolu` on the Messages route, `call` elsewhere. */
+export function toolCallPrefix(request: AIRequest): string {
+  return request.format === "anthropic-messages" ? "toolu" : "call";
+}
+
 /** Answers a request no rule matched: a forced tool call, then structured output, a tool result or attachment acknowledgement, and last an echo. */
 export function defaultEvents(
   request: AIRequest,
@@ -656,7 +661,12 @@ export function defaultEvents(
     const tool = turn.forcedTool;
     const args = sampleSchema(toolArgumentSchema(tool), turn.text, `tools.${tool.name}.parameters`);
     kind = "forced_tool";
-    event = { type: "tool_call", id: makeId("call"), name: tool.name, arguments: JSON.stringify(args) };
+    event = {
+      type: "tool_call",
+      id: makeId(toolCallPrefix(request)),
+      name: tool.name,
+      arguments: JSON.stringify(args),
+    };
   } else if (request.output) {
     kind = request.output.kind;
     event = {

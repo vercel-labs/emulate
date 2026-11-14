@@ -230,6 +230,36 @@ describe("anthropic messages", () => {
     }
   });
 
+  it("generates toolu ids for tool calls and keeps an authored id", async () => {
+    const body = {
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [{ role: "user", content: "list files" }],
+      tools: [{ type: "bash_20250124", name: "bash" }],
+    };
+    const send = async (extra: object = {}, stream = false) => {
+      const response = await postMessages(JSON.stringify({ ...body, ...extra, stream }));
+      return stream ? await response.text() : ((await response.json()) as { content: { id?: string }[] });
+    };
+
+    const forced = (await send({ tool_choice: { type: "tool", name: "bash" } })) as { content: { id?: string }[] };
+    expect(forced.content[0].id).toMatch(/^toolu_\d+$/);
+
+    await setRules([
+      { id: "r", match: {}, reply: [{ type: "tool_call", name: "bash", arguments: { command: "ls" } }] },
+    ]);
+    const ruled = (await send()) as { content: { id?: string }[] };
+    expect(ruled.content[0].id).toMatch(/^toolu_\d+$/);
+    const streamed = (await send({}, true)) as string;
+    expect(streamed).toMatch(/"content_block":\{"type":"tool_use","id":"toolu_\d+"/);
+
+    await setRules([
+      { id: "r", match: {}, reply: [{ type: "tool_call", id: "call_mine", name: "bash", arguments: {} }] },
+    ]);
+    const authored = (await send()) as { content: { id?: string }[] };
+    expect(authored.content[0].id).toBe("call_mine");
+  });
+
   it("accepts a custom tool, a null type, and a tool with no type", async () => {
     for (const type of [undefined, null, "custom"]) {
       const response = await postMessages(
