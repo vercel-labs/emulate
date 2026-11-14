@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AiRequestError } from "../errors.js";
-import { inlineFilePart, redactedUrl, urlAttachment } from "../attachments.js";
+import { IMAGE_TYPES, inlineFilePart, redactedUrl, urlAttachment } from "../attachments.js";
 import { jsonChunks, payloadChunks } from "../chunks.js";
 import type { Codec, CodecContext, Decoded } from "../codec.js";
 import { assertSchemaSupported } from "../schema-dialects.js";
@@ -157,6 +157,13 @@ function decodeFile(block: Record<string, unknown>, path: string, kind: "image" 
   if (!isRecord(source)) fail("Expected a source object.", `${path}.source`);
   if (source.type === "base64") {
     const mediaType = requireString(source.media_type, `${path}.source.media_type`);
+    const allowed = kind === "image" ? IMAGE_TYPES.has(mediaType) : mediaType === "application/pdf";
+    if (!allowed) {
+      fail(
+        `Expected ${kind === "image" ? "image/jpeg, image/png, image/gif, or image/webp" : "application/pdf"}.`,
+        `${path}.source.media_type`,
+      );
+    }
     const data = requireString(source.data, `${path}.source.data`);
     return inlineFilePart(data, mediaType, `${path}.source.data`, MAX_INLINE_BYTES);
   }

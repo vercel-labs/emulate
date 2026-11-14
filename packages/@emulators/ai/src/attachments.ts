@@ -4,7 +4,7 @@ import { AiRequestError } from "./errors.js";
 
 const MAX_OPENAI_FILE_BYTES = 50_000_000;
 const MAX_OPENAI_IMAGE_BYTES = 512_000_000;
-const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
+export const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 const EXTENSION_TYPES: Record<string, string> = {
   csv: "text/csv",
   doc: "application/msword",

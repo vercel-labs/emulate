@@ -405,6 +405,27 @@ describe("anthropic messages", () => {
     });
   });
 
+  it("checks the media type of a base64 source against its block kind", async () => {
+    const image = (media_type: string, data = PNG) => ({ type: "image", source: { type: "base64", media_type, data } });
+    const document = (media_type: string) => ({ type: "document", source: { type: "base64", media_type, data: PDF } });
+    const send = (content: unknown) =>
+      postMessages(JSON.stringify({ model: "claude-opus-5-5", max_tokens: 64, messages: [{ role: "user", content }] }));
+
+    expect((await send([image("image/png")])).status).toBe(200);
+    expect((await send([document("application/pdf")])).status).toBe(200);
+
+    const pdfImage = await send([image("application/pdf")]);
+    expect(pdfImage.status).toBe(400);
+    expect(await pdfImage.json()).toMatchObject({ error: { type: "invalid_request_error" } });
+    expect((await send([image("text/plain")])).status).toBe(400);
+    expect((await send([document("image/png")])).status).toBe(400);
+
+    const nested = await send([
+      { type: "tool_result", tool_use_id: "toolu_1", content: [image("application/pdf"), document("application/pdf")] },
+    ]);
+    expect(nested.status).toBe(400);
+  });
+
   it("accepts every document source type", async () => {
     const sources: DocumentBlockParam["source"][] = [
       { type: "base64", media_type: "application/pdf", data: PDF },
