@@ -20,6 +20,7 @@ interface ResponseBody {
   reasoning: { effort?: string | null; summary?: string | null };
   previous_response_id: string | null;
   usage?: { total_tokens: number };
+  metadata?: Record<string, string>;
   text: unknown;
 }
 
@@ -150,6 +151,23 @@ describe("responsesCodec.decode validation", () => {
     expect(error.message).toBe("Invalid value: 'sometimes'. Supported values are: 'auto' and 'disabled'.");
     expect(error.param).toBe("truncation");
     expect(error.code).toBe("invalid_value");
+  });
+
+  it("enforces the metadata limits", () => {
+    const pairs = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, n) => [`k${n}`, "v"]));
+    const ok = { [`k`.repeat(64)]: "v".repeat(512), ...pairs(15) };
+    const { ctx, decoded } = decodedOf({ ...baseBody, metadata: ok });
+    expect(encode(decoded, ctx, [{ type: "text", text: "hi" }]).metadata).toEqual(ok);
+    for (const metadata of [pairs(17), { ["k".repeat(65)]: "v" }, { a: "v".repeat(513) }, { a: 1 }]) {
+      expect(decodeError({ ...baseBody, metadata }).param).toMatch(/^metadata/);
+    }
+  });
+
+  it("warns when a tool call receives two outputs", () => {
+    const call = { type: "function_call", call_id: "call_a", name: "f", arguments: "{}" };
+    const output = { type: "function_call_output", call_id: "call_a", output: "x" };
+    const { decoded } = decodedOf({ ...baseBody, input: [call, output, output] });
+    expect(decoded.request.warnings).toEqual(['Duplicate tool output for "call_a"; keeping both outputs.']);
   });
 
   it("echoes only validated text options", () => {
