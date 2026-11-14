@@ -77,6 +77,93 @@ describe("createEmulator", () => {
     await github.close();
   });
 
+  it("snapshot and restore round-trip the store", async () => {
+    const github = await createEmulator({
+      service: "github",
+      port: 14100,
+      seed: { github: { users: [{ login: "test-user" }] } },
+    });
+    const createRepo = (name: string) =>
+      fetch(`${github.url}/user/repos`, {
+        method: "POST",
+        headers: { Authorization: "token test_token_admin", "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+    const repoNames = async () => {
+      const res = await fetch(`${github.url}/user/repos`, { headers: { Authorization: "token test_token_admin" } });
+      return ((await res.json()) as { name: string }[]).map((repo) => repo.name).sort();
+    };
+
+    expect((await createRepo("kept")).status).toBe(201);
+    const snapshot = github.snapshot();
+    expect(snapshot).toMatchObject({ formatVersion: 1, service: "github" });
+    expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
+
+    expect((await createRepo("dropped")).status).toBe(201);
+    expect(await repoNames()).toEqual(["dropped", "kept"]);
+
+    github.restore(snapshot);
+    expect(await repoNames()).toEqual(["kept"]);
+
+    // The snapshot is a copy: restoring it twice gives the same state, and later
+    // writes do not leak into it.
+    expect((await createRepo("again")).status).toBe(201);
+    github.restore(snapshot);
+    expect(await repoNames()).toEqual(["kept"]);
+
+    await github.close();
+  });
+
+  it("restore brings back tokens minted at run time", async () => {
+    const github = await createEmulator({
+      service: "github",
+      port: 14101,
+      seed: {
+        github: {
+          users: [{ login: "octocat" }],
+          orgs: [{ login: "acme" }],
+          repos: [{ owner: "acme", name: "private-repo", private: true }],
+          apps: [
+            {
+              app_id: 910,
+              slug: "snapshot-app",
+              name: "Snapshot App",
+              installations: [{ installation_id: 911, account: "acme" }],
+            },
+          ],
+        },
+      },
+    });
+    const privateKey = github.generatedSecrets[0]!.value;
+    const minted = await createInstallationToken(github.url, "910", 911, privateKey);
+    const token = ((await minted.json()) as { token: string }).token;
+    const readPrivateRepo = async () =>
+      (await fetch(`${github.url}/repos/acme/private-repo`, { headers: { Authorization: `Bearer ${token}` } })).status;
+    expect(await readPrivateRepo()).toBe(200);
+
+    const snapshot = github.snapshot();
+    expect(snapshot.tokens.map((entry) => entry.token)).toContain(token);
+
+    github.reset();
+    expect(await readPrivateRepo()).toBe(403);
+
+    github.restore(snapshot);
+    expect(await readPrivateRepo()).toBe(200);
+
+    await github.close();
+  });
+
+  it("refuses a snapshot from another service", async () => {
+    const [github, vercel] = await Promise.all([
+      createEmulator({ service: "github", port: 14102 }),
+      createEmulator({ service: "vercel", port: 14103 }),
+    ]);
+
+    expect(() => github.restore(vercel.snapshot())).toThrow(/Incompatible snapshot for github/);
+
+    await Promise.all([github.close(), vercel.close()]);
+  });
+
   it("generates a GitHub App key once and keeps it across reset", async () => {
     const github = await createEmulator({
       service: "github",
