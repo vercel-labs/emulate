@@ -117,6 +117,7 @@ AI API coverage:
   and to http://localhost:<port> for @anthropic-ai/sdk.
   Any model id and any API key are accepted; keys are never required, stored, or logged.
   Control calls, rules, and reset at /_ai/calls, /_ai/rules, and /_ai/reset; inspect at /.
+  In a project config with services, the seed goes under services.<name>.seed, not a top-level ai block.
   Docs: https://emulate.dev/docs/ai
 
 Microsoft OAuth coverage:
