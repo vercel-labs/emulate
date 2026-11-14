@@ -151,6 +151,15 @@ describe("responsesCodec.decode validation", () => {
     expect(error.code).toBe("invalid_value");
   });
 
+  it("validates text.verbosity", () => {
+    const error = decodeError({ ...baseBody, text: { verbosity: "loud" } });
+    expect(error.message).toBe("Invalid value: 'loud'. Supported values are: 'low', 'medium', and 'high'.");
+    expect(error.param).toBe("text.verbosity");
+    for (const verbosity of ["low", "medium", "high"]) {
+      expect(() => decodedOf({ ...baseBody, text: { verbosity } })).not.toThrow();
+    }
+  });
+
   it("marks a refusal item incomplete when the reply finishes with length", () => {
     const { ctx, decoded } = decodedOf();
     const body = encode(decoded, ctx, [{ type: "refusal", text: "no" }], "length");

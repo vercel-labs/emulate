@@ -339,6 +339,7 @@ function decodeToolChoice(raw: unknown): { choice: AiToolChoice; wire: WireToolC
 function decodeOutput(raw: unknown): OutputSpec | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!isRecord(raw)) invalid("Expected an object for 'text'.", "text");
+  optionalEnum(raw.verbosity, "text.verbosity", ["low", "medium", "high"] as const);
   const format = raw.format;
   if (format === undefined || format === null) return undefined;
   if (!isRecord(format)) invalid("Expected an object for 'text.format'.", "text.format");
