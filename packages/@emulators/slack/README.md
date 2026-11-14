@@ -24,6 +24,8 @@ npm install @emulators/slack
 - `POST /api/chat.scheduledMessages.list` — list pending scheduled messages
 - `POST /api/chat.meMessage` — /me message
 
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` accept `markdown_text` in place of `text`. The emulator stores the Markdown source as the message `text` and adds no blocks, since Slack doesn't document how it reads such a message back. Sending `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`, and an empty `markdown_text` counts as no text. Slack's 12,000-character limit for `markdown_text` is not enforced.
+
 ### Conversations
 - `POST /api/conversations.list` — list conversations (cursor pagination, `types`, `exclude_archived`)
 - `POST /api/conversations.info` — get channel info
