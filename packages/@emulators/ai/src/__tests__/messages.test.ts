@@ -731,6 +731,66 @@ describe("anthropic messages", () => {
     expect(body.request_id).toBe("req_from_rule");
   });
 
+  it("renders every non-codec error on the Messages path family in Anthropic's shape", async () => {
+    const cases: Array<{
+      method: string;
+      path: string;
+      headers?: Record<string, string>;
+      status: number;
+      type: string;
+    }> = [
+      { method: "POST", path: "/v1/messages/count_tokens", status: 404, type: "not_found_error" },
+      { method: "GET", path: "/v1/messages", status: 404, type: "not_found_error" },
+      { method: "DELETE", path: "/v1/messages", status: 404, type: "not_found_error" },
+      { method: "POST", path: "/v1/messages/", status: 404, type: "not_found_error" },
+      {
+        method: "GET",
+        path: "/v1/other",
+        headers: { "anthropic-version": "2023-06-01" },
+        status: 404,
+        type: "not_found_error",
+      },
+      {
+        method: "GET",
+        path: "/v1/messages",
+        headers: { origin: "https://example.com" },
+        status: 403,
+        type: "permission_error",
+      },
+    ];
+    for (const item of cases) {
+      const response = await fetch(`${origin}${item.path}`, { method: item.method, headers: item.headers });
+      expect(response.status).toBe(item.status);
+      expect(response.headers.get("request-id")).toMatch(/^req_/);
+      expect(await response.json()).toMatchObject({ type: "error", error: { type: item.type } });
+    }
+    const openai = await fetch(`${origin}/v1/other`, { method: "GET" });
+    expect(await openai.json()).toMatchObject({ error: { type: "invalid_request_error", code: "unsupported_path" } });
+
+    const malformed = await postMessages("{");
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({ type: "error", error: { type: "invalid_request_error" } });
+  });
+
+  it("renders injected rule errors with the Anthropic error type for their status", async () => {
+    for (const [status, type] of [
+      [401, "authentication_error"],
+      [403, "permission_error"],
+      [404, "not_found_error"],
+      [413, "request_too_large"],
+      [429, "rate_limit_error"],
+      [500, "api_error"],
+      [529, "overloaded_error"],
+    ] as const) {
+      await setRules([{ id: "boom", match: {}, error: { status, message: "boom" } }]);
+      const response = await postMessages(
+        JSON.stringify({ model: "m", max_tokens: 8, messages: [{ role: "user", content: "x" }] }),
+      );
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject({ type: "error", error: { type, message: "boom" } });
+    }
+  });
+
   it("requires max_tokens", async () => {
     const response = await fetch(`${origin}/v1/messages`, {
       method: "POST",

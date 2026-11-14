@@ -58,6 +58,21 @@ const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
   { suffix: "/messages", codec: messagesCodec },
 ];
 
+const MESSAGES_FAMILY = /(?:^|\/)messages(?:\/|$)/;
+
+/** The codec whose error shape a request outside the generation routes gets: the Messages route family, or any request carrying `anthropic-version`. */
+function errorCodecOf(path: string, anthropicVersion: string | undefined): Codec | undefined {
+  if (path === "/_ai" || path.startsWith("/_ai/")) return undefined;
+  return MESSAGES_FAMILY.test(path) || anthropicVersion !== undefined ? messagesCodec : undefined;
+}
+
+function internalFailure(error: unknown): HttpFailure {
+  const status =
+    typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 500;
+  if (status >= 500) console.error("[ai]", error);
+  return { status, message: error instanceof Error ? error.message : "Internal Server Error" };
+}
+
 const MAX_SEEN_MODELS = 1000;
 
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
@@ -72,7 +87,14 @@ export function registerAiRoutes({ app, store, baseUrl }: AiRoutesOptions): void
       await next();
       return;
     }
-    return handleRequest(c, store, expectedOrigin);
+    try {
+      return await handleRequest(c, store, expectedOrigin);
+    } catch (error) {
+      const codec = errorCodecOf(c.req.path, c.req.header("anthropic-version"));
+      if (!codec) throw error;
+      const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
+      return errorResponse(codec, failure, getAiState(store).callSeq + 1);
+    }
   });
 }
 
@@ -104,13 +126,11 @@ async function handleRequest(c: Context<AppEnv>, store: Store, expectedOrigin: s
   }
 
   if (caller === "foreign") {
-    return c.json(
-      aiErrorBody(
-        403,
-        "Requests from other websites are not allowed on AI data routes. Call the emulator from a server, from its own origin, or from a page served on this machine.",
-      ),
-      403,
-    );
+    const foreign =
+      "Requests from other websites are not allowed on AI data routes. Call the emulator from a server, from its own origin, or from a page served on this machine.";
+    if (errorCodecOf(path, c.req.header("anthropic-version")))
+      throw new AiRequestError(foreign, undefined, undefined, 403);
+    return c.json(aiErrorBody(403, foreign), 403);
   }
 
   if (method === "POST") {
