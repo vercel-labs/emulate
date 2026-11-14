@@ -54,10 +54,10 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   const renderError = async (err: unknown, c: Context<AppEnv>) => {
     if (!plugin.formatError) return defaultErrorHandler(err, c);
     try {
-      return await plugin.formatError(err, c, errorStatus(err));
-    } catch {
-      return defaultErrorHandler(err, c);
-    }
+      const response: unknown = await plugin.formatError(err, c, errorStatus(err));
+      if (response instanceof Response) return response;
+    } catch {}
+    return defaultErrorHandler(err, c);
   };
   app.onError(renderError);
   app.use("*", cors());

@@ -95,6 +95,22 @@ describe("sampleSchema siblings next to composition keywords", () => {
     expect(sampleSchema(schema, "hello")).toBe(7);
   });
 
+  it("intersects sibling multipleOf next to $ref", () => {
+    const target = { type: "integer", multipleOf: 3, minimum: 1 } as const;
+    const schema: JsonSchema = { multipleOf: 2, $ref: "#/$defs/n", $defs: { n: target } };
+    expect(sampleSchema(schema, "hello")).toBe(6);
+    const bounded: JsonSchema = { ...schema, $defs: { n: { ...target, maximum: 5 } } };
+    expect(thrown(() => sampleSchema(bounded, "hello")).message).toContain("constraints do not permit");
+  });
+
+  it("rejects different sibling formats and keeps equal ones", () => {
+    const defs = (format: string): Record<string, JsonSchema> => ({ p: { type: "string", format } });
+    const clash: JsonSchema = { format: "email", $ref: "#/$defs/p", $defs: defs("uuid") };
+    expect(thrown(() => sampleSchema(clash, "hello")).message).toContain("permits no value");
+    const same: JsonSchema = { format: "email", $ref: "#/$defs/p", $defs: defs("email") };
+    expect(sampleSchema(same, "hello")).toBe("user@example.com");
+  });
+
   it("intersects sibling types and enums next to $ref", () => {
     const schema: JsonSchema = {
       type: "number",
@@ -206,10 +222,29 @@ describe("sampleSchema patterns", () => {
     expect(Object.keys(sampleSchema(schema, "seed") as object)).toHaveLength(100);
   });
 
+  it("pays the pattern timeout once when every anyOf branch is catastrophic", () => {
+    const branch: JsonSchema = { type: "string", pattern: "^(a+)+$", enum: [`${"a".repeat(40)}!`] };
+    const schema: JsonSchema = {
+      type: "object",
+      properties: { p: { anyOf: Array(30).fill(branch) } },
+      required: ["p"],
+    };
+    const started = performance.now();
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.param).toBe("schema.properties.p.anyOf[0].pattern");
+    expect(error.message).toContain("exceeds the time limit");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("rejects an invalid pattern with its own path", () => {
     const schema: JsonSchema = { type: "string", pattern: "(", enum: ["a"] };
     const error = thrown(() => sampleSchema(schema, "seed"));
     expect(error.param?.endsWith(".pattern")).toBe(true);
+  });
+
+  it("reports a syntax error apart from a timeout", () => {
+    const schema: JsonSchema = { type: "string", pattern: "([", enum: ["a"] };
+    expect(thrown(() => sampleSchema(schema, "seed")).message).toContain("not a valid regular expression");
   });
 });
 
@@ -233,13 +268,30 @@ describe("defaultEvents kinds", () => {
 
   const makeId = (prefix: string) => `${prefix}_1`;
 
-  it("samples an object for forced tool parameters without a type", () => {
-    const schemas: JsonSchema[] = [{}, { properties: { q: { type: "string" } }, required: ["q"] }];
+  it("samples an object for forced tool parameters that allow one", () => {
+    const schemas: JsonSchema[] = [
+      {},
+      true,
+      { nullable: true },
+      { type: ["null", "object"] },
+      { properties: { q: { type: "string" } }, required: ["q"] },
+    ];
     for (const parameters of schemas) {
       const { events } = defaultEvents(base({ tools: [{ name: "ping", parameters }], toolChoice: "required" }), makeId);
       const args = JSON.parse((events[0] as { arguments: string }).arguments);
       expect(args).not.toBeNull();
       expect(typeof args).toBe("object");
+      expect(Array.isArray(args)).toBe(false);
+    }
+  });
+
+  it("rejects forced tool parameters that cannot be an object", () => {
+    const schemas: JsonSchema[] = [false, { type: "string" }, { type: "array" }, { type: "null" }, { enum: [1, 2] }];
+    for (const parameters of schemas) {
+      const error = thrown(() =>
+        defaultEvents(base({ tools: [{ name: "ping", parameters }], toolChoice: "required" }), makeId),
+      );
+      expect(error.param?.startsWith("tools.ping.parameters")).toBe(true);
     }
   });
 
