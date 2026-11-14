@@ -21,15 +21,19 @@ import { eventRetryRoutes } from "./routes/event-retries.js";
 import { interactionRoutes } from "./routes/interactions.js";
 import { slackRequestHeaders } from "./signing.js";
 import { inspectorRoutes } from "./routes/inspector.js";
+import { samlRoutes } from "./routes/saml.js";
+import { seedSamlConfig, type SlackSamlSeedConfig } from "./saml.js";
 
 export { getSlackStore, type SlackStore } from "./store.js";
 export * from "./entities.js";
+export type { SlackSamlSeedConfig, SlackSsoRequirement } from "./saml.js";
 
 export interface SlackSeedConfig {
   port?: number;
   team?: {
     name?: string;
     domain?: string;
+    saml?: SlackSamlSeedConfig;
   };
   users?: Array<{
     name: string;
@@ -38,6 +42,9 @@ export interface SlackSeedConfig {
     real_name?: string;
     email?: string;
     is_admin?: boolean;
+    is_owner?: boolean;
+    is_restricted?: boolean;
+    is_ultra_restricted?: boolean;
     profile?: Partial<SlackUserProfile>;
     presence?: SlackPresence;
   }>;
@@ -215,6 +222,10 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
     }
   }
 
+  if (config.team?.saml) {
+    seedSamlConfig(store, config.team.saml);
+  }
+
   const team = ss.teams.all()[0];
   const teamId = team?.team_id ?? "T000000001";
 
@@ -242,6 +253,9 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
         real_name: profile.real_name,
         email: profile.email,
         is_admin: u.is_admin ?? false,
+        ...(u.is_owner !== undefined ? { is_owner: u.is_owner } : {}),
+        ...(u.is_restricted !== undefined ? { is_restricted: u.is_restricted } : {}),
+        ...(u.is_ultra_restricted !== undefined ? { is_ultra_restricted: u.is_ultra_restricted } : {}),
         is_bot: false,
         deleted: false,
         profile,
@@ -432,6 +446,7 @@ export const slackPlugin: ServicePlugin = {
     viewsRoutes(ctx);
     interactionRoutes(ctx);
     eventRetryRoutes(ctx);
+    samlRoutes(ctx);
     inspectorRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {

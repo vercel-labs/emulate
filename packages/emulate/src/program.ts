@@ -137,6 +137,12 @@ Slack interactivity:
   Modal acknowledgements can close, clear, update, push, or show errors. Triggers expire in 3 seconds by default;
   slack.view_trigger_ttl_seconds can extend their lifetime for local tests.
 
+Slack SAML single sign-on:
+  Set slack.team.saml (endpoint_url, idp_issuer, public_certificate, sso_requirement) to sign members in with SAML.
+  GET /sso/saml/start posts an AuthnRequest; POST /sso/saml validates the signed response and opens a web session.
+  The identity provider uses the ACS <base URL>/sso/saml and the audience https://slack.com.
+  With SSO required, /oauth/v2/authorize authorizes the member signed in with SAML; owners may sign in without SSO.
+
 Slack app lifecycle:
   POST /api/apps.uninstall accepts client_id, client_secret, and a user token or configured development token.
   It revokes the app's OAuth credentials in that workspace and emits app_uninstalled and tokens_revoked.

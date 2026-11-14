@@ -1167,6 +1167,38 @@ A button payload's `response_url` accepts JSON without a bearer token, up to fiv
 
 A modal receiver must acknowledge within three seconds. An empty HTTP 200 closes the submitted view, while `response_action: "clear"` closes its stack. `errors` retains the view and returns block errors; `update` replaces its contents; `push` adds a new view subject to the three-view limit. Delivery failures and invalid acknowledgements leave the modal open. Shortcuts, slash commands, non-button actions, `view_closed`, and `block_suggestion` are not simulated.
 
+### SAML single sign-on
+
+Set `slack.team.saml` to sign members in through a SAML identity provider, with the settings of Slack's SSO page:
+
+```yaml
+slack:
+  team:
+    domain: acme
+    saml:
+      endpoint_url: http://localhost:4100/app/acme_slack/exk1/sso/saml # SAML 2.0 Endpoint URL
+      idp_issuer: http://www.okta.com/exk1 # Identity Provider Issuer URL
+      public_certificate: "-----BEGIN CERTIFICATE-----\n..." # x.509 Certificate
+      responses_signed: true # default
+      assertions_signed: false # default
+      sso_requirement: required # required, required_except_guests, or optional (default)
+  users:
+    - name: olivia
+      email: olivia@acme.test
+      is_owner: true
+    - name: gina
+      email: gina@acme.test
+      is_restricted: true
+```
+
+The workspace's `https://<domain>.slack.com` URLs are served on the emulator's base URL. Configure the identity provider with the SSO post-back URL `<base URL>/sso/saml` (HTTP POST binding) and the entity ID and audience `https://slack.com`.
+
+- `GET /sso/saml/start?redir=<path>` (or a POST with `redir`) starts service provider initiated sign-in: it posts an AuthnRequest to `endpoint_url` with the HTTP-POST binding, and `redir` as `RelayState` when it is a path on the emulator's own origin.
+- `POST /sso/saml` accepts the SAML response, service provider or identity provider initiated. The Response must be signed by the configured certificate (`responses_signed`), the assertion too when `assertions_signed` is set, and at least one of them always. The emulator checks the issuer, `Destination` and `Recipient` (the ACS URL), the `https://slack.com` audience, the `NotOnOrAfter` that the bearer `SubjectConfirmationData` must carry, the conditions window, a persistent NameID (its `NameQualifier` and `SPNameQualifier`, when sent, must be `<domain>.slack.com` and `https://slack.com`), the `InResponseTo` of a pending request, and refuses a replayed assertion. Refusals are HTML pages with Slack's error messages: `400` for a malformed response or one not sent with POST, `403` otherwise.
+- The persistent NameID is linked on first sign-in to the member whose email is `User.Email`. An unknown email creates a member Just In Time, named from `User.Username` (or the email's local part), with `first_name` and `last_name`. A successful sign-in sets the `_emu_slack_session` cookie and redirects to the requested page when it is a path on the emulator's own origin.
+
+`sso_requirement` controls `/oauth/v2/authorize`. A browser signed in with SAML authorizes as its member. Otherwise the page offers SAML sign-in and only the members allowed to sign in without SSO: everyone when SSO is optional, Workspace Owners (`is_owner`) always, and guests (`is_restricted` or `is_ultra_restricted`) when SSO is required except for guests. The callback refuses other members with `403`. Single Logout, session duration, encrypted assertions, Sign AuthnRequest, and SCIM are not simulated.
+
 ### OAuth
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /oauth/v2/authorize/callback` - local user picker callback that creates the auth code
