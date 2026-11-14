@@ -284,6 +284,17 @@ describe("responsesCodec stored responses", () => {
     expect(decoded.request.warnings).toEqual([]);
   });
 
+  it("shares replayed message objects between requests", () => {
+    const ctx = makeContext();
+    const id = storeTurn(ctx, "First question");
+
+    const first = responsesCodec.decode({ model: "gpt-x", input: "a", previous_response_id: id }, ctx);
+    const second = responsesCodec.decode({ model: "gpt-x", input: "b", previous_response_id: id }, ctx);
+
+    expect(second.request.messages[0]).toBe(first.request.messages[0]);
+    expect(second.request.messages[1]).toBe(first.request.messages[1]);
+  });
+
   it("keeps the whole conversation after the oldest stored responses are evicted", () => {
     const ctx = makeContext();
     let last = "";

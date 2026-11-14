@@ -514,6 +514,17 @@ function storedOutputMessages(items: Json[]): Message[] {
   return messages;
 }
 
+const MESSAGE_CACHE = new WeakMap<StoredResponse, { input: Json[]; output: Json[]; messages: Message[] }>();
+
+/** Decodes a stored response once and returns the same message objects on every replay, so recorded calls share them. */
+function storedMessages(entry: StoredResponse): Message[] {
+  const cached = MESSAGE_CACHE.get(entry);
+  if (cached && cached.input === entry.inputItems && cached.output === entry.outputItems) return cached.messages;
+  const messages = [...decodeStoredMessages(entry.inputItems), ...storedOutputMessages(entry.outputItems)];
+  MESSAGE_CACHE.set(entry, { input: entry.inputItems, output: entry.outputItems, messages });
+  return messages;
+}
+
 interface ReplayedHistory {
   messages: Message[];
   gaps: number[];
@@ -546,8 +557,7 @@ function replayStoredHistory(state: AiState, id: string): ReplayedHistory | unde
   const itemIds = new Set<string>();
   for (const entry of chain.reverse()) {
     const base = messages.length;
-    for (const message of decodeStoredMessages(entry.inputItems)) messages.push(message);
-    for (const message of storedOutputMessages(entry.outputItems)) messages.push(message);
+    for (const message of storedMessages(entry)) messages.push(message);
     for (const gap of entry.gaps ?? []) gaps.push(base + gap);
     for (const item of entry.outputItems) {
       if (isRecord(item) && typeof item.id === "string") itemIds.add(item.id);
