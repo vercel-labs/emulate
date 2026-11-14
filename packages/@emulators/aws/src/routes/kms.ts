@@ -60,7 +60,14 @@ export function createKmsKey(
 
 export function createKmsAlias(aws: AwsStore, key: KmsKey, name: string): void {
   const aliasName = name.startsWith("alias/") ? name : `alias/${name}`;
-  if (aws.kmsAliases.findOneBy("alias_name", aliasName)) return;
+  const existing = aws.kmsAliases.findOneBy("alias_name", aliasName);
+  if (existing) {
+    // KMS refuses to reuse an alias name (AlreadyExistsException), so a seed cannot repoint one.
+    if (existing.target_key_id !== key.key_id) {
+      throw new Error(`KMS alias ${aliasName} already points at key ${existing.target_key_id}`);
+    }
+    return;
+  }
   aws.kmsAliases.insert({
     alias_name: aliasName,
     alias_arn: key.arn.replace(/:key\/.*$/, `:${aliasName}`),

@@ -1265,6 +1265,22 @@ describe("AWS plugin - KMS", () => {
     expect(() => seedFromConfig(store, base, { kms: { keys: [{ key_id: "my-key" }] } })).toThrow(/UUID/);
   });
 
+  it("refuses to seed an alias that already points at another key", () => {
+    const { store } = createTestApp();
+    const aliases = getAwsStore(store).kmsAliases;
+    const defaultKeyId = aliases.findOneBy("alias_name", "alias/emulate-default")!.target_key_id;
+    expect(() =>
+      seedFromConfig(store, base, { kms: { keys: [{ key_id: keyId, aliases: ["alias/emulate-default"] }] } }),
+    ).toThrow(`KMS alias alias/emulate-default already points at key ${defaultKeyId}`);
+    expect(aliases.findOneBy("alias_name", "alias/emulate-default")!.target_key_id).toBe(defaultKeyId);
+
+    // Seeding the same key and alias again is not a conflict.
+    const config = { kms: { keys: [{ key_id: keyId, aliases: ["alias/app-key"] }] } };
+    seedFromConfig(store, base, config);
+    expect(() => seedFromConfig(store, base, config)).not.toThrow();
+    expect(aliases.findOneBy("alias_name", "alias/app-key")!.target_key_id).toBe(keyId);
+  });
+
   it("rejects an unknown operation", async () => {
     const res = await kms("ScheduleKeyDeletion", { KeyId: keyId });
     expect(res.status).toBe(400);
