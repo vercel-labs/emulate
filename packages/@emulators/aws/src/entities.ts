@@ -63,3 +63,18 @@ export interface IamRole extends Entity {
   assume_role_policy_document: string;
   description: string;
 }
+
+export interface KmsKey extends Entity {
+  key_id: string;
+  arn: string;
+  description: string;
+  /** Base64 AES-256 key material that encrypts this key's ciphertext blobs. */
+  key_material: string;
+  key_material_id: string;
+}
+
+export interface KmsAlias extends Entity {
+  alias_name: string;
+  alias_arn: string;
+  target_key_id: string;
+}
