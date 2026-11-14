@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { closeHttpServer, createEmulator, defineEmulator, waitForListening } from "../api.js";
+import { resolveBaseUrl } from "../base-url.js";
 import { startCommand } from "../commands/start.js";
 import { prepareProject } from "../project-runner.js";
 
@@ -111,5 +112,26 @@ describe.each([
         if (!beforeSigterm.includes(listener)) process.removeListener("SIGTERM", listener);
       }
     }
+  });
+});
+
+describe("advertised host", () => {
+  it.each([
+    [undefined, "http://localhost:4000"],
+    ["127.0.0.1", "http://localhost:4000"],
+    ["localhost", "http://localhost:4000"],
+    ["::1", "http://localhost:4000"],
+    ["0.0.0.0", "http://localhost:4000"],
+    ["::", "http://localhost:4000"],
+    ["192.168.0.21", "http://192.168.0.21:4000"],
+    ["fd00::5", "http://[fd00::5]:4000"],
+  ])("resolves %s", (hostname, expected) => {
+    expect(resolveBaseUrl({ service: "github", port: 4000, hostname })).toBe(expected);
+  });
+
+  it("keeps an explicit base URL over the listening host", () => {
+    expect(resolveBaseUrl({ service: "github", port: 4000, hostname: "192.168.0.21", baseUrl: "http://x.test" })).toBe(
+      "http://x.test",
+    );
   });
 });

@@ -90,7 +90,12 @@ export async function createEmulator(
     await waitForListening(server);
     const address = server.address();
     const port = address && typeof address === "object" ? address.port : (opts.port ?? 4000);
-    const baseUrl = resolveBaseUrl({ service: opts.service.name, port, baseUrl: opts.baseUrl });
+    const baseUrl = resolveBaseUrl({
+      service: opts.service.name,
+      port,
+      baseUrl: opts.baseUrl,
+      hostname: opts.hostname,
+    });
     runtime = await createCustomRuntime(opts.service, { ...opts, baseUrl });
     let closing: Promise<void> | undefined;
     return {
@@ -184,7 +189,13 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
       typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
         ? svcSeedConfig.baseUrl
         : undefined;
-    const baseUrl = resolveBaseUrl({ service, port: actualPort, baseUrl: options.baseUrl, seedBaseUrl });
+    const baseUrl = resolveBaseUrl({
+      service,
+      port: actualPort,
+      baseUrl: options.baseUrl,
+      seedBaseUrl,
+      hostname: options.hostname,
+    });
 
     // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;
