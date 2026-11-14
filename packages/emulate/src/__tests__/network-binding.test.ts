@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { Server } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -115,7 +115,21 @@ describe.each([
   });
 });
 
+const networkAddress = Object.values(networkInterfaces())
+  .flat()
+  .find((entry) => entry?.family === "IPv4" && !entry.internal)?.address;
+
 describe("advertised host", () => {
+  it.skipIf(!networkAddress)("advertises a specific listening address through createEmulator", async () => {
+    const emulator = await createEmulator({ service: "resend", port: 0, hostname: networkAddress });
+    try {
+      expect(new URL(emulator.url).hostname).toBe(networkAddress);
+      expect((await fetch(`${emulator.url}/inbox`)).status).toBe(200);
+    } finally {
+      await emulator.close();
+    }
+  });
+
   it.each([
     [undefined, "http://localhost:4000"],
     ["127.0.0.1", "http://localhost:4000"],
