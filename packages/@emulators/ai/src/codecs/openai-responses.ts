@@ -522,7 +522,8 @@ function replayStoredHistory(state: AiState, id: string): ReplayedHistory | unde
   }
   const messages: Message[] = [];
   for (const entry of chain.reverse()) {
-    messages.push(...decodeStoredMessages(entry.inputItems), ...storedOutputMessages(entry.outputItems));
+    for (const message of decodeStoredMessages(entry.inputItems)) messages.push(message);
+    for (const message of storedOutputMessages(entry.outputItems)) messages.push(message);
   }
   return {
     messages,
