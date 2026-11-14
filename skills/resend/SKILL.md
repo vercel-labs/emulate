@@ -342,7 +342,7 @@ Webhooks can also be seeded. Without `events`, a seeded webhook subscribes to ev
 resend:
   webhooks:
     - endpoint: http://localhost:3000/api/webhooks/resend
-      signing_secret: whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
+      signing_secret: whsec_emulateTestSecretDoNotUseInProd0
 ```
 
 ## Common Patterns

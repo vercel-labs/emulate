@@ -75,7 +75,7 @@ resend:
   webhooks:
     - endpoint: http://localhost:3000/api/webhooks/resend
       events: [email.sent, email.delivered]
-      signing_secret: whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw
+      signing_secret: whsec_emulateTestSecretDoNotUseInProd0
 ```
 
 Without `events`, a seeded webhook subscribes to every event the emulator sends. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts; read it with `GET /webhooks/:id`.

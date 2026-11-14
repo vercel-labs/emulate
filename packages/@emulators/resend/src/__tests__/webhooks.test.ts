@@ -7,6 +7,8 @@ import { getResendStore, resendPlugin, seedFromConfig, type ResendSeedConfig } f
 import { svixSignature } from "../webhooks.js";
 
 const base = "http://localhost:4000";
+// A made-up signing secret. The part after whsec_ is valid base64 for a 24-byte key.
+const exampleSecret = "whsec_emulateTestSecretDoNotUseInProd0";
 
 interface Received {
   path: string;
@@ -75,14 +77,15 @@ function verifySvix(secret: string, delivery: Received): boolean {
 }
 
 describe("Resend webhook signatures", () => {
-  it("matches the Svix example signature", () => {
+  it("signs with the Svix scheme", () => {
+    // Expected value computed with the svix library's Webhook.sign for the same inputs.
     const signature = svixSignature(
-      "whsec_plJ3nmyCDGBKInavdOK15jsl",
-      "msg_loFOjxBNrRLzqYUf",
-      "1731705121",
+      exampleSecret,
+      "msg_emulateExampleDelivery",
+      "1767225600",
       '{"event_type":"ping","data":{"success":true}}',
     );
-    expect(signature).toBe("v1,rAvfW3dJ/X/qxhsaXPOyyCGmRKsaKWcsNccKXlIktD0=");
+    expect(signature).toBe("v1,eojTRJNaE5ax1s5imPnr3B/GTzgMVqPlB67pBOo03kA=");
   });
 });
 
@@ -200,11 +203,12 @@ describe("Resend webhook delivery", () => {
 
 describe("Resend seeded webhooks", () => {
   it("registers seeded webhooks with an explicit signing secret", async () => {
-    const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
-    const server = setup({ webhooks: [{ endpoint: receiverUrl, events: ["email.sent"], signing_secret: secret }] });
+    const server = setup({
+      webhooks: [{ endpoint: receiverUrl, events: ["email.sent"], signing_secret: exampleSecret }],
+    });
     await sendEmail(server);
     expect(received).toHaveLength(1);
-    expect(verifySvix(secret, received[0])).toBe(true);
+    expect(verifySvix(exampleSecret, received[0])).toBe(true);
   });
 
   it("subscribes to every emitted event and derives a stable secret when the seed leaves them out", async () => {
