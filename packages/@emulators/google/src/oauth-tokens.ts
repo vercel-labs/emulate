@@ -36,7 +36,7 @@ export function getRefreshTokens(store: Store): Map<string, RefreshTokenRecord> 
 export function issueAccessToken(
   store: Store,
   tokenMap: TokenMap | undefined,
-  user: GoogleUser,
+  user: Pick<GoogleUser, "email" | "id">,
   scope: string,
   refreshToken: string,
 ): string {

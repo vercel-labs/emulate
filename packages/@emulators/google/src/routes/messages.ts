@@ -5,6 +5,7 @@ import {
   createStoredMessage,
   deleteMessage,
   dedupeLabelIds,
+  deliverSentMessage,
   findMissingLabelIds,
   formatMessageResource,
   getAttachmentById,
@@ -65,11 +66,12 @@ export function messageRoutes({ app, store }: RouteContext): void {
     }
 
     try {
-      const message = createStoredMessage(gs, {
+      const stored = createStoredMessage(gs, {
         user_email: authEmail,
         ...messageInput,
         label_ids: defaultLabelIds,
       });
+      const message = mode === "send" ? deliverSentMessage(gs, stored) : stored;
 
       return c.json(formatMessageResource(gs, message, "full"));
     } catch {

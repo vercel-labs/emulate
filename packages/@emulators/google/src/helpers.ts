@@ -704,7 +704,75 @@ export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMes
     message.label_ids.filter((labelId) => labelId !== "DRAFT").concat("SENT"),
   );
   clearDraftRecordsForMessage(gs, message.user_email, message.gmail_id);
-  return sent;
+  return deliverSentMessage(gs, sent);
+}
+
+/**
+ * Delivers a sent message to the To, Cc, and Bcc recipients who are users of the emulator. Each
+ * recipient gets a copy labeled INBOX and UNREAD, with the Bcc header removed. A message the sender
+ * sends to themselves stays one message and gains INBOX and UNREAD. Returns the sender's message.
+ */
+export function deliverSentMessage(gs: GoogleStore, sent: GoogleMessage): GoogleMessage {
+  const sender = sent.user_email.toLowerCase();
+  const recipients = new Set(
+    [sent.to, sent.cc, sent.bcc].flatMap((header) => (header ? parseAddressList(header) : [])),
+  );
+  let result = sent;
+  const raw = sent.raw ? removeRawHeader(sent.raw, "bcc") : null;
+
+  for (const address of recipients) {
+    const user = gs.users.all().find((candidate) => candidate.email.toLowerCase() === address);
+    if (!user) continue;
+    if (address === sender) {
+      result = markMessageModified(gs, result, [...result.label_ids, "INBOX", "UNREAD"]);
+      continue;
+    }
+    createStoredMessage(gs, {
+      user_email: user.email,
+      raw: raw ?? undefined,
+      from: sent.from,
+      to: sent.to,
+      cc: sent.cc,
+      bcc: null,
+      reply_to: sent.reply_to,
+      subject: sent.subject,
+      body_text: sent.body_text,
+      body_html: sent.body_html,
+      message_id: sent.message_id,
+      references: sent.references,
+      in_reply_to: sent.in_reply_to,
+      internal_date: sent.internal_date,
+      label_ids: ["INBOX", "UNREAD"],
+    });
+  }
+  return result;
+}
+
+/** Lowercased addresses in an address-list header such as `Bob <bob@example.com>, carol@example.com`. */
+function parseAddressList(header: string): string[] {
+  const withoutNames = header.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/\([^)]*\)/g, "");
+  return (withoutNames.match(/[^\s<>,;:]+@[^\s<>,;]+/g) ?? []).map((address) => address.toLowerCase());
+}
+
+/** Removes a header, with its folded continuation lines, from a base64url MIME message. */
+function removeRawHeader(raw: string, name: string): string {
+  const source = decodeBase64Like(raw).toString("latin1");
+  const match = /\r?\n\r?\n/.exec(source);
+  const headerEnd = match ? match.index : source.length;
+  const lines = source.slice(0, headerEnd).split(/(?<=\n)/);
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of lines) {
+    if (/^[ \t]/.test(line)) {
+      if (!skipping) kept.push(line);
+      continue;
+    }
+    skipping = line.slice(0, line.indexOf(":")).trim().toLowerCase() === name;
+    if (!skipping) kept.push(line);
+  }
+  // The header block ends without a line break, so drop the one a removed last header leaves behind.
+  const headers = kept.join("").replace(/\r?\n$/, "");
+  return Buffer.from(headers + source.slice(headerEnd), "latin1").toString("base64url");
 }
 
 export function deleteDraftMessage(gs: GoogleStore, draft: GoogleDraft): boolean {
