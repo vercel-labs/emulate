@@ -1,7 +1,16 @@
 import { createContext, Script } from "node:vm";
 import { AiRequestError } from "./errors.js";
 import { currentTurn } from "./turn.js";
-import type { AIRequest, DefaultKind, HttpFailure, Json, JsonSchema, ReplyEvent, Usage } from "./types.js";
+import type {
+  AIRequest,
+  DefaultKind,
+  HttpFailure,
+  Json,
+  JsonSchema,
+  ReplyEvent,
+  ToolDefinition,
+  Usage,
+} from "./types.js";
 
 const keywords = new Set([
   "$schema",
@@ -41,7 +50,7 @@ const PATTERN_TIMEOUT_MS = 250;
 const PATTERN_CHECK_COST = 4;
 const patternSandbox = createContext({ pattern: "", value: "" });
 const patternTest = new Script(
-  "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { regex = new RegExp(pattern); } return regex.test(value); })()",
+  "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { try { regex = new RegExp(pattern); } catch { return null; } } return regex.test(value); })()",
 );
 
 const formatSamples: Record<string, string> = {
@@ -101,6 +110,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
   }
 
   let remaining = 4096;
+  let aborted: AiRequestError | undefined;
   let characters = 262144;
   const seedLimit = 64;
   const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
@@ -215,34 +225,43 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
-  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget and capping each run at a constant timeout. */
+  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget. A run that hits the constant timeout aborts the whole sampling. */
   function patternMatches(pattern: Json, value: string, at: string): boolean {
     if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
     remaining -= PATTERN_CHECK_COST - 1;
     spend(`${at}.pattern`);
+    let result: unknown;
     try {
       Object.assign(patternSandbox, { pattern, value });
-      return patternTest.runInContext(patternSandbox, { timeout: PATTERN_TIMEOUT_MS }) === true;
+      result = patternTest.runInContext(patternSandbox, { timeout: PATTERN_TIMEOUT_MS });
     } catch {
-      fail(`${at}.pattern`, "expected a regular expression that evaluates within the time limit");
+      aborted = new AiRequestError(
+        `Cannot generate a default for ${at}.pattern: the regular expression exceeds the time limit. Add an explicit reply rule.`,
+        `${at}.pattern`,
+      );
+      throw aborted;
     }
+    if (result === null) fail(`${at}.pattern`, "not a valid regular expression");
+    return result === true;
   }
 
-  function matches(value: Json, node: JsonSchema, depth = 0): boolean {
+  function matches(value: Json, node: JsonSchema, depth = 0, at = path): boolean {
     spend(path);
     if (depth > 32) return false;
     if (typeof node === "boolean") return node;
     if (node.nullable === true && value === null) return true;
-    if (node.$ref !== undefined && !matches(value, resolve(node.$ref, path), depth + 1)) return false;
+    if (node.$ref !== undefined && !matches(value, resolve(node.$ref, path), depth + 1, at)) return false;
     if (
       node.anyOf !== undefined &&
-      !(node.anyOf as Json[]).some((branch) => matches(value, branch as JsonSchema, depth + 1))
+      !(node.anyOf as Json[]).some((branch, index) =>
+        matches(value, branch as JsonSchema, depth + 1, `${at}.anyOf[${index}]`),
+      )
     )
       return false;
     if (Array.isArray(node.oneOf)) {
       let matched = 0;
-      for (const branch of node.oneOf as Json[]) {
-        if (matches(value, branch as JsonSchema, depth + 1)) matched += 1;
+      for (const [index, branch] of (node.oneOf as Json[]).entries()) {
+        if (matches(value, branch as JsonSchema, depth + 1, `${at}.oneOf[${index}]`)) matched += 1;
         if (matched > 1) return false;
       }
       if (matched !== 1) return false;
@@ -270,7 +289,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       )
         return false;
     }
-    if (typeof value === "string" && node.pattern !== undefined && !patternMatches(node.pattern, value, path)) {
+    if (typeof value === "string" && node.pattern !== undefined && !patternMatches(node.pattern, value, at)) {
       return false;
     }
     if (typeof value === "string" || Array.isArray(value)) {
@@ -282,7 +301,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       if (
         Array.isArray(value) &&
         node.items !== undefined &&
-        !value.every((item) => matches(item, node.items as JsonSchema, depth + 1))
+        !value.every((item) => matches(item, node.items as JsonSchema, depth + 1, `${at}.items`))
       )
         return false;
     }
@@ -292,7 +311,8 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       const properties = record(node.properties) ? node.properties : {};
       for (const [key, item] of Object.entries(value)) {
         const child = Object.hasOwn(properties, key) ? properties[key] : node.additionalProperties;
-        if (child !== undefined && !matches(item, child as JsonSchema, depth + 1)) return false;
+        if (child !== undefined && !matches(item, child as JsonSchema, depth + 1, `${at}.properties.${key}`))
+          return false;
       }
     }
     return true;
@@ -327,6 +347,24 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       if (!types.size) return false;
       merged.type = types.size === 1 ? [...types][0] : [...types];
     }
+    if (typeof rest.multipleOf === "number" && typeof branch.multipleOf === "number") {
+      const [small, large] = [rest.multipleOf, branch.multipleOf].sort((a, b) => a - b);
+      if (Number.isInteger(small) && Number.isInteger(large)) {
+        let [divisor, rem] = [large, small];
+        while (rem) [divisor, rem] = [rem, divisor % rem];
+        merged.multipleOf = (small / divisor) * large;
+      } else if (Math.abs(large / small - Math.round(large / small)) <= 1e-8) {
+        merged.multipleOf = large;
+      }
+    }
+    if (
+      typeof rest.format === "string" &&
+      typeof branch.format === "string" &&
+      rest.format !== branch.format &&
+      Object.hasOwn(formatSamples, rest.format) &&
+      Object.hasOwn(formatSamples, branch.format)
+    )
+      return false;
     if (Object.hasOwn(rest, "const") && Object.hasOwn(branch, "const") && !equal(rest.const, branch.const))
       return false;
     if (Array.isArray(rest.enum) && Array.isArray(branch.enum)) {
@@ -366,7 +404,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
         sampled = true;
         if (matches(value, node)) return value;
       } catch (error) {
-        if (!(error instanceof AiRequestError)) throw error;
+        if (!(error instanceof AiRequestError) || error === aborted) throw error;
         firstError ??= error;
         characters = before;
       }
@@ -382,13 +420,13 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     if (node === false) fail(at, "schema permits no value");
     if (node === true) return null;
     if (Object.hasOwn(node, "const")) {
-      if (!matches(node.const, node)) fail(at, "const does not satisfy the schema");
+      if (!matches(node.const, node, 0, at)) fail(at, "const does not satisfy the schema");
       characters -= JSON.stringify(node.const).length;
       if (characters < 0) fail(at, "sample exceeds the bounded output size");
       return structuredClone(node.const);
     }
     if (Array.isArray(node.enum)) {
-      const candidate = node.enum.find((value) => matches(value, node));
+      const candidate = node.enum.find((value) => matches(value, node, 0, at));
       if (candidate === undefined) fail(at, "no enum value satisfies the schema");
       characters -= JSON.stringify(candidate).length;
       if (characters < 0) fail(at, "sample exceeds the bounded output size");
@@ -499,7 +537,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
           fail(`${at}.type`, "unsupported type");
       }
     }
-    if (!matches(value, node)) fail(at, "constraints do not permit the generated sample");
+    if (!matches(value, node, 0, at)) fail(at, "constraints do not permit the generated sample");
     return value;
   }
 
@@ -537,6 +575,19 @@ function toolCallName(request: AIRequest, id: string): string | undefined {
   return undefined;
 }
 
+/** Narrows a tool's parameter schema to the object its call arguments must be, or throws when no object can satisfy it. */
+function toolArgumentSchema(tool: ToolDefinition): JsonSchema {
+  const at = `tools.${tool.name}.parameters`;
+  const parameters = tool.parameters ?? true;
+  if (parameters === false) fail(at, "schema permits no object");
+  if (parameters === true) return { type: "object" };
+  const rest = { ...parameters };
+  delete rest.nullable;
+  const list = rest.type === undefined ? ["object"] : Array.isArray(rest.type) ? rest.type : [rest.type];
+  if (!list.includes("object")) fail(`${at}.type`, "tool arguments must be a JSON object");
+  return { ...rest, type: "object" };
+}
+
 /** Answers a request no rule matched: a forced tool call, then structured output, a tool result or attachment acknowledgement, and last an echo. */
 export function defaultEvents(
   request: AIRequest,
@@ -547,9 +598,7 @@ export function defaultEvents(
   let event: ReplyEvent;
   if (turn.forcedTool) {
     const tool = turn.forcedTool;
-    const parameters = tool.parameters;
-    const schema = record(parameters) && parameters.type === undefined ? { ...parameters, type: "object" } : parameters;
-    const args = sampleSchema(schema ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
+    const args = sampleSchema(toolArgumentSchema(tool), turn.text, `tools.${tool.name}.parameters`);
     kind = "forced_tool";
     event = { type: "tool_call", id: makeId("call"), name: tool.name, arguments: JSON.stringify(args) };
   } else if (request.output) {

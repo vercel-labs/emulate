@@ -59,6 +59,17 @@ describe("createServer error formatting", () => {
     }
   });
 
+  it("falls back to the default body when formatError returns something that is not a Response", async () => {
+    for (const result of [undefined, null, {}, "x"]) {
+      const server = createServer(testPlugin({ formatError: (() => result) as never }), { docsUrl });
+
+      const response = await server.app.request("/missing");
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ message: "Not Found", documentation_url: docsUrl });
+    }
+  });
+
   it("renders unmatched routes through formatError", async () => {
     const server = createServer(
       testPlugin({
