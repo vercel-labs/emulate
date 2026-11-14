@@ -1506,7 +1506,7 @@ Attachments are input only. The emulator never reads their contents to produce a
 
 On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
 
-On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`.
+On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`. Messages errors use Anthropic's envelope, and a validation error starts with the failing field, as in `max_tokens: Expected a number.` Unsupported paths under `/v1/messages`, such as `count_tokens`, and any request with an `anthropic-version` header get a `not_found_error` in the same envelope.
 
 Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
