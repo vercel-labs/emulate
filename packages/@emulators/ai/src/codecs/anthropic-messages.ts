@@ -292,8 +292,8 @@ function decodeSystem(raw: unknown): InputPart[] {
 }
 
 /** Anthropic tools the platform runs itself, which the emulator cannot execute. */
-function isServerTool(type: unknown): boolean {
-  return typeof type === "string" && /^(web_search|web_fetch|code_execution)_/.test(type);
+function isServerTool(type: string): boolean {
+  return /^(web_search|web_fetch|code_execution|tool_search_tool_[a-z0-9]+)_|^mcp_toolset$/.test(type);
 }
 
 function decodeTools(raw: unknown): ToolDefinition[] {
@@ -302,7 +302,10 @@ function decodeTools(raw: unknown): ToolDefinition[] {
   return raw.map((tool, index) => {
     const path = `tools.${index}`;
     if (!isRecord(tool)) fail("Expected a tool object.", path);
-    if (isServerTool(tool.type)) unsupported("hosted tools", `${path}.type`);
+    if (tool.type !== undefined && tool.type !== null) {
+      const type = requireString(tool.type, `${path}.type`);
+      if (isServerTool(type)) unsupported("hosted tools", `${path}.type`);
+    }
     const name = requireString(tool.name, `${path}.name`);
     const description = optionalString(tool.description, `${path}.description`);
     const parameters = tool.input_schema;

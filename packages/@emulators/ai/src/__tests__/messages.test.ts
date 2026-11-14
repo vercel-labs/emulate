@@ -196,6 +196,40 @@ describe("anthropic messages", () => {
     expect(forcedBody.content[0].input).toEqual({});
   });
 
+  it("rejects every server-side tool type and a malformed tool type", async () => {
+    const send = (tools: unknown[]) =>
+      postMessages(
+        JSON.stringify({
+          model: "claude-opus-5-5",
+          max_tokens: 64,
+          messages: [{ role: "user", content: "x" }],
+          tools,
+        }),
+      );
+    const message = async (response: Response) =>
+      ((await response.json()) as { error: { message: string } }).error.message;
+
+    for (const type of ["tool_search_tool_regex_20251119", "tool_search_tool_bm25_20251119", "mcp_toolset"]) {
+      const response = await send([{ type }]);
+      expect(response.status).toBe(400);
+      expect(await message(response)).toBe("Unsupported Messages feature: hosted tools (tools.0.type).");
+    }
+
+    const mixed = await send([
+      weatherTool,
+      { type: "bash_20250124", name: "bash" },
+      { type: "web_search_20250305", name: "w" },
+    ]);
+    expect(mixed.status).toBe(400);
+    expect(await message(mixed)).toContain("tools.2.type");
+
+    for (const type of ["", 5]) {
+      const response = await send([{ ...weatherTool, type }]);
+      expect(response.status).toBe(400);
+      expect(await message(response)).toBe("Expected a non-empty string.");
+    }
+  });
+
   it("accepts a custom tool, a null type, and a tool with no type", async () => {
     for (const type of [undefined, null, "custom"]) {
       const response = await postMessages(
