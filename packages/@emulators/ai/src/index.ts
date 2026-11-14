@@ -46,8 +46,8 @@ export const aiPlugin: ServicePlugin = {
   rateLimit: false,
   abortOnClose: true,
   formatError,
-  register(app, store, _webhooks, baseUrl) {
-    registerAiRoutes({ app, store, baseUrl });
+  register(app, store, _webhooks, baseUrl, _tokenMap, options) {
+    registerAiRoutes({ app, store, baseUrl, baseUrlDerived: options?.baseUrlDerived === true });
   },
   seed(store) {
     setAiSeed(store, parseConfig(undefined));
