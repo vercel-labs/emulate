@@ -227,15 +227,19 @@ export interface ParsedAuthnRequest {
   forceAuthn: boolean;
 }
 
-// An AuthnRequest is a few kilobytes. The SSO URL inflates whatever arrives in the query string, so a cap keeps a
-// small, highly compressed SAMLRequest from expanding into megabytes.
+// An AuthnRequest is a few kilobytes. The SSO URL decodes whatever arrives in the query string or form body, so a
+// cap on the decoded XML keeps a small, highly compressed SAMLRequest from expanding into megabytes and keeps an
+// oversized POST from reaching the XML parser. Base64 needs 4 characters per 3 bytes, so a longer value is refused
+// before it is decoded.
 const MAX_AUTHN_REQUEST_BYTES = 64 * 1024;
+const MAX_ENCODED_AUTHN_REQUEST_LENGTH = Math.ceil(MAX_AUTHN_REQUEST_BYTES / 3) * 4;
 
 /**
  * Decodes an AuthnRequest from the HTTP-Redirect binding (deflated, then base64) or the HTTP-POST binding
  * (base64). Returns null when the value is not an AuthnRequest.
  */
 export function parseAuthnRequest(encoded: string, binding: "redirect" | "post"): ParsedAuthnRequest | null {
+  if (encoded.length > MAX_ENCODED_AUTHN_REQUEST_LENGTH) return null;
   let raw: Buffer;
   try {
     raw = Buffer.from(encoded, "base64");
@@ -250,6 +254,7 @@ export function parseAuthnRequest(encoded: string, binding: "redirect" | "post")
       return null;
     }
   } else {
+    if (raw.length > MAX_AUTHN_REQUEST_BYTES) return null;
     xml = raw.toString("utf-8");
   }
   const doc = parseXml(xml);

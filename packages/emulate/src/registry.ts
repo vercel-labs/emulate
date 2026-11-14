@@ -394,7 +394,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   aws: {
     label: "AWS cloud service emulator",
     endpoints:
-      "S3 (buckets, objects), SQS (queues, messages), Cognito (User Pools, OAuth, JWTs, Identity Pools), IAM (users, roles, access keys), STS (assume role, caller identity)",
+      "S3 (buckets, objects), SQS (queues, messages), Cognito (User Pools, OAuth, JWTs, Identity Pools), IAM (users, roles, access keys), STS (assume role, web identity, caller identity), KMS (keys, encrypt, decrypt)",
     async load() {
       const mod = await import("@emulators/aws");
       return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
@@ -515,7 +515,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   linear: {
     label: "Linear GraphQL API emulator",
     endpoints:
-      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agents, inspector",
+      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agent sessions and activities, inspector",
     async load() {
       const mod = await import("@emulators/linear");
       return { plugin: mod.linearPlugin, seedFromConfig: mod.seedFromConfig };

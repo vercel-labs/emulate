@@ -1,4 +1,5 @@
 import {
+  assertPortFree,
   createServer,
   serve,
   createCustomRuntime,
@@ -81,6 +82,7 @@ export async function createEmulator(
   if (opts.listen === false)
     return { ...(await createCustomRuntime(opts.service, opts)), generatedSecrets: Object.freeze([]) };
   let runtime: CustomRuntime | undefined;
+  await assertPortFree(opts.hostname, opts.port ?? 4000);
   const server = serve({
     fetch: (request) => (runtime ? runtime.fetch(request) : Response.json({ error: "Starting" }, { status: 503 })),
     port: opts.port ?? 4000,
@@ -90,7 +92,12 @@ export async function createEmulator(
     await waitForListening(server);
     const address = server.address();
     const port = address && typeof address === "object" ? address.port : (opts.port ?? 4000);
-    const baseUrl = resolveBaseUrl({ service: opts.service.name, port, baseUrl: opts.baseUrl });
+    const baseUrl = resolveBaseUrl({
+      service: opts.service.name,
+      port,
+      baseUrl: opts.baseUrl,
+      hostname: opts.hostname,
+    });
     runtime = await createCustomRuntime(opts.service, { ...opts, baseUrl });
     let closing: Promise<void> | undefined;
     return {
@@ -153,6 +160,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
   const loaded = await entry.load();
 
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
+  await assertPortFree(options.hostname, port);
   const httpServer = serve({
     fetch: (request) => (handler ? handler(request) : new Response("Starting", { status: 503 })),
     port,
@@ -184,7 +192,13 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
       typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
         ? svcSeedConfig.baseUrl
         : undefined;
-    const baseUrl = resolveBaseUrl({ service, port: actualPort, baseUrl: options.baseUrl, seedBaseUrl });
+    const baseUrl = resolveBaseUrl({
+      service,
+      port: actualPort,
+      baseUrl: options.baseUrl,
+      seedBaseUrl,
+      hostname: options.hostname,
+    });
 
     // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;

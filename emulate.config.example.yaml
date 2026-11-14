@@ -237,6 +237,11 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+  kms:
+    keys:
+      - key_id: 1234abcd-12ab-34cd-56ef-1234567890ab
+        description: App data key
+        aliases: [alias/my-app-key]
 
 resend:
   domains:

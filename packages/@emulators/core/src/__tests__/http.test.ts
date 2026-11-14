@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
-import { Hono, cors, serve } from "../http.js";
+import { createServer, type AddressInfo, type Server } from "node:net";
+import { Hono, assertPortFree, cors, serve } from "../http.js";
 
 describe("HTTP listener", () => {
   it.each([
@@ -80,6 +80,36 @@ describe("internal http layer", () => {
     expect(res.headers.get("X-Handler")).toBe("get");
   });
 
+  it.each([
+    { pattern: "/auth/*", hits: ["/auth", "/auth/login", "/auth/a/b"], misses: ["/authx", "/other"] },
+    { pattern: "/a/:id/*", hits: ["/a/1", "/a/1/z", "/a/1/z/w"], misses: ["/a", "/b/1/z"] },
+    { pattern: "/m/*/end", hits: ["/m/x/end"], misses: ["/m/end", "/m/x/y/end"] },
+    { pattern: "/files*", hits: ["/files*"], misses: ["/filesx", "/files"] },
+  ])("matches wildcard pattern $pattern", async ({ pattern, hits, misses }) => {
+    const app = new Hono();
+    app.get(pattern, (c) => c.text("hit"));
+    for (const path of hits) expect(await (await app.request(path)).text()).toBe("hit");
+    for (const path of misses) expect((await app.request(path)).status).toBe(404);
+  });
+
+  it("runs prefix middleware under its path only", async () => {
+    const app = new Hono();
+    app.use("/auth/*", async (c, next) => {
+      c.header("x-guard", "1");
+      await next();
+    });
+    app.get("/*", (c) => c.text("ok"));
+
+    expect((await app.request("/auth/login")).headers.get("x-guard")).toBe("1");
+    expect((await app.request("/public")).headers.get("x-guard")).toBeNull();
+  });
+
+  it("detects duplicate wildcard routes in strict mode", () => {
+    const app = new Hono({ strictRoutes: true });
+    app.get("/files/*", (c) => c.text("a"));
+    expect(() => app.get("/files/*", (c) => c.text("b"))).toThrow(/Duplicate route/);
+  });
+
   it("handles CORS preflight requests", async () => {
     const app = new Hono();
     app.use("*", cors({ allowMethods: ["GET"], allowHeaders: ["x-test"], maxAge: 60 }));
@@ -92,5 +122,57 @@ describe("internal http layer", () => {
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe("GET");
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe("x-test");
     expect(res.headers.get("Access-Control-Max-Age")).toBe("60");
+  });
+
+  async function hold(host?: string): Promise<Server | undefined> {
+    const holder = createServer();
+    holder.listen(0, host);
+    try {
+      await once(holder, "listening");
+      return holder;
+    } catch {
+      return undefined;
+    }
+  }
+
+  it("reports a port that a wildcard listener holds", async () => {
+    const holder = (await hold())!;
+    const { port } = holder.address() as AddressInfo;
+    try {
+      await expect(assertPortFree("127.0.0.1", port)).rejects.toMatchObject({ code: "EADDRINUSE" });
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("accepts a port that only another address holds", async () => {
+    const holder = await hold("::1");
+    if (!holder) return;
+    const { port } = holder.address() as AddressInfo;
+    try {
+      await expect(assertPortFree("127.0.0.1", port)).resolves.toBeUndefined();
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("leaves an invalid port for listen to report", async () => {
+    await expect(assertPortFree("127.0.0.1", 70000)).resolves.toBeUndefined();
+    expect(() => serve({ fetch: () => new Response("ready"), port: 70000 })).toThrow();
+  });
+
+  it("accepts a connection made right after serve returns", async () => {
+    const holder = (await hold("127.0.0.1"))!;
+    const { port } = holder.address() as AddressInfo;
+    await new Promise((resolve) => holder.close(resolve));
+    const server = serve({ fetch: () => new Response("ready"), port });
+    try {
+      expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe("ready");
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
   });
 });

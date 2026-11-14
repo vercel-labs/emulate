@@ -196,6 +196,17 @@ describe("Okta SAML 2.0 apps", () => {
     expect((await createTestApp().request(`${ssoUrl}?SAMLRequest=bm9wZQ`)).status).toBe(400);
   });
 
+  it("rejects an HTTP-POST SAMLRequest over 64 KiB", async () => {
+    const request = buildAuthnRequest({ issuer: audience, destination: ssoUrl, acsUrl: acs });
+    const padded = request.xml.replace("</samlp:AuthnRequest>", `<!--${" ".repeat(70 * 1024)}--></samlp:AuthnRequest>`);
+    const res = await createTestApp().request(ssoUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ SAMLRequest: Buffer.from(padded).toString("base64") }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("starts IdP-initiated sign-in at the default relay state", async () => {
     const app = createTestApp();
     const html = await (await app.request(ssoUrl)).text();

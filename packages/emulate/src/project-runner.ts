@@ -1,4 +1,5 @@
 import {
+  assertPortFree,
   createCustomRuntime,
   serve,
   filePersistence,
@@ -100,6 +101,7 @@ export async function prepareProject(
         port,
         baseUrl: options.portless ? portlessBaseUrl(service.name) : options.baseUrl,
         seedBaseUrl: service.baseUrl,
+        hostname: options.host,
       });
       if (options.portless) metadata.aliases.push({ name: `${service.name}.emulate`, port });
       if (typeof service.emulator === "string") {
@@ -187,14 +189,15 @@ export async function prepareProject(
         try {
           for (const item of prepared) {
             if (closed) throw new Error("Project closed during startup");
-            const server = serve({
-              ...item,
-              hostname: options.host,
-              fetch: (request) =>
-                accepting ? item.fetch(request) : Response.json({ error: "Starting" }, { status: 503 }),
-            });
-            servers.push(server);
             try {
+              await assertPortFree(options.host, item.port);
+              const server = serve({
+                ...item,
+                hostname: options.host,
+                fetch: (request) =>
+                  accepting ? item.fetch(request) : Response.json({ error: "Starting" }, { status: 503 }),
+              });
+              servers.push(server);
               await waitForListening(server);
             } catch (error) {
               const service = metadata.services.find((service) => service.port === item.port)!;

@@ -110,6 +110,14 @@ describe("AuthnRequest", () => {
     expect(parseAuthnRequest(encoded, "redirect")).toBeNull();
     expect(parseAuthnRequest(encodeRedirectBinding(xml), "redirect")).not.toBeNull();
   });
+
+  it("refuses a request over 64 KiB before decoding it, in either binding", () => {
+    const { xml } = buildAuthnRequest({ issuer: AUDIENCE, destination: "http://idp.test/sso", acsUrl: ACS });
+    const padded = xml.replace("</samlp:AuthnRequest>", `<!--${" ".repeat(70 * 1024)}--></samlp:AuthnRequest>`);
+    expect(parseAuthnRequest(b64(padded), "post")).toBeNull();
+    expect(parseAuthnRequest("A".repeat(100 * 1024), "redirect")).toBeNull();
+    expect(parseAuthnRequest(b64(xml), "post")).not.toBeNull();
+  });
 });
 
 describe("verifySamlResponse", () => {

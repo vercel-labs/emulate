@@ -1,4 +1,4 @@
-import { createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
+import { assertPortFree, createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -107,7 +107,7 @@ function inferServicesFromConfig(config: SeedConfig): ServiceName[] | null {
 export async function prepareStartServices(
   services: ServiceName[],
   seedConfig: SeedConfig | null,
-  options: Pick<StartOptions, "port" | "baseUrl" | "portless">,
+  options: Pick<StartOptions, "port" | "host" | "baseUrl" | "portless">,
   materializeGeneratedSecrets: boolean,
 ): Promise<{
   prepared: PreparedService[];
@@ -143,7 +143,13 @@ export async function prepareStartServices(
         ? svcSeedConfig.baseUrl
         : undefined;
     const effectiveBaseUrl = options.portless ? portlessBaseUrl(svc) : options.baseUrl;
-    const baseUrl = resolveBaseUrl({ service: svc, port, baseUrl: effectiveBaseUrl, seedBaseUrl });
+    const baseUrl = resolveBaseUrl({
+      service: svc,
+      port,
+      baseUrl: effectiveBaseUrl,
+      seedBaseUrl,
+      hostname: options.host,
+    });
 
     prepared.push({ svc, entry, loadedSvc, svcSeedConfig, port, baseUrl });
   }
@@ -319,7 +325,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
   const { prepared, portlessAliases, generatedSecrets } = await prepareStartServices(
     services,
     seedConfig,
-    { port: basePort, baseUrl: options.baseUrl, portless: options.portless },
+    { port: basePort, host: options.host, baseUrl: options.baseUrl, portless: options.portless },
     Boolean(generatedSecretsTarget),
   );
 
@@ -338,6 +344,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
+      await assertPortFree(options.host, port);
       const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
       httpServers.push(httpServer);
     }
@@ -368,6 +375,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
+      await assertPortFree(options.host, port);
       const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
       httpServers.push(httpServer);
       await waitForServerListening(httpServer);

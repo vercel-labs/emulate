@@ -5,6 +5,7 @@ import { getAccountId, getDefaultRegion, generateAwsId } from "./helpers.js";
 import { s3Routes } from "./routes/s3.js";
 import { sqsRoutes } from "./routes/sqs.js";
 import { iamRoutes } from "./routes/iam.js";
+import { kmsRoutes, createKmsKey, createKmsAlias } from "./routes/kms.js";
 import { inspectorRoutes } from "./routes/inspector.js";
 import { cognitoIdpRoutes } from "./routes/cognito-idp.js";
 import { cognitoIdentityRoutes } from "./routes/cognito-identity.js";
@@ -48,6 +49,13 @@ export interface AwsSeedConfig {
       assume_role_policy?: string;
     }>;
   };
+  kms?: {
+    keys?: Array<{
+      key_id?: string;
+      description?: string;
+      aliases?: string[];
+    }>;
+  };
 }
 
 function seedDefaults(store: Store, baseUrl: string): void {
@@ -79,6 +87,10 @@ function seedDefaults(store: Store, baseUrl: string): void {
     receive_message_wait_time: 0,
     fifo: false,
   });
+
+  // Create a default KMS key
+  const kmsKey = createKmsKey(aws, { description: "Default emulate key" });
+  createKmsAlias(aws, kmsKey, "alias/emulate-default");
 
   // Create a default IAM user
   const userId = generateAwsId("AIDA");
@@ -183,6 +195,15 @@ export function seedFromConfig(store: Store, baseUrl: string, config: AwsSeedCon
       });
     }
   }
+
+  if (config.kms?.keys) {
+    for (const k of config.kms.keys) {
+      const key =
+        (k.key_id ? aws.kmsKeys.findOneBy("key_id", k.key_id) : undefined) ??
+        createKmsKey(aws, { keyId: k.key_id, description: k.description, region });
+      for (const alias of k.aliases ?? []) createKmsAlias(aws, key, alias);
+    }
+  }
 }
 
 export const awsPlugin: ServicePlugin = {
@@ -197,6 +218,7 @@ export const awsPlugin: ServicePlugin = {
     cognitoOAuthRoutes(ctx);
     sqsRoutes(ctx);
     iamRoutes(ctx);
+    kmsRoutes(ctx);
     s3Routes(ctx);
   },
   seed(store: Store, baseUrl: string): void {

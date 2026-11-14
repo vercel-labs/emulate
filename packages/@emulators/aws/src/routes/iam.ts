@@ -9,8 +9,10 @@ import {
   getAccountId,
   parseQueryString,
   escapeXml,
+  checkMemberLength,
+  validationErrorMessage,
 } from "../helpers.js";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 
 export function iamRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -62,6 +64,8 @@ export function iamRoutes(ctx: RouteContext): void {
         return getCallerIdentity(c);
       case "AssumeRole":
         return assumeRole(c, params);
+      case "AssumeRoleWithWebIdentity":
+        return assumeRoleWithWebIdentity(c, params);
       default:
         return awsErrorXml(c, "InvalidAction", `The action ${action} is not valid for this endpoint.`, 400);
     }
@@ -419,6 +423,155 @@ ${rolesXml}
   </AssumeRoleResult>
   <ResponseMetadata><RequestId>${generateMessageId()}</RequestId></ResponseMetadata>
 </AssumeRoleResponse>`;
+    return awsXmlResponse(c, xml);
+  }
+
+  // Decodes the claims of an OIDC ID token. Signatures are not verified because
+  // the emulator cannot fetch the identity provider's keys.
+  function decodeJwtClaims(token: string): Record<string, unknown> | undefined {
+    const segments = token.split(".");
+    if (segments.length !== 3) return undefined;
+    try {
+      const header: unknown = JSON.parse(Buffer.from(segments[0], "base64url").toString("utf8"));
+      const claims: unknown = JSON.parse(Buffer.from(segments[1], "base64url").toString("utf8"));
+      if (!header || typeof header !== "object" || !claims || typeof claims !== "object" || Array.isArray(claims)) {
+        return undefined;
+      }
+      return claims as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function assumeRoleWithWebIdentity(c: Context, params: Record<string, string>) {
+    const roleArn = params["RoleArn"];
+    const sessionName = params["RoleSessionName"];
+    const token = params["WebIdentityToken"];
+    const providerId = params["ProviderId"];
+    const durationParam = params["DurationSeconds"];
+
+    const failures: string[] = [];
+    checkMemberLength(failures, "roleArn", roleArn, 20, 2048);
+    checkMemberLength(failures, "roleSessionName", sessionName, 2, 64);
+    if (sessionName !== undefined && !/^[\w+=,.@-]*$/.test(sessionName)) {
+      failures.push(
+        `Value '${sessionName}' at 'roleSessionName' failed to satisfy constraint: Member must satisfy regular expression pattern: [\\w+=,.@-]*`,
+      );
+    }
+    checkMemberLength(failures, "webIdentityToken", token, 4, 20000, true);
+    if (providerId !== undefined) checkMemberLength(failures, "providerId", providerId, 4, 2048);
+    let durationSeconds = 3600;
+    if (durationParam !== undefined) {
+      durationSeconds = Number(durationParam);
+      if (!/^-?\d+$/.test(durationParam)) {
+        failures.push(
+          `Value '${durationParam}' at 'durationSeconds' failed to satisfy constraint: Member must be an integer`,
+        );
+      } else if (durationSeconds < 900) {
+        failures.push(
+          `Value '${durationParam}' at 'durationSeconds' failed to satisfy constraint: Member must have value greater than or equal to 900`,
+        );
+      } else if (durationSeconds > 43200) {
+        failures.push(
+          `Value '${durationParam}' at 'durationSeconds' failed to satisfy constraint: Member must have value less than or equal to 43200`,
+        );
+      }
+    }
+    if (failures.length > 0 || !roleArn || !sessionName || !token) {
+      return awsErrorXml(c, "ValidationError", validationErrorMessage(failures), 400);
+    }
+
+    // OAuth 2.0 access tokens from providers named by ProviderId are opaque.
+    // Without ProviderId, STS expects an OpenID Connect ID token.
+    let subject: string;
+    let audience: string | undefined;
+    let provider: string;
+    let sourceIdentity: string | undefined;
+    if (providerId) {
+      subject = createHash("sha256").update(`${providerId}:${token}`).digest("hex").slice(0, 32);
+      provider = providerId;
+    } else {
+      const claims = decodeJwtClaims(token);
+      if (!claims) {
+        return awsErrorXml(
+          c,
+          "InvalidIdentityToken",
+          "The ID Token provided is not a valid JWT. (You may see this error if you sent an Access Token)",
+          400,
+        );
+      }
+      const aud = claims["aud"];
+      audience =
+        typeof aud === "string"
+          ? aud
+          : Array.isArray(aud)
+            ? typeof claims["azp"] === "string"
+              ? claims["azp"]
+              : aud.find((value): value is string => typeof value === "string")
+            : undefined;
+      for (const [name, value] of [
+        ["iss", claims["iss"]],
+        ["sub", claims["sub"]],
+        ["aud", audience],
+      ] as const) {
+        if (typeof value !== "string" || !value) {
+          return awsErrorXml(c, "InvalidIdentityToken", `The ID Token provided is missing the ${name} claim.`, 400);
+        }
+      }
+      const now = Math.floor(Date.now() / 1000);
+      if (typeof claims["exp"] === "number" && claims["exp"] <= now) {
+        return awsErrorXml(
+          c,
+          "ExpiredToken",
+          `Token expired: current date/time ${now} must be before the expiration date/time ${claims["exp"]}`,
+          400,
+        );
+      }
+      subject = claims["sub"] as string;
+      provider = claims["iss"] as string;
+      const source = claims["https://aws.amazon.com/source_identity"];
+      if (typeof source === "string") sourceIdentity = source;
+    }
+
+    // STS answers AccessDenied for a role that does not exist, as it does for a
+    // role whose trust policy rejects the caller.
+    const role = aws()
+      .iamRoles.all()
+      .find((r) => r.arn === roleArn);
+    if (!role) {
+      return awsErrorXml(c, "AccessDenied", "Not authorized to perform sts:AssumeRoleWithWebIdentity", 403);
+    }
+
+    const partition = roleArn.split(":")[1] || "aws";
+    const assumedRoleArn = `arn:${partition}:sts::${accountId}:assumed-role/${role.role_name}/${sessionName}`;
+    const accessKeyId = "ASIA" + randomBytes(8).toString("hex").toUpperCase();
+    const secretAccessKey = randomBytes(30).toString("base64");
+    const sessionToken = randomBytes(64).toString("base64");
+    const expiration = new Date(Date.now() + durationSeconds * 1000).toISOString();
+    const requestId = generateMessageId();
+    c.header("x-amzn-RequestId", requestId);
+    const audienceXml = audience === undefined ? "" : `\n    <Audience>${escapeXml(audience)}</Audience>`;
+    const sourceIdentityXml =
+      sourceIdentity === undefined ? "" : `\n    <SourceIdentity>${escapeXml(sourceIdentity)}</SourceIdentity>`;
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleWithWebIdentityResult>
+    <SubjectFromWebIdentityToken>${escapeXml(subject)}</SubjectFromWebIdentityToken>${audienceXml}
+    <AssumedRoleUser>
+      <Arn>${escapeXml(assumedRoleArn)}</Arn>
+      <AssumedRoleId>${role.role_id}:${escapeXml(sessionName)}</AssumedRoleId>
+    </AssumedRoleUser>
+    <Credentials>
+      <AccessKeyId>${accessKeyId}</AccessKeyId>
+      <SecretAccessKey>${secretAccessKey}</SecretAccessKey>
+      <SessionToken>${sessionToken}</SessionToken>
+      <Expiration>${expiration}</Expiration>
+    </Credentials>${sourceIdentityXml}
+    <Provider>${escapeXml(provider)}</Provider>
+  </AssumeRoleWithWebIdentityResult>
+  <ResponseMetadata><RequestId>${requestId}</RequestId></ResponseMetadata>
+</AssumeRoleWithWebIdentityResponse>`;
     return awsXmlResponse(c, xml);
   }
 }
