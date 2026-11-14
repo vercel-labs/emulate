@@ -166,13 +166,13 @@ Documents without an `_id` get a 24-character hex string ID. IDs are plain strin
 
 A missing or empty `filter` matches every document. Supported:
 
-- Field equality, including dot paths such as `"address.city"`. Equality is exact, so a scalar doesn't match an element inside an array field.
+- Field equality on scalar values, including dot paths such as `"address.city"`. A scalar doesn't match an element inside an array field, an array value never matches, and an embedded document value such as `{ "address": { "city": "Lima" } }` matches every document, so filter on the dot path instead.
 - `$eq`, `$ne`, `$in`, `$nin`, `$exists`
 - `$gt`, `$gte`, `$lt`, `$lte`, which compare numbers only
 - `$regex`, with `$options` for flags
 - `$and`, `$or`, `$nor`
 
-Unknown operators are ignored.
+Unknown operators inside a field condition, such as `$type` or `$size`, are ignored. Top-level operators other than `$and`, `$or`, and `$nor` are read as field names, so `$expr` and `$where` match nothing.
 
 ### Projection and sort
 
