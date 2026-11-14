@@ -454,7 +454,7 @@ function compilePath(pattern: string): CompiledPath {
   let source = "^";
   for (let i = 0; i < body.length; i++) {
     const char = body[i];
-    if (char === "*") {
+    if (char === "*" && body[i - 1] === "/" && (i + 1 === body.length || body[i + 1] === "/")) {
       source += "[^/]+";
       continue;
     }

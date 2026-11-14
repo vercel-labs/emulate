@@ -84,6 +84,7 @@ describe("internal http layer", () => {
     { pattern: "/auth/*", hits: ["/auth", "/auth/login", "/auth/a/b"], misses: ["/authx", "/other"] },
     { pattern: "/a/:id/*", hits: ["/a/1", "/a/1/z", "/a/1/z/w"], misses: ["/a", "/b/1/z"] },
     { pattern: "/m/*/end", hits: ["/m/x/end"], misses: ["/m/end", "/m/x/y/end"] },
+    { pattern: "/files*", hits: ["/files*"], misses: ["/filesx", "/files"] },
   ])("matches wildcard pattern $pattern", async ({ pattern, hits, misses }) => {
     const app = new Hono();
     app.get(pattern, (c) => c.text("hit"));
