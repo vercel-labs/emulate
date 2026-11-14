@@ -150,6 +150,22 @@ describe("responsesCodec.decode validation", () => {
     expect(error.param).toBe("truncation");
     expect(error.code).toBe("invalid_value");
   });
+
+  it("validates text.verbosity", () => {
+    const error = decodeError({ ...baseBody, text: { verbosity: "loud" } });
+    expect(error.message).toBe("Invalid value: 'loud'. Supported values are: 'low', 'medium', and 'high'.");
+    expect(error.param).toBe("text.verbosity");
+    for (const verbosity of ["low", "medium", "high"]) {
+      expect(() => decodedOf({ ...baseBody, text: { verbosity } })).not.toThrow();
+    }
+  });
+
+  it("marks a refusal item incomplete when the reply finishes with length", () => {
+    const { ctx, decoded } = decodedOf();
+    const body = encode(decoded, ctx, [{ type: "refusal", text: "no" }], "length");
+    expect(body.status).toBe("incomplete");
+    expect(body.output[0]).toMatchObject({ type: "message", status: "incomplete" });
+  });
 });
 
 describe("responsesCodec.streamFrames", () => {
@@ -221,6 +237,16 @@ describe("responsesCodec.streamFrames", () => {
   });
 });
 
+function storeBody(ctx: CodecContext, body: Record<string, unknown>, events: ReplyEvent[]): ResponseBody {
+  const decoded = responsesCodec.decode(body, ctx);
+  const turnReply = reply(events, "tool_calls");
+  const encoded = responsesCodec.encodeJson(turnReply, decoded, ctx) as ResponseBody & {
+    output: { type: string; id: string }[];
+  };
+  responsesCodec.afterReply?.(turnReply, decoded, ctx, encoded);
+  return encoded;
+}
+
 describe("responsesCodec stored responses", () => {
   it("replays the previous turn when previous_response_id is set", () => {
     const ctx = makeContext();
@@ -251,5 +277,61 @@ describe("responsesCodec stored responses", () => {
     expect(texts.at(-1)).toBe("final");
     expect(decoded.request.references).toEqual([{ id: last, kind: "previous_response", resolved: true }]);
     expect(decoded.request.warnings).toEqual([]);
+  });
+
+  it("still rejects an unanswered function call after an earlier unknown item_reference", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: [{ type: "item_reference", id: "fc_missing" }] }, [
+      { type: "text", text: "ok" },
+    ]);
+    const call = storeBody(ctx, { model: "gpt-x", input: "go", previous_response_id: first.id }, [
+      { type: "tool_call", id: "call_a", name: "lookup", arguments: "{}" },
+    ]);
+
+    expect(() => responsesCodec.decode({ model: "gpt-x", input: "next", previous_response_id: call.id }, ctx)).toThrow(
+      AiRequestError,
+    );
+  });
+
+  it("accepts a tool result after a gap and warns", () => {
+    const ctx = makeContext();
+    const decoded = responsesCodec.decode(
+      {
+        model: "gpt-x",
+        input: [
+          { type: "item_reference", id: "fc_missing" },
+          { type: "function_call_output", call_id: "call_gone", output: "x" },
+        ],
+      },
+      ctx,
+    );
+
+    expect(decoded.request.warnings).toContain(
+      'Tool result "call_gone" does not match a known call; accepting it because referenced history is missing.',
+    );
+  });
+
+  it("adds a referenced item once when previous_response_id already replays it", () => {
+    const ctx = makeContext();
+    const call = storeBody(ctx, { model: "gpt-x", input: "go" }, [
+      { type: "tool_call", id: "call_a", name: "lookup", arguments: "{}" },
+    ]);
+    const itemId = (call as unknown as { output: { id: string }[] }).output[0].id;
+    const reference = { type: "item_reference", id: itemId };
+
+    const decoded = responsesCodec.decode(
+      {
+        model: "gpt-x",
+        previous_response_id: call.id,
+        input: [reference, reference, { type: "function_call_output", call_id: "call_a", output: "x" }],
+      },
+      ctx,
+    );
+
+    const calls = decoded.request.messages.flatMap((message) =>
+      message.parts.filter((part) => part.type === "tool_call"),
+    );
+    expect(calls).toHaveLength(1);
+    expect(decoded.request.references.filter((entry) => entry.kind === "item")).toHaveLength(2);
   });
 });

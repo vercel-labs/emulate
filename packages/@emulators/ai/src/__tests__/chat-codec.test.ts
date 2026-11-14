@@ -353,8 +353,8 @@ describe("chatCodec.streamFrames", () => {
     );
 
     const toolDeltas = frames.slice(1, -2).map((frame) => chunkOf(frame).choices[0].delta.tool_calls?.[0]);
-    expect(toolDeltas.map((delta) => delta?.index)).toEqual([0, 0, 1, 1]);
-    expect(toolDeltas.map((delta) => delta?.id)).toEqual(["call_a", undefined, "call_b", undefined]);
+    expect(toolDeltas.map((delta) => delta?.index)).toEqual([0, 0, 0, 1, 1]);
+    expect(toolDeltas.map((delta) => delta?.id)).toEqual(["call_a", undefined, undefined, "call_b", undefined]);
     expect(toolDeltas[0]).toEqual({
       index: 0,
       id: "call_a",
@@ -373,6 +373,23 @@ describe("chatCodec.streamFrames", () => {
 
     expect(chunkOf(frames.at(-2) as SseFrame).choices[0].finish_reason).toBe("tool_calls");
     expect(frames.at(-1)?.data).toBe("[DONE]");
+  });
+
+  it("never splits tool call arguments inside a string value", () => {
+    const { ctx, decoded } = decodedOf({ ...baseBody, stream: true });
+
+    const frames = chatCodec.streamFrames(
+      reply([{ type: "tool_call", id: "call_a", name: "lookup", arguments: '{"city":"San Francisco"}' }], "tool_calls"),
+      decoded,
+      ctx,
+    );
+
+    const argPieces = frames
+      .slice(1, -2)
+      .map((frame) => chunkOf(frame).choices[0].delta.tool_calls?.[0]?.function?.arguments ?? "")
+      .filter((piece) => piece !== "");
+    expect(argPieces.join("")).toBe('{"city":"San Francisco"}');
+    expect(argPieces.find((piece) => piece.includes("San"))).toContain("Francisco");
   });
 
   it("splits a JSON reply between structural characters", () => {

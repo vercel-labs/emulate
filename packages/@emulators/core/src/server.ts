@@ -51,8 +51,14 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   registerFontRoutes(app);
 
   const defaultErrorHandler = createApiErrorHandler(docsUrl);
-  const renderError = (err: unknown, c: Context<AppEnv>) =>
-    plugin.formatError ? plugin.formatError(err, c, errorStatus(err)) : defaultErrorHandler(err, c);
+  const renderError = async (err: unknown, c: Context<AppEnv>) => {
+    if (!plugin.formatError) return defaultErrorHandler(err, c);
+    try {
+      return await plugin.formatError(err, c, errorStatus(err));
+    } catch {
+      return defaultErrorHandler(err, c);
+    }
+  };
   app.onError(renderError);
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
