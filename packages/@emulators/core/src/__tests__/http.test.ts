@@ -423,3 +423,19 @@ function countConnections(server: Server): Promise<number> {
     server.getConnections((error, count) => (error ? reject(error) : resolve(count))),
   );
 }
+
+describe("error status rendering", () => {
+  it("answers a 500 with the thrown message when the status cannot be sent", async () => {
+    for (const status of [600, 0, -1, 204, 304, 401.5, Number.NaN, "404"]) {
+      const app = new Hono();
+      app.get("/", () => {
+        throw Object.assign(new Error("boom"), { status });
+      });
+
+      const res = await app.request("/");
+
+      expect(res.status).toBe(500);
+      expect(await res.text()).toBe("boom");
+    }
+  });
+});

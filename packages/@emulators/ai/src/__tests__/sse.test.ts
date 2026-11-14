@@ -160,6 +160,26 @@ describe("sseResponse faults", () => {
     { data: "[DONE]" },
   ];
 
+  it("lets a piped consumer flush every frame before the disconnect error", async () => {
+    const response = sseResponse(frames, { fault: { afterChunks: 2, kind: "disconnect" } });
+    const delivered: string[] = [];
+    let corked: string[] = [];
+    const sink = new WritableStream<Uint8Array>({
+      write(chunk) {
+        corked.push(decoder.decode(chunk));
+        process.nextTick(() => delivered.push(...corked.splice(0)));
+      },
+      abort() {
+        corked = [];
+      },
+    });
+
+    await expect(response.body!.pipeTo(sink)).rejects.toThrow("Stream disconnected");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(delivered).toHaveLength(3);
+  });
+
   it("disconnects after the configured number of content chunks", async () => {
     const faults: string[] = [];
     const settled: string[] = [];
