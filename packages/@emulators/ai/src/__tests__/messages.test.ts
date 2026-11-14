@@ -163,6 +163,39 @@ describe("anthropic messages", () => {
     expect(body.error.message).toBe("Unsupported Messages feature: hosted tools (tools.0.type).");
   });
 
+  it("accepts a client-run typed tool without a schema and answers it with tool_use", async () => {
+    await setRules([
+      {
+        id: "bash",
+        match: { textContains: "list" },
+        reply: [{ type: "tool_call", name: "bash", arguments: { command: "ls" } }],
+      },
+    ]);
+    const body = {
+      model: "claude-opus-5-5",
+      max_tokens: 64,
+      messages: [{ role: "user", content: "list files" }],
+      tools: [{ type: "bash_20250124", name: "bash" }],
+    };
+    const ruled = (await (await postMessages(JSON.stringify(body))).json()) as { content: unknown[] };
+    expect(ruled.content).toEqual([
+      { type: "tool_use", id: expect.any(String), name: "bash", input: { command: "ls" } },
+    ]);
+
+    await setRules([]);
+    const forced = await postMessages(
+      JSON.stringify({
+        ...body,
+        messages: [{ role: "user", content: "x" }],
+        tool_choice: { type: "tool", name: "bash" },
+      }),
+    );
+    expect(forced.status).toBe(200);
+    const forcedBody = (await forced.json()) as { stop_reason: string; content: { type: string; input: unknown }[] };
+    expect(forcedBody.stop_reason).toBe("tool_use");
+    expect(forcedBody.content[0].input).toEqual({});
+  });
+
   it("accepts a custom tool, a null type, and a tool with no type", async () => {
     for (const type of [undefined, null, "custom"]) {
       const response = await postMessages(

@@ -284,13 +284,18 @@ function decodeSystem(raw: unknown): InputPart[] {
   return decodeContent(raw, "system");
 }
 
+/** Anthropic tools the platform runs itself, which the emulator cannot execute. */
+function isServerTool(type: unknown): boolean {
+  return typeof type === "string" && /^(web_search|web_fetch|code_execution)_/.test(type);
+}
+
 function decodeTools(raw: unknown): ToolDefinition[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) fail("Expected an array.", "tools");
   return raw.map((tool, index) => {
     const path = `tools.${index}`;
     if (!isRecord(tool)) fail("Expected a tool object.", path);
-    if ((tool.type ?? "custom") !== "custom") unsupported("hosted tools", `${path}.type`);
+    if (isServerTool(tool.type)) unsupported("hosted tools", `${path}.type`);
     const name = requireString(tool.name, `${path}.name`);
     const description = optionalString(tool.description, `${path}.description`);
     const parameters = tool.input_schema;
