@@ -14,6 +14,7 @@ import {
   type PortlessAlias,
 } from "../portless.js";
 import { resolveBaseUrl } from "../base-url.js";
+import { aiNetworkWarning, isLoopbackHost } from "../ai-network.js";
 import {
   preflightGeneratedSecretsFile,
   publishGeneratedSecretsFile,
@@ -347,7 +348,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       httpServers.push(httpServer);
     }
 
-    printBanner(serviceUrls, tokens, configSource);
+    printBanner(serviceUrls, tokens, configSource, options.host);
     installShutdown(portlessAliases, stores, httpServers);
     return;
   }
@@ -383,7 +384,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       await waitForServerListening(httpServer);
     }
 
-    printBanner(serviceUrls, tokens, configSource);
+    printBanner(serviceUrls, tokens, configSource, options.host);
   } catch (error) {
     await rollbackStartup(httpServers, stores, registeredAliases, publishedSecretsFile);
     throw error;
@@ -396,6 +397,7 @@ function printBanner(
   services: Array<{ name: string; url: string }>,
   tokens: Record<string, { login: string; id: number; scopes?: string[] }>,
   configSource: string | null,
+  host?: string,
 ): void {
   const lines: string[] = [];
   lines.push("");
@@ -407,6 +409,9 @@ function printBanner(
     lines.push(`  ${pc.cyan(name.padEnd(maxNameLen + 2))}${pc.bold(url)}`);
   }
   lines.push("");
+
+  const ai = services.find((service) => service.name === "ai");
+  if (ai) lines.push(...aiSetupLines(ai.url, host), "");
 
   const tokenEntries = Object.entries(tokens);
   if (tokenEntries.length > 0) {
@@ -425,4 +430,19 @@ function printBanner(
   lines.push("");
 
   console.log(lines.join("\n"));
+}
+
+/** Base URL setup lines for the ai service, plus a warning when the host is not loopback. */
+export function aiSetupLines(serviceUrl: string, host?: string): string[] {
+  const baseUrl = `${serviceUrl}/v1`;
+  const lines = [
+    `  ${pc.dim("AI base URL")} ${pc.bold(baseUrl)}`,
+    `  ${pc.dim("OpenAI SDK")} new OpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+    `  ${pc.dim("AI SDK")} createOpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+    `  ${pc.dim("API key")} any value works`,
+  ];
+  if (host !== undefined && !isLoopbackHost(host)) {
+    lines.push(`  ${pc.yellow("Warning:")} ${aiNetworkWarning(host)}`);
+  }
+  return lines;
 }

@@ -15,7 +15,8 @@ export interface SseOptions {
   onSettled?: (delivery: Exclude<Delivery, "pending">) => void;
 }
 
-function delay(ms: number, signal: AbortSignal): Promise<boolean> {
+/** Waits `ms` and resolves true, or resolves false as soon as the signal aborts. */
+export function delay(ms: number, signal: AbortSignal): Promise<boolean> {
   if (ms <= 0 || signal.aborted) return Promise.resolve(!signal.aborted);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {

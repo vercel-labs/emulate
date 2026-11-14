@@ -115,7 +115,10 @@ export interface StreamFault {
   stallMs?: number;
 }
 
-/** Stream pacing; zero means instant. `chunkDelayMs` may list delays used in frame order, repeating the last. */
+/**
+ * Reply pacing; zero means instant. `ttftMs` is the wait before the first byte of any reply, streamed or not.
+ * `chunkDelayMs` spaces the frames of a stream and may list delays used in frame order, repeating the last.
+ */
 export interface Timing {
   ttftMs: number;
   chunkDelayMs: number | number[];
