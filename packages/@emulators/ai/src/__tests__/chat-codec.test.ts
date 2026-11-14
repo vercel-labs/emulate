@@ -222,6 +222,15 @@ describe("chatCodec.decode", () => {
     expect(error.code).toBe("unsupported_feature");
     expect(error.status).toBe(400);
   });
+
+  it("enforces the metadata limits", () => {
+    const pairs = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, n) => [`k${n}`, "v"]));
+    const ok = { [`k`.repeat(64)]: "v".repeat(512), ...pairs(15) };
+    expect(() => chatCodec.decode({ ...baseBody, metadata: ok }, makeContext())).not.toThrow();
+    for (const metadata of [pairs(17), { ["k".repeat(65)]: "v" }, { a: "v".repeat(513) }, { a: 1 }]) {
+      expect(decodeError({ ...baseBody, metadata }).param).toMatch(/^metadata/);
+    }
+  });
 });
 
 describe("chatCodec.encodeJson", () => {

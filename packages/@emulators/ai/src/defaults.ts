@@ -249,7 +249,6 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     spend(path);
     if (depth > 32) return false;
     if (typeof node === "boolean") return node;
-    if (node.nullable === true && value === null) return true;
     if (node.$ref !== undefined && !matches(value, resolve(node.$ref, path), depth + 1, at)) return false;
     if (
       node.anyOf !== undefined &&
@@ -269,7 +268,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     if (Object.hasOwn(node, "const") && !equal(value, node.const)) return false;
     if (Array.isArray(node.enum) && !node.enum.some((item) => equal(item, value))) return false;
     const valueType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-    if (node.type !== undefined) {
+    if (node.type !== undefined && !(node.nullable === true && value === null)) {
       const list = Array.isArray(node.type) ? node.type : [node.type];
       if (
         !list.some(
@@ -347,6 +346,10 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       if (!types.size) return false;
       merged.type = types.size === 1 ? [...types][0] : [...types];
     }
+    if (merged.nullable === true) {
+      const typedStrict = (side: Record<string, Json>) => side.type !== undefined && side.nullable !== true;
+      if (typedStrict(rest) || typedStrict(branch)) delete merged.nullable;
+    }
     if (typeof rest.multipleOf === "number" && typeof branch.multipleOf === "number") {
       const [small, large] = [rest.multipleOf, branch.multipleOf].sort((a, b) => a - b);
       if (Number.isInteger(small) && Number.isInteger(large)) {
@@ -391,22 +394,75 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     return merged;
   }
 
-  /** Sample branches in order and return the first value that satisfies the node, skipping branches it cannot sample. */
+  function flatten(branch: Json, rest: Record<string, Json>, at: string): JsonSchema {
+    const merged = mergeSchema(branch as JsonSchema, rest);
+    if (!record(merged) || merged.$ref === undefined) return merged;
+    return mergeSchema(resolve(merged.$ref, `${at}.$ref`), siblings(merged, "$ref"));
+  }
+
+  /** Builds copies of a oneOf branch tightened to fall outside the other branches, so a sample can match only this one. */
+  function exclusiveVariants(own: Record<string, Json>, others: JsonSchema[]): JsonSchema[] {
+    const variants: Record<string, Json>[] = [];
+    const required = Array.isArray(own.required) ? (own.required as string[]) : [];
+    for (const key of record(own.properties) ? Object.keys(own.properties) : []) {
+      if (!required.includes(key)) variants.push({ required: [...required, key] });
+    }
+    for (const item of Array.isArray(own.enum) ? own.enum : []) variants.push({ const: item });
+    for (const other of others) {
+      if (!record(other)) continue;
+      for (const [min, max] of [
+        ["minLength", "maxLength"],
+        ["minItems", "maxItems"],
+      ]) {
+        if (typeof other[min] === "number" && other[min] > 0) variants.push({ [max]: other[min] - 1 });
+        if (typeof other[max] === "number") variants.push({ [min]: other[max] + 1 });
+      }
+      if (typeof other.minimum === "number") variants.push({ exclusiveMaximum: other.minimum });
+      if (typeof other.exclusiveMinimum === "number") variants.push({ maximum: other.exclusiveMinimum });
+      if (typeof other.maximum === "number") variants.push({ exclusiveMinimum: other.maximum });
+      if (typeof other.exclusiveMaximum === "number") variants.push({ minimum: other.exclusiveMaximum });
+    }
+    return variants.slice(0, 16).map((variant) => mergeSchema(variant, own));
+  }
+
+  /** Samples branches in order and returns the first value that satisfies the node. A oneOf branch whose sample also matches another branch is retried with variants that avoid the others. */
   function sampleAlternative(node: Record<string, Json>, keyword: "anyOf" | "oneOf", at: string, depth: number): Json {
     const rest = siblings(node, keyword);
     const branches = node[keyword] as Json[];
     let sampled = false;
     let firstError: AiRequestError | undefined;
-    for (const [index, branch] of branches.entries()) {
+    const attempt = (schema: JsonSchema, where: string): Json | undefined => {
       const before = characters;
       try {
-        const value = sample(mergeSchema(branch as JsonSchema, rest), `${at}.${keyword}[${index}]`, depth + 1);
+        const value = sample(schema, where, depth + 1);
         sampled = true;
         if (matches(value, node)) return value;
+        if (keyword === "oneOf" && typeof value === "number" && matches(value + 0.5, node)) return value + 0.5;
       } catch (error) {
         if (!(error instanceof AiRequestError) || error === aborted) throw error;
         firstError ??= error;
         characters = before;
+      }
+      return undefined;
+    };
+    for (const [index, branch] of branches.entries()) {
+      const where = `${at}.${keyword}[${index}]`;
+      const found = attempt(mergeSchema(branch as JsonSchema, rest), where);
+      if (found !== undefined) return found;
+      if (keyword !== "oneOf" || !sampled) continue;
+      let own: JsonSchema;
+      let others: JsonSchema[];
+      try {
+        own = flatten(branch, rest, where);
+        others = branches.flatMap((other, at2) => (at2 === index ? [] : [flatten(other, rest, where)]));
+      } catch (error) {
+        if (!(error instanceof AiRequestError) || error === aborted) throw error;
+        continue;
+      }
+      if (!record(own)) continue;
+      for (const variant of exclusiveVariants(own, others)) {
+        const hit = attempt(variant, where);
+        if (hit !== undefined) return hit;
       }
     }
     if (!sampled && firstError) throw firstError;

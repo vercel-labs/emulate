@@ -33,6 +33,7 @@ import type {
 } from "openai/resources/responses/responses";
 import type { ErrorObject } from "openai/resources/shared";
 import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../codec.js";
+import { decodeMetadata } from "../metadata.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
 import { decodeResponsesAttachment } from "../attachments.js";
 import type { SseFrame } from "../sse.js";
@@ -229,17 +230,6 @@ function decodeReasoning(raw: unknown): WireReasoning | undefined {
   const mode = optionalString(raw.mode, "reasoning.mode");
   if (mode !== undefined) reasoning.mode = mode;
   return reasoning;
-}
-
-function decodeMetadata(raw: unknown): WireMetadata {
-  if (raw === undefined || raw === null) return {};
-  if (!isRecord(raw)) invalid("Expected an object for 'metadata'.", "metadata");
-  const metadata: WireMetadata = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value !== "string") invalid(`Expected a string for 'metadata.${key}'.`, `metadata.${key}`);
-    metadata[key] = value;
-  }
-  return metadata;
 }
 
 function decodeTruncation(raw: unknown): "auto" | "disabled" {
@@ -514,6 +504,17 @@ function storedOutputMessages(items: Json[]): Message[] {
   return messages;
 }
 
+const MESSAGE_CACHE = new WeakMap<StoredResponse, { input: Json[]; output: Json[]; messages: Message[] }>();
+
+/** Decodes a stored response once and returns the same message objects on every replay, so recorded calls share them. */
+function storedMessages(entry: StoredResponse): Message[] {
+  const cached = MESSAGE_CACHE.get(entry);
+  if (cached && cached.input === entry.inputItems && cached.output === entry.outputItems) return cached.messages;
+  const messages = [...decodeStoredMessages(entry.inputItems), ...storedOutputMessages(entry.outputItems)];
+  MESSAGE_CACHE.set(entry, { input: entry.inputItems, output: entry.outputItems, messages });
+  return messages;
+}
+
 interface ReplayedHistory {
   messages: Message[];
   gaps: number[];
@@ -546,8 +547,7 @@ function replayStoredHistory(state: AiState, id: string): ReplayedHistory | unde
   const itemIds = new Set<string>();
   for (const entry of chain.reverse()) {
     const base = messages.length;
-    for (const message of decodeStoredMessages(entry.inputItems)) messages.push(message);
-    for (const message of storedOutputMessages(entry.outputItems)) messages.push(message);
+    for (const message of storedMessages(entry)) messages.push(message);
     for (const gap of entry.gaps ?? []) gaps.push(base + gap);
     for (const item of entry.outputItems) {
       if (isRecord(item) && typeof item.id === "string") itemIds.add(item.id);
@@ -751,7 +751,9 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const answered = new Set<string>();
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type === "tool_result") answered.add(part.id);
+      if (part.type !== "tool_result") continue;
+      if (answered.has(part.id)) warnings.push(`Duplicate tool output for "${part.id}"; keeping both outputs.`);
+      answered.add(part.id);
     }
   }
   messages.forEach((message, index) => {
