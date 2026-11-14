@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
+import { createServer, type AddressInfo, type Server } from "node:net";
 import { Hono, cors, serve } from "../http.js";
 
 describe("HTTP listener", () => {
@@ -92,5 +92,45 @@ describe("internal http layer", () => {
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe("GET");
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe("x-test");
     expect(res.headers.get("Access-Control-Max-Age")).toBe("60");
+  });
+
+  async function hold(host?: string): Promise<Server | undefined> {
+    const holder = createServer();
+    holder.listen(0, host);
+    try {
+      await once(holder, "listening");
+      return holder;
+    } catch {
+      return undefined;
+    }
+  }
+
+  it("fails when a wildcard listener holds the port", async () => {
+    const holder = (await hold())!;
+    const { port } = holder.address() as AddressInfo;
+    const server = serve({ fetch: () => new Response("ready"), port });
+    try {
+      const [error] = await once(server, "error");
+      expect(error).toMatchObject({ code: "EADDRINUSE" });
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("starts when only another address holds the port", async () => {
+    const holder = await hold("::1");
+    if (!holder) return;
+    const { port } = holder.address() as AddressInfo;
+    const server = serve({ fetch: () => new Response("ready"), port });
+    try {
+      await once(server, "listening");
+      expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe("ready");
+    } finally {
+      holder.close();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
   });
 });
