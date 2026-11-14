@@ -1495,7 +1495,9 @@ A refusal rule produces OpenAI's native refusal shape only when a rule asks for 
 
 Attachments are input only. The emulator never reads their contents to produce an answer; rules decide the reply. Inline bytes are hashed, measured, and dropped. Responses accepts `input_file` with inline data, a URL, or a file id, plus `input_image`. Chat accepts `file` parts with inline data or a file id, and `image_url`; Chat files must be PDFs and Chat does not accept file URLs. Malformed inline data returns a native 400. The AI SDK validates attachments before sending, so `@ai-sdk/openai` rejects `text/plain` and other non-PDF, non-image files client-side unless `passThroughUnsupportedFiles` is set.
 
-Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
+On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
+
+On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`.
 
 Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
