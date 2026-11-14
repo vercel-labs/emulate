@@ -178,6 +178,18 @@ it.each([false, true])("keeps published secrets after a ready run closes: watch=
   expect(artifactExists).toBe(true);
 });
 
+it("prints AI setup lines and the host warning for the ai emulator under another name", async () => {
+  const base = metadata();
+  mocks.fork.mockReturnValue(
+    new Worker({ ...base, services: [{ name: "llm", url: "http://localhost:4745", port: 4745, source: "ai" }] }),
+  );
+  const run = await projectStartCommand({ port: 4745, host: "0.0.0.0", watch: true });
+  runs.push(run);
+  const text = (process.send as ReturnType<typeof vi.fn>).mock.calls[0][0].text;
+  expect(text).toContain("http://localhost:4745/v1");
+  expect(text).toContain("Warning:");
+});
+
 it("reports a rejected publish only to its caller", async () => {
   vi.spyOn(secretsFile, "preflightGeneratedSecretsFile").mockResolvedValue({
     path: "/tmp/failed-secrets.json",
