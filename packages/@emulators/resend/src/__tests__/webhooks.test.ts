@@ -285,6 +285,27 @@ describe("Resend webhook destinations", () => {
     expect(() => setup({ webhook_hosts: [""] })).toThrow("Resend webhook_hosts");
   });
 
+  it("records a redirect as a failed delivery without following it", async () => {
+    const server = setup();
+    const created = (await (await create(server, `${receiverUrl}/moved`)).json()) as { id: string };
+    const redirector = createHttpServer((_req, res) => {
+      res.writeHead(307, { Location: `${receiverUrl}/elsewhere` }).end();
+    });
+    await new Promise<void>((resolve) => redirector.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (redirector.address() as AddressInfo).port;
+      await request(server, "PATCH", `/webhooks/${created.id}`, { endpoint: `http://127.0.0.1:${port}/hook` });
+      await request(server, "POST", "/domains", { name: "example.com" });
+    } finally {
+      await new Promise<void>((resolve) => redirector.close(() => resolve()));
+    }
+
+    expect(received).toEqual([]);
+    const [delivery] = server.webhooks.getDeliveries();
+    expect(delivery.status_code).toBe(307);
+    expect(delivery.success).toBe(false);
+  });
+
   it("delivers to seeded endpoints without checking them", async () => {
     const server = setup({ webhook_hosts: [], webhooks: [{ endpoint: `${receiverUrl}/seeded` }] });
     await request(server, "POST", "/domains", { name: "example.com" });

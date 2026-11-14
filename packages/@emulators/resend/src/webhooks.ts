@@ -96,6 +96,8 @@ export function subscribeWebhook(webhooks: WebhookDispatcher, webhook: ResendWeb
   if (webhooks.getSubscription(webhook.id)) {
     webhooks.updateSubscription(webhook.id, subscription);
   } else {
-    webhooks.register({ id: webhook.id, owner: "resend", ...subscription });
+    // Svix treats a 3xx response as a failed attempt and does not follow it. Following one would also let an
+    // allowed endpoint send the delivery on to a host outside resend.webhook_hosts.
+    webhooks.register({ id: webhook.id, owner: "resend", followRedirects: false, ...subscription });
   }
 }

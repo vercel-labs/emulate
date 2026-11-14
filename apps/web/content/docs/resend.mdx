@@ -66,7 +66,7 @@ Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/r
 - `PATCH /webhooks/:id` — update `endpoint`, `events`, or `status`
 - `DELETE /webhooks/:id` — delete webhook
 
-Deliveries are signed with Svix, as Resend signs them. Each request carries `svix-id`, `svix-timestamp`, and `svix-signature` headers, so `resend.webhooks.verify()` and the `svix` library accept them when given the webhook's signing secret. The emulator sends `email.sent` and `email.delivered` for each email that isn't scheduled, `domain.created` and `domain.deleted`, and `contact.created` and `contact.deleted`. A webhook receives only the events in its `events` list, and a `disabled` webhook receives none. Each event is attempted once, with a 10-second timeout and no retries.
+Deliveries are signed with Svix, as Resend signs them. Each request carries `svix-id`, `svix-timestamp`, and `svix-signature` headers, so `resend.webhooks.verify()` and the `svix` library accept them when given the webhook's signing secret. The emulator sends `email.sent` and `email.delivered` for each email that isn't scheduled, `domain.created` and `domain.deleted`, and `contact.created` and `contact.deleted`. A webhook receives only the events in its `events` list, and a `disabled` webhook receives none. Each event is attempted once, with a 10-second timeout and no retries. A `3xx` response counts as a failed attempt and is not followed, as Svix treats redirects.
 
 Webhooks can also be seeded:
 

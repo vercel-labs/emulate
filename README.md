@@ -1208,7 +1208,7 @@ Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/r
 
 ### Webhooks
 
-Register endpoints with `POST /webhooks` (`endpoint` and `events`) or seed them with `resend.webhooks`. Deliveries carry Svix `svix-id`, `svix-timestamp`, and `svix-signature` headers, signed with the webhook's `whsec_` signing secret as Resend signs them, so `resend.webhooks.verify()` and the `svix` library accept them. `GET /webhooks/:id` returns the secret.
+Register endpoints with `POST /webhooks` (`endpoint` and `events`) or seed them with `resend.webhooks`. Deliveries carry Svix `svix-id`, `svix-timestamp`, and `svix-signature` headers, signed with the webhook's `whsec_` signing secret as Resend signs them, so `resend.webhooks.verify()` and the `svix` library accept them. `GET /webhooks/:id` returns the secret. A `3xx` response counts as a failed attempt and is not followed, as Svix treats redirects.
 
 ```yaml
 resend:

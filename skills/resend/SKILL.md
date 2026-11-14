@@ -334,7 +334,7 @@ The emulator dispatches webhook events when state changes:
 - `domain.created` and `domain.deleted` on domain operations
 - `contact.created` and `contact.deleted` on contact operations
 
-Each delivery is signed with Svix, as Resend signs them, through the `svix-id`, `svix-timestamp`, and `svix-signature` headers. Verify it in your handler with `resend.webhooks.verify({ payload, headers: { id, timestamp, signature }, webhookSecret })` or the `svix` library, using the raw request body. A webhook receives only the events in its `events` list, a `disabled` webhook receives none, and each event is attempted once without retries.
+Each delivery is signed with Svix, as Resend signs them, through the `svix-id`, `svix-timestamp`, and `svix-signature` headers. Verify it in your handler with `resend.webhooks.verify({ payload, headers: { id, timestamp, signature }, webhookSecret })` or the `svix` library, using the raw request body. A webhook receives only the events in its `events` list, a `disabled` webhook receives none, and each event is attempted once without retries. A `3xx` response counts as a failed attempt and is not followed, as Svix treats redirects.
 
 Webhooks can also be seeded. Without `events`, a seeded webhook subscribes to every event above. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts:
 
