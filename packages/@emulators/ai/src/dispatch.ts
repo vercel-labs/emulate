@@ -81,9 +81,8 @@ const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
 /** Installs the anchored data router and the control routes; control routes are checked first. */
 export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRoutesOptions): void {
-  const base = parseUrl(baseUrl);
-  const expectedOrigin = base && originKey(base);
-  const configuredHost = baseUrlDerived || !base ? undefined : base.hostname;
+  const configured = baseUrlDerived ? undefined : parseUrl(baseUrl);
+  const derived = baseUrlDerived === true;
 
   app.use("*", async (c, next) => {
     if (c.req.path.startsWith("/_emulate/")) {
@@ -91,7 +90,7 @@ export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRout
       return;
     }
     try {
-      return await handleRequest(c, store, expectedOrigin, configuredHost);
+      return await handleRequest(c, store, configured, derived);
     } catch (error) {
       const codec = errorCodecOf(c.req.path, c.req.header("anthropic-version"));
       if (!codec) throw error;
@@ -115,8 +114,8 @@ export function resetAiToSeed(store: Store): void {
 async function handleRequest(
   c: Context<AppEnv>,
   store: Store,
-  expectedOrigin: string | undefined,
-  configuredHost: string | undefined,
+  configured: URL | undefined,
+  derived: boolean,
 ): Promise<Response> {
   const url = new URL(c.req.url);
   const path = url.pathname;
@@ -125,12 +124,8 @@ async function handleRequest(
   const state = getAiState(store);
 
   const authority = c.req.header("host") ?? url.host;
-  const caller = callerOf(
-    c.req.header("origin"),
-    expectedOrigin,
-    parseUrl(`http://${authority}`)?.hostname ?? "",
-    configuredHost,
-  );
+  const addressed = parseUrl(`${url.protocol}//${authority}`);
+  const caller = callerOf(c.req.header("origin"), addressed, configured, derived);
 
   if (caller === "untrusted-host") {
     const refusal = untrustedHostMessage(authority);
@@ -537,17 +532,22 @@ function untrustedHostMessage(host: string): string {
   return `The AI service does not answer on host "${host}". Start the emulator with --base-url http://${host} to allow it, or set publicUrl when embedding it.`;
 }
 
+/**
+ * Classifies a request from where it was addressed and its Origin. The service's own origin is the configured base URL,
+ * or, when the base URL was only derived from an earlier request, the trusted address this request was sent to.
+ */
 function callerOf(
   origin: string | undefined,
-  expectedOrigin: string | undefined,
-  hostname: string,
-  configuredHost: string | undefined,
+  addressed: URL | undefined,
+  configured: URL | undefined,
+  derived: boolean,
 ): Caller {
-  if (!trustedHostname(hostname, configuredHost)) return "untrusted-host";
+  if (!addressed || !trustedHostname(addressed.hostname, configured?.hostname)) return "untrusted-host";
   if (!origin) return "direct";
   const url = parseUrl(origin);
   if (!url) return "foreign";
-  if (originKey(url) === expectedOrigin) return "same-origin";
+  const own = derived ? addressed : configured;
+  if (own && originKey(url) === originKey(own)) return "same-origin";
   return LOOPBACK_HOSTS.has(url.hostname) || url.hostname.endsWith(".localhost") ? "local" : "foreign";
 }
 

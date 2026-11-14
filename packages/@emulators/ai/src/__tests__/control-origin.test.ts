@@ -174,6 +174,11 @@ describe("AI host checks", () => {
     expect((await derived.app.request("http://evil.example:4000/_ai/calls")).status).toBe(403);
     expect((await derived.app.request("http://localhost:4000/_ai/calls")).status).toBe(200);
 
+    const poisoned = { origin: "http://evil.example:4000" };
+    expect((await derived.app.request("http://localhost:4000/_ai/calls", { headers: poisoned })).status).toBe(403);
+    const own = { origin: "http://localhost:4000" };
+    expect((await derived.app.request("http://localhost:4000/_ai/calls", { headers: own })).status).toBe(200);
+
     const configured = await serverWithStoredResponse({ baseUrl: "https://app.example.com", baseUrlDerived: false });
     expect((await configured.app.request("https://app.example.com/_ai/calls")).status).toBe(200);
     expect((await configured.app.request("https://evil.example/_ai/calls")).status).toBe(403);
@@ -211,6 +216,37 @@ describe("AI host checks in the embedded runtime", () => {
         "/emulate",
       );
       expect(response.status).toBe(403);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("keeps a foreign Origin forbidden after a refused foreign Host was the first request", async () => {
+    const runtime = createAdapterRuntime(
+      { services: { ai: { emulator: { plugin: aiPlugin } } } },
+      (mount, name) => `${mount}/${name}`,
+    );
+    const attacker = "http://evil.example:3000";
+    const local = "http://localhost:3000";
+    const calls = (url: string, headers: Record<string, string> = {}) =>
+      runtime.handle(new Request(`${url}/emulate/ai/_ai/calls`, { headers }), ["ai", "_ai", "calls"], "/emulate");
+    const putRules = (headers: Record<string, string>) =>
+      runtime.handle(
+        new Request(`${local}/emulate/ai/_ai/rules`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({ rules: [] }),
+        }),
+        ["ai", "_ai", "rules"],
+        "/emulate",
+      );
+    try {
+      expect((await calls(attacker)).status).toBe(403);
+      expect((await calls(local, { origin: attacker })).status).toBe(403);
+      expect((await putRules({ origin: attacker })).status).toBe(403);
+      expect((await calls(local, { origin: local })).status).toBe(200);
+      expect((await putRules({ origin: local })).status).toBe(200);
+      expect((await calls(local)).status).toBe(200);
     } finally {
       await runtime.close();
     }
