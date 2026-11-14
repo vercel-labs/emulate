@@ -70,6 +70,40 @@ describe("sampleSchema siblings next to composition keywords", () => {
     const schema: JsonSchema = { anyOf: [{ type: "integer", minimum: 5 }], minimum: 0 };
     expect(sampleSchema(schema, "hello")).toBe(5);
   });
+
+  it("keeps a stricter sibling maxLength next to $ref", () => {
+    const schema: JsonSchema = {
+      maxLength: 2,
+      $ref: "#/$defs/s",
+      $defs: { s: { type: "string", maxLength: 100 } },
+    };
+    expect(sampleSchema(schema, "hello")).toBe("he");
+  });
+
+  it("keeps a stricter sibling maxLength next to anyOf and oneOf", () => {
+    const branch: JsonSchema = { type: "string", maxLength: 100 };
+    expect(sampleSchema({ anyOf: [branch], maxLength: 2 }, "hello")).toBe("he");
+    expect(sampleSchema({ oneOf: [branch], maxLength: 2 }, "hello")).toBe("he");
+  });
+
+  it("keeps a larger sibling minimum next to $ref", () => {
+    const schema: JsonSchema = {
+      minimum: 7,
+      $ref: "#/$defs/n",
+      $defs: { n: { type: "number", minimum: 1 } },
+    };
+    expect(sampleSchema(schema, "hello")).toBe(7);
+  });
+
+  it("intersects sibling types and enums next to $ref", () => {
+    const schema: JsonSchema = {
+      type: "number",
+      enum: [1.5, 2, 3],
+      $ref: "#/$defs/n",
+      $defs: { n: { type: "integer", enum: [3, 2, 1.5] } },
+    };
+    expect(sampleSchema(schema, "hello")).toBe(2);
+  });
 });
 
 describe("sampleSchema core behavior", () => {
