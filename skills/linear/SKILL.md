@@ -165,7 +165,7 @@ Webhooks subscribed to `AgentSessionEvent` receive Linear's `AgentSessionEventWe
 
 The emulator's earlier agent inputs still work: `agentActivityCreate` with `{ sessionId, type, body }`, which also accepts `type: prompt` from a human token, `agentUserId`, string `plan`, and `externalUrl` on session inputs, and `state` on `agentSessionUpdate`. Sessions keep their `state`, `externalUrl`, and `agentUser` fields, and activities keep `type`, `body`, and `session`.
 
-
+## Inspector
 
 Open `GET /` in the Linear emulator to inspect issues, teams, users, projects, agent sessions, OAuth apps, tokens, webhook subscriptions, and webhook deliveries.
 

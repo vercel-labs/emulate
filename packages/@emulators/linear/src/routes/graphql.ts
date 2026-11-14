@@ -1327,7 +1327,9 @@ function createRoot(context: LinearGraphQLContext) {
       const actor = requireCurrentUser(context);
       // The emulator's earlier flat input ({ sessionId, type, body }) is accepted when content is absent.
       const legacy = input.content === undefined || input.content === null;
-      const session = requireAgentSession(store, legacy ? input.sessionId : input.agentSessionId);
+      const session = legacy
+        ? requireAgentSession(store, input.sessionId, "sessionId")
+        : requireAgentSession(store, input.agentSessionId, "agentSessionId");
       const content = legacy ? legacyActivityContent(input.type, input.body) : parseActivityContent(input.content);
       if (actor.app) {
         requireSessionOwner(actor, session);
@@ -2127,8 +2129,8 @@ function requireWebhook(store: Store, id: string): LinearWebhook {
   return webhook;
 }
 
-function requireAgentSession(store: Store, id: unknown): LinearAgentSession {
-  const ref = requiredString(id, "id");
+function requireAgentSession(store: Store, id: unknown, field = "id"): LinearAgentSession {
+  const ref = requiredString(id, field);
   const session = getLinearStore(store).agentSessions.findOneBy("linear_id", ref);
   if (!session) throw new Error(`Agent session not found: ${ref}`);
   return session;

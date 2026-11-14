@@ -276,6 +276,13 @@ describe("Linear agent sessions and activities", () => {
     expect(foreign.errors?.[0]?.message).toMatch(/belongs to another agent/);
   });
 
+  it("names the missing session field of the input it was given", async () => {
+    const withContent = await gql(app, CREATE_ACTIVITY, { input: { content: { type: "thought", body: "x" } } });
+    expect(withContent.errors?.[0]?.message).toBe("agentSessionId is required");
+    const flat = await gql(app, CREATE_ACTIVITY, { input: { type: "thought", body: "x" } });
+    expect(flat.errors?.[0]?.message).toBe("sessionId is required");
+  });
+
   it("validates plans, summaries, and external URL changes", async () => {
     const sessionId = await createSession();
     const update = (input: Record<string, unknown>) =>
