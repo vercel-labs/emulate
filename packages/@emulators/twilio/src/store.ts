@@ -13,6 +13,8 @@ import type {
   TwilioMessage,
   TwilioMessagingService,
   TwilioMessagingServicePhoneNumber,
+  TwilioSendGridApiKey,
+  TwilioSendGridMessage,
   TwilioVerification,
   TwilioVerifyService,
   TwilioWebhookDelivery,
@@ -35,6 +37,8 @@ export interface TwilioStore {
   conversations: Collection<TwilioConversation>;
   conversationParticipants: Collection<TwilioConversationParticipant>;
   conversationMessages: Collection<TwilioConversationMessage>;
+  sendgridApiKeys: Collection<TwilioSendGridApiKey>;
+  sendgridMessages: Collection<TwilioSendGridMessage>;
 }
 
 export function getTwilioStore(store: Store): TwilioStore {
@@ -98,5 +102,7 @@ export function getTwilioStore(store: Store): TwilioStore {
       "service_sid",
       "conversation_sid",
     ]),
+    sendgridApiKeys: store.collection<TwilioSendGridApiKey>("twilio.sendgrid_api_keys", ["key"]),
+    sendgridMessages: store.collection<TwilioSendGridMessage>("twilio.sendgrid_messages", ["message_id"]),
   };
 }

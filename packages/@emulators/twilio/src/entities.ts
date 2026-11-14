@@ -221,3 +221,27 @@ export interface TwilioConversationMessage extends Entity {
   index: number;
   attributes: string;
 }
+
+export interface TwilioSendGridApiKey extends Entity {
+  name: string;
+  key: string;
+  /** SendGrid permission scopes. `null` grants full access. */
+  scopes: string[] | null;
+}
+
+export interface TwilioSendGridAddress {
+  email: string;
+  name?: string;
+}
+
+export interface TwilioSendGridMessage extends Entity {
+  message_id: string;
+  api_key_name: string;
+  from: TwilioSendGridAddress;
+  /** Every to, cc, and bcc address across all personalizations, in request order. */
+  recipients: string[];
+  subject: string | null;
+  template_id: string | null;
+  /** The request body exactly as SendGrid received it. */
+  request: Record<string, unknown>;
+}

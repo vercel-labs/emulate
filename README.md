@@ -645,6 +645,10 @@ twilio:
   conversations:
     services:
       - friendly_name: Local Conversations
+  sendgrid:
+    api_keys:
+      - key: SG.emulate_local_key.twilio_test_sendgrid_api_key
+        name: Local SendGrid API Key
 ```
 
 GitHub organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, while `admin` creates an organization administrator. Unknown users are ignored. Seeded memberships use the synthetic `members` team and grant private organization repository access.
@@ -1243,7 +1247,7 @@ Current Linear limits: full schema coverage, exact production rate limiting, not
 
 ## Twilio API
 
-Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector. No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, or SendGrid traffic is performed.
+Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, SendGrid Mail Send, signed webhooks, local simulator routes, and an inspector. No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, or SendGrid traffic is performed.
 
 Default local credentials:
 
@@ -1254,6 +1258,7 @@ TWILIO_API_KEY=SK00000000000000000000000000000000
 TWILIO_API_SECRET=twilio_test_api_secret
 TWILIO_PHONE_NUMBER=+15551234567
 TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
+SENDGRID_API_KEY=SG.emulate_local_key.twilio_test_sendgrid_api_key
 ```
 
 ### REST Routes
@@ -1274,6 +1279,36 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 Twilio uses multiple product hosts. For local SDK tests, rewrite Twilio SDK requests to the emulator and map `messaging.twilio.com` to `/messaging`, `verify.twilio.com` to `/verify`, and `conversations.twilio.com` to `/conversations`.
 
 Only an `active` account can send messages or place calls. Set the seeded account `status` to `suspended` or `closed`, or update it with `POST /2010-04-01/Accounts/{AccountSid}.json` and `Status`, to test the failure: message and call creation return HTTP 401 with error `20005`, "Account not active". Set the status back to `active` to restore them.
+
+### SendGrid Mail Send
+
+SendGrid is a Twilio product with its own host, `api.sendgrid.com`, so the Twilio emulator serves its Mail Send route at the root: `https://api.sendgrid.com/v3/mail/send` maps to `$TWILIO_EMULATOR_URL/v3/mail/send`.
+
+- `POST /v3/mail/send` - send email with a SendGrid v3 request body
+
+Requests use `Authorization: Bearer <API key>`. The seeded key is `SG.emulate_local_key.twilio_test_sendgrid_api_key`. Add keys under `twilio.sendgrid.api_keys` with `key`, optional `name`, and optional `scopes`. A key with `scopes` must include `mail.send`. A missing or unknown key returns `401`, and a key without `mail.send` returns `403`.
+
+An accepted request returns `202` with an empty body and an `X-Message-Id` header. The emulator stores the original request body with the message ID, sender, and every `to`, `cc`, and `bcc` recipient in the `twilio.sendgrid_messages` store collection, and lists it on the inspector's SendGrid tab. Invalid requests return `400` with every problem in SendGrid's `errors` array of `message`, `field`, and `help` objects. The checks cover the sender, personalizations and their 1,000-recipient limit, duplicate recipients, subjects, `text/plain` before `text/html` content order, attachments, headers, categories, `reply_to` and `reply_to_list`, `send_at`, and settings types. Set `mail_settings.sandbox_mode.enable` to `true` to validate a request without storing it; the response is an empty `200`.
+
+Templates are not rendered. A request with `template_id` may omit `content` and `subject`, and the template ID and `dynamic_template_data` are stored as sent. Nothing is delivered or scheduled.
+
+With the official Node packages, set the emulator URL after `setApiKey`, which resets the base URL to `api.sendgrid.com`:
+
+```typescript
+import client from "@sendgrid/client";
+import mail from "@sendgrid/mail";
+
+mail.setClient(client);
+mail.setApiKey("SG.emulate_local_key.twilio_test_sendgrid_api_key");
+client.setDefaultRequest("baseUrl", "http://localhost:4000/");
+
+await mail.send({
+  from: "reception@example.com",
+  to: "guest@example.com",
+  subject: "Your invitation",
+  text: "Welcome",
+});
+```
 
 ### SMS And OTP Testing
 
@@ -1296,9 +1331,9 @@ To test inbound SMS webhooks, configure a seeded phone number `sms_url`, then ca
 - `POST /_twilio/simulate/inbound-call` - create an inbound call and invoke the configured voice webhook
 - `POST /_twilio/simulate/call-status` - advance call status
 - `POST /_twilio/simulate/verification-status` - force a verification state by `VerificationSid` or `To`
-- `GET /` - tabbed inspector for messages, Verify, calls, Conversations, phone numbers, services, auth, and webhook deliveries
+- `GET /` - tabbed inspector for messages, Verify, calls, Conversations, SendGrid email, phone numbers, services, auth, and webhook deliveries
 
-Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid, Conversations SDK websocket behavior, or complete TwiML interpreter.
+Current Twilio limits: no carrier delivery, A2P 10DLC, toll-free verification, real phone number purchasing, exact rate limits, Studio, Flex, TaskRouter, Video, Sync, Segment, SendGrid APIs other than Mail Send, SendGrid template rendering, scheduled sends, verified sender checks, Conversations SDK websocket behavior, or complete TwiML interpreter.
 
 ## Apple Sign In
 

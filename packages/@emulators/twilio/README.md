@@ -12,7 +12,7 @@ Run it through the CLI:
 npx emulate --service twilio
 ```
 
-The first supported surface includes seeded Account SID/Auth Token credentials, API key credentials, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, simulator routes, and an inspector.
+The first supported surface includes seeded Account SID/Auth Token credentials, API key credentials, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, SendGrid Mail Send, signed webhooks, simulator routes, and an inspector.
 
 Default local credentials:
 
@@ -23,10 +23,13 @@ TWILIO_API_KEY=SK00000000000000000000000000000000
 TWILIO_API_SECRET=twilio_test_api_secret
 TWILIO_PHONE_NUMBER=+15551234567
 TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
+SENDGRID_API_KEY=SG.emulate_local_key.twilio_test_sendgrid_api_key
 ```
 
 Twilio uses multiple product hosts. When testing with the official Node SDK, use a custom request client that rewrites Twilio hosts to the local emulator. The emulator exposes product-prefixed local routes such as `/verify/v2` and `/messaging/v1`.
 
 For SMS and OTP tests, the seeded Verify Service uses code `123456`. Test runners can also read the latest local code with `GET /_twilio/simulate/verification-code?To=...&ServiceSid=...` using Basic auth. Inbound SMS webhooks are simulated with `POST /_twilio/simulate/inbound-message`, using an assigned Messaging Service `inbound_request_url` before falling back to the phone number `sms_url`. Outbound delivery transitions are simulated with `POST /_twilio/simulate/message-status`.
+
+SendGrid Mail Send is served at `POST /v3/mail/send`, the path from `https://api.sendgrid.com/v3/mail/send`, with Bearer API key auth. Accepted requests return an empty `202` with `X-Message-Id` and are stored in the `twilio.sendgrid_messages` collection. Validation failures return SendGrid's `errors` array, and `mail_settings.sandbox_mode` validates without storing. Templates are not rendered. With `@sendgrid/mail`, set the client's `baseUrl` to the emulator after calling `setApiKey`.
 
 No real SMS, voice, carrier, compliance, billing, or SendGrid traffic is performed.
