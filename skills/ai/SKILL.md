@@ -1,6 +1,6 @@
 ---
 name: ai
-description: Deterministic OpenAI Responses, Chat Completions, and Anthropic Messages emulation for local development and CI. Use when the user needs to test an app that calls an LLM without network access, keys, or cost, including text, streaming, structured output, tool loops, reasoning, refusals, retries, timeouts, and stored conversations. Triggers include "mock OpenAI", "emulate OpenAI", "test the OpenAI SDK", "test the AI SDK", "generateText", "generateObject", "streamText", "Chat Completions", "Responses API", "simulate a 429", "test tool calls", "no API key", or any task requiring a local AI provider.
+description: Deterministic OpenAI Responses, Chat Completions, and Anthropic Messages emulation for local development and CI. Use when the user needs to test an app that calls an LLM without network access, keys, or cost, including text, streaming, structured output, tool loops, reasoning, refusals, retries, timeouts, and stored conversations. Triggers include "mock OpenAI", "emulate OpenAI", "test the OpenAI SDK", "mock Anthropic", "emulate Anthropic", "test the Anthropic SDK", "test the AI SDK", "generateText", "generateObject", "streamText", "Chat Completions", "Responses API", "Messages API", "simulate a 429", "test tool calls", "no API key", or any task requiring a local AI provider.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
