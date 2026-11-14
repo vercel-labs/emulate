@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { DocumentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { createHash } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { z } from "zod";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallRecord } from "../types.js";
@@ -819,6 +820,30 @@ describe("anthropic messages", () => {
       expect(response.status).toBe(status);
       expect(await response.json()).toMatchObject({ type: "error", error: { type, message: "boom" } });
     }
+  });
+
+  it("refuses an untrusted host on the Messages route in Anthropic's shape", async () => {
+    const reply = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const url = new URL(`${origin}/v1/messages`);
+      const request = httpRequest(
+        {
+          host: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          method: "POST",
+          headers: { host: "evil.example", "content-type": "application/json" },
+        },
+        (response) => {
+          let body = "";
+          response.on("data", (chunk) => (body += chunk));
+          response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
+        },
+      );
+      request.on("error", reject);
+      request.end(JSON.stringify({ model: "m", max_tokens: 8, messages: [{ role: "user", content: "x" }] }));
+    });
+    expect(reply.status).toBe(403);
+    expect(JSON.parse(reply.body)).toMatchObject({ type: "error", error: { type: "permission_error" } });
   });
 
   it("requires max_tokens", async () => {

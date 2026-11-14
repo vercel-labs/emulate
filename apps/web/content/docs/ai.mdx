@@ -298,7 +298,7 @@ curl -X PUT http://localhost:4014/_ai/rules \
 
 `PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. Every replacement restores each rule's full `times` budget. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
 
-Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback.
+Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback. The AI service also checks the request's own host, so a website whose name is rebound to this machine cannot read it: it answers only on loopback names, IP addresses, and the host of its base URL, and any other name gets 403. To allow another name, such as a Docker service name, start with `--base-url http://<host>:<port>`. When embedded through `createEmulateHandler`, set `publicUrl` to the public origin.
 
 ### Inspector and call record
 

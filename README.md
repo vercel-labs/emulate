@@ -1469,7 +1469,7 @@ Every generation request is recorded with its format, model, `matched`, normaliz
 
 ### Control routes and inspector
 
-All control routes and the inspector are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback.
+All control routes and the inspector are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback. The AI service also checks the request's own host, so a website whose name is rebound to this machine cannot read it: it answers only on loopback names, IP addresses, and the host of its base URL, and any other name gets 403. To allow another name, such as a Docker service name, start with `--base-url http://<host>:<port>`. When embedded through `createEmulateHandler`, set `publicUrl` to the public origin.
 
 - `GET /_ai/calls` - recorded calls
 - `DELETE /_ai/calls` - clear the call record

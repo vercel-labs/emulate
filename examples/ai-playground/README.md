@@ -25,7 +25,7 @@ Two same-origin routes forward the playground's requests to that mount, so the p
 
 `next.config.ts` wraps the config with `withEmulate`, which keeps the emulator fonts in the serverless output trace, and adds `frame-ancestors 'none'` so another site cannot embed the page.
 
-Both proxies refuse a request when the `Host` is not this app, when `Origin` names another site, or when Fetch Metadata reports a cross-site caller, and they drop the emulator's wildcard CORS headers. A framed page also skips applying rules on load.
+The raw `/emulate/ai` mount is covered by the AI service's own host check, which answers only on loopback names and IP addresses unless `publicUrl` is set. Both proxies still refuse a request when the `Host` is not this app, when `Origin` names another site, or when Fetch Metadata reports a cross-site caller, and they drop the emulator's wildcard CORS headers. A framed page also skips applying rules on load.
 
 ## Scenarios
 

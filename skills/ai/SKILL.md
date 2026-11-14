@@ -257,7 +257,7 @@ The seed shuffles the variants per rule and calls walk that order in a cycle, so
 
 ## Control Endpoints
 
-Read and edit the live state without restarting. All control routes are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page served from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403.
+Read and edit the live state without restarting. All control routes are same-origin only, reads included. curl and tests without an `Origin` header work; a browser page served from another origin gets 403. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. The AI service also checks the request's own host, so a website whose name is rebound to this machine cannot read it: it answers only on loopback names, IP addresses, and the host of its base URL, and any other name gets 403. To allow another name, such as a Docker service name, start with `--base-url http://<host>:<port>`. When embedded through `createEmulateHandler`, set `publicUrl` to the public origin.
 
 ### Calls
 
