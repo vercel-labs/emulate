@@ -39,6 +39,26 @@ describe("createServer error formatting", () => {
     expect(await response.json()).toEqual({ error: "short and stout", status: 418 });
   });
 
+  it("falls back to the default body with the original status when formatError throws or rejects", async () => {
+    for (const formatError of [
+      () => {
+        throw new Error("formatter broke");
+      },
+      async () => {
+        throw new Error("formatter broke");
+      },
+    ]) {
+      const server = createServer(testPlugin({ formatError: formatError as never }), {
+        docsUrl,
+      });
+
+      const response = await server.app.request("/missing");
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ message: "Not Found", documentation_url: docsUrl });
+    }
+  });
+
   it("renders unmatched routes through formatError", async () => {
     const server = createServer(
       testPlugin({

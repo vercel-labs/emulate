@@ -525,7 +525,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
             includeUsage,
           ),
         });
-        for (const piece of textChunks(event.arguments)) {
+        for (const piece of jsonChunks(event.arguments)) {
           frames.push({
             data: chunk(id, model, { tool_calls: [{ index, function: { arguments: piece } }] }, null, includeUsage),
             content: piece,

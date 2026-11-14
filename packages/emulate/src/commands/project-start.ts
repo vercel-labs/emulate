@@ -18,7 +18,7 @@ function printReady(metadata: RunMetadata, watching: boolean, host?: string) {
     lines.push(`  ${service.name}  ${service.url}\n    Source: ${service.source}`);
     if (service.inspectorUrl)
       lines.push(`    Inspector: ${service.inspectorUrl}\n    Routes: ${service.inspectorUrl}?tab=routes`);
-    if (service.name === "ai") lines.push(`\n${aiSetupLines(service.url, host).join("\n")}`);
+    if (service.source === "ai") lines.push(`\n${aiSetupLines(service.url, host).join("\n")}`);
   }
   lines.push(`\n  ${watching ? "Watching imports and fixtures. Reloads reset state to seed." : "Ready."}`);
   const text = lines.join("\n");

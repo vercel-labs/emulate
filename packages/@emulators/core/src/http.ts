@@ -246,6 +246,24 @@ function mergeHeaders(target: Headers, operations: Array<{ name: string; value: 
   }
 }
 
+/** Returns the HTTP status carried by an error, defaulting to 500. */
+export function errorStatus(err: unknown): number {
+  if (err && typeof err === "object" && "status" in err) {
+    const s = (err as { status: unknown }).status;
+    if (typeof s === "number" && Number.isFinite(s)) return s;
+  }
+  return 500;
+}
+
+/** Renders an error as the JSON body `{ message, documentation_url }` with the status the error carries. */
+export function renderApiError(err: unknown, c: Context<any>): Response {
+  const message = err instanceof Error ? err.message : "Internal Server Error";
+  return c.json(
+    { message, documentation_url: (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev" },
+    errorStatus(err) as ContentfulStatusCode,
+  );
+}
+
 export class Hono<E = unknown> {
   constructor(private readonly options: HttpOptions = {}) {}
 
@@ -261,7 +279,9 @@ export class Hono<E = unknown> {
   }
   private readonly middleware: Route<E>[] = [];
   private readonly routes: Route<E>[] = [];
-  private errorHandler: ErrorHandler<E> = (err) => {
+  private errorHandler: ErrorHandler<E> = (err, c) => {
+    if (err && typeof err === "object" && typeof (err as { status?: unknown }).status === "number")
+      return renderApiError(err, c);
     const message = err instanceof Error ? err.message : "Internal Server Error";
     return new Response(message, { status: 500 });
   };
@@ -616,10 +636,16 @@ async function writeFetchResponse(
     res.end();
   } catch (err) {
     void reader.cancel().catch(() => {});
-    res.destroy(err instanceof Error ? err : undefined);
+    destroyAfterFlush(res, err instanceof Error ? err : undefined);
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/** Destroys the response once everything already written, headers included, has been handed to the socket. */
+function destroyAfterFlush(res: ServerResponse, err?: Error): void {
+  if (res.destroyed) return;
+  res.write("", () => res.destroy(err));
 }
 
 function writeChunk(res: ServerResponse, chunk: Uint8Array, signal?: AbortSignal): Promise<void> | undefined {
