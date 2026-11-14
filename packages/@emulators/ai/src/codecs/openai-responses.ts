@@ -100,10 +100,6 @@ interface PreparedReply {
   response: WireResponse;
 }
 
-interface StoredLookup {
-  item: Json;
-}
-
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 
 /** Context the dispatcher passes to the stored-response helpers. */
@@ -557,13 +553,14 @@ function removeStoredResponse(state: AiState, id: string): void {
   state.responses.delete(id);
 }
 
-function findStoredItem(state: AiState, id: string): StoredLookup | undefined {
+function indexStoredItems(state: AiState): Map<string, Json> {
+  const items = new Map<string, Json>();
   for (const stored of state.responses.values()) {
     for (const item of stored.outputItems) {
-      if (isRecord(item) && item.id === id) return { item };
+      if (isRecord(item) && typeof item.id === "string" && !items.has(item.id)) items.set(item.id, item);
     }
   }
-  return undefined;
+  return items;
 }
 
 function messageToJson(message: Message): Json {
@@ -618,6 +615,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const historyGaps: number[] = [];
   const ownGaps: number[] = [];
   const knownItemIds = new Set<string>();
+  let storedItems: Map<string, Json> | undefined;
 
   if (previousResponseId !== undefined) {
     const replay = replayStoredHistory(ctx.state, previousResponseId);
@@ -657,12 +655,13 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
 
     if (type === "item_reference") {
       const id = requireString(entry.id, `${path}.id`, true);
-      const found = findStoredItem(ctx.state, id);
-      if (found) {
+      storedItems ??= indexStoredItems(ctx.state);
+      const found = storedItems.get(id);
+      if (found !== undefined) {
         references.push({ id, kind: "item", resolved: true });
         if (!knownItemIds.has(id)) {
           knownItemIds.add(id);
-          for (const message of storedOutputMessages([found.item])) ownItems.push(message);
+          for (const message of storedOutputMessages([found])) ownItems.push(message);
         }
       } else {
         references.push({ id, kind: "item", resolved: false });
@@ -716,6 +715,8 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   for (const message of ownItems) messages.push(message);
 
   const gaps = [...historyGaps.map((gap) => historyStart + gap), ...ownGaps.map((gap) => ownStart + gap)];
+  const firstGap = gaps.reduce((least, gap) => Math.min(least, gap), Infinity);
+  const lastGap = gaps.reduce((most, gap) => Math.max(most, gap), -Infinity);
   const callNames = new Map<string, string>();
   for (const message of messages) {
     for (const part of message.parts) {
@@ -735,14 +736,14 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
         const name = callNames.get(part.id);
         if (name !== undefined) {
           part.name = name;
-        } else if (gaps.some((gap) => gap <= index)) {
+        } else if (index >= firstGap) {
           warnings.push(
             `Tool result "${part.id}" does not match a known call; accepting it because referenced history is missing.`,
           );
         } else {
           invalid(`No function call found for tool output "${part.id}".`, "input");
         }
-      } else if (part.type === "tool_call" && !answered.has(part.id) && !gaps.some((gap) => gap > index)) {
+      } else if (part.type === "tool_call" && !answered.has(part.id) && index >= lastGap) {
         invalid(`No tool output found for function call ${part.id}.`, "input");
       }
     }
