@@ -468,7 +468,7 @@ export function serve(options: ServeOptions): Server {
         return;
       }
       const message = err instanceof Error ? err.message : "Internal Server Error";
-      res.statusCode = 500;
+      res.statusCode = err instanceof InvalidHostError ? 400 : 500;
       res.setHeader("Content-Type", "text/plain; charset=UTF-8");
       res.end(message);
     } finally {
@@ -568,8 +568,24 @@ function appendBodyValue<T>(target: Record<string, T | T[]>, key: string, value:
   }
 }
 
+class InvalidHostError extends Error {
+  constructor() {
+    super("Invalid Host header");
+  }
+}
+
+function hostAuthority(host: string): string {
+  if (/[\s/?#@\\]/.test(host)) throw new InvalidHostError();
+  try {
+    new URL(`http://${host}`);
+  } catch {
+    throw new InvalidHostError();
+  }
+  return host;
+}
+
 function nodeRequestToFetchRequest(req: IncomingMessage, signal?: AbortSignal): Request {
-  const host = req.headers.host ?? "localhost";
+  const host = hostAuthority(req.headers.host ?? "localhost");
   const url = new URL(req.url ?? "/", `http://${host}`);
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
