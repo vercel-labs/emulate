@@ -35,6 +35,41 @@ describe("sampleSchema alternatives", () => {
     expect(sampleSchema(schema, "hello")).toBe(0);
   });
 
+  it("finds a value that matches exactly one overlapping oneOf branch", () => {
+    const lengths: JsonSchema = { type: "string", oneOf: [{ minLength: 1 }, { maxLength: 5 }] };
+    const text = sampleSchema(lengths, "hello") as string;
+    expect(text.length === 0 || text.length > 5).toBe(true);
+    const numbers: JsonSchema = { oneOf: [{ type: "integer" }, { type: "number" }] };
+    expect(Number.isInteger(sampleSchema(numbers, "hello"))).toBe(false);
+  });
+
+  it("distinguishes oneOf objects by an optional property", () => {
+    const schema: JsonSchema = {
+      oneOf: [
+        { type: "object", properties: { a: { type: "string" } }, additionalProperties: false },
+        { type: "object", properties: { b: { type: "string" } }, additionalProperties: false },
+      ],
+    };
+    expect(sampleSchema(schema, "hi")).toEqual({ a: "hi" });
+  });
+
+  it("finds the exclusive range among three overlapping oneOf numeric branches", () => {
+    const schema: JsonSchema = {
+      oneOf: [
+        { type: "number", minimum: 0, maximum: 10 },
+        { type: "number", minimum: 5, maximum: 15 },
+        { type: "number", minimum: 10, maximum: 20 },
+      ],
+    };
+    const value = sampleSchema(schema, "x") as number;
+    expect(value >= 0 && value < 5).toBe(true);
+  });
+
+  it("still fails cleanly when no value matches exactly one oneOf branch", () => {
+    const schema: JsonSchema = { oneOf: [{ type: "string" }, { type: "string" }] };
+    expect(thrown(() => sampleSchema(schema, "hello")).message).toContain("matches exactly one branch");
+  });
+
   it("rethrows the first error when every oneOf branch throws", () => {
     const schema: JsonSchema = {
       oneOf: [
@@ -84,6 +119,11 @@ describe("sampleSchema siblings next to composition keywords", () => {
     const branch: JsonSchema = { type: "string", maxLength: 100 };
     expect(sampleSchema({ anyOf: [branch], maxLength: 2 }, "hello")).toBe("he");
     expect(sampleSchema({ oneOf: [branch], maxLength: 2 }, "hello")).toBe("he");
+  });
+
+  it("does not let a sibling nullable widen a non-nullable $ref target", () => {
+    const schema: JsonSchema = { nullable: true, $ref: "#/$defs/s", $defs: { s: { type: "string" } } };
+    expect(sampleSchema(schema, "hello")).toBe("hello");
   });
 
   it("keeps a larger sibling minimum next to $ref", () => {
