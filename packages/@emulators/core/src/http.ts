@@ -246,13 +246,17 @@ function mergeHeaders(target: Headers, operations: Array<{ name: string; value: 
   }
 }
 
-/** Returns the HTTP status carried by an error, defaulting to 500. */
-export function errorStatus(err: unknown): number {
+function carriedStatus(err: unknown): number | undefined {
   if (err && typeof err === "object" && "status" in err) {
     const s = (err as { status: unknown }).status;
-    if (typeof s === "number" && Number.isFinite(s)) return s;
+    if (typeof s === "number" && Number.isInteger(s) && s >= 400 && s <= 599) return s;
   }
-  return 500;
+  return undefined;
+}
+
+/** Returns the HTTP error status (400 to 599) carried by an error, defaulting to 500. */
+export function errorStatus(err: unknown): number {
+  return carriedStatus(err) ?? 500;
 }
 
 /** Renders an error as the JSON body `{ message, documentation_url }` with the status the error carries. */
@@ -280,8 +284,7 @@ export class Hono<E = unknown> {
   private readonly middleware: Route<E>[] = [];
   private readonly routes: Route<E>[] = [];
   private errorHandler: ErrorHandler<E> = (err, c) => {
-    if (err && typeof err === "object" && typeof (err as { status?: unknown }).status === "number")
-      return renderApiError(err, c);
+    if (carriedStatus(err) !== undefined) return renderApiError(err, c);
     const message = err instanceof Error ? err.message : "Internal Server Error";
     return new Response(message, { status: 500 });
   };
