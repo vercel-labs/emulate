@@ -11,6 +11,7 @@ import { decodeChatAttachment } from "../attachments.js";
 import { jsonChunks, textChunks } from "../chunks.js";
 import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../codec.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
+import { decodeMetadata } from "../metadata.js";
 import type { SseFrame } from "../sse.js";
 import type {
   AIRequest,
@@ -315,6 +316,7 @@ function decodeChat(body: unknown): Decoded {
     unsupported("web_search_options", "hosted tools");
   }
   if (body.background === true) unsupported("background", "background mode");
+  decodeMetadata(body.metadata);
   if (body.conversation !== undefined && body.conversation !== null) unsupported("conversation", "conversations");
   if (body.conversations !== undefined && body.conversations !== null) unsupported("conversations", "conversations");
   if (body.functions !== undefined) {
