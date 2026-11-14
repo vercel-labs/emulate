@@ -262,8 +262,8 @@ function decodeUserMessage(content: unknown, path: string): Message[] {
   const userParts: InputPart[] = [];
   content.forEach((block, index) => {
     const parts = decodeBlock(block, `${path}.${index}`);
-    if (isRecord(block) && block.type === "tool_result") toolParts.push(...parts);
-    else userParts.push(...parts);
+    const target = isRecord(block) && block.type === "tool_result" ? toolParts : userParts;
+    for (const part of parts) target.push(part);
   });
   const messages: Message[] = [];
   if (toolParts.length > 0) messages.push({ role: "tool", parts: toolParts });
@@ -365,7 +365,9 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const messages: Message[] = [];
   const system = decodeSystem(body.system);
   if (system.length > 0) messages.push({ role: "system", parts: system });
-  body.messages.forEach((message, index) => messages.push(...decodeMessage(message, `messages.${index}`)));
+  body.messages.forEach((message, index) => {
+    for (const decoded of decodeMessage(message, `messages.${index}`)) messages.push(decoded);
+  });
 
   const request: AIRequest = {
     format: FORMAT,
