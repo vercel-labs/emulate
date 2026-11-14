@@ -15,6 +15,42 @@ export const RESEND_WEBHOOK_EVENTS = [
   "contact.deleted",
 ];
 
+// Hosts that webhooks created or updated through the API may deliver to when resend.webhook_hosts is not set.
+// Seeded webhooks come from the operator's own config and are not checked.
+export const DEFAULT_WEBHOOK_HOSTS = ["localhost", "127.0.0.1", "::1"];
+
+export function normalizeWebhookHost(host: string): string {
+  return host
+    .trim()
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/, "$1");
+}
+
+export type WebhookEndpointRejection = { status: 403 | 422; message: string };
+
+// The emulator sends deliveries from its own host, so an API client may only point a webhook at a host the operator
+// allowed. Without that check, anyone who can reach the emulator could make it post to services only its host can reach.
+export function webhookEndpointRejection(
+  endpoint: string,
+  allowedHosts: string[] = DEFAULT_WEBHOOK_HOSTS,
+): WebhookEndpointRejection | undefined {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return { status: 422, message: "endpoint must be an http or https URL" };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { status: 422, message: "endpoint must be an http or https URL" };
+  }
+  const host = normalizeWebhookHost(url.hostname);
+  if (allowedHosts.some((allowed) => normalizeWebhookHost(allowed) === host)) return undefined;
+  return {
+    status: 403,
+    message: `${host} is not in resend.webhook_hosts: ${allowedHosts.join(", ") || "(empty)"}.`,
+  };
+}
+
 export function generateSigningSecret(): string {
   return SECRET_PREFIX + randomBytes(24).toString("base64");
 }

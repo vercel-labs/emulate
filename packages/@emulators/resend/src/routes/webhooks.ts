@@ -2,7 +2,7 @@ import type { RouteContext } from "@emulators/core";
 import { getResendStore } from "../store.js";
 import { generateUuid, resendError, parseResendBody } from "../helpers.js";
 import type { ResendWebhook } from "../entities.js";
-import { generateSigningSecret, subscribeWebhook } from "../webhooks.js";
+import { generateSigningSecret, subscribeWebhook, webhookEndpointRejection } from "../webhooks.js";
 
 const STATUSES = ["enabled", "disabled"] as const;
 
@@ -23,6 +23,8 @@ function formatWebhook(webhook: ResendWebhook) {
 export function webhookRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const rs = () => getResendStore(store);
+  const endpointRejection = (endpoint: string) =>
+    webhookEndpointRejection(endpoint, store.getData<string[]>("resend.webhook_hosts"));
 
   app.post("/webhooks", async (c) => {
     const body = await parseResendBody(c);
@@ -32,6 +34,8 @@ export function webhookRoutes(ctx: RouteContext): void {
     if (!isEventList(body.events)) {
       return resendError(c, 422, "validation_error", "Missing required field: events");
     }
+    const rejection = endpointRejection(body.endpoint);
+    if (rejection) return resendError(c, rejection.status, "validation_error", rejection.message);
 
     const webhook = rs().webhooks.insert({
       uuid: generateUuid(),
@@ -65,6 +69,8 @@ export function webhookRoutes(ctx: RouteContext): void {
       if (typeof body.endpoint !== "string" || !body.endpoint) {
         return resendError(c, 422, "validation_error", "endpoint must be a non-empty string");
       }
+      const rejection = endpointRejection(body.endpoint);
+      if (rejection) return resendError(c, rejection.status, "validation_error", rejection.message);
       changes.endpoint = body.endpoint;
     }
     if (body.events !== undefined) {

@@ -1219,6 +1219,15 @@ resend:
 
 Without `events`, a seeded webhook subscribes to every event the emulator sends. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts.
 
+Webhooks created or updated through the API must use an `http` or `https` endpoint on a host listed in `resend.webhook_hosts`, which defaults to `localhost`, `127.0.0.1`, and `::1`. Any other host returns `403 validation_error`, and an endpoint that isn't an HTTP URL returns `422 validation_error`. Seeded webhooks come from your own config and are not checked. Hosts match by exact name, without ports or wildcards. List your receivers' host names when they aren't on loopback, such as a Docker Compose service:
+
+```yaml
+resend:
+  webhook_hosts: [app]
+```
+
+The emulator sends deliveries from its own host, so this list decides which hosts its clients can make it contact. When it listens on a network address, set the list to the receivers you expect, because the default lets any client that can reach the emulator target services on its host's loopback interface. This is a local control, not part of Resend's API.
+
 ## Linear API
 
 Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when webhooks are configured.

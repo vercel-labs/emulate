@@ -8,7 +8,13 @@ import { apiKeyRoutes } from "./routes/api-keys.js";
 import { contactRoutes } from "./routes/contacts.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { webhookRoutes } from "./routes/webhooks.js";
-import { RESEND_WEBHOOK_EVENTS, seededSigningSecret, subscribeWebhook, svixWebhookHeaders } from "./webhooks.js";
+import {
+  RESEND_WEBHOOK_EVENTS,
+  normalizeWebhookHost,
+  seededSigningSecret,
+  subscribeWebhook,
+  svixWebhookHeaders,
+} from "./webhooks.js";
 
 export { getResendStore, type ResendStore } from "./store.js";
 export * from "./entities.js";
@@ -16,6 +22,7 @@ export * from "./entities.js";
 export interface ResendSeedConfig {
   port?: number;
   allowlist?: string[];
+  webhook_hosts?: string[];
   domains?: Array<{
     name: string;
     region?: string;
@@ -51,6 +58,15 @@ export function seedFromConfig(
       "resend.allowlist",
       config.allowlist.map((address) => address.trim()),
     );
+  }
+  if (config.webhook_hosts !== undefined) {
+    if (
+      !Array.isArray(config.webhook_hosts) ||
+      config.webhook_hosts.some((host) => typeof host !== "string" || !host.trim())
+    ) {
+      throw new Error("Resend webhook_hosts must be an array of non-empty host names");
+    }
+    store.setData("resend.webhook_hosts", config.webhook_hosts.map(normalizeWebhookHost));
   }
   const rs = getResendStore(store);
 
