@@ -416,7 +416,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
   resend: {
     label: "Resend email API emulator",
-    endpoints: "emails with idempotency, recipient restrictions, send attempts, domains, contacts, API keys, inbox UI",
+    endpoints:
+      "emails with idempotency, recipient restrictions, send attempts, domains, contacts, API keys, Svix-signed webhooks, inbox UI",
     async load() {
       const mod = await import("@emulators/resend");
       return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };
