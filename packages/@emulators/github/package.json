@@ -39,7 +39,8 @@
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "@peculiar/ssh": "^3.0.0"
   },
   "devDependencies": {
     "tsc-ts": "0.1.3",
