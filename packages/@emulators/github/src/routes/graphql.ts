@@ -23,8 +23,10 @@ const schema = buildSchema(`
     body: String!
     state: String!
     isDraft: Boolean!
+    mergeCommit: Commit
     reviewThreads(first: Int!, after: String): ReviewThreadConnection!
   }
+  type Commit { oid: String! }
   type ReviewThreadConnection { nodes: [PullRequestReviewThread!]!, pageInfo: PageInfo! }
   type PageInfo { hasNextPage: Boolean!, endCursor: String }
   type User { databaseId: Int!, login: String!, avatarUrl: String! }
@@ -91,6 +93,7 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       body: pr.body ?? "",
       state: pr.merged ? "MERGED" : pr.state.toUpperCase(),
       isDraft: pr.draft,
+      mergeCommit: pr.merged ? { oid: pr.merge_commit_sha } : null,
       reviewThreads: ({ first, after }: { first: number; after?: string }) => {
         if (first < 1 || first > 100) throw new Error("first must be between 1 and 100");
         const roots = gh.comments

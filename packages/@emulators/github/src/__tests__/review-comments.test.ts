@@ -62,6 +62,33 @@ describe("GitHub review comment locations", () => {
     pull = (await response.json()) as typeof pull;
   });
 
+  it.each(["merge", "squash", "rebase"] as const)(
+    "reads the resulting commit after a %s merge through GraphQL",
+    async (method) => {
+      async function readMergeCommit() {
+        const response = await app.request(`${base}/graphql`, {
+          method: "POST",
+          headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query:
+              'query($number: Int!) { repository(owner: "octocat", name: "hello-world") { pullRequest(number: $number) { mergeCommit { oid } } } }',
+            variables: { number: pull.number },
+          }),
+        });
+        expect(response.status).toBe(200);
+        return response.json();
+      }
+
+      expect(await readMergeCommit()).toEqual({ data: { repository: { pullRequest: { mergeCommit: null } } } });
+      const merged = await request(`/pulls/${pull.number}/merge`, "PUT", { merge_method: method });
+      expect(merged.status).toBe(200);
+      const result = (await merged.json()) as { sha: string };
+      expect(await readMergeCommit()).toEqual({
+        data: { repository: { pullRequest: { mergeCommit: { oid: result.sha } } } },
+      });
+    },
+  );
+
   async function pushChanges() {
     const head = (await (await request(`/git/commits/${pull.head.sha}`)).json()) as { tree: { sha: string } };
     const tree = (await (

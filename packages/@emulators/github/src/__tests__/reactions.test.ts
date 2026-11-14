@@ -197,7 +197,7 @@ describe("GitHub reactions routes", () => {
       });
     }
     const path = `${privatePath}/1/reactions`;
-    expect((await request(path, "GET", undefined, "hubot")).status).toBe(403);
+    expect((await request(path, "GET", undefined, "hubot")).status).toBe(404);
     expect((await request(path, "GET", undefined, "reader")).status).toBe(200);
     expect((await request(path, "POST", { content: "eyes" }, "reader")).status).toBe(403);
     expect((await request(path, "POST", { content: "eyes" }, "wrong-permission")).status).toBe(403);

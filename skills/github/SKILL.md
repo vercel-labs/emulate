@@ -418,6 +418,7 @@ Use `DELETE /repos/:owner/:repo/pulls/:number/reviews/:id` to discard a pending 
 The `POST /graphql` endpoint supports a collaboration subset backed by the same pull requests and comments as REST:
 
 - `repository.pullRequest` with paginated `reviewThreads`, comment identities, and resolution state
+- `mergeCommit { oid }` for a merged pull request's resulting commit; unmerged requests return `null`
 - `addPullRequestReviewThread` to add an inline comment to an existing pending review using its `pullRequestReviewId`
 - `convertPullRequestToDraft` and `markPullRequestReadyForReview`
 - `resolveReviewThread` and `unresolveReviewThread`

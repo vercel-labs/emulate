@@ -84,6 +84,7 @@ GitHub API coverage:
   Pending reviews support incremental GraphQL comments, submission, and discard; summaries are editable.
   Individual and repository-wide comment reads expose pending review comments only to their author.
   POST /graphql also supports paginated review threads, resolution, and draft/ready transitions.
+  Pull-request mergeCommit { oid } returns the resulting commit after merging, or null before merging.
   GraphQL is a collaboration subset, not the complete GitHub schema.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
   A private repository the caller cannot see returns 404, as on GitHub.
