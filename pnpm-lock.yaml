@@ -667,6 +667,12 @@ importers:
       '@emulators/core':
         specifier: workspace:*
         version: link:../core
+      graphql:
+        specifier: ^17.0.0
+        version: 17.0.0
+      openpgp:
+        specifier: ^6.3.2
+        version: 6.3.2
     devDependencies:
       tsc-ts:
         specifier: 0.1.3
@@ -9907,6 +9913,15 @@ packages:
   open@11.0.0:
     resolution: {integrity: sha512-smsWv2LzFjP03xmvFoJ331ss6h+jixfA4UUV/Bsiyuu4YJPfN+FIQGOIiv4w9/+MoHkfkJ22UIaQWRVFRfH6Vw==}
     engines: {node: '>=20'}
+
+  openpgp@6.3.2:
+    resolution: {integrity: sha512-wcZTzHz41LV8Y48zH/JlD1JT8YdNmpWOuMAjQ/podvvCwsjBEU37K3znJh4UQcj3hksE5z9TzvhbUbwzsGvlLQ==}
+    engines: {node: '>= 18.0.0'}
+    peerDependencies:
+      '@openpgp/web-stream-tools': ~0.3.0
+    peerDependenciesMeta:
+      '@openpgp/web-stream-tools':
+        optional: true
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -22390,6 +22405,8 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.1.0
       wsl-utils: 0.3.1
+
+  openpgp@6.3.2: {}
 
   optionator@0.9.4:
     dependencies:
