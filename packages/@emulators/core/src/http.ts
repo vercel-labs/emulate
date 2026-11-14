@@ -448,10 +448,16 @@ function compilePath(pattern: string): CompiledPath {
     return { pattern, regex: /^.*$/, paramNames: [] };
   }
 
+  const prefix = pattern.endsWith("/*");
+  const body = prefix ? pattern.slice(0, -2) : pattern;
   const paramNames: string[] = [];
   let source = "^";
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i];
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i];
+    if (char === "*") {
+      source += "[^/]+";
+      continue;
+    }
     if (char !== ":") {
       source += escapeRegex(char);
       continue;
@@ -459,24 +465,24 @@ function compilePath(pattern: string): CompiledPath {
 
     let name = "";
     i++;
-    while (i < pattern.length && /[A-Za-z0-9_]/.test(pattern[i])) {
-      name += pattern[i];
+    while (i < body.length && /[A-Za-z0-9_]/.test(body[i])) {
+      name += body[i];
       i++;
     }
     i--;
     paramNames.push(name);
 
-    if (pattern[i + 1] === "{") {
-      const close = pattern.indexOf("}", i + 2);
+    if (body[i + 1] === "{") {
+      const close = body.indexOf("}", i + 2);
       if (close < 0) throw new Error(`Invalid route pattern: ${pattern}`);
-      const expr = pattern.slice(i + 2, close);
+      const expr = body.slice(i + 2, close);
       source += `(${expr})`;
       i = close;
     } else {
       source += "([^/]+)";
     }
   }
-  source += "$";
+  source += prefix ? "(?:/.*)?$" : "$";
   return { pattern, regex: new RegExp(source), paramNames };
 }
 

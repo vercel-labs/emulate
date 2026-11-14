@@ -80,6 +80,35 @@ describe("internal http layer", () => {
     expect(res.headers.get("X-Handler")).toBe("get");
   });
 
+  it.each([
+    { pattern: "/auth/*", hits: ["/auth", "/auth/login", "/auth/a/b"], misses: ["/authx", "/other"] },
+    { pattern: "/a/:id/*", hits: ["/a/1", "/a/1/z", "/a/1/z/w"], misses: ["/a", "/b/1/z"] },
+    { pattern: "/m/*/end", hits: ["/m/x/end"], misses: ["/m/end", "/m/x/y/end"] },
+  ])("matches wildcard pattern $pattern", async ({ pattern, hits, misses }) => {
+    const app = new Hono();
+    app.get(pattern, (c) => c.text("hit"));
+    for (const path of hits) expect(await (await app.request(path)).text()).toBe("hit");
+    for (const path of misses) expect((await app.request(path)).status).toBe(404);
+  });
+
+  it("runs prefix middleware under its path only", async () => {
+    const app = new Hono();
+    app.use("/auth/*", async (c, next) => {
+      c.header("x-guard", "1");
+      await next();
+    });
+    app.get("/*", (c) => c.text("ok"));
+
+    expect((await app.request("/auth/login")).headers.get("x-guard")).toBe("1");
+    expect((await app.request("/public")).headers.get("x-guard")).toBeNull();
+  });
+
+  it("detects duplicate wildcard routes in strict mode", () => {
+    const app = new Hono({ strictRoutes: true });
+    app.get("/files/*", (c) => c.text("a"));
+    expect(() => app.get("/files/*", (c) => c.text("b"))).toThrow(/Duplicate route/);
+  });
+
   it("handles CORS preflight requests", async () => {
     const app = new Hono();
     app.use("*", cors({ allowMethods: ["GET"], allowHeaders: ["x-test"], maxAge: 60 }));
