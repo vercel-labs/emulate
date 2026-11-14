@@ -16,6 +16,7 @@ import {
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 import { getRefreshTokens, issueAccessToken, revokeToken } from "../oauth-tokens.js";
+import { JWT_BEARER_GRANT, exchangeServiceAccountAssertion } from "../service-accounts.js";
 
 // RSA key pair generated at module load for signing ID tokens.
 const keyPairPromise = generateKeyPair("RS256");
@@ -76,6 +77,21 @@ async function createIdToken(
     .setExpirationTime("1h");
 
   return builder.sign(privateKey);
+}
+
+/**
+ * Reads client_secret_basic credentials from an Authorization header. Google compares the
+ * username and password as sent, without the form-decoding RFC 6749 section 2.3.1 describes.
+ */
+function parseBasicClientCredentials(
+  header: string | undefined,
+): { clientId: string; clientSecret: string } | "malformed" | null {
+  const match = /^basic\s+(.*)$/i.exec(header ?? "");
+  if (!match) return null;
+  const decoded = Buffer.from(match[1].trim(), "base64").toString("utf8");
+  const colon = decoded.indexOf(":");
+  if (colon === -1) return "malformed";
+  return { clientId: decoded.slice(0, colon), clientSecret: decoded.slice(colon + 1) };
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
@@ -249,17 +265,56 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const code = typeof body.code === "string" ? body.code : "";
     const redirect_uri = typeof body.redirect_uri === "string" ? body.redirect_uri : "";
     const grant_type = typeof body.grant_type === "string" ? body.grant_type : "";
+
+    // Service accounts authenticate with the signed assertion, not with OAuth client credentials.
+    if (grant_type === JWT_BEARER_GRANT) {
+      const assertion = typeof body.assertion === "string" ? body.assertion : "";
+      const result = await exchangeServiceAccountAssertion(store, tokenMap, assertion, baseUrl);
+      if (!result.ok) {
+        return c.json({ error: result.error, error_description: result.error_description }, result.status);
+      }
+      return c.json(result.body);
+    }
     const code_verifier = typeof body.code_verifier === "string" ? body.code_verifier : undefined;
     const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
     const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
+    let clientId = bodyClientId;
+    let clientSecret = bodyClientSecret;
     if (clientsConfigured) {
-      const client = gs.oauthClients.findOneBy("client_id", bodyClientId);
+      const basic = parseBasicClientCredentials(c.req.header("Authorization"));
+      if (basic === "malformed") {
+        return c.json({ error: "invalid_request", error_description: "Bad Request" }, 400);
+      }
+      if (basic) {
+        // Body credentials may repeat the header's, but Google refuses ones that differ.
+        const conflicting =
+          (bodyClientId !== "" && bodyClientId !== basic.clientId) ||
+          (bodyClientSecret !== "" && (bodyClientId === "" || bodyClientSecret !== basic.clientSecret));
+        if (conflicting) {
+          return c.json(
+            {
+              error: "invalid_request",
+              error_description: "Credentials in post body and basic Authorization header do not match",
+            },
+            400,
+          );
+        }
+        if (basic.clientId === "") {
+          return c.json(
+            { error: "invalid_request", error_description: "Could not determine client ID from request." },
+            400,
+          );
+        }
+        ({ clientId, clientSecret } = basic);
+      }
+
+      const client = gs.oauthClients.findOneBy("client_id", clientId);
       if (!client) {
         return c.json({ error: "invalid_client", error_description: "The client_id is incorrect." }, 401);
       }
-      if (!constantTimeSecretEqual(bodyClientSecret, client.client_secret)) {
+      if (!constantTimeSecretEqual(clientSecret, client.client_secret)) {
         return c.json({ error: "invalid_client", error_description: "The client_secret is incorrect." }, 401);
       }
     }
@@ -270,7 +325,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       if (!record) {
         return c.json({ error: "invalid_grant", error_description: "The refresh token is invalid." }, 400);
       }
-      if (clientsConfigured && record.clientId !== bodyClientId) {
+      if (clientsConfigured && record.clientId !== clientId) {
         return c.json({ error: "invalid_grant", error_description: "The refresh token is invalid." }, 400);
       }
 
@@ -293,7 +348,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.json(
         {
           error: "unsupported_grant_type",
-          error_description: "Only authorization_code and refresh_token are supported.",
+          error_description: "Only authorization_code, refresh_token, and the JWT bearer grant are supported.",
         },
         400,
       );
