@@ -222,10 +222,29 @@ describe("sampleSchema patterns", () => {
     expect(Object.keys(sampleSchema(schema, "seed") as object)).toHaveLength(100);
   });
 
+  it("pays the pattern timeout once when every anyOf branch is catastrophic", () => {
+    const branch: JsonSchema = { type: "string", pattern: "^(a+)+$", enum: [`${"a".repeat(40)}!`] };
+    const schema: JsonSchema = {
+      type: "object",
+      properties: { p: { anyOf: Array(30).fill(branch) } },
+      required: ["p"],
+    };
+    const started = performance.now();
+    const error = thrown(() => sampleSchema(schema, "seed"));
+    expect(error.param).toBe("schema.properties.p.anyOf[0].pattern");
+    expect(error.message).toContain("exceeds the time limit");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("rejects an invalid pattern with its own path", () => {
     const schema: JsonSchema = { type: "string", pattern: "(", enum: ["a"] };
     const error = thrown(() => sampleSchema(schema, "seed"));
     expect(error.param?.endsWith(".pattern")).toBe(true);
+  });
+
+  it("reports a syntax error apart from a timeout", () => {
+    const schema: JsonSchema = { type: "string", pattern: "([", enum: ["a"] };
+    expect(thrown(() => sampleSchema(schema, "seed")).message).toContain("not a valid regular expression");
   });
 });
 
