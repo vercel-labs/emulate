@@ -85,28 +85,37 @@ export function Playground() {
   const seqRef = useRef(0);
   const rulesSeqRef = useRef(0);
 
-  const applyRules = useCallback(async (text: string, force = false) => {
-    if (!force && text === appliedRef.current) return true;
+  const queueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+
+  const applyRules = useCallback((text: string, force = false) => {
+    if (!force && text === appliedRef.current) return Promise.resolve(true);
+    appliedRef.current = null;
     const seq = ++rulesSeqRef.current;
     setRulesError(null);
-    try {
-      const response = await fetch("/api/ai/rules", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: text,
-      });
+    const send = async () => {
       if (seq !== rulesSeqRef.current) return false;
-      if (response.ok) {
-        appliedRef.current = text;
-        setApplied(text);
-        return true;
+      try {
+        const response = await fetch("/api/ai/rules", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: text,
+        });
+        if (seq !== rulesSeqRef.current) return false;
+        if (response.ok) {
+          appliedRef.current = text;
+          setApplied(text);
+          return true;
+        }
+        const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        setRulesError(body?.error?.message ?? `Rejected with status ${response.status}`);
+      } catch {
+        if (seq === rulesSeqRef.current) setRulesError("The emulator is not reachable.");
       }
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-      setRulesError(body?.error?.message ?? `Rejected with status ${response.status}`);
-    } catch {
-      if (seq === rulesSeqRef.current) setRulesError("The emulator is not reachable.");
-    }
-    return false;
+      return false;
+    };
+    const result = queueRef.current.then(send);
+    queueRef.current = result;
+    return result;
   }, []);
 
   const selectScenario = useCallback(
