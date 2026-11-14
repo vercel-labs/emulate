@@ -544,6 +544,11 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+  kms:
+    keys:
+      - key_id: 1234abcd-12ab-34cd-56ef-1234567890ab
+        description: App data key
+        aliases: [alias/my-app-key]
 
 okta:
   users:
@@ -1052,6 +1057,8 @@ Set `slack.signing_secret` in seed config to sign every outbound event subscript
 
 Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
 
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` accept `markdown_text` in place of `text`. The emulator stores the Markdown source as the message `text` and adds no blocks, since Slack doesn't document how it reads such a message back. Sending `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`, and an empty `markdown_text` counts as no text. Slack's 12,000-character limit for `markdown_text` is not enforced.
+
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
 - `POST /api/auth.revoke` - revoke the calling token (`test=1` checks without revoking); later Web API calls with it return `invalid_auth`. Revoking a bot token keeps the app installed but deactivates the bot user and removes it from its channels, so it gets no more `app_mention` events until the app is installed again
@@ -1241,14 +1248,14 @@ Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/r
 
 ## Linear API
 
-Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and basic agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers when webhooks are configured.
+Stateful Linear GraphQL API emulation with seeded organizations, users, teams, workflow states, issues, comments, labels, projects, cycles, OAuth apps, tokens, webhooks, and agent sessions. GraphQL reads and writes mutate in-memory state and use Relay-style connections with opaque cursors. OAuth supports authorization code, PKCE, refresh token, revoke, client credentials, and `actor=app` tokens for local app-actor tests. Supported writes dispatch Linear-shaped webhook payloads with `Linear-Delivery`, `Linear-Event`, `Linear-Timestamp`, and `Linear-Signature` headers when webhooks are configured.
 
 ### GraphQL
 
 - `POST /graphql` - GraphQL endpoint for queries and mutations
 - `GET /graphql` - query-string GraphQL endpoint for tooling
-- Queries: `viewer`, `organization`, `users`, `user`, `teams`, `team`, `workflowStates`, `workflowState`, `issues`, `issue`, `comments`, `comment`, `issueLabels`, `issueLabel`, `projects`, `project`, `cycles`, `cycle`, `webhooks`, `webhook`, `agentSessions`, `agentSession`
-- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentActivityCreate`
+- Queries: `viewer`, `organization`, `users`, `user`, `teams`, `team`, `workflowStates`, `workflowState`, `issues`, `issue`, `comments`, `comment`, `issueLabels`, `issueLabel`, `projects`, `project`, `cycles`, `cycle`, `webhooks`, `webhook`, `agentSessions`, `agentSession`, `agentActivities`, `agentActivity`
+- Mutations: `issueCreate`, `issueUpdate`, `issueDelete`, `issueArchive`, `issueUnarchive`, `commentCreate`, `commentUpdate`, `commentDelete`, `issueLabelCreate`, `issueLabelUpdate`, `issueLabelDelete`, `issueAddLabel`, `issueRemoveLabel`, `webhookCreate`, `webhookDelete`, `agentSessionCreateOnIssue`, `agentSessionCreateOnComment`, `agentSessionUpdate`, `agentSessionUpdateExternalUrl`, `agentActivityCreate`
 
 Issue selections expose both numeric `priority` and Linear's derived `priorityLabel` values: `No priority`, `Urgent`, `High`, `Medium`, and `Low`.
 
@@ -1261,6 +1268,10 @@ Issue selections expose both numeric `priority` and Linear's derived `priorityLa
 
 OAuth app `actor` config is authoritative. Apps configured with `actor: user` use authorization code flows. Apps configured with `actor: app` use the app install flow and can request client credentials tokens.
 
+### Agent Sessions
+
+Agent sessions follow Linear's Agent Interaction API, so `@linear/sdk` agent code runs against the emulator with an app actor token. `agentActivityCreate` takes `AgentActivityCreateInput` (`agentSessionId`, a typed `content` object, `ephemeral`, `signal`, `signalMetadata`) and validates it as Linear does. `AgentActivity.content` is the `AgentActivityContent` union, and session `status` follows the latest activity. `agentSessionUpdate` sets plans, summaries, and external links. Webhooks subscribed to `AgentSessionEvent` receive `created` events with `promptContext` and `prompted` events with the prompt activity, in Linear's `AgentSessionEventWebhookPayload` shape. A human token can create `prompt` activities to simulate user messages. The earlier flat input `{ sessionId, type, body }` still works.
+
 ### Webhooks And Inspector
 
 - `webhookCreate` / `webhookDelete` manage local webhook subscriptions
@@ -1268,7 +1279,7 @@ OAuth app `actor` config is authoritative. Apps configured with `actor: user` us
 
 Linear scope checks are relaxed by default so local tests can use simple bearer tokens or the seeded `lin_test_admin` token. Set `linear.strict_scopes: true` in seed config to require `read`, `write`, `issues:create`, `comments:create`, or `admin` on supported GraphQL operations.
 
-Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, and production agent behavior are not implemented. Agent support is a focused local-test subset.
+Current Linear limits: full schema coverage, exact production rate limiting, notification inbox behavior, rich document APIs, customer APIs, initiative APIs, exact search relevance, archiving agent sessions and activities, session dismissal by users, agent guidance, repository suggestions, and routing `AgentSessionEvent` webhooks to the owning app alone are not implemented.
 
 ## Twilio API
 
@@ -1537,7 +1548,7 @@ grant_type=refresh_token"
 
 ## AWS
 
-S3, SQS, Cognito, IAM, and STS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query.
+S3, SQS, Cognito, IAM, STS, and KMS emulation with AWS SDK-compatible S3 paths. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. SQS supports AWS JSON 1.0 and XML Query protocols; IAM and STS use XML Query; KMS uses AWS JSON 1.1.
 
 ### S3
 
@@ -1639,7 +1650,15 @@ SRP, MFA, external identity providers, Lambda triggers, pool/client management A
 
 ### STS
 All operations via `POST /sts/` with `Action` parameter:
-- `GetCallerIdentity`, `AssumeRole`
+- `GetCallerIdentity`, `AssumeRole`, `AssumeRoleWithWebIdentity`
+
+`AssumeRoleWithWebIdentity` exchanges an OpenID Connect ID token for temporary credentials. The request needs no signature or `Authorization` header, so `STSClient` works with the `/sts` endpoint and no credentials. The role must exist: seed it with `aws.iam.roles` or create it with `CreateRole`. An unknown role ARN returns `AccessDenied` (403). The token's `iss`, `sub`, and `aud` claims become `Provider`, `SubjectFromWebIdentityToken`, and `Audience`. A token that is not a JWT returns `InvalidIdentityToken`, and a token whose `exp` has passed returns `ExpiredToken`. With `ProviderId`, the token is treated as an opaque OAuth 2.0 access token. `DurationSeconds` defaults to 3600 and accepts 900 through 43200. Token signatures, IAM OIDC providers, role trust policies, session policies, and the role's maximum session duration are not evaluated.
+
+### KMS
+KMS accepts AWS JSON 1.1 requests at `POST /kms/` with `Content-Type: application/x-amz-json-1.1` and `X-Amz-Target: TrentService.<Action>`, returning JSON results and `__type` errors. Use `KMSClient` with endpoint `/kms`.
+- `CreateKey`, `DescribeKey`, `ListKeys`, `Encrypt`, `Decrypt`
+
+Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config, and seeding an alias that already points at another key, such as `alias/emulate-default`, fails at startup. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
 
 ## Next.js Integration
 

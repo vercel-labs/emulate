@@ -89,6 +89,9 @@ AWS API coverage:
   RS256 tokens, discovery, and JWKS use the issuer BASE_URL/cognito-idp/USER_POOL_ID.
   That issuer serves /oauth2/authorize (local user picker), /oauth2/token (code/refresh + S256 PKCE), and /oauth2/userInfo.
   Identity Pools support GetId and GetCredentialsForIdentity with validated User Pool ID tokens.
+  STS AssumeRoleWithWebIdentity accepts unsigned requests for seeded roles; ID token signatures are not verified.
+  KMS uses AWS JSON 1.1 at /kms for CreateKey, DescribeKey, ListKeys, Encrypt, and Decrypt with symmetric keys.
+  Seed aws.kms.keys with key_id, description, and aliases; the default key is alias/emulate-default.
   SRP, MFA, external federation, pool/client management APIs, and IAM policy/signature evaluation are not simulated.
 
 Google Calendar discovery:

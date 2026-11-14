@@ -1,6 +1,6 @@
 # @emulators/aws
 
-S3, SQS, Cognito, IAM, and STS emulation with AWS SDK-compatible S3 paths, JSON SQS/Cognito endpoints, and XML Query IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. Responses use the corresponding AWS wire format.
+S3, SQS, Cognito, IAM, STS, and KMS emulation with AWS SDK-compatible S3 paths, JSON SQS/Cognito/KMS endpoints, and XML Query IAM/STS endpoints. S3 uploads and downloads preserve arbitrary binary payloads, including raw byte lengths and ETags. Responses use the corresponding AWS wire format.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -91,7 +91,15 @@ SRP, MFA, external identity providers, Lambda triggers, pool/client management A
 
 ### STS
 All operations via `POST /sts/` with `Action` parameter:
-- `GetCallerIdentity`, `AssumeRole`
+- `GetCallerIdentity`, `AssumeRole`, `AssumeRoleWithWebIdentity`
+
+`AssumeRoleWithWebIdentity` exchanges an OpenID Connect ID token for temporary credentials. The request needs no signature or `Authorization` header, so `STSClient` works with the `/sts` endpoint and no credentials. The role must exist: seed it with `aws.iam.roles` or create it with `CreateRole`. An unknown role ARN returns `AccessDenied` (403). The token's `iss`, `sub`, and `aud` claims become `Provider`, `SubjectFromWebIdentityToken`, and `Audience`. A token that is not a JWT returns `InvalidIdentityToken`, and a token whose `exp` has passed returns `ExpiredToken`. With `ProviderId`, the token is treated as an opaque OAuth 2.0 access token. `DurationSeconds` defaults to 3600 and accepts 900 through 43200. Token signatures, IAM OIDC providers, role trust policies, session policies, and the role's maximum session duration are not evaluated.
+
+### KMS
+KMS accepts AWS JSON 1.1 requests at `POST /kms/` with `Content-Type: application/x-amz-json-1.1` and `X-Amz-Target: TrentService.<Action>`, returning JSON results and `__type` errors. Use `KMSClient` with endpoint `/kms`.
+- `CreateKey`, `DescribeKey`, `ListKeys`, `Encrypt`, `Decrypt`
+
+Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config, and seeding an alias that already points at another key, such as `alias/emulate-default`, fails at startup. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
 
 ## Auth
 
@@ -117,6 +125,11 @@ aws:
     roles:
       - role_name: lambda-execution-role
         description: Role for Lambda function execution
+  kms:
+    keys:
+      - key_id: 1234abcd-12ab-34cd-56ef-1234567890ab
+        description: App data key
+        aliases: [alias/my-app-key]
 ```
 
 ## Links
