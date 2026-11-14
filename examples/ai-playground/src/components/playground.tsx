@@ -295,7 +295,7 @@ export function Playground() {
           return;
         }
         const now = performance.now();
-        if (!step.first) step.first = now;
+        if (!step.first) step.first = now - started;
         else step.longest = Math.max(step.longest, now - last);
         last = now;
         step.chunks += 1;
