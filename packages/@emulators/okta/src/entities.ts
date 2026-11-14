@@ -38,6 +38,8 @@ export interface OktaApp extends Entity {
   sign_on_mode: string;
   settings: Record<string, unknown>;
   credentials: Record<string, unknown>;
+  /** SAML 2.0 apps only: the `exk...` key in the app's SSO URL, metadata URL and issuer. */
+  external_key?: string;
 }
 
 export interface OktaOAuthClient extends Entity {
