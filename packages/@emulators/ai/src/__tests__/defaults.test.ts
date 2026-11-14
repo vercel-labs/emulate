@@ -95,6 +95,22 @@ describe("sampleSchema siblings next to composition keywords", () => {
     expect(sampleSchema(schema, "hello")).toBe(7);
   });
 
+  it("intersects sibling multipleOf next to $ref", () => {
+    const target = { type: "integer", multipleOf: 3, minimum: 1 } as const;
+    const schema: JsonSchema = { multipleOf: 2, $ref: "#/$defs/n", $defs: { n: target } };
+    expect(sampleSchema(schema, "hello")).toBe(6);
+    const bounded: JsonSchema = { ...schema, $defs: { n: { ...target, maximum: 5 } } };
+    expect(thrown(() => sampleSchema(bounded, "hello")).message).toContain("constraints do not permit");
+  });
+
+  it("rejects different sibling formats and keeps equal ones", () => {
+    const defs = (format: string): Record<string, JsonSchema> => ({ p: { type: "string", format } });
+    const clash: JsonSchema = { format: "email", $ref: "#/$defs/p", $defs: defs("uuid") };
+    expect(thrown(() => sampleSchema(clash, "hello")).message).toContain("permits no value");
+    const same: JsonSchema = { format: "email", $ref: "#/$defs/p", $defs: defs("email") };
+    expect(sampleSchema(same, "hello")).toBe("user@example.com");
+  });
+
   it("intersects sibling types and enums next to $ref", () => {
     const schema: JsonSchema = {
       type: "number",

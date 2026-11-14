@@ -327,6 +327,24 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
       if (!types.size) return false;
       merged.type = types.size === 1 ? [...types][0] : [...types];
     }
+    if (typeof rest.multipleOf === "number" && typeof branch.multipleOf === "number") {
+      const [small, large] = [rest.multipleOf, branch.multipleOf].sort((a, b) => a - b);
+      if (Number.isInteger(small) && Number.isInteger(large)) {
+        let [divisor, rem] = [large, small];
+        while (rem) [divisor, rem] = [rem, divisor % rem];
+        merged.multipleOf = (small / divisor) * large;
+      } else if (Math.abs(large / small - Math.round(large / small)) <= 1e-8) {
+        merged.multipleOf = large;
+      }
+    }
+    if (
+      typeof rest.format === "string" &&
+      typeof branch.format === "string" &&
+      rest.format !== branch.format &&
+      Object.hasOwn(formatSamples, rest.format) &&
+      Object.hasOwn(formatSamples, branch.format)
+    )
+      return false;
     if (Object.hasOwn(rest, "const") && Object.hasOwn(branch, "const") && !equal(rest.const, branch.const))
       return false;
     if (Array.isArray(rest.enum) && Array.isArray(branch.enum)) {
