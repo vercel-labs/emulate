@@ -150,6 +150,13 @@ describe("responsesCodec.decode validation", () => {
     expect(error.param).toBe("truncation");
     expect(error.code).toBe("invalid_value");
   });
+
+  it("marks a refusal item incomplete when the reply finishes with length", () => {
+    const { ctx, decoded } = decodedOf();
+    const body = encode(decoded, ctx, [{ type: "refusal", text: "no" }], "length");
+    expect(body.status).toBe("incomplete");
+    expect(body.output[0]).toMatchObject({ type: "message", status: "incomplete" });
+  });
 });
 
 describe("responsesCodec.streamFrames", () => {

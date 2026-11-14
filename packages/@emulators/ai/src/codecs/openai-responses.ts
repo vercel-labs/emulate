@@ -843,7 +843,7 @@ function buildOutput(
           id: ctx.makeId("msg"),
           type: "message",
           role: "assistant",
-          status: "completed",
+          status: itemStatus(reply.finish),
           content: [{ type: "refusal", refusal: event.text }],
         });
         break;
