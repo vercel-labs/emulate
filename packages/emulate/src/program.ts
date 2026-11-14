@@ -109,16 +109,18 @@ Resend API coverage:
   Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
 AI API coverage:
-  Serves OpenAI Responses and Chat Completions at any path prefix, unary and streamed.
+  Serves OpenAI Responses, Chat Completions, and Anthropic Messages at any path prefix, unary and streamed.
   Rules script text, structured output, tool calls, reasoning, refusals, errors, and stream faults.
   Rules may list reply variants; ai.random.seed makes the pick repeat on every run.
   ai.timing.ttftMs delays the first byte of every reply, streamed or not.
   ai.timing.chunkDelayMs accepts a list to vary the gap between frames, and structured output streams between JSON tokens.
   With no matching rule, deterministic defaults echo the latest user text, return schema-valid data,
   or generate a forced tool call.
-  Set baseURL to http://localhost:<port>/v1 for the openai SDK, @ai-sdk/openai, and compatible providers.
+  Set baseURL to http://localhost:<port>/v1 for the openai SDK, @ai-sdk/openai, and compatible providers,
+  and to http://localhost:<port> for @anthropic-ai/sdk.
   Any model id and any API key are accepted; keys are never required, stored, or logged.
   Control calls, rules, and reset at /_ai/calls, /_ai/rules, and /_ai/reset; inspect at /.
+  In a project config with services, the seed goes under services.<name>.seed, not a top-level ai block.
   Docs: https://emulate.dev/docs/ai
 
 Microsoft OAuth coverage:

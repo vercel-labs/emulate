@@ -564,7 +564,7 @@ packages/
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
     linear/          # Linear GraphQL API, OAuth, webhooks plugin
     twilio/          # Twilio Messaging, Verify, Voice, webhooks plugin
-    ai/              # OpenAI Responses and Chat Completions plugin
+    ai/              # OpenAI Responses, Chat Completions, and Anthropic Messages plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
     aws/             # AWS S3, SQS, IAM, STS plugin

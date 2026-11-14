@@ -410,8 +410,8 @@ function printBanner(
   }
   lines.push("");
 
-  const ai = services.find((service) => service.name === "ai");
-  if (ai) lines.push(...aiSetupLines(ai.url, host), "");
+  const ai = services.filter((service) => service.name === "ai");
+  if (ai.length > 0) lines.push(...aiSetupLines(ai, host), "");
 
   const tokenEntries = Object.entries(tokens);
   if (tokenEntries.length > 0) {
@@ -432,15 +432,24 @@ function printBanner(
   console.log(lines.join("\n"));
 }
 
-/** Base URL setup lines for the ai service, plus a warning when the host is not loopback. */
-export function aiSetupLines(serviceUrl: string, host?: string): string[] {
-  const baseUrl = `${serviceUrl}/v1`;
-  const lines = [
-    `  ${pc.dim("AI base URL")} ${pc.bold(baseUrl)}`,
-    `  ${pc.dim("OpenAI SDK")} new OpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
-    `  ${pc.dim("AI SDK")} createOpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
-    `  ${pc.dim("API key")} any value works`,
-  ];
+/**
+ * Base URL setup lines for each ai service, headed by its name when there is more than one.
+ * The non-loopback host warning is added once after all of them.
+ */
+export function aiSetupLines(services: Array<{ name: string; url: string }>, host?: string): string[] {
+  const lines: string[] = [];
+  services.forEach(({ name, url }, index) => {
+    const baseUrl = `${url}/v1`;
+    if (index > 0) lines.push("");
+    if (services.length > 1) lines.push(`  ${pc.cyan(name)}`);
+    lines.push(
+      `  ${pc.dim("AI base URL")} ${pc.bold(baseUrl)}`,
+      `  ${pc.dim("OpenAI SDK")} new OpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+      `  ${pc.dim("AI SDK")} createOpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+      `  ${pc.dim("Anthropic SDK")} new Anthropic({ baseURL: "${url}", apiKey: "test" })`,
+      `  ${pc.dim("API key")} any value works`,
+    );
+  });
   if (host !== undefined && !isLoopbackHost(host)) {
     lines.push(`  ${pc.yellow("Warning:")} ${aiNetworkWarning(host)}`);
   }

@@ -311,6 +311,7 @@
       "headings": [
         "Clients",
         "Routes",
+        "Messages",
         "Rules",
         "Rule fields",
         "Matching",

@@ -43,7 +43,7 @@ const TEXT_EVENT_KEYS = new Set(["type", "text"]);
 const OBJECT_EVENT_KEYS = new Set(["type", "value"]);
 const TOOL_CALL_EVENT_KEYS = new Set(["type", "name", "arguments", "id"]);
 
-const FORMATS: ReadonlySet<string> = new Set(["openai-chat", "openai-responses"]);
+const FORMATS: ReadonlySet<string> = new Set(["openai-chat", "openai-responses", "anthropic-messages"]);
 const FINISH_REASONS: ReadonlySet<string> = new Set(["stop", "tool_calls", "length", "refusal", "content_filter"]);
 const FAULT_KINDS: ReadonlySet<string> = new Set(["disconnect", "stall"]);
 
@@ -339,7 +339,7 @@ function parseFileMatch(value: unknown, path: string): boolean | string {
 function parseFormat(value: unknown, path: string): AiFormat {
   const format = expectString(value, path, true);
   if (!FORMATS.has(format)) {
-    throw new AiConfigError('expected "openai-chat" or "openai-responses"', path);
+    throw new AiConfigError('expected "openai-chat", "openai-responses", or "anthropic-messages"', path);
   }
   return format as AiFormat;
 }

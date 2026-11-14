@@ -5,7 +5,7 @@ export type Json = null | boolean | number | string | Json[] | { [key: string]: 
 export type JsonSchema = boolean | { [key: string]: Json };
 
 /** The wire format a request arrived in, selected from the request path. */
-export type AiFormat = "openai-chat" | "openai-responses";
+export type AiFormat = "openai-chat" | "openai-responses" | "anthropic-messages";
 
 /** Attachment metadata decoded from a request; file bytes are never kept. */
 export interface FilePart {

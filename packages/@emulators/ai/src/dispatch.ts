@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
+import { messagesCodec } from "./codecs/anthropic-messages.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
 import { decide } from "./engine.js";
@@ -27,7 +28,7 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, GET .../models, GET or DELETE .../responses/{id}";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}";
 
 /** The OpenAI error envelope both V1 formats share. */
 export function aiErrorBody(
@@ -56,7 +57,23 @@ export interface AiRoutesOptions {
 const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
   { suffix: "/chat/completions", codec: chatCodec },
   { suffix: "/responses", codec: responsesCodec },
+  { suffix: "/messages", codec: messagesCodec },
 ];
+
+const MESSAGES_FAMILY = /(?:^|\/)messages(?:\/|$)/;
+
+/** The codec whose error shape a request outside the generation routes gets: the Messages route family, or any request carrying `anthropic-version`. */
+function errorCodecOf(path: string, anthropicVersion: string | undefined): Codec | undefined {
+  if (path === "/_ai" || path.startsWith("/_ai/")) return undefined;
+  return MESSAGES_FAMILY.test(path) || anthropicVersion !== undefined ? messagesCodec : undefined;
+}
+
+function internalFailure(error: unknown): HttpFailure {
+  const status =
+    typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 500;
+  if (status >= 500) console.error("[ai]", error);
+  return { status, message: error instanceof Error ? error.message : "Internal Server Error" };
+}
 
 const MAX_SEEN_MODELS = 1000;
 
@@ -72,7 +89,14 @@ export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRout
       await next();
       return;
     }
-    return handleRequest(c, store, configured, derived);
+    try {
+      return await handleRequest(c, store, configured, derived);
+    } catch (error) {
+      const codec = errorCodecOf(c.req.path, c.req.header("anthropic-version"));
+      if (!codec) throw error;
+      const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
+      return errorResponse(codec, failure, getAiState(store).callSeq + 1);
+    }
   });
 }
 
@@ -104,7 +128,10 @@ async function handleRequest(
   const caller = callerOf(c.req.header("origin"), addressed, configured, derived);
 
   if (caller === "untrusted-host") {
-    return c.json(aiErrorBody(403, untrustedHostMessage(authority)), 403);
+    const refusal = untrustedHostMessage(authority);
+    if (errorCodecOf(path, c.req.header("anthropic-version")))
+      throw new AiRequestError(refusal, undefined, undefined, 403);
+    return c.json(aiErrorBody(403, refusal), 403);
   }
 
   if (path === "/_ai" || path.startsWith("/_ai/") || (method === "GET" && path === "/")) {
@@ -115,13 +142,11 @@ async function handleRequest(
   }
 
   if (caller === "foreign") {
-    return c.json(
-      aiErrorBody(
-        403,
-        "Requests from other websites are not allowed on AI data routes. Call the emulator from a server, from its own origin, or from a page served on this machine.",
-      ),
-      403,
-    );
+    const foreign =
+      "Requests from other websites are not allowed on AI data routes. Call the emulator from a server, from its own origin, or from a page served on this machine.";
+    if (errorCodecOf(path, c.req.header("anthropic-version")))
+      throw new AiRequestError(foreign, undefined, undefined, 403);
+    return c.json(aiErrorBody(403, foreign), 403);
   }
 
   if (method === "POST") {
@@ -421,19 +446,22 @@ function failureOf(error: AiRequestError): HttpFailure {
 function errorResponse(codec: Codec, failure: HttpFailure, seq: number): Response {
   const headers = new Headers(failure.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
-  return withRequestId(
-    new Response(JSON.stringify(codec.errorBody(failure)), {
-      status: failure.status,
-      headers,
-    }),
-    codec,
-    seq,
-  );
+  const name = requestIdHeader(codec);
+  const requestId = headers.get(name) ?? `req_${seq}`;
+  headers.set(name, requestId);
+  return new Response(JSON.stringify(codec.errorBody(failure, requestId)), {
+    status: failure.status,
+    headers,
+  });
+}
+
+function requestIdHeader(codec: Codec): string {
+  return codec.format === "anthropic-messages" ? "request-id" : "x-request-id";
 }
 
 /** Adds the deterministic request id header for the codec's vendor unless a rule already set it. */
 function withRequestId(response: Response, codec: Codec, seq: number): Response {
-  const name = "x-request-id";
+  const name = requestIdHeader(codec);
   if (!response.headers.has(name)) response.headers.set(name, `req_${seq}`);
   return response;
 }
