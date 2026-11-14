@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
 import { chatCodec } from "./codecs/openai-chat.js";
@@ -49,6 +50,7 @@ export interface AiRoutesOptions {
   app: Hono<AppEnv>;
   store: Store;
   baseUrl: string;
+  baseUrlDerived?: boolean;
 }
 
 const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
@@ -61,16 +63,17 @@ const MAX_SEEN_MODELS = 1000;
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
 /** Installs the anchored data router and the control routes; control routes are checked first. */
-export function registerAiRoutes({ app, store, baseUrl }: AiRoutesOptions): void {
+export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRoutesOptions): void {
   const base = parseUrl(baseUrl);
   const expectedOrigin = base && originKey(base);
+  const configuredHost = baseUrlDerived || !base ? undefined : base.hostname;
 
   app.use("*", async (c, next) => {
     if (c.req.path.startsWith("/_emulate/")) {
       await next();
       return;
     }
-    return handleRequest(c, store, expectedOrigin);
+    return handleRequest(c, store, expectedOrigin, configuredHost);
   });
 }
 
@@ -85,14 +88,29 @@ export function resetAiToSeed(store: Store): void {
   resetAiState(store, getSeedConfig(store));
 }
 
-async function handleRequest(c: Context<AppEnv>, store: Store, expectedOrigin: string | undefined): Promise<Response> {
+async function handleRequest(
+  c: Context<AppEnv>,
+  store: Store,
+  expectedOrigin: string | undefined,
+  configuredHost: string | undefined,
+): Promise<Response> {
   const url = new URL(c.req.url);
   const path = url.pathname;
   const requested = c.req.method.toUpperCase();
   const method = requested === "HEAD" ? "GET" : requested;
   const state = getAiState(store);
 
-  const caller = callerOf(c.req.header("origin"), expectedOrigin);
+  const authority = c.req.header("host") ?? url.host;
+  const caller = callerOf(
+    c.req.header("origin"),
+    expectedOrigin,
+    parseUrl(`http://${authority}`)?.hostname ?? "",
+    configuredHost,
+  );
+
+  if (caller === "untrusted-host") {
+    return c.json(aiErrorBody(403, untrustedHostMessage(authority)), 403);
+  }
 
   if (path === "/_ai" || path.startsWith("/_ai/") || (method === "GET" && path === "/")) {
     if (caller !== "direct" && caller !== "same-origin") {
@@ -472,9 +490,32 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
  * Who sent a request, judged from its Origin header: a client that is not a browser page, one of the emulator's own
  * pages, another page served on this machine, or any other website.
  */
-type Caller = "direct" | "same-origin" | "local" | "foreign";
+type Caller = "direct" | "same-origin" | "local" | "foreign" | "untrusted-host";
 
-function callerOf(origin: string | undefined, expectedOrigin: string | undefined): Caller {
+/**
+ * Whether the request was addressed to this machine: a loopback name, any IP literal, or the configured host. Any other
+ * DNS name is how a rebound website reaches the emulator, so it is never trusted.
+ */
+function trustedHostname(hostname: string, configuredHost: string | undefined): boolean {
+  return (
+    LOOPBACK_HOSTS.has(hostname) ||
+    hostname.endsWith(".localhost") ||
+    isIP(hostname.replace(/^\[|\]$/g, "")) !== 0 ||
+    hostname === configuredHost
+  );
+}
+
+function untrustedHostMessage(host: string): string {
+  return `The AI service does not answer on host "${host}". Start the emulator with --base-url http://${host} to allow it, or set publicUrl when embedding it.`;
+}
+
+function callerOf(
+  origin: string | undefined,
+  expectedOrigin: string | undefined,
+  hostname: string,
+  configuredHost: string | undefined,
+): Caller {
+  if (!trustedHostname(hostname, configuredHost)) return "untrusted-host";
   if (!origin) return "direct";
   const url = parseUrl(origin);
   if (!url) return "foreign";
