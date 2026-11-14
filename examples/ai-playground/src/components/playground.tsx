@@ -288,7 +288,7 @@ export function Playground() {
                 .join("\n");
               if (!data) continue;
               const json = data === "[DONE]" ? null : (JSON.parse(data) as Record<string, never>);
-              const carried = json ? protocol.read(json) : [{ kind: "finish" as const, text: "[DONE]" }];
+              const carried = json ? protocol.read(json) : [];
               const type = json?.type as string | undefined;
               if (!json || type === "response.completed" || type === "response.incomplete" || type === "message_stop") {
                 terminal = true;
