@@ -1440,6 +1440,15 @@ ai:
           retry-after: "1"
 ```
 
+In a project config with a `services:` map, the seed goes under `services.<name>.seed`, not a top-level `ai:` block, which would start a second service named `ai`:
+
+```yaml
+services:
+  llm:
+    emulator: ai
+    seed: { rules: [{ id: weather, match: { textContains: weather }, reply: [{ type: text, text: Sunny }] }] }
+```
+
 Matchers are `model` (with `*` wildcards), `format` (`openai-chat`, `openai-responses`, or `anthropic-messages`), `stream`, `textContains` (case-sensitive, latest user instruction only, excluding tool results), `tool` (a declared tool, with `*` wildcards), `hasToolResult`, and `file` (`true` for any attachment, including one returned inside a tool result, or a media-type glob). Reply events are `text`, `object` (sent as JSON text), `tool_call`, `reasoning` (a Responses summary or a Messages `thinking` block; Chat has no field for it), and `refusal` (native shape). A rule has one of `reply`, `variants`, or `error`. `finish` and `timing` go with `reply` or `variants`, and `fault` also requires `match: { stream: true }`. A `tool_call` event's `arguments` must be a JSON object; a string is rejected at startup and on `PUT /_ai/rules`. A fault disconnects or stalls a stream after a counted number of content chunks.
 
 Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default to zero, so replies are instant. `ttftMs` is the wait before the first byte of any reply, streamed or not, and `chunkDelayMs` is the gap between the frames of a stream. Delays are abortable: a client close or reset cancels pending timers.

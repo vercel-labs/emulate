@@ -85,6 +85,15 @@ ai:
           text: The temperature is 20 C.
 ```
 
+In a project config with a `services:` map, the seed goes under `services.<name>.seed`, not a top-level `ai:` block, which would start a second service named `ai`:
+
+```yaml
+services:
+  llm:
+    emulator: ai
+    seed: { rules: [{ id: weather, match: { textContains: weather }, reply: [{ type: text, text: Sunny }] }] }
+```
+
 ### Rule fields
 
 | Field      | What it does                                                                                                                                             |

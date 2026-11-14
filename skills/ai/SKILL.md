@@ -172,6 +172,15 @@ ai:
           retry-after: "1"
 ```
 
+In a project config with a `services:` map, the seed goes under `services.<name>.seed`, not a top-level `ai:` block, which would start a second service named `ai`:
+
+```yaml
+services:
+  llm:
+    emulator: ai
+    seed: { rules: [{ id: weather, match: { textContains: weather }, reply: [{ type: text, text: Sunny }] }] }
+```
+
 ### Matchers
 
 | Key             | Matches                                                                                                              |
