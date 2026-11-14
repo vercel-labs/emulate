@@ -22,7 +22,9 @@ Two same-origin routes forward the playground's requests to that mount, so the p
 - `/v1/*` forwards to `/emulate/ai/v1/*`, the three provider endpoints.
 - `/api/ai/*` forwards to `/emulate/ai/_ai/*`, the rules, calls, and reset routes. Next.js treats folders starting with `_` as private, so the control routes cannot live at `/_ai` directly.
 
-`next.config.ts` wraps the config with `withEmulate`, which keeps the emulator fonts in the serverless output trace.
+`next.config.ts` wraps the config with `withEmulate`, which keeps the emulator fonts in the serverless output trace, and adds `frame-ancestors 'none'` so another site cannot embed the page.
+
+Both proxies refuse a request when the `Host` is not this app, when `Origin` names another site, or when Fetch Metadata reports a cross-site caller, and they drop the emulator's wildcard CORS headers. A framed page also skips applying rules on load.
 
 ## Scenarios
 

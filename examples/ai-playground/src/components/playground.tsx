@@ -147,8 +147,9 @@ export function Playground() {
         seqRef.current = calls.at(-1)?.seq ?? 0;
         if (cancelled) return;
         setConnected(true);
-        setMessage("Pick a scenario and press Run.");
-        await applyRules(rulesText);
+        const framed = window.top !== window.self;
+        setMessage(framed ? "Open this page on its own to run scenarios." : "Pick a scenario and press Run.");
+        if (!framed) await applyRules(rulesText);
       } catch {
         if (cancelled) return;
         setConnected(false);
