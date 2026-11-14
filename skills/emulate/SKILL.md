@@ -329,10 +329,11 @@ aws:
 
 okta:
   users:
-    - login: testuser@okta.local
-      email: testuser@okta.local
-      first_name: Test
-      last_name: User
+    - okta_id: 00u_alice
+      login: alice@example.com
+      email: alice@example.com
+      first_name: Alice
+      last_name: Example
   groups:
     - name: Everyone
       description: All users
@@ -350,13 +351,17 @@ okta:
         - http://localhost:3000/callback
       auth_server_id: default
   apps:
-    - name: portal_saml
+    - okta_id: 0oa_portal
+      name: portal_saml
       label: Portal
       sign_on_mode: SAML_2_0
       settings:
         signOn:
           ssoAcsUrl: http://localhost:3000/saml/acs
           audience: https://portal.example.com
+  app_assignments:
+    - app_okta_id: 0oa_portal
+      user_okta_id: 00u_alice
 
 resend:
   domains:
