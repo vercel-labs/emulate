@@ -1020,7 +1020,69 @@ describe("Linear emulator", () => {
     expect(deliveries).toHaveLength(2);
     expect(deliveries.map((delivery) => delivery.event)).toEqual(["Issue", "Issue"]);
     expect(deliveries.map((delivery) => delivery.action)).toEqual(["update", "update"]);
-    expect((deliveries[0].payload as any).updatedFrom.labels).toEqual([{ id: bug.linear_id, name: "Bug" }]);
+    expect((deliveries[0].payload as any).updatedFrom.labelIds).toEqual([bug.linear_id]);
+    expect((deliveries[1].payload as any).updatedFrom.labelIds).toEqual([bug.linear_id, feature.linear_id]);
+  });
+
+  it("sends Linear-Timestamp, the issue's state, and only the changed properties in updatedFrom", async () => {
+    seedFromConfig(store, base, {
+      webhooks: [
+        {
+          label: "Local receiver",
+          url: "http://127.0.0.1:1/linear",
+          resource_types: ["Issue"],
+          all_public_teams: true,
+          secret: "local-secret",
+        },
+      ],
+    });
+    const linearStore = getLinearStore(store);
+    const team = linearStore.teams.findOneBy("key", "ENG")!;
+    const done = linearStore.workflowStates.findBy("team_id", team.linear_id).find((state) => state.name === "Done")!;
+    const created = (await (
+      await gql(app, `mutation($input: IssueCreateInput!) { issueCreate(input: $input) { issue { id } } }`, {
+        input: { teamId: team.linear_id, title: "Close me" },
+      })
+    ).json()) as any;
+    const issueId = created.data.issueCreate.issue.id;
+    const before = linearStore.issues.findOneBy("linear_id", issueId)!;
+
+    const res = await gql(
+      app,
+      `mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }`,
+      { id: issueId, input: { stateId: done.linear_id } },
+    );
+    expect(res.status).toBe(200);
+
+    const [createDelivery, updateDelivery] = linearStore.webhookDeliveries.all();
+    for (const delivery of [createDelivery!, updateDelivery!]) {
+      expect(delivery.headers["Linear-Timestamp"]).toBe(String((delivery.payload as any).webhookTimestamp));
+    }
+    const payload = updateDelivery!.payload as any;
+    expect(payload.data.state).toEqual({ id: done.linear_id, name: "Done", type: "completed", color: "#5e6ad2" });
+    expect(payload.data.stateId).toBe(done.linear_id);
+    expect(Object.keys(payload.updatedFrom).sort()).toEqual(["completedAt", "stateId", "updatedAt"]);
+    expect(payload.updatedFrom.stateId).toBe(before.state_id);
+    expect(payload.updatedFrom.completedAt).toBeNull();
+    expect(payload.updatedFrom.updatedAt).toBe(before.updated_at);
+    expect((createDelivery!.payload as any).updatedFrom).toBeUndefined();
+  });
+
+  it("exposes workflow state colors, seeded or defaulted by type", async () => {
+    seedFromConfig(store, base, {
+      teams: [
+        {
+          key: "OPS",
+          name: "Ops",
+          states: [{ name: "Queued", type: "unstarted", color: "#123456" }, { name: "Shipped" }],
+        },
+      ],
+    });
+    const res = await gql(app, `{ workflowStates { nodes { name color } } }`);
+    const nodes = ((await res.json()) as any).data.workflowStates.nodes as Array<{ name: string; color: string }>;
+    expect(nodes.find((state) => state.name === "Queued")?.color).toBe("#123456");
+    expect(nodes.find((state) => state.name === "Shipped")?.color).toBe("#e2e2e2");
+    expect(nodes.find((state) => state.name === "In Progress")?.color).toBe("#f2c94c");
   });
 
   it("does not send all public team webhooks for private team events", async () => {
