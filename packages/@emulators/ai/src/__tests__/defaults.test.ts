@@ -197,6 +197,15 @@ describe("sampleSchema patterns", () => {
     expect(performance.now() - started).toBeLessThan(2000);
   });
 
+  it("samples many patterned properties without exhausting the pattern budget", () => {
+    const properties: Record<string, JsonSchema> = {};
+    for (let index = 0; index < 100; index++) {
+      properties[`day${index}`] = { type: "string", format: "date", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
+    }
+    const schema: JsonSchema = { type: "object", properties, required: Object.keys(properties) };
+    expect(Object.keys(sampleSchema(schema, "seed") as object)).toHaveLength(100);
+  });
+
   it("rejects an invalid pattern with its own path", () => {
     const schema: JsonSchema = { type: "string", pattern: "(", enum: ["a"] };
     const error = thrown(() => sampleSchema(schema, "seed"));

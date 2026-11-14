@@ -37,7 +37,8 @@ const keywords = new Set([
 ]);
 const types = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
 
-const PATTERN_BUDGET_MS = 250;
+const PATTERN_TIMEOUT_MS = 250;
+const PATTERN_CHECK_COST = 4;
 const patternSandbox = createContext({ pattern: "", value: "" });
 const patternTest = new Script(
   "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { regex = new RegExp(pattern); } return regex.test(value); })()",
@@ -101,7 +102,6 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
 
   let remaining = 4096;
   let characters = 262144;
-  let patternMs = PATTERN_BUDGET_MS;
   const seedLimit = 64;
   const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
 
@@ -215,18 +215,16 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
-  /** Tests a string against a client pattern inside one time budget per schema, so a pathological expression cannot stall the emulator. */
+  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget and capping each run at a constant timeout. */
   function patternMatches(pattern: Json, value: string, at: string): boolean {
     if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
-    if (patternMs <= 0) fail(`${at}.pattern`, "pattern checks exceed the time limit");
-    const started = performance.now();
+    remaining -= PATTERN_CHECK_COST - 1;
+    spend(`${at}.pattern`);
     try {
       Object.assign(patternSandbox, { pattern, value });
-      return patternTest.runInContext(patternSandbox, { timeout: Math.ceil(patternMs) }) === true;
+      return patternTest.runInContext(patternSandbox, { timeout: PATTERN_TIMEOUT_MS }) === true;
     } catch {
       fail(`${at}.pattern`, "expected a regular expression that evaluates within the time limit");
-    } finally {
-      patternMs -= performance.now() - started;
     }
   }
 
