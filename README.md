@@ -671,6 +671,7 @@ ai:
           text: The temperature in Paris is 20 C.
 
     - id: rate-limit-once
+      match: { textContains: retry }
       times: 1
       error:
         status: 429
