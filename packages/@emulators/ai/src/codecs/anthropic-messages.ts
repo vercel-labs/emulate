@@ -545,9 +545,13 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
 }
 
 function errorBody(failure: HttpFailure, requestId: string): ErrorBody {
+  const named = failure.param === undefined || failure.message.includes(failure.param);
   return {
     type: "error",
-    error: { type: failure.type ?? ERROR_TYPES[failure.status] ?? "api_error", message: failure.message },
+    error: {
+      type: failure.type ?? ERROR_TYPES[failure.status] ?? "api_error",
+      message: named ? failure.message : `${failure.param}: ${failure.message}`,
+    },
     request_id: requestId,
   };
 }

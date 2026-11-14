@@ -226,7 +226,7 @@ describe("anthropic messages", () => {
     for (const type of ["", 5]) {
       const response = await send([{ ...weatherTool, type }]);
       expect(response.status).toBe(400);
-      expect(await message(response)).toBe("Expected a non-empty string.");
+      expect(await message(response)).toBe("tools.0.type: Expected a non-empty string.");
     }
   });
 
@@ -262,7 +262,7 @@ describe("anthropic messages", () => {
     const body = (await strict.json()) as { error: { type: string; message: string } };
     expect(body.error).toMatchObject({
       type: "invalid_request_error",
-      message: "For 'number' type, property 'minimum' is not supported",
+      message: expect.stringContaining("For 'number' type, property 'minimum' is not supported"),
     });
 
     const loose = await postMessages(
@@ -285,7 +285,7 @@ describe("anthropic messages", () => {
     );
     expect(invalid.status).toBe(400);
     const invalidBody = (await invalid.json()) as { error: { message: string } };
-    expect(invalidBody.error.message).toBe("Expected a boolean.");
+    expect(invalidBody.error.message).toBe("tools.0.strict: Expected a boolean.");
   });
 
   it("accepts a tool result from a previous turn", async () => {
@@ -547,7 +547,9 @@ describe("anthropic messages", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as { type: string; error: { type: string; message: string } };
     expect(body).toMatchObject({ type: "error", error: { type: "invalid_request_error" } });
-    expect(body.error.message).toBe('Unsupported content block type "document" in a content source.');
+    expect(body.error.message).toBe(
+      'messages.0.content.0.source.content.0.type: Unsupported content block type "document" in a content source.',
+    );
   });
 
   it("rejects a nested document inside a tool result", async () => {
@@ -585,7 +587,7 @@ describe("anthropic messages", () => {
     const body = (await response.json()) as { error: { type: string; message: string } };
     expect(body.error).toMatchObject({
       type: "invalid_request_error",
-      message: 'Unsupported content block type "document" in a content source.',
+      message: expect.stringContaining('Unsupported content block type "document" in a content source.'),
     });
   });
 
@@ -667,7 +669,10 @@ describe("anthropic messages", () => {
     expect(error.status).toBe(400);
     expect(error.error).toMatchObject({
       type: "error",
-      error: { type: "invalid_request_error", message: "Schema type 'oneOf' is not supported" },
+      error: {
+        type: "invalid_request_error",
+        message: expect.stringContaining("Schema type 'oneOf' is not supported"),
+      },
     });
     expect(typeof (error.error as { request_id?: unknown }).request_id).toBe("string");
   });
@@ -734,7 +739,7 @@ describe("anthropic messages", () => {
     });
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { message: string } };
-    expect(body.error.message).toBe("Expected a number.");
+    expect(body.error.message).toBe("max_tokens: Expected a number.");
   });
 
   it("rejects data URLs in image and document url sources without recording the payload", async () => {
@@ -754,7 +759,7 @@ describe("anthropic messages", () => {
       const body = (await response.json()) as { error: { type: string; message: string } };
       expect(body.error).toMatchObject({
         type: "invalid_request_error",
-        message: "Expected an HTTP or HTTPS URL.",
+        message: expect.stringContaining("Expected an HTTP or HTTPS URL."),
       });
     }
     const calls = await fetch(`${origin}/_ai/calls`);
@@ -836,7 +841,7 @@ describe("anthropic messages", () => {
     const body = (await response.json()) as { error: { type: string; message: string } };
     expect(body.error).toMatchObject({
       type: "invalid_request_error",
-      message: 'Unsupported content block type "video" in a tool result.',
+      message: expect.stringContaining('Unsupported content block type "video" in a tool result.'),
     });
   });
 
