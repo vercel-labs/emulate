@@ -5,6 +5,33 @@ export type LinearTokenType = "personal" | "oauth_access" | "oauth_refresh" | "c
 export type LinearTokenActorType = "user" | "app";
 export type LinearIssuePriority = 0 | 1 | 2 | 3 | 4;
 export type LinearAgentActivityType = "thought" | "elicitation" | "action" | "response" | "error" | "prompt";
+export type LinearAgentActivitySignal = "auth" | "continue" | "select" | "stop";
+export type LinearAgentSessionStatus =
+  | "pending"
+  | "active"
+  | "awaitingInput"
+  | "complete"
+  | "error"
+  | "stale"
+  | "stopping";
+export type LinearAgentPlanEntryStatus = "pending" | "inProgress" | "completed" | "canceled";
+
+/** The content of an agent activity, matching the members of Linear's AgentActivityContent union. */
+export type LinearAgentActivityContent =
+  | { type: "thought" | "elicitation" | "response"; body: string }
+  | { type: "error"; body: string; reasonCode?: string }
+  | { type: "prompt"; body: string; title?: string }
+  | { type: "action"; action: string; parameter: string; result?: string };
+
+export interface LinearAgentExternalLink {
+  label: string;
+  url: string;
+}
+
+export interface LinearAgentPlan {
+  entries: Array<{ content: string; status: LinearAgentPlanEntryStatus }>;
+  updatedAt: string;
+}
 
 export interface LinearOrganization extends Entity {
   linear_id: string;
@@ -40,6 +67,8 @@ export interface LinearWorkflowState extends Entity {
   name: string;
   type: LinearWorkflowStateType;
   position: number;
+  /** Hex color. States created before colors were stored use the default for their type. */
+  color?: string;
 }
 
 export interface LinearIssueLabel extends Entity {
@@ -152,19 +181,34 @@ export interface LinearWebhookDelivery extends Entity {
 
 export interface LinearAgentSession extends Entity {
   linear_id: string;
+  slug_id: string;
   issue_id: string | null;
   comment_id: string | null;
+  /** The app user that owns the session. */
   agent_user_id: string;
-  state: "pending" | "active" | "completed" | "failed" | "canceled";
-  plan: string | null;
-  external_url: string | null;
+  /** The human responsible for the session. Null when an agent started it. */
+  creator_id: string | null;
+  status: LinearAgentSessionStatus;
+  /** A plan accepted by agentSessionUpdate, or the free-form string the earlier emulator input took. */
+  plan: LinearAgentPlan | string | null;
+  summary: string | null;
+  external_link: string | null;
+  external_links: LinearAgentExternalLink[];
+  started_at: string | null;
+  ended_at: string | null;
+  dismissed_at: string | null;
+  dismissed_by_id: string | null;
+  archived_at: string | null;
 }
 
 export interface LinearAgentActivity extends Entity {
   linear_id: string;
   session_id: string;
-  user_id: string | null;
-  type: LinearAgentActivityType;
-  body: string;
+  user_id: string;
+  content: LinearAgentActivityContent;
   ephemeral: boolean;
+  signal: LinearAgentActivitySignal | null;
+  signal_metadata: Record<string, unknown> | null;
+  contextual_metadata: Record<string, unknown> | null;
+  archived_at: string | null;
 }

@@ -1,5 +1,5 @@
 import { Store, type Collection } from "@emulators/core";
-import type { S3Bucket, S3Object, SqsQueue, SqsMessage, IamUser, IamRole } from "./entities.js";
+import type { S3Bucket, S3Object, SqsQueue, SqsMessage, IamUser, IamRole, KmsKey, KmsAlias } from "./entities.js";
 
 export interface AwsStore {
   s3Buckets: Collection<S3Bucket>;
@@ -8,6 +8,8 @@ export interface AwsStore {
   sqsMessages: Collection<SqsMessage>;
   iamUsers: Collection<IamUser>;
   iamRoles: Collection<IamRole>;
+  kmsKeys: Collection<KmsKey>;
+  kmsAliases: Collection<KmsAlias>;
 }
 
 export function getAwsStore(store: Store): AwsStore {
@@ -18,5 +20,7 @@ export function getAwsStore(store: Store): AwsStore {
     sqsMessages: store.collection<SqsMessage>("aws.sqs_messages", ["message_id", "queue_name"]),
     iamUsers: store.collection<IamUser>("aws.iam_users", ["user_name", "user_id"]),
     iamRoles: store.collection<IamRole>("aws.iam_roles", ["role_name", "role_id"]),
+    kmsKeys: store.collection<KmsKey>("aws.kms_keys", ["key_id", "arn"]),
+    kmsAliases: store.collection<KmsAlias>("aws.kms_aliases", ["alias_name", "target_key_id"]),
   };
 }
