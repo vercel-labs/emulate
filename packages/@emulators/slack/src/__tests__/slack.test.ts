@@ -1359,6 +1359,45 @@ describe("Slack plugin - conversations", () => {
     expect(body.messages.length).toBe(2);
   });
 
+  it("limits history to the oldest and latest bounds", async () => {
+    const channel = getSlackStore(store).channels.all()[0].channel_id;
+    const post = async (text: string) =>
+      (
+        (await (
+          await app.request(`${base}/api/chat.postMessage`, {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ channel, text }),
+          })
+        ).json()) as any
+      ).ts as string;
+    const history = async (range: Record<string, unknown>) =>
+      (await (
+        await app.request(`${base}/api/conversations.history`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ channel, ...range }),
+        })
+      ).json()) as any;
+    const texts = async (range: Record<string, unknown>) => (await history(range)).messages.map((m: any) => m.text);
+
+    const first = await post("first");
+    const second = await post("second");
+    const third = await post("third");
+
+    // Exclusive by default: the bound itself is left out.
+    expect(await texts({ oldest: first })).toEqual(["third", "second"]);
+    expect(await texts({ latest: third })).toEqual(["second", "first"]);
+    expect(await texts({ oldest: first, latest: third })).toEqual(["second"]);
+    expect(await texts({ oldest: first, latest: third, inclusive: true })).toEqual(["third", "second", "first"]);
+    expect(await texts({ oldest: second, inclusive: "1" })).toEqual(["third", "second"]);
+    // Zero and empty bounds mean no bound, as in Slack.
+    expect(await texts({ oldest: "0", latest: "" })).toEqual(["third", "second", "first"]);
+
+    expect((await history({ oldest: "yesterday" })).error).toBe("invalid_ts_oldest");
+    expect((await history({ latest: "1.2.3" })).error).toBe("invalid_ts_latest");
+  });
+
   it("gets thread replies", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.all()[0];
