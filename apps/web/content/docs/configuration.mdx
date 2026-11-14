@@ -503,6 +503,38 @@ twilio:
       - friendly_name: Local Conversations
 ```
 
+## AI Seed Config
+
+```yaml
+ai:
+  strict: false
+  timing:
+    ttftMs: 0
+    chunkDelayMs: 0
+  models:
+    - gpt-x
+  rules:
+    - id: weather-call
+      match:
+        textContains: weather
+        tool: get_weather
+        hasToolResult: false
+      times: 1
+      reply:
+        - type: tool_call
+          name: get_weather
+          arguments:
+            city: Paris
+    - id: weather-result
+      match:
+        hasToolResult: true
+      reply:
+        - type: text
+          text: The temperature is 20 C.
+```
+
+Rules are matched in order and the first match wins. `times` limits how often a rule answers, and reset restores the budget. With no matching rule, permissive defaults echo the latest user text, return deterministic schema-valid objects, or generate a forced tool call. Set `strict: true` to fail unmatched requests with a native 400 that includes the rule to add. An unknown key in the `ai` block fails startup with its path. See the [AI Responses documentation](/docs/ai) for matchers, failures, timing, stored responses, and control endpoints.
+
 ## Custom emulators
 
 Custom definitions created with `defineEmulator` from `emulate` work in the CLI, in-process tests, and both framework adapters. The same definition provides typed state, HTTP handlers, reset, versioned snapshots, and optional inspection/persistence. See [Custom emulators](/docs/custom-emulators) for the quickstart, API reference, and complete lifecycle semantics.
