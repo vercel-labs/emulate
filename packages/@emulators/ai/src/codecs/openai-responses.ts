@@ -89,7 +89,7 @@ interface ResponsesExtras {
   metadata: WireMetadata;
   truncation: "auto" | "disabled";
   inputItems: Json[];
-  unresolvedHistory: boolean;
+  gaps: number[];
 }
 
 interface PreparedReply {
@@ -496,7 +496,8 @@ function storedOutputMessages(items: Json[]): Message[] {
 
 interface ReplayedHistory {
   messages: Message[];
-  unresolvedHistory: boolean;
+  gaps: number[];
+  itemIds: Set<string>;
   missingParentId?: string;
 }
 
@@ -521,13 +522,21 @@ function replayStoredHistory(state: AiState, id: string): ReplayedHistory | unde
     current = parent;
   }
   const messages: Message[] = [];
+  const gaps: number[] = missingParentId === undefined ? [] : [0];
+  const itemIds = new Set<string>();
   for (const entry of chain.reverse()) {
+    const base = messages.length;
     for (const message of decodeStoredMessages(entry.inputItems)) messages.push(message);
     for (const message of storedOutputMessages(entry.outputItems)) messages.push(message);
+    for (const gap of entry.gaps ?? []) gaps.push(base + gap);
+    for (const item of entry.outputItems) {
+      if (isRecord(item) && typeof item.id === "string") itemIds.add(item.id);
+    }
   }
   return {
     messages,
-    unresolvedHistory: chain.some((entry) => entry.unresolvedHistory === true),
+    gaps,
+    itemIds,
     ...(missingParentId === undefined ? {} : { missingParentId }),
   };
 }
@@ -540,9 +549,10 @@ function removeStoredResponse(state: AiState, id: string): void {
   for (const child of state.responses.values()) {
     if (child === removed || child.previousResponseId !== id) continue;
     child.inputItems = [...folded, ...child.inputItems];
+    const gaps = [...(removed.gaps ?? []), ...(child.gaps ?? []).map((gap) => gap + folded.length)];
+    if (gaps.length > 0) child.gaps = gaps;
     if (removed.previousResponseId === undefined) delete child.previousResponseId;
     else child.previousResponseId = removed.previousResponseId;
-    if (removed.unresolvedHistory === true) child.unresolvedHistory = true;
   }
   state.responses.delete(id);
 }
@@ -605,15 +615,18 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const ownItems: Message[] = [];
   const references: HistoryReference[] = [];
   const warnings: string[] = [];
-  let inheritedUnresolved = false;
+  const historyGaps: number[] = [];
+  const ownGaps: number[] = [];
+  const knownItemIds = new Set<string>();
 
   if (previousResponseId !== undefined) {
     const replay = replayStoredHistory(ctx.state, previousResponseId);
     if (replay) {
       for (const message of replay.messages) history.push(message);
       references.push({ id: previousResponseId, kind: "previous_response", resolved: true });
-      if (replay.unresolvedHistory || replay.missingParentId !== undefined) {
-        inheritedUnresolved = true;
+      for (const gap of replay.gaps) historyGaps.push(gap);
+      for (const itemId of replay.itemIds) knownItemIds.add(itemId);
+      if (replay.gaps.length > 0) {
         warnings.push(`Response "${previousResponseId}" has unresolved history; continuing with partial context.`);
       }
       if (replay.missingParentId !== undefined) {
@@ -623,6 +636,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       }
     } else {
       references.push({ id: previousResponseId, kind: "previous_response", resolved: false });
+      ownGaps.push(0);
       warnings.push(`Unknown previous_response_id "${previousResponseId}"; continuing with empty context.`);
     }
   }
@@ -646,9 +660,13 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
       const found = findStoredItem(ctx.state, id);
       if (found) {
         references.push({ id, kind: "item", resolved: true });
-        for (const message of storedOutputMessages([found.item])) ownItems.push(message);
+        if (!knownItemIds.has(id)) {
+          knownItemIds.add(id);
+          for (const message of storedOutputMessages([found.item])) ownItems.push(message);
+        }
       } else {
         references.push({ id, kind: "item", resolved: false });
+        ownGaps.push(ownItems.length);
         warnings.push(`Unknown item_reference "${id}"; dropping it.`);
       }
       return;
@@ -692,9 +710,12 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     unsupported(`input item type "${type}"`, `${path}.type`);
   });
 
+  const historyStart = messages.length;
   for (const message of history) messages.push(message);
+  const ownStart = messages.length;
   for (const message of ownItems) messages.push(message);
 
+  const gaps = [...historyGaps.map((gap) => historyStart + gap), ...ownGaps.map((gap) => ownStart + gap)];
   const callNames = new Map<string, string>();
   for (const message of messages) {
     for (const part of message.parts) {
@@ -702,31 +723,30 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     }
   }
 
-  const unresolvedHistory = inheritedUnresolved || references.some((reference) => !reference.resolved);
+  const answered = new Set<string>();
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type !== "tool_result") continue;
-      const name = callNames.get(part.id);
-      if (name !== undefined) {
-        part.name = name;
-        continue;
-      }
-      if (unresolvedHistory) {
-        warnings.push(
-          `Tool result "${part.id}" does not match a known call; accepting it because referenced history is missing.`,
-        );
-        continue;
-      }
-      invalid(`No function call found for tool output "${part.id}".`, "input");
+      if (part.type === "tool_result") answered.add(part.id);
     }
   }
-
-  if (!unresolvedHistory) {
-    const parts = messages.flatMap((message) => message.parts);
-    const answered = new Set(parts.flatMap((part) => (part.type === "tool_result" ? [part.id] : [])));
-    const pending = parts.find((part) => part.type === "tool_call" && !answered.has(part.id));
-    if (pending?.type === "tool_call") invalid(`No tool output found for function call ${pending.id}.`, "input");
-  }
+  messages.forEach((message, index) => {
+    for (const part of message.parts) {
+      if (part.type === "tool_result") {
+        const name = callNames.get(part.id);
+        if (name !== undefined) {
+          part.name = name;
+        } else if (gaps.some((gap) => gap <= index)) {
+          warnings.push(
+            `Tool result "${part.id}" does not match a known call; accepting it because referenced history is missing.`,
+          );
+        } else {
+          invalid(`No function call found for tool output "${part.id}".`, "input");
+        }
+      } else if (part.type === "tool_call" && !answered.has(part.id) && !gaps.some((gap) => gap > index)) {
+        invalid(`No tool output found for function call ${part.id}.`, "input");
+      }
+    }
+  });
 
   const request: AIRequest = {
     format: FORMAT,
@@ -758,7 +778,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     metadata,
     truncation: decodeTruncation(raw.truncation),
     inputItems: ownItems.map(messageToJson),
-    unresolvedHistory,
+    gaps: ownGaps,
   };
 
   return { request, extras: extras as unknown as Record<string, unknown> };
@@ -1167,7 +1187,7 @@ function afterReply(reply: Reply, decoded: Decoded, ctx: CodecContext): void {
     inputItems: extras.inputItems,
     outputItems: prepared.output as unknown as Json[],
     response: prepared.response as unknown as Json,
-    ...(extras.unresolvedHistory ? { unresolvedHistory: true } : {}),
+    ...(extras.gaps.length > 0 ? { gaps: extras.gaps } : {}),
   });
   while (responses.size > STORED_RESPONSE_LIMIT) {
     const oldest = responses.keys().next();
