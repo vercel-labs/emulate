@@ -53,6 +53,57 @@ const pause = (ms: number, signal: AbortSignal) =>
     );
   });
 
+/** Whether `held` contains everything in `wanted`; the emulator may add defaults the rules text leaves out. */
+const covers = (held: unknown, wanted: unknown): boolean => {
+  if (Array.isArray(wanted)) {
+    return Array.isArray(held) && held.length === wanted.length && wanted.every((item, i) => covers(held[i], item));
+  }
+  if (wanted && typeof wanted === "object") {
+    const record = held as Record<string, unknown> | null;
+    return (
+      !!record &&
+      typeof record === "object" &&
+      Object.entries(wanted).every(([key, value]) => covers(record[key], value))
+    );
+  }
+  return held === wanted;
+};
+
+type ServerRules = Record<string, unknown> & {
+  rules?: ({ id?: string; remaining?: unknown } & Record<string, unknown>)[];
+};
+
+async function serverRules(): Promise<ServerRules> {
+  const response = await fetch("/api/ai/rules");
+  if (!response.ok) throw new Error();
+  const view = (await response.json()) as ServerRules;
+  return {
+    ...view,
+    rules: (view.rules ?? []).map((rule) =>
+      Object.fromEntries(Object.entries(rule).filter(([key]) => key !== "remaining")),
+    ),
+  };
+}
+
+/** Whether the emulator currently holds every top-level setting the rules text defines. */
+async function holdsRules(text: string): Promise<boolean> {
+  const wanted = parseJson(text).value as Record<string, unknown> | undefined;
+  if (!wanted || typeof wanted !== "object") return false;
+  const held = await serverRules();
+  return covers(held, wanted);
+}
+
+/** The scenario whose rules the emulator already holds, ignoring the reasoning toggle, with the rules text to show. */
+async function scenarioHeld() {
+  const held = await serverRules();
+  const bare = (config: Config) => withReasoning(config, false).rules ?? [];
+  const scenario = SCENARIOS.find((item) => {
+    const own = bare(item.config as Config);
+    return own.length > 0 && covers(bare({ rules: held.rules } as Config), own);
+  });
+  return scenario ? { scenario, text: prettyJson({ timing: held.timing, rules: held.rules }) } : null;
+}
+
 export function Playground() {
   const [scenarioId, setScenarioId] = useState(SCENARIOS[0].id);
   const [api, setApi] = useState<ApiId>("chat");
@@ -81,20 +132,31 @@ export function Playground() {
   }, [rulesText, rulesError, applied]);
 
   const abortRef = useRef<AbortController | null>(null);
-  const appliedRef = useRef<string | null>(null);
+  const latestRef = useRef(rulesText);
   const seqRef = useRef(0);
   const rulesSeqRef = useRef(0);
-
   const queueRef = useRef<Promise<boolean>>(Promise.resolve(true));
 
-  const applyRules = useCallback((text: string, force = false) => {
-    if (!force && text === appliedRef.current) return Promise.resolve(true);
-    appliedRef.current = null;
+  const setRules = useCallback((text: string) => {
+    latestRef.current = text;
+    setRulesText(text);
+  }, []);
+
+  /**
+   * Makes the emulator hold the given rules. A fresh apply always sends them, which re-arms budgets and variants;
+   * otherwise they are sent only when the emulator's current rules differ, so spent budgets survive plain runs.
+   */
+  const applyRules = useCallback((text: string, fresh = false) => {
     const seq = ++rulesSeqRef.current;
     setRulesError(null);
     const send = async () => {
       if (seq !== rulesSeqRef.current) return false;
       try {
+        if (!fresh && (await holdsRules(text))) {
+          setApplied(text);
+          return true;
+        }
+        if (seq !== rulesSeqRef.current) return false;
         const response = await fetch("/api/ai/rules", {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -102,7 +164,6 @@ export function Playground() {
         });
         if (seq !== rulesSeqRef.current) return false;
         if (response.ok) {
-          appliedRef.current = text;
           setApplied(text);
           return true;
         }
@@ -121,29 +182,28 @@ export function Playground() {
   const selectScenario = useCallback(
     (id: string) => {
       const next = SCENARIOS.find((item) => item.id === id) ?? SCENARIOS[0];
+      const current = parseJson(latestRef.current).value as Config | undefined;
+      const text = prettyJson(
+        withReasoning({ timing: current?.timing ?? PACING.realistic, ...next.config }, scriptsReasoning(current ?? {})),
+      );
       setScenarioId(id);
       setPrompt(next.prompt);
       if (next.stream) setStream(true);
-      const current = parseJson(rulesText).value as Config | undefined;
-      const nextConfig = withReasoning(
-        { timing: current?.timing ?? PACING.realistic, ...next.config },
-        scriptsReasoning(config ?? {}),
-      );
-      const text = prettyJson(nextConfig);
-      setRulesText(text);
-      void applyRules(text);
+      setRules(text);
+      void applyRules(text, true);
     },
-    [rulesText, config, applyRules],
+    [applyRules, setRules],
   );
 
   const editRules = useCallback(
     (edit: (config: Config) => Config) => {
-      if (!config) return;
-      const text = prettyJson(edit(config));
-      setRulesText(text);
+      const current = parseJson(latestRef.current).value as Config | undefined;
+      if (!current) return;
+      const text = prettyJson(edit(current));
+      setRules(text);
       void applyRules(text);
     },
-    [config, applyRules],
+    [applyRules, setRules],
   );
 
   useEffect(() => {
@@ -158,7 +218,18 @@ export function Playground() {
         setConnected(true);
         const framed = window.top !== window.self;
         setMessage(framed ? "Open this page on its own to run scenarios." : "Pick a scenario and press Run.");
-        if (!framed) await applyRules(rulesText);
+        if (framed) return;
+        const held = await scenarioHeld();
+        if (cancelled) return;
+        if (held) {
+          setScenarioId(held.scenario.id);
+          setPrompt(held.scenario.prompt);
+          if (held.scenario.stream) setStream(true);
+          setRules(held.text);
+          setApplied(held.text);
+        } else {
+          await applyRules(latestRef.current, true);
+        }
       } catch {
         if (cancelled) return;
         setConnected(false);
@@ -168,9 +239,7 @@ export function Playground() {
     return () => {
       cancelled = true;
     };
-    // The first rules text is the only one applied on mount; later edits apply themselves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [applyRules, setRules]);
 
   const lastCall = useCallback(async () => {
     try {
@@ -372,7 +441,7 @@ export function Playground() {
     }
     setMessage("");
     setSteps([]);
-    if (!(await applyRules(rulesText))) {
+    if (!(await applyRules(latestRef.current))) {
       setMessage("The rules were not applied. See the message above the rules.");
       return;
     }
@@ -436,7 +505,7 @@ export function Playground() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [applyRules, attachment, exchange, prompt, rulesText, running, scenario, schemaText, stream]);
+  }, [applyRules, attachment, exchange, prompt, running, scenario, schemaText, stream]);
 
   return (
     <div className="flex h-full flex-col">
@@ -592,7 +661,7 @@ export function Playground() {
               </span>
               <button
                 type="button"
-                onClick={() => void applyRules(rulesText, true)}
+                onClick={() => void applyRules(latestRef.current, true)}
                 className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
               >
                 Reset
@@ -601,7 +670,7 @@ export function Playground() {
             <textarea
               value={rulesText}
               onChange={(event) => {
-                setRulesText(event.target.value);
+                setRules(event.target.value);
                 setRulesError(null);
               }}
               spellCheck={false}
