@@ -157,6 +157,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
     fetch: (request) => (handler ? handler(request) : new Response("Starting", { status: 503 })),
     port,
     hostname: options.hostname,
+    abortOnClose: loaded.plugin.abortOnClose,
   });
   try {
     await waitForListening(httpServer);

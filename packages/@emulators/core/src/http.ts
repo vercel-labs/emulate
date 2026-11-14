@@ -60,6 +60,8 @@ export interface ServeOptions {
   port?: number;
   /** Listening address. Defaults to IPv4 loopback (127.0.0.1). */
   hostname?: string;
+  /** Abort each request's signal and stop writing when the client closes the response before it finishes. */
+  abortOnClose?: boolean;
 }
 
 export interface CorsOptions {
@@ -244,6 +246,28 @@ function mergeHeaders(target: Headers, operations: Array<{ name: string; value: 
   }
 }
 
+function carriedStatus(err: unknown): number | undefined {
+  if (err && typeof err === "object" && "status" in err) {
+    const s = (err as { status: unknown }).status;
+    if (typeof s === "number" && Number.isInteger(s) && s >= 400 && s <= 599) return s;
+  }
+  return undefined;
+}
+
+/** Returns the HTTP error status (400 to 599) carried by an error, defaulting to 500. */
+export function errorStatus(err: unknown): number {
+  return carriedStatus(err) ?? 500;
+}
+
+/** Renders an error as the JSON body `{ message, documentation_url }` with the status the error carries. */
+export function renderApiError(err: unknown, c: Context<any>): Response {
+  const message = err instanceof Error ? err.message : "Internal Server Error";
+  return c.json(
+    { message, documentation_url: (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev" },
+    errorStatus(err) as ContentfulStatusCode,
+  );
+}
+
 export class Hono<E = unknown> {
   constructor(private readonly options: HttpOptions = {}) {}
 
@@ -259,7 +283,8 @@ export class Hono<E = unknown> {
   }
   private readonly middleware: Route<E>[] = [];
   private readonly routes: Route<E>[] = [];
-  private errorHandler: ErrorHandler<E> = (err) => {
+  private errorHandler: ErrorHandler<E> = (err, c) => {
+    if (carriedStatus(err) !== undefined) return renderApiError(err, c);
     const message = err instanceof Error ? err.message : "Internal Server Error";
     return new Response(message, { status: 500 });
   };
@@ -428,15 +453,29 @@ export function cors(options: CorsOptions = {}): MiddlewareHandler {
 export function serve(options: ServeOptions): Server {
   const port = options.port ?? 3000;
   const server = createNodeServer(async (req, res) => {
+    const controller = options.abortOnClose ? new AbortController() : undefined;
+    const onClose = () => {
+      if (!res.writableFinished) controller?.abort();
+    };
+    if (controller) res.once("close", onClose);
     try {
-      const request = nodeRequestToFetchRequest(req);
+      const request = nodeRequestToFetchRequest(req, controller?.signal);
       const response = await options.fetch(request);
-      await writeFetchResponse(res, response, req.method?.toUpperCase() === "HEAD");
+      await writeFetchResponse(res, response, req.method?.toUpperCase() === "HEAD", controller?.signal);
     } catch (err) {
+      if (controller?.signal.aborted) {
+        res.destroy();
+        return;
+      }
       const message = err instanceof Error ? err.message : "Internal Server Error";
-      res.statusCode = 500;
+      res.statusCode = err instanceof InvalidHostError ? 400 : 500;
       res.setHeader("Content-Type", "text/plain; charset=UTF-8");
       res.end(message);
+    } finally {
+      if (controller) {
+        if (!res.writableEnded) controller.abort();
+        res.off("close", onClose);
+      }
     }
   });
   server.listen(port, options.hostname ?? "127.0.0.1");
@@ -529,8 +568,24 @@ function appendBodyValue<T>(target: Record<string, T | T[]>, key: string, value:
   }
 }
 
-function nodeRequestToFetchRequest(req: IncomingMessage): Request {
-  const host = req.headers.host ?? "localhost";
+class InvalidHostError extends Error {
+  constructor() {
+    super("Invalid Host header");
+  }
+}
+
+function hostAuthority(host: string): string {
+  if (/[\s/?#@\\]/.test(host)) throw new InvalidHostError();
+  try {
+    new URL(`http://${host}`);
+  } catch {
+    throw new InvalidHostError();
+  }
+  return host;
+}
+
+function nodeRequestToFetchRequest(req: IncomingMessage, signal?: AbortSignal): Request {
+  const host = hostAuthority(req.headers.host ?? "localhost");
   const url = new URL(req.url ?? "/", `http://${host}`);
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
@@ -548,11 +603,17 @@ function nodeRequestToFetchRequest(req: IncomingMessage): Request {
     method,
     headers,
     body: hasBody ? (req as unknown as BodyInit) : undefined,
+    signal,
     duplex: "half",
   } as RequestInit & { duplex: string });
 }
 
-async function writeFetchResponse(res: ServerResponse, response: Response, headOnly: boolean): Promise<void> {
+async function writeFetchResponse(
+  res: ServerResponse,
+  response: Response,
+  headOnly: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
 
@@ -572,16 +633,64 @@ async function writeFetchResponse(res: ServerResponse, response: Response, headO
   }
 
   const reader = response.body.getReader();
+  let aborted = signal?.aborted === true;
+  if (aborted) void reader.cancel().catch(() => {});
+  const onAbort = () => {
+    aborted = true;
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    while (true) {
+    while (!aborted) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (!res.write(value)) {
-        await new Promise<void>((resolve) => res.once("drain", resolve));
-      }
+      if (aborted) break;
+      const pending = writeChunk(res, value, signal);
+      if (pending) await pending;
+    }
+    if (aborted) {
+      res.destroy();
+      return;
     }
     res.end();
   } catch (err) {
-    res.destroy(err instanceof Error ? err : undefined);
+    void reader.cancel().catch(() => {});
+    destroyAfterFlush(res, err instanceof Error ? err : undefined);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
+}
+
+/** Destroys the response once everything already written, headers included, has been handed to the socket. */
+function destroyAfterFlush(res: ServerResponse, err?: Error): void {
+  if (res.destroyed) return;
+  res.write("", () => res.destroy(err));
+}
+
+function writeChunk(res: ServerResponse, chunk: Uint8Array, signal?: AbortSignal): Promise<void> | undefined {
+  if (signal?.aborted) return undefined;
+  if (res.destroyed) throw new Error("Response closed before write");
+  if (res.write(chunk)) return undefined;
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error("Response closed before drain"));
+    };
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }

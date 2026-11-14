@@ -1,18 +1,6 @@
-import type { Context, ContentfulStatusCode, ErrorHandler, MiddlewareHandler } from "../http.js";
+import { errorStatus, renderApiError, type Context, type ErrorHandler, type MiddlewareHandler } from "../http.js";
 
-const DEFAULT_DOCS_URL = "https://emulate.dev";
-
-function getDocsUrl(c: Context): string {
-  return (c.get("docsUrl") as string | undefined) ?? DEFAULT_DOCS_URL;
-}
-
-function errorStatus(err: unknown): number {
-  if (err && typeof err === "object" && "status" in err) {
-    const s = (err as { status: unknown }).status;
-    if (typeof s === "number" && Number.isFinite(s)) return s;
-  }
-  return 500;
-}
+export { errorStatus };
 
 /**
  * Use with `app.onError(...)`. Route handlers throw to the app error handler.
@@ -22,15 +10,7 @@ export function createApiErrorHandler(documentationUrl?: string): ErrorHandler {
     if (documentationUrl) {
       c.set("docsUrl", documentationUrl);
     }
-    const status = errorStatus(err);
-    const message = err instanceof Error ? err.message : "Internal Server Error";
-    return c.json(
-      {
-        message,
-        documentation_url: getDocsUrl(c),
-      },
-      status as ContentfulStatusCode,
-    );
+    return renderApiError(err, c);
   };
 }
 
