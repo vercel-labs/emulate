@@ -1,4 +1,4 @@
-import { createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
+import { assertPortFree, createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
 import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
@@ -344,6 +344,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
+      await assertPortFree(options.host, port);
       const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
       httpServers.push(httpServer);
     }
@@ -374,6 +375,7 @@ export async function startCommand(options: StartOptions): Promise<void> {
       const { app, store, webhooks } = createPreparedServiceServer(preparedService, tokens);
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
+      await assertPortFree(options.host, port);
       const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
       httpServers.push(httpServer);
       await waitForServerListening(httpServer);

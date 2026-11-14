@@ -4,6 +4,8 @@
  * Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
  * MIT license: see THIRD_PARTY_NOTICES.md in the repository and npm packages.
  */
+import { lookup } from "node:dns/promises";
+import { connect, isIP } from "node:net";
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 type BodyInit = ConstructorParameters<typeof Response>[0];
@@ -441,6 +443,45 @@ export function serve(options: ServeOptions): Server {
   });
   server.listen(port, options.hostname ?? "127.0.0.1");
   return server;
+}
+
+/**
+ * Rejects with an EADDRINUSE error when something already accepts connections on the address a listener is about to
+ * bind. Await it before `serve`: macOS lets a specific address bind a port another process holds on the wildcard
+ * address. The other process sees one short connection.
+ */
+export async function assertPortFree(hostname: string | undefined, port: number): Promise<void> {
+  const host = hostname ?? "127.0.0.1";
+  if (port === 0 || host === "0.0.0.0" || host === "::") return;
+  const address = isIP(host)
+    ? host
+    : await lookup(host).then(
+        (r) => r.address,
+        () => undefined,
+      );
+  if (!address) return;
+  const taken = await new Promise<boolean>((resolve) => {
+    try {
+      const socket = connect({ host: address, port, timeout: 300 });
+      const settle = (value: boolean) => {
+        socket.destroy();
+        resolve(value);
+      };
+      socket.once("connect", () => settle(true));
+      socket.once("timeout", () => settle(false));
+      socket.once("error", () => settle(false));
+    } catch {
+      resolve(false);
+    }
+  });
+  if (!taken) return;
+  throw Object.assign(new Error(`listen EADDRINUSE: address already in use ${address}:${port}`), {
+    code: "EADDRINUSE",
+    errno: -48,
+    syscall: "listen",
+    address,
+    port,
+  });
 }
 
 function compilePath(pattern: string): CompiledPath {

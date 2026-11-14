@@ -115,6 +115,16 @@ describe.each([
   });
 });
 
+describe("invalid ports", () => {
+  it.each(["builtin", "custom"])("rejects an invalid port for a %s emulator instead of hanging", async (kind) => {
+    const starting =
+      kind === "builtin"
+        ? createEmulator({ service: "resend", port: 70000 })
+        : createEmulator({ service: counter, port: 70000 });
+    await expect(starting).rejects.toThrow();
+  });
+});
+
 const networkAddress = Object.values(networkInterfaces())
   .flat()
   .find((entry) => entry?.family === "IPv4" && !entry.internal)?.address;
