@@ -1,8 +1,18 @@
+import { isIPv6 } from "node:net";
+
 export interface ResolveBaseUrlOptions {
   service: string;
   port: number;
   baseUrl?: string;
   seedBaseUrl?: string;
+  hostname?: string;
+}
+
+function advertisedHost(hostname?: string): string {
+  const host = hostname?.replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host === "0.0.0.0" || host === "::" || host === "::1" || host.startsWith("127."))
+    return "localhost";
+  return isIPv6(host) ? `[${host}]` : host;
 }
 
 /**
@@ -11,7 +21,7 @@ export interface ResolveBaseUrlOptions {
  * 2. Explicit baseUrl (CLI flag or programmatic option)
  * 3. EMULATE_BASE_URL env var (with {service} interpolation)
  * 4. PORTLESS_URL env var (with {service} interpolation)
- * 5. http://localhost:<port>
+ * 5. http://<listening host>:<port>, with localhost for loopback and wildcard hosts
  */
 export function resolveBaseUrl(opts: ResolveBaseUrlOptions): string {
   if (opts.seedBaseUrl) {
@@ -28,5 +38,5 @@ export function resolveBaseUrl(opts: ResolveBaseUrlOptions): string {
   if (portlessUrl) {
     return portlessUrl.replace(/\{service\}/g, opts.service);
   }
-  return `http://localhost:${opts.port}`;
+  return `http://${advertisedHost(opts.hostname)}:${opts.port}`;
 }
