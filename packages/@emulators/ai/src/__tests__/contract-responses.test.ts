@@ -377,17 +377,20 @@ describe("OpenAI Responses codec", () => {
     expect(answered.output_text).toBe("The weather is 20 C.");
   });
 
-  it("accepts an unanswered function call when referenced history is missing", async () => {
-    const { status } = await postResponses({
+  it("accepts an unanswered function call only when the missing history could hold its output", async () => {
+    const call = { type: "function_call", call_id: "call_pending", name: "get_weather", arguments: "{}" };
+    const before = await postResponses({
       model: "gpt-x",
       previous_response_id: "resp_missing",
-      input: [
-        { type: "function_call", call_id: "call_pending", name: "get_weather", arguments: "{}" },
-        { role: "user", content: "Continue" },
-      ],
+      input: [call, { role: "user", content: "Continue" }],
+    });
+    const after = await postResponses({
+      model: "gpt-x",
+      input: [call, { type: "item_reference", id: "fc_missing" }, { role: "user", content: "Continue" }],
     });
 
-    expect(status).toBe(200);
+    expect(before.status).toBe(400);
+    expect(after.status).toBe(200);
   });
 
   it("stores, retrieves, and deletes responses", async () => {
