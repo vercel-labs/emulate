@@ -2,10 +2,52 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { Agent, request as httpRequest, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { Hono, cors, serve } from "../http.js";
 
 describe("HTTP listener", () => {
+  it("answers 400 for a Host that is not a plain authority and keeps the connection usable", async () => {
+    let calls = 0;
+    const server = serve({
+      fetch: (request) => {
+        calls++;
+        return new Response(new URL(request.url).host);
+      },
+      port: 0,
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+      const socket = connect(port, "127.0.0.1");
+      let received = "";
+      socket.on("data", (chunk) => (received += chunk));
+      const send = (host: string) => socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\n\r\n`);
+      const responses = async (count: number) => {
+        while ((received.match(/HTTP\/1\.1 \d/g) ?? []).length < count) await new Promise((r) => setTimeout(r, 10));
+      };
+
+      send("localhost@evil.example:80");
+      send("evil.example#@localhost");
+      send("a/b");
+      send("x?y=1");
+      send("host with space");
+      send("my_service:4000");
+      await responses(6);
+      socket.destroy();
+
+      const statuses = [...received.matchAll(/HTTP\/1\.1 (\d+)/g)].map((m) => m[1]);
+      expect(statuses).toEqual(["400", "400", "400", "400", "400", "200"]);
+      expect(received).toContain("Invalid Host header");
+      expect(received).toContain("my_service:4000");
+      expect(calls).toBe(1);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
+    }
+  });
+
   it.each([
     { hostname: undefined, address: "127.0.0.1" },
     { hostname: "0.0.0.0", address: "0.0.0.0" },
