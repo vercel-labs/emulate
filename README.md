@@ -1024,6 +1024,8 @@ Set `slack.signing_secret` in seed config to sign every outbound event subscript
 
 Slack message text is limited to 40,000 Unicode characters across chat writes, incoming webhooks, and file upload initial comments. Longer text is truncated at a Unicode code point boundary before it is stored or dispatched. Successful Web API responses include `warning: "message_truncated"` and `response_metadata` with the matching warning and explanatory message. Rich fields such as `blocks` and `attachments` are preserved unchanged.
 
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` accept `markdown_text` in place of `text`. The emulator stores the Markdown source as the message `text` and adds no blocks, since Slack doesn't document how it reads such a message back. Sending `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`, and an empty `markdown_text` counts as no text. Slack's 12,000-character limit for `markdown_text` is not enforced.
+
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
 - `POST /api/auth.revoke` - revoke the calling token (`test=1` checks without revoking); later Web API calls with it return `invalid_auth`. Revoking a bot token keeps the app installed but deactivates the bot user and removes it from its channels, so it gets no more `app_mention` events until the app is installed again
