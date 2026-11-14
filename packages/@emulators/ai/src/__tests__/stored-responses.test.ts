@@ -155,13 +155,12 @@ describe("stored Responses keep only their own input", () => {
     });
 
     expect([first, second, third].every((id) => id.startsWith("resp_"))).toBe(true);
-    expect(state.responses.get(first)?.unresolvedHistory).toBe(true);
-    expect(state.responses.get(second)?.unresolvedHistory).toBe(true);
+    expect(state.responses.get(first)?.gaps).toEqual([0]);
     const call = await lastCall(app);
     expect(call.warnings.some((warning) => warning.includes("unresolved history"))).toBe(true);
   });
 
-  it("carries the unresolved history mark into a child when its parent is removed", async () => {
+  it("carries the history gap into a child when its parent is removed", async () => {
     const { app, state } = start();
     const first = await create(app, { model: "gpt-x", input: "Hi", previous_response_id: "resp_missing" });
     const second = await create(app, {
@@ -169,13 +168,9 @@ describe("stored Responses keep only their own input", () => {
       input: [{ type: "function_call_output", call_id: "call_after", output: "z" }],
       previous_response_id: first,
     });
-    const child = state.responses.get(second);
-    if (!child) throw new Error("expected a stored response");
-    child.unresolvedHistory = undefined;
-
     const deleted = await app.request(`${baseUrl}/responses/${first}`, { method: "DELETE" });
     expect(deleted.status).toBe(200);
-    expect(state.responses.get(second)?.unresolvedHistory).toBe(true);
+    expect(state.responses.get(second)?.gaps).toEqual([0]);
 
     await create(app, {
       model: "gpt-x",
