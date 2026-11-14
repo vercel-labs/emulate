@@ -98,6 +98,7 @@ describe.each([
     try {
       const port = await unusedPort();
       await startCommand({ port, service: "resend", host: hostname });
+      await vi.waitFor(() => expect(servers).toHaveLength(1));
       const server = servers[0];
       await waitForListening(server);
       expect(server.address()).toMatchObject({ address });

@@ -4,6 +4,7 @@
  * Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
  * MIT license: see THIRD_PARTY_NOTICES.md in the repository and npm packages.
  */
+import { createServer as createNetServer, isIP } from "node:net";
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 type BodyInit = ConstructorParameters<typeof Response>[0];
@@ -439,8 +440,45 @@ export function serve(options: ServeOptions): Server {
       res.end(message);
     }
   });
-  server.listen(port, options.hostname ?? "127.0.0.1");
+  const hostname = options.hostname ?? "127.0.0.1";
+  const wildcards = port === 0 ? [] : wildcardsFor(hostname);
+  if (wildcards.length === 0) {
+    server.listen(port, hostname);
+    return server;
+  }
+  let closed = false;
+  server.once("close", () => {
+    closed = true;
+  });
+  void Promise.all(wildcards.map((wildcard) => probeWildcard(wildcard, port))).then((results) => {
+    if (closed) return;
+    const busy = results.find((error) => error);
+    if (busy) server.emit("error", busy);
+    else server.listen(port, hostname);
+  });
   return server;
+}
+
+function wildcardsFor(hostname: string): Array<{ host: string; ipv6Only: boolean }> {
+  const family = isIP(hostname);
+  if (family === 4) return hostname === "0.0.0.0" ? [] : [{ host: "0.0.0.0", ipv6Only: false }];
+  if (family === 6) return hostname === "::" ? [] : [{ host: "::", ipv6Only: true }];
+  return [
+    { host: "0.0.0.0", ipv6Only: false },
+    { host: "::", ipv6Only: true },
+  ];
+}
+
+/**
+ * Resolves with an EADDRINUSE error when another process holds the port on the wildcard address, which macOS
+ * does not report when binding a specific address. Other bind errors, such as no IPv6, are ignored.
+ */
+function probeWildcard(wildcard: { host: string; ipv6Only: boolean }, port: number): Promise<Error | undefined> {
+  return new Promise((resolve) => {
+    const probe = createNetServer();
+    probe.once("error", (error: NodeJS.ErrnoException) => resolve(error.code === "EADDRINUSE" ? error : undefined));
+    probe.listen({ ...wildcard, port }, () => probe.close(() => resolve(undefined)));
+  });
 }
 
 function compilePath(pattern: string): CompiledPath {
