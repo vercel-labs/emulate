@@ -100,10 +100,6 @@ interface PreparedReply {
   response: WireResponse;
 }
 
-interface StoredLookup {
-  item: Json;
-}
-
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 
 /** Context the dispatcher passes to the stored-response helpers. */
@@ -347,6 +343,7 @@ function decodeOutput(raw: unknown): OutputSpec | undefined {
   if (format.type === "json_object") return { kind: "json_object" };
   if (format.type === "json_schema") {
     const name = optionalString(format.name, "text.format.name");
+    optionalString(format.description, "text.format.description");
     const schema = format.schema;
     if (typeof schema !== "boolean" && !isRecord(schema)) {
       invalid("Expected a JSON Schema for 'text.format.schema'.", "text.format.schema");
@@ -362,6 +359,29 @@ function decodeOutput(raw: unknown): OutputSpec | undefined {
     };
   }
   invalid(`Unsupported text format "${String(format.type)}".`, "text.format.type");
+}
+
+/** Builds the response's `text` field from validated values only, so unknown request keys are never echoed. */
+function textWire(raw: unknown): ResponsesExtras["text"] {
+  if (!isRecord(raw)) return { format: { type: "text" } };
+  const verbosity = optionalEnum(raw.verbosity, "text.verbosity", ["low", "medium", "high"] as const);
+  const wire: Record<string, unknown> = {};
+  if (verbosity !== undefined) wire.verbosity = verbosity;
+  const format = raw.format;
+  if (isRecord(format)) {
+    if (format.type === "json_object") wire.format = { type: "json_object" };
+    else if (format.type === "json_schema") {
+      const description = optionalString(format.description, "text.format.description");
+      wire.format = {
+        type: "json_schema",
+        ...(typeof format.name === "string" ? { name: format.name } : {}),
+        ...(description === undefined ? {} : { description }),
+        schema: format.schema,
+        ...(typeof format.strict === "boolean" ? { strict: format.strict } : {}),
+      };
+    } else wire.format = { type: "text" };
+  }
+  return wire as ResponsesExtras["text"];
 }
 
 function decodeMessageItem(item: Record<string, unknown>, path: string): Message {
@@ -557,13 +577,14 @@ function removeStoredResponse(state: AiState, id: string): void {
   state.responses.delete(id);
 }
 
-function findStoredItem(state: AiState, id: string): StoredLookup | undefined {
+function indexStoredItems(state: AiState): Map<string, Json> {
+  const items = new Map<string, Json>();
   for (const stored of state.responses.values()) {
     for (const item of stored.outputItems) {
-      if (isRecord(item) && item.id === id) return { item };
+      if (isRecord(item) && typeof item.id === "string" && !items.has(item.id)) items.set(item.id, item);
     }
   }
-  return undefined;
+  return items;
 }
 
 function messageToJson(message: Message): Json {
@@ -618,6 +639,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   const historyGaps: number[] = [];
   const ownGaps: number[] = [];
   const knownItemIds = new Set<string>();
+  let storedItems: Map<string, Json> | undefined;
 
   if (previousResponseId !== undefined) {
     const replay = replayStoredHistory(ctx.state, previousResponseId);
@@ -657,12 +679,13 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
 
     if (type === "item_reference") {
       const id = requireString(entry.id, `${path}.id`, true);
-      const found = findStoredItem(ctx.state, id);
-      if (found) {
+      storedItems ??= indexStoredItems(ctx.state);
+      const found = storedItems.get(id);
+      if (found !== undefined) {
         references.push({ id, kind: "item", resolved: true });
         if (!knownItemIds.has(id)) {
           knownItemIds.add(id);
-          for (const message of storedOutputMessages([found.item])) ownItems.push(message);
+          for (const message of storedOutputMessages([found])) ownItems.push(message);
         }
       } else {
         references.push({ id, kind: "item", resolved: false });
@@ -716,6 +739,8 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
   for (const message of ownItems) messages.push(message);
 
   const gaps = [...historyGaps.map((gap) => historyStart + gap), ...ownGaps.map((gap) => ownStart + gap)];
+  const firstGap = gaps.reduce((least, gap) => Math.min(least, gap), Infinity);
+  const lastGap = gaps.reduce((most, gap) => Math.max(most, gap), -Infinity);
   const callNames = new Map<string, string>();
   for (const message of messages) {
     for (const part of message.parts) {
@@ -735,14 +760,14 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
         const name = callNames.get(part.id);
         if (name !== undefined) {
           part.name = name;
-        } else if (gaps.some((gap) => gap <= index)) {
+        } else if (index >= firstGap) {
           warnings.push(
             `Tool result "${part.id}" does not match a known call; accepting it because referenced history is missing.`,
           );
         } else {
           invalid(`No function call found for tool output "${part.id}".`, "input");
         }
-      } else if (part.type === "tool_call" && !answered.has(part.id) && !gaps.some((gap) => gap > index)) {
+      } else if (part.type === "tool_call" && !answered.has(part.id) && index >= lastGap) {
         invalid(`No tool output found for function call ${part.id}.`, "input");
       }
     }
@@ -771,9 +796,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     toolChoice: toolChoiceWire,
     temperature: optionalDecimal(raw.temperature, "temperature", 0, 2) ?? 1,
     topP: optionalDecimal(raw.top_p, "top_p", 0, 1) ?? 1,
-    text: isRecord(raw.text)
-      ? (raw.text as unknown as NonNullable<OpenAIResponse["text"]>)
-      : { format: { type: "text" } },
+    text: textWire(raw.text),
     ...(reasoning === undefined ? {} : { reasoning }),
     metadata,
     truncation: decodeTruncation(raw.truncation),

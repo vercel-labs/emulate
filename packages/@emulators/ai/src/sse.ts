@@ -102,6 +102,7 @@ export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Respo
           faultApplied = true;
           options.onFault?.(fault.kind);
           if (fault.kind === "disconnect") {
+            await new Promise((resolve) => setTimeout(resolve, 0));
             fail(new Error("Stream disconnected"));
             return;
           }
