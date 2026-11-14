@@ -724,7 +724,9 @@ export function deliverSentMessage(gs: GoogleStore, sent: GoogleMessage): Google
     const user = gs.users.all().find((candidate) => candidate.email.toLowerCase() === address);
     if (!user) continue;
     if (address === sender) {
-      result = markMessageModified(gs, result, [...result.label_ids, "INBOX", "UNREAD"]);
+      // The sender's filters act on the incoming side too, so one that skips the inbox or marks read still applies.
+      const incoming = applyFiltersToLabelIds(gs, user.email, sent.from, [...result.label_ids, "INBOX", "UNREAD"]);
+      result = markMessageModified(gs, result, incoming);
       continue;
     }
     createStoredMessage(gs, {

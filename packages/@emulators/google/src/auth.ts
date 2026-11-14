@@ -1,6 +1,7 @@
 import type { AppEnv, Hono, MiddlewareHandler, Store } from "@emulators/core";
 import { googleApiError } from "./helpers.js";
 import { getAccessTokens } from "./oauth-tokens.js";
+import { findServiceAccount } from "./service-accounts.js";
 import { getGoogleStore } from "./store.js";
 
 const googleScopes = (...names: string[]) => names.map((name) => `https://www.googleapis.com/auth/${name}`);
@@ -102,7 +103,10 @@ export function googleAuthMiddleware(app: Hono<AppEnv>, store: Store): Middlewar
 
     const token = c.req.header("Authorization")?.match(/^Bearer\s+(\S+)\s*$/i)?.[1];
     const record = token ? getAccessTokens(store).get(token) : undefined;
-    const user = record && getGoogleStore(store).users.findOneBy("email", record.email);
+    // Service account tokens without sub act as the account itself, which is not a user of the emulator.
+    const user =
+      record &&
+      (getGoogleStore(store).users.findOneBy("email", record.email) ?? findServiceAccount(store, record.email));
     if (!token || !record || record.expiresAt <= Date.now() || !user) {
       return googleApiError(c, 401, "Request had invalid authentication credentials.", "authError", "UNAUTHENTICATED");
     }

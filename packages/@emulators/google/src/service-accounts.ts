@@ -75,6 +75,14 @@ export function seedServiceAccounts(
   }
 }
 
+/** The seeded service account with this email, which strict mode accepts as a token's subject. */
+export function findServiceAccount(store: Store, email: string): { email: string; id: number } | undefined {
+  const account = (store.getData<StoredServiceAccount[]>(ACCOUNTS_KEY) ?? []).find(
+    (entry) => entry.client_email === email,
+  );
+  return account ? { email: account.client_email, id: 0 } : undefined;
+}
+
 function toPublicKey(pem: string, account: string): KeyObject {
   try {
     return pem.includes("BEGIN CERTIFICATE") ? new X509Certificate(pem).publicKey : createPublicKey(pem);
@@ -102,6 +110,7 @@ export async function exchangeServiceAccountAssertion(
   store: Store,
   tokenMap: TokenMap | undefined,
   assertion: string,
+  baseUrl: string,
   now = Math.floor(Date.now() / 1000),
 ): Promise<TokenResult> {
   let header: ProtectedHeaderParameters;
@@ -135,7 +144,9 @@ export async function exchangeServiceAccountAssertion(
   }
 
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!audiences.some((aud) => typeof aud === "string" && TOKEN_AUDIENCES.has(aud))) {
+  // Clients whose token_uri points at the emulator sign its own token URL as the audience.
+  const emulatorAudience = `${baseUrl.replace(/\/+$/, "")}/oauth2/token`;
+  if (!audiences.some((aud) => typeof aud === "string" && (TOKEN_AUDIENCES.has(aud) || aud === emulatorAudience))) {
     return fail(400, "invalid_grant", "Invalid JWT: Invalid audience.");
   }
 

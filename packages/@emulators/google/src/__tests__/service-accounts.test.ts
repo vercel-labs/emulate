@@ -86,10 +86,11 @@ function fixture(overrides: Partial<GoogleSeedConfig> = {}) {
     return { status: res.status, json: (await res.json()) as Record<string, any> };
   }
 
-  const gmail = (token: string) =>
-    app.request(`${base}/gmail/v1/users/me/messages`, { headers: { Authorization: `Bearer ${token}` } });
+  const get = (path: string, token: string) =>
+    app.request(`${base}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  const gmail = (token: string) => get("/gmail/v1/users/me/messages", token);
 
-  return { exchange, gmail };
+  return { exchange, gmail, get };
 }
 
 async function assertion(
@@ -134,6 +135,27 @@ describe("Google service account tokens", () => {
     const res = await exchange(await assertion({ scope: `${gmailReadonly} ${calendar}` }));
     expect(res.status).toBe(200);
     expect(res.json.scope).toBe(`${gmailReadonly} ${calendar}`);
+  });
+
+  it("lets a token without sub call the APIs as the service account under strict_scopes", async () => {
+    const { exchange, get } = fixture({ domain_wide_delegation: [] });
+    const drive = await exchange(await assertion({ scope: "https://www.googleapis.com/auth/drive" }));
+    expect(drive.status).toBe(200);
+    const files = await get("/drive/v3/files", drive.json.access_token);
+    expect(files.status).toBe(200);
+    expect(((await files.json()) as { files: unknown[] }).files).toEqual([]);
+
+    // Scopes are still checked, and an unknown bearer token is still refused.
+    expect((await get("/drive/v3/files", (await exchange(await assertion())).json.access_token)).status).toBe(403);
+    expect((await get("/drive/v3/files", "google_unknown")).status).toBe(401);
+  });
+
+  it("accepts the emulator's own token URL as the audience", async () => {
+    const { exchange } = fixture();
+    expect((await exchange(await assertion({ aud: `${base}/oauth2/token` }))).status).toBe(200);
+    expect(
+      (await exchange(await assertion({ aud: "http://localhost:4001/oauth2/token" }))).json.error_description,
+    ).toBe("Invalid JWT: Invalid audience.");
   });
 
   it("tries every key when the key ID is wrong or missing", async () => {

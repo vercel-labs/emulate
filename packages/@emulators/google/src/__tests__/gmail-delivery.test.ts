@@ -144,6 +144,21 @@ describe("Gmail delivery of sent messages", () => {
     expect(all.messages).toHaveLength(1);
   });
 
+  it("applies the sender's filters to a message sent to oneself", async () => {
+    const { call, inbox } = fixture();
+    await call("alice", "POST", "/settings/filters", {
+      criteria: { from: users.alice },
+      action: { removeLabelIds: ["INBOX", "UNREAD"] },
+    });
+    const sent = (await call("alice", "POST", "/messages/send", {
+      to: users.alice,
+      subject: "Note to self",
+      body_text: "Archived on arrival.",
+    })) as MessageResource;
+    expect(sent.labelIds).toEqual(["SENT"]);
+    expect(await inbox("alice")).toEqual([]);
+  });
+
   it("removes a folded Bcc header and keeps the body of a raw MIME message", async () => {
     const { call, inbox } = fixture();
     const mime = [

@@ -269,7 +269,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     // Service accounts authenticate with the signed assertion, not with OAuth client credentials.
     if (grant_type === JWT_BEARER_GRANT) {
       const assertion = typeof body.assertion === "string" ? body.assertion : "";
-      const result = await exchangeServiceAccountAssertion(store, tokenMap, assertion);
+      const result = await exchangeServiceAccountAssertion(store, tokenMap, assertion, baseUrl);
       if (!result.ok) {
         return c.json({ error: result.error, error_description: result.error_description }, result.status);
       }

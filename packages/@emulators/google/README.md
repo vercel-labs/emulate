@@ -44,7 +44,7 @@ google:
         - https://www.googleapis.com/auth/gmail.readonly
 ```
 
-The assertion must be RS256-signed by one of the account's keys, with `iss` set to the account's `client_email`, a space-delimited `scope`, `aud` set to `https://oauth2.googleapis.com/token`, and an `exp` at most 65 minutes after `iat`. A `kid` that names none of the account's keys falls back to trying every key. The response has `access_token`, `expires_in: 3600`, `scope`, and `token_type: Bearer`, and no refresh token. Without `sub`, the token acts as the service account. With `sub`, it acts as that user, and every requested scope must be granted to the account's `client_id` under `google.domain_wide_delegation`. Under `google.strict_scopes`, Gmail, Calendar, and Drive check the token's scopes as they do for other tokens.
+The assertion must be RS256-signed by one of the account's keys, with `iss` set to the account's `client_email`, a space-delimited `scope`, `aud` set to `https://oauth2.googleapis.com/token` or the emulator's own `/oauth2/token` URL, and an `exp` at most 65 minutes after `iat`. A `kid` that names none of the account's keys falls back to trying every key. The response has `access_token`, `expires_in: 3600`, `scope`, and `token_type: Bearer`, and no refresh token. Without `sub`, the token acts as the service account, including under `google.strict_scopes`. With `sub`, it acts as that user, and every requested scope must be granted to the account's `client_id` under `google.domain_wide_delegation`. Under `google.strict_scopes`, Gmail, Calendar, and Drive check the token's scopes as they do for other tokens.
 
 Errors follow Google's JWT error table: `invalid_scope` for an empty `scope`, `invalid_grant` for an unknown `sub` user, an unknown account, a bad signature, a wrong audience, or an expired or too-long-lived assertion, `401 unauthorized_client` when the account has no delegation or none of the requested scopes are delegated, and `403 access_denied` when only some of them are. The other errors return `400`. User suspension, key expiry, and `target_audience` ID tokens are not modeled.
 
@@ -60,7 +60,7 @@ Errors follow Google's JWT error table: `invalid_scope` for an empty `scope`, `i
 - `POST /gmail/v1/users/:userId/messages/:id/trash` — trash message
 - `POST /gmail/v1/users/:userId/messages/:id/untrash` — untrash message
 
-`messages.send` and `drafts.send` deliver the message to each `To`, `Cc`, and `Bcc` recipient who is a user of the emulator. The recipient gets a copy labeled `INBOX` and `UNREAD`, without the `Bcc` header, threaded with the messages it replies to in their mailbox, and with their filters applied. Recipients who aren't emulator users are skipped. A message sent to yourself stays one message, labeled `SENT`, `INBOX`, and `UNREAD`. `messages.insert` and `messages.import` don't deliver.
+`messages.send` and `drafts.send` deliver the message to each `To`, `Cc`, and `Bcc` recipient who is a user of the emulator. The recipient gets a copy labeled `INBOX` and `UNREAD`, without the `Bcc` header, threaded with the messages it replies to in their mailbox, and with their filters applied. Recipients who aren't emulator users are skipped. A message sent to yourself stays one message, labeled `SENT`, `INBOX`, and `UNREAD`, unless your own filters remove those labels. `messages.insert` and `messages.import` don't deliver.
 
 ### Drafts
 - `GET /gmail/v1/users/:userId/drafts` — list drafts
