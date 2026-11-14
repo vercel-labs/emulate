@@ -8,6 +8,7 @@ From the repository root:
 
 ```bash
 pnpm install
+pnpm --filter "ai-playground^..." build
 pnpm --filter ai-playground dev
 ```
 
