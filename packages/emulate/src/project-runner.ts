@@ -100,6 +100,7 @@ export async function prepareProject(
         port,
         baseUrl: options.portless ? portlessBaseUrl(service.name) : options.baseUrl,
         seedBaseUrl: service.baseUrl,
+        hostname: options.host,
       });
       if (options.portless) metadata.aliases.push({ name: `${service.name}.emulate`, port });
       if (typeof service.emulator === "string") {
