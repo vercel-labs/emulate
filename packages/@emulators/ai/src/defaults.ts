@@ -575,6 +575,19 @@ function toolCallName(request: AIRequest, id: string): string | undefined {
   return undefined;
 }
 
+/** Narrows a tool's parameter schema to the object its call arguments must be, or throws when no object can satisfy it. */
+function toolArgumentSchema(tool: ToolDefinition): JsonSchema {
+  const at = `tools.${tool.name}.parameters`;
+  const parameters = tool.parameters ?? true;
+  if (parameters === false) fail(at, "schema permits no object");
+  if (parameters === true) return { type: "object" };
+  const rest = { ...parameters };
+  delete rest.nullable;
+  const list = rest.type === undefined ? ["object"] : Array.isArray(rest.type) ? rest.type : [rest.type];
+  if (!list.includes("object")) fail(`${at}.type`, "tool arguments must be a JSON object");
+  return { ...rest, type: "object" };
+}
+
 /** Answers a request no rule matched: a forced tool call, then structured output, a tool result or attachment acknowledgement, and last an echo. */
 export function defaultEvents(
   request: AIRequest,
@@ -585,9 +598,7 @@ export function defaultEvents(
   let event: ReplyEvent;
   if (turn.forcedTool) {
     const tool = turn.forcedTool;
-    const parameters = tool.parameters;
-    const schema = record(parameters) && parameters.type === undefined ? { ...parameters, type: "object" } : parameters;
-    const args = sampleSchema(schema ?? { type: "object" }, turn.text, `tools.${tool.name}.parameters`);
+    const args = sampleSchema(toolArgumentSchema(tool), turn.text, `tools.${tool.name}.parameters`);
     kind = "forced_tool";
     event = { type: "tool_call", id: makeId("call"), name: tool.name, arguments: JSON.stringify(args) };
   } else if (request.output) {

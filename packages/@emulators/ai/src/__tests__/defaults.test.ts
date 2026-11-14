@@ -268,13 +268,30 @@ describe("defaultEvents kinds", () => {
 
   const makeId = (prefix: string) => `${prefix}_1`;
 
-  it("samples an object for forced tool parameters without a type", () => {
-    const schemas: JsonSchema[] = [{}, { properties: { q: { type: "string" } }, required: ["q"] }];
+  it("samples an object for forced tool parameters that allow one", () => {
+    const schemas: JsonSchema[] = [
+      {},
+      true,
+      { nullable: true },
+      { type: ["null", "object"] },
+      { properties: { q: { type: "string" } }, required: ["q"] },
+    ];
     for (const parameters of schemas) {
       const { events } = defaultEvents(base({ tools: [{ name: "ping", parameters }], toolChoice: "required" }), makeId);
       const args = JSON.parse((events[0] as { arguments: string }).arguments);
       expect(args).not.toBeNull();
       expect(typeof args).toBe("object");
+      expect(Array.isArray(args)).toBe(false);
+    }
+  });
+
+  it("rejects forced tool parameters that cannot be an object", () => {
+    const schemas: JsonSchema[] = [false, { type: "string" }, { type: "array" }, { type: "null" }, { enum: [1, 2] }];
+    for (const parameters of schemas) {
+      const error = thrown(() =>
+        defaultEvents(base({ tools: [{ name: "ping", parameters }], toolChoice: "required" }), makeId),
+      );
+      expect(error.param?.startsWith("tools.ping.parameters")).toBe(true);
     }
   });
 
