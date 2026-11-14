@@ -53,56 +53,38 @@ const pause = (ms: number, signal: AbortSignal) =>
     );
   });
 
-/** Whether `held` contains everything in `wanted`; the emulator may add defaults the rules text leaves out. */
-const covers = (held: unknown, wanted: unknown): boolean => {
-  if (Array.isArray(wanted)) {
-    return Array.isArray(held) && held.length === wanted.length && wanted.every((item, i) => covers(held[i], item));
-  }
-  if (wanted && typeof wanted === "object") {
-    const record = held as Record<string, unknown> | null;
-    return (
-      !!record &&
-      typeof record === "object" &&
-      Object.entries(wanted).every(([key, value]) => covers(record[key], value))
-    );
-  }
-  return held === wanted;
-};
+type Applied = { text: string; view: string; scenarioId: string };
 
-type ServerRules = Record<string, unknown> & {
-  rules?: ({ id?: string; remaining?: unknown } & Record<string, unknown>)[];
-};
+const STORAGE_KEY = "ai-playground:applied";
 
-async function serverRules(): Promise<ServerRules> {
-  const response = await fetch("/api/ai/rules");
-  if (!response.ok) throw new Error();
-  const view = (await response.json()) as ServerRules;
-  return {
+/** The emulator's rules as JSON without the spent budgets, which change as the rules are used. */
+const viewOf = (view: { rules?: Record<string, unknown>[] }) =>
+  JSON.stringify({
     ...view,
     rules: (view.rules ?? []).map((rule) =>
-      Object.fromEntries(Object.entries(rule).filter(([key]) => key !== "remaining")),
+      Object.fromEntries(Object.entries(rule).filter(([k]) => k !== "remaining")),
     ),
-  };
-}
-
-/** Whether the emulator currently holds every top-level setting the rules text defines. */
-async function holdsRules(text: string): Promise<boolean> {
-  const wanted = parseJson(text).value as Record<string, unknown> | undefined;
-  if (!wanted || typeof wanted !== "object") return false;
-  const held = await serverRules();
-  return covers(held, wanted);
-}
-
-/** The scenario whose rules the emulator already holds, ignoring the reasoning toggle, with the rules text to show. */
-async function scenarioHeld() {
-  const held = await serverRules();
-  const bare = (config: Config) => withReasoning(config, false).rules ?? [];
-  const scenario = SCENARIOS.find((item) => {
-    const own = bare(item.config as Config);
-    return own.length > 0 && covers(bare({ rules: held.rules } as Config), own);
   });
-  return scenario ? { scenario, text: prettyJson({ timing: held.timing, rules: held.rules }) } : null;
+
+async function currentView(): Promise<string> {
+  const response = await fetch("/api/ai/rules");
+  if (!response.ok) throw new Error();
+  return viewOf(await response.json());
 }
+
+const loadApplied = (): Applied | null => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Applied | null;
+  } catch {
+    return null;
+  }
+};
+
+const saveApplied = (applied: Applied) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(applied));
+  } catch {}
+};
 
 export function Playground() {
   const [scenarioId, setScenarioId] = useState(SCENARIOS[0].id);
@@ -135,6 +117,8 @@ export function Playground() {
   const latestRef = useRef(rulesText);
   const seqRef = useRef(0);
   const rulesSeqRef = useRef(0);
+  const appliedRef = useRef<Applied | null>(null);
+  const scenarioIdRef = useRef<string>(SCENARIOS[0].id);
   const queueRef = useRef<Promise<boolean>>(Promise.resolve(true));
 
   const setRules = useCallback((text: string) => {
@@ -143,8 +127,8 @@ export function Playground() {
   }, []);
 
   /**
-   * Makes the emulator hold the given rules. A fresh apply always sends them, which re-arms budgets and variants;
-   * otherwise they are sent only when the emulator's current rules differ, so spent budgets survive plain runs.
+   * Makes the emulator hold the given rules. A fresh apply always sends them, which re-arms budgets and variants.
+   * Otherwise they are sent unless this exact text was applied and the emulator still holds what it stored then.
    */
   const applyRules = useCallback((text: string, fresh = false) => {
     const seq = ++rulesSeqRef.current;
@@ -152,7 +136,8 @@ export function Playground() {
     const send = async () => {
       if (seq !== rulesSeqRef.current) return false;
       try {
-        if (!fresh && (await holdsRules(text))) {
+        const last = appliedRef.current;
+        if (!fresh && last?.text === text && last.view === (await currentView())) {
           setApplied(text);
           return true;
         }
@@ -164,6 +149,9 @@ export function Playground() {
         });
         if (seq !== rulesSeqRef.current) return false;
         if (response.ok) {
+          const saved = { text, view: viewOf(await response.json()), scenarioId: scenarioIdRef.current };
+          appliedRef.current = saved;
+          saveApplied(saved);
           setApplied(text);
           return true;
         }
@@ -186,6 +174,7 @@ export function Playground() {
       const text = prettyJson(
         withReasoning({ timing: current?.timing ?? PACING.realistic, ...next.config }, scriptsReasoning(current ?? {})),
       );
+      scenarioIdRef.current = id;
       setScenarioId(id);
       setPrompt(next.prompt);
       if (next.stream) setStream(true);
@@ -219,14 +208,17 @@ export function Playground() {
         const framed = window.top !== window.self;
         setMessage(framed ? "Open this page on its own to run scenarios." : "Pick a scenario and press Run.");
         if (framed) return;
-        const held = await scenarioHeld();
-        if (cancelled) return;
-        if (held) {
-          setScenarioId(held.scenario.id);
-          setPrompt(held.scenario.prompt);
-          if (held.scenario.stream) setStream(true);
-          setRules(held.text);
-          setApplied(held.text);
+        const saved = loadApplied();
+        const adopted = saved && SCENARIOS.find((item) => item.id === saved.scenarioId);
+        if (adopted && saved.view === (await currentView())) {
+          if (cancelled) return;
+          appliedRef.current = saved;
+          scenarioIdRef.current = adopted.id;
+          setScenarioId(adopted.id);
+          setPrompt(adopted.prompt);
+          if (adopted.stream) setStream(true);
+          setRules(saved.text);
+          setApplied(saved.text);
         } else {
           await applyRules(latestRef.current, true);
         }
