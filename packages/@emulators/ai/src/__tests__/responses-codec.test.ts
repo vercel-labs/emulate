@@ -20,6 +20,7 @@ interface ResponseBody {
   reasoning: { effort?: string | null; summary?: string | null };
   previous_response_id: string | null;
   usage?: { total_tokens: number };
+  text: unknown;
 }
 
 const baseBody = { model: "gpt-x", input: "Hi" };
@@ -149,6 +150,30 @@ describe("responsesCodec.decode validation", () => {
     expect(error.message).toBe("Invalid value: 'sometimes'. Supported values are: 'auto' and 'disabled'.");
     expect(error.param).toBe("truncation");
     expect(error.code).toBe("invalid_value");
+  });
+
+  it("echoes only validated text options", () => {
+    const { ctx, decoded } = decodedOf({
+      ...baseBody,
+      text: { bogus: { a: 1 }, verbosity: "low", format: { type: "text", bogus: 1 } },
+    });
+
+    expect(encode(decoded, ctx, [{ type: "text", text: "ok" }]).text).toEqual({
+      verbosity: "low",
+      format: { type: "text" },
+    });
+  });
+
+  it("echoes a json_schema text format without unknown keys", () => {
+    const schema = { type: "object", additionalProperties: false };
+    const { ctx, decoded } = decodedOf({
+      ...baseBody,
+      text: { format: { type: "json_schema", name: "n", description: "d", strict: true, schema, bogus: 1 } },
+    });
+
+    expect(encode(decoded, ctx, [{ type: "text", text: "{}" }]).text).toEqual({
+      format: { type: "json_schema", name: "n", description: "d", schema, strict: true },
+    });
   });
 
   it("validates text.verbosity", () => {

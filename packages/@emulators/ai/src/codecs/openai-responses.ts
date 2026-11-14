@@ -343,6 +343,7 @@ function decodeOutput(raw: unknown): OutputSpec | undefined {
   if (format.type === "json_object") return { kind: "json_object" };
   if (format.type === "json_schema") {
     const name = optionalString(format.name, "text.format.name");
+    optionalString(format.description, "text.format.description");
     const schema = format.schema;
     if (typeof schema !== "boolean" && !isRecord(schema)) {
       invalid("Expected a JSON Schema for 'text.format.schema'.", "text.format.schema");
@@ -358,6 +359,29 @@ function decodeOutput(raw: unknown): OutputSpec | undefined {
     };
   }
   invalid(`Unsupported text format "${String(format.type)}".`, "text.format.type");
+}
+
+/** Builds the response's `text` field from validated values only, so unknown request keys are never echoed. */
+function textWire(raw: unknown): ResponsesExtras["text"] {
+  if (!isRecord(raw)) return { format: { type: "text" } };
+  const verbosity = optionalEnum(raw.verbosity, "text.verbosity", ["low", "medium", "high"] as const);
+  const wire: Record<string, unknown> = {};
+  if (verbosity !== undefined) wire.verbosity = verbosity;
+  const format = raw.format;
+  if (isRecord(format)) {
+    if (format.type === "json_object") wire.format = { type: "json_object" };
+    else if (format.type === "json_schema") {
+      const description = optionalString(format.description, "text.format.description");
+      wire.format = {
+        type: "json_schema",
+        ...(typeof format.name === "string" ? { name: format.name } : {}),
+        ...(description === undefined ? {} : { description }),
+        schema: format.schema,
+        ...(typeof format.strict === "boolean" ? { strict: format.strict } : {}),
+      };
+    } else wire.format = { type: "text" };
+  }
+  return wire as ResponsesExtras["text"];
 }
 
 function decodeMessageItem(item: Record<string, unknown>, path: string): Message {
@@ -772,9 +796,7 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     toolChoice: toolChoiceWire,
     temperature: optionalDecimal(raw.temperature, "temperature", 0, 2) ?? 1,
     topP: optionalDecimal(raw.top_p, "top_p", 0, 1) ?? 1,
-    text: isRecord(raw.text)
-      ? (raw.text as unknown as NonNullable<OpenAIResponse["text"]>)
-      : { format: { type: "text" } },
+    text: textWire(raw.text),
     ...(reasoning === undefined ? {} : { reasoning }),
     metadata,
     truncation: decodeTruncation(raw.truncation),
