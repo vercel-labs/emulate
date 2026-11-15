@@ -147,6 +147,26 @@ const { Plaintext } = await kms.send(new DecryptCommand({ CiphertextBlob, Encryp
 
 Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config, and seeding an alias that already points at another key, such as `alias/emulate-default`, fails at startup. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
 
+## External backend
+
+Set `aws.backend.url` to send S3, SQS, IAM, STS, and KMS requests to another AWS-compatible endpoint, such as [AWS Emulator](https://github.com/aws/aws-emulator). The emulator keeps its port, endpoints, and service path prefixes, so clients configured for `http://localhost:4007` keep working. Cognito and the inspector stay local.
+
+```yaml
+aws:
+  backend:
+    url: https://127.0.0.1:9297
+  s3:
+    buckets:
+      - name: my-app-bucket
+  sqs:
+    queues:
+      - name: my-app-events
+```
+
+Run the backend yourself; emulate only connects to it. Start AWS Emulator with request authentication off (`--auth off`), because the emulator forwards requests with rewritten hosts and paths, which invalidates their signatures. Requests without an `Authorization` header, such as `AssumeRoleWithWebIdentity`, get one naming the target service, because the backend selects the service from the credential scope. For an HTTPS backend with a self-signed certificate, point `NODE_EXTRA_CA_CERTS` at its CA file before starting emulate.
+
+Seeded S3 buckets, SQS queues, IAM users and roles, and KMS keys are created through the backend's API once per emulator start, before the first forwarded request. A failure there returns `502` on forwarded requests, as does an unreachable backend. Resources that already exist on the backend are kept: an existing queue keeps its attributes, an existing user gets no new access key, and a key whose first alias exists is not created again. Keys without aliases are created on every start. The default bucket, queue, user, and key are not created on the backend. `account_id` and KMS `key_id` cannot be honored, because the backend assigns them, so setting either with `backend` fails at startup. SQS queue URLs in responses point back at the emulator, and so do redirects to the backend. Reset and snapshots cover only local state and do not seed the backend again: restart the backend to clear it.
+
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `cognito`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `cognito`) for browsing current state. With `aws.backend`, the S3, SQS, and IAM tabs name the backend instead.

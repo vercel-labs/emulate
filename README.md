@@ -1456,6 +1456,10 @@ KMS accepts AWS JSON 1.1 requests at `POST /kms/` with `Content-Type: applicatio
 
 Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config, and seeding an alias that already points at another key, such as `alias/emulate-default`, fails at startup. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
 
+### External backend
+
+Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint, such as [AWS Emulator](https://github.com/aws/aws-emulator) started with `--auth off`. Cognito and the inspector stay local, and clients keep using the emulator's port and path prefixes. Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start. See the [AWS docs](https://emulate.dev/aws#external-backend).
+
 ## Next.js Integration
 
 Embed emulators directly in your Next.js app so they run on the same origin. This solves the Vercel preview deployment problem where OAuth callback URLs change with every deployment.
