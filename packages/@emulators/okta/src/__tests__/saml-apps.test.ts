@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { Hono, Store, WebhookDispatcher, authMiddleware } from "@emulators/core";
+import { describe, expect, it, vi } from "vitest";
+import { Hono, Store, WebhookDispatcher, authMiddleware, debug } from "@emulators/core";
 import {
   buildAuthnRequest,
   createSelfSignedCertificate,
@@ -8,6 +8,11 @@ import {
 } from "@emulators/core/saml";
 import type { TokenMap } from "@emulators/core";
 import { oktaPlugin, seedFromConfig, type OktaSeedConfig } from "../index.js";
+
+vi.mock("@emulators/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@emulators/core")>()),
+  debug: vi.fn(),
+}));
 
 const base = "http://localhost:4000";
 const acs = "http://localhost:3000/saml/acs";
@@ -190,6 +195,18 @@ describe("Okta SAML 2.0 apps", () => {
     const started = Date.now();
     expect(await groupsFor("([a-z-]+)+X", longName)).toEqual([]);
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("keeps the user's login and the ACS URL out of debug output", async () => {
+    vi.mocked(debug).mockClear();
+    const app = createTestApp();
+    const html = await (await choose(app, "00u_alice")).text();
+    const responseId = /ID="([^"]+)"/.exec(Buffer.from(formField(html, "SAMLResponse")!, "base64").toString())![1];
+
+    const logged = vi.mocked(debug).mock.calls.filter(([label]) => label === "okta.saml");
+    expect(logged).toEqual([["okta.saml", `[sso] response ${responseId} for app 0oa_saml`]]);
+    expect(JSON.stringify(logged)).not.toContain("alice");
+    expect(JSON.stringify(logged)).not.toContain(acs);
   });
 
   it("rejects a SAMLRequest it cannot decode", async () => {

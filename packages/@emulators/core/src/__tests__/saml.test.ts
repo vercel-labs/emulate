@@ -201,6 +201,24 @@ describe("verifySamlResponse", () => {
     });
   });
 
+  it("takes the request ID only from the signed assertion", () => {
+    // A signed unsolicited assertion inside an unsigned Response that names a request the attacker started.
+    const wrapped = issue({ inResponseTo: null }).replace(
+      "<saml2p:Response ",
+      '<saml2p:Response InResponseTo="_req1" ',
+    );
+    expect(verify(wrapped)).toMatchObject({ error: "The SAML response answers a different sign-in request." });
+    expect(verify(wrapped, { requestId: null, allowUnsolicited: true })).toMatchObject({
+      error: "The SAML response answers a sign-in request this browser did not start.",
+    });
+
+    const mismatched = issue().replace('InResponseTo="_req1" IssueInstant', 'InResponseTo="_req2" IssueInstant');
+    expect(verify(mismatched)).toMatchObject({
+      error: "The SAML response and its assertion answer different sign-in requests.",
+    });
+    expect(verify(issue({}, { signResponse: true })).ok).toBe(true);
+  });
+
   it("refuses IdP-initiated sign-in unless allowed", () => {
     const unsolicited = issue({ inResponseTo: null });
     expect(verify(unsolicited, { requestId: null })).toMatchObject({ error: "IdP-initiated sign-in is not allowed." });

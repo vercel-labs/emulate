@@ -474,10 +474,18 @@ export function verifySamlResponse(encoded: string, options: VerifySamlResponseO
   if (confirmationExpiry === null) return fail("The SAML subject confirmation has no NotOnOrAfter.");
   if (now - skew >= confirmationExpiry) return fail("The SAML assertion has expired.");
 
-  const inResponseTo = confirmationData.getAttribute("InResponseTo") ?? response.getAttribute("InResponseTo") ?? "";
+  // The Web Browser SSO profile puts the request ID in the bearer SubjectConfirmationData of a solicited assertion
+  // (saml-profiles-2.0-os section 4.1.4.2). Only that copy is covered by the assertion signature: the Response's own
+  // InResponseTo is unauthenticated when only the assertion is signed, so it can refuse a response but never
+  // correlate one with a request.
+  const inResponseTo = confirmationData.getAttribute("InResponseTo") ?? "";
+  const responseInResponseTo = response.getAttribute("InResponseTo") ?? "";
+  if (responseInResponseTo && inResponseTo && responseInResponseTo !== inResponseTo) {
+    return fail("The SAML response and its assertion answer different sign-in requests.");
+  }
   if (options.requestId) {
     if (inResponseTo !== options.requestId) return fail("The SAML response answers a different sign-in request.");
-  } else if (inResponseTo) {
+  } else if (inResponseTo || responseInResponseTo) {
     return fail("The SAML response answers a sign-in request this browser did not start.");
   } else if (!options.allowUnsolicited) {
     return fail("IdP-initiated sign-in is not allowed.");

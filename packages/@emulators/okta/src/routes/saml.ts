@@ -170,7 +170,7 @@ export function samlRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       .findBy("user_okta_id", user.okta_id)
       .map((membership) => oktaStore.groups.findOneBy("okta_id", membership.group_okta_id))
       .filter((group): group is NonNullable<typeof group> => Boolean(group));
-    const { xml } = buildSamlResponse({
+    const { xml, responseId } = buildSamlResponse({
       issuer: settings.idpIssuer,
       destination: settings.destination,
       recipient: settings.recipient,
@@ -191,7 +191,8 @@ export function samlRoutes({ app, store, baseUrl, tokenMap }: RouteContext): voi
       digestAlgorithm: settings.digestAlgorithm,
     });
 
-    debug("okta.saml", `[sso] ${user.login} -> ${samlApp.name} (${settings.ssoAcsUrl})`);
+    // Logins are often email addresses, so the log names the response and app by ID only.
+    debug("okta.saml", `[sso] response ${responseId} for app ${samlApp.okta_id}`);
 
     const fields: Record<string, string> = { SAMLResponse: Buffer.from(signed, "utf-8").toString("base64") };
     const relayState = bodyStr(body.relay_state);
