@@ -121,6 +121,24 @@ describe("aws.backend proxy", () => {
     expect(recorded.at(-1)).toMatchObject({ path: "/bucket/key" });
   });
 
+  it("routes by credential scope so a bucket named like a service stays with S3", async () => {
+    const { app } = backendApp();
+    const authorization = (service: string) =>
+      `AWS4-HMAC-SHA256 Credential=AKIA/20260101/us-east-1/${service}/aws4_request, SignedHeaders=host, Signature=abc`;
+
+    await app.request("/kms/obj", { method: "PUT", headers: { authorization: authorization("s3") }, body: "data" });
+    await app.request("/sqs/", { method: "GET", headers: { authorization: authorization("sqs") } });
+    await app.request("/iam/obj?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request");
+
+    expect(recorded.map((r) => `${scope(r)} ${r.path.split("?")[0]}`)).toEqual([
+      "s3 /kms/obj",
+      "sqs /",
+      "undefined /iam/obj",
+    ]);
+    expect(recorded[2].path).toContain("X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request");
+    expect(recorded[2].headers.authorization).toBeUndefined();
+  });
+
   it("keeps the caller's own Authorization header", async () => {
     const { app } = backendApp();
     const authorization =
@@ -229,9 +247,9 @@ describe("aws.backend proxy", () => {
     expect(seed({ backend: { url: upstreamUrl }, region: "us_east_1" })).toThrow(
       'aws.region must look like us-east-1, got "us_east_1"',
     );
-    expect(
-      seed({ backend: { url: upstreamUrl }, s3: { buckets: [{ name: "uploads", region: "EU_WEST" }] } }),
-    ).toThrow('aws.s3.buckets[0].region must look like us-east-1, got "EU_WEST"');
+    expect(seed({ backend: { url: upstreamUrl }, s3: { buckets: [{ name: "uploads", region: "EU_WEST" }] } })).toThrow(
+      'aws.s3.buckets[0].region must look like us-east-1, got "EU_WEST"',
+    );
   });
 
   it("forwards uploads that use Expect: 100-continue or chunked transfer encoding", async () => {

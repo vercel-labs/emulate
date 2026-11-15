@@ -20,6 +20,7 @@ const STATE_KEY = "aws.backend";
 const DEFAULT_REGION = "us-east-1";
 const NATIVE_PREFIXES = ["/_emulate", "/_inspector", "/cognito-idp", "/cognito-identity"];
 const SERVICE_PREFIXES: ProxiedService[] = ["sqs", "iam", "sts", "kms", "s3"];
+const CREDENTIAL_SCOPE = /\/\d{8}\/[a-z0-9-]+\/([a-z0-9-]+)\/aws4_request/;
 const DEFAULT_TRUST_POLICY = JSON.stringify({
   Version: "2012-10-17",
   Statement: [{ Effect: "Allow", Principal: { Service: "lambda.amazonaws.com" }, Action: "sts:AssumeRole" }],
@@ -116,7 +117,10 @@ async function proxy(c: Context<AppEnv>, backend: BackendState, baseUrl: string)
   }
 
   const incoming = new URL(c.req.url);
-  const { service, path } = route(incoming.pathname);
+  const { service, path } = route(
+    incoming.pathname,
+    credentialService(c.req.raw.headers.get("authorization"), incoming.searchParams.get("X-Amz-Credential")),
+  );
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((value, name) => {
     if (!DROPPED_REQUEST_HEADERS.includes(name)) headers[name] = value;
@@ -224,14 +228,28 @@ function rewriteQueueUrls(text: string, baseUrl: string, backendUrl: string): st
   }
 }
 
-function route(pathname: string): { service: ProxiedService; path: string } {
-  for (const service of SERVICE_PREFIXES) {
-    const prefix = `/${service}`;
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-      return { service, path: pathname.slice(prefix.length) || "/" };
-    }
+function route(pathname: string, service: ProxiedService | undefined): { service: ProxiedService; path: string } {
+  const resolved =
+    service ??
+    SERVICE_PREFIXES.find((candidate) => {
+      const prefix = `/${candidate}`;
+      return pathname === prefix || pathname.startsWith(`${prefix}/`);
+    });
+  if (!resolved) return { service: "s3", path: pathname };
+  const prefix = `/${resolved}`;
+  const path =
+    pathname === prefix || pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) || "/" : pathname;
+  return { service: resolved, path };
+}
+
+/** The signed service wins over the path, so an S3 bucket named `kms` keeps its prefix. */
+function credentialService(authorization: string | null, presigned: string | null): ProxiedService | undefined {
+  for (const value of [authorization, presigned]) {
+    const scope = value ? CREDENTIAL_SCOPE.exec(value)?.[1] : undefined;
+    const service = SERVICE_PREFIXES.find((candidate) => candidate === scope);
+    if (service) return service;
   }
-  return { service: "s3", path: pathname };
+  return undefined;
 }
 
 function syntheticAuthorization(service: ProxiedService, region: string): string {
