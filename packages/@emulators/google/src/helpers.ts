@@ -710,9 +710,11 @@ export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMes
 /**
  * Delivers a sent message to the To, Cc, and Bcc recipients who are users of the emulator. Each
  * recipient gets a copy labeled INBOX and UNREAD, with the Bcc header removed. A message the sender
- * sends to themselves stays one message and gains INBOX and UNREAD. Returns the sender's message.
+ * sends to themselves stays one message and gains INBOX and UNREAD. A From address that isn't one of
+ * the sender's send-as addresses is first replaced with their default one. Returns the sender's message.
  */
-export function deliverSentMessage(gs: GoogleStore, sent: GoogleMessage): GoogleMessage {
+export function deliverSentMessage(gs: GoogleStore, message: GoogleMessage): GoogleMessage {
+  const sent = applySendAsFrom(gs, message);
   const sender = sent.user_email.toLowerCase();
   const recipients = new Set(
     [sent.to, sent.cc, sent.bcc].flatMap((header) => (header ? parseAddressList(header) : [])),
@@ -750,6 +752,34 @@ export function deliverSentMessage(gs: GoogleStore, sent: GoogleMessage): Google
   return result;
 }
 
+/**
+ * Gmail sends only from the account's send-as addresses
+ * (https://developers.google.com/workspace/gmail/api/guides/alias_and_signature_settings), so a token for one user
+ * can't put another address in From. A From that names a single send-as address is kept. Anything else becomes the
+ * default send-as address, in the stored field and in the raw MIME message alike.
+ */
+function applySendAsFrom(gs: GoogleStore, message: GoogleMessage): GoogleMessage {
+  const aliases = listSendAsForUser(gs, message.user_email);
+  const canSendAs = (header: string) => {
+    const addresses = parseAddressList(header);
+    return addresses.length === 1 && aliases.some((alias) => alias.send_as_email.toLowerCase() === addresses[0]);
+  };
+  // messages.send fills the stored From with the caller's address, so a raw message's own From header is checked too.
+  const rawFrom = message.raw ? parseRawMessage(message.raw).from : "";
+  if (canSendAs(message.from) && (!rawFrom || canSendAs(rawFrom))) return message;
+  const primary = aliases.find((alias) => alias.is_default) ?? aliases[0]!;
+  const from = formatMailbox(primary.display_name, primary.send_as_email);
+  const raw = message.raw ? setRawHeader(message.raw, "from", from) : null;
+  return gs.messages.update(message.id, { from, raw }) ?? message;
+}
+
+function formatMailbox(name: string | null, address: string): string {
+  if (!name) return address;
+  if (/[^\x20-\x7e]/.test(name)) return `=?UTF-8?B?${Buffer.from(name, "utf8").toString("base64")}?= <${address}>`;
+  if (/^[\w .'-]+$/.test(name)) return `${name} <${address}>`;
+  return `"${name.replace(/["\\]/g, "\\$&")}" <${address}>`;
+}
+
 /** Lowercased addresses in an address-list header such as `Bob <bob@example.com>, carol@example.com`. */
 function parseAddressList(header: string): string[] {
   const withoutNames = header.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/\([^)]*\)/g, "");
@@ -758,12 +788,22 @@ function parseAddressList(header: string): string[] {
 
 /** Removes a header, with its folded continuation lines, from a base64url MIME message. */
 function removeRawHeader(raw: string, name: string): string {
+  return setRawHeader(raw, name, null);
+}
+
+/**
+ * Replaces every occurrence of a header, with its folded continuation lines, in a base64url MIME message by one
+ * line carrying `value`, or removes them when `value` is null. A header that isn't there is added first.
+ */
+function setRawHeader(raw: string, name: string, value: string | null): string {
   const source = decodeBase64Like(raw).toString("latin1");
   const match = /\r?\n\r?\n/.exec(source);
   const headerEnd = match ? match.index : source.length;
   const lines = source.slice(0, headerEnd).split(/(?<=\n)/);
+  const replacement = value === null ? null : `${name.replace(/^./, (c) => c.toUpperCase())}: ${value}\r\n`;
   const kept: string[] = [];
   let skipping = false;
+  let replaced = false;
   for (const line of lines) {
     if (/^[ \t]/.test(line)) {
       if (!skipping) kept.push(line);
@@ -771,8 +811,13 @@ function removeRawHeader(raw: string, name: string): string {
     }
     skipping = line.slice(0, line.indexOf(":")).trim().toLowerCase() === name;
     if (!skipping) kept.push(line);
+    else if (replacement && !replaced) {
+      kept.push(replacement);
+      replaced = true;
+    }
   }
-  // The header block ends without a line break, so drop the one a removed last header leaves behind.
+  if (replacement && !replaced) kept.unshift(replacement);
+  // The header block ends without a line break, so drop the one a removed or replaced last header leaves behind.
   const headers = kept.join("").replace(/\r?\n$/, "");
   return Buffer.from(headers + source.slice(headerEnd), "latin1").toString("base64url");
 }

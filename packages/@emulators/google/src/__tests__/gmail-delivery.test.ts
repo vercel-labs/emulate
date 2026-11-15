@@ -119,6 +119,42 @@ describe("Gmail delivery of sent messages", () => {
     expect(thread.messages).toHaveLength(2);
   });
 
+  it("replaces a From address the sender can't send as with their default address", async () => {
+    const { call, inbox, header } = fixture();
+    const decoded = async (user: keyof typeof users, id: string) =>
+      Buffer.from(
+        ((await call(user, "GET", `/messages/${id}?format=raw`)) as { raw: string }).raw,
+        "base64url",
+      ).toString("utf8");
+
+    const viaRaw = (await call("alice", "POST", "/messages/send", {
+      raw: raw({ from: `Bob <${users.bob}>`, to: users.carol, subject: "Raw", body_text: "Hi." }),
+    })) as MessageResource;
+    await call("alice", "POST", "/messages/send", { from: users.bob, to: users.carol, subject: "Fields" });
+    const draft = (await call("alice", "POST", "/drafts", {
+      message: { raw: raw({ from: users.bob, to: users.carol, subject: "Draft", body_text: "Hi." }) },
+    })) as { id: string };
+    await call("alice", "POST", "/drafts/send", { id: draft.id });
+
+    const copies = await inbox("carol");
+    expect(copies.map((copy) => header(copy, "Subject")).sort()).toEqual(["Draft", "Fields", "Raw"]);
+    for (const copy of copies) {
+      expect(header(copy, "From")).toBe(`alice <${users.alice}>`);
+      const source = await decoded("carol", copy.id);
+      expect(source).toMatch(/^From: alice <alice@example\.com>\r?$/m);
+      expect(source).not.toContain(users.bob);
+    }
+    expect(header((await call("alice", "GET", `/messages/${viaRaw.id}`)) as MessageResource, "From")).toBe(
+      `alice <${users.alice}>`,
+    );
+    expect(await decoded("alice", viaRaw.id)).not.toContain(users.bob);
+
+    // An address the sender owns is kept as written.
+    await call("alice", "POST", "/messages/send", { from: `Alice A <ALICE@example.com>`, to: users.bob });
+    const [bobCopy] = await inbox("bob");
+    expect(header(bobCopy, "From")).toBe("Alice A <ALICE@example.com>");
+  });
+
   it("labels a message sent to oneself SENT, INBOX, and UNREAD without a second copy", async () => {
     const { call, inbox } = fixture();
     const sent = (await call("alice", "POST", "/messages/send", {

@@ -385,7 +385,7 @@ curl http://localhost:4002/gmail/v1/users/me/messages/msg_id/attachments/att_id 
 
 Upload variants also available at `/upload/gmail/v1/users/:userId/messages`, `.../messages/send`, `.../messages/import`.
 
-`messages.send` and `drafts.send` deliver the message to each `To`, `Cc`, and `Bcc` recipient who is a user of the emulator. The recipient gets a copy labeled `INBOX` and `UNREAD`, without the `Bcc` header, threaded with the messages it replies to in their mailbox, and with their filters applied. Recipients who aren't emulator users are skipped. A message sent to yourself stays one message, labeled `SENT`, `INBOX`, and `UNREAD`, unless your own filters remove those labels. `messages.insert` and `messages.import` don't deliver.
+`messages.send` and `drafts.send` deliver the message to each `To`, `Cc`, and `Bcc` recipient who is a user of the emulator. Before delivery, a `From` that isn't one of the sender's send-as addresses (`GET .../settings/sendAs`) is replaced with their default send-as address, in the message fields and the raw MIME alike. The recipient gets a copy labeled `INBOX` and `UNREAD`, without the `Bcc` header, threaded with the messages it replies to in their mailbox, and with their filters applied. Recipients who aren't emulator users are skipped. A message sent to yourself stays one message, labeled `SENT`, `INBOX`, and `UNREAD`, unless your own filters remove those labels. `messages.insert` and `messages.import` don't deliver.
 
 ### Drafts
 
