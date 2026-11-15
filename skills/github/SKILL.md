@@ -419,6 +419,8 @@ The `POST /graphql` endpoint supports a collaboration subset backed by the same 
 
 - `repository.pullRequest` with paginated `reviewThreads`, comment identities, and resolution state
 - `mergeCommit { oid }` for a merged pull request's resulting commit; unmerged requests return `null`
+- Paginated `reactions` on pull requests and issue or review comments, with REST-compatible reaction and user identities
+- `node(id:)` for opaque comment node IDs, including repository permissions and pending-review visibility
 - `addPullRequestReviewThread` to add an inline comment to an existing pending review using its `pullRequestReviewId`
 - `convertPullRequestToDraft` and `markPullRequestReadyForReview`
 - `resolveReviewThread` and `unresolveReviewThread`

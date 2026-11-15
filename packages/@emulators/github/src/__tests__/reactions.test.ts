@@ -135,6 +135,70 @@ describe("GitHub reactions routes", () => {
     },
   );
 
+  it("batches pull-request and comment reactions with independent cursors and REST identities", async () => {
+    const pullNumber = Number(targets.pull!.split("/").at(-1));
+    const issueComment = (await (await request(targets.issueComment!)).json()) as { node_id: string };
+    const reviewComment = (await (await request(targets.reviewComment!)).json()) as { node_id: string };
+    for (const target of [targets.pull, targets.issueComment, targets.reviewComment]) {
+      await request(`${target}/reactions`, "POST", { content: "heart" });
+      await request(`${target}/reactions`, "POST", { content: "rocket" }, "hubot");
+    }
+    const query = `query($issue: ID!, $review: ID!, $number: Int!, $cursor: String) {
+      repository(owner: "octocat", name: "hello-world") {
+        pullRequest(number: $number) { reactions(first: 1, after: $cursor) { ...Page } }
+      }
+      issue: node(id: $issue) { ... on Reactable { reactions(first: 1, after: $cursor) { ...Page } } }
+      review: node(id: $review) { ... on Reactable { reactions(first: 1, after: $cursor) { ...Page } } }
+    }
+    fragment Page on ReactionConnection {
+      nodes { databaseId content createdAt user { databaseId login avatarUrl } }
+      pageInfo { hasNextPage endCursor }
+    }`;
+    const response = await request("/graphql", "POST", {
+      query,
+      variables: { issue: issueComment.node_id, review: reviewComment.node_id, number: pullNumber },
+    });
+    const result = (await response.json()) as {
+      errors?: unknown[];
+      data: {
+        repository: { pullRequest: { reactions: { nodes: { databaseId: number }[] } } };
+        issue: { reactions: { nodes: { databaseId: number }[]; pageInfo: { endCursor: string } } };
+        review: unknown;
+      };
+    };
+    expect(result.errors).toBeUndefined();
+    for (const reactions of [result.data.repository.pullRequest.reactions, result.data.issue.reactions]) {
+      expect(reactions).toMatchObject({
+        nodes: [{ content: "HEART", createdAt: expect.any(String), user: { login: "octocat" } }],
+        pageInfo: { hasNextPage: true, endCursor: expect.any(String) },
+      });
+    }
+    const rest = (await (await request(`${targets.issueComment}/reactions`)).json()) as { id: number }[];
+    expect(result.data.issue.reactions.nodes[0]!.databaseId).toBe(rest[0]!.id);
+    const next = await request("/graphql", "POST", {
+      query: `query($id: ID!, $cursor: String) { node(id: $id) { ... on Reactable {
+        reactions(first: 1, after: $cursor) { ...Page }
+      } } } ${query.slice(query.indexOf("fragment Page"))}`,
+      variables: { id: issueComment.node_id, cursor: result.data.issue.reactions.pageInfo.endCursor },
+    });
+    expect(await next.json()).toMatchObject({
+      data: {
+        node: {
+          reactions: {
+            nodes: [{ databaseId: rest[1]!.id, content: "ROCKET", user: { login: "hubot" } }],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      },
+    });
+    await request(targets.reviewComment!, "DELETE");
+    const missing = await request("/graphql", "POST", {
+      query: "query($id: ID!) { node(id: $id) { id } }",
+      variables: { id: reviewComment.node_id },
+    });
+    expect(await missing.json()).toMatchObject({ data: { node: null }, errors: [{ type: "NOT_FOUND" }] });
+  });
+
   it("filters before paginating and preserves the query in Link headers", async () => {
     const path = `${targets.issueComment}/reactions`;
     await request(path, "POST", { content: "heart" });

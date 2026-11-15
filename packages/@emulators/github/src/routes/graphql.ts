@@ -2,7 +2,7 @@ import { buildSchema, graphql } from "graphql";
 import type { RouteContext } from "@emulators/core";
 import { parseJsonBody } from "@emulators/core";
 import { getGitHubStore } from "../store.js";
-import type { GitHubComment, GitHubPullRequest } from "../entities.js";
+import type { GitHubComment, GitHubPullRequest, GitHubReaction, GitHubReactionContent } from "../entities.js";
 import { formatComment, formatPullRequest, formatRepo, formatUser, generateNodeId, lookupRepo } from "../helpers.js";
 import {
   assertRepoPermission,
@@ -14,9 +14,14 @@ import {
 import { validateReviewCommentLocation } from "./comments.js";
 
 const schema = buildSchema(`
-  type Query { repository(owner: String!, name: String!): Repository }
+  type Query { repository(owner: String!, name: String!): Repository, node(id: ID!): Node }
+  interface Node { id: ID! }
+  interface Reactable { reactions(first: Int!, after: String): ReactionConnection! }
+  enum ReactionContent { THUMBS_UP THUMBS_DOWN LAUGH HOORAY CONFUSED HEART ROCKET EYES }
+  type Reaction { databaseId: Int!, content: ReactionContent!, createdAt: String!, user: User }
+  type ReactionConnection { nodes: [Reaction!]!, pageInfo: PageInfo! }
   type Repository { pullRequest(number: Int!): PullRequest }
-  type PullRequest {
+  type PullRequest implements Node & Reactable {
     id: ID!
     number: Int!
     title: String!
@@ -24,6 +29,7 @@ const schema = buildSchema(`
     state: String!
     isDraft: Boolean!
     mergeCommit: Commit
+    reactions(first: Int!, after: String): ReactionConnection!
     reviewThreads(first: Int!, after: String): ReviewThreadConnection!
   }
   type Commit { oid: String! }
@@ -32,7 +38,13 @@ const schema = buildSchema(`
   type User { databaseId: Int!, login: String!, avatarUrl: String! }
   type PullRequestReviewThread { id: ID!, isResolved: Boolean!, resolvedBy: User, comments(first: Int!): CommentConnection! }
   type CommentConnection { nodes: [PullRequestReviewComment!]! }
-  type PullRequestReviewComment { id: ID!, databaseId: Int!, body: String!, url: String! }
+  type PullRequestReviewComment implements Node & Reactable {
+    id: ID!, databaseId: Int!, body: String!, url: String!
+    reactions(first: Int!, after: String): ReactionConnection!
+  }
+  type IssueComment implements Node & Reactable {
+    id: ID!, reactions(first: Int!, after: String): ReactionConnection!
+  }
   enum DiffSide { LEFT RIGHT }
   enum PullRequestReviewThreadSubjectType { LINE FILE }
   input AddPullRequestReviewThreadInput {
@@ -57,6 +69,60 @@ const schema = buildSchema(`
 export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
+  function reactionConnection(repoId: number, subjectType: GitHubReaction["subject_type"], subjectId: number) {
+    return ({ first, after }: { first: number; after?: string }) => {
+      if (first < 1 || first > 100) throw new Error("first must be between 1 and 100");
+      const rows = gh.reactions
+        .findBy("subject_id", subjectId)
+        .filter((reaction) => reaction.repo_id === repoId && reaction.subject_type === subjectType)
+        .sort((left, right) => left.id - right.id);
+      const start = after ? rows.findIndex((reaction) => String(reaction.id) === after) + 1 : 0;
+      const page = rows.slice(start, start + first);
+      const contents: Record<GitHubReactionContent, string> = {
+        "+1": "THUMBS_UP",
+        "-1": "THUMBS_DOWN",
+        laugh: "LAUGH",
+        hooray: "HOORAY",
+        confused: "CONFUSED",
+        heart: "HEART",
+        rocket: "ROCKET",
+        eyes: "EYES",
+      };
+      return {
+        nodes: page.map((reaction) => {
+          const user = gh.users.get(reaction.user_id);
+          return {
+            databaseId: reaction.id,
+            content: contents[reaction.content],
+            createdAt: reaction.created_at,
+            user: user
+              ? { databaseId: user.id, login: user.login, avatarUrl: formatUser(user, baseUrl).avatar_url }
+              : null,
+          };
+        }),
+        pageInfo: {
+          hasNextPage: start + first < rows.length,
+          endCursor: page.length ? String(page[page.length - 1]!.id) : null,
+        },
+      };
+    };
+  }
+
+  function commentNode(comment: GitHubComment) {
+    return {
+      __typename: comment.comment_type === "review" ? "PullRequestReviewComment" : "IssueComment",
+      id: comment.node_id,
+      databaseId: comment.id,
+      body: comment.body,
+      url: formatComment(comment, gh, baseUrl)?.html_url,
+      reactions: reactionConnection(
+        comment.repo_id,
+        comment.comment_type === "review" ? "review_comment" : "issue_comment",
+        comment.id,
+      ),
+    };
+  }
+
   function threadNode(root: GitHubComment) {
     return {
       id: generateNodeId("PullRequestReviewThread", root.id),
@@ -75,18 +141,14 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
           ...gh.comments.findBy("repo_id", root.repo_id).filter((comment) => comment.in_reply_to_id === root.id),
         ]
           .slice(0, first)
-          .map((comment) => ({
-            id: comment.node_id,
-            databaseId: comment.id,
-            body: comment.body,
-            url: formatComment(comment, gh, baseUrl)?.html_url,
-          })),
+          .map(commentNode),
       }),
     };
   }
 
   function pullNode(pr: GitHubPullRequest, viewerId?: number) {
     return {
+      __typename: "PullRequest",
       id: pr.node_id,
       number: pr.number,
       title: pr.title,
@@ -94,6 +156,11 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       state: pr.merged ? "MERGED" : pr.state.toUpperCase(),
       isDraft: pr.draft,
       mergeCommit: pr.merged ? { oid: pr.merge_commit_sha } : null,
+      reactions: reactionConnection(
+        pr.repo_id,
+        "issue",
+        gh.issues.findBy("repo_id", pr.repo_id).find((issue) => issue.number === pr.number)!.id,
+      ),
       reviewThreads: ({ first, after }: { first: number; after?: string }) => {
         if (first < 1 || first > 100) throw new Error("first must be between 1 and 100");
         const roots = gh.comments
@@ -234,31 +301,49 @@ export function graphqlRoutes({ app, store, webhooks, baseUrl }: RouteContext): 
       return { thread: threadNode(gh.comments.get(root.id)!), clientMutationId: input.clientMutationId };
     }
 
-    return c.json(
-      await graphql({
-        schema,
-        source: typeof raw.query === "string" ? raw.query : "",
-        variableValues: raw.variables as Record<string, unknown> | undefined,
-        operationName: typeof raw.operationName === "string" ? raw.operationName : undefined,
-        rootValue: {
-          repository: ({ owner, name }: { owner: string; name: string }) => {
-            const repo = lookupRepo(gh, owner, name);
-            if (!repo) return null;
-            assertRepoPermission(gh, auth, repo, "pull_requests");
-            return {
-              pullRequest: ({ number }: { number: number }) => {
-                const pr = gh.pullRequests.findBy("repo_id", repo.id).find((candidate) => candidate.number === number);
-                return pr ? pullNode(pr, auth ? getActorUser(gh, auth)?.id : undefined) : null;
-              },
-            };
-          },
-          convertPullRequestToDraft: ({ input }: { input: { pullRequestId: string } }) => changeDraft(input, true),
-          addPullRequestReviewThread: ({ input }: { input: Parameters<typeof addThread>[0] }) => addThread(input),
-          markPullRequestReadyForReview: ({ input }: { input: { pullRequestId: string } }) => changeDraft(input, false),
-          resolveReviewThread: ({ input }: { input: { threadId: string } }) => changeResolution(input, true),
-          unresolveReviewThread: ({ input }: { input: { threadId: string } }) => changeResolution(input, false),
+    const result = await graphql({
+      schema,
+      source: typeof raw.query === "string" ? raw.query : "",
+      variableValues: raw.variables as Record<string, unknown> | undefined,
+      operationName: typeof raw.operationName === "string" ? raw.operationName : undefined,
+      rootValue: {
+        node: ({ id }: { id: string }) => {
+          const comment = gh.comments.all().find((candidate) => candidate.node_id === id);
+          if (!comment)
+            throw Object.assign(new Error("Could not resolve the comment node"), { extensions: { type: "NOT_FOUND" } });
+          const repo = gh.repos.get(comment.repo_id)!;
+          assertRepoPermission(gh, auth, repo, comment.comment_type === "review" ? "pull_requests" : "issues");
+          if (
+            comment.review_id &&
+            gh.reviews.get(comment.review_id)?.state === "PENDING" &&
+            comment.user_id !== (auth ? getActorUser(gh, auth)?.id : undefined)
+          )
+            return null;
+          return commentNode(comment);
         },
-      }),
-    );
+        repository: ({ owner, name }: { owner: string; name: string }) => {
+          const repo = lookupRepo(gh, owner, name);
+          if (!repo) return null;
+          assertRepoPermission(gh, auth, repo, "pull_requests");
+          return {
+            pullRequest: ({ number }: { number: number }) => {
+              const pr = gh.pullRequests.findBy("repo_id", repo.id).find((candidate) => candidate.number === number);
+              return pr ? pullNode(pr, auth ? getActorUser(gh, auth)?.id : undefined) : null;
+            },
+          };
+        },
+        convertPullRequestToDraft: ({ input }: { input: { pullRequestId: string } }) => changeDraft(input, true),
+        addPullRequestReviewThread: ({ input }: { input: Parameters<typeof addThread>[0] }) => addThread(input),
+        markPullRequestReadyForReview: ({ input }: { input: { pullRequestId: string } }) => changeDraft(input, false),
+        resolveReviewThread: ({ input }: { input: { threadId: string } }) => changeResolution(input, true),
+        unresolveReviewThread: ({ input }: { input: { threadId: string } }) => changeResolution(input, false),
+      },
+    });
+    return c.json({
+      ...result,
+      errors: result.errors?.map((error) =>
+        error.extensions.type ? { ...error.toJSON(), type: error.extensions.type } : error,
+      ),
+    });
   });
 }
