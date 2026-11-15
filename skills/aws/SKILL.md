@@ -139,7 +139,7 @@ aws:
 - Seeding uses `aws.region` (default `us-east-1`); sign SDK clients for the same region.
 - Give seeded KMS keys an alias; keys without one are created again on every start.
 - `account_id` and KMS `key_id` fail at startup with `backend`.
-- Reset and snapshots do not touch backend state; restart the backend to clear it.
+- Reset and snapshots do not touch backend state; restart the backend to clear it. A failed seed is retried on the next reset.
 
 ## API Endpoints
 

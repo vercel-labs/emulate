@@ -37,7 +37,7 @@ const HOP_BY_HOP_HEADERS = [
 ];
 const DROPPED_REQUEST_HEADERS = [...HOP_BY_HOP_HEADERS, "host", "content-length", "expect"];
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
-// Seeding runs once per emulator instance and backend, so a reset does not repeat it.
+// Seeding runs once per emulator instance and backend; a successful seed survives resets.
 const seeded = new WeakMap<Store, { url: string; ready: Promise<void> }>();
 
 export function getAwsBackend(store: Store): BackendState | undefined {
@@ -75,9 +75,12 @@ export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
   let ready = seeded.get(store)?.url === upstream ? seeded.get(store)!.ready : undefined;
   if (!ready) {
     ready = seedUpstream(upstream, region, config);
-    // Surface seed failures on the first proxied request rather than as an unhandled rejection.
-    ready.catch(() => {});
     seeded.set(store, { url: upstream, ready });
+    // Surface seed failures on the first proxied request rather than as an unhandled rejection.
+    // A failed seed is not cached, so the next seed pass, such as a reset, tries again.
+    ready.catch(() => {
+      if (seeded.get(store)?.ready === ready) seeded.delete(store);
+    });
   }
   store.setData<BackendState>(STATE_KEY, { url: upstream, region, ready });
 }

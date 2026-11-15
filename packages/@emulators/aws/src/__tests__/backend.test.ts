@@ -192,6 +192,20 @@ describe("aws.backend proxy", () => {
     expect(((await res.json()) as { message: string }).message).toContain("InvalidBucketName");
   });
 
+  it("retries a failed seed instead of keeping the rejection", async () => {
+    respond = (request) => (request.method === "PUT" ? { status: 500, body: "boom" } : {});
+    const config = { backend: { url: upstreamUrl }, s3: { buckets: [{ name: "uploads" }] } };
+    const { app, store } = createTestApp();
+    seedFromConfig(store, "http://localhost:4000", config);
+    expect((await app.request("/")).status).toBe(502);
+
+    respond = () => ({});
+    seedFromConfig(store, "http://localhost:4000", config);
+
+    expect((await app.request("/")).status).toBe(200);
+    expect(recorded.map((r) => `${r.method} ${r.path}`)).toEqual(["PUT /uploads", "PUT /uploads", "GET /"]);
+  });
+
   it("returns 502 when the backend is unreachable", async () => {
     const { app } = backendApp({}, "http://127.0.0.1:1");
 
