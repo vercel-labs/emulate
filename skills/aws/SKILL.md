@@ -134,7 +134,7 @@ aws:
 ```
 
 - Start the backend yourself with request authentication off (`aws-emulator --auth off`).
-- For a self-signed HTTPS backend, set `NODE_EXTRA_CA_CERTS` to its CA file before `emulate start`.
+- For a self-signed HTTPS backend, set `NODE_EXTRA_CA_CERTS` to its CA file before `npx emulate start`.
 - Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start. Existing ones are kept. Defaults are not created.
 - Seeding uses `aws.region` (default `us-east-1`); sign SDK clients for the same region.
 - Give seeded KMS keys an alias; keys without one are created again on every start.
