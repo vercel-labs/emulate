@@ -1208,7 +1208,7 @@ Read attempts with `getResendStore(store).sendAttempts.all()` from `@emulators/r
 
 ### Webhooks
 
-Register endpoints with `POST /webhooks` (`endpoint` and `events`) or seed them with `resend.webhooks`. Deliveries carry Svix `svix-id`, `svix-timestamp`, and `svix-signature` headers, signed with the webhook's `whsec_` signing secret as Resend signs them, so `resend.webhooks.verify()` and the `svix` library accept them. `GET /webhooks/:id` returns the secret. A `3xx` response counts as a failed attempt and is not followed, as Svix treats redirects.
+Register endpoints with `POST /webhooks` (`endpoint` and `events`) on hosts listed in `resend.webhook_hosts`, or seed them with `resend.webhooks`. Deliveries carry Svix `svix-id`, `svix-timestamp`, and `svix-signature` headers, signed with the webhook's `whsec_` signing secret as Resend signs them, so `resend.webhooks.verify()` and the `svix` library accept them. `GET /webhooks/:id` returns the secret. A `3xx` response counts as a failed attempt and is not followed, as Svix treats redirects.
 
 ```yaml
 resend:
@@ -1219,14 +1219,14 @@ resend:
 
 Without `events`, a seeded webhook subscribes to every event the emulator sends. Without `signing_secret`, it gets a secret derived from the endpoint URL that stays the same across resets and restarts.
 
-Webhooks created or updated through the API must use an `http` or `https` endpoint on a host listed in `resend.webhook_hosts`, which defaults to `localhost`, `127.0.0.1`, and `::1`. Any other host returns `403 validation_error`, and an endpoint that isn't an HTTP URL returns `422 validation_error`. Seeded webhooks come from your own config and are not checked. Hosts match by exact name, without ports or wildcards. List your receivers' host names when they aren't on loopback, such as a Docker Compose service:
+Webhooks created or updated through the API must use an `http` or `https` endpoint on a host listed in `resend.webhook_hosts`. Without that setting, the API registers no webhooks: `POST /webhooks` and an endpoint change through `PATCH /webhooks/:id` return `403 validation_error`. A host missing from the list also returns `403 validation_error`, and an endpoint that isn't an HTTP URL returns `422 validation_error`. Seeded webhooks come from your own config and are not checked. Hosts match by exact name, without ports or wildcards. To register a local receiver or a Docker Compose service through the API, list its host:
 
 ```yaml
 resend:
-  webhook_hosts: [app]
+  webhook_hosts: [localhost, app]
 ```
 
-The emulator sends deliveries from its own host, so this list decides which hosts its clients can make it contact. When it listens on a network address, set the list to the receivers you expect, because the default lets any client that can reach the emulator target services on its host's loopback interface. This is a local control, not part of Resend's API.
+The emulator sends deliveries from its own host and accepts any API key, so this list decides which hosts its clients can make it contact. Keep it to the receivers you expect, especially when the emulator listens on a network address. This is a local control, not part of Resend's API.
 
 ## Linear API
 

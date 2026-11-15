@@ -38,9 +38,10 @@ afterEach(async () => {
   await new Promise<void>((resolve) => receiver.close(() => resolve()));
 });
 
-function setup(config?: ResendSeedConfig) {
+// The local receivers listen on 127.0.0.1, so tests allow that host unless they pass their own config.
+function setup(config: ResendSeedConfig = { webhook_hosts: ["127.0.0.1"] }) {
   const server = createServer(resendPlugin, { tokens: { re_test: { login: "test", id: 1 } } });
-  if (config) seedFromConfig(server.store, base, config, server.webhooks);
+  seedFromConfig(server.store, base, config, server.webhooks);
   return server;
 }
 
@@ -245,8 +246,26 @@ describe("Resend webhook destinations", () => {
     return request(server, "POST", "/webhooks", { endpoint, events: ["domain.created"] });
   }
 
-  it("lets API clients register loopback endpoints only, by default", async () => {
-    const server = setup();
+  it("registers no endpoint through the API unless resend.webhook_hosts lists its host", async () => {
+    const server = setup({});
+    for (const endpoint of ["http://localhost:3000/hook", `${receiverUrl}/hook`, "http://169.254.169.254/latest/"]) {
+      const res = await create(server, endpoint);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { name: string }).name).toBe("validation_error");
+    }
+    expect(await (await create(server, "http://localhost:3000/hook")).json()).toEqual({
+      statusCode: 403,
+      name: "validation_error",
+      message: "Webhook registration through the API is off. List localhost in resend.webhook_hosts to allow it.",
+    });
+    expect(getResendStore(server.store).webhooks.all()).toHaveLength(0);
+
+    await request(server, "POST", "/domains", { name: "example.com" });
+    expect(received).toEqual([]);
+  });
+
+  it("checks API endpoints against resend.webhook_hosts", async () => {
+    const server = setup({ webhook_hosts: ["localhost", "::1"] });
     for (const endpoint of ["http://localhost:3000/hook", "http://LOCALHOST:3000/hook", "http://[::1]:3000/hook"]) {
       expect((await create(server, endpoint)).status).toBe(200);
     }
@@ -256,7 +275,7 @@ describe("Resend webhook destinations", () => {
     expect(await internal.json()).toEqual({
       statusCode: 403,
       name: "validation_error",
-      message: "169.254.169.254 is not in resend.webhook_hosts: localhost, 127.0.0.1, ::1.",
+      message: "169.254.169.254 is not in resend.webhook_hosts: localhost, ::1.",
     });
     expect((await create(server, "http://0.0.0.0:3000/hook")).status).toBe(403);
     expect((await create(server, "file:///etc/passwd")).status).toBe(422);
@@ -274,7 +293,7 @@ describe("Resend webhook destinations", () => {
     expect(received.map((delivery) => delivery.path)).toEqual(["/hook"]);
   });
 
-  it("uses resend.webhook_hosts in place of the default hosts", async () => {
+  it("matches resend.webhook_hosts entries by exact name", async () => {
     const server = setup({ webhook_hosts: ["app", " Hooks.Example.Test "] });
     expect((await create(server, "http://app:3000/hook")).status).toBe(200);
     expect((await create(server, "https://hooks.example.test/hook")).status).toBe(200);
