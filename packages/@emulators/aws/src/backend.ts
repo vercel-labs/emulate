@@ -56,6 +56,9 @@ export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
   } catch {
     throw new Error(`aws.backend.url must be an absolute URL, got ${JSON.stringify(backend.url)}`);
   }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`aws.backend.url must use http or https, got ${JSON.stringify(backend.url)}`);
+  }
   if (config.account_id) {
     throw new Error("aws.account_id is not supported with aws.backend: the backend owns the account ID");
   }

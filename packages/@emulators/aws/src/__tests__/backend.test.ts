@@ -220,6 +220,8 @@ describe("aws.backend proxy", () => {
     const seed = (config: AwsSeedConfig) => () => seedFromConfig(store, "http://localhost:4000", config);
 
     expect(seed({ backend: { url: "not a url" } })).toThrow("aws.backend.url must be an absolute URL");
+    expect(seed({ backend: { url: "localhost:4566" } })).toThrow("aws.backend.url must use http or https");
+    expect(seed({ backend: { url: "ftp://127.0.0.1:4566" } })).toThrow("aws.backend.url must use http or https");
     expect(seed({ backend: { url: upstreamUrl }, account_id: "111111111111" })).toThrow("aws.account_id");
     expect(seed({ backend: { url: upstreamUrl }, kms: { keys: [{ key_id: "fixed" }] } })).toThrow(
       "aws.kms.keys[].key_id",
