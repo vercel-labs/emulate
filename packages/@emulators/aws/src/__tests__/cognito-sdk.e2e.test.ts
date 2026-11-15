@@ -24,7 +24,6 @@ let identities: identity.CognitoIdentityClient;
 let close: () => Promise<void>;
 
 beforeAll(async () => {
-  if (externalTarget) return;
   const server = serve({ fetch: (request) => active.app.fetch(request), port: 0 });
   await new Promise<void>((resolve, reject) => {
     server.once("listening", resolve);
@@ -34,7 +33,6 @@ beforeAll(async () => {
   close = () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 });
 beforeEach(() => {
-  if (externalTarget) return;
   active = createTestApp(base);
   seedFromConfig(active.store, base, {
     cognito: {
@@ -66,14 +64,12 @@ beforeEach(() => {
   identities = new identity.CognitoIdentityClient({ ...config, endpoint: `${base}/cognito-identity` });
 });
 afterEach(() => {
-  if (externalTarget) return;
   sdk.destroy();
   identities.destroy();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
 afterAll(async () => {
-  if (externalTarget) return;
   await close();
 });
 
