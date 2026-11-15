@@ -187,6 +187,37 @@ describe("Gmail delivery of sent messages", () => {
     }
   });
 
+  it("rewrites a malformed From without stalling", async () => {
+    const { call, inbox, header } = fixture();
+    const from = `${users.bob})`;
+    const started = Date.now();
+    await call("alice", "POST", "/messages/send", { from, to: users.carol, subject: "fields malformed" });
+    await call("alice", "POST", "/messages/send", {
+      raw: raw({ from, to: users.carol, subject: "raw malformed", body_text: "Hi." }),
+    });
+    const draft = (await call("alice", "POST", "/drafts", {
+      message: { raw: raw({ from, to: users.carol, subject: "draft malformed", body_text: "Hi." }) },
+    })) as { id: string };
+    await call("alice", "POST", "/drafts/send", { id: draft.id });
+    const elapsed = Date.now() - started;
+
+    const copies = await inbox("carol");
+    expect(copies.map((copy) => header(copy, "Subject")).sort()).toEqual([
+      "draft malformed",
+      "fields malformed",
+      "raw malformed",
+    ]);
+    for (const copy of copies) {
+      expect(header(copy, "From")).toBe(`alice <${users.alice}>`);
+      const source = Buffer.from(
+        ((await call("carol", "GET", `/messages/${copy.id}?format=raw`)) as { raw: string }).raw,
+        "base64url",
+      ).toString("utf8");
+      expect(source.match(/^From:.*$/gim)).toEqual([`From: alice <${users.alice}>`]);
+    }
+    expect(elapsed).toBeLessThan(1000);
+  });
+
   it("labels a message sent to oneself SENT, INBOX, and UNREAD without a second copy", async () => {
     const { call, inbox } = fixture();
     const sent = (await call("alice", "POST", "/messages/send", {

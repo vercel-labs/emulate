@@ -838,12 +838,17 @@ function parseMailboxList(header: string): Mailbox[] | null {
       if (end === -1) return null;
       tokens.push({ kind: "literal", value: text.slice(i, end + 1) });
       i = end + 1;
+    } else if (char === ")") {
+      // A closing parenthesis outside a comment is malformed.
+      return null;
     } else if (HEADER_SPECIALS.includes(char)) {
       tokens.push({ kind: "special", value: char });
       i++;
     } else {
       let end = i;
       while (end < text.length && !ATOM_STOP.includes(text[end]!)) end++;
+      // Every character that stops an atom has a branch above. Don't spin if one is ever added without one.
+      if (end === i) return null;
       tokens.push({ kind: "atom", value: text.slice(i, end) });
       i = end;
     }
