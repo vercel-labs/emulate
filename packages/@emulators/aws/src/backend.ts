@@ -3,6 +3,7 @@ import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { AwsSeedConfig } from "./index.js";
+import { escapeXml, generateMessageId } from "./helpers.js";
 
 export interface AwsBackendConfig {
   url: string;
@@ -20,6 +21,7 @@ const STATE_KEY = "aws.backend";
 const DEFAULT_REGION = "us-east-1";
 const NATIVE_PREFIXES = ["/_emulate", "/_inspector", "/cognito-idp", "/cognito-identity"];
 const SERVICE_PREFIXES: ProxiedService[] = ["sqs", "iam", "sts", "kms", "s3"];
+const XML_ERROR_SERVICES: ProxiedService[] = ["s3", "iam", "sts"];
 const CREDENTIAL_SCOPE = /\/\d{8}\/[a-z0-9-]+\/([a-z0-9-]+)\/aws4_request/;
 const DEFAULT_TRUST_POLICY = JSON.stringify({
   Version: "2012-10-17",
@@ -110,17 +112,17 @@ export function registerBackendProxy(app: Hono<AppEnv>, store: Store, baseUrl: s
 }
 
 async function proxy(c: Context<AppEnv>, backend: BackendState, baseUrl: string): Promise<Response> {
-  try {
-    await backend.ready;
-  } catch (error) {
-    return backendError(`Seeding the AWS backend at ${backend.url} failed: ${errorMessage(error)}`);
-  }
-
   const incoming = new URL(c.req.url);
   const { service, path } = route(
     incoming.pathname,
     credentialService(c.req.raw.headers.get("authorization"), incoming.searchParams.get("X-Amz-Credential")),
   );
+  try {
+    await backend.ready;
+  } catch (error) {
+    return backendError(service, `Seeding the AWS backend at ${backend.url} failed: ${errorMessage(error)}`);
+  }
+
   const headers: Record<string, string> = {};
   c.req.raw.headers.forEach((value, name) => {
     if (!DROPPED_REQUEST_HEADERS.includes(name)) headers[name] = value;
@@ -140,7 +142,7 @@ async function proxy(c: Context<AppEnv>, backend: BackendState, baseUrl: string)
   try {
     upstream = await forward(new URL(`${backend.url}${path}${incoming.search}`), method, headers, body);
   } catch (error) {
-    return backendError(`The AWS backend at ${backend.url} is unreachable: ${errorMessage(error)}`);
+    return backendError(service, `The AWS backend at ${backend.url} is unreachable: ${errorMessage(error)}`);
   }
 
   const status = upstream.statusCode ?? 502;
@@ -257,8 +259,20 @@ function syntheticAuthorization(service: ProxiedService, region: string): string
   return `AWS4-HMAC-SHA256 Credential=AKIAEMULATE/${date}/${region}/${service}/aws4_request, SignedHeaders=host, Signature=0`;
 }
 
-function backendError(message: string): Response {
-  return Response.json({ __type: "BackendUnavailable", message }, { status: 502 });
+/** S3, IAM, and STS SDKs only parse XML errors; SQS and KMS only parse JSON. */
+function backendError(service: ProxiedService, message: string): Response {
+  if (!XML_ERROR_SERVICES.includes(service)) {
+    return Response.json({ __type: "BackendUnavailable", message }, { status: 502 });
+  }
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ErrorResponse>
+  <Error>
+    <Code>BackendUnavailable</Code>
+    <Message>${escapeXml(message)}</Message>
+  </Error>
+  <RequestId>${generateMessageId()}</RequestId>
+</ErrorResponse>`;
+  return new Response(xml, { status: 502, headers: { "content-type": "application/xml" } });
 }
 
 function errorMessage(error: unknown): string {

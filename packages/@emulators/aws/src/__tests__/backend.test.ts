@@ -2,6 +2,9 @@ import { createServer, request, type IncomingMessage, type Server } from "node:h
 import { gzipSync } from "node:zlib";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DescribeKeyCommand, KMSClient } from "@aws-sdk/client-kms";
+import { GetCallerIdentityCommand, STSClient } from "@aws-sdk/client-sts";
 import { serve } from "@emulators/core";
 import { seedFromConfig, type AwsSeedConfig } from "../index.js";
 import { createTestApp } from "./helpers.js";
@@ -69,7 +72,11 @@ async function listen(app: ReturnType<typeof createTestApp>["app"]) {
       for (const chunk of options.chunks ?? []) req.write(chunk);
       req.end();
     });
-  return { send, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  return {
+    send,
+    url: `http://127.0.0.1:${port}`,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
 }
 
 const scope = (request: Recorded) =>
@@ -207,7 +214,8 @@ describe("aws.backend proxy", () => {
     const res = await app.request("/");
 
     expect(res.status).toBe(502);
-    expect(((await res.json()) as { message: string }).message).toContain("InvalidBucketName");
+    expect(res.headers.get("content-type")).toContain("xml");
+    expect(await res.text()).toContain("InvalidBucketName");
   });
 
   it("retries a failed seed instead of keeping the rejection", async () => {
@@ -224,13 +232,54 @@ describe("aws.backend proxy", () => {
     expect(recorded.map((r) => `${r.method} ${r.path}`)).toEqual(["PUT /uploads", "PUT /uploads", "GET /"]);
   });
 
-  it("returns 502 when the backend is unreachable", async () => {
+  it("returns 502 in the error protocol each service's SDK parses", async () => {
     const { app } = backendApp({}, "http://127.0.0.1:1");
+    const call = (service: string) => app.request(`/${service}/`, { method: "POST", body: "{}" });
 
-    const res = await app.request("/");
+    for (const service of ["s3", "iam", "sts"]) {
+      const res = await call(service);
+      expect(res.status).toBe(502);
+      expect(res.headers.get("content-type")).toContain("xml");
+      const body = await res.text();
+      expect(body).toContain("<Code>BackendUnavailable</Code>");
+      expect(body).toContain("unreachable");
+    }
+    for (const service of ["sqs", "kms"]) {
+      const res = await call(service);
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({ __type: "BackendUnavailable" });
+    }
+  });
 
-    expect(res.status).toBe(502);
-    expect(await res.json()).toMatchObject({ __type: "BackendUnavailable" });
+  it("answers official SDK clients with an error they can parse", async () => {
+    const { app } = backendApp({}, "http://127.0.0.1:1");
+    const server = await listen(app);
+    const config = {
+      region: "us-east-1",
+      credentials: { accessKeyId: "key", secretAccessKey: "secret" },
+      maxAttempts: 1,
+    };
+    const s3 = new S3Client({ ...config, endpoint: server.url, forcePathStyle: true });
+    const sts = new STSClient({ ...config, endpoint: `${server.url}/sts` });
+    const kms = new KMSClient({ ...config, endpoint: `${server.url}/kms` });
+    try {
+      await expect(s3.send(new GetObjectCommand({ Bucket: "bucket", Key: "key" }))).rejects.toMatchObject({
+        name: "BackendUnavailable",
+        message: expect.stringContaining("unreachable"),
+      });
+      await expect(sts.send(new GetCallerIdentityCommand({}))).rejects.toMatchObject({
+        name: "BackendUnavailable",
+        message: expect.stringContaining("unreachable"),
+      });
+      await expect(kms.send(new DescribeKeyCommand({ KeyId: "alias/app" }))).rejects.toMatchObject({
+        name: "BackendUnavailable",
+      });
+    } finally {
+      s3.destroy();
+      sts.destroy();
+      kms.destroy();
+      await server.close();
+    }
   });
 
   it("rejects seed settings the backend cannot honor", () => {
