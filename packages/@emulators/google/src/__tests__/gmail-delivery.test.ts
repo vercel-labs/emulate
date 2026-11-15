@@ -155,6 +155,38 @@ describe("Gmail delivery of sent messages", () => {
     expect(header(bobCopy, "From")).toBe("Alice A <ALICE@example.com>");
   });
 
+  it("parses From as a mailbox list before checking it against send-as addresses", async () => {
+    const { call, inbox, header } = fixture();
+    const cases = [
+      // A quoted local part, which an address scan drops, leaving only the sender's own address.
+      [`"bob"@example.com, ${users.alice}`, `alice <${users.alice}>`],
+      // A quote inside a comment, which a scan that strips quoted strings first reads the wrong way round.
+      [`(") bob@example.com (") ${users.alice}`, `alice <${users.alice}>`],
+      // A nested comment around another address is only a comment, and is dropped when From is rebuilt.
+      [`${users.alice} (see (also) bob@example.com)`, users.alice],
+      [`"Alice, A." <${users.alice}>`, `"Alice, A." <${users.alice}>`],
+    ];
+    for (const [from, expected] of cases) {
+      await call("alice", "POST", "/messages/send", { from, to: users.carol, subject: `fields ${from}` });
+      await call("alice", "POST", "/messages/send", {
+        raw: raw({ from, to: users.carol, subject: `raw ${from}`, body_text: "Hi." }),
+      });
+      const draft = (await call("alice", "POST", "/drafts", {
+        message: { raw: raw({ from, to: users.carol, subject: `draft ${from}`, body_text: "Hi." }) },
+      })) as { id: string };
+      await call("alice", "POST", "/drafts/send", { id: draft.id });
+      for (const kind of ["fields", "raw", "draft"]) {
+        const copy = (await inbox("carol")).find((message) => header(message, "Subject") === `${kind} ${from}`)!;
+        expect(header(copy, "From"), `${kind} ${from}`).toBe(expected);
+        const source = Buffer.from(
+          ((await call("carol", "GET", `/messages/${copy.id}?format=raw`)) as { raw: string }).raw,
+          "base64url",
+        ).toString("utf8");
+        expect(source.match(/^From:.*$/gim), `${kind} ${from}`).toEqual([`From: ${expected}`]);
+      }
+    }
+  });
+
   it("labels a message sent to oneself SENT, INBOX, and UNREAD without a second copy", async () => {
     const { call, inbox } = fixture();
     const sent = (await call("alice", "POST", "/messages/send", {
