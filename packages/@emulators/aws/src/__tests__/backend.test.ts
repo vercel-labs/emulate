@@ -73,7 +73,9 @@ async function listen(app: ReturnType<typeof createTestApp>["app"]) {
 }
 
 const scope = (request: Recorded) =>
-  /Credential=[^/]+\/\d{8}\/us-east-1\/([a-z0-9-]+)\//.exec(String(request.headers.authorization))?.[1];
+  /Credential=[^/]+\/\d{8}\/[a-z0-9-]+\/([a-z0-9-]+)\//.exec(String(request.headers.authorization))?.[1];
+const regionOf = (request: Recorded) =>
+  /Credential=[^/]+\/\d{8}\/([a-z0-9-]+)\//.exec(String(request.headers.authorization))?.[1];
 
 describe("aws.backend proxy", () => {
   it("forwards path-style S3 requests byte for byte with an s3 credential scope", async () => {
@@ -363,5 +365,90 @@ describe("aws.backend proxy", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("seeds and signs for the configured region", async () => {
+    const { app } = backendApp({
+      region: "eu-west-1",
+      s3: { buckets: [{ name: "west" }, { name: "east", region: "us-east-1" }] },
+      sqs: { queues: [{ name: "jobs" }] },
+    });
+
+    await app.request("/sqs/", { method: "POST", body: "{}" });
+
+    expect(recorded.map((r) => `${r.method} ${r.path} ${regionOf(r)}`)).toEqual([
+      "PUT /west eu-west-1",
+      "PUT /east us-east-1",
+      "POST / eu-west-1",
+      "POST / eu-west-1",
+    ]);
+    expect(recorded[0].body.toString()).toContain("<LocationConstraint>eu-west-1</LocationConstraint>");
+    expect(recorded[1].body.length).toBe(0);
+  });
+
+  it("rewrites queue URLs on the backend's own host and leaves compressed SQS bodies alone", async () => {
+    const gzipped = gzipSync(JSON.stringify({ QueueUrl: "https://sqs.us-east-1.amazonaws.com/000000000000/q" }));
+    respond = (req): ReturnType<typeof respond> =>
+      req.headers["x-amz-target"] === "AmazonSQS.GetQueueUrl"
+        ? { headers: { "content-encoding": "gzip" }, body: gzipped }
+        : { body: JSON.stringify({ QueueUrl: `${upstreamUrl}/000000000000/q` }) };
+    const { app } = backendApp();
+    const call = (target: string) =>
+      app.request("/sqs/", {
+        method: "POST",
+        headers: { "x-amz-target": target, "accept-encoding": "gzip" },
+        body: "{}",
+      });
+
+    expect(await (await call("AmazonSQS.CreateQueue")).json()).toEqual({
+      QueueUrl: "http://localhost:4000/sqs/000000000000/q",
+    });
+    expect(recorded[0].headers["accept-encoding"]).toBe("identity");
+    const compressed = await call("AmazonSQS.GetQueueUrl");
+    expect(compressed.headers.get("content-encoding")).toBe("gzip");
+    expect(Buffer.from(await compressed.arrayBuffer()).equals(gzipped)).toBe(true);
+  });
+
+  it("keeps the service prefix when rewriting redirects", async () => {
+    respond = () => ({ status: 307, headers: { location: `${upstreamUrl}/elsewhere` } });
+    const { app } = backendApp();
+
+    const res = await app.request("/kms/", { method: "POST", body: "{}" });
+
+    expect(res.headers.get("location")).toBe("http://localhost:4000/kms/elsewhere");
+  });
+
+  it("rewrites dead-letter source queue URLs, multipart upload locations, and relative redirects", async () => {
+    respond = (req): ReturnType<typeof respond> => {
+      if (req.headers["x-amz-target"] === "AmazonSQS.ListDeadLetterSourceQueues")
+        return { body: JSON.stringify({ queueUrls: ["https://sqs.eu-west-1.amazonaws.com/000000000000/src"] }) };
+      if (req.method === "POST" && req.path.includes("uploadId"))
+        return {
+          headers: { "content-type": "application/xml" },
+          body: `<CompleteMultipartUploadResult><Location>${upstreamUrl}/bucket/obj</Location></CompleteMultipartUploadResult>`,
+        };
+      return { status: 307, headers: { location: "/moved" } };
+    };
+    const { app } = backendApp();
+
+    const dlq = await app.request("/sqs/", {
+      method: "POST",
+      headers: { "x-amz-target": "AmazonSQS.ListDeadLetterSourceQueues" },
+      body: "{}",
+    });
+    const multipart = await app.request("/bucket/obj?uploadId=1", { method: "POST", body: "<x/>" });
+    const redirect = await app.request("/kms/", { method: "POST", body: "{}" });
+
+    expect(await dlq.json()).toEqual({ queueUrls: ["http://localhost:4000/sqs/000000000000/src"] });
+    expect(await multipart.text()).toContain("<Location>http://localhost:4000/bucket/obj</Location>");
+    expect(redirect.headers.get("location")).toBe("/kms/moved");
+  });
+
+  it("rejects regions that are not region names", () => {
+    const { store } = createTestApp();
+
+    expect(() =>
+      seedFromConfig(store, "http://localhost:4000", { backend: { url: upstreamUrl }, region: "eu</x>" }),
+    ).toThrow("aws.region must look like us-east-1");
   });
 });

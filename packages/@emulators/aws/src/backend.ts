@@ -10,12 +10,14 @@ export interface AwsBackendConfig {
 
 interface BackendState {
   url: string;
+  region: string;
   ready: Promise<void>;
 }
 
 type ProxiedService = "s3" | "sqs" | "iam" | "sts" | "kms";
 
 const STATE_KEY = "aws.backend";
+const DEFAULT_REGION = "us-east-1";
 const NATIVE_PREFIXES = ["/_emulate", "/_inspector", "/cognito-idp", "/cognito-identity"];
 const SERVICE_PREFIXES: ProxiedService[] = ["sqs", "iam", "sts", "kms", "s3"];
 const DEFAULT_TRUST_POLICY = JSON.stringify({
@@ -65,14 +67,19 @@ export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
   }
 
   const upstream = url.toString().replace(/\/+$/, "");
+  const region = config.region ?? DEFAULT_REGION;
+  const badRegion = [region, ...(config.s3?.buckets ?? []).map((bucket) => bucket.region ?? region)].find(
+    (value) => !/^[a-z0-9-]+$/.test(value),
+  );
+  if (badRegion !== undefined) throw new Error(`aws.region must look like us-east-1, got ${JSON.stringify(badRegion)}`);
   let ready = seeded.get(store)?.url === upstream ? seeded.get(store)!.ready : undefined;
   if (!ready) {
-    ready = seedUpstream(upstream, config);
+    ready = seedUpstream(upstream, region, config);
     // Surface seed failures on the first proxied request rather than as an unhandled rejection.
     ready.catch(() => {});
     seeded.set(store, { url: upstream, ready });
   }
-  store.setData<BackendState>(STATE_KEY, { url: upstream, ready });
+  store.setData<BackendState>(STATE_KEY, { url: upstream, region, ready });
 }
 
 /** Proxies every non-Cognito, non-inspector request to the configured backend. */
@@ -103,8 +110,10 @@ async function proxy(c: Context<AppEnv>, backend: BackendState, baseUrl: string)
   });
   if (!headers.authorization && !incoming.searchParams.has("X-Amz-Credential")) {
     // The backend picks the service from the SigV4 credential scope, even with authentication off.
-    headers.authorization = syntheticAuthorization(service);
+    headers.authorization = syntheticAuthorization(service, backend.region);
   }
+  // Queue URLs are rewritten in the body, which needs it uncompressed.
+  if (service === "sqs") headers["accept-encoding"] = "identity";
 
   const method = c.req.raw.method;
   const body = method === "GET" || method === "HEAD" ? undefined : Buffer.from(await c.req.raw.arrayBuffer());
@@ -120,22 +129,42 @@ async function proxy(c: Context<AppEnv>, backend: BackendState, baseUrl: string)
   const status = upstream.statusCode ?? 502;
   const responseHeaders = toHeaders(upstream.headers);
   const location = responseHeaders.get("location");
-  if (location?.startsWith(backend.url)) responseHeaders.set("location", baseUrl + location.slice(backend.url.length));
+  const prefix = service === "s3" ? "" : `/${service}`;
+  if (location?.startsWith(backend.url)) {
+    responseHeaders.set("location", `${baseUrl}${prefix}${location.slice(backend.url.length)}`);
+  } else if (location?.startsWith("/") && !location.startsWith("//")) {
+    responseHeaders.set("location", `${prefix}${location}`);
+  }
 
   if (method === "HEAD" || NULL_BODY_STATUSES.has(status)) {
     upstream.resume();
     return new Response(null, { status, headers: responseHeaders });
   }
 
-  if (service === "sqs") {
-    const chunks: Buffer[] = [];
-    for await (const chunk of upstream) chunks.push(chunk as Buffer);
-    const text = Buffer.concat(chunks).toString("utf8");
+  const encoded = (responseHeaders.get("content-encoding") ?? "identity") !== "identity";
+  if (service === "sqs" && !encoded) {
+    const text = await readText(upstream);
     responseHeaders.delete("content-length");
-    return new Response(rewriteQueueUrls(text, baseUrl), { status, headers: responseHeaders });
+    return new Response(rewriteQueueUrls(text, baseUrl, backend.url), { status, headers: responseHeaders });
+  }
+
+  if (service === "s3" && method === "POST" && !encoded && /xml/.test(responseHeaders.get("content-type") ?? "")) {
+    // CompleteMultipartUpload and browser-form uploads report the object's URL in <Location>.
+    const text = await readText(upstream);
+    responseHeaders.delete("content-length");
+    return new Response(text.replaceAll(`<Location>${backend.url}/`, `<Location>${baseUrl}/`), {
+      status,
+      headers: responseHeaders,
+    });
   }
 
   return new Response(Readable.toWeb(upstream) as ReadableStream<Uint8Array>, { status, headers: responseHeaders });
+}
+
+async function readText(stream: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /** Sends the request as-is. Unlike fetch, node:http neither rejects Expect nor decodes Content-Encoding. */
@@ -160,16 +189,22 @@ function toHeaders(incoming: IncomingHttpHeaders): Headers {
 const AWS_QUEUE_URL = /^https:\/\/sqs\.[a-z0-9-]+\.amazonaws\.com\//;
 
 /** Points QueueUrl fields back at this emulator, leaving message bodies untouched. */
-function rewriteQueueUrls(text: string, baseUrl: string): string {
-  const local = (url: string) => url.replace(AWS_QUEUE_URL, `${baseUrl}/sqs/`);
+function rewriteQueueUrls(text: string, baseUrl: string, backendUrl: string): string {
+  const local = (url: string) =>
+    url.startsWith(`${backendUrl}/`)
+      ? `${baseUrl}/sqs${url.slice(backendUrl.length)}`
+      : url.replace(AWS_QUEUE_URL, `${baseUrl}/sqs/`);
   if (text.trimStart().startsWith("<")) {
     return text.replace(/<QueueUrl>([^<]*)<\/QueueUrl>/g, (_, url: string) => `<QueueUrl>${local(url)}</QueueUrl>`);
   }
   try {
-    const data = JSON.parse(text) as { QueueUrl?: unknown; QueueUrls?: unknown };
+    const data = JSON.parse(text) as { QueueUrl?: unknown; QueueUrls?: unknown; queueUrls?: unknown };
     if (typeof data.QueueUrl === "string") data.QueueUrl = local(data.QueueUrl);
     if (Array.isArray(data.QueueUrls))
       data.QueueUrls = data.QueueUrls.map((url) => (typeof url === "string" ? local(url) : url));
+    // ListDeadLetterSourceQueues names the field in lower camel case.
+    if (Array.isArray(data.queueUrls))
+      data.queueUrls = data.queueUrls.map((url) => (typeof url === "string" ? local(url) : url));
     return JSON.stringify(data);
   } catch {
     return text;
@@ -186,9 +221,9 @@ function route(pathname: string): { service: ProxiedService; path: string } {
   return { service: "s3", path: pathname };
 }
 
-function syntheticAuthorization(service: ProxiedService): string {
+function syntheticAuthorization(service: ProxiedService, region: string): string {
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `AWS4-HMAC-SHA256 Credential=AKIAEMULATE/${date}/us-east-1/${service}/aws4_request, SignedHeaders=host, Signature=0`;
+  return `AWS4-HMAC-SHA256 Credential=AKIAEMULATE/${date}/${region}/${service}/aws4_request, SignedHeaders=host, Signature=0`;
 }
 
 function backendError(message: string): Response {
@@ -203,10 +238,14 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-async function seedUpstream(upstream: string, config: AwsSeedConfig): Promise<void> {
-  const send = async (service: ProxiedService, init: RequestInit & { path?: string }, tolerated: string[] = []) => {
+async function seedUpstream(upstream: string, region: string, config: AwsSeedConfig): Promise<void> {
+  const send = async (
+    service: ProxiedService,
+    init: RequestInit & { path?: string; region?: string },
+    tolerated: string[] = [],
+  ) => {
     const headers = new Headers(init.headers);
-    headers.set("authorization", syntheticAuthorization(service));
+    headers.set("authorization", syntheticAuthorization(service, init.region ?? region));
     const response = await fetch(`${upstream}${init.path ?? "/"}`, { ...init, headers });
     if (response.ok) return response;
     const text = await response.text();
@@ -238,7 +277,15 @@ async function seedUpstream(upstream: string, config: AwsSeedConfig): Promise<vo
     );
 
   for (const bucket of config.s3?.buckets ?? []) {
-    await send("s3", { method: "PUT", path: `/${encodeURIComponent(bucket.name)}` }, ["BucketAlreadyOwnedByYou"]);
+    const bucketRegion = bucket.region ?? region;
+    // us-east-1 is the one region where CreateBucket takes no location constraint.
+    const body =
+      bucketRegion === DEFAULT_REGION
+        ? undefined
+        : `<CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LocationConstraint>${bucketRegion}</LocationConstraint></CreateBucketConfiguration>`;
+    await send("s3", { method: "PUT", path: `/${encodeURIComponent(bucket.name)}`, region: bucketRegion, body }, [
+      "BucketAlreadyOwnedByYou",
+    ]);
   }
 
   for (const queue of config.sqs?.queues ?? []) {
