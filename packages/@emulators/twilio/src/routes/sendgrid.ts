@@ -22,6 +22,9 @@ const MAX_CATEGORIES = 10;
 const MAX_SUBSTITUTIONS = 550;
 const MAX_SUBSTITUTION_BYTES = 100_000;
 const MAX_SCHEDULE_SECONDS = 72 * 60 * 60;
+// RFC 5321 caps a whole address at 254 octets. Checking that before the rest
+// of the validation keeps long request strings from being scanned.
+const MAX_EMAIL_LENGTH = 254;
 const RESERVED_HEADERS = new Set([
   "x-sg-id",
   "x-sg-eid",
@@ -178,8 +181,23 @@ function address(value: unknown): TwilioSendGridAddress {
   return result;
 }
 
+const FORBIDDEN_ADDRESS_CHARS = /[\s@<>,;:"()[\]\\]/;
+
+// Splits the address at its single @ and checks each half once. Keeping the
+// pieces separate means the check never revisits characters, so the work stays
+// proportional to the address length no matter what the caller sends.
 function isEmail(value: unknown): value is string {
-  return typeof value === "string" && /^[^\s@<>,;:"()[\]\\]+@[^\s@<>,;:"()[\]\\]+\.[^\s@<>,;:"()[\]\\]+$/.test(value);
+  if (typeof value !== "string" || value.length > MAX_EMAIL_LENGTH) return false;
+  // The length check above keeps this byte count off oversized strings.
+  if (Buffer.byteLength(value, "utf8") > MAX_EMAIL_LENGTH) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at === value.length - 1 || value.indexOf("@", at + 1) !== -1) return false;
+  const local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  // The domain needs a dot with at least one character on each side.
+  const dot = domain.indexOf(".", 1);
+  if (dot === -1 || dot >= domain.length - 1) return false;
+  return !FORBIDDEN_ADDRESS_CHARS.test(local) && !FORBIDDEN_ADDRESS_CHARS.test(domain);
 }
 
 function isAddress(value: unknown, asciiOnly = false): boolean {

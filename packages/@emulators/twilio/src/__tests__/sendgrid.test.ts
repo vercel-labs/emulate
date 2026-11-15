@@ -155,6 +155,40 @@ describe("SendGrid Mail Send", () => {
     for (const error of errors) expect(error).toHaveProperty("help", null);
   });
 
+  it("validates addresses without rescanning long domains", async () => {
+    const dotted = mail({ personalizations: [{ to: [{ email: "first.last+tag@sub.example.co.uk" }] }] });
+    expect((await send(dotted)).status).toBe(202);
+
+    const noDot = await send(mail({ personalizations: [{ to: [{ email: "guest@example" }] }] }));
+    expect(await errorsOf(noDot)).toEqual([expect.objectContaining({ field: "personalizations.0.to.0.email" })]);
+
+    // A long dotted domain that ends in a disallowed character must be rejected
+    // in a single pass instead of triggering repeated rescanning of the domain.
+    const address = `reception@${"example.".repeat(20_000)}<`;
+    const started = performance.now();
+    const response = await send(mail({ from: { email: address } }));
+    const elapsed = performance.now() - started;
+
+    expect(await errorsOf(response)).toEqual([expect.objectContaining({ field: "from.email" })]);
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it("caps email addresses at 254 bytes", async () => {
+    const local = "a".repeat(64);
+    const domain = `${"b".repeat(185)}.com`;
+    expect(`${local}@${domain}`).toHaveLength(254);
+    expect((await send(mail({ from: { email: `${local}@${domain}` } }))).status).toBe(202);
+
+    const oneTooLong = await send(mail({ from: { email: `${local}@${"b".repeat(186)}.com` } }));
+    expect(await errorsOf(oneTooLong)).toEqual([expect.objectContaining({ field: "from.email" })]);
+
+    const multiByte = `${"é".repeat(200)}@example.com`;
+    expect(multiByte.length).toBeLessThanOrEqual(254);
+    expect(Buffer.byteLength(multiByte, "utf8")).toBeGreaterThan(254);
+    const overBytes = await send(mail({ personalizations: [{ to: [{ email: multiByte }] }] }));
+    expect(await errorsOf(overBytes)).toEqual([expect.objectContaining({ field: "personalizations.0.to.0.email" })]);
+  });
+
   it("checks personalizations, recipient limits, and duplicate addresses", async () => {
     expect(await errorsOf(await send(mail({ personalizations: [] })))).toEqual([
       { message: "You must have at least one personalization.", field: "personalizations", help: null },
