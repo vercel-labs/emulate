@@ -226,6 +226,12 @@ describe("aws.backend proxy", () => {
     expect(seed({ backend: { url: upstreamUrl }, kms: { keys: [{ key_id: "fixed" }] } })).toThrow(
       "aws.kms.keys[].key_id",
     );
+    expect(seed({ backend: { url: upstreamUrl }, region: "us_east_1" })).toThrow(
+      'aws.region must look like us-east-1, got "us_east_1"',
+    );
+    expect(
+      seed({ backend: { url: upstreamUrl }, s3: { buckets: [{ name: "uploads", region: "EU_WEST" }] } }),
+    ).toThrow('aws.s3.buckets[0].region must look like us-east-1, got "EU_WEST"');
   });
 
   it("forwards uploads that use Expect: 100-continue or chunked transfer encoding", async () => {

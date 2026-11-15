@@ -71,10 +71,17 @@ export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
 
   const upstream = url.toString().replace(/\/+$/, "");
   const region = config.region ?? DEFAULT_REGION;
-  const badRegion = [region, ...(config.s3?.buckets ?? []).map((bucket) => bucket.region ?? region)].find(
-    (value) => !/^[a-z0-9-]+$/.test(value),
-  );
-  if (badRegion !== undefined) throw new Error(`aws.region must look like us-east-1, got ${JSON.stringify(badRegion)}`);
+  const regions = [
+    { key: "aws.region", value: region },
+    ...(config.s3?.buckets ?? []).map((bucket, index) => ({
+      key: `aws.s3.buckets[${index}].region`,
+      value: bucket.region ?? region,
+    })),
+  ];
+  const badRegion = regions.find(({ value }) => !/^[a-z0-9-]+$/.test(value));
+  if (badRegion) {
+    throw new Error(`${badRegion.key} must look like us-east-1, got ${JSON.stringify(badRegion.value)}`);
+  }
   let ready = seeded.get(store)?.url === upstream ? seeded.get(store)!.ready : undefined;
   if (!ready) {
     ready = seedUpstream(upstream, region, config);
