@@ -2,17 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { flows } from "@/lib/playgrounds";
-import { consoleServices } from "@/lib/services";
 import { cn } from "@/lib/utils";
 
-const groups = [
-  { title: "Flows", links: flows.map(({ href, label }) => ({ href, label })) },
-  { title: "API consoles", links: consoleServices.map(({ name, label }) => ({ href: `/services/${name}`, label })) },
-];
+export interface NavGroup {
+  title: string;
+  links: { href: string; label: string }[];
+}
 
 /** Switcher listing every playground, with the current one marked. */
-export function PlaygroundNav() {
+export function PlaygroundNav({ groups }: { groups: NavGroup[] }) {
   const pathname = usePathname();
 
   return (

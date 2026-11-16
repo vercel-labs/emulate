@@ -12,7 +12,7 @@ const sections = [
   },
   {
     title: "API consoles",
-    intro: "Send requests to an emulator and read the response.",
+    intro: "Every operation an emulator supports, ready to send with its method, path, headers, and body filled in.",
     items: consoleServices.map((service) => ({
       href: `/services/${service.name}`,
       label: service.label,

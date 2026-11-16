@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { PlaygroundNav } from "@/components/playground-nav";
+import { PlaygroundNav, type NavGroup } from "@/components/playground-nav";
+import { flows } from "@/lib/playgrounds";
+import { consoleServices } from "@/lib/services";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,6 +14,11 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+const navGroups: NavGroup[] = [
+  { title: "Flows", links: flows.map(({ href, label }) => ({ href, label })) },
+  { title: "API consoles", links: consoleServices.map(({ name, label }) => ({ href: `/services/${name}`, label })) },
+];
 
 export const metadata: Metadata = {
   title: "emulate playground",
@@ -26,7 +33,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col bg-background text-foreground md:flex-row">
-        <PlaygroundNav />
+        <PlaygroundNav groups={navGroups} />
         <main className="flex min-w-0 flex-1 flex-col">{children}</main>
       </body>
     </html>

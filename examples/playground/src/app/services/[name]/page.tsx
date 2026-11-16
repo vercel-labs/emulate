@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { ApiConsole } from "@/components/api-console";
+import { getSession } from "@/lib/oauth/session";
 import { consoleServices } from "@/lib/services";
 
 export default async function ServiceConsolePage({ params }: { params: Promise<{ name: string }> }) {
@@ -7,10 +8,11 @@ export default async function ServiceConsolePage({ params }: { params: Promise<{
   const service = consoleServices.find((item) => item.name === name);
   if (!service) notFound();
 
+  const session = await getSession();
   const base = `/emulate/${service.name}`;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 p-6 md:p-10">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 p-6 md:p-10">
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{service.label}</h1>
         <p className="text-sm text-muted-foreground">{service.description}</p>
@@ -28,7 +30,13 @@ export default async function ServiceConsolePage({ params }: { params: Promise<{
           )}
         </div>
       </header>
-      <ApiConsole name={service.name} presets={service.presets} />
+      <ApiConsole
+        key={service.name}
+        name={service.name}
+        groups={service.groups}
+        variables={service.variables ?? []}
+        initialValues={session?.provider === service.name ? { token: session.accessToken } : {}}
+      />
     </div>
   );
 }

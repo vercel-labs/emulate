@@ -28,13 +28,17 @@ Each flow is a small app that uses an emulator the way production code would.
 
 ## API consoles
 
-Emulators without a flow get a request console at `/services/<name>`. Pick a preset or edit the method, path, headers, and body, then send the request and read the response. Where the emulator has its own inspector, the page links to it.
+Every emulator has a request console at `/services/<name>`. It lists the operations the emulator supports, grouped by area, each with its method, path, headers, and body already filled in. Pick one, edit it if you like, send it, and read the response. Where the emulator has its own inspector or inbox, the page links to it.
+
+Some requests need a value that only exists at runtime, such as an access token or the id of something you just created. Those appear as `{{name}}` in the request, and the console shows a field for each one with a note on where the value comes from. When you run the operation that returns the value, the console keeps it and fills the field in for you, so running a group from top to bottom works without copying ids around. You can also type a value yourself.
+
+For the emulators behind the OAuth flow (GitHub, Google, Vercel, Microsoft, Okta, Clerk, Apple), sign in at `/oauth` first and the console fills in the access token by itself.
 
 ## How it is put together
 
 - `src/lib/emulators.ts` lists every emulator with its seed data. `src/app/emulate/[...path]/route.ts` serves them all from one handler, so they share one process and reset together when the dev server restarts.
 - Each flow lives in its own folders: `src/app/<flow>`, `src/lib/<flow>`, and `src/components/<flow>`. Flows keep separate cookies, so signing in to one does not sign you in to another.
-- `src/lib/playgrounds.ts` and `src/lib/services.ts` drive the sidebar and the home page. Add an entry there to add a playground.
+- `src/lib/playgrounds.ts` lists the flows and `src/lib/services/` holds one catalog file per emulator. Together they drive the sidebar and the home page.
 - `src/app/v1/[...path]/route.ts` forwards Stripe SDK calls to the Stripe emulator, because the SDK only accepts a host and port.
 
 ## Notes
