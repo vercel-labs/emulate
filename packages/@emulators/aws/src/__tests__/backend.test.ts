@@ -232,6 +232,18 @@ describe("aws.backend proxy", () => {
     expect(recorded.map((r) => `${r.method} ${r.path}`)).toEqual(["PUT /uploads", "PUT /uploads", "GET /"]);
   });
 
+  it("seeds again on the next request when the backend comes up after a failed start", async () => {
+    respond = (request) => (request.method === "PUT" ? { status: 503, body: "starting" } : {});
+    const { app } = backendApp({ s3: { buckets: [{ name: "uploads" }] } });
+    expect((await app.request("/")).status).toBe(502);
+
+    respond = () => ({});
+
+    expect((await app.request("/")).status).toBe(200);
+    expect((await app.request("/")).status).toBe(200);
+    expect(recorded.map((r) => `${r.method} ${r.path}`)).toEqual(["PUT /uploads", "PUT /uploads", "GET /", "GET /"]);
+  });
+
   it("returns 502 in the error protocol each service's SDK parses", async () => {
     const { app } = backendApp({}, "http://127.0.0.1:1");
     const call = (service: string) => app.request(`/${service}/`, { method: "POST", body: "{}" });

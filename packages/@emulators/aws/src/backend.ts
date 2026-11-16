@@ -12,7 +12,13 @@ export interface AwsBackendConfig {
 interface BackendState {
   url: string;
   region: string;
-  ready: Promise<void>;
+}
+
+interface SeedState {
+  url: string;
+  region: string;
+  config: AwsSeedConfig;
+  ready?: Promise<void>;
 }
 
 type ProxiedService = "s3" | "sqs" | "iam" | "sts" | "kms";
@@ -40,8 +46,8 @@ const HOP_BY_HOP_HEADERS = [
 ];
 const DROPPED_REQUEST_HEADERS = [...HOP_BY_HOP_HEADERS, "host", "content-length", "expect"];
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
-// Seeding runs once per emulator instance and backend; a successful seed survives resets.
-const seeded = new WeakMap<Store, { url: string; ready: Promise<void> }>();
+// A successful seed survives resets; a failed attempt is dropped so the next request retries it.
+const seeds = new WeakMap<Store, SeedState>();
 
 export function getAwsBackend(store: Store): BackendState | undefined {
   return store.getData<BackendState>(STATE_KEY);
@@ -49,7 +55,7 @@ export function getAwsBackend(store: Store): BackendState | undefined {
 
 /**
  * Validates `aws.backend` and stores it on the instance. Upstream seeding starts
- * right away; proxied requests wait for it to finish.
+ * right away; proxied requests wait for it to finish and retry it after a failure.
  */
 export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
   const backend = config.backend!;
@@ -85,17 +91,34 @@ export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
   if (badRegion) {
     throw new Error(`${badRegion.key} must look like us-east-1, got ${JSON.stringify(badRegion.value)}`);
   }
-  let ready = seeded.get(store)?.url === upstream ? seeded.get(store)!.ready : undefined;
-  if (!ready) {
-    ready = seedUpstream(upstream, region, config);
-    seeded.set(store, { url: upstream, ready });
-    // Surface seed failures on the first proxied request rather than as an unhandled rejection.
-    // A failed seed is not cached, so the next seed pass, such as a reset, tries again.
-    ready.catch(() => {
-      if (seeded.get(store)?.ready === ready) seeded.delete(store);
-    });
+  const previous = seeds.get(store);
+  const seed = previous?.url === upstream && previous.region === region ? previous : { url: upstream, region, config };
+  seeds.set(store, seed);
+  store.setData<BackendState>(STATE_KEY, { url: upstream, region });
+  // Surface seed failures on the first proxied request, which starts a new attempt.
+  seedAttempt(seed).catch(() => {});
+}
+
+/** The current seed attempt; a failed one is replaced by the next call. */
+function seedAttempt(seed: SeedState): Promise<void> {
+  seed.ready ??= runSeed(seed);
+  return seed.ready;
+}
+
+async function runSeed(seed: SeedState): Promise<void> {
+  try {
+    await seedUpstream(seed.url, seed.region, seed.config);
+  } catch (error) {
+    seed.ready = undefined;
+    throw error;
   }
-  store.setData<BackendState>(STATE_KEY, { url: upstream, region, ready });
+}
+
+/** Waits for the seed, starting a new attempt when the last one failed. */
+function backendReady(store: Store): Promise<void> {
+  const seed = seeds.get(store);
+  // A store restored from a persisted snapshot carries no seed state.
+  return seed ? seedAttempt(seed) : Promise.resolve();
 }
 
 /** Proxies every non-Cognito, non-inspector request to the configured backend. */
@@ -107,18 +130,18 @@ export function registerBackendProxy(app: Hono<AppEnv>, store: Store, baseUrl: s
       await next();
       return;
     }
-    return proxy(c, backend, baseUrl);
+    return proxy(c, store, backend, baseUrl);
   });
 }
 
-async function proxy(c: Context<AppEnv>, backend: BackendState, baseUrl: string): Promise<Response> {
+async function proxy(c: Context<AppEnv>, store: Store, backend: BackendState, baseUrl: string): Promise<Response> {
   const incoming = new URL(c.req.url);
   const { service, path } = route(
     incoming.pathname,
     credentialService(c.req.raw.headers.get("authorization"), incoming.searchParams.get("X-Amz-Credential")),
   );
   try {
-    await backend.ready;
+    await backendReady(store);
   } catch (error) {
     return backendError(service, `Seeding the AWS backend at ${backend.url} failed: ${errorMessage(error)}`);
   }
