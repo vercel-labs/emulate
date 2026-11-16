@@ -170,6 +170,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -225,6 +226,15 @@
   --font-sans: var(--font-geist-mono);
   background-color: var(--background);
   color: var(--foreground);
+}
+
+.dark .stripe-store {
+  --background: oklch(0.17 0.005 50);
+  --foreground: oklch(0.93 0.005 80);
+  --secondary: oklch(0.25 0.006 60);
+  --muted-foreground: oklch(0.7 0.01 60);
+  --border: oklch(0.31 0.006 60);
+  --ring: oklch(0.5 0.01 55);
 }
 
 .stripe-store button,

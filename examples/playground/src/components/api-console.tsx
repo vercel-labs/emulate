@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import type { ConsolePreset, ConsoleVariable, PresetGroup } from "@/lib/services";
 
@@ -102,6 +102,11 @@ export function ApiConsole({
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [pending, setPending] = useState(false);
   const latestRequest = useRef(0);
+  const result = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (outcome) result.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [outcome]);
 
   const current = operations[selected];
   const bodyDisabled = form.method === "GET" || form.method === "HEAD";
@@ -308,7 +313,7 @@ export function ApiConsole({
             </Button>
           </div>
         </form>
-        <section aria-live="polite" className="flex flex-col gap-3">
+        <section ref={result} aria-live="polite" className="flex scroll-mb-6 flex-col gap-3">
           {outcome?.kind === "response" && (
             <>
               <p className="text-sm">
