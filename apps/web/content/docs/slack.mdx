@@ -182,6 +182,16 @@ To test bot handlers, invite an installed app's `bot_user_id` with `conversation
 - `file_created`, `file_shared`, and `file_deleted` on file writes
 - `message` with `subtype: file_share` on shared file uploads
 
+Set `slack.event_subscriptions` in seed config to send event callbacks to your app, the same as the Event Subscriptions Request URL of a Slack app. Each entry takes a `url` and an optional `events` list of event types, such as `message` or `app_mention`. Without `events`, the URL receives every event. `reset()` restores these subscriptions.
+
+```yaml
+slack:
+  event_subscriptions:
+    - url: http://localhost:3000/api/slack/events
+    - url: http://localhost:3000/api/slack/reactions
+      events: [reaction_added, reaction_removed]
+```
+
 Set `slack.signing_secret` in seed config to sign every outbound event subscription callback, including subscriptions that already exist. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`. The signature is `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>`, calculated from the exact serialized request body. Configure the receiver with the same secret and verify the unparsed body. When the secret is absent or empty, callbacks are unsigned.
 
 ### Channel privacy conversions

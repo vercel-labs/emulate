@@ -246,6 +246,36 @@ describe("Slack plugin - event dispatch baseline", () => {
     });
   });
 
+  it("delivers events to subscriptions from seed config", async () => {
+    const { app, store, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    seedFromConfig(
+      store,
+      base,
+      {
+        event_subscriptions: [
+          { url: "https://hooks.example/all" },
+          { url: "https://hooks.example/reactions", events: ["reaction_added"] },
+        ],
+      },
+      webhooks,
+    );
+
+    const ch = getSlackStore(store).channels.findOneBy("name", "general")!;
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, text: "seeded subscription" }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(capture.requests.map((request) => request.url)).toEqual(["https://hooks.example/all"]);
+    expect(capture.jsonBodies()[0]).toMatchObject({
+      type: "event_callback",
+      event: { type: "message", channel: ch.channel_id, text: "seeded subscription" },
+    });
+  });
+
   it("signs callbacks with the current Slack signing secret and raw body", async () => {
     const { app, store, webhooks } = createSlackTestApp();
     const firstSecret = "test-slack-secret";

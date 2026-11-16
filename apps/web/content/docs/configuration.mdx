@@ -260,6 +260,8 @@ slack:
     - channel: general
       label: CI Notifications
   signing_secret: my_signing_secret
+  event_subscriptions:
+    - url: http://localhost:3000/api/slack/events
 ```
 
 `signing_secret` signs every outbound Slack event subscription callback, including existing subscriptions. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`, calculated as `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>` over the exact serialized body. Configure the receiver with the same secret and verify the unparsed request body. When the secret is absent or empty, callbacks are unsigned.
