@@ -1,8 +1,13 @@
 import type { ReactNode } from "react";
 import { PlaygroundSidebar, type SidebarGroup } from "@/components/playground/sidebar";
+import { flows } from "@/lib/playground/flows";
 import { consoleServices } from "@/lib/playground/services";
 
 const groups: SidebarGroup[] = [
+  {
+    title: "Flows",
+    links: flows.map(({ slug, label }) => ({ href: `/playground/flows/${slug}`, label })),
+  },
   {
     title: "API consoles",
     links: consoleServices.map(({ name, label }) => ({ href: `/playground/${name}`, label })),

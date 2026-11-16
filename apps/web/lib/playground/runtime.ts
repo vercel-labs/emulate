@@ -23,6 +23,8 @@ export interface EmulatorResponse {
 
 export interface Emulator {
   send(request: EmulatorRequest): Promise<EmulatorResponse>;
+  /** Sends any request to the emulator and returns the raw response, for callers that need headers or bytes. */
+  fetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
 const loaders: Record<string, () => Promise<EmulatorModule>> = {
@@ -54,6 +56,7 @@ async function create(name: string): Promise<Emulator> {
   if (seed) emulator.seedFromConfig?.(server.store, baseUrl, seed as never, server.webhooks);
 
   return {
+    fetch: (path, init) => Promise.resolve(server.app.fetch(new Request(baseUrl + path, init))),
     async send({ method, path, headers, body }) {
       const response = await server.app.fetch(new Request(baseUrl + path, { method, headers, body }));
       return {

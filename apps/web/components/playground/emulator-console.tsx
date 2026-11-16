@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  fieldClass,
+  hintClass,
+  labelClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "@/components/playground/ui";
 import { getEmulator, resetEmulator } from "@/lib/playground/runtime";
 import type { ConsolePreset, ConsoleVariable, PresetGroup } from "@/lib/playground/services";
 
@@ -31,19 +38,6 @@ type Phase = "idle" | "loading" | "sending";
 const methods: Method[] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"];
 
 const placeholder = /\{\{([a-z0-9_]+)\}\}/g;
-
-const fieldClass =
-  "w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 font-mono text-sm text-neutral-900 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:opacity-50 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100";
-
-const primaryButtonClass =
-  "inline-flex h-9 items-center rounded-md bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200";
-
-const secondaryButtonClass =
-  "inline-flex h-8 items-center rounded-md border border-neutral-200 px-3 text-sm text-neutral-700 hover:border-neutral-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-neutral-700";
-
-const labelClass = "text-sm font-medium text-neutral-900 dark:text-neutral-100";
-
-const hintClass = "text-xs text-neutral-500 dark:text-neutral-400";
 
 function now(): number {
   return performance.now();
