@@ -10,6 +10,8 @@ export interface GoogleUser extends Entity {
   email_verified: boolean;
   locale: string;
   hd: string | null;
+  /** A super administrator, as the Directory API's `isAdmin`. */
+  is_admin?: boolean;
 }
 
 export interface GoogleOAuthClient extends Entity {
