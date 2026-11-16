@@ -18,8 +18,10 @@ import { appRoutes } from "./routes/apps.js";
 import { authorizationServerRoutes } from "./routes/auth-servers.js";
 import { groupRoutes } from "./routes/groups.js";
 import { oauthRoutes } from "./routes/oauth.js";
+import { samlRoutes } from "./routes/saml.js";
 import { userRoutes } from "./routes/users.js";
 import { oktaError } from "./route-helpers.js";
+import { resolveExternalKey, samlSettingsError, setSamlSigningKey } from "./saml.js";
 import { getOktaStore } from "./store.js";
 
 export { getOktaStore, type OktaStore } from "./store.js";
@@ -27,6 +29,13 @@ export * from "./entities.js";
 
 export interface OktaSeedConfig {
   strict_scopes?: boolean;
+  /** Pins the SAML signing key, so a service provider trusts the same certificate across restarts. */
+  saml_signing_key?: {
+    /** PKCS #8 PEM private key. */
+    private_key: string;
+    /** PEM or base64 DER certificate for that key. */
+    certificate: string;
+  };
   users?: Array<{
     okta_id?: string;
     status?: OktaUserStatus;
@@ -52,6 +61,8 @@ export interface OktaSeedConfig {
     sign_on_mode?: string;
     settings?: Record<string, unknown>;
     credentials?: Record<string, unknown>;
+    /** SAML 2.0 apps: the external key in the SSO URL, metadata URL and issuer. Generated when omitted. */
+    external_key?: string;
   }>;
   oauth_clients?: Array<{
     client_id: string;
@@ -162,6 +173,13 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
     store.setData("okta.strict_scopes", config.strict_scopes);
   }
 
+  if (config.saml_signing_key) {
+    setSamlSigningKey(store, {
+      privateKeyPem: config.saml_signing_key.private_key,
+      certificate: config.saml_signing_key.certificate,
+    });
+  }
+
   if (config.authorization_servers) {
     for (const server of config.authorization_servers) {
       const existing = okta.authorizationServers.findOneBy("server_id", server.id);
@@ -217,14 +235,18 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
     for (const app of config.apps) {
       const byName = okta.apps.findOneBy("name", app.name);
       if (byName) continue;
+      const signOnMode = app.sign_on_mode ?? "OPENID_CONNECT";
+      const samlError = samlSettingsError(signOnMode, app.settings ?? {});
+      if (samlError) throw new Error(`Okta app "${app.name}": ${samlError}`);
       okta.apps.insert({
         okta_id: app.okta_id ?? generateOktaId("0oa"),
         name: app.name,
         label: app.label ?? app.name,
         status: normalizeAppStatus(app.status, "ACTIVE"),
-        sign_on_mode: app.sign_on_mode ?? "OPENID_CONNECT",
+        sign_on_mode: signOnMode,
         settings: app.settings ?? {},
         credentials: app.credentials ?? {},
+        external_key: resolveExternalKey(signOnMode, app.external_key),
       });
     }
   }
@@ -293,6 +315,7 @@ export const oktaPlugin: ServicePlugin = {
     groupRoutes(ctx);
     appRoutes(ctx);
     authorizationServerRoutes(ctx);
+    samlRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

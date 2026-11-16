@@ -269,7 +269,7 @@
       "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
       "ogImage": "/og/okta",
       "ogTitle": "Okta | emulate",
-      "headings": ["OAuth / OIDC", "Users", "Groups", "Apps", "Authorization Servers"]
+      "headings": ["OAuth / OIDC", "Users", "Groups", "Apps", "SAML 2.0 Apps", "Authorization Servers"]
     },
     "/docs/mongoatlas": {
       "title": "MongoDB Atlas | emulate",

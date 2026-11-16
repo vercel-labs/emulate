@@ -1,6 +1,6 @@
 # @emulators/okta
 
-Okta identity provider emulation with OAuth 2.0 / OIDC, user management, groups, apps, and authorization servers.
+Okta identity provider emulation with OAuth 2.0 / OIDC, SAML 2.0 apps, user management, groups, apps, and authorization servers.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -62,6 +62,12 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `DELETE /api/v1/apps/:appId/users/:userId` — unassign user
 - `POST /api/v1/apps/:appId/lifecycle/activate` — activate app
 - `POST /api/v1/apps/:appId/lifecycle/deactivate` — deactivate app
+
+### SAML 2.0 apps
+- `GET /app/:appName/:externalKey/sso/saml` — SSO URL (HTTP-Redirect binding, or IdP-initiated sign-in)
+- `POST /app/:appName/:externalKey/sso/saml` — SSO URL (HTTP-POST binding)
+- `GET /app/:externalKey/sso/saml/metadata` — IdP metadata
+- `GET /api/v1/apps/:appId/sso/saml/metadata` — IdP metadata through the Apps API
 
 ### Authorization Servers
 - `GET /api/v1/authorizationServers` — list
