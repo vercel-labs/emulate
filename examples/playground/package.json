@@ -1,0 +1,53 @@
+{
+  "name": "playground",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.3.0",
+    "@emulators/adapter-next": "workspace:*",
+    "@emulators/apple": "workspace:*",
+    "@emulators/aws": "workspace:*",
+    "@emulators/clerk": "workspace:*",
+    "@emulators/github": "workspace:*",
+    "@emulators/google": "workspace:*",
+    "@emulators/linear": "workspace:*",
+    "@emulators/microsoft": "workspace:*",
+    "@emulators/mongoatlas": "workspace:*",
+    "@emulators/okta": "workspace:*",
+    "@emulators/resend": "workspace:*",
+    "@emulators/slack": "workspace:*",
+    "@emulators/stripe": "workspace:*",
+    "@emulators/twilio": "workspace:*",
+    "@emulators/vercel": "workspace:*",
+    "@vercel/blob": "^2.4.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "geist": "^1.7.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.2.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "resend": "^6.10.0",
+    "stripe": "^22.1.0",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "twilio": "^6.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
