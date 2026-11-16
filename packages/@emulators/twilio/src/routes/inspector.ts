@@ -9,6 +9,7 @@ const TABS: InspectorTab[] = [
   { id: "verify", label: "Verify", href: "/?tab=verify" },
   { id: "calls", label: "Calls", href: "/?tab=calls" },
   { id: "conversations", label: "Conversations", href: "/?tab=conversations" },
+  { id: "sendgrid", label: "SendGrid", href: "/?tab=sendgrid" },
   { id: "numbers", label: "Numbers", href: "/?tab=numbers" },
   { id: "services", label: "Services", href: "/?tab=services" },
   { id: "auth", label: "Auth", href: "/?tab=auth" },
@@ -38,7 +39,9 @@ export function inspectorRoutes({ app, store }: RouteContext): void {
                   ? authView()
                   : active === "webhooks"
                     ? webhooksView()
-                    : messagesView();
+                    : active === "sendgrid"
+                      ? sendgridView()
+                      : messagesView();
     return c.html(renderInspectorPage("Twilio Inspector", TABS, active, body, SERVICE_LABEL));
   });
 
@@ -148,6 +151,53 @@ export function inspectorRoutes({ app, store }: RouteContext): void {
           "No conversations.",
         ),
       )
+    );
+  }
+
+  function sendgridView(): string {
+    const rows = ts()
+      .sendgridMessages.all()
+      .sort((a, b) => b.id - a.id)
+      .map((message) => {
+        const request = message.request;
+        const personalizations = Array.isArray(request.personalizations) ? request.personalizations : [];
+        const subjects = [
+          ...new Set(
+            personalizations.map((item) =>
+              typeof item?.subject === "string" ? item.subject : (message.subject ?? ""),
+            ),
+          ),
+        ];
+        const content = Array.isArray(request.content)
+          ? request.content.map((part) => (typeof part?.type === "string" ? part.type : "")).join(", ")
+          : "";
+        const attachments = Array.isArray(request.attachments) ? request.attachments.length : 0;
+        return [
+          escapeHtml(message.message_id),
+          escapeHtml(message.from.email),
+          escapeHtml(message.recipients.join(", ")),
+          escapeHtml(subjects.join(" | ")),
+          escapeHtml(message.template_id ?? content),
+          escapeHtml(String(attachments)),
+          escapeHtml(message.created_at),
+        ];
+      });
+    const keyRows = ts()
+      .sendgridApiKeys.all()
+      .map((key) => [
+        escapeHtml(key.name),
+        escapeHtml(maskSecret(key.key)),
+        escapeHtml(key.scopes ? key.scopes.join(", ") : "full access"),
+      ]);
+    return (
+      section(
+        "SendGrid Mail Send",
+        table(
+          ["Message ID", "From", "Recipients", "Subject", "Template or Content", "Attachments", "Created"],
+          rows,
+          "No SendGrid emails.",
+        ),
+      ) + section("SendGrid API Keys", table(["Name", "Key", "Scopes"], keyRows, "No SendGrid API keys."))
     );
   }
 

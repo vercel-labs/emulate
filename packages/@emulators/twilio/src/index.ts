@@ -11,6 +11,7 @@ import { callRoutes } from "./routes/calls.js";
 import { conversationRoutes } from "./routes/conversations.js";
 import { simulatorRoutes } from "./routes/simulator.js";
 import { inspectorRoutes } from "./routes/inspector.js";
+import { sendgridRoutes } from "./routes/sendgrid.js";
 
 export { getTwilioStore, type TwilioStore } from "./store.js";
 export * from "./entities.js";
@@ -57,6 +58,13 @@ export interface TwilioSeedConfig {
       friendly_name: string;
     }>;
   };
+  sendgrid?: {
+    api_keys?: Array<{
+      key: string;
+      name?: string;
+      scopes?: string[];
+    }>;
+  };
 }
 
 export const DEFAULT_ACCOUNT_SID = fixedSid("AC");
@@ -67,6 +75,7 @@ export const DEFAULT_VERIFY_SERVICE_SID = fixedSid("VA");
 export const DEFAULT_AUTH_TOKEN = "twilio_test_auth_token";
 export const DEFAULT_API_KEY_SECRET = "twilio_test_api_secret";
 export const DEFAULT_PHONE_NUMBER = "+15551234567";
+export const DEFAULT_SENDGRID_API_KEY = "SG.emulate_local_key.twilio_test_sendgrid_api_key";
 
 function seedDefaults(store: Store): void {
   seedFromConfig(store, "", {
@@ -101,6 +110,9 @@ function seedDefaults(store: Store): void {
     ],
     conversations: {
       services: [{ friendly_name: "Local Conversations" }],
+    },
+    sendgrid: {
+      api_keys: [{ key: DEFAULT_SENDGRID_API_KEY, name: "Local SendGrid API Key" }],
     },
   });
 }
@@ -254,6 +266,17 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: TwilioSee
       friendly_name: service.friendly_name,
     });
   }
+
+  for (const apiKey of config.sendgrid?.api_keys ?? []) {
+    const existing = ts.sendgridApiKeys.findOneBy("key", apiKey.key);
+    const fields = {
+      key: apiKey.key,
+      name: apiKey.name ?? existing?.name ?? "Local SendGrid API Key",
+      scopes: apiKey.scopes ?? null,
+    };
+    if (existing) ts.sendgridApiKeys.update(existing.id, fields);
+    else ts.sendgridApiKeys.insert(fields);
+  }
 }
 
 export const twilioPlugin: ServicePlugin = {
@@ -268,6 +291,7 @@ export const twilioPlugin: ServicePlugin = {
     callRoutes(ctx);
     conversationRoutes(ctx);
     simulatorRoutes(ctx);
+    sendgridRoutes(ctx);
     inspectorRoutes(ctx);
   },
   seed(store: Store): void {
