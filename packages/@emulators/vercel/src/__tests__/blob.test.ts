@@ -133,6 +133,20 @@ describe("Vercel Blob via the @vercel/blob SDK", () => {
     expect(res.headers.get("cache-control")).toBe("public, max-age=2592000");
   });
 
+  it("serves an uploaded HTML file sandboxed so it cannot script the serving origin", async () => {
+    const result = await put("active/page.html", "<script>document.title = 'owned'</script>", {
+      access: "public",
+      token,
+      contentType: "text/html",
+    });
+
+    const res = await fetch(result.url);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("content-security-policy")).toBe("sandbox");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
   it("put with addRandomSuffix appends a suffix before the extension", async () => {
     const result = await put("suffix/report.txt", "hello suffix", {
       access: "public",

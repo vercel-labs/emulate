@@ -141,6 +141,8 @@ Generated identities require atomic create-or-read `initialize`; see `@emulators
 4. **Rewrite response**: HTML `action` and `href` attributes, CSS `url()` font references, and `Location` headers get the service prefix prepended
 5. **Persist**: After mutating requests, state is saved via the persistence adapter
 
+Emulators share your app's origin, so the files they hand back (Vercel Blob content, S3 objects, Drive downloads, Slack files) are sent with `X-Content-Type-Options: nosniff`, and HTML, SVG, and XML files also carry `Content-Security-Policy: sandbox`. An uploaded file cannot run script in your app's origin.
+
 ## Limitations
 
 - Requires the Node.js runtime (not Edge) since emulators use `crypto.randomBytes`

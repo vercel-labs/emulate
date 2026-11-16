@@ -23,10 +23,9 @@ export function registerContent({ app, vs }: BlobRouteContext): void {
       return c.body(null, 304, headers);
     }
 
-    headers["content-type"] = blob.contentType;
     if (c.req.query("download") === "1") {
       headers["content-disposition"] = blob.contentDisposition;
     }
-    return c.body(Buffer.from(blob.dataBase64, "base64"), 200, headers);
+    return c.file(Buffer.from(blob.dataBase64, "base64"), blob.contentType, headers);
   });
 }
