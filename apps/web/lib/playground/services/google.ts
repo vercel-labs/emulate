@@ -4,23 +4,18 @@ const auth = { Authorization: "Bearer {{token}}" };
 const json = { ...auth, "Content-Type": "application/json" };
 const form = { "Content-Type": "application/x-www-form-urlencoded" };
 const client = "client_id=emu_google_client_id&client_secret=emu_google_client_secret";
-const redirectUri = "redirect_uri={{redirect_uri}}";
+const redirectUri = "redirect_uri=https://playground.emulate.local/oauth/api/auth/callback/google";
 
 const variables: ConsoleVariable[] = [
   {
     name: "token",
     label: "Access token",
-    hint: "Sign in at /oauth with Google and this fills in by itself, or copy the access token from that dashboard.",
-  },
-  {
-    name: "redirect_uri",
-    label: "Redirect URI",
-    hint: "The redirect URI the sign-in used, shaped http://localhost:<port>/oauth/api/auth/callback/google.",
+    hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange authorization code replaces it with a real token.",
   },
   {
     name: "code",
     label: "Authorization code",
-    hint: "Copy the code parameter from the redirect after you pick a user at /o/oauth2/v2/auth. Codes are single use and expire after 10 minutes.",
+    hint: "Filled in when you run Approve sign-in. Codes are single use and expire after 10 minutes.",
   },
   {
     name: "refresh_token",
@@ -96,14 +91,24 @@ export const google: ConsoleService = {
           path: "/oauth2/v3/certs",
         },
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the consent page. Approves the sign-in as testuser@gmail.com and keeps the code it returns.",
+          method: "POST",
+          path: "/o/oauth2/v2/auth/callback",
+          headers: form,
+          body: `email=testuser@gmail.com&${redirectUri}&scope=openid+email+profile&state=playground&nonce=&client_id=emu_google_client_id&code_challenge=&code_challenge_method=`,
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange authorization code",
           description:
-            "Trade a sign-in code for an access token, refresh token, and ID token. Copy the code from the redirect after you pick a user at /o/oauth2/v2/auth.",
+            "Trade the code from Approve sign-in for an access token, refresh token, and ID token. The access token replaces the Access token value.",
           method: "POST",
           path: "/oauth2/token",
           headers: form,
           body: `code={{code}}&${client}&${redirectUri}&grant_type=authorization_code`,
-          captures: { refresh_token: "refresh_token" },
+          captures: { token: "access_token", refresh_token: "refresh_token" },
         },
         {
           label: "Refresh access token",
@@ -119,15 +124,6 @@ export const google: ConsoleService = {
           method: "GET",
           path: "/oauth2/v2/userinfo",
           headers: auth,
-        },
-        {
-          label: "Revoke refresh token",
-          description:
-            "Revoke the refresh token and every access token issued from it. Run it last, after Refresh access token.",
-          method: "POST",
-          path: "/oauth2/revoke",
-          headers: form,
-          body: "token={{refresh_token}}",
         },
       ],
     },
@@ -626,6 +622,20 @@ export const google: ConsoleService = {
           path: "/drive/v3/files/drv_receipt_pdf?addParents=drv_root_receipts",
           headers: json,
           body: JSON.stringify({ name: "March Receipt.pdf" }, null, 2),
+        },
+      ],
+    },
+    {
+      title: "Revocation",
+      presets: [
+        {
+          label: "Revoke refresh token",
+          description:
+            "Revoke the refresh token and every access token issued from it. Run Exchange authorization code first; this is the last request in the list.",
+          method: "POST",
+          path: "/oauth2/revoke",
+          headers: form,
+          body: "token={{refresh_token}}",
         },
       ],
     },

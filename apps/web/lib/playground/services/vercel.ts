@@ -3,6 +3,7 @@ import type { ConsoleService } from "./types";
 const DIGEST = "d4eecf2704fc7e6ddb40eefb596847b3737fa3e1";
 const COMMIT_SHA = "7f3c2a9e1b0d4c5a6e7f8091a2b3c4d5e6f70812";
 const BLOB_TOKEN = "Bearer vercel_blob_rw_devstore_devsecret";
+const oauthRedirect = "https://playground.emulate.local/oauth/api/auth/callback/vercel";
 
 const auth = { Authorization: "Bearer {{token}}" };
 const json = { ...auth, "Content-Type": "application/json" };
@@ -20,7 +21,7 @@ export const vercel: ConsoleService = {
     {
       name: "token",
       label: "Access token",
-      hint: "Sign in at /oauth with Vercel and this fills in by itself, or copy the access token from that dashboard.",
+      hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange code for token replaces it with a real token.",
     },
     {
       name: "deployment_id",
@@ -45,7 +46,7 @@ export const vercel: ConsoleService = {
     {
       name: "authorization_code",
       label: "Authorization code",
-      hint: "Copy the code parameter from the redirect after you pick a user at /oauth. It is single use and expires after 10 minutes.",
+      hint: "Filled in by Approve sign-in, which stands in for picking a user on the consent page. The code works once.",
     },
   ],
   groups: [
@@ -482,13 +483,23 @@ export const vercel: ConsoleService = {
       title: "OAuth",
       presets: [
         {
-          label: "Exchange code for token",
+          label: "Approve sign-in",
           description:
-            "Trades an authorization code for an access token. The code comes from the consent redirect and works once.",
+            "Stands in for picking a user on the consent page: approves the app for admin and captures the authorization code from the redirect.",
+          method: "POST",
+          path: "/oauth/authorize/callback",
+          headers: form,
+          body: `username=admin&redirect_uri=${encodeURIComponent(oauthRedirect)}&scope=&state=playground&client_id=emu_vercel_client_id`,
+          captures: { authorization_code: "@location.code" },
+        },
+        {
+          label: "Exchange code for token",
+          description: "Trades the code from Approve sign-in for an access token and keeps it as the token value.",
           method: "POST",
           path: "/login/oauth/token",
           headers: form,
-          body: "grant_type=authorization_code&code={{authorization_code}}&client_id=emu_vercel_client_id&client_secret=emu_vercel_client_secret",
+          body: `grant_type=authorization_code&code={{authorization_code}}&client_id=emu_vercel_client_id&client_secret=emu_vercel_client_secret&redirect_uri=${encodeURIComponent(oauthRedirect)}`,
+          captures: { token: "access_token" },
         },
         {
           label: "Get userinfo",

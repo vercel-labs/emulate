@@ -13,6 +13,7 @@ const docsBase64 = "IyBQbGF5Z3JvdW5kIG5vdGVzCgpUaGlzIGZpbGUgd2FzIGFkZGVkIGZyb20g
 const docsUpdatedBase64 = "IyBQbGF5Z3JvdW5kIG5vdGVzCgpVcGRhdGVkIGZyb20gdGhlIGVtdWxhdGUgcGxheWdyb3VuZC4K";
 const scratchBase64 = "aGVsbG8gZnJvbSB0aGUgcGxheWdyb3VuZA==";
 const hookConfig = { url: "https://example.com/github/webhook", content_type: "json", secret: "playground-secret" };
+const oauthRedirect = "https://playground.emulate.local/oauth/api/auth/callback/github";
 
 export const github: ConsoleService = {
   name: "github",
@@ -23,7 +24,7 @@ export const github: ConsoleService = {
     {
       name: "token",
       label: "Access token",
-      hint: "Sign in at /oauth with GitHub and this fills in by itself, or copy the access token from that dashboard.",
+      hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange code for token replaces it with a real token.",
     },
     {
       name: "base_sha",
@@ -66,7 +67,7 @@ export const github: ConsoleService = {
     {
       name: "code",
       label: "OAuth code",
-      hint: "One-time code from the code query parameter of the OAuth redirect. The playground's /oauth flow keeps its own code, so paste one here.",
+      hint: "Filled in by Approve sign-in, which stands in for picking a user on the consent page.",
     },
   ],
   groups: [
@@ -1879,16 +1880,32 @@ export const github: ConsoleService = {
       title: "OAuth",
       presets: [
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the consent page: approves the app for admin and captures the authorization code from the redirect.",
+          method: "POST",
+          path: "/login/oauth/callback",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `login=admin&redirect_uri=${encodeURIComponent(oauthRedirect)}&scope=repo%20user&state=playground&client_id=emu_github_client_id`,
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange code for token",
-          description: "Trades a one-time OAuth code for an access token, using the emulate_github client secret.",
+          description: "Trades the code from Approve sign-in for an access token and keeps it as the token value.",
           method: "POST",
           path: "/login/oauth/access_token",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
           body: JSON.stringify(
-            { client_id: "emu_github_client_id", client_secret: "emu_github_client_secret", code: "{{code}}" },
+            {
+              client_id: "emu_github_client_id",
+              client_secret: "emu_github_client_secret",
+              code: "{{code}}",
+              redirect_uri: oauthRedirect,
+            },
             null,
             2,
           ),
+          captures: { token: "access_token" },
         },
         {
           label: "List my emails",
@@ -1899,7 +1916,8 @@ export const github: ConsoleService = {
         },
         {
           label: "Revoke access token",
-          description: "Revokes the access token in the body. Sign in at /oauth again afterwards.",
+          description:
+            "Revokes the token from Exchange code for token. Keep this last: the token stops working after it runs.",
           method: "DELETE",
           path: "/applications/emu_github_client_id/token",
           headers: basic,

@@ -2,6 +2,30 @@ import { createGeistdocs } from "@vercel/geistdocs/next";
 
 const withMDX = createGeistdocs();
 
+const browserShims = {
+  buffer: "buffer",
+  "next/dist/compiled/buffer": "buffer",
+  crypto: "crypto",
+  "dns/promises": "dns-promises",
+  fs: "fs",
+  "fs/promises": "fs-promises",
+  http: "http",
+  https: "https",
+  net: "net",
+  path: "path",
+  stream: "stream",
+  url: "url",
+};
+const resolveAlias = Object.fromEntries(
+  Object.entries(browserShims).flatMap(([name, file]) => {
+    const target = { browser: `./lib/emulator-browser/${file}.ts` };
+    return [
+      [name, target],
+      [`node:${name}`, target],
+    ];
+  }),
+);
+
 const oldDocsSlugs = [
   "programmatic-api",
   "configuration",
@@ -27,6 +51,7 @@ const nextConfig = {
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   skipProxyUrlNormalize: true,
   serverExternalPackages: ["just-bash", "bash-tool"],
+  turbopack: { resolveAlias },
   outputFileTracingIncludes: {
     "/*": ["./content/docs/**/*.mdx"],
   },

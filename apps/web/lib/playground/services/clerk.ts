@@ -13,17 +13,12 @@ export const clerk: ConsoleService = {
     {
       name: "token",
       label: "Access token",
-      hint: "Sign in at /oauth with Clerk and this fills in by itself, or copy the access token from that dashboard.",
+      hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange code for token replaces it with a real token.",
     },
     {
       name: "code",
       label: "Authorization code",
-      hint: "Start sign-in at /oauth with Clerk and copy the code value from the callback URL. Codes are single use and expire after 10 minutes.",
-    },
-    {
-      name: "redirect_uri",
-      label: "Redirect URI",
-      hint: "http://localhost:<port>/oauth/api/auth/callback/clerk, using the port the playground runs on.",
+      hint: "Filled in when you run Approve sign-in. Codes are single use and expire after 10 minutes.",
     },
     {
       name: "new_user_id",
@@ -73,19 +68,29 @@ export const clerk: ConsoleService = {
       title: "OAuth",
       presets: [
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the consent page: it posts the consent form for Ada Lovelace, and the redirect's code fills in the code variable.",
+          method: "POST",
+          path: "/oauth/authorize/callback",
+          headers: form,
+          body: "user_ref=user_playground_ada&redirect_uri=https%3A%2F%2Fplayground.emulate.local%2Foauth%2Fapi%2Fauth%2Fcallback%2Fclerk&scope=openid%20profile%20email&state=playground&client_id=emu_clerk_client_id",
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange code for token",
           description:
-            "Trades an authorization code for an access token and id token, and keeps the access token for the presets below. Get a fresh code from sign-in first, because codes are single use.",
+            "Trades the code from Approve sign-in for an access token and id token, and keeps the access token for the presets below. Codes are single use, so run Approve sign-in again for a new one.",
           method: "POST",
           path: "/oauth/token",
           headers: form,
-          body: "grant_type=authorization_code&code={{code}}&redirect_uri={{redirect_uri}}&client_id=emu_clerk_client_id&client_secret=emu_clerk_client_secret",
+          body: "grant_type=authorization_code&code={{code}}&redirect_uri=https%3A%2F%2Fplayground.emulate.local%2Foauth%2Fapi%2Fauth%2Fcallback%2Fclerk&client_id=emu_clerk_client_id&client_secret=emu_clerk_client_secret",
           captures: { token: "access_token" },
         },
         {
           label: "Get user info",
           description:
-            "Returns the profile of the user behind the access token. Needs a token from sign-in or the exchange above.",
+            "Returns the profile of the user behind the access token. Run Exchange code for token first to use a real token.",
           method: "GET",
           path: "/oauth/userinfo",
           headers: bearer,

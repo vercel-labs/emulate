@@ -8,7 +8,6 @@ export const resend: ConsoleService = {
   name: "resend",
   label: "Resend",
   description: "Send and list emails, manage domains, API keys, audiences, and contacts.",
-  inspectorPath: "/inbox",
   variables: [
     { name: "email_id", label: "Email id", hint: "Filled in when you run Send email. You can also paste an id." },
     {

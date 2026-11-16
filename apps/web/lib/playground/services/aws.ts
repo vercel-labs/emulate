@@ -2,49 +2,22 @@ import type { ConsoleService } from "./types";
 
 const userPool = "us-east-1_emulate";
 const appClient = "emulateclient";
-const identityPool = "us-east-1:00000000-0000-4000-8000-000000000001";
-const idpLogins = { "cognito-idp.us-east-1.amazonaws.com/us-east-1_emulate": "{{id_token}}" };
 const form = { "Content-Type": "application/x-www-form-urlencoded" };
 const sqsJson = "application/x-amz-json-1.0";
 const cognitoJson = "application/x-amz-json-1.1";
 const kmsJson = "application/x-amz-json-1.1";
 
-/** AWS requests for the request console: S3, SQS, IAM, STS, KMS, and Cognito, one preset per emulated operation. */
+/** AWS requests for the request console, one preset per operation the in-tab emulator can run. */
 export const aws: ConsoleService = {
   name: "aws",
   label: "AWS",
-  description: "S3, SQS, IAM, STS, KMS, and Cognito.",
-  inspectorPath: "/_inspector",
+  description:
+    "S3 buckets and objects, SQS queues and messages, IAM users, roles, and access keys, STS, KMS keys, and Cognito users, sign-in, and sign-up.",
   variables: [
-    {
-      name: "access_token",
-      label: "Access token",
-      hint: "Filled in when you run Answer password challenge or Respond to challenge. You can also paste one.",
-    },
-    {
-      name: "refresh_token",
-      label: "Refresh token",
-      hint: "Filled in when you run Respond to challenge. You can also paste one.",
-    },
-    {
-      name: "id_token",
-      label: "ID token",
-      hint: "Filled in when you run Respond to challenge. You can also paste one.",
-    },
-    {
-      name: "session",
-      label: "Session",
-      hint: "Filled in when you run Start admin sign-in or Sign in with password. You can also paste one.",
-    },
-    {
-      name: "identity_id",
-      label: "Identity ID",
-      hint: "Filled in when you run Get identity ID. You can also paste one.",
-    },
     {
       name: "access_key_id",
       label: "Access key ID",
-      hint: "AccessKeyId from Create access key. That response is XML, so copy it by hand.",
+      hint: "Copy the text between <AccessKeyId> and </AccessKeyId> from the response of Create access key. That response is XML, so the value is not filled in for you.",
     },
     {
       name: "queue_url",
@@ -60,11 +33,6 @@ export const aws: ConsoleService = {
       name: "receipt_handle",
       label: "Receipt handle",
       hint: "Filled in when you run Receive message. You can also paste one.",
-    },
-    {
-      name: "ciphertext_blob",
-      label: "Ciphertext blob",
-      hint: "Filled in when you run Encrypt data. You can also paste one.",
     },
   ],
   groups: [
@@ -239,7 +207,7 @@ export const aws: ConsoleService = {
           label: "Create user",
           description: "Creates an IAM user named playground-user.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=CreateUser&UserName=playground-user&Version=2010-05-08",
         },
@@ -247,7 +215,7 @@ export const aws: ConsoleService = {
           label: "List users",
           description: "Lists every IAM user, including the default admin user.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=ListUsers&Version=2010-05-08",
         },
@@ -255,16 +223,16 @@ export const aws: ConsoleService = {
           label: "Get user",
           description: "Returns playground-user. Run Create user first.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=GetUser&UserName=playground-user&Version=2010-05-08",
         },
         {
           label: "Create access key",
           description:
-            "Creates an access key for playground-user. Copy its AccessKeyId into Access key ID for Delete access key.",
+            "Creates an access key for playground-user. Copy the AccessKeyId value from its XML response into Access key ID for Delete access key.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=CreateAccessKey&UserName=playground-user&Version=2010-05-08",
         },
@@ -272,7 +240,7 @@ export const aws: ConsoleService = {
           label: "List access keys",
           description: "Lists the access keys of playground-user. Run Create user first.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=ListAccessKeys&UserName=playground-user&Version=2010-05-08",
         },
@@ -280,7 +248,7 @@ export const aws: ConsoleService = {
           label: "Delete access key",
           description: "Deletes the access key in Access key ID from playground-user. Run Create access key first.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=DeleteAccessKey&UserName=playground-user&AccessKeyId={{access_key_id}}&Version=2010-05-08",
         },
@@ -288,7 +256,7 @@ export const aws: ConsoleService = {
           label: "Delete user",
           description: "Deletes playground-user. Run Create user first.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=DeleteUser&UserName=playground-user&Version=2010-05-08",
         },
@@ -301,7 +269,7 @@ export const aws: ConsoleService = {
           label: "Create role",
           description: "Creates an IAM role named playground-role with an empty trust policy.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=CreateRole&RoleName=playground-role&Description=Playground%20role&AssumeRolePolicyDocument=%7B%22Version%22%3A%222012-10-17%22%2C%22Statement%22%3A%5B%5D%7D&Version=2010-05-08",
         },
@@ -309,7 +277,7 @@ export const aws: ConsoleService = {
           label: "List roles",
           description: "Lists every IAM role, including the seeded emulate-default-role.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=ListRoles&Version=2010-05-08",
         },
@@ -317,7 +285,7 @@ export const aws: ConsoleService = {
           label: "Get role",
           description: "Returns playground-role. Run Create role first.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=GetRole&RoleName=playground-role&Version=2010-05-08",
         },
@@ -325,7 +293,7 @@ export const aws: ConsoleService = {
           label: "Delete role",
           description: "Deletes playground-role. Run Create role first.",
           method: "POST",
-          path: "/iam%2F",
+          path: "/iam/",
           headers: form,
           body: "Action=DeleteRole&RoleName=playground-role&Version=2010-05-08",
         },
@@ -338,7 +306,7 @@ export const aws: ConsoleService = {
           label: "Get caller identity",
           description: "Returns the ARN and account of the caller, which the emulator reports as the admin user.",
           method: "POST",
-          path: "/sts%2F",
+          path: "/sts/",
           headers: form,
           body: "Action=GetCallerIdentity&Version=2011-06-15",
         },
@@ -346,7 +314,7 @@ export const aws: ConsoleService = {
           label: "Assume role",
           description: "Returns temporary credentials for the seeded emulate-default-role.",
           method: "POST",
-          path: "/sts%2F",
+          path: "/sts/",
           headers: form,
           body: "Action=AssumeRole&RoleArn=arn:aws:iam::123456789012:role/emulate-default-role&RoleSessionName=playground&Version=2011-06-15",
         },
@@ -355,7 +323,7 @@ export const aws: ConsoleService = {
           description:
             "Returns temporary credentials for emulate-default-role from a GitHub OAuth token, which the emulator does not check.",
           method: "POST",
-          path: "/sts%2F",
+          path: "/sts/",
           headers: form,
           body: "Action=AssumeRoleWithWebIdentity&RoleArn=arn:aws:iam::123456789012:role/emulate-default-role&RoleSessionName=playground&ProviderId=github.com&WebIdentityToken=playground-token&Version=2011-06-15",
         },
@@ -387,27 +355,6 @@ export const aws: ConsoleService = {
           path: "/kms",
           headers: { "Content-Type": kmsJson, "X-Amz-Target": "TrentService.DescribeKey" },
           body: JSON.stringify({ KeyId: "alias/emulate-default" }, null, 2),
-        },
-        {
-          label: "Encrypt data",
-          description: "Encrypts the base64 plaintext with the default key and keeps the ciphertext for Decrypt data.",
-          method: "POST",
-          path: "/kms",
-          headers: { "Content-Type": kmsJson, "X-Amz-Target": "TrentService.Encrypt" },
-          body: JSON.stringify(
-            { KeyId: "alias/emulate-default", Plaintext: "aGVsbG8gZnJvbSB0aGUgcGxheWdyb3VuZA==" },
-            null,
-            2,
-          ),
-          captures: { ciphertext_blob: "CiphertextBlob" },
-        },
-        {
-          label: "Decrypt data",
-          description: "Decrypts the ciphertext in Ciphertext blob. Run Encrypt data first.",
-          method: "POST",
-          path: "/kms",
-          headers: { "Content-Type": kmsJson, "X-Amz-Target": "TrentService.Decrypt" },
-          body: JSON.stringify({ CiphertextBlob: "{{ciphertext_blob}}" }, null, 2),
         },
       ],
     },
@@ -462,37 +409,6 @@ export const aws: ConsoleService = {
             null,
             2,
           ),
-          captures: { session: "Session" },
-        },
-        {
-          label: "Answer password challenge",
-          description: "Sets a new password for playground-user using the challenge from Start admin sign-in.",
-          method: "POST",
-          path: "/cognito-idp",
-          headers: {
-            "Content-Type": cognitoJson,
-            "X-Amz-Target": "AWSCognitoIdentityProviderService.AdminRespondToAuthChallenge",
-          },
-          body: JSON.stringify(
-            {
-              UserPoolId: userPool,
-              ClientId: appClient,
-              ChallengeName: "NEW_PASSWORD_REQUIRED",
-              Session: "{{session}}",
-              ChallengeResponses: { USERNAME: "playground-user", NEW_PASSWORD: "Playground-Pass1!" },
-            },
-            null,
-            2,
-          ),
-          captures: { access_token: "AuthenticationResult.AccessToken" },
-        },
-        {
-          label: "Sign out everywhere",
-          description: "Revokes every session of playground-user. Run Answer password challenge first.",
-          method: "POST",
-          path: "/cognito-idp",
-          headers: { "Content-Type": cognitoJson, "X-Amz-Target": "AWSCognitoIdentityProviderService.GlobalSignOut" },
-          body: JSON.stringify({ AccessToken: "{{access_token}}" }, null, 2),
         },
         {
           label: "Set temporary password",
@@ -537,7 +453,7 @@ export const aws: ConsoleService = {
         {
           label: "Sign in with password",
           description:
-            "Signs in playground-user with the temporary password, which returns a challenge. Run Set temporary password first.",
+            "Signs in playground-user with the temporary password, which returns a new password challenge. Run Create user first.",
           method: "POST",
           path: "/cognito-idp",
           headers: { "Content-Type": cognitoJson, "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth" },
@@ -550,83 +466,6 @@ export const aws: ConsoleService = {
             null,
             2,
           ),
-          captures: { session: "Session" },
-        },
-        {
-          label: "Respond to challenge",
-          description:
-            "Sets a new password for playground-user from the challenge of Sign in with password and returns tokens. Run Sign in with password first.",
-          method: "POST",
-          path: "/cognito-idp",
-          headers: {
-            "Content-Type": cognitoJson,
-            "X-Amz-Target": "AWSCognitoIdentityProviderService.RespondToAuthChallenge",
-          },
-          body: JSON.stringify(
-            {
-              ClientId: appClient,
-              ChallengeName: "NEW_PASSWORD_REQUIRED",
-              Session: "{{session}}",
-              ChallengeResponses: { USERNAME: "playground-user", NEW_PASSWORD: "Playground-Pass1!" },
-            },
-            null,
-            2,
-          ),
-          captures: {
-            access_token: "AuthenticationResult.AccessToken",
-            refresh_token: "AuthenticationResult.RefreshToken",
-            id_token: "AuthenticationResult.IdToken",
-          },
-        },
-        {
-          label: "Get signed-in user",
-          description: "Returns the user that owns the token in Access token. Run Respond to challenge first.",
-          method: "POST",
-          path: "/cognito-idp",
-          headers: { "Content-Type": cognitoJson, "X-Amz-Target": "AWSCognitoIdentityProviderService.GetUser" },
-          body: JSON.stringify({ AccessToken: "{{access_token}}" }, null, 2),
-        },
-        {
-          label: "Change password",
-          description:
-            "Changes the password of the signed-in user. The sample keeps the same password so it can run again.",
-          method: "POST",
-          path: "/cognito-idp",
-          headers: { "Content-Type": cognitoJson, "X-Amz-Target": "AWSCognitoIdentityProviderService.ChangePassword" },
-          body: JSON.stringify(
-            {
-              AccessToken: "{{access_token}}",
-              PreviousPassword: "Playground-Pass1!",
-              ProposedPassword: "Playground-Pass1!",
-            },
-            null,
-            2,
-          ),
-        },
-      ],
-    },
-    {
-      title: "Cognito identity pools",
-      presets: [
-        {
-          label: "Get identity ID",
-          description: "Returns the identity ID of the user in ID token. Run Respond to challenge first.",
-          method: "POST",
-          path: "/cognito-identity",
-          headers: { "Content-Type": cognitoJson, "X-Amz-Target": "AWSCognitoIdentityService.GetId" },
-          body: JSON.stringify({ IdentityPoolId: identityPool, Logins: idpLogins }, null, 2),
-          captures: { identity_id: "IdentityId" },
-        },
-        {
-          label: "Get credentials",
-          description: "Returns temporary AWS credentials for Identity ID. Run Get identity ID first.",
-          method: "POST",
-          path: "/cognito-identity",
-          headers: {
-            "Content-Type": cognitoJson,
-            "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
-          },
-          body: JSON.stringify({ IdentityId: "{{identity_id}}", Logins: idpLogins }, null, 2),
         },
       ],
     },
@@ -638,28 +477,6 @@ export const aws: ConsoleService = {
           description: "Returns the OpenID discovery document of the default user pool.",
           method: "GET",
           path: `/cognito-idp/${userPool}/.well-known/openid-configuration`,
-        },
-        {
-          label: "Signing keys",
-          description: "Returns the public keys that verify the tokens of the default user pool.",
-          method: "GET",
-          path: `/cognito-idp/${userPool}/.well-known/jwks.json`,
-        },
-        {
-          label: "Refresh tokens",
-          description: "Exchanges Refresh token for new tokens. Run Respond to challenge first.",
-          method: "POST",
-          path: `/cognito-idp/${userPool}/oauth2/token`,
-          headers: form,
-          body: `grant_type=refresh_token&client_id=${appClient}&refresh_token={{refresh_token}}`,
-        },
-        {
-          label: "Revoke refresh token",
-          description: "Revokes the session behind Refresh token, so its tokens stop working. Run it last.",
-          method: "POST",
-          path: "/cognito-idp",
-          headers: { "Content-Type": cognitoJson, "X-Amz-Target": "AWSCognitoIdentityProviderService.RevokeToken" },
-          body: JSON.stringify({ ClientId: appClient, Token: "{{refresh_token}}" }, null, 2),
         },
       ],
     },

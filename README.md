@@ -9,6 +9,8 @@
 
 Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.
 
+Try every emulator in your browser at [emulate.dev/playground](https://emulate.dev/playground), with nothing to install.
+
 ## Quick Start
 
 ```bash

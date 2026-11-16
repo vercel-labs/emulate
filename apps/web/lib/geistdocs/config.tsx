@@ -17,6 +17,7 @@ export const config = defineConfig({
   content: [{ id: "docs", label: "Documentation", dir: "content/docs", route: "/docs" }],
   nav: [
     { label: "Docs", href: "/docs" },
+    { label: "Playground", href: "/playground" },
     { label: "npm", href: "https://www.npmjs.com/package/emulate", external: true },
   ],
   ai: { enabled: false },

@@ -1,34 +1,32 @@
-import type { ConsoleService } from "./types";
+import type { ConsoleService, ConsoleVariable } from "./types";
 
 const FORM_HEADERS = { "Content-Type": "application/x-www-form-urlencoded" };
 const CLIENT = "client_id=emu_apple_client_id&client_secret=emu_apple_client_secret";
+const REDIRECT_URI = "redirect_uri=https://playground.emulate.local/oauth/api/auth/callback/apple";
+
+const variables: ConsoleVariable[] = [
+  {
+    name: "code",
+    label: "Authorization code",
+    hint: "Filled in when you run Approve sign-in. A code works once and expires after five minutes.",
+  },
+  {
+    name: "refresh_token",
+    label: "Refresh token",
+    hint: "Filled in when you run Exchange authorization code. You can also paste one.",
+  },
+  {
+    name: "token",
+    label: "Access token",
+    hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange authorization code replaces it with a real token.",
+  },
+];
 
 export const apple: ConsoleService = {
   name: "apple",
   label: "Apple",
   description: "Sign in with Apple: discovery, public keys, token exchange, refresh, and revocation.",
-  variables: [
-    {
-      name: "code",
-      label: "Authorization code",
-      hint: "Copy the code parameter from the redirect after you pick a user on the Apple authorize page. A code works once and expires after five minutes.",
-    },
-    {
-      name: "redirect_uri",
-      label: "Redirect URI",
-      hint: "The redirect URI you authorized with, shaped http://localhost:<port>/oauth/api/auth/callback/apple.",
-    },
-    {
-      name: "refresh_token",
-      label: "Refresh token",
-      hint: "Filled in when you run Exchange authorization code. You can also paste one.",
-    },
-    {
-      name: "token",
-      label: "Access token",
-      hint: "Sign in at /oauth with Apple and this fills in by itself, or copy the access token from that dashboard. It also fills in when you run Exchange authorization code or Refresh access token, and you can paste one.",
-    },
-  ],
+  variables,
   groups: [
     {
       title: "Discovery and keys",
@@ -51,13 +49,23 @@ export const apple: ConsoleService = {
       title: "Tokens",
       presets: [
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the Apple authorize page. Approves the sign-in as testuser@icloud.com and keeps the code it returns.",
+          method: "POST",
+          path: "/auth/authorize/callback",
+          headers: FORM_HEADERS,
+          body: `email=testuser@icloud.com&${REDIRECT_URI}&scope=openid+email+name&state=playground&nonce=&client_id=emu_apple_client_id&response_mode=query`,
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange authorization code",
           description:
-            "Trades a one-time code for an access token, refresh token, and id_token. The code comes from the redirect after the authorize page, and the redirect_uri must match it.",
+            "Trades the code from Approve sign-in for an access token, refresh token, and id_token. The access token replaces the Access token value.",
           method: "POST",
           path: "/auth/token",
           headers: FORM_HEADERS,
-          body: `grant_type=authorization_code&code={{code}}&redirect_uri={{redirect_uri}}&${CLIENT}`,
+          body: `grant_type=authorization_code&code={{code}}&${REDIRECT_URI}&${CLIENT}`,
           captures: { refresh_token: "refresh_token", token: "access_token" },
         },
         {
@@ -78,7 +86,7 @@ export const apple: ConsoleService = {
         {
           label: "Revoke access token",
           description:
-            "Removes an access token so it stops working, and returns an empty 200. The token comes from the sign-in at /oauth or from an exchange response.",
+            "Removes an access token so it stops working, and returns an empty 200. The token comes from Exchange authorization code or Refresh access token.",
           method: "POST",
           path: "/auth/revoke",
           headers: FORM_HEADERS,

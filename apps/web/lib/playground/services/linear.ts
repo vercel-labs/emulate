@@ -25,7 +25,6 @@ export const linear: ConsoleService = {
   name: "linear",
   label: "Linear",
   description: "GraphQL API for issues, comments, labels, webhooks, and agent sessions, plus the OAuth token routes.",
-  inspectorPath: "",
   variables: [
     {
       name: "agent_session_id",
@@ -40,7 +39,7 @@ export const linear: ConsoleService = {
     {
       name: "code",
       label: "Authorization code",
-      hint: "Open /emulate/linear/oauth/authorize with client_id lin_example_client_id, redirect_uri http://localhost:3000/api/auth/callback/linear and scope read,write, approve, then copy the code parameter from the redirect URL.",
+      hint: "Filled in when you run Approve sign-in. Codes work once and expire after 10 minutes.",
     },
     {
       name: "refresh_token",
@@ -478,12 +477,22 @@ export const linear: ConsoleService = {
           body: "grant_type=client_credentials&client_id=lin_agent_client_id&client_secret=lin_agent_client_secret",
         },
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the consent page: it posts the consent form for admin@linear.local, and the redirect's code fills in the code variable.",
+          method: "POST",
+          path: "/oauth/authorize/callback",
+          headers: formHeaders,
+          body: "user_ref=admin@linear.local&actor=user&redirect_uri=https%3A%2F%2Fplayground.emulate.local%2Foauth%2Fapi%2Fauth%2Fcallback%2Flinear&scope=read%20write&state=playground&client_id=emu_linear_client_id",
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange authorization code",
-          description: "Exchanges a code from the consent page for access and refresh tokens; each code works once.",
+          description: "Trades the code from Approve sign-in for access and refresh tokens; each code works once.",
           method: "POST",
           path: "/oauth/token",
           headers: formHeaders,
-          body: "grant_type=authorization_code&client_id=lin_example_client_id&client_secret=example_client_secret&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fauth%2Fcallback%2Flinear&code={{code}}",
+          body: "grant_type=authorization_code&client_id=emu_linear_client_id&client_secret=emu_linear_client_secret&redirect_uri=https%3A%2F%2Fplayground.emulate.local%2Foauth%2Fapi%2Fauth%2Fcallback%2Flinear&code={{code}}",
           captures: { refresh_token: "refresh_token" },
         },
         {
@@ -493,7 +502,7 @@ export const linear: ConsoleService = {
           method: "POST",
           path: "/oauth/token",
           headers: formHeaders,
-          body: "grant_type=refresh_token&client_id=lin_example_client_id&client_secret=example_client_secret&refresh_token={{refresh_token}}",
+          body: "grant_type=refresh_token&client_id=emu_linear_client_id&client_secret=emu_linear_client_secret&refresh_token={{refresh_token}}",
           captures: { refresh_token: "refresh_token" },
         },
         {

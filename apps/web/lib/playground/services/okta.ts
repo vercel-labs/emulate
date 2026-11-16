@@ -13,17 +13,12 @@ export const okta: ConsoleService = {
     {
       name: "token",
       label: "Access token",
-      hint: "Sign in at /oauth with Okta and this fills in by itself, or copy the access token from that dashboard.",
+      hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange authorization code replaces it with a real token.",
     },
     {
       name: "code",
       label: "Authorization code",
-      hint: "One-time code from Okta's authorize step: open /emulate/okta/oauth2/v1/authorize in a browser, pick a user, and copy code from the redirect. It expires after 10 minutes.",
-    },
-    {
-      name: "redirect_uri",
-      label: "Redirect URI",
-      hint: "The redirect_uri the code was issued for, shaped like http://localhost:<port>/oauth/api/auth/callback/okta.",
+      hint: "Filled in when you run Approve sign-in. Codes work once and expire after 10 minutes.",
     },
     {
       name: "refresh_token",
@@ -75,13 +70,23 @@ export const okta: ConsoleService = {
       title: "Tokens",
       presets: [
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the consent page: it posts the consent form for testuser@okta.local, and the redirect's code fills in the code variable.",
+          method: "POST",
+          path: "/oauth2/v1/authorize/callback",
+          headers: FORM,
+          body: "user_ref=testuser@okta.local&redirect_uri=https%3A%2F%2Fplayground.emulate.local%2Foauth%2Fapi%2Fauth%2Fcallback%2Fokta&scope=openid%20profile%20email&state=playground&client_id=emu_okta_client_id&response_mode=query",
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange authorization code",
           description:
-            "Trades a code from the authorize step for an access token and refresh token; run that step first (see the code variable).",
+            "Trades the code from Approve sign-in for an access token and refresh token. Run Approve sign-in first.",
           method: "POST",
           path: "/oauth2/v1/token",
           headers: FORM,
-          body: "grant_type=authorization_code&code={{code}}&redirect_uri={{redirect_uri}}&client_id=emu_okta_client_id&client_secret=emu_okta_client_secret",
+          body: "grant_type=authorization_code&code={{code}}&redirect_uri=https%3A%2F%2Fplayground.emulate.local%2Foauth%2Fapi%2Fauth%2Fcallback%2Fokta&client_id=emu_okta_client_id&client_secret=emu_okta_client_secret",
           captures: { token: "access_token", refresh_token: "refresh_token" },
         },
         {
@@ -493,7 +498,7 @@ export const okta: ConsoleService = {
         {
           label: "Revoke access token",
           description:
-            "Revokes the access token from sign-in, so Bearer presets fail until you sign in again. Keep it near the end.",
+            "Revokes the access token from Exchange authorization code, so Bearer presets fail until you run that exchange again. Keep it near the end.",
           method: "POST",
           path: "/oauth2/v1/revoke",
           headers: FORM,

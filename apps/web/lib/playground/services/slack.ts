@@ -8,6 +8,7 @@ const admin = { Authorization: "Bearer xoxp-playground-admin-token" };
 const alice = { Authorization: "Bearer xoxp-playground-alice-token" };
 const revoke = { Authorization: "Bearer xoxp-playground-revoke-token" };
 const uninstall = { Authorization: "Bearer xoxp-playground-uninstall-token" };
+const oauthRedirect = "https://playground.emulate.local/oauth/api/auth/callback/slack";
 
 const modal = {
   type: "modal",
@@ -40,12 +41,11 @@ const approvalBlocks = [
   },
 ];
 
-/** The Slack Web API, webhooks, and simulate routes of the emulator, grouped by method family. */
+/** The Slack Web API, OAuth, and webhook routes of the emulator, grouped by method family. */
 export const slack: ConsoleService = {
   name: "slack",
   label: "Slack",
   description: "Web API for messages, channels, and users.",
-  inspectorPath: "",
   variables: [
     {
       name: "message_ts",
@@ -95,7 +95,7 @@ export const slack: ConsoleService = {
     {
       name: "oauth_code",
       label: "OAuth code",
-      hint: "No call fills this in. Approve the app at /oauth/v2/authorize and paste the code from the redirect.",
+      hint: "Filled in by Approve sign-in, which stands in for picking a user on the consent page.",
     },
     {
       name: "trigger_id",
@@ -112,11 +112,6 @@ export const slack: ConsoleService = {
       label: "Push trigger ID",
       hint: "Filled in when you run Generate push trigger ID. You can also paste one.",
     },
-    {
-      name: "response_id",
-      label: "Response ID",
-      hint: "No call fills this in. Paste the last path segment of response_url from Simulate block action.",
-    },
   ],
   groups: [
     {
@@ -130,13 +125,22 @@ export const slack: ConsoleService = {
           headers: bot,
         },
         {
-          label: "Exchange OAuth code",
+          label: "Approve sign-in",
           description:
-            "Trades a code from approving the app at /oauth/v2/authorize for tokens; the app is client emu_slack_client_id.",
+            "Stands in for picking a user on the consent page: approves emu_slack_client_id for Admin User and captures the authorization code from the redirect.",
+          method: "POST",
+          path: "/oauth/v2/authorize/callback",
+          headers: form,
+          body: `user_id=U000000001&redirect_uri=${encodeURIComponent(oauthRedirect)}&scope=chat%3Awrite%20channels%3Aread&state=playground&client_id=emu_slack_client_id`,
+          captures: { oauth_code: "@location.code" },
+        },
+        {
+          label: "Exchange OAuth code",
+          description: "Trades the code from Approve sign-in for tokens. The app is client emu_slack_client_id.",
           method: "POST",
           path: "/api/oauth.v2.access",
           headers: form,
-          body: "client_id=emu_slack_client_id&client_secret=emu_slack_client_secret&code={{oauth_code}}",
+          body: `client_id=emu_slack_client_id&client_secret=emu_slack_client_secret&code={{oauth_code}}&redirect_uri=${encodeURIComponent(oauthRedirect)}`,
         },
         {
           label: "Revoke token",
@@ -736,36 +740,17 @@ export const slack: ConsoleService = {
       ],
     },
     {
-      title: "Simulate events",
+      title: "Interactive messages",
       presets: [
         {
           label: "Post app message",
-          description: "Posts a message with an Approve button from the app token and keeps its ts as app_message_ts.",
+          description:
+            "Posts a message with an Approve button from the app token and keeps its ts as app_message_ts. The button has no effect in the playground.",
           method: "POST",
           path: "/api/chat.postMessage",
           headers: { ...json, ...app },
           body: JSON.stringify({ channel: "C000000001", text: "Approve the order?", blocks: approvalBlocks }, null, 2),
           captures: { app_message_ts: "ts" },
-        },
-        {
-          label: "Simulate block action",
-          description: "Clicks the Approve button on the message from Post app message as Admin User.",
-          method: "POST",
-          path: "/_slack/simulate/block-actions",
-          headers: { ...json, ...bot },
-          body: JSON.stringify(
-            { channel: "C000000001", message_ts: "{{app_message_ts}}", user: "U000000001", action_id: "approve_order" },
-            null,
-            2,
-          ),
-        },
-        {
-          label: "Respond to response URL",
-          description: "Posts a follow-up to #general through the response_url from Simulate block action.",
-          method: "POST",
-          path: "/_slack/response/{{response_id}}",
-          headers: json,
-          body: JSON.stringify({ text: "Order approved.", response_type: "in_channel" }, null, 2),
         },
       ],
     },

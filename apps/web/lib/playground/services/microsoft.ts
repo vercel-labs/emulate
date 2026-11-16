@@ -1,41 +1,39 @@
-import type { ConsoleService } from "./types";
+import type { ConsoleService, ConsoleVariable } from "./types";
 
 const FORM = { "Content-Type": "application/x-www-form-urlencoded" };
 const BEARER = { Authorization: "Bearer {{token}}" };
 const TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad";
+const REDIRECT_URI = "redirect_uri=https://playground.emulate.local/oauth/api/auth/callback/microsoft";
+
+const variables: ConsoleVariable[] = [
+  {
+    name: "token",
+    label: "Access token",
+    hint: "Any value works: the emulator treats an unknown bearer token as its default user. Exchange authorization code replaces it with a real token.",
+  },
+  {
+    name: "code",
+    label: "Authorization code",
+    hint: "Filled in when you run Approve sign-in. The code is single use and expires after 10 minutes.",
+  },
+  {
+    name: "refresh_token",
+    label: "Refresh token",
+    hint: "Filled in when you run Exchange authorization code or Refresh access token. You can also paste one; each refresh returns a new one.",
+  },
+  {
+    name: "user_id",
+    label: "User ID",
+    hint: "Filled in when you run Get Graph profile. You can also paste an id.",
+  },
+];
 
 /** Entra ID sign-in and Microsoft Graph, served by the Microsoft emulator. */
 export const microsoft: ConsoleService = {
   name: "microsoft",
   label: "Microsoft",
   description: "Entra ID sign-in, token endpoints, and Microsoft Graph profile lookups.",
-  variables: [
-    {
-      name: "token",
-      label: "Access token",
-      hint: "Sign in at /oauth with Microsoft and this fills in by itself, or copy the access token from that dashboard. Exchange authorization code and Refresh access token also fill it in.",
-    },
-    {
-      name: "redirect_uri",
-      label: "Redirect URI",
-      hint: "Your playground callback, http://localhost:<port>/oauth/api/auth/callback/microsoft. Use the port this page is served from.",
-    },
-    {
-      name: "code",
-      label: "Authorization code",
-      hint: "Pick a user at /emulate/microsoft/oauth2/v2.0/authorize with client_id=emu_microsoft_client_id and redirect_uri set to the callback, then copy the code from the redirect URL.",
-    },
-    {
-      name: "refresh_token",
-      label: "Refresh token",
-      hint: "Filled in when you run Exchange authorization code or Refresh access token. You can also paste one; each refresh returns a new one.",
-    },
-    {
-      name: "user_id",
-      label: "User ID",
-      hint: "Filled in when you run Get Graph profile. You can also paste an id.",
-    },
-  ],
+  variables,
   groups: [
     {
       title: "Discovery and keys",
@@ -72,13 +70,23 @@ export const microsoft: ConsoleService = {
       title: "Tokens",
       presets: [
         {
+          label: "Approve sign-in",
+          description:
+            "Stands in for picking a user on the consent page. Approves the sign-in as testuser@outlook.com and keeps the code it returns.",
+          method: "POST",
+          path: "/oauth2/v2.0/authorize/callback",
+          headers: FORM,
+          body: `email=testuser@outlook.com&${REDIRECT_URI}&scope=openid+profile+email+offline_access+User.Read&state=playground&nonce=&client_id=emu_microsoft_client_id&response_mode=query&code_challenge=&code_challenge_method=`,
+          captures: { code: "@location.code" },
+        },
+        {
           label: "Exchange authorization code",
           description:
-            "Trades an authorization code for access, refresh, and id tokens. Get the code first from the sign-in page; it is single use and expires after 10 minutes.",
+            "Trades the code from Approve sign-in for access, refresh, and id tokens. The code is single use and expires after 10 minutes.",
           method: "POST",
           path: "/oauth2/v2.0/token",
           headers: FORM,
-          body: "grant_type=authorization_code&client_id=emu_microsoft_client_id&client_secret=emu_microsoft_client_secret&code={{code}}&redirect_uri={{redirect_uri}}",
+          body: `grant_type=authorization_code&client_id=emu_microsoft_client_id&client_secret=emu_microsoft_client_secret&code={{code}}&${REDIRECT_URI}`,
           captures: { token: "access_token", refresh_token: "refresh_token" },
         },
         {
@@ -108,7 +116,7 @@ export const microsoft: ConsoleService = {
         {
           label: "Get OIDC user info",
           description:
-            "Returns the signed-in user's OpenID claims such as sub, email, and name. Run Exchange authorization code first, or use the access token from sign-in.",
+            "Returns the signed-in user's OpenID claims such as sub, email, and name. Run Exchange authorization code first to read the approved user.",
           method: "GET",
           path: "/oidc/userinfo",
           headers: BEARER,
@@ -121,7 +129,7 @@ export const microsoft: ConsoleService = {
         {
           label: "Get Graph profile",
           description:
-            "Returns the signed-in user's Graph profile, including the id that Get user by ID needs. Requires the access token from sign-in.",
+            "Returns the signed-in user's Graph profile, including the id that Get user by ID needs. Run Exchange authorization code first to read the approved user.",
           method: "GET",
           path: "/v1.0/me",
           headers: BEARER,

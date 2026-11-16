@@ -12,7 +12,6 @@ export const twilio: ConsoleService = {
   name: "twilio",
   label: "Twilio",
   description: "Messages, calls, phone numbers, Verify, messaging services, conversations, and the simulator routes.",
-  inspectorPath: "",
   variables: [
     {
       name: "message_sid",
