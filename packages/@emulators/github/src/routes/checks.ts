@@ -4,6 +4,7 @@ import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type {
   GitHubCheckRun,
+  GitHubCommitStatus,
   GitHubCheckSuite,
   GitHubCommit,
   GitHubRepo,
@@ -296,7 +297,70 @@ function dispatchCheckSuite(
 export function checksRoutes({ app, store, webhooks, baseUrl }: RouteContext): void {
   const gh = getGitHubStore(store);
 
-  // --- Preferences (static path before :check_suite_id) ---
+  const formatStatus = (row: GitHubCommitStatus, repo: GitHubRepo) => ({
+    id: row.id,
+    node_id: generateNodeId("Status", row.id),
+    state: row.state,
+    context: row.context,
+    description: row.description,
+    target_url: row.target_url,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    url: `${baseUrl}/repos/${repo.full_name}/statuses/${row.sha}`,
+    creator: formatUser(gh.users.get(row.user_id)!, baseUrl),
+  });
+  app.post("/repos/:owner/:repo/statuses/:sha", async (c) => {
+    const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
+    if (!repo) throw notFoundResponse();
+    const actor = assertRepoWrite(gh, c.get("authUser"), repo, "statuses");
+    const sha = resolveRefToHeadSha(gh, repo, c.req.param("sha")!);
+    if (!sha) throw notFoundResponse();
+    const body = await parseJsonBody(c);
+    if (typeof body.state !== "string" || !["pending", "success", "failure", "error"].includes(body.state)) {
+      throw new ApiError(422, "Invalid commit status state");
+    }
+    const row = gh.commitStatuses.insert({
+      repo_id: repo.id,
+      sha,
+      user_id: actor.id,
+      state: body.state as GitHubCommitStatus["state"],
+      context: typeof body.context === "string" ? body.context : "default",
+      description: typeof body.description === "string" ? body.description : null,
+      target_url: typeof body.target_url === "string" ? body.target_url : null,
+    });
+    void webhooks.dispatch(
+      "status",
+      void 0,
+      {
+        ...formatStatus(row, repo),
+        sha,
+        name: repo.full_name,
+        branches: gh.branches
+          .findBy("repo_id", repo.id)
+          .filter((branch) => branch.sha === sha)
+          .map((branch) => ({ name: branch.name })),
+        repository: formatRepo(repo, gh, baseUrl),
+        sender: formatUser(actor, baseUrl),
+      },
+      ownerLoginOf(gh, repo),
+      repo.name,
+    );
+    return c.json(formatStatus(row, repo), 201);
+  });
+  app.get("/repos/:owner/:repo/commits/:ref{.+}/statuses", (c) => {
+    const repo = lookupRepo(gh, c.req.param("owner")!, c.req.param("repo")!);
+    if (!repo) throw notFoundResponse();
+    assertRepoPermission(gh, c.get("authUser"), repo, "statuses");
+    const sha = resolveRefToHeadSha(gh, repo, c.req.param("ref")!);
+    if (!sha) throw notFoundResponse();
+    const { page, per_page } = parsePagination(c);
+    const rows = gh.commitStatuses
+      .findBy("repo_id", repo.id)
+      .filter((row) => row.sha === sha)
+      .sort((a, b) => b.id - a.id);
+    setLinkHeader(c, rows.length, page, per_page);
+    return c.json(rows.slice((page - 1) * per_page, page * per_page).map((row) => formatStatus(row, repo)));
+  });
   app.patch("/repos/:owner/:repo/check-suites/preferences", async (c) => {
     const owner = c.req.param("owner")!;
     const repoName = c.req.param("repo")!;

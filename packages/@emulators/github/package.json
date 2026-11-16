@@ -39,7 +39,9 @@
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "graphql": "^17.0.0",
+    "openpgp": "^6.3.2"
   },
   "devDependencies": {
     "tsc-ts": "0.1.3",

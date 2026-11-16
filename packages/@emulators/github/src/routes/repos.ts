@@ -3,6 +3,8 @@ import { ApiError, forbidden, parseJsonBody, parsePagination, setLinkHeader } fr
 import { getGitHubStore } from "../store.js";
 import {
   assertAuthenticatedUser,
+  assertAuthenticatedActor,
+  hasInstallationPermission,
   assertRepoRead,
   hasRepoAdmin,
   isOrgMember,
@@ -207,6 +209,7 @@ function deleteRepoCascade(gh: GitHubStore, repo: GitHubRepo) {
   delByRepo(gh.labels);
   delByRepo(gh.milestones);
   delByRepo(gh.comments);
+  delByRepo(gh.reactions);
   delByRepo(gh.reviews);
   delByRepo(gh.issueEvents);
   delByRepo(gh.branches);
@@ -299,7 +302,18 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
   app.post("/user/repos", async (c) => {
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
+    const actor = assertAuthenticatedActor(gh, authUser);
+    let user = actor;
+    if (authUser?.installation) {
+      if (
+        authUser.installation.accountType !== "User" ||
+        !hasInstallationPermission(authUser, ["repository_creation", "administration"], "write")
+      )
+        throw forbidden();
+      const owner = gh.users.get(authUser.installation.accountId);
+      if (!owner) throw notFoundResponse();
+      user = owner;
+    }
     const body = await parseJsonBody(c);
 
     const finalRepo = createRepoRecord(
@@ -326,13 +340,18 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
         delete_branch_on_merge:
           typeof body.delete_branch_on_merge === "boolean" ? body.delete_branch_on_merge : undefined,
       },
-      user,
+      actor,
     );
+    if (authUser?.installation) {
+      const installation = gh.appInstallations.findOneBy("installation_id", authUser.installation.installationId);
+      if (installation?.repository_selection === "selected")
+        gh.appInstallations.update(installation.id, { repository_ids: [...installation.repository_ids, finalRepo.id] });
+    }
 
     webhooks.dispatch(
       "repository",
       "created",
-      { action: "created", repository: formatRepo(finalRepo, gh, baseUrl), sender: formatUser(user, baseUrl) },
+      { action: "created", repository: formatRepo(finalRepo, gh, baseUrl), sender: formatUser(actor, baseUrl) },
       user.login,
       finalRepo.name,
     );
@@ -342,12 +361,19 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
 
   app.post("/orgs/:org/repos", async (c) => {
     const authUser = c.get("authUser");
-    const user = assertAuthenticatedUser(gh, authUser);
+    const user = assertAuthenticatedActor(gh, authUser);
     const orgLogin = c.req.param("org")!;
     const org = gh.orgs.findOneBy("login", orgLogin);
     if (!org) throw notFoundResponse();
 
-    if (!isOrgMember(gh, user.id, org.id)) {
+    if (authUser?.installation) {
+      if (
+        authUser.installation.accountType !== "Organization" ||
+        authUser.installation.accountId !== org.id ||
+        !hasInstallationPermission(authUser, ["repository_creation", "administration"], "write")
+      )
+        throw forbidden();
+    } else if (!isOrgMember(gh, user.id, org.id)) {
       throw forbidden();
     }
 
@@ -379,6 +405,11 @@ export function reposRoutes({ app, store, webhooks, baseUrl }: RouteContext): vo
       },
       user,
     );
+    if (authUser?.installation) {
+      const installation = gh.appInstallations.findOneBy("installation_id", authUser.installation.installationId);
+      if (installation?.repository_selection === "selected")
+        gh.appInstallations.update(installation.id, { repository_ids: [...installation.repository_ids, finalRepo.id] });
+    }
 
     webhooks.dispatch(
       "repository",
