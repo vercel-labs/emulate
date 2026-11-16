@@ -39,7 +39,9 @@
     "prepack": "node ../../../scripts/prepare-package.mjs"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "@xmldom/xmldom": "^0.9.12",
+    "xml-crypto": "^6.4.0"
   },
   "devDependencies": {
     "@slack/web-api": "^7.16.0",

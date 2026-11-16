@@ -14,6 +14,7 @@ import { getSlackStore } from "../store.js";
 import { generateSlackId } from "../helpers.js";
 import type { SlackBot, SlackInstallation, SlackOAuthApp, SlackUser } from "../entities.js";
 import type { SlackStore } from "../store.js";
+import { canSignInWithoutSso, getSamlConfig, getWebSessionMember } from "../saml.js";
 
 type PendingCode = {
   userId: string;
@@ -74,13 +75,38 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       appName = oauthApp.name;
     }
 
-    const subtitleText = appName
+    let subtitleText = appName
       ? `Authorize <strong>${escapeHtml(appName)}</strong> to access your Slack workspace.`
       : "Choose a user to authorize.";
 
-    const users = ss()
+    let users = ss()
       .users.all()
       .filter((u) => !u.deleted && !u.is_bot);
+
+    // With SAML single sign-on, a member signed in with SSO authorizes as themselves. Otherwise the
+    // picker offers SSO sign-in, and only members allowed to sign in without SSO.
+    const saml = getSamlConfig(store);
+    let ssoButton = "";
+    if (saml) {
+      const signedIn = getWebSessionMember(store, c);
+      if (signedIn) {
+        users = [signedIn];
+      } else {
+        users = users.filter((u) => canSignInWithoutSso(saml, u));
+        const url = new URL(c.req.url);
+        ssoButton = renderUserButton({
+          letter: "S",
+          login: "Sign in with SAML",
+          name: "Continue with your identity provider",
+          formAction: "/sso/saml/start",
+          hiddenFields: { redir: `${url.pathname}${url.search}` },
+        });
+        if (saml.sso_requirement !== "optional") {
+          subtitleText += " This workspace requires single sign-on.";
+        }
+      }
+    }
+
     const userButtons = users
       .map((user) => {
         return renderUserButton({
@@ -101,7 +127,9 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       })
       .join("\n");
 
-    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
+    const body =
+      ssoButton +
+      (users.length === 0 && !ssoButton ? '<p class="empty">No users in the emulator store.</p>' : userButtons);
 
     return c.html(renderCardPage("Sign in to Slack", subtitleText, body, SERVICE_LABEL));
   });
@@ -115,6 +143,27 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const userScope = bodyStr(body.user_scope);
     const state = bodyStr(body.state);
     const client_id = bodyStr(body.client_id);
+
+    const saml = getSamlConfig(store);
+    if (saml) {
+      const user = ss().users.findOneBy("user_id", userId);
+      const signedIn = getWebSessionMember(store, c);
+      const allowed =
+        user &&
+        !user.deleted &&
+        !user.is_bot &&
+        (signedIn?.user_id === user.user_id || canSignInWithoutSso(saml, user));
+      if (!allowed) {
+        return c.html(
+          renderErrorPage(
+            "Single sign-on required",
+            "This workspace requires SAML single sign-on. Sign in with your identity provider to continue.",
+            SERVICE_LABEL,
+          ),
+          403,
+        );
+      }
+    }
 
     const code = randomBytes(20).toString("hex");
 

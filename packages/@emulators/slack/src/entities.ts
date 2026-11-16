@@ -46,6 +46,9 @@ export interface SlackUser extends Entity {
   real_name: string;
   email: string;
   is_admin: boolean;
+  is_owner?: boolean;
+  is_restricted?: boolean;
+  is_ultra_restricted?: boolean;
   is_bot: boolean;
   deleted: boolean;
   profile: SlackUserProfile;
