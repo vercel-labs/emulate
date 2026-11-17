@@ -1,6 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { serve } from "@emulators/core";
-import type { AddressInfo } from "node:net";
 import {
   SQSClient,
   CreateQueueCommand,
@@ -13,23 +11,17 @@ import {
   DeleteMessageCommand,
   PurgeQueueCommand,
 } from "@aws-sdk/client-sqs";
-import { createTestApp } from "./helpers.js";
+import { externalTarget, startAwsTarget } from "./helpers.js";
 
 describe("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
   let sqs: SQSClient;
   let close: () => Promise<void>;
 
   beforeAll(async () => {
-    const server = serve({ fetch: (request) => app.fetch(request), port: 0 });
-    await new Promise<void>((resolve, reject) => {
-      server.once("listening", resolve);
-      server.once("error", reject);
-    });
-    close = () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
-    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const { app } = createTestApp(baseUrl);
+    const target = await startAwsTarget();
+    close = target.close;
     sqs = new SQSClient({
-      endpoint: `${baseUrl}/sqs`,
+      endpoint: target.endpoint("sqs"),
       region: "us-east-1",
       credentials: { accessKeyId: "AKIA", secretAccessKey: "secret" },
       maxAttempts: 1,
@@ -41,7 +33,7 @@ describe("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
     await close?.();
   });
 
-  it("lists the seeded queue with a request ID", async () => {
+  it.skipIf(externalTarget)("lists the seeded queue with a request ID", async () => {
     const result = await sqs.send(new ListQueuesCommand({}));
     expect(result.QueueUrls).toEqual([expect.stringContaining("/sqs/123456789012/emulate-default-queue")]);
     expect(result.$metadata.httpStatusCode).toBe(200);
@@ -52,7 +44,7 @@ describe("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
     const { QueueUrl } = await sqs.send(
       new CreateQueueCommand({ QueueName: "sdk-queue", Attributes: { VisibilityTimeout: "0", DelaySeconds: "0" } }),
     );
-    expect(QueueUrl).toContain("/sqs/123456789012/sdk-queue");
+    expect(QueueUrl).toContain(externalTarget ? "/sdk-queue" : "/sqs/123456789012/sdk-queue");
     expect(await sqs.send(new GetQueueUrlCommand({ QueueName: "sdk-queue" }))).toMatchObject({ QueueUrl });
     expect(await sqs.send(new CreateQueueCommand({ QueueName: "sdk-queue" }))).toMatchObject({ QueueUrl });
     expect(await sqs.send(new ListQueuesCommand({ QueueNamePrefix: "sdk-" }))).toMatchObject({ QueueUrls: [QueueUrl] });

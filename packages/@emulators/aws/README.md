@@ -132,6 +132,10 @@ aws:
         aliases: [alias/my-app-key]
 ```
 
+## External backend
+
+Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint such as AWS Emulator, started with `--auth off`. Cognito and the inspector stay local. Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start. See the [AWS docs](https://emulate.dev/aws#external-backend).
+
 ## Links
 
 - [Full documentation](https://emulate.dev/aws)

@@ -11,8 +11,9 @@ import {
   DEFAULT_USER_POOL as UserPoolId,
   DEFAULT_IDENTITY_POOL as IdentityPoolId,
 } from "../cognito/helpers.js";
-import { createTestApp } from "./helpers.js";
+import { createTestApp, externalTarget } from "./helpers.js";
 
+// Depends on emulate-seeded pool and client ids, store access, and snapshots.
 const password = "LocalPass123!";
 const callback = "http://localhost:3000/callback";
 const provider = `cognito-idp.us-east-1.amazonaws.com/${UserPoolId}`;
@@ -104,7 +105,7 @@ async function codeGrant(fields: Record<string, string> = {}) {
   return location.searchParams.get("code")!;
 }
 
-describe("Cognito User Pools with the official AWS SDK", () => {
+describe.skipIf(externalTarget)("Cognito User Pools with the official AWS SDK", () => {
   it("confirms sign-up, signs tokens, and publishes verifiable discovery and JWKS", async () => {
     const signup = await sdk.send(
       new idp.SignUpCommand({
@@ -453,7 +454,7 @@ describe("Cognito User Pools with the official AWS SDK", () => {
   });
 });
 
-describe("Cognito OAuth authorization code flow", () => {
+describe.skipIf(externalTarget)("Cognito OAuth authorization code flow", () => {
   const path = `/cognito-idp/${UserPoolId}/oauth2/token`;
   it("renders a shared user picker and exchanges a PKCE-bound code with state and nonce", async () => {
     const authorize = `/cognito-idp/${UserPoolId}/oauth2/authorize?${new URLSearchParams({ client_id: ClientId, redirect_uri: callback, response_type: "code" })}`;
@@ -553,7 +554,7 @@ describe("Cognito OAuth authorization code flow", () => {
   });
 });
 
-describe("Cognito Identity Pools with the official AWS SDK", () => {
+describe.skipIf(externalTarget)("Cognito Identity Pools with the official AWS SDK", () => {
   it("keeps identities stable and issues temporary credentials only for the matching login", async () => {
     const alice = await authenticate();
     const Logins = { [provider]: alice.IdToken! };
