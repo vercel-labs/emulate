@@ -257,7 +257,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | `port` | `4000` | Port for the HTTP server |
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://<listening host>:<port>`, with `localhost` for loopback and wildcard hosts. |
 
 Use `hostname: '0.0.0.0'` to allow connections from containers or other machines, and `baseUrl` to advertise a URL reachable by those clients.
 
@@ -1455,6 +1455,10 @@ KMS accepts AWS JSON 1.1 requests at `POST /kms/` with `Content-Type: applicatio
 - `CreateKey`, `DescribeKey`, `ListKeys`, `Encrypt`, `Decrypt`
 
 Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN. `Encrypt` and `Decrypt` responses return the key ARN as `KeyId`. A default key with alias `alias/emulate-default` is always created. Seed more keys under `aws.kms.keys`; each entry takes an optional `key_id` (a lowercase UUID), `description`, and `aliases`. Plaintext is limited to 4096 bytes. A ciphertext blob records the key that produced it, so `Decrypt` needs no `KeyId`, and a `KeyId` naming a different key returns `IncorrectKeyException`. The encryption context is authenticated: decrypting with a different context or a modified blob returns `InvalidCiphertextException`. Unknown keys and aliases return `NotFoundException`, and `DryRun` returns `DryRunOperationException`. Only symmetric `ENCRYPT_DECRYPT` keys are emulated; other key specs, key usages, origins, and multi-Region keys return `UnsupportedOperationException`. Aliases come from seed config, and seeding an alias that already points at another key, such as `alias/emulate-default`, fails at startup. Alias management, key state changes, key policies, grants, rotation, and data key generation are not implemented, and request signatures are not checked.
+
+### External backend
+
+Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint, such as [AWS Emulator](https://github.com/aws/aws-emulator) started with `--auth off`. Cognito and the inspector stay local, and clients keep using the emulator's port and path prefixes. Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start; a failed seed is retried on the next forwarded request. See the [AWS docs](https://emulate.dev/aws#external-backend).
 
 ## Next.js Integration
 

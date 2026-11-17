@@ -123,6 +123,24 @@ aws:
 
 Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`), KMS key with alias `alias/emulate-default`.
 
+## External Backend
+
+Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint such as AWS Emulator. Cognito and the inspector stay local, and clients keep using `http://localhost:4007`.
+
+```yaml
+aws:
+  backend:
+    url: https://127.0.0.1:9297
+```
+
+- Start the backend yourself with request authentication off (`aws-emulator --auth off`).
+- For a self-signed HTTPS backend, set `NODE_EXTRA_CA_CERTS` to its CA file before `npx emulate start`.
+- Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start. Existing ones are kept. Defaults are not created.
+- Seeding uses `aws.region` (default `us-east-1`); sign SDK clients for the same region.
+- Give seeded KMS keys an alias; keys without one are created again on every start.
+- `account_id` and KMS `key_id` fail at startup with `backend`.
+- Reset and snapshots do not touch backend state; restart the backend to clear it. A failed seed is retried on the next forwarded request.
+
 ## API Endpoints
 
 ### S3

@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { serve } from "@emulators/core";
-import type { AddressInfo } from "node:net";
 import {
   S3Client,
   ListBucketsCommand,
@@ -15,31 +13,7 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
-import { createTestApp } from "./helpers.js";
-
-type EmulatorHandle = { url: string; close: () => Promise<void> };
-
-async function startEmulator(): Promise<EmulatorHandle> {
-  const override = process.env.AWS_EMULATOR_E2E_URL;
-  if (override) {
-    return { url: override, close: async () => {} };
-  }
-
-  const { app } = createTestApp();
-  const server = serve({ fetch: app.fetch, port: 0 });
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", () => resolve());
-    server.once("error", reject);
-  });
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
-      }),
-  };
-}
+import { startAwsTarget, type AwsTarget } from "./helpers.js";
 
 async function streamToString(stream: unknown): Promise<string> {
   return (await streamToBuffer(stream)).toString();
@@ -54,17 +28,23 @@ async function streamToBuffer(stream: unknown): Promise<Buffer> {
 }
 
 describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
-  let emulator: EmulatorHandle;
+  let emulator: AwsTarget;
   let s3: S3Client;
 
   beforeAll(async () => {
-    emulator = await startEmulator();
+    emulator = await startAwsTarget();
     s3 = new S3Client({
-      endpoint: emulator.url,
+      endpoint: emulator.endpoint("s3"),
       region: "us-east-1",
       forcePathStyle: true,
       credentials: { accessKeyId: "AKIA", secretAccessKey: "secret" },
     });
+    if (emulator.external) {
+      // External targets may lack emulate's seed; create the default bucket the suite relies on.
+      await s3.send(new CreateBucketCommand({ Bucket: "emulate-default" })).catch((error: { name?: string }) => {
+        if (error.name !== "BucketAlreadyOwnedByYou") throw error;
+      });
+    }
   });
 
   afterAll(async () => {
