@@ -10,6 +10,7 @@ import {
   type TokenMap,
   type AppEnv,
 } from "../middleware/auth.js";
+import { createApiErrorHandler } from "../middleware/error-handler.js";
 
 describe("authMiddleware", () => {
   let tokenMap: TokenMap;
@@ -119,8 +120,20 @@ describe("requireAuth", () => {
     tokenMap.set("ok-token", { login: "alice", id: 1, scopes: [] });
   });
 
+  it("returns a JSON 401 on an app without an error handler", async () => {
+    const app = new Hono<AppEnv>();
+    app.use("*", requireAuth());
+    app.get("/protected", (c) => c.json({ ok: true }));
+
+    const res = await app.request("/protected");
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ message: "Requires authentication", documentation_url: "https://emulate.dev" });
+  });
+
   it("returns 401 when authUser is not set", async () => {
     const app = new Hono<AppEnv>();
+    app.onError(createApiErrorHandler());
     app.use("*", authMiddleware(tokenMap));
     app.use("*", requireAuth());
     app.get("/protected", (c) => c.json({ ok: true }));
@@ -135,6 +148,7 @@ describe("requireAuth", () => {
 
   it("passes through when authUser exists", async () => {
     const app = new Hono<AppEnv>();
+    app.onError(createApiErrorHandler());
     app.use("*", authMiddleware(tokenMap));
     app.use("*", requireAuth());
     app.get("/protected", (c) => c.json({ user: c.get("authUser") }));
@@ -164,6 +178,7 @@ function base64UrlJson(value: unknown): string {
 describe("requireAppAuth", () => {
   it("returns 401 when authApp is not set", async () => {
     const app = new Hono<AppEnv>();
+    app.onError(createApiErrorHandler());
     app.use("*", requireAppAuth());
     app.get("/app-route", (c) => c.json({ ok: true }));
 
@@ -177,6 +192,7 @@ describe("requireAppAuth", () => {
 
   it("passes through when authApp exists", async () => {
     const app = new Hono<AppEnv>();
+    app.onError(createApiErrorHandler());
     app.use("*", async (c, next) => {
       c.set("authApp", { appId: 42, slug: "my-app", name: "My App" });
       await next();

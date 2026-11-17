@@ -33,6 +33,8 @@ afterEach(async () => {
 });
 
 describe("CLI generated secrets", () => {
+  // This test runs first, so it pays for loading the start command as well as generating an RSA key. That has taken
+  // over 5s on CI runners.
   it("delivers a usable key before startup without exposing it in output or HTTP", async () => {
     const directory = await temporaryDirectory();
     const seedPath = join(directory, "seed.yaml");
@@ -98,7 +100,7 @@ describe("CLI generated secrets", () => {
     for (const listener of process.listeners("SIGTERM")) {
       if (!beforeSigterm.includes(listener)) process.removeListener("SIGTERM", listener);
     }
-  });
+  }, 20000);
 
   it("materializes usable generated keys in service order and excludes explicit keys", async () => {
     const { privateKey: explicitKey } = generateKeyPairSync("rsa", {

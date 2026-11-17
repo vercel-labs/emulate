@@ -4,6 +4,8 @@ title: "Stripe"
 
 Stripe API emulation with customers, payment methods, customer sessions, payment intents, charges, products, prices, and checkout sessions. Includes a hosted checkout page and webhook delivery.
 
+API keys are accepted without checks by default. Set `stripe.strict_scopes: true` in seed config to require a known key on `/v1` routes: a key from the top-level `tokens` config, or one listed in `stripe.api_keys`. The Next.js and Nuxt adapters don't read top-level `tokens`, so there strict mode accepts only `stripe.api_keys`. Send the key as the HTTP Basic username or a bearer token: a request without a key returns `401` with `You did not provide an API key.` and an unknown key returns `401` with `Invalid API Key provided`, both as `invalid_request_error`. Hosted checkout pages stay public.
+
 ## Customers
 
 - `POST /v1/customers` — create customer

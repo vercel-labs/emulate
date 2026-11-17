@@ -21,10 +21,11 @@ npx emulate --service linear
 - `POST /graphql` for a focused Linear GraphQL subset.
 - Queries for viewer, organization, users, teams, workflow states, issues, comments, labels, projects, cycles, webhooks, and agent sessions.
 - Issue selections include numeric `priority` and the derived `priorityLabel`.
-- Mutations for issues, comments, labels, webhooks, and basic agent sessions and activities.
+- Mutations for issues, comments, labels, webhooks, and agent sessions and activities.
+- Agent sessions and activities with Linear's `AgentActivityCreateInput`, the `AgentActivityContent` union, activity-driven session `status`, plans, external links, and `AgentSessionEvent` `created` and `prompted` webhooks, compatible with `@linear/sdk`.
 - OAuth authorize, token, refresh, revoke, PKCE, client credentials, and app actor tokens.
 - Personal API key and OAuth bearer token auth.
-- Linear-shaped webhook delivery with `Linear-Delivery`, `Linear-Event`, and `Linear-Signature` headers.
+- Linear-shaped webhook delivery with `Linear-Delivery`, `Linear-Event`, `Linear-Signature`, and `Linear-Timestamp` headers, issue `state` payloads, and `updatedFrom` limited to the changed properties.
 - Local inspector at `/`.
 
 OAuth app `actor` config is authoritative. Apps configured with `actor: user` use authorization code flows. Apps configured with `actor: app` use the app install flow and can request client credentials tokens.

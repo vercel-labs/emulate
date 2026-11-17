@@ -140,7 +140,7 @@ export function inspectorRoutes({ app, store }: RouteContext): void {
         const agent = ls().users.findOneBy("linear_id", session.agent_user_id);
         return [
           escapeHtml(session.linear_id),
-          escapeHtml(session.state),
+          escapeHtml(session.status),
           escapeHtml(issue?.identifier ?? ""),
           escapeHtml(userLabel(agent)),
           escapeHtml(String(ls().agentActivities.count((activity) => activity.session_id === session.linear_id))),
@@ -149,7 +149,7 @@ export function inspectorRoutes({ app, store }: RouteContext): void {
       });
     return section(
       "Agent Sessions",
-      table(["ID", "State", "Issue", "Agent", "Activities", "Updated"], rows, "No agent sessions."),
+      table(["ID", "Status", "Issue", "Agent", "Activities", "Updated"], rows, "No agent sessions."),
     );
   }
 

@@ -1,4 +1,5 @@
 import type { Context, Next } from "../http.js";
+import { ApiError, unauthorized } from "./error-handler.js";
 import { createPublicKey } from "crypto";
 import { jwtVerify } from "jose";
 import { debug } from "../debug.js";
@@ -122,34 +123,18 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
   };
 }
 
+/** Throws a 401 to the app error handler when the request has no authenticated user. */
 export function requireAuth() {
   return async (c: Context, next: Next) => {
-    if (!c.get("authUser")) {
-      const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
-      return c.json(
-        {
-          message: "Requires authentication",
-          documentation_url: docsUrl,
-        },
-        401,
-      );
-    }
+    if (!c.get("authUser")) throw unauthorized();
     await next();
   };
 }
 
+/** Throws a 401 to the app error handler when the request has no verified GitHub App JWT. */
 export function requireAppAuth() {
   return async (c: Context, next: Next) => {
-    if (!c.get("authApp")) {
-      const docsUrl = (c.get("docsUrl") as string | undefined) ?? "https://emulate.dev";
-      return c.json(
-        {
-          message: "A JSON web token could not be decoded",
-          documentation_url: docsUrl,
-        },
-        401,
-      );
-    }
+    if (!c.get("authApp")) throw new ApiError(401, "A JSON web token could not be decoded");
     await next();
   };
 }
