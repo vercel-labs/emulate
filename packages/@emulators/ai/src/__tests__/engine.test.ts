@@ -348,6 +348,60 @@ describe("request limits", () => {
     expect(outcome.reply.stopSequence).toBe("three");
   });
 
+  it("finds a stop sequence that spans two adjacent text events", () => {
+    const { store } = setup({
+      rules: [
+        {
+          id: "count",
+          match: {},
+          reply: [
+            { type: "text", text: "one tw" },
+            { type: "text", text: "o three four" },
+          ],
+        },
+      ],
+    });
+
+    const outcome = replyOf(decide(store, request({ stop: ["two"] })));
+
+    expect(outcome.reply.events).toEqual([{ type: "text", text: "one " }]);
+    expect(outcome.reply.finish).toBe("stop");
+    expect(outcome.reply.stopSequence).toBe("two");
+  });
+
+  it("keeps earlier events whole and drops a later text event that starts with the match", () => {
+    const { store } = setup({
+      rules: [
+        {
+          id: "call",
+          match: {},
+          reply: [
+            { type: "text", text: "one " },
+            { type: "tool_call", name: "lookup", arguments: { q: 1 } },
+            { type: "text", text: "two three" },
+          ],
+        },
+      ],
+    });
+
+    const outcome = replyOf(decide(store, request({ stop: ["two"] })));
+
+    expect(outcome.reply.events).toEqual([
+      { type: "text", text: "one " },
+      expect.objectContaining({ type: "tool_call", name: "lookup" }),
+    ]);
+    expect(outcome.reply.stopSequence).toBe("two");
+  });
+
+  it("ignores an empty stop string and, at the same position, reports the sequence listed first", () => {
+    const { store } = setup({ rules: [textRule("count", "one two three")] });
+
+    const outcome = replyOf(decide(store, request({ stop: ["", "two", "tw"] })));
+
+    expect(outcome.reply.events).toEqual([{ type: "text", text: "one " }]);
+    expect(outcome.reply.stopSequence).toBe("two");
+  });
+
   it("cuts text at the token cap, four characters per token", () => {
     const { store } = setup({ rules: [textRule("long", "abcdefghijklmnopqrstuvwxyz")] });
 

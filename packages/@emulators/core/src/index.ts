@@ -19,6 +19,7 @@ export {
   HonoRequest,
   cors,
   serve,
+  assertPortFree,
   type ContentfulStatusCode,
   type CorsOptions,
   type ErrorHandler,

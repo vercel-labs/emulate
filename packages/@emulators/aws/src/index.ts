@@ -10,18 +10,22 @@ import { inspectorRoutes } from "./routes/inspector.js";
 import { cognitoIdpRoutes } from "./routes/cognito-idp.js";
 import { cognitoIdentityRoutes } from "./routes/cognito-identity.js";
 import { cognitoOAuthRoutes } from "./routes/cognito-oauth.js";
+import { configureAwsBackend, registerBackendProxy, type AwsBackendConfig } from "./backend.js";
 import { seedCognito, seedCognitoDefaults, type CognitoSeedConfig } from "./cognito/seed.js";
 
 export { getCognitoStore } from "./cognito/store.js";
 export type { CognitoSeedConfig } from "./cognito/seed.js";
 
 export { getAwsStore, type AwsStore } from "./store.js";
+export { getAwsBackend, type AwsBackendConfig } from "./backend.js";
 export * from "./entities.js";
 
 export interface AwsSeedConfig {
   port?: number;
   region?: string;
   account_id?: string;
+  /** Delegate S3, SQS, IAM, STS, and KMS to an external AWS-compatible endpoint. Cognito stays native. */
+  backend?: AwsBackendConfig;
   cognito?: CognitoSeedConfig;
   s3?: {
     buckets?: Array<{
@@ -114,6 +118,10 @@ export function seedFromConfig(store: Store, baseUrl: string, config: AwsSeedCon
   const accountId = getAccountId();
   const region = config.region ?? getDefaultRegion();
   if (config.cognito) seedCognito(store, config.cognito);
+  if (config.backend) {
+    configureAwsBackend(store, config);
+    return;
+  }
 
   if (config.s3?.buckets) {
     for (const b of config.s3.buckets) {
@@ -210,6 +218,8 @@ export const awsPlugin: ServicePlugin = {
   name: "aws",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    // Runs before every route and only takes over when aws.backend is configured.
+    registerBackendProxy(app, store, baseUrl);
     // Register inspector and service-specific routes first (static paths),
     // then S3 last since its routes use wildcard path params (/:bucket, /:bucket/:key)
     inspectorRoutes(ctx);
