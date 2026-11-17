@@ -470,7 +470,7 @@ Use `stream: true` in the matcher and add a fault. A disconnect ends the client 
 
 ### Strict mode
 
-Set `ai.strict: true` to fail unmatched requests with a native 400. The message names the request's model and tools and includes the missing rule as YAML for a seed file and as a JSON body for `PUT /_ai/rules`. Send that JSON back to the rules endpoint and retry, but replace the placeholder reply text first: it becomes the live reply if you send it unchanged.
+Set `ai.strict: true` to fail unmatched requests with a native 400. The message names the request's model and tools and includes the missing rule as YAML for a seed file and as a JSON body for `PUT /_ai/rules`. The JSON body keeps strict mode on, but `PUT /_ai/rules` replaces the whole configuration. Read the current rules with `GET /_ai/rules`, add the missing rule to them, send the result back, and retry. Replace the placeholder reply text first: it becomes the live reply if you send it unchanged.
 
 ```yaml
 ai:
