@@ -82,6 +82,7 @@
         "Clerk Seed Config",
         "Linear Seed Config",
         "Twilio Seed Config",
+        "AI Seed Config",
         "Custom emulators"
       ]
     },
@@ -213,6 +214,7 @@
         "OAuth",
         "Seed Config",
         "Webhooks",
+        "Agent Sessions",
         "Inspector",
         "Current Limits"
       ]
@@ -261,7 +263,7 @@
       "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
       "ogImage": "/og/aws",
       "ogTitle": "AWS | emulate",
-      "headings": ["S3", "SQS", "IAM", "STS", "Inspector"]
+      "headings": ["S3", "SQS", "IAM", "STS", "KMS", "External backend", "Inspector"]
     },
     "/docs/okta": {
       "title": "Okta | emulate",
@@ -301,6 +303,29 @@
         "Webhooks"
       ]
     },
+    "/docs/ai": {
+      "title": "AI Responses | emulate",
+      "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
+      "ogImage": "/og/ai",
+      "ogTitle": "AI Responses | emulate",
+      "headings": [
+        "Clients",
+        "Routes",
+        "Messages",
+        "Rules",
+        "Rule fields",
+        "Matching",
+        "Replies",
+        "Errors and faults",
+        "Defaults and strict mode",
+        "Variants",
+        "State",
+        "Stored responses",
+        "Control routes",
+        "Inspector and call record",
+        "Limits"
+      ]
+    },
     "/docs/authentication": {
       "title": "Authentication | emulate",
       "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
@@ -314,7 +339,8 @@
         "Slack OAuth",
         "Apple Sign In",
         "Microsoft Entra ID",
-        "AWS"
+        "AWS",
+        "AI"
       ]
     },
     "/docs/architecture": {

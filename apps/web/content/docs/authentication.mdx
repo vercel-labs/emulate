@@ -15,7 +15,7 @@ curl -H "Authorization: Bearer <token>" \
 
 ## GitHub
 
-Public repo endpoints work without auth. Private repos and write operations require a valid token. Pagination uses `page`/`per_page` with `Link` headers.
+Public repo endpoints work without auth. Private repos and write operations require a valid token. A private repository the caller cannot see returns `404 Not Found`, as on GitHub. Set `github.strict_scopes: true` in seed config to reject tokens the emulator did not issue: a token that does not come from seed config, server options, an OAuth exchange, or an installation token request returns `401 Bad credentials` instead of acting as the default user. Pagination uses `page`/`per_page` with `Link` headers.
 
 ```yaml
 tokens:
@@ -106,3 +106,16 @@ curl http://localhost:4006/s3/ \
 ```
 
 For the AWS SDK, use IAM access key credentials. A default key pair is always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+## AI
+
+The AI service accepts a bearer key, an empty key, or no auth header. Keys are never required, validated, stored, or logged, and they do not select rules or partition state. SDK constructors that demand a key accept a placeholder such as `test`.
+
+```typescript
+import OpenAI from 'openai'
+
+const client = new OpenAI({
+  apiKey: 'test',
+  baseURL: 'http://localhost:4014/v1',
+})
+```

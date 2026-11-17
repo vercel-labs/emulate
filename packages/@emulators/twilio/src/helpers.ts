@@ -242,3 +242,9 @@ export function maskSecret(value: string): string {
   if (value.length <= 8) return "****";
   return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
+
+// Suspended and closed accounts can't send messages or place calls on Twilio.
+export function requireActiveAccount(c: Context, account: TwilioAccount): Response | undefined {
+  if (account.status === "active") return undefined;
+  return twilioError(c, 401, "Account not active", 20005);
+}

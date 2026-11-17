@@ -46,6 +46,8 @@ HTTP Basic auth accepts either:
 - Account SID and Auth Token
 - API Key SID and API Key Secret
 
+Only an `active` account can send messages or place calls. A `suspended` or `closed` account gets HTTP 401 and error `20005`, "Account not active", so you can test account suspension; setting the status back to `active` restores traffic.
+
 ## Core Routes
 
 - `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` - create outbound message

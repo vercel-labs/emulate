@@ -138,6 +138,8 @@ curl http://localhost:4000/v1/customers \
   -H "Authorization: Bearer sk_test_emulated"
 ```
 
+API keys are accepted without checks by default so local clients can use any placeholder. Set `stripe.strict_scopes: true` in seed config to require a known key on `/v1` routes, either a key from the top-level `tokens` config or one listed in `stripe.api_keys` (the only source under the Next.js and Nuxt adapters): a request without a key returns `401 You did not provide an API key.` and an unknown key returns `401 Invalid API Key provided`.
+
 ## Seed Config
 
 Seed data is optional. All entities support an optional `id` field for deterministic IDs that survive server restarts.

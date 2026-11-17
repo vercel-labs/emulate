@@ -42,7 +42,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 Requests without a token return `not_authed`. In relaxed scope mode, any non-empty unknown bearer token maps to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, `team:read`, and `admin.conversations:write`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods. Strict mode also rejects tokens the emulator did not issue: a token that does not come from seed config, server options, or an OAuth exchange returns `invalid_auth` instead of acting as the default user.
 
 ## Pointing Your App at the Emulator
 
@@ -212,6 +212,11 @@ When no OAuth apps are configured, the emulator accepts any `client_id`. With ap
 # Test authentication
 curl -X POST http://localhost:4003/api/auth.test \
   -H "Authorization: Bearer $TOKEN"
+
+# Revoke the calling token; test=1 checks without revoking. A revoked bot token
+# deactivates the bot user and removes it from its channels until the app is reinstalled.
+curl -X POST http://localhost:4003/api/auth.revoke \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Chat
@@ -219,6 +224,8 @@ curl -X POST http://localhost:4003/api/auth.test \
 `chat.postMessage`, `chat.update`, `conversations.history`, and `conversations.replies` round trip text plus common rich message fields: `blocks`, `attachments`, `metadata`, `mrkdwn`, `parse`, `link_names`, `unfurl_links`, `unfurl_media`, `username`, `icon_url`, `icon_emoji`, `bot_id`, `app_id`, `client_msg_id`, and `reply_broadcast`. `chat.postMessage` can also post to opened DM conversations or supported Slack user IDs.
 
 `chat.postEphemeral` stores ephemeral messages outside channel history. `chat.scheduleMessage`, `chat.deleteScheduledMessage`, and `chat.scheduledMessages.list` keep scheduled messages pending until deleted or inspected.
+
+`chat.postMessage`, `chat.postEphemeral`, `chat.update`, and `chat.scheduleMessage` accept `markdown_text` in place of `text`. The emulator stores the Markdown source as the message `text` and adds no blocks, since Slack doesn't document how it reads such a message back. Sending `markdown_text` with a non-empty `text` or with `blocks` returns `markdown_text_conflict`, and an empty `markdown_text` counts as no text. Slack's 12,000-character limit for `markdown_text` is not enforced.
 
 ```bash
 # Post message
@@ -238,6 +245,12 @@ curl -X POST http://localhost:4003/api/chat.postMessage \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"channel": "C000000001", "text": "Deploy complete", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*Deploy* complete"}}], "metadata": {"event_type": "deploy_complete", "event_payload": {"deploy_id": "dep_123"}}, "unfurl_links": false}'
+
+# Post Markdown text
+curl -X POST http://localhost:4003/api/chat.postMessage \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "C000000001", "markdown_text": "**Deploy** finished\n\n- api: ok"}'
 
 # Update message
 curl -X POST http://localhost:4003/api/chat.update \

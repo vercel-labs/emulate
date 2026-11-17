@@ -327,13 +327,14 @@ function ensureBotForApp(
       icons: { image_48: "" },
     });
 
-  if (existingBot && (existingBot.app_id !== appId || existingBot.user_id !== botUserId)) {
-    ss.bots.update(existingBot.id, { app_id: appId, user_id: botUserId });
+  // Installing again reactivates a bot user that auth.revoke deactivated.
+  if (existingBot && (existingBot.app_id !== appId || existingBot.user_id !== botUserId || existingBot.deleted)) {
+    ss.bots.update(existingBot.id, { app_id: appId, user_id: botUserId, deleted: false });
   }
 
   const existingUser = ss.users.findOneBy("user_id", botUserId);
   const user =
-    existingUser ??
+    (existingUser?.deleted ? ss.users.update(existingUser.id, { deleted: false }) : existingUser) ??
     ss.users.insert({
       user_id: botUserId,
       team_id: teamId,

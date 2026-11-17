@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "tsup";
+import { emitTypes } from "../../../scripts/emit-types.mjs";
 
 const copyFonts = async () => {
   const src = resolve(__dirname, "../core/src/fonts");
@@ -12,8 +13,11 @@ const copyFonts = async () => {
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
-  dts: true,
+  dts: false,
   sourcemap: true,
   noExternal: [/^@emulators\/core/],
-  onSuccess: copyFonts,
+  onSuccess: async () => {
+    await copyFonts();
+    emitTypes(__dirname);
+  },
 });

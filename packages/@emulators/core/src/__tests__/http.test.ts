@@ -1,9 +1,53 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
-import { Hono, cors, serve } from "../http.js";
+import { Agent, request as httpRequest } from "node:http";
+import { connect, createServer, type AddressInfo, type Server } from "node:net";
+import { Hono, assertPortFree, cors, serve } from "../http.js";
 
 describe("HTTP listener", () => {
+  it("answers 400 for a Host that is not a plain authority and keeps the connection usable", async () => {
+    let calls = 0;
+    const server = serve({
+      fetch: (request) => {
+        calls++;
+        return new Response(new URL(request.url).host);
+      },
+      port: 0,
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+      const socket = connect(port, "127.0.0.1");
+      let received = "";
+      socket.on("data", (chunk) => (received += chunk));
+      const send = (host: string) => socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\n\r\n`);
+      const responses = async (count: number) => {
+        while ((received.match(/HTTP\/1\.1 \d/g) ?? []).length < count) await new Promise((r) => setTimeout(r, 10));
+      };
+
+      send("localhost@evil.example:80");
+      send("evil.example#@localhost");
+      send("a/b");
+      send("x?y=1");
+      send("host with space");
+      send("my_service:4000");
+      await responses(6);
+      socket.destroy();
+
+      const statuses = [...received.matchAll(/HTTP\/1\.1 (\d+)/g)].map((m) => m[1]);
+      expect(statuses).toEqual(["400", "400", "400", "400", "400", "200"]);
+      expect(received).toContain("Invalid Host header");
+      expect(received).toContain("my_service:4000");
+      expect(calls).toBe(1);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
+    }
+  });
+
   it.each([
     { hostname: undefined, address: "127.0.0.1" },
     { hostname: "0.0.0.0", address: "0.0.0.0" },
@@ -21,6 +65,222 @@ describe("HTTP listener", () => {
       });
     }
   });
+
+  it("closes the connection when a streamed response errors while the request body is unread", async () => {
+    const parts = ["first|", "second|", "third|"];
+    const encoder = new TextEncoder();
+    const server = serve({
+      port: 0,
+      fetch: () => {
+        let index = 0;
+        const body = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            if (index < parts.length) {
+              controller.enqueue(encoder.encode(parts[index]));
+              index += 1;
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            controller.error(new Error("stream failed"));
+          },
+        });
+        return new Response(body, { headers: { "Content-Type": "text/plain" } });
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      const result = await postIgnoredBody(port, 512 * 1024);
+
+      try {
+        expect(result.text).toBe(parts.join(""));
+        expect(result.complete).toBe(false);
+        expect(await waitForConnections(server, 0, 1000)).toBe(0);
+      } finally {
+        result.cleanup();
+      }
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("delivers headers and queued chunks before tearing down a stream that errors immediately", async () => {
+    const encoder = new TextEncoder();
+    const server = serve({
+      port: 0,
+      fetch: () => {
+        let sent = 0;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (sent < 2) {
+                sent += 1;
+                controller.enqueue(encoder.encode(`frame${sent}|`));
+                return;
+              }
+              controller.error(new Error("stream failed"));
+            },
+          }),
+        );
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      const received = await new Promise<{ text: string; failed: boolean }>((resolve, reject) => {
+        const req = httpRequest({ port, host: "127.0.0.1", agent: false }, (res) => {
+          let text = "";
+          res.on("data", (data: Buffer) => (text += data.toString()));
+          res.on("error", () => resolve({ text, failed: true }));
+          res.on("aborted", () => resolve({ text, failed: true }));
+          res.on("end", () => resolve({ text, failed: false }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+
+      expect(received).toEqual({ text: "frame1|frame2|", failed: true });
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("aborts the request signal and cancels the body when a write fails", async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x42);
+    let signal: AbortSignal | undefined;
+    let streamCancelled = false;
+    const server = serve({
+      port: 0,
+      abortOnClose: true,
+      fetch: (request) => {
+        signal = request.signal;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(chunk);
+            },
+            cancel() {
+              streamCancelled = true;
+            },
+          }),
+        );
+      },
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      await readThenDestroy(port, 1024 * 1024);
+
+      expect(await waitFor(() => signal?.aborted === true, 2000)).toBe(true);
+      expect(await waitFor(() => streamCancelled, 2000)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it("cancels the body stream when a client destroys its socket without abortOnClose", async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x43);
+    let produced = 0;
+    let producedAtCancel = -1;
+    let cancelled = false;
+    const server = serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              produced += 1;
+              controller.enqueue(chunk);
+            },
+            cancel() {
+              cancelled = true;
+              producedAtCancel = produced;
+            },
+          }),
+        ),
+    });
+    try {
+      await once(server, "listening");
+      const { port } = server.address() as AddressInfo;
+
+      await readThenDestroy(port, 1024 * 1024);
+
+      expect(await waitFor(() => cancelled, 2000)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(produced).toBe(producedAtCancel);
+      expect(await waitForConnections(server, 0, 1000)).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+
+  it.each([{ abortOnClose: false }, { abortOnClose: true }])(
+    "delivers a large body to a slow reader intact with abortOnClose $abortOnClose",
+    async ({ abortOnClose }) => {
+      const chunkSize = 64 * 1024;
+      const chunkCount = 128;
+      const chunks: Uint8Array[] = [];
+      const expected = createHash("sha256");
+      for (let index = 0; index < chunkCount; index++) {
+        const chunk = new Uint8Array(chunkSize);
+        chunk.fill(index & 0xff);
+        new DataView(chunk.buffer).setUint32(0, index);
+        chunks.push(chunk);
+        expected.update(chunk);
+      }
+      let signal: AbortSignal | undefined;
+      const server = serve({
+        port: 0,
+        abortOnClose,
+        fetch: (request) => {
+          signal = request.signal;
+          let index = 0;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                if (index >= chunks.length) {
+                  controller.close();
+                  return;
+                }
+                controller.enqueue(chunks[index]);
+                index += 1;
+              },
+            }),
+          );
+        },
+      });
+      try {
+        await once(server, "listening");
+        const { port } = server.address() as AddressInfo;
+
+        const result = await readSlowly(port);
+
+        expect(result.bytes).toBe(chunkSize * chunkCount);
+        expect(result.digest).toBe(expected.digest("hex"));
+        expect(await waitFor(() => signal?.aborted === true, 200)).toBe(false);
+      } finally {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          server.closeAllConnections();
+        });
+      }
+    },
+  );
 });
 
 describe("internal http layer", () => {
@@ -80,6 +340,36 @@ describe("internal http layer", () => {
     expect(res.headers.get("X-Handler")).toBe("get");
   });
 
+  it.each([
+    { pattern: "/auth/*", hits: ["/auth", "/auth/login", "/auth/a/b"], misses: ["/authx", "/other"] },
+    { pattern: "/a/:id/*", hits: ["/a/1", "/a/1/z", "/a/1/z/w"], misses: ["/a", "/b/1/z"] },
+    { pattern: "/m/*/end", hits: ["/m/x/end"], misses: ["/m/end", "/m/x/y/end"] },
+    { pattern: "/files*", hits: ["/files*"], misses: ["/filesx", "/files"] },
+  ])("matches wildcard pattern $pattern", async ({ pattern, hits, misses }) => {
+    const app = new Hono();
+    app.get(pattern, (c) => c.text("hit"));
+    for (const path of hits) expect(await (await app.request(path)).text()).toBe("hit");
+    for (const path of misses) expect((await app.request(path)).status).toBe(404);
+  });
+
+  it("runs prefix middleware under its path only", async () => {
+    const app = new Hono();
+    app.use("/auth/*", async (c, next) => {
+      c.header("x-guard", "1");
+      await next();
+    });
+    app.get("/*", (c) => c.text("ok"));
+
+    expect((await app.request("/auth/login")).headers.get("x-guard")).toBe("1");
+    expect((await app.request("/public")).headers.get("x-guard")).toBeNull();
+  });
+
+  it("detects duplicate wildcard routes in strict mode", () => {
+    const app = new Hono({ strictRoutes: true });
+    app.get("/files/*", (c) => c.text("a"));
+    expect(() => app.get("/files/*", (c) => c.text("b"))).toThrow(/Duplicate route/);
+  });
+
   it("handles CORS preflight requests", async () => {
     const app = new Hono();
     app.use("*", cors({ allowMethods: ["GET"], allowHeaders: ["x-test"], maxAge: 60 }));
@@ -92,5 +382,184 @@ describe("internal http layer", () => {
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe("GET");
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe("x-test");
     expect(res.headers.get("Access-Control-Max-Age")).toBe("60");
+  });
+
+  async function hold(host?: string): Promise<Server | undefined> {
+    const holder = createServer();
+    holder.listen(0, host);
+    try {
+      await once(holder, "listening");
+      return holder;
+    } catch {
+      return undefined;
+    }
+  }
+
+  it("reports a port that a wildcard listener holds", async () => {
+    const holder = (await hold())!;
+    const { port } = holder.address() as AddressInfo;
+    try {
+      await expect(assertPortFree("127.0.0.1", port)).rejects.toMatchObject({ code: "EADDRINUSE" });
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("accepts a port that only another address holds", async () => {
+    const holder = await hold("::1");
+    if (!holder) return;
+    const { port } = holder.address() as AddressInfo;
+    try {
+      await expect(assertPortFree("127.0.0.1", port)).resolves.toBeUndefined();
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("leaves an invalid port for listen to report", async () => {
+    await expect(assertPortFree("127.0.0.1", 70000)).resolves.toBeUndefined();
+    expect(() => serve({ fetch: () => new Response("ready"), port: 70000 })).toThrow();
+  });
+
+  it("accepts a connection made right after serve returns", async () => {
+    const holder = (await hold("127.0.0.1"))!;
+    const { port } = holder.address() as AddressInfo;
+    await new Promise((resolve) => holder.close(resolve));
+    const server = serve({ fetch: () => new Response("ready"), port });
+    try {
+      expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe("ready");
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    }
+  });
+});
+
+/** POSTs a body the handler never reads and reports what the response stream delivered. */
+function postIgnoredBody(
+  port: number,
+  bytes: number,
+): Promise<{ text: string; complete: boolean; cleanup: () => void }> {
+  return new Promise((resolve) => {
+    const parts: Buffer[] = [];
+    const agent = new Agent({ keepAlive: true });
+    let responded = false;
+    let settled = false;
+    const settle = (complete: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        text: Buffer.concat(parts).toString(),
+        complete,
+        cleanup: () => {
+          request.destroy();
+          agent.destroy();
+        },
+      });
+    };
+    const request = httpRequest(
+      {
+        host: "127.0.0.1",
+        port,
+        method: "POST",
+        path: "/",
+        agent,
+        headers: { "Content-Length": String(bytes), "Content-Type": "application/octet-stream" },
+      },
+      (response) => {
+        responded = true;
+        response.on("data", (chunk: Buffer) => parts.push(chunk));
+        response.on("end", () => settle(response.complete));
+        response.on("error", () => settle(false));
+        response.on("close", () => settle(false));
+      },
+    );
+    request.on("error", () => {
+      if (!responded) settle(false);
+    });
+    request.end(Buffer.alloc(bytes, 0x41));
+  });
+}
+
+/** Polls the server until it reports the expected connection count or the deadline passes. */
+async function waitForConnections(server: Server, expected: number, timeoutMs: number): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let count = await countConnections(server);
+  while (count !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    count = await countConnections(server);
+  }
+  return count;
+}
+
+/** Requests the path, destroys the client socket after reading the given number of bytes, and settles. */
+function readThenDestroy(port: number, bytes: number): Promise<void> {
+  return new Promise((resolve) => {
+    const request = httpRequest({ host: "127.0.0.1", port, path: "/", agent: false }, (response) => {
+      let received = 0;
+      response.on("data", (chunk: Buffer) => {
+        received += chunk.length;
+        if (received >= bytes) {
+          response.destroy();
+          request.destroy();
+          resolve();
+        }
+      });
+    });
+    request.on("error", () => resolve());
+    request.end();
+  });
+}
+
+/** Reads the response while pausing between chunks and returns the byte count and SHA-256 digest. */
+function readSlowly(port: number): Promise<{ bytes: number; digest: string }> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    let bytes = 0;
+    const request = httpRequest({ host: "127.0.0.1", port, path: "/", agent: false }, (response) => {
+      response.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+        hash.update(chunk);
+        response.pause();
+        setTimeout(() => response.resume(), 2);
+      });
+      response.on("end", () => resolve({ bytes, digest: hash.digest("hex") }));
+      response.on("error", reject);
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+}
+
+function countConnections(server: Server): Promise<number> {
+  return new Promise((resolve, reject) =>
+    server.getConnections((error, count) => (error ? reject(error) : resolve(count))),
+  );
+}
+
+describe("error status rendering", () => {
+  it("answers a 500 with the thrown message when the status cannot be sent", async () => {
+    for (const status of [600, 0, -1, 204, 304, 401.5, Number.NaN, "404"]) {
+      const app = new Hono();
+      app.get("/", () => {
+        throw Object.assign(new Error("boom"), { status });
+      });
+
+      const res = await app.request("/");
+
+      expect(res.status).toBe(500);
+      expect(await res.text()).toBe("boom");
+    }
   });
 });
