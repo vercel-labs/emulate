@@ -1,7 +1,13 @@
-import { Hono, cors } from "./http.js";
+import { Hono, cors, type Context } from "./http.js";
 import { Store } from "./store.js";
 import { WebhookDispatcher } from "./webhooks.js";
-import { createApiErrorHandler, createErrorHandler } from "./middleware/error-handler.js";
+import {
+  ApiError,
+  createApiErrorHandler,
+  createErrorHandler,
+  errorStatus,
+  notFound,
+} from "./middleware/error-handler.js";
 import {
   authMiddleware,
   type AuthFallback,
@@ -44,62 +50,59 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
 
   registerFontRoutes(app);
 
-  app.onError(createApiErrorHandler(docsUrl));
+  const defaultErrorHandler = createApiErrorHandler(docsUrl);
+  const renderError = async (err: unknown, c: Context<AppEnv>) => {
+    if (!plugin.formatError) return defaultErrorHandler(err, c);
+    try {
+      const response: unknown = await plugin.formatError(err, c, errorStatus(err));
+      if (response instanceof Response) return response;
+    } catch {}
+    return defaultErrorHandler(err, c);
+  };
+  app.onError(renderError);
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
   app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
 
-  const rateLimitCounters = new Map<string, { remaining: number; resetAt: number }>();
-  let lastPruneAt = Math.floor(Date.now() / 1000);
+  if (plugin.rateLimit !== false) {
+    const rateLimitCounters = new Map<string, { remaining: number; resetAt: number }>();
+    let lastPruneAt = Math.floor(Date.now() / 1000);
 
-  app.use("*", async (c, next) => {
-    const token = c.get("authToken") ?? "__anonymous__";
-    const now = Math.floor(Date.now() / 1000);
+    app.use("*", async (c, next) => {
+      const token = c.get("authToken") ?? "__anonymous__";
+      const now = Math.floor(Date.now() / 1000);
 
-    if (now - lastPruneAt > 3600) {
-      for (const [key, val] of rateLimitCounters) {
-        if (val.resetAt <= now) rateLimitCounters.delete(key);
+      if (now - lastPruneAt > 3600) {
+        for (const [key, val] of rateLimitCounters) {
+          if (val.resetAt <= now) rateLimitCounters.delete(key);
+        }
+        lastPruneAt = now;
       }
-      lastPruneAt = now;
-    }
 
-    let counter = rateLimitCounters.get(token);
-    if (!counter || counter.resetAt <= now) {
-      counter = { remaining: 5000, resetAt: now + 3600 };
-      rateLimitCounters.set(token, counter);
-    }
+      let counter = rateLimitCounters.get(token);
+      if (!counter || counter.resetAt <= now) {
+        counter = { remaining: 5000, resetAt: now + 3600 };
+        rateLimitCounters.set(token, counter);
+      }
 
-    counter.remaining = Math.max(0, counter.remaining - 1);
+      counter.remaining = Math.max(0, counter.remaining - 1);
 
-    c.header("X-RateLimit-Limit", "5000");
-    c.header("X-RateLimit-Remaining", String(counter.remaining));
-    c.header("X-RateLimit-Reset", String(counter.resetAt));
-    c.header("X-RateLimit-Resource", "core");
+      c.header("X-RateLimit-Limit", "5000");
+      c.header("X-RateLimit-Remaining", String(counter.remaining));
+      c.header("X-RateLimit-Reset", String(counter.resetAt));
+      c.header("X-RateLimit-Resource", "core");
 
-    if (counter.remaining === 0) {
-      return c.json(
-        {
-          message: "API rate limit exceeded",
-          documentation_url: docsUrl,
-        },
-        403,
-      );
-    }
+      if (counter.remaining === 0) {
+        return renderError(new ApiError(403, "API rate limit exceeded"), c);
+      }
 
-    await next();
-  });
+      await next();
+    });
+  }
 
   plugin.register(app, store, webhooks, baseUrl, tokenMap);
 
-  app.notFound((c) =>
-    c.json(
-      {
-        message: "Not Found",
-        documentation_url: docsUrl,
-      },
-      404,
-    ),
-  );
+  app.notFound((c) => renderError(notFound(), c));
 
   return { app, store, webhooks, port, baseUrl, tokenMap };
 }
