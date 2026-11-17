@@ -226,17 +226,20 @@ describe("responsesCodec.decode validation", () => {
 
   it("wraps a failure in the native error envelope", () => {
     expect(
-      responsesCodec.errorBody({
-        status: 400,
-        type: "invalid_request_error",
-        message: "Bad.",
-        param: "input",
-        code: "x",
-      }),
+      responsesCodec.errorBody(
+        {
+          status: 400,
+          type: "invalid_request_error",
+          message: "Bad.",
+          param: "input",
+          code: "x",
+        },
+        "req_1",
+      ),
     ).toEqual({
       error: { message: "Bad.", type: "invalid_request_error", param: "input", code: "x" },
     });
-    expect(responsesCodec.errorBody({ status: 500, message: "Boom." })).toEqual({
+    expect(responsesCodec.errorBody({ status: 500, message: "Boom." }, "req_2")).toEqual({
       error: { message: "Boom.", type: defaultErrorType(500), param: null, code: null },
     });
   });
