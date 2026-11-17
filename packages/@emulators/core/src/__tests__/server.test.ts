@@ -39,6 +39,25 @@ describe("createServer error formatting", () => {
     expect(await response.json()).toEqual({ error: "short and stout", status: 418 });
   });
 
+  it("renders errors through an async formatError", async () => {
+    const server = createServer(
+      testPlugin({
+        register(app) {
+          app.get("/teapot", () => {
+            throw Object.assign(new Error("short and stout"), { status: 418 });
+          });
+        },
+        formatError: async (error, c, status) => c.json({ error: messageOf(error), status }, status),
+      }),
+      { docsUrl },
+    );
+
+    const response = await server.app.request("/teapot");
+
+    expect(response.status).toBe(418);
+    expect(await response.json()).toEqual({ error: "short and stout", status: 418 });
+  });
+
   it("falls back to the default body with the original status when formatError throws or rejects", async () => {
     for (const formatError of [
       () => {
@@ -48,7 +67,7 @@ describe("createServer error formatting", () => {
         throw new Error("formatter broke");
       },
     ]) {
-      const server = createServer(testPlugin({ formatError: formatError as never }), {
+      const server = createServer(testPlugin({ formatError }), {
         docsUrl,
       });
 
