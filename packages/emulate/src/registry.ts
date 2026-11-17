@@ -40,6 +40,7 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "linear",
   "twilio",
+  "ai",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -633,6 +634,33 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         conversations: {
           services: [{ friendly_name: "Local Conversations" }],
         },
+      },
+    },
+  },
+
+  ai: {
+    label: "AI provider emulator for OpenAI Responses and Chat Completions",
+    endpoints:
+      "OpenAI Responses, Chat Completions, models list, stored responses, call record, live rules, reset, inspector",
+    async load() {
+      const mod = await import("@emulators/ai");
+      return { plugin: mod.aiPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "ai_test", id: 1, scopes: [] };
+    },
+    initConfig: {
+      ai: {
+        strict: false,
+        timing: { ttftMs: 0, chunkDelayMs: 0 },
+        models: ["gpt-x"],
+        rules: [
+          {
+            id: "greeting",
+            match: { textContains: "hello" },
+            reply: [{ type: "text", text: "Hello from the emulate AI service." }],
+          },
+        ],
       },
     },
   },

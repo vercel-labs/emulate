@@ -21,6 +21,7 @@ import { registerFontRoutes } from "./fonts.js";
 export interface ServerOptions {
   port?: number;
   baseUrl?: string;
+  baseUrlDerived?: boolean;
   docsUrl?: string;
   tokens?: Record<string, { login: string; id: number; scopes?: string[] }>;
   appKeyResolver?: AppKeyResolver;
@@ -100,7 +101,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
     });
   }
 
-  plugin.register(app, store, webhooks, baseUrl, tokenMap);
+  plugin.register(app, store, webhooks, baseUrl, tokenMap, { baseUrlDerived: options.baseUrlDerived });
 
   app.notFound((c) => renderError(notFound(), c));
 

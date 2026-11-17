@@ -5,18 +5,20 @@ import { ProjectWatcher } from "../project-watcher.js";
 import { CONFIG_FILES, findConfig } from "../config-loader.js";
 import { prepareProject, type ProjectOptions, type RunMetadata, type RetainedSeed } from "../project-runner.js";
 import { ensurePortless, registerAliases, removeAliases, type PortlessAlias } from "../portless.js";
+import { aiSetupLines } from "./start.js";
 import {
   preflightGeneratedSecretsFile,
   publishGeneratedSecretsFile,
   type PublishedGeneratedSecretsFile,
 } from "../generated-secrets-file.js";
 
-function printReady(metadata: RunMetadata, watching: boolean) {
+function printReady(metadata: RunMetadata, watching: boolean, host?: string) {
   const lines = ["\nemulate\n"];
   for (const service of metadata.services) {
     lines.push(`  ${service.name}  ${service.url}\n    Source: ${service.source}`);
     if (service.inspectorUrl)
       lines.push(`    Inspector: ${service.inspectorUrl}\n    Routes: ${service.inspectorUrl}?tab=routes`);
+    if (service.source === "ai") lines.push(`\n${aiSetupLines(service.url, host).join("\n")}`);
   }
   lines.push(`\n  ${watching ? "Watching imports and fixtures. Reloads reset state to seed." : "Ready."}`);
   const text = lines.join("\n");
@@ -177,7 +179,7 @@ async function startProject(options: ProjectOptions, signal: AbortSignal, own: (
     await run.start();
     signal.throwIfAborted();
     ready = true;
-    printReady(run.metadata, false);
+    printReady(run.metadata, false, options.host);
     return;
   }
 
@@ -279,7 +281,7 @@ async function startProject(options: ProjectOptions, signal: AbortSignal, own: (
       await watcher.update(dependencies, patterns, false);
       if (stopped) return;
       successful = true;
-      printReady(metadata, true);
+      printReady(metadata, true, options.host);
     } catch (error) {
       if (stopped) return;
       failed = true;
