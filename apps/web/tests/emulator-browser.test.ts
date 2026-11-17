@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { Buffer as NodeBuffer } from "node:buffer";
 import { test } from "node:test";
+import { createContext as nodeCreateContext, Script as NodeScript } from "node:vm";
 import { Buffer } from "../lib/emulator-browser/buffer.ts";
 import shimCryptoDefault, * as shimCrypto from "../lib/emulator-browser/crypto.ts";
+import { createContext, Script } from "../lib/emulator-browser/vm.ts";
 
 const hashAlgorithms = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"];
 const hmacAlgorithms = ["md5", "sha1", "sha256", "sha512"];
@@ -95,4 +97,17 @@ test("Buffer encodes and decodes utf8, hex, base64 and base64url like node, incl
     );
   }
   assert.equal(Buffer.from("-_8", "base64url").toString("hex"), NodeBuffer.from("-_8", "base64url").toString("hex"));
+});
+
+test("a vm Script runs an expression against its context like Node", () => {
+  const code =
+    "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { return null; } return regex.test(value); })()";
+  for (const values of [
+    { pattern: "^a+$", value: "aaa" },
+    { pattern: "^a+$", value: "b" },
+    { pattern: "(", value: "x" },
+  ]) {
+    const expected = new NodeScript(code).runInContext(nodeCreateContext({ ...values }));
+    assert.equal(new Script(code).runInContext(createContext({ ...values })), expected, JSON.stringify(values));
+  }
 });

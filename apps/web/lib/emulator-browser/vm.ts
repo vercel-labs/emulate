@@ -4,7 +4,11 @@ export function createContext<T extends object>(sandbox: T): T {
 }
 
 export class Script {
-  constructor(private readonly code: string) {}
+  private readonly code: string;
+
+  constructor(code: string) {
+    this.code = code;
+  }
 
   runInContext(context: Record<string, unknown>): unknown {
     return new Function(...Object.keys(context), `return ${this.code};`)(...Object.values(context));
