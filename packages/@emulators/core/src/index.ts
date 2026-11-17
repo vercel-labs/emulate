@@ -81,7 +81,14 @@ export {
   type InspectorTab,
 } from "./ui.js";
 export { registerFontRoutes } from "./fonts.js";
-export { normalizeUri, matchesRedirectUri, constantTimeSecretEqual, bodyStr, parseCookies } from "./oauth-helpers.js";
+export {
+  normalizeUri,
+  matchesRedirectUri,
+  callbackRegistrationError,
+  constantTimeSecretEqual,
+  bodyStr,
+  parseCookies,
+} from "./oauth-helpers.js";
 export { debug } from "./debug.js";
 export { type PersistenceAdapter, filePersistence } from "./persistence.js";
 export {
