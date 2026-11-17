@@ -340,6 +340,25 @@ describe("chatCodec.encodeJson", () => {
   });
 });
 
+describe("chatCodec.errorBody", () => {
+  it("renders the full error envelope, with nulls for a failure that names no param or code", () => {
+    expect(
+      chatCodec.errorBody({
+        status: 400,
+        message: "Bad model.",
+        type: "invalid_request_error",
+        code: "model_not_found",
+        param: "model",
+      }),
+    ).toEqual({
+      error: { message: "Bad model.", type: "invalid_request_error", param: "model", code: "model_not_found" },
+    });
+    expect(chatCodec.errorBody({ status: 400, message: "Slow down." })).toEqual({
+      error: { message: "Slow down.", type: "invalid_request_error", param: null, code: null },
+    });
+  });
+});
+
 describe("chatCodec.streamFrames", () => {
   it("writes role, content, finish, usage, then DONE in order", () => {
     const { ctx, decoded } = decodedOf({
