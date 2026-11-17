@@ -99,15 +99,17 @@ test("Buffer encodes and decodes utf8, hex, base64 and base64url like node, incl
   assert.equal(Buffer.from("-_8", "base64url").toString("hex"), NodeBuffer.from("-_8", "base64url").toString("hex"));
 });
 
-test("a vm Script runs an expression against its context like Node", () => {
+test("a vm Script tests a pattern against a value like Node, and refuses any other script", () => {
   const code =
-    "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { return null; } return regex.test(value); })()";
+    "(() => { let regex; try { regex = new RegExp(pattern, 'u'); } catch { try { regex = new RegExp(pattern); } catch { return null; } } return regex.test(value); })()";
   for (const values of [
     { pattern: "^a+$", value: "aaa" },
     { pattern: "^a+$", value: "b" },
+    { pattern: "\\_", value: "_" },
     { pattern: "(", value: "x" },
   ]) {
     const expected = new NodeScript(code).runInContext(nodeCreateContext({ ...values }));
     assert.equal(new Script(code).runInContext(createContext({ ...values })), expected, JSON.stringify(values));
   }
+  assert.throws(() => new Script("1 + 1"), /not available in the browser playground/);
 });
