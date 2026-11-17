@@ -20,6 +20,7 @@ import {
   setAiConfig,
   setSeedConfig,
   settleCall,
+  takeCallSeq,
   type AiState,
   type CallStamp,
 } from "./state.js";
@@ -95,7 +96,7 @@ export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRout
       const codec = errorCodecOf(c.req.path, c.req.header("anthropic-version"));
       if (!codec) throw error;
       const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
-      return errorResponse(codec, failure, getAiState(store).callSeq + 1);
+      return errorResponse(codec, failure, takeCallSeq(getAiState(store)));
     }
   });
 }
@@ -372,10 +373,8 @@ function context(store: Store, state: AiState, path: string): CodecContext {
 }
 
 function freshCall(state: AiState, format: AiFormat, path: string): CallRecord {
-  const seq = state.callSeq + 1;
-  state.callSeq = seq;
   return {
-    seq,
+    seq: takeCallSeq(state),
     time: new Date().toISOString(),
     format,
     path,

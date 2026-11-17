@@ -762,6 +762,42 @@ describe("anthropic messages", () => {
     expect(body.request_id).toBe("req_from_rule");
   });
 
+  it("never repeats a request id across consecutive errors on the Messages path family", async () => {
+    const ids: string[] = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await fetch(`${origin}/v1/messages/count_tokens`, { method: "POST" });
+      expect(response.status).toBe(404);
+      ids.push(response.headers.get("request-id") ?? "");
+    }
+    expect(new Set(ids).size).toBe(3);
+    expect(ids.every((id) => /^req_\d+$/.test(id))).toBe(true);
+  });
+
+  it("gives a failed request and the next successful call different ids, matching their bodies", async () => {
+    const missing = await fetch(`${origin}/v1/messages/count_tokens`, { method: "POST" });
+    expect(missing.status).toBe(404);
+    const missingBody = (await missing.json()) as { request_id: string };
+    expect(missingBody.request_id).toBe(missing.headers.get("request-id"));
+
+    const ok = await postMessages(
+      JSON.stringify({ model: "claude-opus-5-5", max_tokens: 64, messages: [{ role: "user", content: "hi" }] }),
+    );
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("request-id")).not.toBe(missing.headers.get("request-id"));
+  });
+
+  it("gives successive successful calls increasing request ids", async () => {
+    const numbers: number[] = [];
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await postMessages(
+        JSON.stringify({ model: "claude-opus-5-5", max_tokens: 64, messages: [{ role: "user", content: "hi" }] }),
+      );
+      expect(response.status).toBe(200);
+      numbers.push(Number(/^req_(\d+)$/.exec(response.headers.get("request-id") ?? "")?.[1]));
+    }
+    expect(numbers[1]).toBeGreaterThan(numbers[0]);
+  });
+
   it("renders every non-codec error on the Messages path family in Anthropic's shape", async () => {
     const cases: Array<{
       method: string;

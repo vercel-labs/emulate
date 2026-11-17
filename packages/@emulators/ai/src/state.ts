@@ -214,6 +214,13 @@ export function nextId(state: AiState): number {
   return state.nextId++;
 }
 
+/** Takes the next call sequence number. Each number is handed out once, so a request id never repeats. */
+export function takeCallSeq(state: AiState): number {
+  const seq = state.callSeq + 1;
+  state.callSeq = seq;
+  return seq;
+}
+
 /** True when the state generation still matches the one a request captured. */
 export function isCurrentGeneration(state: AiState, stamp: { generation: number }): boolean {
   return stamp.generation === state.generation;
