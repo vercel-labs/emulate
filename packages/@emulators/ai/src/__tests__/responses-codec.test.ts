@@ -241,6 +241,12 @@ describe("responsesCodec.decode validation", () => {
     });
   });
 
+  it("names an unsupported feature with the unsupported_feature code", () => {
+    const error = decodeError({ ...baseBody, background: true });
+    expect(error.code).toBe("unsupported_feature");
+    expect(error.param).toBe("background");
+  });
+
   it("validates text.verbosity", () => {
     const error = decodeError({ ...baseBody, text: { verbosity: "loud" } });
     expect(error.message).toBe("Invalid value: 'loud'. Supported values are: 'low', 'medium', and 'high'.");
@@ -290,6 +296,7 @@ describe("responsesCodec.streamFrames", () => {
       "response.in_progress",
       "response.output_item.added",
       "response.function_call_arguments.delta",
+      "response.function_call_arguments.delta",
       "response.function_call_arguments.done",
       "response.output_item.done",
       "response.completed",
@@ -324,6 +331,31 @@ describe("responsesCodec.streamFrames", () => {
     ]);
     expect(numbers).toEqual(numbers.map((_value, index) => numbers[0] + index));
     expect(types.at(-1)).toBe("response.completed");
+  });
+
+  it("counts only text and tool argument deltas toward a stream fault", () => {
+    const { frames } = streamOf([
+      { type: "reasoning", text: "thinking hard about it" },
+      { type: "text", text: "Answer" },
+      { type: "tool_call", id: "call_a", name: "lookup", arguments: '{"city":"Paris"}' },
+    ]);
+    const counted = frames
+      .filter((frame) => frame.content !== undefined)
+      .map((frame) => (frame.data as { type: string }).type);
+
+    expect(new Set(counted)).toEqual(new Set(["response.output_text.delta", "response.function_call_arguments.delta"]));
+  });
+
+  it("never splits streamed tool arguments inside a JSON string", () => {
+    const args = '{"city":"San Francisco, California"}';
+    const { frames } = streamOf([{ type: "tool_call", id: "call_a", name: "lookup", arguments: args }], "tool_calls");
+    const deltas = frames
+      .map((frame) => frame.data as { type: string; delta?: string })
+      .filter((data) => data.type === "response.function_call_arguments.delta")
+      .map((data) => data.delta ?? "");
+
+    expect(deltas.join("")).toBe(args);
+    expect(deltas.some((delta) => delta.includes('"San Francisco, California"'))).toBe(true);
   });
 });
 

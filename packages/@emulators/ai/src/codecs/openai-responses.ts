@@ -139,7 +139,7 @@ function requireNumber(value: unknown, param: string): number {
 }
 
 function unsupported(feature: string, param: string): never {
-  invalid(`Unsupported feature: ${feature}. The AI emulator does not implement it.`, param);
+  invalid(`Unsupported feature: ${feature}. The AI emulator does not implement it.`, param, "unsupported_feature");
 }
 
 function textOf(value: unknown): string {
@@ -984,12 +984,6 @@ function preparedFor(reply: Reply, decoded: Decoded, ctx: CodecContext): Prepare
   return prepared;
 }
 
-function chunkArguments(value: string): string[] {
-  const chunks: string[] = [];
-  for (let index = 0; index < value.length; index += 16) chunks.push(value.slice(index, index + 16));
-  return chunks;
-}
-
 function emptyResponse(prepared: PreparedReply): WireResponse {
   return {
     ...prepared.response,
@@ -1123,7 +1117,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
         item: { ...item, status: "in_progress", arguments: "" },
       };
       add(added);
-      for (const delta of chunkArguments(item.arguments)) {
+      for (const delta of jsonChunks(item.arguments)) {
         const event: Unsequenced<ResponseFunctionCallArgumentsDeltaEvent> = {
           type: "response.function_call_arguments.delta",
           item_id: item.id ?? `fc_${outputIndex}`,
@@ -1172,7 +1166,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
           summary_index: summaryIndex,
           delta,
         };
-        add(event, delta);
+        add(event);
       }
       const textDone: Unsequenced<ResponseReasoningSummaryTextDoneEvent> = {
         type: "response.reasoning_summary_text.done",
