@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, AWS, Clerk, Linear, Twilio, and other developer APIs. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, AWS, Clerk, Linear, Twilio, OpenAI, and other developer APIs. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
 allowed-tools: Bash(npx emulate:*)
 ---
 
@@ -32,6 +32,7 @@ All services listen on IPv4 loopback (`127.0.0.1`) by default:
 | Clerk     | 4011        |
 | Linear    | 4012        |
 | Twilio    | 4013        |
+| AI        | 4014        |
 
 ## CLI
 
@@ -110,7 +111,7 @@ For GitHub App tests, inspect secret-free minted installation-token metadata at 
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, or `'twilio'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'linear'`, `'twilio'`, or `'ai'` |
 | `port` | `4000` | Port for the HTTP server |
 | `hostname` | `127.0.0.1` | Listening address for built-in and custom emulators |
 | `seed` | none | Inline seed data (same shape as YAML config) |
@@ -428,6 +429,21 @@ twilio:
   conversations:
     services:
       - friendly_name: Local Conversations
+
+ai:
+  strict: false
+  timing:
+    ttftMs: 0
+    chunkDelayMs: 0
+  models: [gpt-x]
+  rules:
+    - id: weather-call
+      match: { textContains: weather, tool: get_weather, hasToolResult: false }
+      times: 1
+      reply:
+        - type: tool_call
+          name: get_weather
+          arguments: { city: Paris }
 ```
 
 `slack.signing_secret` signs every outbound event subscription callback. Signed callbacks include `X-Slack-Request-Timestamp` and `X-Slack-Signature`, calculated as `v0=<HMAC-SHA256(secret, "v0:<timestamp>:<raw-body>")>` over the exact serialized callback body. Configure the receiver with the same secret and verify the unparsed request body. Callbacks are unsigned when the secret is absent or empty.
@@ -499,6 +515,8 @@ LINEAR_EMULATOR_URL=http://localhost:4012
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
+For OpenAI-compatible AI clients, set `OPENAI_BASE_URL=http://localhost:4014/v1` and any `OPENAI_API_KEY`. See the **ai** skill (`skills/ai/SKILL.md`) for the Responses and Chat Completions setup, rules, and control routes.
+
 ## Framework Integration (Embedded Mode)
 
 The `@emulators/adapter-next` package embeds emulators directly into a Next.js app on the same origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, and font tracing details.
@@ -546,6 +564,7 @@ packages/
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
     linear/          # Linear GraphQL API, OAuth, webhooks plugin
     twilio/          # Twilio Messaging, Verify, Voice, webhooks plugin
+    ai/              # OpenAI Responses and Chat Completions plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
     aws/             # AWS S3, SQS, IAM, STS plugin
