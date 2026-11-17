@@ -31,6 +31,6 @@ export interface Codec {
   streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFrame[];
   /** Renders an HTTP failure as the format's native error body. */
   errorBody(failure: HttpFailure): unknown;
-  /** Called with the encoded reply before any byte is sent, so a codec can persist state such as stored responses. */
-  afterReply?(reply: Reply, decoded: Decoded, ctx: CodecContext, body: unknown): void;
+  /** Called once the reply is decided and before any byte is sent, so a codec can persist state such as stored responses. */
+  afterReply?(reply: Reply, decoded: Decoded, ctx: CodecContext): void;
 }
