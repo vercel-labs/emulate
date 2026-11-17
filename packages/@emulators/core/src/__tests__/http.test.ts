@@ -78,6 +78,24 @@ describe("internal http layer", () => {
     expect((await app.request("/untyped")).headers.get("content-security-policy")).toBe("sandbox");
   });
 
+  it("sandboxes every XML document type a browser renders, including the ones without xml in the name", async () => {
+    const app = new Hono();
+    const types = [
+      "text/xsl",
+      "text/xslt",
+      "application/xslt+xml",
+      "text/rdf",
+      "application/xhtml+xml",
+      "image/svg+xml",
+    ];
+    types.forEach((type, index) => app.get(`/file/${index}`, (c) => c.file("<x/>", type)));
+
+    for (const [index, type] of types.entries()) {
+      const response = await app.request(`/file/${index}`);
+      expect([type, response.headers.get("content-security-policy")]).toEqual([type, "sandbox"]);
+    }
+  });
+
   it("prefers explicit HEAD routes over GET fallback", async () => {
     const app = new Hono();
     app.get("/object", (c) => c.text("get", 200, { "X-Handler": "get" }));

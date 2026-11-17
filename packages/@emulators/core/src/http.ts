@@ -156,7 +156,7 @@ export class HonoRequest<P extends string = string> {
   }
 }
 
-const RENDERS_AS_PAGE = /html|xml|svg/i;
+const RENDERS_AS_PAGE = /html|xml|xsl|rdf|svg/i;
 
 export class Context<E = unknown, P extends string = string> {
   readonly req: HonoRequest<P>;
