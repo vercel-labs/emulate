@@ -16,7 +16,7 @@ import type { ConsoleService } from "./types";
 
 export type { ConsolePreset, ConsoleService, ConsoleVariable, PresetGroup } from "./types";
 
-/** Every emulator's catalog of ready-made requests, shown by the request console at /services/<name>. */
+/** Every emulator's catalog of ready-made requests, shown by the request console at /playground/<name>. */
 export const consoleServices: ConsoleService[] = [
   apple,
   aws,
