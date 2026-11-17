@@ -2,7 +2,7 @@ import { Store } from "@emulators/core";
 import { describe, expect, it } from "vitest";
 import type { CodecContext, Decoded } from "../codec.js";
 import { deleteStoredResponse, responsesCodec } from "../codecs/openai-responses.js";
-import { AiRequestError } from "../errors.js";
+import { AiRequestError, defaultErrorType } from "../errors.js";
 import { parseConfig } from "../rules.js";
 import { resetAiState, STORED_RESPONSE_LIMIT } from "../state.js";
 import type { SseFrame } from "../sse.js";
@@ -204,6 +204,40 @@ describe("responsesCodec.decode validation", () => {
 
     expect(encode(decoded, ctx, [{ type: "text", text: "{}" }]).text).toEqual({
       format: { type: "json_schema", name: "n", description: "d", schema, strict: true },
+    });
+  });
+
+  it("rejects provider-incompatible strict tool and structured output schemas", () => {
+    const loose = { type: "object", properties: { city: { type: "string" } } };
+
+    const tool = decodeError({
+      ...baseBody,
+      tools: [{ type: "function", name: "lookup", parameters: loose, strict: true }],
+    });
+    expect(tool.param).toBe("tools[0].parameters");
+    expect(tool.code).toBe("invalid_function_parameters");
+
+    const output = decodeError({
+      ...baseBody,
+      text: { format: { type: "json_schema", name: "answer", schema: loose, strict: true } },
+    });
+    expect(output.param).toBe("text.format");
+  });
+
+  it("wraps a failure in the native error envelope", () => {
+    expect(
+      responsesCodec.errorBody({
+        status: 400,
+        type: "invalid_request_error",
+        message: "Bad.",
+        param: "input",
+        code: "x",
+      }),
+    ).toEqual({
+      error: { message: "Bad.", type: "invalid_request_error", param: "input", code: "x" },
+    });
+    expect(responsesCodec.errorBody({ status: 500, message: "Boom." })).toEqual({
+      error: { message: "Boom.", type: defaultErrorType(500), param: null, code: null },
     });
   });
 
