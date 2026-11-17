@@ -53,6 +53,11 @@ export function getAwsBackend(store: Store): BackendState | undefined {
   return store.getData<BackendState>(STATE_KEY);
 }
 
+/** The backend's scheme and host, without credentials, path, query, or fragment. */
+export function backendOrigin(url: string): string {
+  return new URL(url).origin;
+}
+
 /**
  * Validates `aws.backend` and stores it on the instance. Upstream seeding starts
  * right away; proxied requests wait for it to finish and retry it after a failure.
@@ -64,6 +69,9 @@ export function configureAwsBackend(store: Store, config: AwsSeedConfig): void {
     url = new URL(backend.url);
   } catch {
     throw new Error(`aws.backend.url must be an absolute URL, got ${JSON.stringify(backend.url)}`);
+  }
+  if (url.username || url.password) {
+    throw new Error("aws.backend.url must not include credentials: authenticated backend URLs are not supported");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`aws.backend.url must use http or https, got ${JSON.stringify(backend.url)}`);
@@ -143,7 +151,10 @@ async function proxy(c: Context<AppEnv>, store: Store, backend: BackendState, ba
   try {
     await backendReady(store);
   } catch (error) {
-    return backendError(service, `Seeding the AWS backend at ${backend.url} failed: ${errorMessage(error)}`);
+    return backendError(
+      service,
+      `Seeding the AWS backend at ${backendOrigin(backend.url)} failed: ${errorMessage(error)}`,
+    );
   }
 
   const headers: Record<string, string> = {};
@@ -165,7 +176,10 @@ async function proxy(c: Context<AppEnv>, store: Store, backend: BackendState, ba
   try {
     upstream = await forward(new URL(`${backend.url}${path}${incoming.search}`), method, headers, body);
   } catch (error) {
-    return backendError(service, `The AWS backend at ${backend.url} is unreachable: ${errorMessage(error)}`);
+    return backendError(
+      service,
+      `The AWS backend at ${backendOrigin(backend.url)} is unreachable: ${errorMessage(error)}`,
+    );
   }
 
   const status = upstream.statusCode ?? 502;

@@ -1676,7 +1676,7 @@ Every `KeyId` accepts a key ID, key ARN, alias name (`alias/...`), or alias ARN.
 
 ### External backend
 
-Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint, such as [AWS Emulator](https://github.com/aws/aws-emulator) started with `--auth off`. Cognito and the inspector stay local, and clients keep using the emulator's port and path prefixes. Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start; a failed seed is retried on the next forwarded request. See the [AWS docs](https://emulate.dev/aws#external-backend).
+Set `aws.backend.url` to forward S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint, such as [AWS Emulator](https://github.com/aws/aws-emulator) started with `--auth off`. The URL cannot include credentials: URLs with userinfo are rejected at startup. Cognito and the inspector stay local, and clients keep using the emulator's port and path prefixes. Seeded buckets, queues, IAM users and roles, and KMS keys are created on the backend once per emulator start; a failed seed is retried on the next forwarded request. See the [AWS docs](https://emulate.dev/aws#external-backend).
 
 ## Next.js Integration
 

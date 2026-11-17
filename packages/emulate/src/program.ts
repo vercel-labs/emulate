@@ -94,6 +94,7 @@ AWS API coverage:
   Seed aws.kms.keys with key_id, description, and aliases; the default key is alias/emulate-default.
   SRP, MFA, external federation, pool/client management APIs, and IAM policy/signature evaluation are not simulated.
   aws.backend.url forwards S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint; Cognito stays local.
+  The URL cannot include credentials.
 
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.

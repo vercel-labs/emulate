@@ -167,6 +167,38 @@ describe("aws.backend proxy", () => {
     expect(recorded).toHaveLength(0);
   });
 
+  it("shows only the backend origin in the inspector", async () => {
+    const { app } = backendApp({}, `${upstreamUrl}/hidden/path?token=operator-token#fragment`);
+
+    const html = await (await app.request("/_inspector?tab=s3")).text();
+
+    expect(html).toContain(`<code>${upstreamUrl}</code>`);
+    expect(html).not.toContain("hidden/path");
+    expect(html).not.toContain("operator-token");
+  });
+
+  it("redacts backend paths and queries from proxy errors", async () => {
+    const backendUrl = (host: string, suffix = "") => `http://${host}/hidden/path${suffix}`;
+
+    const unreachable = backendApp({}, backendUrl("127.0.0.1:1", "?token=operator-token"));
+    const unreachableBody = await (await unreachable.app.request("/s3/")).text();
+
+    respond = (request) => (request.method === "PUT" ? { status: 400, body: "<Code>InvalidBucketName</Code>" } : {});
+    const seedFailure = backendApp(
+      { s3: { buckets: [{ name: "Bad_Name" }] } },
+      backendUrl(upstreamUrl.slice("http://".length)),
+    );
+    const seedFailureBody = await (await seedFailure.app.request("/s3/")).text();
+
+    for (const body of [unreachableBody, seedFailureBody]) {
+      expect(body).toContain("<Code>BackendUnavailable</Code>");
+      expect(body).not.toContain("hidden/path");
+      expect(body).not.toContain("operator-token");
+    }
+    expect(unreachableBody).toContain("http://127.0.0.1:1");
+    expect(seedFailureBody).toContain(upstreamUrl);
+  });
+
   it("seeds the backend through its API before the first proxied request", async () => {
     respond = (request) =>
       String(request.headers["x-amz-target"]).endsWith("DescribeKey")
@@ -301,6 +333,9 @@ describe("aws.backend proxy", () => {
     expect(seed({ backend: { url: "not a url" } })).toThrow("aws.backend.url must be an absolute URL");
     expect(seed({ backend: { url: "localhost:4566" } })).toThrow("aws.backend.url must use http or https");
     expect(seed({ backend: { url: "ftp://127.0.0.1:4566" } })).toThrow("aws.backend.url must use http or https");
+    expect(seed({ backend: { url: "http://api-key:secret@127.0.0.1:4566" } })).toThrow(
+      "aws.backend.url must not include credentials",
+    );
     expect(seed({ backend: { url: upstreamUrl }, account_id: "111111111111" })).toThrow("aws.account_id");
     expect(seed({ backend: { url: upstreamUrl }, kms: { keys: [{ key_id: "fixed" }] } })).toThrow(
       "aws.kms.keys[].key_id",
