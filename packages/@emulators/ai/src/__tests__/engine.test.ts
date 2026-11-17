@@ -151,6 +151,18 @@ describe("decide", () => {
     expect(outcome.failure.message).toContain('Exhausted matching rules: "once".');
   });
 
+  it("suggests a rule id that the configured rules do not use yet", () => {
+    const { store } = setup({
+      strict: true,
+      rules: [textRule("matching-reply", "first", { model: "other-model" })],
+    });
+
+    const outcome = failureOf(decide(store, request()));
+
+    expect(outcome.failure.message).toContain("- id: matching-reply-2\n");
+    expect(outcome.failure.message).toContain('"id": "matching-reply-2"');
+  });
+
   it("echoes the latest user text in the default reply", () => {
     const { store } = setup();
     const messages: AIRequest["messages"] = [

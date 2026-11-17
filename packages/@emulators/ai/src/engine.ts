@@ -172,7 +172,8 @@ export function decide(store: Store, request: AIRequest): Outcome {
   }
 
   if (state.config.strict) {
-    return { kind: "error", matched: null, failure: strictMissFailure(request, match.exhausted) };
+    const ruleIds = state.config.rules.map((rule) => rule.id);
+    return { kind: "error", matched: null, failure: strictMissFailure(request, match.exhausted, ruleIds) };
   }
 
   const { kind, events } = defaultEvents(request, makeId);
