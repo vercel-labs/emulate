@@ -2,7 +2,7 @@ import type { RouteContext, InspectorTab } from "@emulators/core";
 import { renderInspectorPage } from "@emulators/core";
 import { getCognitoStore } from "../cognito/store.js";
 import { getAwsStore } from "../store.js";
-import { getAwsBackend } from "../backend.js";
+import { backendOrigin, getAwsBackend } from "../backend.js";
 import { escapeXml } from "../helpers.js";
 
 const SERVICE_LABEL = "AWS";
@@ -156,7 +156,7 @@ export function inspectorRoutes(ctx: RouteContext): void {
     const backend = getAwsBackend(store);
     if (backend && tab !== "cognito") {
       contentHtml = `<div class="inspector-section"><h2>Delegated</h2>
-        <p>S3, SQS, IAM, STS, and KMS requests go to <code>${escapeXml(backend.url)}</code>. Inspect their state there.</p></div>`;
+        <p>S3, SQS, IAM, STS, and KMS requests go to <code>${escapeXml(backendOrigin(backend.url))}</code>. Inspect their state there.</p></div>`;
     }
 
     return c.html(renderInspectorPage("Inspector", TABS, tab, contentHtml, SERVICE_LABEL));
