@@ -5,6 +5,10 @@ import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { z } from "zod";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Store } from "@emulators/core";
+import { messagesCodec } from "../codecs/anthropic-messages.js";
+import { parseConfig } from "../rules.js";
+import { resetAiState } from "../state.js";
 import type { CallRecord } from "../types.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
@@ -1208,5 +1212,36 @@ describe("anthropic messages", () => {
       });
       expect(second.content).toEqual([{ type: "text", text: answer }]);
     });
+  });
+});
+
+describe("Messages stream fault accounting", () => {
+  it("counts only text and tool input deltas toward a stream fault", () => {
+    const store = new Store();
+    const state = resetAiState(store, parseConfig({}));
+    let next = 0;
+    const ctx = { store, state, path: "/v1/messages", makeId: (prefix: string) => `${prefix}_${(next += 1)}` };
+    const decoded = messagesCodec.decode(
+      { model: "claude-x", max_tokens: 64, messages: [{ role: "user", content: "Hi" }] },
+      ctx,
+    );
+    const frames = messagesCodec.streamFrames(
+      {
+        events: [
+          { type: "reasoning", text: "thinking hard about it" },
+          { type: "text", text: "Answer" },
+          { type: "tool_call", id: "toolu_1", name: "lookup", arguments: '{"city":"Paris"}' },
+        ],
+        finish: "tool_calls",
+        usage: { input: 1, output: 1, reasoning: 1 },
+      },
+      decoded,
+      ctx,
+    );
+    const counted = frames
+      .filter((frame) => frame.content !== undefined)
+      .map((frame) => (frame.data as { delta: { type: string } }).delta.type);
+
+    expect(new Set(counted)).toEqual(new Set(["text_delta", "input_json_delta"]));
   });
 });

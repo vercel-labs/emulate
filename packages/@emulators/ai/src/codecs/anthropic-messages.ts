@@ -421,15 +421,6 @@ function stopFields(reply: Reply): { stop_reason: string; stop_sequence: string 
   return { stop_reason: stopReason(reply.finish), stop_sequence: null };
 }
 
-function toolInput(argumentsText: string): Json {
-  try {
-    const parsed = JSON.parse(argumentsText) as Json;
-    return parsed === null ? {} : parsed;
-  } catch {
-    return {};
-  }
-}
-
 /** Derives a thinking block's opaque signature from its text, so the same thought is signed the same way on every run. */
 function signatureOf(thinking: string): string {
   return createHash("sha256").update(thinking).digest("base64");
@@ -450,7 +441,7 @@ function contentBlocks(events: ReplyEvent[]): ContentBlock[] {
         blocks.push({ type: "text", text: JSON.stringify(event.value) });
         break;
       case "tool_call":
-        blocks.push({ type: "tool_use", id: event.id, name: event.name, input: toolInput(event.arguments) });
+        blocks.push({ type: "tool_use", id: event.id, name: event.name, input: JSON.parse(event.arguments) as Json });
         break;
     }
   }
@@ -513,10 +504,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
     switch (event.type) {
       case "reasoning":
         emit({ type: "thinking", thinking: "", signature: "" }, [
-          ...payloadChunks(event.text).map((piece) => ({
-            delta: { type: "thinking_delta", thinking: piece },
-            content: piece,
-          })),
+          ...payloadChunks(event.text).map((piece) => ({ delta: { type: "thinking_delta", thinking: piece } })),
           { delta: { type: "signature_delta", signature: signatureOf(event.text) } },
         ]);
         break;

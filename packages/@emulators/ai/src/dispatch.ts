@@ -76,6 +76,12 @@ function internalFailure(error: unknown): HttpFailure {
   return { status, message: error instanceof Error ? error.message : "Internal Server Error" };
 }
 
+/** Renders an error that no call record owns in the codec's shape, taking a new sequence number so the response still carries a request id. */
+function unrecordedError(store: Store, codec: Codec, error: unknown): Response {
+  const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
+  return errorResponse(codec, failure, takeCallSeq(getAiState(store)));
+}
+
 const MAX_SEEN_MODELS = 1000;
 
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
@@ -94,8 +100,7 @@ export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRout
     } catch (error) {
       const codec = errorCodecOf(c.req.path, c.req.header("anthropic-version"));
       if (!codec) throw error;
-      const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
-      return errorResponse(codec, failure, takeCallSeq(getAiState(store)));
+      return unrecordedError(store, codec, error);
     }
   });
 }
@@ -146,7 +151,13 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
 
   if (method === "POST") {
     const codec = CODECS.find(({ suffix }) => hasSuffix(path, suffix))?.codec;
-    if (codec) return handleGeneration(c, store, state, codec, path);
+    if (codec) {
+      try {
+        return await handleGeneration(c, store, state, codec, path);
+      } catch (error) {
+        return unrecordedError(store, codec, error);
+      }
+    }
   }
 
   if (method === "GET" || method === "DELETE") {

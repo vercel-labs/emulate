@@ -277,6 +277,7 @@ describe("AI unstreamed reply timing", () => {
     expect((await app.request(`${origin}/_ai/reset`, { method: "POST" })).status).toBe(200);
     const response = await pending;
     expect(response.status).toBe(409);
+    expect(response.headers.get("x-request-id")).toMatch(/^req_\d+$/);
     expect((await json<{ error: { code: string } }>(response)).error.code).toBe("state_reset");
   });
 });
