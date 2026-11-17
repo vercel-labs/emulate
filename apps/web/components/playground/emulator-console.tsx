@@ -109,7 +109,7 @@ function prettify(text: string): string {
   }
 }
 
-/** Request console for one in-tab emulator. `{{name}}` placeholders are filled from the Values fields when sending. */
+/** Request console for one emulator. `{{name}}` placeholders are filled from the Values fields when sending. */
 export function EmulatorConsole({
   name,
   groups,

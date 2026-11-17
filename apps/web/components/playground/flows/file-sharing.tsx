@@ -24,7 +24,6 @@ interface BlobDetails extends BlobItem {
 interface Selection {
   pathname: string;
   details: BlobDetails | null;
-  preview: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -41,7 +40,7 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong";
 }
 
-/** Sends a request to the in-tab Vercel emulator and throws with the emulator's error message on a non-2xx response. */
+/** Sends a request to the Vercel emulator and throws with the emulator's error message on a non-2xx response. */
 async function blobRequest(
   path: string,
   init: { method?: string; headers?: Record<string, string>; body?: BodyInit } = {},
@@ -60,7 +59,7 @@ async function listFiles(): Promise<BlobItem[]> {
   return data.blobs.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 }
 
-/** Uploads, lists, previews, downloads and deletes Vercel Blob files held in this tab's emulator. */
+/** Uploads, lists, previews, shares and deletes Vercel Blob files. Each file has a real link the browser can open. */
 export function FileSharing() {
   const [files, setFiles] = useState<BlobItem[] | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -68,17 +67,10 @@ export function FileSharing() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const latest = useRef(0);
-  const preview = selection?.preview ?? null;
 
   useEffect(() => {
     listFiles().then(setFiles, (err: unknown) => setError(messageOf(err)));
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-  }, [preview]);
 
   useEffect(() => {
     const token = latest;
@@ -101,13 +93,10 @@ export function FileSharing() {
 
   async function select(pathname: string) {
     const id = ++latest.current;
-    setSelection({ pathname, details: null, preview: null });
+    setSelection({ pathname, details: null });
     const details = (await (await blobRequest(`/api/blob?url=${encodeURIComponent(pathname)}`)).json()) as BlobDetails;
     if (id !== latest.current) return;
-    setSelection({ pathname, details, preview: null });
-    const bytes = await (await blobRequest(new URL(details.url).pathname)).blob();
-    if (id !== latest.current) return;
-    setSelection({ pathname, details, preview: URL.createObjectURL(bytes) });
+    setSelection({ pathname, details });
   }
 
   function upload(file: File) {
@@ -192,7 +181,7 @@ export function FileSharing() {
           <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
             {pending ? "Working..." : "Drop a file here or choose one"}
           </span>
-          <span className={hintClass}>Up to {MAX_UPLOAD_MB} MB. Stored in this tab only.</span>
+          <span className={hintClass}>Up to {MAX_UPLOAD_MB} MB. Stored in this browser only.</span>
         </button>
         {error && (
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -257,10 +246,10 @@ export function FileSharing() {
             <h2 className="break-all font-mono text-sm font-medium text-neutral-900 dark:text-neutral-100">
               {details.pathname}
             </h2>
-            {selection.preview && details.contentType.startsWith("image/") && (
+            {details.contentType.startsWith("image/") && (
               <img
                 data-preview
-                src={selection.preview}
+                src={details.url}
                 alt={details.pathname}
                 className="max-h-80 max-w-full self-center rounded-md border border-neutral-200 dark:border-neutral-800"
               />
@@ -278,14 +267,23 @@ export function FileSharing() {
                 </div>
               ))}
             </dl>
-            {selection.preview ? (
-              <a href={selection.preview} download={details.pathname} className={`${secondaryButtonClass} self-start`}>
+            <div className="flex flex-wrap gap-3">
+              <a
+                data-share-link
+                href={details.url}
+                target="_blank"
+                rel="noreferrer"
+                className={`${secondaryButtonClass} self-start`}
+              >
+                Open the share link
+              </a>
+              <a href={details.url} download={details.pathname} className={`${secondaryButtonClass} self-start`}>
                 Download
               </a>
-            ) : (
-              <p className={hintClass}>Preparing the file...</p>
-            )}
-            <p className={hintClass}>This file only exists in this tab, so there is no share link.</p>
+            </div>
+            <p className={hintClass}>
+              The link opens in this browser, where the emulator keeps the file. Web pages open with scripts turned off.
+            </p>
           </>
         )}
       </section>

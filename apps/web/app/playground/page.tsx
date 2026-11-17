@@ -5,7 +5,7 @@ import { consoleServices } from "@/lib/playground/services";
 
 export const metadata: Metadata = {
   title: "Playground",
-  description: "Try each emulator in your browser tab. Nothing is sent to a server, and a reload starts fresh.",
+  description: "Try each emulator in your browser. Nothing is sent to a server, and each visitor gets a private copy.",
 };
 
 const sections = [
@@ -39,8 +39,8 @@ export default function PlaygroundPage() {
           Playground
         </h1>
         <p className="max-w-2xl text-base text-neutral-600 dark:text-neutral-400">
-          Each emulator runs inside your browser tab. Nothing is sent to a server, and every visitor gets a private
-          copy. Reload the page to start fresh.
+          Each emulator runs in your browser, inside a service worker. Nothing is sent to a server, and every visitor
+          gets a private copy. Reset an emulator from its console to start fresh.
         </p>
       </header>
       {sections.map((section) => (

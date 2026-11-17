@@ -48,7 +48,7 @@ function messageOf(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught);
 }
 
-/** Emails a one-time code through the in-tab Resend emulator and signs the visitor in with it. */
+/** Emails a one-time code through the Resend emulator and signs the visitor in with it. */
 export function MagicLinkFlow() {
   const [step, setStep] = useState<Step>("email");
   const [emailInput, setEmailInput] = useState("");

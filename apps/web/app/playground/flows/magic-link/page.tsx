@@ -20,7 +20,7 @@ export default function MagicLinkPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">{flow.label}</h1>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">{flow.description}</p>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Runs in this tab. Nothing is sent to a server.{" "}
+          Runs in your browser. A service worker answers every request, so nothing reaches a server.{" "}
           <Link
             href="/playground/resend"
             className="underline underline-offset-2 hover:text-neutral-900 dark:hover:text-neutral-100"

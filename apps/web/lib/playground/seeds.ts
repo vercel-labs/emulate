@@ -2,6 +2,9 @@ import type { AuthFallback } from "@emulators/core";
 
 const origin = "https://playground.emulate.local";
 
+/** Where each provider sends the browser back to after the OAuth sign-in flow, on the origin this worker serves. */
+const signInFlow = `${globalThis.location.origin}/playground/flows/oauth-sign-in`;
+
 /** The user each emulator treats any bearer token as, the same defaults the emulate CLI uses. */
 export const fallbackUsers: Record<string, AuthFallback> = {
   apple: { login: "testuser@icloud.com", id: 1, scopes: ["openid", "email", "name"] },
@@ -28,7 +31,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_apple_client_id",
         team_id: "EMULATE01",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/apple`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/apple`, signInFlow],
       },
     ],
   },
@@ -72,7 +75,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_clerk_client_id",
         client_secret: "emu_clerk_client_secret",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/clerk`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/clerk`, signInFlow],
       },
     ],
   },
@@ -82,7 +85,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_github_client_id",
         client_secret: "emu_github_client_secret",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/github`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/github`, signInFlow],
       },
     ],
     users: [
@@ -122,7 +125,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_google_client_id",
         client_secret: "emu_google_client_secret",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/google`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/google`, signInFlow],
       },
     ],
     users: [
@@ -227,7 +230,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_microsoft_client_id",
         client_secret: "emu_microsoft_client_secret",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/microsoft`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/microsoft`, signInFlow],
       },
     ],
   },
@@ -238,7 +241,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_okta_client_id",
         client_secret: "emu_okta_client_secret",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/okta`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/okta`, signInFlow],
       },
     ],
   },
@@ -322,7 +325,7 @@ export const seeds: Record<string, Record<string, unknown> | undefined> = {
         client_id: "emu_vercel_client_id",
         client_secret: "emu_vercel_client_secret",
         name: "emulate playground",
-        redirect_uris: [`${origin}/oauth/api/auth/callback/vercel`],
+        redirect_uris: [`${origin}/oauth/api/auth/callback/vercel`, signInFlow],
       },
     ],
     users: [{ username: "teammate", name: "Teammate" }],

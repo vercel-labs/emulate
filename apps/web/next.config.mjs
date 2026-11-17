@@ -25,6 +25,9 @@ const resolveAlias = Object.fromEntries(
     ];
   }),
 );
+const processPolyfill = { browser: "next/dist/compiled/process" };
+Object.assign(resolveAlias, { process: processPolyfill, "node:process": processPolyfill });
+const playgroundBuild = process.env.VERCEL_GIT_COMMIT_SHA ?? Date.now().toString(36);
 
 const oldDocsSlugs = [
   "programmatic-api",
@@ -52,6 +55,7 @@ const nextConfig = {
   skipProxyUrlNormalize: true,
   serverExternalPackages: ["just-bash", "bash-tool"],
   turbopack: { resolveAlias },
+  env: { NEXT_PUBLIC_PLAYGROUND_BUILD: playgroundBuild },
   outputFileTracingIncludes: {
     "/*": ["./content/docs/**/*.mdx"],
   },

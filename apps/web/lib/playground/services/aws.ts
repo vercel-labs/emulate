@@ -7,7 +7,7 @@ const sqsJson = "application/x-amz-json-1.0";
 const cognitoJson = "application/x-amz-json-1.1";
 const kmsJson = "application/x-amz-json-1.1";
 
-/** AWS requests for the request console, one preset per operation the in-tab emulator can run. */
+/** AWS requests for the request console, one preset per operation the emulator can run in a browser. */
 export const aws: ConsoleService = {
   name: "aws",
   label: "AWS",

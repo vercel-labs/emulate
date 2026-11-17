@@ -1,20 +1,14 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cardClass, labelClass, mutedClass, secondaryButtonClass } from "@/components/playground/ui";
-import {
-  callbackOrigin,
-  clientCredentials,
-  oauthProviders,
-  redirectUri,
-  type OAuthProvider,
-} from "@/components/playground/flows/oauth-providers";
-import { getEmulator, type Emulator } from "@/lib/playground/runtime";
+import { clientCredentials, oauthProviders, type OAuthProvider } from "@/components/playground/flows/oauth-providers";
+import { flowUrl, recall, remember, takeReturnQuery } from "@/lib/playground/round-trip";
+import { getEmulator } from "@/lib/playground/runtime";
 
-interface Account {
-  label: string;
-  action: string;
-  fields: [string, string][];
+interface PendingSignIn {
+  slug: string;
+  state: string;
 }
 
 interface Profile {
@@ -25,18 +19,14 @@ interface Profile {
   login: string;
 }
 
-type Flow =
-  | { step: "providers" }
-  | { step: "account"; provider: OAuthProvider; state: string; accounts: Account[] }
-  | { step: "dashboard"; profile: Profile };
+type Flow = { step: "providers" } | { step: "dashboard"; profile: Profile };
+
+const SIGN_IN = "oauth.sign-in";
 
 const formType = "application/x-www-form-urlencoded";
 
 const providerButtonClass =
   "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-neutral-200 px-4 text-sm font-medium text-neutral-900 hover:border-neutral-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:opacity-50 dark:border-neutral-800 dark:text-neutral-100 dark:hover:border-neutral-700";
-
-const accountButtonClass =
-  "flex w-full items-center rounded-md border border-neutral-200 px-4 py-3 text-left text-sm text-neutral-900 hover:border-neutral-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:opacity-50 dark:border-neutral-800 dark:text-neutral-100 dark:hover:border-neutral-700";
 
 const icons: Record<NonNullable<OAuthProvider["icon"]>, ReactNode> = {
   github: (
@@ -71,35 +61,8 @@ const icons: Record<NonNullable<OAuthProvider["icon"]>, ReactNode> = {
   ),
 };
 
-/** Turns a form action or redirect into the path the in-tab emulator expects. */
-function toPath(href: string): string {
-  const url = new URL(href, callbackOrigin);
-  return `${url.pathname}${url.search}`;
-}
-
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
-}
-
-/** Reads the consent page's account forms. Each form that posts fields is one account. */
-function parseAccounts(html: string): Account[] {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  return Array.from(doc.querySelectorAll("form"))
-    .filter((form) => form.getAttribute("action") && form.querySelector("input[name]"))
-    .map((form) => {
-      const parts = Array.from(form.querySelectorAll(".user-login, .user-meta, .user-email"))
-        .map((element) => element.textContent?.trim() ?? "")
-        .filter(Boolean);
-      const fallback = form.textContent?.replace(/\s+/g, " ").trim() ?? "";
-      return {
-        label: parts.join(" · ") || fallback || "Account",
-        action: form.getAttribute("action") ?? "",
-        fields: Array.from(form.querySelectorAll("input[name]")).map((input) => [
-          input.getAttribute("name") ?? "",
-          input.getAttribute("value") ?? "",
-        ]),
-      };
-    });
 }
 
 /** Reads the claims of an id_token without verifying it. */
@@ -109,11 +72,13 @@ function decodeIdToken(idToken: string): Record<string, unknown> {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-async function fetchProfile(emulator: Emulator, provider: OAuthProvider, code: string): Promise<Profile> {
+/** Trades the authorization code for a token at the provider's emulator and reads the signed-in profile. */
+async function fetchProfile(provider: OAuthProvider, code: string): Promise<Profile> {
+  const emulator = await getEmulator(provider.slug);
   const body = {
     grant_type: "authorization_code",
     code,
-    redirect_uri: redirectUri(provider.slug),
+    redirect_uri: flowUrl(),
     ...clientCredentials(provider.slug),
   };
   const tokenRes = await emulator.fetch(provider.tokenPath, {
@@ -148,6 +113,18 @@ async function fetchProfile(emulator: Emulator, provider: OAuthProvider, code: s
   };
 }
 
+/** Checks what the provider sent back against the sign-in that was started, then reads the profile. */
+async function finishSignIn(query: URLSearchParams, started: PendingSignIn | null): Promise<Profile> {
+  const provider = oauthProviders.find((candidate) => candidate.slug === started?.slug);
+  if (!started || !provider) throw new Error("No sign-in was in progress. Choose a provider to start one.");
+  const providerError = query.get("error");
+  if (providerError) throw new Error(`${provider.name} returned an error: ${providerError}.`);
+  if (query.get("state") !== started.state) {
+    throw new Error("The state that came back does not match the one sent. Sign-in was stopped.");
+  }
+  return fetchProfile(provider, query.get("code") ?? "");
+}
+
 function initialsOf(name: string): string {
   return name
     .split(/\s+/)
@@ -158,64 +135,44 @@ function initialsOf(name: string): string {
     .toUpperCase();
 }
 
-/** Runs the OAuth sign-in flow entirely in this tab, against the in-memory emulators. */
+/**
+ * Signs in through a provider's emulator: the browser leaves for the emulator's own consent page and comes back to
+ * this page with an authorization code.
+ */
 export function OAuthSignIn() {
   const [flow, setFlow] = useState<Flow>({ step: "providers" });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function run(task: () => Promise<Flow>) {
+  useEffect(() => {
+    const query = takeReturnQuery();
+    if (!query.has("code") && !query.has("error")) return;
+    void finishSignIn(query, recall<PendingSignIn>(SIGN_IN)).then(
+      (profile) => setFlow({ step: "dashboard", profile }),
+      (cause: unknown) => setError(cause instanceof Error ? cause.message : "Something went wrong. Try again."),
+    );
+  }, []);
+
+  async function startSignIn(provider: OAuthProvider) {
     setPending(true);
     setError(null);
     try {
-      setFlow(await task());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Something went wrong. Try again.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  function startSignIn(provider: OAuthProvider) {
-    void run(async () => {
       const emulator = await getEmulator(provider.slug);
       const state = crypto.randomUUID();
       const params = new URLSearchParams({
-        ...clientCredentials(provider.slug),
-        redirect_uri: redirectUri(provider.slug),
+        client_id: clientCredentials(provider.slug).client_id,
+        redirect_uri: flowUrl(),
         scope: provider.scope,
         state,
         response_type: "code",
         ...provider.extraParams,
       });
-      const res = await emulator.fetch(`${provider.authorizePath}?${params}`);
-      if (!res.ok) throw new Error(`${provider.name} sign-in page failed with status ${res.status}.`);
-      const accounts = parseAccounts(await res.text());
-      if (accounts.length === 0) throw new Error(`${provider.name} showed no accounts to pick from.`);
-      return { step: "account", provider, state, accounts };
-    });
-  }
-
-  function chooseAccount(provider: OAuthProvider, state: string, account: Account) {
-    void run(async () => {
-      const emulator = await getEmulator(provider.slug);
-      const res = await emulator.fetch(toPath(account.action), {
-        method: "POST",
-        headers: { "Content-Type": formType },
-        body: new URLSearchParams(account.fields),
-      });
-      const location = res.headers.get("location");
-      if (!location) throw new Error("Picking the account did not redirect back to the app.");
-      const callback = new URL(location, callbackOrigin);
-      const providerError = callback.searchParams.get("error");
-      if (providerError) throw new Error(`${provider.name} returned an error: ${providerError}.`);
-      if (callback.searchParams.get("state") !== state) {
-        throw new Error("The state that came back does not match the one sent. Sign-in was stopped.");
-      }
-      const code = callback.searchParams.get("code");
-      if (!code) throw new Error("The redirect did not include an authorization code.");
-      return { step: "dashboard", profile: await fetchProfile(emulator, provider, code) };
-    });
+      remember(SIGN_IN, { slug: provider.slug, state } satisfies PendingSignIn);
+      window.location.assign(`${emulator.baseUrl}${provider.authorizePath}?${params}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Something went wrong. Try again.");
+      setPending(false);
+    }
   }
 
   function goToProviders() {
@@ -245,40 +202,13 @@ export function OAuthSignIn() {
                     type="button"
                     data-provider={provider.slug}
                     disabled={pending}
-                    onClick={() => startSignIn(provider)}
+                    onClick={() => void startSignIn(provider)}
                     className={providerButtonClass}
                   >
                     {provider.icon && icons[provider.icon]}
                     Continue with {provider.name}
                   </button>
                 ))}
-              </section>
-            );
-          case "account":
-            return (
-              <section data-flow-step="account" aria-live="polite" className={`${cardClass} flex flex-col gap-3`}>
-                <h2 className={labelClass}>Pick an account</h2>
-                <p className={mutedClass}>{flow.provider.name} lists these accounts for this app.</p>
-                {flow.accounts.map((account, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    data-account={index}
-                    disabled={pending}
-                    onClick={() => chooseAccount(flow.provider, flow.state, account)}
-                    className={accountButtonClass}
-                  >
-                    {account.label}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={goToProviders}
-                  className={`${secondaryButtonClass} self-start`}
-                >
-                  Back
-                </button>
               </section>
             );
           case "dashboard": {
@@ -317,7 +247,7 @@ export function OAuthSignIn() {
                       type="button"
                       data-provider={provider.slug}
                       disabled={pending}
-                      onClick={() => startSignIn(provider)}
+                      onClick={() => void startSignIn(provider)}
                       className={secondaryButtonClass}
                     >
                       Switch to {provider.name}

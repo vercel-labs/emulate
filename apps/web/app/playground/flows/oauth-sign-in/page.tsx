@@ -21,7 +21,9 @@ export default function OAuthSignInPage() {
           {flow.label}
         </h1>
         <p className="max-w-2xl text-base text-neutral-600 dark:text-neutral-400">{flow.description}</p>
-        <p className={mutedClass}>Runs in this tab. Nothing is sent to a server.</p>
+        <p className={mutedClass}>
+          Runs in your browser. A service worker answers every request, so nothing reaches a server.
+        </p>
       </header>
       <OAuthSignIn />
     </div>

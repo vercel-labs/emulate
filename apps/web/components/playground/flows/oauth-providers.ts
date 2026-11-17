@@ -1,5 +1,3 @@
-export const callbackOrigin = "https://playground.emulate.local";
-
 export interface OAuthProvider {
   slug: string;
   name: string;
@@ -105,8 +103,4 @@ export const oauthProviders: OAuthProvider[] = [
 /** Client id and secret the emulator registers for each provider in the playground seeds. */
 export function clientCredentials(slug: string) {
   return { client_id: `emu_${slug}_client_id`, client_secret: `emu_${slug}_client_secret` };
-}
-
-export function redirectUri(slug: string): string {
-  return `${callbackOrigin}/oauth/api/auth/callback/${slug}`;
 }

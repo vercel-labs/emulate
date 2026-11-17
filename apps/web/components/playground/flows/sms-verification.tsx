@@ -21,7 +21,7 @@ const SIX_DIGITS = /^\d{6}$/;
 
 type Step = "phone" | "verify" | "verified";
 
-/** Sends a request to the in-tab Twilio emulator and returns its JSON body, throwing with Twilio's message on a non-2xx response. */
+/** Sends a request to the Twilio emulator and returns its JSON body, throwing with Twilio's message on a non-2xx response. */
 async function emulatorJson<T>(path: string, init?: RequestInit): Promise<T> {
   const twilio = await getEmulator("twilio");
   const response = await twilio.fetch(path, init);

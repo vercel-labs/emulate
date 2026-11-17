@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { flowUrl, recall, remember, takeReturnQuery } from "@/lib/playground/round-trip";
 import { getEmulator } from "@/lib/playground/runtime";
 import {
   cardClass,
-  fieldClass,
-  hintClass,
   labelClass,
   mutedClass,
   primaryButtonClass,
   secondaryButtonClass,
 } from "@/components/playground/ui";
 
-type Step = "store" | "payment" | "success";
-type Pending = "catalog" | "checkout" | "pay" | "confirm";
+type Step = "store" | "success";
+type Pending = "catalog" | "checkout" | "confirm";
 
 interface Product {
   id: string;
@@ -35,6 +34,7 @@ interface Customer {
 
 interface CheckoutSession {
   id: string;
+  url: string | null;
   customer: string | null;
   payment_status: string;
 }
@@ -64,7 +64,7 @@ interface Confirmation {
 
 const auth = { Authorization: "Bearer sk_test_emulated" };
 const formHeaders = { ...auth, "Content-Type": "application/x-www-form-urlencoded" };
-const returnUrl = "https://playground.emulate.local/playground/flows/checkout";
+const ORDER = "checkout.order";
 const shopper = { email: "shopper@example.com", name: "Demo Shopper" };
 
 const images: Record<string, string> = {
@@ -76,8 +76,7 @@ const images: Record<string, string> = {
 
 const pendingText: Record<Pending, string> = {
   catalog: "Loading products...",
-  checkout: "Creating checkout session...",
-  pay: "Paying...",
+  checkout: "Opening the Stripe checkout page...",
   confirm: "Loading the paid order...",
 };
 
@@ -110,7 +109,7 @@ function emulatorErrorMessage(text: string) {
   }
 }
 
-/** Calls the in-tab Stripe emulator and parses its JSON, throwing with the emulator's message on a non-2xx answer. */
+/** Calls the Stripe emulator and parses its JSON, throwing with the emulator's message on a non-2xx answer. */
 async function emulatorCall<T>(path: string, init?: RequestInit): Promise<T> {
   const stripe = await getEmulator("stripe");
   const response = await stripe.fetch(path, init);
@@ -119,13 +118,6 @@ async function emulatorCall<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(emulatorErrorMessage(text) ?? `The emulator answered ${response.status}.`);
   }
   return JSON.parse(text) as T;
-}
-
-/** The completion route redirects to the success URL with this session's id; anything else is a failed payment. */
-function isSuccessRedirect(status: number, location: string | null, sessionId: string) {
-  if (status < 300 || status > 399 || !location) return false;
-  const target = new URL(location, returnUrl);
-  return `${target.origin}${target.pathname}` === returnUrl && target.searchParams.get("session_id") === sessionId;
 }
 
 function fetchCatalog(): Promise<CatalogItem[]> {
@@ -152,13 +144,17 @@ function buildCatalog(products: Product[], prices: Price[]): CatalogItem[] {
   });
 }
 
+/**
+ * A small store that pays through Stripe Checkout: the browser leaves for the emulator's hosted checkout page and
+ * comes back with the paid session's id.
+ */
 export function CheckoutFlow() {
   const [catalog, setCatalog] = useState<CatalogItem[] | null>(null);
   const [bag, setBag] = useState<Record<string, number>>({});
   const [step, setStep] = useState<Step>("store");
   const [order, setOrder] = useState<Order | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const [email, setEmail] = useState(shopper.email);
+  const [paidSession, setPaidSession] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending | null>("catalog");
   const [error, setError] = useState<string | null>(null);
 
@@ -173,10 +169,6 @@ export function CheckoutFlow() {
       .then(setCatalog, (caught: unknown) => setError(describeError(caught)))
       .finally(() => setPending(null));
   }
-
-  useEffect(() => {
-    void loadCatalog();
-  }, []);
 
   function retryCatalog() {
     setError(null);
@@ -211,11 +203,12 @@ export function CheckoutFlow() {
         headers: formHeaders,
         body: formBody({ email: shopper.email, name: shopper.name }),
       });
+      const back = flowUrl();
       const fields: Record<string, string> = {
         mode: "payment",
         customer: customer.id,
-        success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${returnUrl}?cancelled=1`,
+        success_url: `${back}?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${back}?cancelled=1`,
       };
       lines.forEach((line, index) => {
         fields[`line_items[${index}][price]`] = line.priceId;
@@ -226,12 +219,11 @@ export function CheckoutFlow() {
         headers: formHeaders,
         body: formBody(fields),
       });
-      setOrder({ session, lines });
-      setEmail(customer.email ?? shopper.email);
-      setStep("payment");
+      if (!session.url) throw new Error("The emulator returned no checkout page for this session.");
+      remember(ORDER, { session, lines });
+      window.location.assign(session.url);
     } catch (caught) {
       setError(describeError(caught));
-    } finally {
       setPending(null);
     }
   }
@@ -252,42 +244,17 @@ export function CheckoutFlow() {
     }
   }
 
-  async function pay(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!order) return;
-    setPending("pay");
-    setError(null);
-    try {
-      if (order.session.customer) {
-        await emulatorCall<Customer>(`/v1/customers/${order.session.customer}`, {
-          method: "POST",
-          headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded" },
-          body: formBody({ email }),
-        });
-      }
-      const stripe = await getEmulator("stripe");
-      const response = await stripe.fetch(`/checkout/${order.session.id}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ email }),
-      });
-      if (!isSuccessRedirect(response.status, response.headers.get("location"), order.session.id)) {
-        throw new Error(`The payment was not completed. The emulator answered ${response.status}.`);
-      }
-    } catch (caught) {
-      setError(describeError(caught));
-      setPending(null);
-      return;
-    }
-    setStep("success");
-    await loadConfirmation(order.session.id);
-  }
-
-  function cancelPayment() {
-    setOrder(null);
-    setError(null);
-    setStep("store");
-  }
+  useEffect(() => {
+    const sessionId = takeReturnQuery().get("session_id");
+    const saved = sessionId ? recall<Order>(ORDER) : null;
+    void loadCatalog().then(() => {
+      if (!sessionId) return undefined;
+      if (saved?.session.id === sessionId) setOrder(saved);
+      setPaidSession(sessionId);
+      setStep("success");
+      return loadConfirmation(sessionId);
+    });
+  }, []);
 
   function continueShopping() {
     setBag({});
@@ -426,56 +393,9 @@ export function CheckoutFlow() {
         </section>
       )}
 
-      {step === "payment" && order && (
-        <section data-flow-step="payment" className={`${cardClass} flex flex-col gap-6`}>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Pay for your order</h2>
-            <p className={hintClass}>This page stands in for Stripe&apos;s hosted checkout page.</p>
-          </div>
-          <ul className="flex flex-col divide-y divide-neutral-200 dark:divide-neutral-800">
-            {order.lines.map((line) => (
-              <li key={line.priceId} className="flex justify-between py-2 text-sm">
-                <span>
-                  {line.name} <span className="text-neutral-500">x {line.quantity}</span>
-                </span>
-                <span className="font-mono tabular-nums">{money(line.unitAmount * line.quantity, line.currency)}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="flex justify-between text-sm font-medium">
-            <span>Total due</span>
-            <span className="font-mono tabular-nums">{totalOf(order.lines)}</span>
-          </p>
-          <form onSubmit={(event) => void pay(event)} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="checkout-email" className={labelClass}>
-                Email
-              </label>
-              <input
-                id="checkout-email"
-                type="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={busy}
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button type="submit" data-pay disabled={busy} className={primaryButtonClass}>
-                Pay {totalOf(order.lines)}
-              </button>
-              <button type="button" onClick={cancelPayment} disabled={busy} className={secondaryButtonClass}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
-
       {step === "success" && (
         <section data-flow-step="success" className={`${cardClass} flex flex-col gap-6`}>
-          {confirmation && order ? (
+          {confirmation ? (
             <div data-flow-result className="flex flex-col gap-6">
               <div className="flex flex-col gap-1">
                 <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Order confirmed</h2>
@@ -490,17 +410,21 @@ export function CheckoutFlow() {
                 <dd className="font-mono break-all">{confirmation.session.id}</dd>
                 <dt className="text-neutral-500 dark:text-neutral-400">Payment status</dt>
                 <dd className="font-mono">{confirmation.session.payment_status}</dd>
-                <dt className="text-neutral-500 dark:text-neutral-400">Total</dt>
-                <dd className="font-mono tabular-nums">{totalOf(order.lines)}</dd>
+                {order && (
+                  <>
+                    <dt className="text-neutral-500 dark:text-neutral-400">Total</dt>
+                    <dd className="font-mono tabular-nums">{totalOf(order.lines)}</dd>
+                  </>
+                )}
               </dl>
             </div>
           ) : (
             error === null && <p className={mutedClass}>Loading the paid order...</p>
           )}
-          {!confirmation && order && error && (
+          {!confirmation && error && paidSession && (
             <button
               type="button"
-              onClick={() => void loadConfirmation(order.session.id)}
+              onClick={() => void loadConfirmation(paidSession)}
               disabled={busy}
               className={secondaryButtonClass}
             >

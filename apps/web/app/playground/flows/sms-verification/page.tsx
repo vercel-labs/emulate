@@ -23,7 +23,7 @@ export default function SmsVerificationPage() {
         </h1>
         <p className="max-w-2xl text-base text-neutral-600 dark:text-neutral-400">{flow.description}</p>
         <p className={mutedClass}>
-          Runs in this tab. Nothing is sent to a server.{" "}
+          Runs in your browser. A service worker answers every request, so nothing reaches a server.{" "}
           <Link
             href="/playground/twilio"
             className="font-medium text-neutral-900 underline underline-offset-4 dark:text-neutral-100"

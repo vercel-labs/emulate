@@ -1,11 +1,4 @@
-import "@/lib/emulator-browser/buffer";
-import type { ServicePlugin, Store, WebhookDispatcher } from "@emulators/core";
-import { fallbackUsers, seeds } from "./seeds";
-
-interface EmulatorModule {
-  default: ServicePlugin;
-  seedFromConfig?(store: Store, baseUrl: string, config: never, webhooks?: WebhookDispatcher): void;
-}
+import { CLAIM_MESSAGE, EMULATOR_MOUNT, RAW_REDIRECT_HEADER, RESET_SEGMENT } from "./sw/protocol";
 
 export interface EmulatorRequest {
   method: string;
@@ -22,64 +15,94 @@ export interface EmulatorResponse {
 }
 
 export interface Emulator {
+  /** The emulator's base URL on this origin. The browser can open any of its pages from here. */
+  baseUrl: string;
+  /** Sends a request and reports a redirect's status and Location instead of following it. */
   send(request: EmulatorRequest): Promise<EmulatorResponse>;
   /** Sends any request to the emulator and returns the raw response, for callers that need headers or bytes. */
   fetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
-const loaders: Record<string, () => Promise<EmulatorModule>> = {
-  apple: () => import("@emulators/apple"),
-  aws: () => import("@emulators/aws"),
-  clerk: () => import("@emulators/clerk"),
-  github: () => import("@emulators/github"),
-  google: () => import("@emulators/google"),
-  linear: () => import("@emulators/linear"),
-  microsoft: () => import("@emulators/microsoft"),
-  mongoatlas: () => import("@emulators/mongoatlas"),
-  okta: () => import("@emulators/okta"),
-  resend: () => import("@emulators/resend"),
-  slack: () => import("@emulators/slack"),
-  stripe: () => import("@emulators/stripe"),
-  twilio: () => import("@emulators/twilio"),
-  vercel: () => import("@emulators/vercel"),
-};
-
 const running = new Map<string, Promise<Emulator>>();
+let workerReady: Promise<void> | undefined;
 
-/** Loads one emulator into this browser tab and seeds it. Requests are answered in memory and never reach a server. */
+/**
+ * Registers the playground service worker, which runs every emulator, and waits until it controls this page.
+ * Throws when the browser has no service workers or the worker cannot take control.
+ */
+function workerControlsPage(): Promise<void> {
+  workerReady ??= (async () => {
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("The playground needs service workers, and this browser has them turned off.");
+    }
+    await navigator.serviceWorker.register(new URL("./sw/worker.ts", import.meta.url), {
+      scope: "/playground/",
+      updateViaCache: "none",
+    });
+    const registration = await navigator.serviceWorker.ready;
+    if (navigator.serviceWorker.controller) return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("The playground could not start its emulators. Reload the page.")),
+        5000,
+      );
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+      registration.active?.postMessage(CLAIM_MESSAGE);
+    });
+  })();
+  workerReady.catch(() => {
+    workerReady = undefined;
+  });
+  return workerReady;
+}
+
 async function create(name: string): Promise<Emulator> {
-  const [{ createServer }, emulator] = await Promise.all([import("@emulators/core"), loaders[name]()]);
-  const baseUrl = `https://${name}.emulate.local`;
-  const server = createServer(emulator.default, { baseUrl, fallbackUser: fallbackUsers[name] });
-  emulator.default.seed?.(server.store, baseUrl);
-  const seed = seeds[name];
-  if (seed) emulator.seedFromConfig?.(server.store, baseUrl, seed as never, server.webhooks);
-
+  await workerControlsPage();
+  const mount = `${EMULATOR_MOUNT}/${name}`;
   return {
-    fetch: (path, init) => Promise.resolve(server.app.fetch(new Request(baseUrl + path, init))),
+    baseUrl: `${window.location.origin}${mount}`,
+    fetch: (path, init) => fetch(mount + path, init),
     async send({ method, path, headers, body }) {
-      const response = await server.app.fetch(new Request(baseUrl + path, { method, headers, body }));
+      const response = await fetch(mount + path, {
+        method,
+        headers: { ...headers, [RAW_REDIRECT_HEADER]: "1" },
+        body,
+      });
+      const redirect = response.headers.get("X-Emulate-Status");
       return {
-        status: response.status,
-        statusText: response.statusText,
+        status: redirect ? Number(redirect) : response.status,
+        statusText: redirect ? (response.headers.get("X-Emulate-Status-Text") ?? "") : response.statusText,
         body: await response.text(),
-        location: response.headers.get("location"),
+        location: redirect ? response.headers.get("X-Emulate-Location") : null,
       };
     },
   };
 }
 
-/** Returns the emulator for a service, creating it in this tab on first use. */
+/** Returns the emulator for a service once the service worker that runs it controls this page. */
 export function getEmulator(name: string): Promise<Emulator> {
   let emulator = running.get(name);
   if (!emulator) {
     emulator = create(name);
+    emulator.catch(() => running.delete(name));
     running.set(name, emulator);
   }
   return emulator;
 }
 
-/** Drops a service's emulator so its next request starts from fresh seed data. */
+/** Resets a service's emulator to fresh seed data. Requests made after this call wait for the reset. */
 export function resetEmulator(name: string): void {
-  running.delete(name);
+  const reset = getEmulator(name).then(async (emulator) => {
+    await fetch(`${EMULATOR_MOUNT}/${RESET_SEGMENT}/${name}`, { method: "POST" });
+    return emulator;
+  });
+  reset.catch(() => running.delete(name));
+  running.set(name, reset);
 }

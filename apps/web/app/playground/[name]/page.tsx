@@ -27,7 +27,9 @@ export default async function EmulatorPlaygroundPage({ params }: Props) {
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">{service.label}</h1>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">{service.description}</p>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Runs in this tab. Nothing is sent to a server.</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          Runs in your browser. A service worker answers every request, so nothing reaches a server.
+        </p>
       </header>
       <EmulatorConsole
         key={service.name}
