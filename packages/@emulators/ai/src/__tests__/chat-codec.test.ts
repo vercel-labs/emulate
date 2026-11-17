@@ -231,6 +231,51 @@ describe("chatCodec.decode", () => {
       expect(decodeError({ ...baseBody, metadata }).param).toMatch(/^metadata/);
     }
   });
+
+  it("rejects a strict tool whose schema breaks the OpenAI rules", () => {
+    const error = decodeError({
+      ...baseBody,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup",
+            strict: true,
+            parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] },
+          },
+        },
+      ],
+    });
+
+    expect(error.message).toBe(
+      "Invalid schema for function 'lookup': In context=(), 'additionalProperties' is required to be supplied and to be false.",
+    );
+    expect(error.param).toBe("tools[0].function.parameters");
+    expect(error.code).toBe("invalid_function_parameters");
+  });
+
+  it("applies the Anthropic schema rules to structured output for a claude model", () => {
+    const error = decodeError({
+      ...baseBody,
+      model: "claude-opus-5-5",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "trip",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { city: { type: "string", minLength: 3 } },
+            required: ["city"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    expect(error.message).toBe("For 'string' type, property 'minLength' is not supported");
+    expect(error.param).toBe("response_format");
+  });
 });
 
 describe("chatCodec.encodeJson", () => {
