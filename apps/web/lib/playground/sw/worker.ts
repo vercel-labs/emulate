@@ -141,8 +141,31 @@ function describeRedirect(response: Response): Response {
   return new Response(response.body, { status: 200, headers });
 }
 
-/** Answers one request for an emulator URL from the emulator running in this worker. */
+/** Who sent a request: a page this worker controls, a navigation started on this site, or a navigation started anywhere else. */
+type Sender = "page" | "site-navigation" | "outside-navigation";
+
+/**
+ * Only pages on this site are controlled by the worker, so a request that is not a navigation comes from one of them.
+ * A navigation can be started by any website, with a link or a form, and its referrer says where it started.
+ */
+function senderOf(request: Request): Sender {
+  if (request.mode !== "navigate") return "page";
+  try {
+    return new URL(request.referrer).origin === worker.location.origin ? "site-navigation" : "outside-navigation";
+  } catch {
+    return "outside-navigation";
+  }
+}
+
+/** Answers one request for an emulator URL from the emulator running in this worker. A navigation from outside this site may read, never change. */
 async function answer(request: Request, url: URL): Promise<Response> {
+  const reads = request.method === "GET" || request.method === "HEAD";
+  if (!reads && senderOf(request) === "outside-navigation") {
+    return new Response("Only the playground can send this request.", {
+      status: 403,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
   const segments = url.pathname.slice(EMULATOR_MOUNT.length + 1).split("/");
   const [name, target] = segments;
   if (name === RESET_SEGMENT && request.method === "POST" && Object.hasOwn(emulators, target ?? "")) {
