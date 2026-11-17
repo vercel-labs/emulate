@@ -50,6 +50,12 @@ describe("strict miss hint", () => {
     const hinted = hintedRule(strictMissFailure(miss, [], ["matching-reply"]).message);
     expect(() => parseConfig({ rules: [existing, hinted] })).not.toThrow();
   });
+
+  it("keeps strict mode on when the hinted body replaces the configuration", () => {
+    const message = strictMissFailure(miss, [], []).message;
+    const body = JSON.parse(message.slice(message.indexOf("{\n")));
+    expect(parseConfig(body).strict).toBe(true);
+  });
 });
 
 describe("sampleSchema alternatives", () => {
