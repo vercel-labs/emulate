@@ -53,6 +53,8 @@ export interface AdapterEmulatorEntry {
   fallbackUser?: AuthFallback;
 }
 export interface AdapterHandlerConfig {
+  /** The public origin the emulator is served from, such as `https://app.example.com`. Services that restrict hosts, such as AI, answer only on this host and on loopback names and IP literals. */
+  publicUrl?: string;
   services: Record<string, AdapterEmulatorEntry>;
   persistence?: PersistenceAdapter;
 }
@@ -197,6 +199,7 @@ export function createAdapterRuntime(
   servicePath: (mountPath: string, service: string) => string,
 ) {
   const { services: serviceEntries, persistence } = config;
+  const publicOrigin = config.publicUrl === undefined ? undefined : new URL(config.publicUrl).origin;
   let apps: Map<string, ServiceApp> | null = null;
   let initPromise: Promise<void> | null = null;
   let preparationPromise: Promise<PreparedState> | null = null;
@@ -356,6 +359,7 @@ export function createAdapterRuntime(
         let appKeyResolver: AppKeyResolver | undefined;
         const server = createServer(plugin, {
           baseUrl,
+          baseUrlDerived: publicOrigin === undefined,
           appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
           fallbackUser: entry.fallbackUser,
         });
@@ -409,7 +413,7 @@ export function createAdapterRuntime(
     return apps!;
   }
   async function handle(req: Request, pathSegments: string[], mountPath: string): Promise<Response> {
-    const serviceApps = await ensureInit(new URL(req.url).origin, mountPath);
+    const serviceApps = await ensureInit(publicOrigin ?? new URL(req.url).origin, mountPath);
     if (pathSegments.length === 0) return new Response("Not found", { status: 404 });
     const serviceName = pathSegments[0];
     const service = serviceApps.get(serviceName);

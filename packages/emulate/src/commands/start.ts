@@ -14,6 +14,7 @@ import {
   type PortlessAlias,
 } from "../portless.js";
 import { resolveBaseUrl } from "../base-url.js";
+import { aiNetworkWarning, isLoopbackHost } from "../ai-network.js";
 import {
   preflightGeneratedSecretsFile,
   publishGeneratedSecretsFile,
@@ -345,11 +346,16 @@ export async function startCommand(options: StartOptions): Promise<void> {
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
       await assertPortFree(options.host, port);
-      const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
+      const httpServer = serve({
+        fetch: app.fetch,
+        port,
+        hostname: options.host,
+        abortOnClose: preparedService.loadedSvc.plugin.abortOnClose,
+      });
       httpServers.push(httpServer);
     }
 
-    printBanner(serviceUrls, tokens, configSource);
+    printBanner(serviceUrls, tokens, configSource, options.host);
     installShutdown(portlessAliases, stores, httpServers);
     return;
   }
@@ -376,12 +382,17 @@ export async function startCommand(options: StartOptions): Promise<void> {
       stores.push(store);
       seedPreparedService(preparedService, store, webhooks);
       await assertPortFree(options.host, port);
-      const httpServer = serve({ fetch: app.fetch, port, hostname: options.host });
+      const httpServer = serve({
+        fetch: app.fetch,
+        port,
+        hostname: options.host,
+        abortOnClose: preparedService.loadedSvc.plugin.abortOnClose,
+      });
       httpServers.push(httpServer);
       await waitForServerListening(httpServer);
     }
 
-    printBanner(serviceUrls, tokens, configSource);
+    printBanner(serviceUrls, tokens, configSource, options.host);
   } catch (error) {
     await rollbackStartup(httpServers, stores, registeredAliases, publishedSecretsFile);
     throw error;
@@ -394,6 +405,7 @@ function printBanner(
   services: Array<{ name: string; url: string }>,
   tokens: Record<string, { login: string; id: number; scopes?: string[] }>,
   configSource: string | null,
+  host?: string,
 ): void {
   const lines: string[] = [];
   lines.push("");
@@ -405,6 +417,9 @@ function printBanner(
     lines.push(`  ${pc.cyan(name.padEnd(maxNameLen + 2))}${pc.bold(url)}`);
   }
   lines.push("");
+
+  const ai = services.filter((service) => service.name === "ai");
+  if (ai.length > 0) lines.push(...aiSetupLines(ai, host), "");
 
   const tokenEntries = Object.entries(tokens);
   if (tokenEntries.length > 0) {
@@ -423,4 +438,28 @@ function printBanner(
   lines.push("");
 
   console.log(lines.join("\n"));
+}
+
+/**
+ * Base URL setup lines for each ai service, headed by its name when there is more than one.
+ * The non-loopback host warning is added once after all of them.
+ */
+export function aiSetupLines(services: Array<{ name: string; url: string }>, host?: string): string[] {
+  const lines: string[] = [];
+  services.forEach(({ name, url }, index) => {
+    const baseUrl = `${url}/v1`;
+    if (index > 0) lines.push("");
+    if (services.length > 1) lines.push(`  ${pc.cyan(name)}`);
+    lines.push(
+      `  ${pc.dim("AI base URL")} ${pc.bold(baseUrl)}`,
+      `  ${pc.dim("OpenAI SDK")} new OpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+      `  ${pc.dim("AI SDK")} createOpenAI({ baseURL: "${baseUrl}", apiKey: "test" })`,
+      `  ${pc.dim("Anthropic SDK")} new Anthropic({ baseURL: "${url}", apiKey: "test" })`,
+      `  ${pc.dim("API key")} any value works`,
+    );
+  });
+  if (host !== undefined && !isLoopbackHost(host)) {
+    lines.push(`  ${pc.yellow("Warning:")} ${aiNetworkWarning(host)}`);
+  }
+  return lines;
 }

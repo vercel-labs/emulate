@@ -1,6 +1,7 @@
 import { generateKeyPairSync, sign } from "crypto";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createEmulator } from "../api.js";
+import { SERVICE_REGISTRY } from "../registry.js";
 
 function createAppJwt(appId: string, privateKey: string): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -311,6 +312,64 @@ describe("createEmulator", () => {
     expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
 
     await slack.close();
+  });
+
+  it("aborts the request signal when a client disconnects from a plugin that sets abortOnClose", async () => {
+    let resolveAborted!: () => void;
+    const aborted = new Promise<void>((resolve) => {
+      resolveAborted = resolve;
+    });
+    const originalLoad = SERVICE_REGISTRY.vercel.load;
+    const load = vi.spyOn(SERVICE_REGISTRY.vercel, "load").mockImplementation(async () => {
+      const loaded = await originalLoad.call(SERVICE_REGISTRY.vercel);
+      return {
+        ...loaded,
+        plugin: {
+          ...loaded.plugin,
+          abortOnClose: true,
+          register(app, store, webhooks, baseUrl, tokenMap) {
+            loaded.plugin.register(app, store, webhooks, baseUrl, tokenMap);
+            app.get("/__abort_probe", (c) => {
+              c.req.raw.signal.addEventListener("abort", () => resolveAborted());
+              return new Response(
+                new ReadableStream({
+                  start(controller) {
+                    controller.enqueue(new TextEncoder().encode("first"));
+                  },
+                }),
+              );
+            });
+          },
+        },
+      };
+    });
+
+    try {
+      const emulator = await createEmulator({ service: "vercel", port: 14090 });
+      try {
+        const controller = new AbortController();
+        const response = await fetch(`${emulator.url}/__abort_probe`, {
+          headers: { Authorization: "Bearer test_token_admin" },
+          signal: controller.signal,
+        });
+        expect(response.status).toBe(200);
+        const reader = response.body!.getReader();
+        const first = await reader.read();
+        expect(new TextDecoder().decode(first.value)).toBe("first");
+        controller.abort();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("request signal did not abort")), 2000);
+          void aborted.then(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      } finally {
+        await emulator.close();
+      }
+    } finally {
+      load.mockRestore();
+    }
   });
 
   it("throws on unknown service", async () => {
