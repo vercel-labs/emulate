@@ -2,6 +2,7 @@ import { Store } from "@emulators/core";
 import { describe, expect, it } from "vitest";
 import { CREATED_AT, type CodecContext, type Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
+import { decide } from "../engine.js";
 import { AiRequestError } from "../errors.js";
 import { parseConfig } from "../rules.js";
 import { resetAiState } from "../state.js";
@@ -231,6 +232,51 @@ describe("chatCodec.decode", () => {
       expect(decodeError({ ...baseBody, metadata }).param).toMatch(/^metadata/);
     }
   });
+
+  it("rejects a strict tool whose schema breaks the OpenAI rules", () => {
+    const error = decodeError({
+      ...baseBody,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "lookup",
+            strict: true,
+            parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] },
+          },
+        },
+      ],
+    });
+
+    expect(error.message).toBe(
+      "Invalid schema for function 'lookup': In context=(), 'additionalProperties' is required to be supplied and to be false.",
+    );
+    expect(error.param).toBe("tools[0].function.parameters");
+    expect(error.code).toBe("invalid_function_parameters");
+  });
+
+  it("applies the Anthropic schema rules to structured output for a claude model", () => {
+    const error = decodeError({
+      ...baseBody,
+      model: "claude-opus-5-5",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "trip",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { city: { type: "string", minLength: 3 } },
+            required: ["city"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    expect(error.message).toBe("For 'string' type, property 'minLength' is not supported");
+    expect(error.param).toBe("response_format");
+  });
 });
 
 describe("chatCodec.encodeJson", () => {
@@ -292,6 +338,25 @@ describe("chatCodec.encodeJson", () => {
     expect(body.choices[0].message.content).toBeNull();
     expect(body.choices[0].message.refusal).toBe("I cannot help with that.");
     expect(body.choices[0].finish_reason).toBe("stop");
+  });
+});
+
+describe("chatCodec.errorBody", () => {
+  it("renders the full error envelope, with nulls for a failure that names no param or code", () => {
+    expect(
+      chatCodec.errorBody({
+        status: 400,
+        message: "Bad model.",
+        type: "invalid_request_error",
+        code: "model_not_found",
+        param: "model",
+      }),
+    ).toEqual({
+      error: { message: "Bad model.", type: "invalid_request_error", param: "model", code: "model_not_found" },
+    });
+    expect(chatCodec.errorBody({ status: 400, message: "Slow down." })).toEqual({
+      error: { message: "Slow down.", type: "invalid_request_error", param: null, code: null },
+    });
   });
 });
 
@@ -414,5 +479,24 @@ describe("chatCodec.streamFrames", () => {
       JSON.stringify(value),
     );
     expect(frames.at(-1)?.data).toBe("[DONE]");
+  });
+});
+
+describe("chatCodec limits", () => {
+  it("answers with the cut reply when max_completion_tokens and stop are both set", () => {
+    const store = new Store();
+    const state = resetAiState(
+      store,
+      parseConfig({ rules: [{ id: "count", match: {}, reply: [{ type: "text", text: "one two three four" }] }] }),
+    );
+    const ctx: CodecContext = { store, state, path: "/v1/chat/completions", makeId: (prefix) => `${prefix}_1` };
+    const decoded = chatCodec.decode({ ...baseBody, max_completion_tokens: 1, stop: "three" }, ctx);
+
+    const outcome = decide(store, decoded.request);
+    if (outcome.kind !== "reply") throw new Error("expected a reply outcome");
+    const body = chatCodec.encodeJson(outcome.reply, decoded, ctx) as CompletionBody;
+
+    expect(body.choices[0].message.content).toBe("one ");
+    expect(body.choices[0].finish_reason).toBe("length");
   });
 });

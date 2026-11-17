@@ -205,7 +205,9 @@ A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 | Reasoning | `{ type: reasoning, text }`            | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
 | Refusal   | `{ type: refusal, text }`              | Native refusal shape                                                                                   |
 
-With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Stop reasons are otherwise inferred from the events.
+With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
+
+Request limits apply to every reply, scripted or default. A stop sequence (`stop` on Chat Completions) cuts the reply text at the first match; the sequence is not returned, nothing after it is sent, and the reply ends with `stop`. A token cap (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) counts output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`, which Responses reports as `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. A rule's own `finish` still wins when it is set.
 
 ### Errors and faults
 
@@ -537,7 +539,7 @@ Open `http://localhost:4014/` to browse calls and rule budgets in the inspector.
 
 Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
-Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
+Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 
 ## Custom emulators alongside built-ins
 

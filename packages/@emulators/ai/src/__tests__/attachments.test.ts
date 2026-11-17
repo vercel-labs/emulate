@@ -148,6 +148,43 @@ describe("file id attachments", () => {
   });
 });
 
+describe("chat file media type", () => {
+  it("accepts a declared PDF data URL whose filename has no extension", () => {
+    const result = decodeChatAttachment(
+      { type: "file", file: { filename: "report", file_data: `data:application/pdf;base64,${BASE64}` } },
+      "content[0]",
+    );
+    expect(result).toMatchObject({ mediaType: "application/pdf", name: "report", source: "inline" });
+  });
+
+  it("rejects a declared non-PDF data URL even when the filename ends in .pdf", () => {
+    const error = thrown(() =>
+      decodeChatAttachment(
+        { type: "file", file: { filename: "report.pdf", file_data: `data:text/plain;base64,${BASE64}` } },
+        "content[0]",
+      ),
+    );
+    expect(error.message).toBe("Chat file attachments must be PDF files.");
+    expect(error.param).toBe("content[0].file.file_data");
+  });
+
+  it("points a raw base64 rejection at the filename that set the type", () => {
+    const error = thrown(() =>
+      decodeChatAttachment({ type: "file", file: { filename: "notes.txt", file_data: BASE64 } }, "content[0]"),
+    );
+    expect(error.message).toBe("Chat file attachments must be PDF files.");
+    expect(error.param).toBe("content[0].file.filename");
+  });
+
+  it("rejects a file id whose filename is not a PDF", () => {
+    const error = thrown(() =>
+      decodeChatAttachment({ type: "file", file: { filename: "notes.txt", file_id: "file_txt" } }, "content[0]"),
+    );
+    expect(error.message).toBe("Chat file attachments must be PDF files.");
+    expect(error.param).toBe("content[0].file.filename");
+  });
+});
+
 describe("source counts", () => {
   it("requires exactly one Responses file source", () => {
     const error = thrown(() =>

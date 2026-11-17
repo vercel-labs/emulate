@@ -140,7 +140,9 @@ Reply events:
 - `reasoning` — `{ type: reasoning, text }`, a reasoning summary on Responses and a signed `thinking` block on Messages; Chat Completions has no field for it and reports only reasoning tokens
 - `refusal` — `{ type: refusal, text }`, native refusal shape
 
-A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and each rule's own matches walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. A variant holds either `reply` or `error`, and SDK retries spend the next variant. It may also override `finish`, `timing`, and `fault`, with the rule-level values as defaults. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`, and `fault` also requires `match.stream: true`. A fault disconnects or stalls a stream after a counted number of content chunks. `timing.ttftMs` is the wait before the first byte of any reply, streamed or not, and `timing.chunkDelayMs` is the gap between the frames of a stream.
+A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and each rule's own matches walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. A variant holds either `reply` or `error`, and SDK retries spend the next variant. It may also override `finish`, `timing`, and `fault`, with the rule-level values as defaults. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`, and `fault` also requires `match.stream: true`. Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses; a `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
+
+Request limits apply to every reply, scripted or default. A stop sequence (`stop` on Chat Completions) cuts the reply text at the first match; the sequence is not returned, nothing after it is sent, and the reply ends with `stop`. A token cap (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) counts output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`, which Responses reports as `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. A rule's own `finish` still wins when it is set. A fault disconnects or stalls a stream after a counted number of content chunks. `timing.ttftMs` is the wait before the first byte of any reply, streamed or not, and `timing.chunkDelayMs` is the gap between the frames of a stream.
 
 ## Defaults
 
@@ -167,7 +169,7 @@ Result-changing features outside this version return a native 400 naming the fea
 
 Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
-Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
+Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 
 ## Links
 

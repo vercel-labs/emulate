@@ -283,21 +283,26 @@ describe("OpenAI Responses codec", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("tolerates an orphan tool result when referenced history is missing", async () => {
+  it("tolerates an orphan tool result only when the previous response is missing", async () => {
     const client = openaiClient();
+    const orphan = { type: "function_call_output", call_id: "call_missing", output: "x" } as const;
     const response = await client.responses.create({
       model: "gpt-x",
-      input: [
-        { type: "item_reference", id: "fc_missing" },
-        { type: "function_call_output", call_id: "call_missing", output: "x" },
-        { role: "user", content: "Continue" },
-      ],
+      previous_response_id: "resp_missing",
+      input: [orphan, { role: "user", content: "Continue" }],
     });
 
     expect(response.output_text).toBe("The weather is 20 C.");
     const request = await lastCall();
     expect(request.references[0]?.resolved).toBe(false);
     expect(request.warnings.some((warning) => warning.includes("accepting it"))).toBe(true);
+
+    await expect(
+      client.responses.create({
+        model: "gpt-x",
+        input: [{ type: "item_reference", id: "fc_missing" }, orphan, { role: "user", content: "Continue" }],
+      }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("carries unresolved history through a previous_response_id chain", async () => {
@@ -377,20 +382,20 @@ describe("OpenAI Responses codec", () => {
     expect(answered.output_text).toBe("The weather is 20 C.");
   });
 
-  it("accepts an unanswered function call only when the missing history could hold its output", async () => {
+  it("rejects an unanswered function call whether the missing reference is a response or an item", async () => {
     const call = { type: "function_call", call_id: "call_pending", name: "get_weather", arguments: "{}" };
-    const before = await postResponses({
+    const afterMissingResponse = await postResponses({
       model: "gpt-x",
       previous_response_id: "resp_missing",
       input: [call, { role: "user", content: "Continue" }],
     });
-    const after = await postResponses({
+    const beforeMissingItem = await postResponses({
       model: "gpt-x",
       input: [call, { type: "item_reference", id: "fc_missing" }, { role: "user", content: "Continue" }],
     });
 
-    expect(before.status).toBe(400);
-    expect(after.status).toBe(200);
+    expect(afterMissingResponse.status).toBe(400);
+    expect(beforeMissingItem.status).toBe(400);
   });
 
   it("stores, retrieves, and deletes responses", async () => {

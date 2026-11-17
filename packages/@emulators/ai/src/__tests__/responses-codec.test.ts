@@ -1,8 +1,8 @@
 import { Store } from "@emulators/core";
 import { describe, expect, it } from "vitest";
 import type { CodecContext, Decoded } from "../codec.js";
-import { responsesCodec } from "../codecs/openai-responses.js";
-import { AiRequestError } from "../errors.js";
+import { deleteStoredResponse, responsesCodec } from "../codecs/openai-responses.js";
+import { AiRequestError, defaultErrorType } from "../errors.js";
 import { parseConfig } from "../rules.js";
 import { resetAiState, STORED_RESPONSE_LIMIT } from "../state.js";
 import type { SseFrame } from "../sse.js";
@@ -182,6 +182,19 @@ describe("responsesCodec.decode validation", () => {
     });
   });
 
+  it("always returns a text format, even when the request sets only verbosity or nothing", () => {
+    const low = decodedOf({ ...baseBody, text: { verbosity: "low" } });
+    expect(encode(low.decoded, low.ctx, [{ type: "text", text: "ok" }]).text).toEqual({
+      verbosity: "low",
+      format: { type: "text" },
+    });
+
+    const empty = decodedOf({ ...baseBody, text: {} });
+    expect(encode(empty.decoded, empty.ctx, [{ type: "text", text: "ok" }]).text).toEqual({
+      format: { type: "text" },
+    });
+  });
+
   it("echoes a json_schema text format without unknown keys", () => {
     const schema = { type: "object", additionalProperties: false };
     const { ctx, decoded } = decodedOf({
@@ -191,6 +204,40 @@ describe("responsesCodec.decode validation", () => {
 
     expect(encode(decoded, ctx, [{ type: "text", text: "{}" }]).text).toEqual({
       format: { type: "json_schema", name: "n", description: "d", schema, strict: true },
+    });
+  });
+
+  it("rejects provider-incompatible strict tool and structured output schemas", () => {
+    const loose = { type: "object", properties: { city: { type: "string" } } };
+
+    const tool = decodeError({
+      ...baseBody,
+      tools: [{ type: "function", name: "lookup", parameters: loose, strict: true }],
+    });
+    expect(tool.param).toBe("tools[0].parameters");
+    expect(tool.code).toBe("invalid_function_parameters");
+
+    const output = decodeError({
+      ...baseBody,
+      text: { format: { type: "json_schema", name: "answer", schema: loose, strict: true } },
+    });
+    expect(output.param).toBe("text.format");
+  });
+
+  it("wraps a failure in the native error envelope", () => {
+    expect(
+      responsesCodec.errorBody({
+        status: 400,
+        type: "invalid_request_error",
+        message: "Bad.",
+        param: "input",
+        code: "x",
+      }),
+    ).toEqual({
+      error: { message: "Bad.", type: "invalid_request_error", param: "input", code: "x" },
+    });
+    expect(responsesCodec.errorBody({ status: 500, message: "Boom." })).toEqual({
+      error: { message: "Boom.", type: defaultErrorType(500), param: null, code: null },
     });
   });
 
@@ -347,18 +394,42 @@ describe("responsesCodec stored responses", () => {
     );
   });
 
-  it("accepts a tool result after a gap and warns", () => {
-    const ctx = makeContext();
-    const decoded = responsesCodec.decode(
-      {
-        model: "gpt-x",
-        input: [
-          { type: "item_reference", id: "fc_missing" },
-          { type: "function_call_output", call_id: "call_gone", output: "x" },
-        ],
-      },
-      ctx,
-    );
+  it("rejects unpaired tool items after an unknown item_reference", () => {
+    const missing = { type: "item_reference", id: "fc_missing" };
+
+    const orphanOutput = decodeError({
+      model: "gpt-x",
+      input: [missing, { type: "function_call_output", call_id: "call_gone", output: "x" }],
+    });
+    expect(orphanOutput.message).toBe('No function call found for tool output "call_gone".');
+    expect(orphanOutput.param).toBe("input");
+
+    const unanswered = decodeError({
+      model: "gpt-x",
+      input: [missing, { type: "function_call", call_id: "call_a", name: "lookup", arguments: "{}" }],
+    });
+    expect(unanswered.message).toBe("No tool output found for function call call_a.");
+  });
+
+  it("keeps an unknown item_reference as a dropped reference with a warning", () => {
+    const { decoded } = decodedOf({
+      model: "gpt-x",
+      input: [
+        { type: "item_reference", id: "fc_missing" },
+        { role: "user", content: "hi" },
+      ],
+    });
+
+    expect(decoded.request.warnings).toEqual(['Unknown item_reference "fc_missing"; dropping it.']);
+    expect(decoded.request.references).toEqual([{ id: "fc_missing", kind: "item", resolved: false }]);
+  });
+
+  it("still relaxes tool pairing after an unknown previous_response_id", () => {
+    const { decoded } = decodedOf({
+      model: "gpt-x",
+      previous_response_id: "resp_missing",
+      input: [{ type: "function_call_output", call_id: "call_gone", output: "x" }],
+    });
 
     expect(decoded.request.warnings).toContain(
       'Tool result "call_gone" does not match a known call; accepting it because referenced history is missing.',
@@ -387,5 +458,64 @@ describe("responsesCodec stored responses", () => {
     );
     expect(calls).toHaveLength(1);
     expect(decoded.request.references.filter((entry) => entry.kind === "item")).toHaveLength(2);
+  });
+
+  it("keeps a removed response's item resolvable through the child that folded it", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: "first" }, [{ type: "text", text: "one" }]);
+    const itemId = (first as unknown as { output: { id: string }[] }).output[0].id;
+    const second = storeBody(ctx, { model: "gpt-x", input: "second", previous_response_id: first.id }, [
+      { type: "text", text: "two" },
+    ]);
+    deleteStoredResponse(ctx, first.id);
+
+    const decoded = responsesCodec.decode(
+      { model: "gpt-x", previous_response_id: second.id, input: [{ type: "item_reference", id: itemId }, "third"] },
+      ctx,
+    );
+
+    expect(messageTexts(decoded)).toEqual(["first", "one", "second", "two", "third"]);
+    expect(decoded.request.references).toContainEqual({ id: itemId, kind: "item", resolved: true });
+    expect(decoded.request.warnings).toEqual([]);
+  });
+
+  it("keeps item ids through two folds", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: "first" }, [{ type: "text", text: "one" }]);
+    const itemId = (first as unknown as { output: { id: string }[] }).output[0].id;
+    const second = storeBody(ctx, { model: "gpt-x", input: "second", previous_response_id: first.id }, [
+      { type: "text", text: "two" },
+    ]);
+    const third = storeBody(ctx, { model: "gpt-x", input: "third", previous_response_id: second.id }, [
+      { type: "text", text: "four" },
+    ]);
+    deleteStoredResponse(ctx, first.id);
+    deleteStoredResponse(ctx, second.id);
+
+    const decoded = responsesCodec.decode(
+      { model: "gpt-x", previous_response_id: third.id, input: [{ type: "item_reference", id: itemId }] },
+      ctx,
+    );
+
+    expect(messageTexts(decoded)).toEqual(["first", "one", "second", "two", "third", "four"]);
+    expect(decoded.request.references).toContainEqual({ id: itemId, kind: "item", resolved: true });
+    expect(decoded.request.warnings).toEqual([]);
+  });
+
+  it("resolves an item from an unrelated stored response only until that response is deleted", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: "first" }, [{ type: "text", text: "one" }]);
+    const itemId = (first as unknown as { output: { id: string }[] }).output[0].id;
+    const request = { model: "gpt-x", input: [{ type: "item_reference", id: itemId }, "third"] };
+
+    const stored = responsesCodec.decode(request, ctx);
+    expect(messageTexts(stored)).toEqual(["one", "third"]);
+    expect(stored.request.references).toEqual([{ id: itemId, kind: "item", resolved: true }]);
+
+    deleteStoredResponse(ctx, first.id);
+    const deleted = responsesCodec.decode(request, ctx);
+    expect(messageTexts(deleted)).toEqual(["third"]);
+    expect(deleted.request.references).toEqual([{ id: itemId, kind: "item", resolved: false }]);
+    expect(deleted.request.warnings).toEqual([`Unknown item_reference "${itemId}"; dropping it.`]);
   });
 });

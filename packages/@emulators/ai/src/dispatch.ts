@@ -83,7 +83,6 @@ const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 /** Installs the anchored data router and the control routes; control routes are checked first. */
 export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRoutesOptions): void {
   const configured = baseUrlDerived ? undefined : parseUrl(baseUrl);
-  const derived = baseUrlDerived === true;
 
   app.use("*", async (c, next) => {
     if (c.req.path.startsWith("/_emulate/")) {
@@ -91,7 +90,7 @@ export function registerAiRoutes({ app, store, baseUrl, baseUrlDerived }: AiRout
       return;
     }
     try {
-      return await handleRequest(c, store, configured, derived);
+      return await handleRequest(c, store, configured);
     } catch (error) {
       const codec = errorCodecOf(c.req.path, c.req.header("anthropic-version"));
       if (!codec) throw error;
@@ -112,12 +111,7 @@ export function resetAiToSeed(store: Store): void {
   resetAiState(store, getSeedConfig(store));
 }
 
-async function handleRequest(
-  c: Context<AppEnv>,
-  store: Store,
-  configured: URL | undefined,
-  derived: boolean,
-): Promise<Response> {
+async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL | undefined): Promise<Response> {
   const url = new URL(c.req.url);
   const path = url.pathname;
   const requested = c.req.method.toUpperCase();
@@ -126,7 +120,7 @@ async function handleRequest(
 
   const authority = c.req.header("host") ?? url.host;
   const addressed = parseUrl(`${url.protocol}//${authority}`);
-  const caller = callerOf(c.req.header("origin"), addressed, configured, derived);
+  const caller = callerOf(c.req.header("origin"), addressed, configured);
 
   if (caller === "untrusted-host") {
     const refusal = untrustedHostMessage(authority);
@@ -532,21 +526,16 @@ function untrustedHostMessage(host: string): string {
 }
 
 /**
- * Classifies a request from where it was addressed and its Origin. The service's own origin is the configured base URL,
- * or, when the base URL was only derived from an earlier request, the trusted address this request was sent to.
+ * Classifies a request from where it was addressed and its Origin. The service's own origins are the trusted address the
+ * request was sent to and, when configured, the base URL.
  */
-function callerOf(
-  origin: string | undefined,
-  addressed: URL | undefined,
-  configured: URL | undefined,
-  derived: boolean,
-): Caller {
+function callerOf(origin: string | undefined, addressed: URL | undefined, configured: URL | undefined): Caller {
   if (!addressed || !trustedHostname(addressed.hostname, configured?.hostname)) return "untrusted-host";
   if (!origin) return "direct";
   const url = parseUrl(origin);
   if (!url) return "foreign";
-  const own = derived ? addressed : configured;
-  if (own && originKey(url) === originKey(own)) return "same-origin";
+  const key = originKey(url);
+  if (key === originKey(addressed) || (configured && key === originKey(configured))) return "same-origin";
   return LOOPBACK_HOSTS.has(url.hostname) || url.hostname.endsWith(".localhost") ? "local" : "foreign";
 }
 
