@@ -114,6 +114,7 @@ export function Playground() {
   }, [rulesText, rulesError, applied]);
 
   const abortRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
   const latestRef = useRef(rulesText);
   const seqRef = useRef(0);
   const rulesSeqRef = useRef(0);
@@ -386,7 +387,7 @@ export function Playground() {
               "Error type": error?.type,
               "Error code": error?.code,
               "Retry after": step.retryAfter ? `${step.retryAfter} s` : undefined,
-              "Request ID": response.headers.get("x-request-id") ?? undefined,
+              "Request ID": response.headers.get("x-request-id") ?? response.headers.get("request-id") ?? undefined,
             };
             step.outcome = "error";
           }
@@ -424,80 +425,96 @@ export function Playground() {
   );
 
   const run = useCallback(async () => {
-    if (running) return;
-    const schema = scenario.schema ? parseJson(schemaText) : {};
-    if (schema.error) {
-      setSteps([]);
-      setMessage(`The JSON Schema is not valid JSON: ${schema.error}`);
-      return;
-    }
-    setMessage("");
-    setSteps([]);
-    if (!(await applyRules(latestRef.current))) {
-      setMessage("The rules were not applied. See the message above the rules.");
-      return;
-    }
-    abortRef.current = new AbortController();
-    setRunning(true);
-    const produced: Step[] = [];
-    const trail: string[] = [];
-    let plan: { title: string; calls: ToolCall[] | null; thoughts: Part[]; retried: boolean } = {
-      title: "Request",
-      calls: null,
-      thoughts: [],
-      retried: false,
-    };
+    if (busyRef.current) return;
+    busyRef.current = true;
     try {
-      for (;;) {
-        setLive(null);
-        const step = await exchange(
-          {
-            prompt,
-            stream,
-            schema: schema.value as Record<string, unknown> | undefined,
-            scenario,
-            attachment: scenario.file ? attachment : undefined,
-            calls: plan.calls,
-            thoughts: plan.thoughts,
-          },
-          plan.title,
-          setLive,
-        );
-        produced.push(step);
-        setLive(null);
-        setSteps([...produced]);
-
-        setNotes([...trail]);
-
-        const wait = Number(step.retryAfter);
-        if (step.status === 429 && step.retryAfter && Number.isFinite(wait) && !plan.retried) {
-          trail.push(`The playground waits ${wait} s, as retry-after asks, then sends the same request again.`);
-          await pause(wait * 1000, abortRef.current.signal);
-          plan = { ...plan, title: "Retry", retried: true };
-          continue;
-        }
-
-        const calls = step.parts.filter((part) => part.kind === "tool" && part.id) as ToolCall[];
-        if (step.outcome === "ok" && scenario.tools && calls.length > 0 && !plan.calls) {
-          trail.push(`The playground answers the tool call with ${TOOL_OUTPUT} and sends the conversation back.`);
-          plan = {
-            ...plan,
-            title: "Request with the tool result",
-            calls,
-            thoughts: step.parts.filter((part) => part.kind === "reasoning"),
-          };
-          continue;
-        }
-
-        break;
+      const schema = scenario.schema ? parseJson(schemaText) : {};
+      if (schema.error) {
+        setSteps([]);
+        setMessage(`The JSON Schema is not valid JSON: ${schema.error}`);
+        return;
       }
-      setNotes([...trail]);
+      setMessage("");
+      setSteps([]);
+      if (!(await applyRules(latestRef.current))) {
+        setMessage("The rules were not applied. See the message above the rules.");
+        return;
+      }
+      abortRef.current = new AbortController();
+      setRunning(true);
+      const produced: Step[] = [];
+      const trail: string[] = [];
+      let plan: { title: string; calls: ToolCall[] | null; thoughts: Part[]; retried: boolean } = {
+        title: "Request",
+        calls: null,
+        thoughts: [],
+        retried: false,
+      };
+      try {
+        for (;;) {
+          setLive(null);
+          const step = await exchange(
+            {
+              prompt,
+              stream,
+              schema: schema.value as Record<string, unknown> | undefined,
+              scenario,
+              attachment: scenario.file ? attachment : undefined,
+              calls: plan.calls,
+              thoughts: plan.thoughts,
+            },
+            plan.title,
+            setLive,
+          );
+          produced.push(step);
+          setLive(null);
+          setSteps([...produced]);
+
+          setNotes([...trail]);
+
+          const wait = Number(step.retryAfter);
+          if (step.status === 429 && step.retryAfter && Number.isFinite(wait) && !plan.retried) {
+            await pause(wait * 1000, abortRef.current.signal);
+            if (abortRef.current.signal.aborted) break;
+            trail.push(`The playground waited ${wait} s, as retry-after asks, then sent the same request again.`);
+            plan = { ...plan, title: "Retry", retried: true };
+            continue;
+          }
+
+          const calls = step.parts.filter((part) => part.kind === "tool" && part.id) as ToolCall[];
+          if (step.outcome === "ok" && scenario.tools && calls.length > 0 && !plan.calls) {
+            trail.push(`The playground answers the tool call with ${TOOL_OUTPUT} and sends the conversation back.`);
+            plan = {
+              ...plan,
+              title: "Request with the tool result",
+              calls,
+              thoughts: step.parts.filter((part) => part.kind === "reasoning"),
+            };
+            continue;
+          }
+
+          break;
+        }
+        setNotes([...trail]);
+      } finally {
+        setLive(null);
+        setRunning(false);
+        abortRef.current = null;
+      }
     } finally {
-      setLive(null);
-      setRunning(false);
-      abortRef.current = null;
+      busyRef.current = false;
     }
-  }, [applyRules, attachment, exchange, prompt, running, scenario, schemaText, stream]);
+  }, [applyRules, attachment, exchange, prompt, scenario, schemaText, stream]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      void run();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [run]);
 
   return (
     <div className="flex h-full flex-col">
