@@ -2,6 +2,7 @@ import { Store } from "@emulators/core";
 import { describe, expect, it } from "vitest";
 import { CREATED_AT, type CodecContext, type Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
+import { decide } from "../engine.js";
 import { AiRequestError } from "../errors.js";
 import { parseConfig } from "../rules.js";
 import { resetAiState } from "../state.js";
@@ -478,5 +479,24 @@ describe("chatCodec.streamFrames", () => {
       JSON.stringify(value),
     );
     expect(frames.at(-1)?.data).toBe("[DONE]");
+  });
+});
+
+describe("chatCodec limits", () => {
+  it("answers with the cut reply when max_completion_tokens and stop are both set", () => {
+    const store = new Store();
+    const state = resetAiState(
+      store,
+      parseConfig({ rules: [{ id: "count", match: {}, reply: [{ type: "text", text: "one two three four" }] }] }),
+    );
+    const ctx: CodecContext = { store, state, path: "/v1/chat/completions", makeId: (prefix) => `${prefix}_1` };
+    const decoded = chatCodec.decode({ ...baseBody, max_completion_tokens: 1, stop: "three" }, ctx);
+
+    const outcome = decide(store, decoded.request);
+    if (outcome.kind !== "reply") throw new Error("expected a reply outcome");
+    const body = chatCodec.encodeJson(outcome.reply, decoded, ctx) as CompletionBody;
+
+    expect(body.choices[0].message.content).toBe("one ");
+    expect(body.choices[0].finish_reason).toBe("length");
   });
 });

@@ -96,6 +96,8 @@ export interface Reply {
   events: ReplyEvent[];
   finish: FinishReason;
   usage: Usage;
+  /** The stop sequence that ended the reply, when one did. */
+  stopSequence?: string;
 }
 
 /** An HTTP error a rule injects or the emulator returns, rendered in the codec's native error body. */

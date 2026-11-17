@@ -603,19 +603,25 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
   return value;
 }
 
+/** The text an event contributes to the output estimate: its JSON, its tool name and arguments, or its text. */
+export function eventText(event: ReplyEvent): string {
+  if (event.type === "object") return JSON.stringify(event.value);
+  if (event.type === "tool_call") return event.name + event.arguments;
+  return event.text;
+}
+
+/** Estimated output tokens for one event: one token per four characters, rounded up. */
+export function eventTokens(event: ReplyEvent): number {
+  return Math.ceil(eventText(event).length / 4);
+}
+
 /** Estimate one token per four characters; output includes its reasoning share. */
 export function estimateUsage(request: AIRequest, events: ReplyEvent[]): Usage {
   const input = JSON.stringify({ messages: request.messages, tools: request.tools, output: request.output }).length;
   let output = 0;
   let reasoning = 0;
   for (const event of events) {
-    const text =
-      event.type === "object"
-        ? JSON.stringify(event.value)
-        : event.type === "tool_call"
-          ? event.name + event.arguments
-          : event.text;
-    const tokens = Math.ceil(text.length / 4);
+    const tokens = eventTokens(event);
     output += tokens;
     if (event.type === "reasoning") reasoning += tokens;
   }
