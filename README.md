@@ -1454,6 +1454,8 @@ Matchers are `model` (with `*` wildcards), `format` (`openai-chat` or `openai-re
 
 Set `timing.ttftMs` and `timing.chunkDelayMs` globally or per rule. Both default to zero, so replies are instant. `ttftMs` is the wait before the first byte of any reply, streamed or not, and `chunkDelayMs` is the gap between the frames of a stream. Delays are abortable: a client close or reset cancels pending timers.
 
+Request limits apply to every reply, scripted or default. A stop sequence (`stop` on Chat Completions) cuts the reply text at the first match; the sequence is not returned, nothing after it is sent, and the reply ends with `stop`. A token cap (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) counts output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`, which Responses reports as `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. A rule's own `finish` still wins when it is set.
+
 ### Defaults and strict mode
 
 With no matching rule, the service echoes the latest user text, returns a deterministic schema-valid object when a schema was requested, returns `{}` for JSON mode without a schema, generates a call when a tool is forced, acknowledges a tool result or an attachment-only request, and accepts and echoes any model id.
@@ -1509,7 +1511,7 @@ Result-changing features outside this version return a native 400 naming the fea
 
 Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
 
-Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
+Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 
 ## Apple Sign In
 

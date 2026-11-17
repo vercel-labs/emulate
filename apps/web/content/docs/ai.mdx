@@ -118,6 +118,12 @@ Every condition in `match` must hold.
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
+Request limits apply to every reply, scripted or default:
+
+- Stop sequences (`stop` on Chat Completions) cut the reply text at the first match. The sequence itself is not returned, nothing after it is sent, and the reply ends with `stop`.
+- Token caps (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) count output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`. On Responses that is `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially.
+- A rule's own `finish` still wins when it is set.
+
 ### Errors and faults
 
 ```yaml
@@ -295,7 +301,7 @@ Prompts and tool arguments are recorded. API keys, auth headers, URL credentials
 - The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
 - Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
 - Paths with no route return the native 404 naming the supported paths: Anthropic Messages, Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
-- Accepted and ignored, with no effect on replies: stop sequences, max output token settings, OpenRouter `reasoning` fields, and unknown optional fields. Replies are never truncated, and reply text is sent as written with no templating, so use a rule with `finish: length` to test truncation.
+- Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 - Usage numbers are deterministic estimates.
 
 An unknown key in the `ai` seed block fails startup with its path. See [Configuration](/docs/configuration) for the file format.
