@@ -1,8 +1,45 @@
 # Changelog
 
-## 0.13.1
+## 0.14.0
 
 <!-- release:start -->
+
+### New Features
+
+- Added the **AI emulator** (`@emulators/ai`) with an engine, SSE writer, seeded rules, attachment decoding, and Chat Completions, Responses, and Anthropic Messages codecs, so the OpenAI and Anthropic SDKs run against deterministic local endpoints (#339, #340, #341, #345)
+- Registered the **ai service** with data and control routes, an inspector, startup hints, and contract tests that drive the OpenAI and AI SDKs (#342)
+- Added an **external backend** option so the AWS emulator forwards S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint while Cognito and the inspector stay local (#411)
+- Added **STS web identity and KMS encryption** to the AWS emulator (#398)
+- Added **opt-in Stripe API key checks** (#390)
+- Matched **GitHub** visibility, OAuth revocation, and token handling to the real API (#388)
+- Matched **Okta** sign-in, session revocation, and token handling to the real API (#389)
+- Matched **Linear** webhook deliveries and the Agent Interaction API (#394)
+- Refused **Twilio** messages and calls from inactive accounts (#392)
+
+### Improvements
+
+- Added **opt-in service settings** to core so plugins can opt out of rate limiting, abort on client disconnect, and render their own error bodies; rate limits, auth errors, and unmatched routes now share one renderer (#338)
+- Rejected unknown **Slack** tokens in strict mode, added `auth.revoke`, and accepted `markdown_text` in chat writes (#391, #407)
+- Added a **MongoDB Atlas agent skill** (#395)
+- Improved **docs accessibility** and the chat input's `field-sizing` behavior (#356)
+- Type-checked with **tsc-ts** (#355)
+
+### Bug Fixes
+
+- Fixed **core route patterns** so trailing and inner `*` match as wildcards while a star inside a segment stays literal (#408)
+- Fixed **default base URLs** to advertise the listening host instead of localhost when a specific address is bound (#409)
+- Fixed **busy port detection** so an emulator no longer starts on a port it does not own (#410)
+- Redacted **AWS backend credentials** from the inspector and client-facing errors, and rejected URL userinfo at startup (#414)
+
+### Contributors
+
+- @lahfir
+- @ctate
+- @Railly
+
+<!-- release:end -->
+
+## 0.13.1
 
 ### Improvements
 
@@ -12,8 +49,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.13.0
 
