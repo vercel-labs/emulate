@@ -360,18 +360,42 @@ describe("responsesCodec stored responses", () => {
     );
   });
 
-  it("accepts a tool result after a gap and warns", () => {
-    const ctx = makeContext();
-    const decoded = responsesCodec.decode(
-      {
-        model: "gpt-x",
-        input: [
-          { type: "item_reference", id: "fc_missing" },
-          { type: "function_call_output", call_id: "call_gone", output: "x" },
-        ],
-      },
-      ctx,
-    );
+  it("rejects unpaired tool items after an unknown item_reference", () => {
+    const missing = { type: "item_reference", id: "fc_missing" };
+
+    const orphanOutput = decodeError({
+      model: "gpt-x",
+      input: [missing, { type: "function_call_output", call_id: "call_gone", output: "x" }],
+    });
+    expect(orphanOutput.message).toBe('No function call found for tool output "call_gone".');
+    expect(orphanOutput.param).toBe("input");
+
+    const unanswered = decodeError({
+      model: "gpt-x",
+      input: [missing, { type: "function_call", call_id: "call_a", name: "lookup", arguments: "{}" }],
+    });
+    expect(unanswered.message).toBe("No tool output found for function call call_a.");
+  });
+
+  it("keeps an unknown item_reference as a dropped reference with a warning", () => {
+    const { decoded } = decodedOf({
+      model: "gpt-x",
+      input: [
+        { type: "item_reference", id: "fc_missing" },
+        { role: "user", content: "hi" },
+      ],
+    });
+
+    expect(decoded.request.warnings).toEqual(['Unknown item_reference "fc_missing"; dropping it.']);
+    expect(decoded.request.references).toEqual([{ id: "fc_missing", kind: "item", resolved: false }]);
+  });
+
+  it("still relaxes tool pairing after an unknown previous_response_id", () => {
+    const { decoded } = decodedOf({
+      model: "gpt-x",
+      previous_response_id: "resp_missing",
+      input: [{ type: "function_call_output", call_id: "call_gone", output: "x" }],
+    });
 
     expect(decoded.request.warnings).toContain(
       'Tool result "call_gone" does not match a known call; accepting it because referenced history is missing.',

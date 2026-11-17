@@ -689,7 +689,6 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
         }
       } else {
         references.push({ id, kind: "item", resolved: false });
-        ownGaps.push(ownItems.length);
         warnings.push(`Unknown item_reference "${id}"; dropping it.`);
       }
       return;
