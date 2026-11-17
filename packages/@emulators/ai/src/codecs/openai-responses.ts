@@ -353,9 +353,9 @@ function decodeOutput(raw: unknown): OutputSpec | undefined {
 
 /** Builds the response's `text` field from validated values only, so unknown request keys are never echoed. */
 function textWire(raw: unknown): ResponsesExtras["text"] {
-  if (!isRecord(raw)) return { format: { type: "text" } };
+  const wire: Record<string, unknown> = { format: { type: "text" } };
+  if (!isRecord(raw)) return wire as ResponsesExtras["text"];
   const verbosity = optionalEnum(raw.verbosity, "text.verbosity", ["low", "medium", "high"] as const);
-  const wire: Record<string, unknown> = {};
   if (verbosity !== undefined) wire.verbosity = verbosity;
   const format = raw.format;
   if (isRecord(format)) {
@@ -369,7 +369,7 @@ function textWire(raw: unknown): ResponsesExtras["text"] {
         schema: format.schema,
         ...(typeof format.strict === "boolean" ? { strict: format.strict } : {}),
       };
-    } else wire.format = { type: "text" };
+    }
   }
   return wire as ResponsesExtras["text"];
 }

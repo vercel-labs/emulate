@@ -182,6 +182,19 @@ describe("responsesCodec.decode validation", () => {
     });
   });
 
+  it("always returns a text format, even when the request sets only verbosity or nothing", () => {
+    const low = decodedOf({ ...baseBody, text: { verbosity: "low" } });
+    expect(encode(low.decoded, low.ctx, [{ type: "text", text: "ok" }]).text).toEqual({
+      verbosity: "low",
+      format: { type: "text" },
+    });
+
+    const empty = decodedOf({ ...baseBody, text: {} });
+    expect(encode(empty.decoded, empty.ctx, [{ type: "text", text: "ok" }]).text).toEqual({
+      format: { type: "text" },
+    });
+  });
+
   it("echoes a json_schema text format without unknown keys", () => {
     const schema = { type: "object", additionalProperties: false };
     const { ctx, decoded } = decodedOf({
