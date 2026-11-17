@@ -639,9 +639,9 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
 
   ai: {
-    label: "AI provider emulator for OpenAI Responses and Chat Completions",
+    label: "AI provider emulator for OpenAI Responses, Chat Completions, and Anthropic Messages",
     endpoints:
-      "OpenAI Responses, Chat Completions, models list, stored responses, call record, live rules, reset, inspector",
+      "OpenAI Responses, Chat Completions, Anthropic Messages, models list, stored responses, call record, live rules, reset, inspector",
     async load() {
       const mod = await import("@emulators/ai");
       return { plugin: mod.aiPlugin, seedFromConfig: mod.seedFromConfig };

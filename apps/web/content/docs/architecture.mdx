@@ -23,7 +23,7 @@ packages/
     resend/         # Resend email API
     stripe/         # Stripe billing and payments API
     clerk/          # Clerk Backend API and OAuth
-    ai/             # OpenAI Responses and Chat Completions
+    ai/             # OpenAI Responses, Chat Completions, and Anthropic Messages
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -45,7 +45,7 @@ Each service is a plugin that:
 
 Multiple services can run simultaneously, each on its own port (auto-incremented from the base port).
 
-The AI service adds a format-neutral engine with one codec per wire format. OpenAI Responses and Chat Completions share the same rules, defaults, stored responses, call record, and inspector; a codec only reads its native request and writes its native reply.
+The AI service adds a format-neutral engine with one codec per wire format. OpenAI Responses, Chat Completions, and Anthropic Messages share the same rules, defaults, stored responses, call record, and inspector; a codec only reads its native request and writes its native reply.
 
 ## In-Memory State
 

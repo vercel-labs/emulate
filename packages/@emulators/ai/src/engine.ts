@@ -1,5 +1,5 @@
 import type { Store } from "@emulators/core";
-import { defaultEvents, estimateUsage, eventText, eventTokens, strictMissFailure } from "./defaults.js";
+import { defaultEvents, estimateUsage, eventText, eventTokens, strictMissFailure, toolCallPrefix } from "./defaults.js";
 import { matchRule, ruleEvents } from "./rules.js";
 import { getAiState, nextId, type AiState } from "./state.js";
 import type { AIRequest, FinishReason, Outcome, Reply, ReplyEvent, Rule } from "./types.js";
@@ -173,7 +173,7 @@ export function decide(store: Store, request: AIRequest): Outcome {
       ...(rule.fault ? { fault: rule.fault } : {}),
       reply: replyOf(
         request,
-        ruleEvents(rule, () => makeId("call")),
+        ruleEvents(rule, () => makeId(toolCallPrefix(request))),
         rule.finish,
       ),
     };

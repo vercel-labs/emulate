@@ -4,7 +4,7 @@ import { AiRequestError } from "./errors.js";
 
 const MAX_OPENAI_FILE_BYTES = 50_000_000;
 const MAX_OPENAI_IMAGE_BYTES = 512_000_000;
-const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
+export const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 const EXTENSION_TYPES: Record<string, string> = {
   csv: "text/csv",
   doc: "application/msword",
@@ -40,6 +40,14 @@ function inferredMediaType(name: string | undefined): string {
     : "application/octet-stream";
 }
 
+function stripUrl(url: URL): string {
+  url.username = "";
+  url.password = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 function checkedUrl(value: unknown, path: string): string {
   if (typeof value !== "string") fail("Expected an HTTPS URL.", path);
   let url: URL;
@@ -49,11 +57,20 @@ function checkedUrl(value: unknown, path: string): string {
     return fail("Expected an HTTPS URL.", path);
   }
   if (url.protocol !== "https:") fail("Expected an HTTPS URL.", path);
-  url.username = "";
-  url.password = "";
-  url.search = "";
-  url.hash = "";
-  return url.toString();
+  return stripUrl(url);
+}
+
+/** Accepts only an HTTP or HTTPS URL, stripping credentials, query, and hash. */
+export function redactedUrl(value: unknown, path: string): string {
+  if (typeof value !== "string") fail("Expected an HTTP or HTTPS URL.", path);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return fail("Expected an HTTP or HTTPS URL.", path);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") fail("Expected an HTTP or HTTPS URL.", path);
+  return stripUrl(url);
 }
 
 function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
@@ -68,6 +85,25 @@ function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
   if (bytes.toString("base64").replace(/=+$/, "") !== unpadded) fail("Malformed base64 data.", path);
   if (bytes.length > maxBytes) fail("Inline attachment exceeds the size limit.", path);
   return bytes;
+}
+
+/** Records a base64 attachment as size and hash metadata, never the bytes. */
+export function inlineFilePart(
+  value: string,
+  mediaType: string,
+  path: string,
+  maxBytes: number,
+  name?: string,
+): FilePart {
+  const bytes = decodeBase64(value, path, maxBytes);
+  return {
+    type: "file",
+    mediaType,
+    ...(name === undefined ? {} : { name }),
+    source: "inline",
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
 }
 
 function inlineAttachment(
@@ -91,15 +127,7 @@ function inlineAttachment(
   if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) {
     fail("Invalid attachment media type.", path);
   }
-  const bytes = decodeBase64(encoded, path, maxBytes);
-  return {
-    type: "file",
-    mediaType,
-    ...(name === undefined ? {} : { name }),
-    source: "inline",
-    bytes: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-  };
+  return inlineFilePart(encoded, mediaType, path, maxBytes, name);
 }
 
 function requireDetail(value: unknown, path: string, allowed: string[]): void {
@@ -156,6 +184,17 @@ function responsesImage(part: Record<string, unknown>, path: string): FilePart {
   return imageAttachment(part.image_url, `${path}.image_url`);
 }
 
+/** Builds the file part for a URL reference, inferring the media type from the path extension. */
+export function urlAttachment(ref: string, kind: "image" | "file"): FilePart {
+  const mediaType = inferredMediaType(new URL(ref).pathname);
+  return {
+    type: "file",
+    mediaType: kind === "image" && !mediaType.startsWith("image/") ? "image/*" : mediaType,
+    source: "url",
+    ref,
+  };
+}
+
 function imageAttachment(value: unknown, path: string): FilePart {
   if (typeof value !== "string") fail("Expected an image URL.", path);
   if (value.startsWith("data:")) {
@@ -163,9 +202,7 @@ function imageAttachment(value: unknown, path: string): FilePart {
     if (!IMAGE_TYPES.has(result.mediaType)) fail("Unsupported image media type.", path);
     return result;
   }
-  const ref = checkedUrl(value, path);
-  const mediaType = inferredMediaType(new URL(ref).pathname);
-  return { type: "file", mediaType: mediaType.startsWith("image/") ? mediaType : "image/*", source: "url", ref };
+  return urlAttachment(checkedUrl(value, path), "image");
 }
 
 function chatFile(part: Record<string, unknown>, path: string): FilePart {
