@@ -725,7 +725,7 @@ export function strictMissFailure(
         ? [`Exhausted matching rules: ${exhaustedRuleIds.map((id) => JSON.stringify(id)).join(", ")}.`]
         : []),
       `Add a matching rule to your seed configuration:\n${yaml}`,
-      `Or PUT /_ai/rules with this JSON body (include any existing rules you want to keep):\n${JSON.stringify({ rules: [rule] }, null, 2)}`,
+      `Or PUT /_ai/rules with this JSON body. It replaces the whole configuration, so add the rules and settings you want to keep:\n${JSON.stringify({ strict: true, rules: [rule] }, null, 2)}`,
     ].join("\n\n"),
   };
 }
