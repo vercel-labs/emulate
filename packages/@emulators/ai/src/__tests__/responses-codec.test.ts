@@ -101,7 +101,7 @@ function storeTurn(ctx: CodecContext, text: string, previousResponseId?: string)
   );
   const turnReply = reply([{ type: "text", text: `answer ${text}` }]);
   const body = responsesCodec.encodeJson(turnReply, decoded, ctx) as ResponseBody;
-  responsesCodec.afterReply?.(turnReply, decoded, ctx, body);
+  responsesCodec.afterReply?.(turnReply, decoded, ctx);
   return body.id;
 }
 
@@ -365,7 +365,7 @@ function storeBody(ctx: CodecContext, body: Record<string, unknown>, events: Rep
   const encoded = responsesCodec.encodeJson(turnReply, decoded, ctx) as ResponseBody & {
     output: { type: string; id: string }[];
   };
-  responsesCodec.afterReply?.(turnReply, decoded, ctx, encoded);
+  responsesCodec.afterReply?.(turnReply, decoded, ctx);
   return encoded;
 }
 
