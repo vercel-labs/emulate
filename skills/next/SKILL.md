@@ -161,6 +161,7 @@ Each `EmulatorEntry`:
 |-------|------|-------------|
 | `emulator` | `EmulatorModule` | The emulator package (e.g. `import * as github from '@emulators/github'`) |
 | `seed?` | `Record<string, unknown>` | Seed data matching the service's config schema |
+| `fallbackUser?` | `{ login, id, scopes }` | The user every unknown bearer token maps to. Without it an unknown token gets no user |
 
 ### `withEmulate(nextConfig, options?)`
 

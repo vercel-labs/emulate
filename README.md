@@ -1723,6 +1723,17 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 
 GitHub App seeds may omit `private_key`. Retain the handler to call server-only `generatedSecrets()`; explicit keys are excluded. Persisted snapshots contain generated keys, so keep the backend private.
 
+### Accept any token
+
+An embedded emulator knows only the tokens in its seed, so a request with any other bearer token gets no user. Set `fallbackUser` on a service to treat every unknown token as that user, the way the CLI does:
+
+```typescript
+github: {
+  emulator: github,
+  fallbackUser: { login: 'octocat', id: 1, scopes: ['repo', 'user'] },
+},
+```
+
 ### Auth.js / NextAuth configuration
 
 Point your provider at the emulator paths on the same origin:

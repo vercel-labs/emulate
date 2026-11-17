@@ -46,6 +46,17 @@ This creates these routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
+## Accept Any Token
+
+An embedded emulator knows only the tokens in its seed, so a request with any other bearer token gets no user. Set `fallbackUser` on a service to treat every unknown token as that user, the way the CLI does:
+
+```typescript
+github: {
+  emulator: github,
+  fallbackUser: { login: 'octocat', id: 1, scopes: ['repo', 'user'] },
+},
+```
+
 ## GitHub App Private Keys
 
 GitHub App seeds may omit `private_key`; retain the handler and call server-only `generatedSecrets()`. Keep persisted generated keys private and implement atomic `initialize`.
