@@ -232,4 +232,6 @@ export interface StoredResponse {
   response: Json;
   /** Positions in the stored input plus output items where referenced history was missing. */
   gaps?: number[];
+  /** Ids of output items from removed ancestors whose content now lives in this response's input items. */
+  foldedItemIds?: string[];
 }

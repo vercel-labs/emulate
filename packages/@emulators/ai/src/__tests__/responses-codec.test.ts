@@ -1,7 +1,7 @@
 import { Store } from "@emulators/core";
 import { describe, expect, it } from "vitest";
 import type { CodecContext, Decoded } from "../codec.js";
-import { responsesCodec } from "../codecs/openai-responses.js";
+import { deleteStoredResponse, responsesCodec } from "../codecs/openai-responses.js";
 import { AiRequestError } from "../errors.js";
 import { parseConfig } from "../rules.js";
 import { resetAiState, STORED_RESPONSE_LIMIT } from "../state.js";
@@ -424,5 +424,64 @@ describe("responsesCodec stored responses", () => {
     );
     expect(calls).toHaveLength(1);
     expect(decoded.request.references.filter((entry) => entry.kind === "item")).toHaveLength(2);
+  });
+
+  it("keeps a removed response's item resolvable through the child that folded it", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: "first" }, [{ type: "text", text: "one" }]);
+    const itemId = (first as unknown as { output: { id: string }[] }).output[0].id;
+    const second = storeBody(ctx, { model: "gpt-x", input: "second", previous_response_id: first.id }, [
+      { type: "text", text: "two" },
+    ]);
+    deleteStoredResponse(ctx, first.id);
+
+    const decoded = responsesCodec.decode(
+      { model: "gpt-x", previous_response_id: second.id, input: [{ type: "item_reference", id: itemId }, "third"] },
+      ctx,
+    );
+
+    expect(messageTexts(decoded)).toEqual(["first", "one", "second", "two", "third"]);
+    expect(decoded.request.references).toContainEqual({ id: itemId, kind: "item", resolved: true });
+    expect(decoded.request.warnings).toEqual([]);
+  });
+
+  it("keeps item ids through two folds", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: "first" }, [{ type: "text", text: "one" }]);
+    const itemId = (first as unknown as { output: { id: string }[] }).output[0].id;
+    const second = storeBody(ctx, { model: "gpt-x", input: "second", previous_response_id: first.id }, [
+      { type: "text", text: "two" },
+    ]);
+    const third = storeBody(ctx, { model: "gpt-x", input: "third", previous_response_id: second.id }, [
+      { type: "text", text: "four" },
+    ]);
+    deleteStoredResponse(ctx, first.id);
+    deleteStoredResponse(ctx, second.id);
+
+    const decoded = responsesCodec.decode(
+      { model: "gpt-x", previous_response_id: third.id, input: [{ type: "item_reference", id: itemId }] },
+      ctx,
+    );
+
+    expect(messageTexts(decoded)).toEqual(["first", "one", "second", "two", "third", "four"]);
+    expect(decoded.request.references).toContainEqual({ id: itemId, kind: "item", resolved: true });
+    expect(decoded.request.warnings).toEqual([]);
+  });
+
+  it("resolves an item from an unrelated stored response only until that response is deleted", () => {
+    const ctx = makeContext();
+    const first = storeBody(ctx, { model: "gpt-x", input: "first" }, [{ type: "text", text: "one" }]);
+    const itemId = (first as unknown as { output: { id: string }[] }).output[0].id;
+    const request = { model: "gpt-x", input: [{ type: "item_reference", id: itemId }, "third"] };
+
+    const stored = responsesCodec.decode(request, ctx);
+    expect(messageTexts(stored)).toEqual(["one", "third"]);
+    expect(stored.request.references).toEqual([{ id: itemId, kind: "item", resolved: true }]);
+
+    deleteStoredResponse(ctx, first.id);
+    const deleted = responsesCodec.decode(request, ctx);
+    expect(messageTexts(deleted)).toEqual(["third"]);
+    expect(deleted.request.references).toEqual([{ id: itemId, kind: "item", resolved: false }]);
+    expect(deleted.request.warnings).toEqual([`Unknown item_reference "${itemId}"; dropping it.`]);
   });
 });

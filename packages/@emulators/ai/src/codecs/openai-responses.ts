@@ -549,9 +549,7 @@ function replayStoredHistory(state: AiState, id: string): ReplayedHistory | unde
     const base = messages.length;
     for (const message of storedMessages(entry)) messages.push(message);
     for (const gap of entry.gaps ?? []) gaps.push(base + gap);
-    for (const item of entry.outputItems) {
-      if (isRecord(item) && typeof item.id === "string") itemIds.add(item.id);
-    }
+    for (const id of [...(entry.foldedItemIds ?? []), ...itemIdsOf(entry.outputItems)]) itemIds.add(id);
   }
   return {
     messages,
@@ -566,9 +564,12 @@ function removeStoredResponse(state: AiState, id: string): void {
   const removed = state.responses.get(id);
   if (!removed) return;
   const folded = [...removed.inputItems, ...storedOutputMessages(removed.outputItems).map(messageToJson)];
+  const foldedIds = [...(removed.foldedItemIds ?? []), ...itemIdsOf(removed.outputItems)];
   for (const child of state.responses.values()) {
     if (child === removed || child.previousResponseId !== id) continue;
     child.inputItems = [...folded, ...child.inputItems];
+    const childFoldedIds = [...foldedIds, ...(child.foldedItemIds ?? [])];
+    if (childFoldedIds.length > 0) child.foldedItemIds = childFoldedIds;
     const gaps = [...(removed.gaps ?? []), ...(child.gaps ?? []).map((gap) => gap + folded.length)];
     if (gaps.length > 0) child.gaps = gaps;
     if (removed.previousResponseId === undefined) delete child.previousResponseId;
@@ -585,6 +586,23 @@ function indexStoredItems(state: AiState): Map<string, Json> {
     }
   }
   return items;
+}
+
+function itemIdsOf(items: Json[]): string[] {
+  const ids: string[] = [];
+  for (const item of items) {
+    if (isRecord(item) && typeof item.id === "string") ids.push(item.id);
+  }
+  return ids;
+}
+
+/** Where an item reference points: an item already in the replayed history, a stored item to append, or nothing known. */
+type ReferencedItem = { state: "in_history" } | { state: "stored"; item: Json } | { state: "unknown" };
+
+function referencedItem(id: string, knownItemIds: Set<string>, storedItems: Map<string, Json>): ReferencedItem {
+  if (knownItemIds.has(id)) return { state: "in_history" };
+  const item = storedItems.get(id);
+  return item === undefined ? { state: "unknown" } : { state: "stored", item };
 }
 
 function messageToJson(message: Message): Json {
@@ -680,16 +698,20 @@ function decode(body: unknown, ctx: CodecContext): Decoded {
     if (type === "item_reference") {
       const id = requireString(entry.id, `${path}.id`, true);
       storedItems ??= indexStoredItems(ctx.state);
-      const found = storedItems.get(id);
-      if (found !== undefined) {
-        references.push({ id, kind: "item", resolved: true });
-        if (!knownItemIds.has(id)) {
+      const referenced = referencedItem(id, knownItemIds, storedItems);
+      switch (referenced.state) {
+        case "in_history":
+          references.push({ id, kind: "item", resolved: true });
+          break;
+        case "stored":
+          references.push({ id, kind: "item", resolved: true });
           knownItemIds.add(id);
-          for (const message of storedOutputMessages([found])) ownItems.push(message);
-        }
-      } else {
-        references.push({ id, kind: "item", resolved: false });
-        warnings.push(`Unknown item_reference "${id}"; dropping it.`);
+          for (const message of storedOutputMessages([referenced.item])) ownItems.push(message);
+          break;
+        case "unknown":
+          references.push({ id, kind: "item", resolved: false });
+          warnings.push(`Unknown item_reference "${id}"; dropping it.`);
+          break;
       }
       return;
     }
