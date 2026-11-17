@@ -67,7 +67,7 @@ export default async function Dashboard() {
           </div>
 
           <form action="/oauth/api/auth/signout" method="post">
-            <Button variant="destructive" className="w-full">
+            <Button type="submit" variant="destructive" className="w-full">
               Sign Out
             </Button>
           </form>
