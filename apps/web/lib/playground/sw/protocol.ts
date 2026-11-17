@@ -7,5 +7,11 @@ export const RESET_SEGMENT = "_reset";
 /** A request with this header gets a redirect back as a 200 that names the real status and Location in headers. */
 export const RAW_REDIRECT_HEADER = "X-Emulate-Raw-Redirect";
 
+/** The reserved first segment a page asks to learn which build of the worker answers it: GET `<mount>/_ping`. */
+export const PING_SEGMENT = "_ping";
+
+/** The response header on a ping that names the site build the answering worker belongs to. */
+export const BUILD_HEADER = "X-Emulate-Build";
+
 /** A page posts this message to make an already active worker take control of it, which a hard reload skips. */
 export const CLAIM_MESSAGE = "emulate-playground-claim";

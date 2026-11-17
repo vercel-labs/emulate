@@ -1,4 +1,11 @@
-import { CLAIM_MESSAGE, EMULATOR_MOUNT, RAW_REDIRECT_HEADER, RESET_SEGMENT } from "./sw/protocol";
+import {
+  BUILD_HEADER,
+  CLAIM_MESSAGE,
+  EMULATOR_MOUNT,
+  PING_SEGMENT,
+  RAW_REDIRECT_HEADER,
+  RESET_SEGMENT,
+} from "./sw/protocol";
 
 export interface EmulatorRequest {
   method: string;
@@ -27,38 +34,23 @@ const running = new Map<string, Promise<Emulator>>();
 let workerReady: Promise<void> | undefined;
 
 const START_FAILED = "The playground could not start its emulators. Reload the page.";
+const START_TIMEOUT_MS = 15000;
+const BUILD = process.env.NEXT_PUBLIC_PLAYGROUND_BUILD ?? "";
 
-/** Resolves once a service worker is active, and rejects if the browser discards it first. */
-function activated(worker: ServiceWorker): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const check = () => {
-      if (worker.state === "activated") resolve();
-      else if (worker.state === "redundant") reject(new Error(START_FAILED));
-    };
-    worker.addEventListener("statechange", check);
-    check();
-  });
-}
-
-/** Resolves once the given service worker controls this page, asking it to take control if it has not. */
-function controls(worker: ServiceWorker): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(START_FAILED)), 5000);
-    const check = () => {
-      if (navigator.serviceWorker.controller !== worker) return;
-      clearTimeout(timer);
-      navigator.serviceWorker.removeEventListener("controllerchange", check);
-      resolve();
-    };
-    navigator.serviceWorker.addEventListener("controllerchange", check);
-    check();
-    worker.postMessage(CLAIM_MESSAGE);
-  });
+/** True when the worker that answers emulator URLs for this page was built with it. False while no worker, or an older one, answers. */
+async function workerAnswers(): Promise<boolean> {
+  try {
+    const response = await fetch(`${EMULATOR_MOUNT}/${PING_SEGMENT}`, { cache: "no-store" });
+    return response.headers.get(BUILD_HEADER) === BUILD;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Registers the playground service worker, which runs every emulator, and waits until its newest version controls
- * this page. Throws when the browser has no service workers or the worker cannot take control.
+ * Registers the playground service worker, which runs every emulator, and waits until this build's worker answers
+ * this page. Until it does, the page asks an active worker to take control and asks the browser to fetch the newest
+ * one, which covers a first visit, a hard reload, and a worker left over from an earlier build.
  */
 function workerControlsPage(): Promise<void> {
   workerReady ??= (async () => {
@@ -69,10 +61,17 @@ function workerControlsPage(): Promise<void> {
       scope: "/playground/",
       updateViaCache: "none",
     });
-    const worker = registration.installing ?? registration.waiting ?? registration.active;
-    if (!worker) throw new Error(START_FAILED);
-    await activated(worker);
-    await controls(worker);
+    const deadline = Date.now() + START_TIMEOUT_MS;
+    let askedForUpdate = false;
+    while (!(await workerAnswers())) {
+      if (Date.now() > deadline) throw new Error(START_FAILED);
+      registration.active?.postMessage(CLAIM_MESSAGE);
+      if (!askedForUpdate) {
+        askedForUpdate = true;
+        void registration.update().catch(() => undefined);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
   })();
   workerReady.catch(() => {
     workerReady = undefined;

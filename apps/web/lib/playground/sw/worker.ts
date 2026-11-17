@@ -15,7 +15,14 @@ import * as slack from "@emulators/slack";
 import * as stripe from "@emulators/stripe";
 import * as twilio from "@emulators/twilio";
 import * as vercel from "@emulators/vercel";
-import { CLAIM_MESSAGE, EMULATOR_MOUNT, RAW_REDIRECT_HEADER, RESET_SEGMENT } from "./protocol";
+import {
+  BUILD_HEADER,
+  CLAIM_MESSAGE,
+  EMULATOR_MOUNT,
+  PING_SEGMENT,
+  RAW_REDIRECT_HEADER,
+  RESET_SEGMENT,
+} from "./protocol";
 import { fallbackUsers, seeds } from "../seeds";
 
 interface FetchEventLike {
@@ -55,7 +62,7 @@ const emulators: Record<string, AdapterEmulatorModule> = {
 };
 const DATABASE = "emulate-playground";
 const STORE = "state";
-const BUILD = process.env.NEXT_PUBLIC_PLAYGROUND_BUILD;
+const BUILD = process.env.NEXT_PUBLIC_PLAYGROUND_BUILD ?? "";
 const runtimes = new Map<string, Runtime>();
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -170,6 +177,7 @@ async function answer(request: Request, url: URL): Promise<Response> {
   }
   const segments = url.pathname.slice(EMULATOR_MOUNT.length + 1).split("/");
   const [name, target] = segments;
+  if (name === PING_SEGMENT) return new Response(null, { status: 204, headers: { [BUILD_HEADER]: BUILD } });
   if (name === RESET_SEGMENT && request.method === "POST" && Object.hasOwn(emulators, target ?? "")) {
     return reset(target);
   }
