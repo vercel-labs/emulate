@@ -1,4 +1,5 @@
 import { defineConfig } from "tsup";
+import { emitTypes } from "../../scripts/emit-types.mjs";
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -42,11 +43,14 @@ export default defineConfig([
     ...shared,
     entry: ["src/api.ts"],
     format: ["esm"],
-    dts: { resolve: ["@emulators/core"] },
+    dts: false,
     clean: false,
     splitting: true,
     sourcemap: true,
     noExternal: [/^@emulators\//],
-    onSuccess: copyFonts,
+    onSuccess: async () => {
+      await copyFonts();
+      emitTypes(__dirname, { bundle: true });
+    },
   },
 ]);

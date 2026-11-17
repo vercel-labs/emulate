@@ -188,3 +188,24 @@ export function parseExpand(c: Context): string[] {
   const fromQuery = c.req.queries("expand[]") ?? [];
   return fromQuery;
 }
+
+export const MISSING_API_KEY_MESSAGE =
+  "You did not provide an API key. You need to provide your API key in the Authorization header, using Bearer auth " +
+  "(e.g. 'Authorization: Bearer YOUR_SECRET_KEY'). See https://stripe.com/docs/api#authentication for details, " +
+  "or we can help at https://support.stripe.com/.";
+
+/** The API key of a request: the HTTP Basic username, or the bearer token. */
+export function stripeRequestKey(header: string | undefined): string | undefined {
+  if (!header) return undefined;
+  const bearer = header.match(/^Bearer\s+(\S+)$/i)?.[1];
+  if (bearer) return bearer;
+  const basic = header.match(/^Basic\s+(\S+)$/i)?.[1];
+  if (!basic) return undefined;
+  return Buffer.from(basic, "base64").toString().split(":")[0] || undefined;
+}
+
+// Stripe masks all but the prefix and last three characters of a long key, and echoes a short one as sent.
+export function maskStripeKey(key: string): string {
+  if (key.length <= 12) return key;
+  return `${key.slice(0, 7)}${"*".repeat(key.length - 10)}${key.slice(-3)}`;
+}

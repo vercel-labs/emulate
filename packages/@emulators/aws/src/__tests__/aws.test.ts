@@ -903,6 +903,391 @@ describe("AWS plugin - STS", () => {
   });
 });
 
+describe("AWS plugin - STS AssumeRoleWithWebIdentity", () => {
+  let app: Hono<AppEnv>;
+  const roleArn = "arn:aws:iam::123456789012:role/ci/web-identity-role";
+
+  function idToken(claims: Record<string, unknown>): string {
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    return `${encode({ alg: "RS256", typ: "JWT" })}.${encode(claims)}.signature`;
+  }
+
+  const claims = {
+    iss: "https://token.actions.githubusercontent.com",
+    sub: "repo:octo-org/app:ref:refs/heads/main",
+    aud: "sts.amazonaws.com",
+    exp: Math.floor(Date.now() / 1000) + 600,
+  };
+
+  // AssumeRoleWithWebIdentity is unsigned, so these requests carry no Authorization header.
+  function assume(fields: Record<string, string>) {
+    return app.request(`${base}/sts/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ Action: "AssumeRoleWithWebIdentity", ...fields }).toString(),
+    });
+  }
+
+  beforeEach(() => {
+    const created = createTestApp();
+    app = created.app;
+    seedFromConfig(created.store, base, { iam: { roles: [{ role_name: "web-identity-role", path: "/ci/" }] } });
+  });
+
+  it("returns temporary credentials and the token's subject, audience, and issuer", async () => {
+    const before = Date.now();
+    const res = await assume({
+      RoleArn: roleArn,
+      RoleSessionName: "deploy",
+      WebIdentityToken: idToken(claims),
+      DurationSeconds: "900",
+    });
+    expect(res.status).toBe(200);
+    const xml = await res.text();
+    expect(xml).toContain('<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">');
+    expect(xml).toMatch(/<AccessKeyId>ASIA[0-9A-F]{16}<\/AccessKeyId>/);
+    expect(xml).toContain("<SecretAccessKey>");
+    expect(xml).toContain("<SessionToken>");
+    expect(xml).toContain(
+      "<SubjectFromWebIdentityToken>repo:octo-org/app:ref:refs/heads/main</SubjectFromWebIdentityToken>",
+    );
+    expect(xml).toContain("<Audience>sts.amazonaws.com</Audience>");
+    expect(xml).toContain("<Provider>https://token.actions.githubusercontent.com</Provider>");
+    expect(xml).toContain("<Arn>arn:aws:sts::123456789012:assumed-role/web-identity-role/deploy</Arn>");
+    expect(xml).toMatch(/<AssumedRoleId>AROA[0-9A-F]{16}:deploy<\/AssumedRoleId>/);
+    expect(xml).not.toContain("<SourceIdentity>");
+    const expiration = Date.parse(xml.match(/<Expiration>(.*?)<\/Expiration>/)?.[1] ?? "");
+    expect(expiration).toBeGreaterThanOrEqual(before + 900_000);
+    expect(expiration).toBeLessThanOrEqual(Date.now() + 900_000);
+  });
+
+  it("defaults the session to one hour and returns the source identity claim", async () => {
+    const before = Date.now();
+    const res = await assume({
+      RoleArn: roleArn,
+      RoleSessionName: "deploy",
+      WebIdentityToken: idToken({
+        ...claims,
+        aud: ["other-client", "sts.amazonaws.com"],
+        azp: "sts.amazonaws.com",
+        "https://aws.amazon.com/source_identity": "alice<&",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const xml = await res.text();
+    expect(xml).toContain("<Audience>sts.amazonaws.com</Audience>");
+    expect(xml).toContain("<SourceIdentity>alice&lt;&amp;</SourceIdentity>");
+    const expiration = Date.parse(xml.match(/<Expiration>(.*?)<\/Expiration>/)?.[1] ?? "");
+    expect(expiration).toBeGreaterThanOrEqual(before + 3_600_000);
+  });
+
+  it("accepts an opaque OAuth 2.0 access token when ProviderId is set", async () => {
+    const res = await assume({
+      RoleArn: roleArn,
+      RoleSessionName: "app1",
+      WebIdentityToken: "Atza|opaque-access-token",
+      ProviderId: "www.amazon.com",
+    });
+    expect(res.status).toBe(200);
+    const xml = await res.text();
+    expect(xml).toContain("<Provider>www.amazon.com</Provider>");
+    expect(xml).toMatch(/<SubjectFromWebIdentityToken>[0-9a-f]{32}<\/SubjectFromWebIdentityToken>/);
+    expect(xml).not.toContain("<Audience>");
+  });
+
+  it("rejects a token that is not a JWT", async () => {
+    const res = await assume({ RoleArn: roleArn, RoleSessionName: "deploy", WebIdentityToken: "opaque-token" });
+    expect(res.status).toBe(400);
+    const xml = await res.text();
+    expect(xml).toContain("<Code>InvalidIdentityToken</Code>");
+    expect(xml).toContain("not a valid JWT");
+  });
+
+  it("rejects a token without a subject claim", async () => {
+    const { sub: _sub, ...withoutSubject } = claims;
+    const res = await assume({
+      RoleArn: roleArn,
+      RoleSessionName: "deploy",
+      WebIdentityToken: idToken(withoutSubject),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("<Code>InvalidIdentityToken</Code>");
+  });
+
+  it("rejects an expired token", async () => {
+    const res = await assume({
+      RoleArn: roleArn,
+      RoleSessionName: "deploy",
+      WebIdentityToken: idToken({ ...claims, exp: Math.floor(Date.now() / 1000) - 60 }),
+    });
+    expect(res.status).toBe(400);
+    const xml = await res.text();
+    expect(xml).toContain("<Code>ExpiredToken</Code>");
+    expect(xml).toContain("Token expired: current date/time");
+  });
+
+  it("denies a role that does not exist", async () => {
+    const res = await assume({
+      RoleArn: "arn:aws:iam::123456789012:role/missing-role",
+      RoleSessionName: "deploy",
+      WebIdentityToken: idToken(claims),
+    });
+    expect(res.status).toBe(403);
+    const xml = await res.text();
+    expect(xml).toContain("<Code>AccessDenied</Code>");
+    expect(xml).toContain("Not authorized to perform sts:AssumeRoleWithWebIdentity");
+  });
+
+  it("reports every missing required parameter in one validation error", async () => {
+    const res = await assume({});
+    expect(res.status).toBe(400);
+    const xml = await res.text();
+    expect(xml).toContain("<Code>ValidationError</Code>");
+    expect(xml).toContain("3 validation errors detected:");
+    expect(xml).toContain("Value null at &apos;roleArn&apos; failed to satisfy constraint: Member must not be null");
+    expect(xml).toContain("Value null at &apos;roleSessionName&apos;");
+    expect(xml).toContain("Value null at &apos;webIdentityToken&apos;");
+  });
+
+  it("validates the session name and duration bounds", async () => {
+    for (const [fields, expected] of [
+      [{ RoleSessionName: "has space" }, "Member must satisfy regular expression pattern"],
+      [{ RoleSessionName: "a" }, "Member must have length greater than or equal to 2"],
+      [{ DurationSeconds: "899" }, "Member must have value greater than or equal to 900"],
+      [{ DurationSeconds: "43201" }, "Member must have value less than or equal to 43200"],
+      [{ DurationSeconds: "1.5" }, "at &apos;durationSeconds&apos;"],
+    ] as const) {
+      const res = await assume({
+        RoleArn: roleArn,
+        RoleSessionName: "deploy",
+        WebIdentityToken: idToken(claims),
+        ...fields,
+      });
+      expect(res.status).toBe(400);
+      const xml = await res.text();
+      expect(xml).toContain("1 validation error detected:");
+      expect(xml).toContain(expected);
+    }
+  });
+});
+
+describe("AWS plugin - KMS", () => {
+  let app: Hono<AppEnv>;
+  const keyId = "1234abcd-12ab-34cd-56ef-1234567890ab";
+  const keyArn = `arn:aws:kms:us-east-1:123456789012:key/${keyId}`;
+
+  beforeEach(() => {
+    const created = createTestApp();
+    app = created.app;
+    seedFromConfig(created.store, base, { kms: { keys: [{ key_id: keyId, aliases: ["alias/app-key"] }] } });
+  });
+
+  async function kms(operation: string, body: unknown) {
+    const res = await app.request(`${base}/kms/`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/x-amz-json-1.1",
+        "X-Amz-Target": `TrentService.${operation}`,
+      },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+    return { status: res.status, headers: res.headers, json: (await res.json()) as Record<string, any> };
+  }
+
+  const plaintext = Buffer.from([0, 1, 2, 250, 255]).toString("base64");
+
+  it("encrypts and decrypts with a key ID, key ARN, alias name, or alias ARN", async () => {
+    for (const identifier of [keyId, keyArn, "alias/app-key", "arn:aws:kms:us-east-1:123456789012:alias/app-key"]) {
+      const encrypted = await kms("Encrypt", { KeyId: identifier, Plaintext: plaintext });
+      expect(encrypted.status).toBe(200);
+      expect(encrypted.headers.get("content-type")).toBe("application/x-amz-json-1.1");
+      expect(encrypted.json).toMatchObject({ KeyId: keyArn, EncryptionAlgorithm: "SYMMETRIC_DEFAULT" });
+      expect(encrypted.json.CiphertextBlob).not.toContain(plaintext);
+
+      const decrypted = await kms("Decrypt", { CiphertextBlob: encrypted.json.CiphertextBlob });
+      expect(decrypted.status).toBe(200);
+      expect(decrypted.json).toMatchObject({
+        KeyId: keyArn,
+        Plaintext: plaintext,
+        EncryptionAlgorithm: "SYMMETRIC_DEFAULT",
+      });
+      expect(decrypted.json.KeyMaterialId).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it("requires the same encryption context to decrypt", async () => {
+    const encrypted = await kms("Encrypt", {
+      KeyId: keyId,
+      Plaintext: plaintext,
+      EncryptionContext: { tenant: "acme", purpose: "test" },
+    });
+    const reordered = await kms("Decrypt", {
+      CiphertextBlob: encrypted.json.CiphertextBlob,
+      EncryptionContext: { purpose: "test", tenant: "acme" },
+    });
+    expect(reordered.status).toBe(200);
+    expect(reordered.json.Plaintext).toBe(plaintext);
+
+    for (const context of [undefined, { tenant: "other", purpose: "test" }, { tenant: "acme" }]) {
+      const res = await kms("Decrypt", { CiphertextBlob: encrypted.json.CiphertextBlob, EncryptionContext: context });
+      expect(res.status).toBe(400);
+      expect(res.json.__type).toBe("InvalidCiphertextException");
+    }
+  });
+
+  it("rejects tampered ciphertext", async () => {
+    const encrypted = await kms("Encrypt", { KeyId: keyId, Plaintext: plaintext });
+    const blob = Buffer.from(encrypted.json.CiphertextBlob, "base64");
+    blob[blob.length - 1] ^= 1;
+    const tampered = await kms("Decrypt", { CiphertextBlob: blob.toString("base64") });
+    expect(tampered.status).toBe(400);
+    expect(tampered.json.__type).toBe("InvalidCiphertextException");
+
+    const garbage = await kms("Decrypt", { CiphertextBlob: Buffer.from("not a kms blob").toString("base64") });
+    expect(garbage.json.__type).toBe("InvalidCiphertextException");
+  });
+
+  it("checks a Decrypt KeyId against the key that encrypted the data", async () => {
+    const created = await kms("CreateKey", {});
+    const otherKeyId = created.json.KeyMetadata.KeyId;
+    const encrypted = await kms("Encrypt", { KeyId: keyId, Plaintext: plaintext });
+
+    const matching = await kms("Decrypt", { CiphertextBlob: encrypted.json.CiphertextBlob, KeyId: "alias/app-key" });
+    expect(matching.status).toBe(200);
+
+    const wrong = await kms("Decrypt", { CiphertextBlob: encrypted.json.CiphertextBlob, KeyId: otherKeyId });
+    expect(wrong.status).toBe(400);
+    expect(wrong.json.__type).toBe("IncorrectKeyException");
+  });
+
+  it("returns NotFoundException for unknown keys and aliases", async () => {
+    const missingKey = await kms("Encrypt", { KeyId: "00000000-0000-4000-8000-000000000000", Plaintext: plaintext });
+    expect(missingKey.status).toBe(400);
+    expect(missingKey.json).toEqual({
+      __type: "NotFoundException",
+      message: "Key 'arn:aws:kms:us-east-1:123456789012:key/00000000-0000-4000-8000-000000000000' does not exist",
+    });
+    expect(missingKey.headers.get("x-amzn-errortype")).toBe("NotFoundException");
+
+    const missingAlias = await kms("DescribeKey", { KeyId: "alias/missing" });
+    expect(missingAlias.json).toEqual({
+      __type: "NotFoundException",
+      message: "Alias arn:aws:kms:us-east-1:123456789012:alias/missing is not found.",
+    });
+  });
+
+  it("validates request members", async () => {
+    const missing = await kms("Encrypt", {});
+    expect(missing.status).toBe(400);
+    expect(missing.json.__type).toBe("ValidationException");
+    expect(missing.json.message).toBe(
+      "2 validation errors detected: Value null at 'keyId' failed to satisfy constraint: Member must not be null; " +
+        "Value null at 'plaintext' failed to satisfy constraint: Member must not be null",
+    );
+
+    const tooLarge = await kms("Encrypt", { KeyId: keyId, Plaintext: Buffer.alloc(4097).toString("base64") });
+    expect(tooLarge.json.message).toBe(
+      "1 validation error detected: Value at 'plaintext' failed to satisfy constraint: Member must have length less than or equal to 4096",
+    );
+
+    const badAlgorithm = await kms("Encrypt", { KeyId: keyId, Plaintext: plaintext, EncryptionAlgorithm: "AES" });
+    expect(badAlgorithm.json.__type).toBe("ValidationException");
+
+    const asymmetricAlgorithm = await kms("Encrypt", {
+      KeyId: keyId,
+      Plaintext: plaintext,
+      EncryptionAlgorithm: "RSAES_OAEP_SHA_256",
+    });
+    expect(asymmetricAlgorithm.json.__type).toBe("InvalidKeyUsageException");
+
+    const badContext = await kms("Encrypt", { KeyId: keyId, Plaintext: plaintext, EncryptionContext: { n: 1 } });
+    expect(badContext.json.__type).toBe("SerializationException");
+
+    const badJson = await kms("Encrypt", "{");
+    expect(badJson.json.__type).toBe("SerializationException");
+  });
+
+  it("honors DryRun", async () => {
+    const res = await kms("Encrypt", { KeyId: keyId, Plaintext: plaintext, DryRun: true });
+    expect(res.status).toBe(400);
+    expect(res.json.__type).toBe("DryRunOperationException");
+  });
+
+  it("creates, describes, and lists keys with pagination", async () => {
+    const created = await kms("CreateKey", { Description: "orders" });
+    expect(created.status).toBe(200);
+    const metadata = created.json.KeyMetadata;
+    expect(metadata).toMatchObject({
+      AWSAccountId: "123456789012",
+      Description: "orders",
+      Enabled: true,
+      KeyState: "Enabled",
+      KeyUsage: "ENCRYPT_DECRYPT",
+      KeySpec: "SYMMETRIC_DEFAULT",
+      Origin: "AWS_KMS",
+      KeyManager: "CUSTOMER",
+      EncryptionAlgorithms: ["SYMMETRIC_DEFAULT"],
+      MultiRegion: false,
+    });
+    expect(metadata.KeyId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(metadata.Arn).toBe(`arn:aws:kms:us-east-1:123456789012:key/${metadata.KeyId}`);
+    expect(typeof metadata.CreationDate).toBe("number");
+
+    const described = await kms("DescribeKey", { KeyId: metadata.Arn });
+    expect(described.json.KeyMetadata).toEqual(metadata);
+
+    // The default key, the seeded key, and the created key.
+    const firstPage = await kms("ListKeys", { Limit: 2 });
+    expect(firstPage.json.Keys).toHaveLength(2);
+    expect(firstPage.json.Truncated).toBe(true);
+    const secondPage = await kms("ListKeys", { Limit: 2, Marker: firstPage.json.NextMarker });
+    expect(secondPage.json).toEqual({ Keys: [{ KeyId: metadata.KeyId, KeyArn: metadata.Arn }], Truncated: false });
+
+    const badMarker = await kms("ListKeys", { Marker: "nope" });
+    expect(badMarker.json.__type).toBe("InvalidMarkerException");
+  });
+
+  it("rejects key types the emulator does not model", async () => {
+    const res = await kms("CreateKey", { KeySpec: "RSA_2048", KeyUsage: "ENCRYPT_DECRYPT" });
+    expect(res.status).toBe(400);
+    expect(res.json.__type).toBe("UnsupportedOperationException");
+  });
+
+  it("seeds a default key with the alias/emulate-default alias", async () => {
+    const res = await kms("DescribeKey", { KeyId: "alias/emulate-default" });
+    expect(res.status).toBe(200);
+    expect(res.json.KeyMetadata.Description).toBe("Default emulate key");
+  });
+
+  it("rejects a seeded key_id that is not a UUID", () => {
+    const { store } = createTestApp();
+    expect(() => seedFromConfig(store, base, { kms: { keys: [{ key_id: "my-key" }] } })).toThrow(/UUID/);
+  });
+
+  it("refuses to seed an alias that already points at another key", () => {
+    const { store } = createTestApp();
+    const aliases = getAwsStore(store).kmsAliases;
+    const defaultKeyId = aliases.findOneBy("alias_name", "alias/emulate-default")!.target_key_id;
+    expect(() =>
+      seedFromConfig(store, base, { kms: { keys: [{ key_id: keyId, aliases: ["alias/emulate-default"] }] } }),
+    ).toThrow(`KMS alias alias/emulate-default already points at key ${defaultKeyId}`);
+    expect(aliases.findOneBy("alias_name", "alias/emulate-default")!.target_key_id).toBe(defaultKeyId);
+
+    // Seeding the same key and alias again is not a conflict.
+    const config = { kms: { keys: [{ key_id: keyId, aliases: ["alias/app-key"] }] } };
+    seedFromConfig(store, base, config);
+    expect(() => seedFromConfig(store, base, config)).not.toThrow();
+    expect(aliases.findOneBy("alias_name", "alias/app-key")!.target_key_id).toBe(keyId);
+  });
+
+  it("rejects an unknown operation", async () => {
+    const res = await kms("ScheduleKeyDeletion", { KeyId: keyId });
+    expect(res.status).toBe(400);
+    expect(res.json.__type).toBe("UnknownOperationException");
+  });
+});
+
 describe("AWS plugin - seedFromConfig", () => {
   it("seeds custom buckets, queues, users, and roles", () => {
     const store = new Store();

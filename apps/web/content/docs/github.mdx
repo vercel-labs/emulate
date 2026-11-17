@@ -51,6 +51,12 @@ npx emulate start --service github --seed emulate.config.yaml \
 
 The destination must not exist. emulate removes inherited ACLs, verifies effective owner-only access, and publishes complete JSON before opening listeners or configuring portless. Handled startup failures remove the invocation-owned artifact. A hard termination can leave a complete artifact that must be removed manually after confirming no invocation is using it. Only generated keys appear in the artifact. Linux requires `setfacl` and `getfacl` from the `acl` package. The flag fails closed when access controls cannot be verified and is not supported on Windows. Without `--generated-secrets-file`, CLI seed files still require `private_key`. Direct `seedFromConfig` calls always require it.
 
+## OAuth app token revocation
+
+An authorization code can only be exchanged by the OAuth app it was issued to. Another app's attempt returns `bad_verification_code`, and the code stays usable by its own app.
+
+`DELETE /applications/:client_id/token` and `DELETE /applications/:client_id/grant` take the app's `client_id` and `client_secret` as HTTP Basic credentials and an `access_token` in the JSON body. The first revokes that token; the second revokes the user's grant and every token the app holds for that user. Wrong client credentials return `401`, and a token that is unknown or belongs to another app returns `422`. A revoked token then fails as `401 Bad credentials`, even when unknown tokens fall back to a default user.
+
 ## Seed Config
 
 ```yaml
@@ -68,7 +74,10 @@ github:
     - owner: my-org
       name: org-repo
       private: true
+  strict_scopes: false
 ```
+
+`strict_scopes` defaults to `false`. When you set it to `true`, a token the emulator did not issue returns `401 Bad credentials` instead of acting as the default user.
 
 Organization `members` are optional. Each entry references a seeded user by `login`; `role` defaults to `member`, and `admin` creates an organization administrator. Unknown users are ignored. Seeded memberships use the synthetic `members` team and grant private organization repository access.
 

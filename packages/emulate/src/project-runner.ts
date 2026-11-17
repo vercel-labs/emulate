@@ -1,4 +1,5 @@
 import {
+  assertPortFree,
   createCustomRuntime,
   serve,
   filePersistence,
@@ -50,7 +51,11 @@ export async function prepareProject(
   const config = await abortable(loadConfig(options, onDependenciesChange), signal, (config) => config.loader.close());
   const servers: Server[] = [];
   const cleanups: Array<() => void | Promise<void>> = [];
-  const prepared: Array<{ fetch: (req: Request) => Response | Promise<Response>; port: number }> = [];
+  const prepared: Array<{
+    fetch: (req: Request) => Response | Promise<Response>;
+    port: number;
+    abortOnClose?: boolean;
+  }> = [];
   const activations: Array<() => Promise<void>> = [];
   const metadata: RunMetadata = {
     services: [],
@@ -100,6 +105,7 @@ export async function prepareProject(
         port,
         baseUrl: options.portless ? portlessBaseUrl(service.name) : options.baseUrl,
         seedBaseUrl: service.baseUrl,
+        hostname: options.host,
       });
       if (options.portless) metadata.aliases.push({ name: `${service.name}.emulate`, port });
       if (typeof service.emulator === "string") {
@@ -133,7 +139,7 @@ export async function prepareProject(
         if (secrets.length)
           metadata.retained[service.name] = { emulator: service.emulator, input, config: item.svcSeedConfig!, secrets };
         metadata.secrets.push(...secrets);
-        prepared.push({ fetch: runtime.app.fetch, port });
+        prepared.push({ fetch: runtime.app.fetch, port, abortOnClose: item.loadedSvc.plugin.abortOnClose });
         metadata.services.push({ name: service.name, port, url: baseUrl, source: service.source });
       } else {
         const persistence =
@@ -187,14 +193,15 @@ export async function prepareProject(
         try {
           for (const item of prepared) {
             if (closed) throw new Error("Project closed during startup");
-            const server = serve({
-              ...item,
-              hostname: options.host,
-              fetch: (request) =>
-                accepting ? item.fetch(request) : Response.json({ error: "Starting" }, { status: 503 }),
-            });
-            servers.push(server);
             try {
+              await assertPortFree(options.host, item.port);
+              const server = serve({
+                ...item,
+                hostname: options.host,
+                fetch: (request) =>
+                  accepting ? item.fetch(request) : Response.json({ error: "Starting" }, { status: 503 }),
+              });
+              servers.push(server);
               await waitForListening(server);
             } catch (error) {
               const service = metadata.services.find((service) => service.port === item.port)!;

@@ -1,6 +1,7 @@
 import { generateKeyPairSync, sign } from "crypto";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createEmulator } from "../api.js";
+import { SERVICE_REGISTRY } from "../registry.js";
 
 function createAppJwt(appId: string, privateKey: string): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -139,7 +140,7 @@ describe("createEmulator", () => {
           headers: { Authorization: `Bearer ${firstTokenValue}` },
         })
       ).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
       (
         await fetch(`${github.url}/user`, {
@@ -269,7 +270,7 @@ describe("createEmulator", () => {
     await expect(fetch("http://localhost:14044/user")).rejects.toThrow();
   });
 
-  it("does not grant Slack fallback scopes in strict mode", async () => {
+  it("rejects unknown Slack tokens in strict mode", async () => {
     const slack = await createEmulator({
       service: "slack",
       port: 14030,
@@ -284,15 +285,91 @@ describe("createEmulator", () => {
       },
       body: JSON.stringify({ channel: "C000000001", text: "strict fallback" }),
     });
-    const body = (await res.json()) as { ok: boolean; error: string; needed: string; provided: string };
-    expect(body).toMatchObject({
-      ok: false,
-      error: "missing_scope",
-      needed: "chat:write",
-      provided: "",
-    });
+    expect(await res.json()).toEqual({ ok: false, error: "invalid_auth" });
 
     await slack.close();
+  });
+
+  it.each([true, false])("restores a revoked startup token on reset (strict_scopes: %s)", async (strict) => {
+    const slack = await createEmulator({
+      service: "slack",
+      port: 0,
+      seed: {
+        tokens: { "xoxb-opt": { login: "bob", scopes: ["chat:write"] } },
+        slack: { strict_scopes: strict, users: [{ name: "bob" }] },
+      },
+    });
+    const call = async (method: string) =>
+      (await (
+        await fetch(`${slack.url}/api/${method}`, { method: "POST", headers: { Authorization: "Bearer xoxb-opt" } })
+      ).json()) as Record<string, unknown>;
+
+    expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
+    expect(await call("auth.revoke")).toEqual({ ok: true, revoked: true });
+    expect(await call("auth.test")).toEqual({ ok: false, error: "invalid_auth" });
+
+    slack.reset();
+    expect(await call("auth.test")).toMatchObject({ ok: true, user: "bob" });
+
+    await slack.close();
+  });
+
+  it("aborts the request signal when a client disconnects from a plugin that sets abortOnClose", async () => {
+    let resolveAborted!: () => void;
+    const aborted = new Promise<void>((resolve) => {
+      resolveAborted = resolve;
+    });
+    const originalLoad = SERVICE_REGISTRY.vercel.load;
+    const load = vi.spyOn(SERVICE_REGISTRY.vercel, "load").mockImplementation(async () => {
+      const loaded = await originalLoad.call(SERVICE_REGISTRY.vercel);
+      return {
+        ...loaded,
+        plugin: {
+          ...loaded.plugin,
+          abortOnClose: true,
+          register(app, store, webhooks, baseUrl, tokenMap) {
+            loaded.plugin.register(app, store, webhooks, baseUrl, tokenMap);
+            app.get("/__abort_probe", (c) => {
+              c.req.raw.signal.addEventListener("abort", () => resolveAborted());
+              return new Response(
+                new ReadableStream({
+                  start(controller) {
+                    controller.enqueue(new TextEncoder().encode("first"));
+                  },
+                }),
+              );
+            });
+          },
+        },
+      };
+    });
+
+    try {
+      const emulator = await createEmulator({ service: "vercel", port: 14090 });
+      try {
+        const controller = new AbortController();
+        const response = await fetch(`${emulator.url}/__abort_probe`, {
+          headers: { Authorization: "Bearer test_token_admin" },
+          signal: controller.signal,
+        });
+        expect(response.status).toBe(200);
+        const reader = response.body!.getReader();
+        const first = await reader.read();
+        expect(new TextDecoder().decode(first.value)).toBe("first");
+        controller.abort();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("request signal did not abort")), 2000);
+          void aborted.then(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      } finally {
+        await emulator.close();
+      }
+    } finally {
+      load.mockRestore();
+    }
   });
 
   it("throws on unknown service", async () => {

@@ -13,6 +13,7 @@ import {
   hasSlackMessageContent,
   normalizeSlackMessageText,
   parseSlackBody,
+  parseSlackMessageText,
   parseSlackRichMessageFields,
   requireSlackScopes,
   setSlackConversationOpenState,
@@ -163,11 +164,13 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
-    const text = typeof body.text === "string" ? body.text : "";
-    const normalizedText = normalizeSlackMessageText(text);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const messageText = parseSlackMessageText(body, richMessage.fields);
+    if (messageText.error) return slackError(c, messageText.error);
+    const text = messageText.text ?? "";
+    const normalizedText = normalizeSlackMessageText(text);
 
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");
@@ -244,11 +247,13 @@ export function chatRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
     const user = typeof body.user === "string" ? body.user : "";
-    const text = typeof body.text === "string" ? body.text : "";
-    const normalizedText = normalizeSlackMessageText(text);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const messageText = parseSlackMessageText(body, richMessage.fields);
+    if (messageText.error) return slackError(c, messageText.error);
+    const text = messageText.text ?? "";
+    const normalizedText = normalizeSlackMessageText(text);
 
     if (!channel) return slackError(c, "channel_not_found");
     if (!user) return slackError(c, "user_not_found");
@@ -293,11 +298,13 @@ export function chatRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
     const ts = typeof body.ts === "string" ? body.ts : "";
-    const hasText = typeof body.text === "string";
-    const text = hasText ? (body.text as string) : "";
-    const normalizedText = hasText ? normalizeSlackMessageText(text) : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const messageText = parseSlackMessageText(body, richMessage.fields);
+    if (messageText.error) return slackError(c, messageText.error);
+    const hasText = messageText.text !== undefined;
+    const text = messageText.text ?? "";
+    const normalizedText = hasText ? normalizeSlackMessageText(text) : undefined;
 
     if (!channel || !ts) return slackError(c, "message_not_found");
 
@@ -431,12 +438,14 @@ export function chatRoutes(ctx: RouteContext): void {
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
-    const text = typeof body.text === "string" ? body.text : "";
-    const normalizedText = normalizeSlackMessageText(text);
     const postAt = Number(body.post_at);
     const thread_ts = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
     const richMessage = parseSlackRichMessageFields(body);
     if (richMessage.error) return slackError(c, richMessage.error);
+    const messageText = parseSlackMessageText(body, richMessage.fields);
+    if (messageText.error) return slackError(c, messageText.error);
+    const text = messageText.text ?? "";
+    const normalizedText = normalizeSlackMessageText(text);
 
     if (!channel) return slackError(c, "channel_not_found");
     if (!hasSlackMessageContent(text, richMessage.fields)) return slackError(c, "no_text");

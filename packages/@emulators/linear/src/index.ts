@@ -37,6 +37,7 @@ export interface LinearSeedConfig {
       name: string;
       type?: LinearWorkflowStateType;
       position?: number;
+      color?: string;
     }>;
   }>;
   labels?: Array<{
@@ -309,6 +310,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: LinearSeed
             name: stateCfg.name,
             type: stateCfg.type ?? inferStateType(stateCfg.name),
             position: stateCfg.position ?? i + 1,
+            ...(stateCfg.color ? { color: stateCfg.color } : {}),
           });
         }
       } else {
