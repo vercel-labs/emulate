@@ -18,9 +18,10 @@ function putRules(baseUrl: string, requestOrigin?: string): Promise<Response> {
 }
 
 describe("AI control route origin checks", () => {
-  it("rejects an Origin header when the base URL does not parse", async () => {
+  it("judges Origin by the address a request was sent to when the base URL does not parse", async () => {
     const baseUrl = "http://localhost:${PORT}";
-    expect((await putRules(baseUrl, origin)).status).toBe(403);
+    expect((await putRules(baseUrl, origin)).status).toBe(200);
+    expect((await putRules(baseUrl, "http://evil.example")).status).toBe(403);
     expect((await putRules(baseUrl)).status).toBe(200);
   });
 
@@ -182,6 +183,33 @@ describe("AI host checks", () => {
     const configured = await serverWithStoredResponse({ baseUrl: "https://app.example.com", baseUrlDerived: false });
     expect((await configured.app.request("https://app.example.com/_ai/calls")).status).toBe(200);
     expect((await configured.app.request("https://evil.example/_ai/calls")).status).toBe(403);
+  });
+
+  it("allows the address a control call was sent to beside a configured public URL", async () => {
+    const { app } = await serverWithStoredResponse({ baseUrl: "https://app.example.com" });
+    const own = { origin: "http://localhost:4000" };
+    expect((await app.request("http://localhost:4000/_ai/calls", { headers: own })).status).toBe(200);
+  });
+
+  it("allows the address a control call was sent to beside a configured non-loopback base URL", async () => {
+    const { app } = await serverWithStoredResponse({ baseUrl: "http://evil.example:4802" });
+    const own = { origin: "http://localhost:4802" };
+    expect((await app.request("http://localhost:4802/_ai/calls", { headers: own })).status).toBe(200);
+  });
+
+  it("keeps refusing other origins on control routes beside a configured public URL", async () => {
+    const { app } = await serverWithStoredResponse({ baseUrl: "https://app.example.com" });
+    const from = (origin: string) => ({ origin });
+    expect(
+      (await app.request("https://app.example.com/_ai/calls", { headers: from("https://app.example.com") })).status,
+    ).toBe(200);
+    expect(
+      (await app.request("http://localhost:4000/_ai/calls", { headers: from("http://localhost:3000") })).status,
+    ).toBe(403);
+    expect(
+      (await app.request("https://app.example.com/_ai/calls", { headers: from("https://evil.example") })).status,
+    ).toBe(403);
+    expect((await app.request(`${attacker}/_ai/calls`, { headers: from(attacker) })).status).toBe(403);
   });
 });
 

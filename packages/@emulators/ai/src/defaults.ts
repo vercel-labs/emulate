@@ -47,6 +47,7 @@ const keywords = new Set([
 const types = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
 
 const PATTERN_TIMEOUT_MS = 250;
+const PATTERN_BUDGET_MS = 2000;
 const PATTERN_CHECK_COST = 4;
 const patternSandbox = createContext({ pattern: "", value: "" });
 const patternTest = new Script(
@@ -111,6 +112,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
 
   let remaining = 4096;
   let aborted: AiRequestError | undefined;
+  let patternMillis = 0;
   let characters = 262144;
   const seedLimit = 64;
   const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
@@ -225,16 +227,22 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
-  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget. A run that hits the constant timeout aborts the whole sampling. */
+  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget. A timed-out check, or pattern checks totaling more than PATTERN_BUDGET_MS, aborts the whole sampling. Valid patterns take microseconds, so the ceiling only bounds pathological ones. */
   function patternMatches(pattern: Json, value: string, at: string): boolean {
     if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
     remaining -= PATTERN_CHECK_COST - 1;
     spend(`${at}.pattern`);
     let result: unknown;
+    let timedOut = false;
+    const started = performance.now();
     try {
       Object.assign(patternSandbox, { pattern, value });
       result = patternTest.runInContext(patternSandbox, { timeout: PATTERN_TIMEOUT_MS });
     } catch {
+      timedOut = true;
+    }
+    patternMillis += performance.now() - started;
+    if (timedOut || patternMillis > PATTERN_BUDGET_MS) {
       aborted = new AiRequestError(
         `Cannot generate a default for ${at}.pattern: the regular expression exceeds the time limit. Add an explicit reply rule.`,
         `${at}.pattern`,
@@ -603,19 +611,25 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
   return value;
 }
 
+/** The text an event contributes to the output estimate: its JSON, its tool name and arguments, or its text. */
+export function eventText(event: ReplyEvent): string {
+  if (event.type === "object") return JSON.stringify(event.value);
+  if (event.type === "tool_call") return event.name + event.arguments;
+  return event.text;
+}
+
+/** Estimated output tokens for one event: one token per four characters, rounded up. */
+export function eventTokens(event: ReplyEvent): number {
+  return Math.ceil(eventText(event).length / 4);
+}
+
 /** Estimate one token per four characters; output includes its reasoning share. */
 export function estimateUsage(request: AIRequest, events: ReplyEvent[]): Usage {
   const input = JSON.stringify({ messages: request.messages, tools: request.tools, output: request.output }).length;
   let output = 0;
   let reasoning = 0;
   for (const event of events) {
-    const text =
-      event.type === "object"
-        ? JSON.stringify(event.value)
-        : event.type === "tool_call"
-          ? event.name + event.arguments
-          : event.text;
-    const tokens = Math.ceil(text.length / 4);
+    const tokens = eventTokens(event);
     output += tokens;
     if (event.type === "reasoning") reasoning += tokens;
   }
@@ -681,10 +695,16 @@ export function defaultEvents(
   return { kind, events: [event] };
 }
 
-/** Describe a strict miss with a seed rule and a rules-endpoint replacement body. */
-export function strictMissFailure(request: AIRequest, exhaustedRuleIds: string[]): HttpFailure {
+/** Describe a strict miss with a seed rule and a rules-endpoint replacement body. The suggested id is free among ruleIds. */
+export function strictMissFailure(
+  request: AIRequest,
+  exhaustedRuleIds: string[],
+  ruleIds: readonly string[],
+): HttpFailure {
+  let id = "matching-reply";
+  for (let suffix = 2; ruleIds.includes(id); suffix++) id = `matching-reply-${suffix}`;
   const match = { model: request.model, format: request.format };
-  const rule = { id: "matching-reply", match, reply: [{ type: "text", text: "Replace with your expected reply." }] };
+  const rule = { id, match, reply: [{ type: "text", text: "Replace with your expected reply." }] };
   const yaml = [
     "ai:",
     "  rules:",

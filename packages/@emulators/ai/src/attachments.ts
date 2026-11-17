@@ -175,10 +175,10 @@ function chatFile(part: Record<string, unknown>, path: string): FilePart {
   if (file.file_url !== undefined) fail("Chat file parts do not support file_url.", `${path}.file.file_url`);
   const sourceCount = [file.file_data, file.file_id].filter((value) => value !== undefined).length;
   if (sourceCount !== 1) fail("Provide exactly one of file_data or file_id.", `${path}.file`);
-  if (name !== undefined && inferredMediaType(name) !== "application/pdf") {
-    fail("Chat file attachments must be PDF files.", `${path}.file.filename`);
-  }
   if (file.file_id !== undefined) {
+    if (name !== undefined && inferredMediaType(name) !== "application/pdf") {
+      fail("Chat file attachments must be PDF files.", `${path}.file.filename`);
+    }
     if (typeof file.file_id !== "string" || file.file_id.length === 0)
       fail("Expected a non-empty file id.", `${path}.file.file_id`);
     return {
@@ -191,8 +191,13 @@ function chatFile(part: Record<string, unknown>, path: string): FilePart {
   }
   if (typeof file.file_data !== "string") fail("Expected a string.", `${path}.file.file_data`);
   const result = inlineAttachment(file.file_data, name, `${path}.file.file_data`, MAX_OPENAI_FILE_BYTES, true);
-  if (result.mediaType !== "application/pdf")
-    fail("Chat file attachments must be PDF files.", `${path}.file.file_data`);
+  if (result.mediaType !== "application/pdf") {
+    const typeFromFilename = !file.file_data.startsWith("data:") && name !== undefined;
+    fail(
+      "Chat file attachments must be PDF files.",
+      typeFromFilename ? `${path}.file.filename` : `${path}.file.file_data`,
+    );
+  }
   return result;
 }
 

@@ -96,6 +96,8 @@ export interface Reply {
   events: ReplyEvent[];
   finish: FinishReason;
   usage: Usage;
+  /** The stop sequence that ended the reply, when one did. */
+  stopSequence?: string;
 }
 
 /** An HTTP error a rule injects or the emulator returns, rendered in the codec's native error body. */
@@ -235,4 +237,6 @@ export interface StoredResponse {
   response: Json;
   /** Positions in the stored input plus output items where referenced history was missing. */
   gaps?: number[];
+  /** Ids of output items from removed ancestors whose content now lives in this response's input items. */
+  foldedItemIds?: string[];
 }

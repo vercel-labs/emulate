@@ -151,6 +151,18 @@ describe("decide", () => {
     expect(outcome.failure.message).toContain('Exhausted matching rules: "once".');
   });
 
+  it("suggests a rule id that the configured rules do not use yet", () => {
+    const { store } = setup({
+      strict: true,
+      rules: [textRule("matching-reply", "first", { model: "other-model" })],
+    });
+
+    const outcome = failureOf(decide(store, request()));
+
+    expect(outcome.failure.message).toContain("- id: matching-reply-2\n");
+    expect(outcome.failure.message).toContain('"id": "matching-reply-2"');
+  });
+
   it("echoes the latest user text in the default reply", () => {
     const { store } = setup();
     const messages: AIRequest["messages"] = [
@@ -311,5 +323,91 @@ describe("reply variants", () => {
     expect(replyText(decide(store, userText("pick one")))).toBe(first);
     expect(state.budgets.get("pick")).toBe(0);
     expect(state.variantHits.get("pick")).toBe(1);
+  });
+});
+
+describe("request limits", () => {
+  it("cuts text at the first stop sequence and drops what follows", () => {
+    const { store } = setup({
+      rules: [
+        {
+          id: "count",
+          match: {},
+          reply: [
+            { type: "text", text: "one two three four" },
+            { type: "text", text: "after" },
+          ],
+        },
+      ],
+    });
+
+    const outcome = replyOf(decide(store, request({ stop: ["three"] })));
+
+    expect(outcome.reply.events).toEqual([{ type: "text", text: "one two " }]);
+    expect(outcome.reply.finish).toBe("stop");
+    expect(outcome.reply.stopSequence).toBe("three");
+  });
+
+  it("cuts text at the token cap, four characters per token", () => {
+    const { store } = setup({ rules: [textRule("long", "abcdefghijklmnopqrstuvwxyz")] });
+
+    const outcome = replyOf(decide(store, request({ maxOutputTokens: 2 })));
+
+    expect(textOfEvents(outcome.reply.events)).toBe("abcdefgh");
+    expect(outcome.reply.finish).toBe("length");
+    expect(outcome.reply.usage.output).toBeLessThanOrEqual(2);
+    expect(outcome.reply.stopSequence).toBeUndefined();
+  });
+
+  it("drops a tool call the token cap cuts into", () => {
+    const { store } = setup({
+      rules: [
+        {
+          id: "call",
+          match: {},
+          reply: [
+            { type: "text", text: "hi" },
+            { type: "tool_call", name: "lookup", arguments: { q: 1 } },
+          ],
+        },
+      ],
+    });
+
+    const outcome = replyOf(decide(store, request({ maxOutputTokens: 2 })));
+
+    expect(outcome.reply.events).toEqual([{ type: "text", text: "hi" }]);
+    expect(outcome.reply.finish).toBe("length");
+  });
+
+  it("turns an object cut by the token cap into a text prefix of its JSON", () => {
+    const { store } = setup({
+      rules: [{ id: "json", match: {}, reply: [{ type: "object", value: { alpha: "abcdefgh" } }] }],
+    });
+
+    const outcome = replyOf(decide(store, request({ maxOutputTokens: 2 })));
+
+    expect(outcome.reply.events).toEqual([{ type: "text", text: '{"alpha"' }]);
+    expect(outcome.reply.finish).toBe("length");
+  });
+
+  it("keeps a rule's explicit finish over the token cap", () => {
+    const { store } = setup({
+      rules: [{ ...textRule("filtered", "abcdefghijklmnopqrstuvwxyz"), finish: "content_filter" }],
+    });
+
+    const outcome = replyOf(decide(store, request({ maxOutputTokens: 1 })));
+
+    expect(textOfEvents(outcome.reply.events)).toBe("abcd");
+    expect(outcome.reply.finish).toBe("content_filter");
+  });
+
+  it("leaves events and finish untouched when the request sets no limits", () => {
+    const { store } = setup({ rules: [textRule("long", "abcdefghijklmnopqrstuvwxyz")] });
+
+    const outcome = replyOf(decide(store, request()));
+
+    expect(outcome.reply.events).toEqual([{ type: "text", text: "abcdefghijklmnopqrstuvwxyz" }]);
+    expect(outcome.reply.finish).toBe("stop");
+    expect(outcome.reply.stopSequence).toBeUndefined();
   });
 });
