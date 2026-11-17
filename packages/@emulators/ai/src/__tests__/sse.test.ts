@@ -120,13 +120,13 @@ describe("sseResponse cancellation", () => {
     });
 
     const { frames, loop } = collect(response);
-    await loop;
+    await expect(loop).rejects.toThrow("Stream aborted");
 
     expect(frames).toEqual([]);
     expect(settled).toEqual(["client_aborted"]);
   });
 
-  it("stops after the frame in flight when the client aborts", async () => {
+  it("errors the stream after the frame in flight when the request is aborted", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
     const settled: string[] = [];
@@ -145,7 +145,7 @@ describe("sseResponse cancellation", () => {
 
     controller.abort();
     await vi.advanceTimersByTimeAsync(0);
-    await loop;
+    await expect(loop).rejects.toThrow("Stream aborted");
 
     expect(frames).toHaveLength(1);
     expect(settled).toEqual(["client_aborted"]);
@@ -231,7 +231,7 @@ describe("sseResponse faults", () => {
     expect(settled).toEqual(["completed"]);
   });
 
-  it("ends the stream when the client aborts during a stall", async () => {
+  it("errors the stream when the request is aborted during a stall", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
     const settled: string[] = [];
@@ -248,7 +248,7 @@ describe("sseResponse faults", () => {
 
     controller.abort();
     await vi.advanceTimersByTimeAsync(0);
-    await loop;
+    await expect(loop).rejects.toThrow("Stream aborted");
 
     expect(written).toHaveLength(2);
     expect(settled).toEqual(["client_aborted"]);
