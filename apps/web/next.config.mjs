@@ -15,6 +15,7 @@ const browserShims = {
   path: "path",
   stream: "stream",
   url: "url",
+  vm: "vm",
 };
 const resolveAlias = Object.fromEntries(
   Object.entries(browserShims).flatMap(([name, file]) => {

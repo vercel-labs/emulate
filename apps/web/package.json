@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.118",
+    "@emulators/ai": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/aws": "workspace:*",
     "@emulators/clerk": "workspace:*",

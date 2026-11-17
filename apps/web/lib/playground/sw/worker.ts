@@ -1,5 +1,6 @@
 import "@/lib/emulator-browser/buffer";
 import { createAdapterRuntime, type AdapterEmulatorModule, type PersistenceAdapter } from "@emulators/core";
+import * as ai from "@emulators/ai";
 import * as apple from "@emulators/apple";
 import * as aws from "@emulators/aws";
 import * as clerk from "@emulators/clerk";
@@ -36,6 +37,7 @@ type Runtime = ReturnType<typeof createAdapterRuntime>;
 
 const worker = self as unknown as WorkerScope;
 const emulators: Record<string, AdapterEmulatorModule> = {
+  ai,
   apple,
   aws,
   clerk,

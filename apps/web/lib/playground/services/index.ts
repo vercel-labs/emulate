@@ -1,3 +1,4 @@
+import { ai } from "./ai";
 import { apple } from "./apple";
 import { aws } from "./aws";
 import { clerk } from "./clerk";
@@ -18,6 +19,7 @@ export type { ConsolePreset, ConsoleService, ConsoleVariable, PresetGroup } from
 
 /** Every emulator's catalog of ready-made requests, shown by the request console at /playground/<name>. */
 export const consoleServices: ConsoleService[] = [
+  ai,
   apple,
   aws,
   clerk,

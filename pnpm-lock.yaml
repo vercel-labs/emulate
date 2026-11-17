@@ -35,6 +35,9 @@ importers:
       '@ai-sdk/react':
         specifier: ^3.0.118
         version: 3.0.153(react@19.2.4)(zod@4.6.7)
+      '@emulators/ai':
+        specifier: workspace:*
+        version: link:../../packages/@emulators/ai
       '@emulators/apple':
         specifier: workspace:*
         version: link:../../packages/@emulators/apple

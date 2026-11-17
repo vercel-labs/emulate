@@ -25,6 +25,20 @@ export const fallbackUsers: Record<string, AuthFallback> = {
 
 /** Seed data each emulator starts with, so the request catalogs work on a fresh tab. */
 export const seeds: Record<string, Record<string, unknown> | undefined> = {
+  ai: {
+    rules: [
+      {
+        id: "weather-call",
+        match: { tool: "get_weather" },
+        reply: [{ type: "tool_call", name: "get_weather", arguments: { city: "Paris" } }],
+      },
+      {
+        id: "greeting",
+        match: { textContains: "hello" },
+        reply: [{ type: "text", text: "Hello from the emulator." }],
+      },
+    ],
+  },
   apple: {
     oauth_clients: [
       {
