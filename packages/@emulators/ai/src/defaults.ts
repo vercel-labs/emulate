@@ -47,6 +47,7 @@ const keywords = new Set([
 const types = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
 
 const PATTERN_TIMEOUT_MS = 250;
+const PATTERN_BUDGET_MS = 2000;
 const PATTERN_CHECK_COST = 4;
 const patternSandbox = createContext({ pattern: "", value: "" });
 const patternTest = new Script(
@@ -111,6 +112,7 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
 
   let remaining = 4096;
   let aborted: AiRequestError | undefined;
+  let patternMillis = 0;
   let characters = 262144;
   const seedLimit = 64;
   const seedText = Array.from(String(seed) || "sample").slice(0, seedLimit);
@@ -225,16 +227,22 @@ export function sampleSchema(schema: JsonSchema, seed: string | number, path = "
     }
   }
 
-  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget. A run that hits the constant timeout aborts the whole sampling. */
+  /** Tests a string against a client pattern, charging a fixed cost per check to the work budget. A timed-out check, or pattern checks totaling more than PATTERN_BUDGET_MS, aborts the whole sampling. Valid patterns take microseconds, so the ceiling only bounds pathological ones. */
   function patternMatches(pattern: Json, value: string, at: string): boolean {
     if (typeof pattern !== "string") fail(`${at}.pattern`, "expected a regular expression");
     remaining -= PATTERN_CHECK_COST - 1;
     spend(`${at}.pattern`);
     let result: unknown;
+    let timedOut = false;
+    const started = performance.now();
     try {
       Object.assign(patternSandbox, { pattern, value });
       result = patternTest.runInContext(patternSandbox, { timeout: PATTERN_TIMEOUT_MS });
     } catch {
+      timedOut = true;
+    }
+    patternMillis += performance.now() - started;
+    if (timedOut || patternMillis > PATTERN_BUDGET_MS) {
       aborted = new AiRequestError(
         `Cannot generate a default for ${at}.pattern: the regular expression exceeds the time limit. Add an explicit reply rule.`,
         `${at}.pattern`,

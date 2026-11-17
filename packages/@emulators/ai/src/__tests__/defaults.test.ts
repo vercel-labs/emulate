@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultEvents, sampleSchema } from "../defaults.js";
 import { AiRequestError } from "../errors.js";
 import type { AIRequest, JsonSchema } from "../types.js";
@@ -251,6 +251,19 @@ describe("sampleSchema patterns", () => {
     const error = thrown(() => sampleSchema(schema, "seed"));
     expect(error.param?.endsWith(".pattern")).toBe(true);
     expect(performance.now() - started).toBeLessThan(2000);
+  });
+
+  it("aborts once total pattern time passes the budget even when no single check times out", () => {
+    let now = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => (now += 500));
+    try {
+      const values = [...Array.from({ length: 100 }, (_, index) => `z${index}`), "aaa"];
+      const schema: JsonSchema = { type: "string", pattern: "^a+$", enum: values };
+      const error = thrown(() => sampleSchema(schema, "seed"));
+      expect(error.message).toContain("exceeds the time limit");
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("samples many patterned properties without exhausting the pattern budget", () => {
