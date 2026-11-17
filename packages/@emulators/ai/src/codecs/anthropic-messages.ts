@@ -413,6 +413,14 @@ function stopReason(finish: FinishReason): string {
   }
 }
 
+/** The stop reason and matched stop sequence a reply reports on the wire. */
+function stopFields(reply: Reply): { stop_reason: string; stop_sequence: string | null } {
+  if (reply.finish === "stop" && reply.stopSequence !== undefined) {
+    return { stop_reason: "stop_sequence", stop_sequence: reply.stopSequence };
+  }
+  return { stop_reason: stopReason(reply.finish), stop_sequence: null };
+}
+
 function toolInput(argumentsText: string): Json {
   try {
     const parsed = JSON.parse(argumentsText) as Json;
@@ -460,8 +468,7 @@ function encodeJson(reply: Reply, decoded: Decoded, ctx: CodecContext): WireMess
     role: "assistant",
     model: decoded.request.model,
     content: contentBlocks(reply.events),
-    stop_reason: stopReason(reply.finish),
-    stop_sequence: null,
+    ...stopFields(reply),
     usage: usageOf(reply),
   };
 }
@@ -536,7 +543,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
     event: "message_delta",
     data: {
       type: "message_delta",
-      delta: { stop_reason: stopReason(reply.finish), stop_sequence: null },
+      delta: stopFields(reply),
       usage: { output_tokens: reply.usage.output },
     },
   });

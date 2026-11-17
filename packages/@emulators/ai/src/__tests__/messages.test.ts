@@ -37,6 +37,18 @@ beforeEach(async () => {
   expect(reset.status).toBe(200);
 });
 
+const countRule = {
+  id: "count",
+  match: { textContains: "count" },
+  reply: [{ type: "text", text: "one two three four" }],
+};
+
+const countRequest = {
+  model: "claude-opus-5-5",
+  max_tokens: 64,
+  messages: [{ role: "user" as const, content: "count to four" }],
+};
+
 const weatherTool = {
   name: "get_weather",
   description: "Weather for a city",
@@ -100,9 +112,46 @@ describe("anthropic messages", () => {
     expect(message.type).toBe("message");
     expect(message.role).toBe("assistant");
     expect(message.stop_reason).toBe("end_turn");
+    expect(message.stop_sequence).toBeNull();
     expect(message.content).toEqual([{ type: "text", text: "hello there" }]);
     expect(message.usage.input_tokens).toBeGreaterThan(0);
     expect(message.usage.output_tokens).toBeGreaterThan(0);
+  });
+
+  it("cuts a reply at a stop sequence and reports the match", async () => {
+    await setRules([countRule]);
+
+    const message = await client.messages.create({ ...countRequest, stop_sequences: ["three"] });
+
+    expect(message.content).toEqual([{ type: "text", text: "one two " }]);
+    expect(message.stop_reason).toBe("stop_sequence");
+    expect(message.stop_sequence).toBe("three");
+  });
+
+  it("streams a stop sequence in the final message_delta", async () => {
+    await setRules([countRule]);
+
+    const events = await client.messages.create({ ...countRequest, stop_sequences: ["three"], stream: true });
+    let text = "";
+    let finalDelta: unknown;
+    for await (const event of events) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") text += event.delta.text;
+      if (event.type === "message_delta") finalDelta = event.delta;
+    }
+
+    expect(text).toBe("one two ");
+    expect(finalDelta).toMatchObject({ stop_reason: "stop_sequence", stop_sequence: "three" });
+  });
+
+  it("cuts a reply at the token cap and reports max_tokens", async () => {
+    await setRules([countRule]);
+
+    const message = await client.messages.create({ ...countRequest, max_tokens: 1 });
+
+    expect(message.content).toEqual([{ type: "text", text: "one " }]);
+    expect(message.stop_reason).toBe("max_tokens");
+    expect(message.stop_sequence).toBeNull();
+    expect(message.usage.output_tokens).toBe(1);
   });
 
   it("streams with the documented event order", async () => {
