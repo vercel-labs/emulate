@@ -26,36 +26,53 @@ export interface Emulator {
 const running = new Map<string, Promise<Emulator>>();
 let workerReady: Promise<void> | undefined;
 
+const START_FAILED = "The playground could not start its emulators. Reload the page.";
+
+/** Resolves once a service worker is active, and rejects if the browser discards it first. */
+function activated(worker: ServiceWorker): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      if (worker.state === "activated") resolve();
+      else if (worker.state === "redundant") reject(new Error(START_FAILED));
+    };
+    worker.addEventListener("statechange", check);
+    check();
+  });
+}
+
+/** Resolves once the given service worker controls this page, asking it to take control if it has not. */
+function controls(worker: ServiceWorker): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(START_FAILED)), 5000);
+    const check = () => {
+      if (navigator.serviceWorker.controller !== worker) return;
+      clearTimeout(timer);
+      navigator.serviceWorker.removeEventListener("controllerchange", check);
+      resolve();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", check);
+    check();
+    worker.postMessage(CLAIM_MESSAGE);
+  });
+}
+
 /**
- * Registers the playground service worker, which runs every emulator, and waits until it controls this page.
- * Throws when the browser has no service workers or the worker cannot take control.
+ * Registers the playground service worker, which runs every emulator, and waits until its newest version controls
+ * this page. Throws when the browser has no service workers or the worker cannot take control.
  */
 function workerControlsPage(): Promise<void> {
   workerReady ??= (async () => {
     if (!("serviceWorker" in navigator)) {
       throw new Error("The playground needs service workers, and this browser has them turned off.");
     }
-    await navigator.serviceWorker.register(new URL("./sw/worker.ts", import.meta.url), {
+    const registration = await navigator.serviceWorker.register(new URL("./sw/worker.ts", import.meta.url), {
       scope: "/playground/",
       updateViaCache: "none",
     });
-    const registration = await navigator.serviceWorker.ready;
-    if (navigator.serviceWorker.controller) return;
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("The playground could not start its emulators. Reload the page.")),
-        5000,
-      );
-      navigator.serviceWorker.addEventListener(
-        "controllerchange",
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
-      registration.active?.postMessage(CLAIM_MESSAGE);
-    });
+    const worker = registration.installing ?? registration.waiting ?? registration.active;
+    if (!worker) throw new Error(START_FAILED);
+    await activated(worker);
+    await controls(worker);
   })();
   workerReady.catch(() => {
     workerReady = undefined;
