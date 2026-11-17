@@ -1,35 +1,38 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { serve } from "@emulators/core";
-import type { AddressInfo } from "node:net";
 import {
   KMSClient,
+  CreateAliasCommand,
   CreateKeyCommand,
   DecryptCommand,
   DescribeKeyCommand,
   EncryptCommand,
   ListKeysCommand,
 } from "@aws-sdk/client-kms";
-import { createTestApp } from "./helpers.js";
+import { startAwsTarget } from "./helpers.js";
 
 describe("AWS plugin - real @aws-sdk/client-kms E2E", () => {
   let kms: KMSClient;
   let close: () => Promise<void>;
 
   beforeAll(async () => {
-    const server = serve({ fetch: (request) => app.fetch(request), port: 0 });
-    await new Promise<void>((resolve, reject) => {
-      server.once("listening", resolve);
-      server.once("error", reject);
-    });
-    close = () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
-    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const { app } = createTestApp(baseUrl);
+    const target = await startAwsTarget();
+    close = target.close;
     kms = new KMSClient({
-      endpoint: `${baseUrl}/kms`,
+      endpoint: target.endpoint("kms"),
       region: "us-east-1",
       credentials: { accessKeyId: "AKIA", secretAccessKey: "secret" },
       maxAttempts: 1,
     });
+    if (target.external) {
+      // External targets may lack emulate's seed; create the default alias the suite relies on.
+      const existing = await kms.send(new DescribeKeyCommand({ KeyId: "alias/emulate-default" })).catch((error) => {
+        if (error.name !== "NotFoundException") throw error;
+      });
+      if (!existing) {
+        const { KeyMetadata } = await kms.send(new CreateKeyCommand({ Description: "emulate default" }));
+        await kms.send(new CreateAliasCommand({ AliasName: "alias/emulate-default", TargetKeyId: KeyMetadata!.KeyId }));
+      }
+    }
   });
 
   afterAll(async () => {

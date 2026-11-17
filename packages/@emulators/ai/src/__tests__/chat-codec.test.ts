@@ -502,4 +502,38 @@ describe("chatCodec limits", () => {
     expect(body.choices[0].message.content).toBe("one ");
     expect(body.choices[0].finish_reason).toBe("length");
   });
+
+  it("cuts a stop sequence that spans two text events in both JSON and streamed replies", () => {
+    const store = new Store();
+    const state = resetAiState(
+      store,
+      parseConfig({
+        rules: [
+          {
+            id: "count",
+            match: {},
+            reply: [
+              { type: "text", text: "one tw" },
+              { type: "text", text: "o three four" },
+            ],
+          },
+        ],
+      }),
+    );
+    const ctx: CodecContext = { store, state, path: "/v1/chat/completions", makeId: (prefix) => `${prefix}_1` };
+    const decodedJson = chatCodec.decode({ ...baseBody, stop: "two" }, ctx);
+    const decodedStream = chatCodec.decode({ ...baseBody, stop: "two", stream: true }, ctx);
+
+    const outcome = decide(store, decodedJson.request);
+    if (outcome.kind !== "reply") throw new Error("expected a reply outcome");
+    const body = chatCodec.encodeJson(outcome.reply, decodedJson, ctx) as CompletionBody;
+    const streamed = chatCodec
+      .streamFrames(outcome.reply, decodedStream, ctx)
+      .slice(0, -1)
+      .map((frame) => chunkOf(frame).choices[0].delta.content ?? "")
+      .join("");
+
+    expect(body.choices[0].message.content).toBe("one ");
+    expect(streamed).toBe("one ");
+  });
 });

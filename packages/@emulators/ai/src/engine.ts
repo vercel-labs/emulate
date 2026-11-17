@@ -16,20 +16,28 @@ function earliestStop(text: string, sequences: string[]): { at: number; sequence
   return found;
 }
 
+/** Stop sequences are matched across the reply's text as a whole, so a sequence may span adjacent text events. */
 function applyStop(events: ReplyEvent[], stop: string[] | undefined): { events: ReplyEvent[]; ending: Ending } {
   const sequences = (stop ?? []).filter((sequence) => sequence !== "");
-  for (const [index, event] of events.entries()) {
-    if (event.type !== "text") continue;
-    const hit = earliestStop(event.text, sequences);
-    if (hit === undefined) continue;
-    const kept = event.text.slice(0, hit.at);
-    const head: ReplyEvent[] = kept === "" ? [] : [{ ...event, text: kept }];
-    return {
-      events: [...events.slice(0, index), ...head],
-      ending: { kind: "stop_sequence", sequence: hit.sequence },
-    };
+  const hit = earliestStop(events.map((event) => (event.type === "text" ? event.text : "")).join(""), sequences);
+  if (hit === undefined) return { events, ending: { kind: "complete" } };
+  const kept: ReplyEvent[] = [];
+  let before = 0;
+  for (const event of events) {
+    if (event.type !== "text") {
+      kept.push(event);
+      continue;
+    }
+    const end = before + event.text.length;
+    if (hit.at < end) {
+      const text = event.text.slice(0, hit.at - before);
+      if (text !== "") kept.push({ ...event, text });
+      break;
+    }
+    kept.push(event);
+    before = end;
   }
-  return { events, ending: { kind: "complete" } };
+  return { events: kept, ending: { kind: "stop_sequence", sequence: hit.sequence } };
 }
 
 function withoutLoneHighSurrogate(text: string): string {

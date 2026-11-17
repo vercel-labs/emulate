@@ -1,31 +1,25 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { serve } from "@emulators/core";
-import type { AddressInfo } from "node:net";
 import { STSClient, AssumeRoleWithWebIdentityCommand } from "@aws-sdk/client-sts";
 import { seedFromConfig } from "../index.js";
-import { createTestApp } from "./helpers.js";
+import { externalTarget, startAwsTarget } from "./helpers.js";
 
 function idToken(claims: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${encode({ alg: "RS256", typ: "JWT" })}.${encode(claims)}.signature`;
 }
 
-describe("AWS plugin - real @aws-sdk/client-sts E2E", () => {
+// Covers emulate's unsigned web identity exchange, which needs no OIDC provider setup.
+describe.skipIf(externalTarget)("AWS plugin - real @aws-sdk/client-sts E2E", () => {
   let sts: STSClient;
   let close: () => Promise<void>;
 
   beforeAll(async () => {
-    const server = serve({ fetch: (request) => app.fetch(request), port: 0 });
-    await new Promise<void>((resolve, reject) => {
-      server.once("listening", resolve);
-      server.once("error", reject);
-    });
-    close = () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
-    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const { app, store } = createTestApp(baseUrl);
-    seedFromConfig(store, baseUrl, { iam: { roles: [{ role_name: "github-actions" }] } });
+    const target = await startAwsTarget(({ store }, baseUrl) =>
+      seedFromConfig(store, baseUrl, { iam: { roles: [{ role_name: "github-actions" }] } }),
+    );
+    close = target.close;
     // No credentials: the SDK sends AssumeRoleWithWebIdentity unsigned.
-    sts = new STSClient({ endpoint: `${baseUrl}/sts`, region: "us-east-1", maxAttempts: 1 });
+    sts = new STSClient({ endpoint: target.endpoint("sts"), region: "us-east-1", maxAttempts: 1 });
   });
 
   afterAll(async () => {
