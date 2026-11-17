@@ -102,6 +102,7 @@ function persistenceFor(name: string): PersistenceAdapter {
 /**
  * Returns the runtime for one emulator, creating it on first use so a request only pays for the emulator it reaches.
  * To add an emulator, import it above, add it to `emulators`, and give it a seed and a fallback user in `seeds.ts`.
+ * The site's own origin is named as the public address, so an emulator that only answers on hosts it trusts answers here.
  */
 function runtimeFor(name: string): Runtime {
   let runtime = runtimes.get(name);
@@ -110,6 +111,7 @@ function runtimeFor(name: string): Runtime {
       {
         services: { [name]: { emulator: emulators[name], seed: seeds[name], fallbackUser: fallbackUsers[name] } },
         persistence: persistenceFor(name),
+        publicUrl: worker.location.origin,
       },
       (mountPath, service) => `${mountPath}/${service}`,
     );
