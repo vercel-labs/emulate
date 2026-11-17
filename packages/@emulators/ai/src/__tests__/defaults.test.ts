@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { defaultEvents, sampleSchema } from "../defaults.js";
+import { defaultEvents, sampleSchema, strictMissFailure } from "../defaults.js";
 import { AiRequestError } from "../errors.js";
+import { parseConfig } from "../rules.js";
 import type { AIRequest, JsonSchema } from "../types.js";
 
 function thrown(run: () => unknown): AiRequestError {
@@ -12,6 +13,44 @@ function thrown(run: () => unknown): AiRequestError {
   }
   throw new Error("expected an AiRequestError");
 }
+
+describe("strict miss hint", () => {
+  const miss = {
+    format: "openai-chat",
+    model: "gpt-4o",
+    messages: [],
+    tools: [],
+    toolChoice: "auto",
+    parallelToolCalls: true,
+    stream: false,
+    reasoning: false,
+    store: false,
+    references: [],
+    warnings: [],
+  } as AIRequest;
+
+  function hintedRule(message: string): { id: string } {
+    return JSON.parse(message.slice(message.indexOf("{\n"))).rules[0];
+  }
+
+  it("proposes matching-reply when no rule exists", () => {
+    const failure = strictMissFailure(miss, [], []);
+    expect(hintedRule(failure.message).id).toBe("matching-reply");
+    expect(failure.message).toContain("- id: matching-reply\n");
+  });
+
+  it("proposes the next free id when matching-reply is taken", () => {
+    const failure = strictMissFailure(miss, [], ["matching-reply"]);
+    expect(hintedRule(failure.message).id).toBe("matching-reply-2");
+    expect(failure.message).toContain("- id: matching-reply-2\n");
+  });
+
+  it("accepts the hinted rule beside an existing matching-reply rule", () => {
+    const existing = { id: "matching-reply", match: {}, reply: [{ type: "text", text: "old" }] };
+    const hinted = hintedRule(strictMissFailure(miss, [], ["matching-reply"]).message);
+    expect(() => parseConfig({ rules: [existing, hinted] })).not.toThrow();
+  });
+});
 
 describe("sampleSchema alternatives", () => {
   it("samples a later anyOf branch when the first cannot be sampled", () => {

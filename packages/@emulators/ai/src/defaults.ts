@@ -689,10 +689,16 @@ export function defaultEvents(
   return { kind, events: [event] };
 }
 
-/** Describe a strict miss with a seed rule and a rules-endpoint replacement body. */
-export function strictMissFailure(request: AIRequest, exhaustedRuleIds: string[]): HttpFailure {
+/** Describe a strict miss with a seed rule and a rules-endpoint replacement body. The suggested id is free among ruleIds. */
+export function strictMissFailure(
+  request: AIRequest,
+  exhaustedRuleIds: string[],
+  ruleIds: readonly string[],
+): HttpFailure {
+  let id = "matching-reply";
+  for (let suffix = 2; ruleIds.includes(id); suffix++) id = `matching-reply-${suffix}`;
   const match = { model: request.model, format: request.format };
-  const rule = { id: "matching-reply", match, reply: [{ type: "text", text: "Replace with your expected reply." }] };
+  const rule = { id, match, reply: [{ type: "text", text: "Replace with your expected reply." }] };
   const yaml = [
     "ai:",
     "  rules:",
