@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "npx emulate start --watch",
     "build": "tsc --noEmit",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc-ts --noEmit",
+    "type-check:tsc": "tsc --noEmit",
     "test": "node --test emulators/inventory.test.ts"
   },
   "devDependencies": {
     "emulate": "workspace:*",
+    "tsc-ts": "0.1.3",
     "typescript": "^5.7"
   }
 }

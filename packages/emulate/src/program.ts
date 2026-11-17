@@ -68,6 +68,9 @@ GitHub API coverage:
   Suites are separated by App and commit; latest runs are grouped by App and check name.
   User-token checks return app: null; request-body app_id cannot change attribution.
   Inspect minted installation-token metadata at GET /_emulate/installation-tokens.
+  A private repository the caller cannot see returns 404, as on GitHub.
+  DELETE /applications/:client_id/token and /grant revoke an OAuth app's token or grant.
+  Set github.strict_scopes: true to reject tokens the emulator did not issue with 401 Bad credentials.
 
 Linear API coverage:
   Issue queries and mutations include numeric priority and derived priorityLabel fields.
@@ -86,7 +89,12 @@ AWS API coverage:
   RS256 tokens, discovery, and JWKS use the issuer BASE_URL/cognito-idp/USER_POOL_ID.
   That issuer serves /oauth2/authorize (local user picker), /oauth2/token (code/refresh + S256 PKCE), and /oauth2/userInfo.
   Identity Pools support GetId and GetCredentialsForIdentity with validated User Pool ID tokens.
+  STS AssumeRoleWithWebIdentity accepts unsigned requests for seeded roles; ID token signatures are not verified.
+  KMS uses AWS JSON 1.1 at /kms for CreateKey, DescribeKey, ListKeys, Encrypt, and Decrypt with symmetric keys.
+  Seed aws.kms.keys with key_id, description, and aliases; the default key is alias/emulate-default.
   SRP, MFA, external federation, pool/client management APIs, and IAM policy/signature evaluation are not simulated.
+  aws.backend.url forwards S3, SQS, IAM, STS, and KMS to an AWS-compatible endpoint; Cognito stays local.
+  The URL cannot include credentials.
 
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
@@ -101,6 +109,21 @@ Resend API coverage:
   Optional resend.allowlist restricts to/cc/bcc recipients; [] rejects all, and omission accepts all.
   Rejected batches create no emails or webhooks. Validated sends record resend.send_attempts in saved state.
   Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
+
+AI API coverage:
+  Serves OpenAI Responses, Chat Completions, and Anthropic Messages at any path prefix, unary and streamed.
+  Rules script text, structured output, tool calls, reasoning, refusals, errors, and stream faults.
+  Rules may list reply variants; ai.random.seed makes the pick repeat on every run.
+  ai.timing.ttftMs delays the first byte of every reply, streamed or not.
+  ai.timing.chunkDelayMs accepts a list to vary the gap between frames, and structured output streams between JSON tokens.
+  With no matching rule, deterministic defaults echo the latest user text, return schema-valid data,
+  or generate a forced tool call.
+  Set baseURL to http://localhost:<port>/v1 for the openai SDK, @ai-sdk/openai, and compatible providers,
+  and to http://localhost:<port> for @anthropic-ai/sdk.
+  Any model id and any API key are accepted; keys are never required, stored, or logged.
+  Control calls, rules, and reset at /_ai/calls, /_ai/rules, and /_ai/reset; inspect at /.
+  In a project config with services, the seed goes under services.<name>.seed, not a top-level ai block.
+  Docs: https://emulate.dev/docs/ai
 
 Microsoft OAuth coverage:
   Refresh tokens are bound to the issuing client and require its client_id and client_secret, or client_secret_basic.

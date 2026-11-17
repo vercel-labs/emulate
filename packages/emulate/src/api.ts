@@ -1,7 +1,10 @@
 import {
+  assertPortFree,
   createServer,
   serve,
   createCustomRuntime,
+  restoreTokenMap,
+  serializeTokenMap,
   type AppKeyResolver,
   type EmulatorDefinition,
   type CustomRuntime,
@@ -22,6 +25,7 @@ import { SERVICE_REGISTRY } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { resolveBaseUrl } from "./base-url.js";
+import { aiNetworkWarning, isLoopbackHost } from "./ai-network.js";
 
 export interface SeedConfig {
   tokens?: Record<string, { login: string; scopes?: string[] }>;
@@ -79,6 +83,7 @@ export async function createEmulator(
   if (opts.listen === false)
     return { ...(await createCustomRuntime(opts.service, opts)), generatedSecrets: Object.freeze([]) };
   let runtime: CustomRuntime | undefined;
+  await assertPortFree(opts.hostname, opts.port ?? 4000);
   const server = serve({
     fetch: (request) => (runtime ? runtime.fetch(request) : Response.json({ error: "Starting" }, { status: 503 })),
     port: opts.port ?? 4000,
@@ -88,7 +93,12 @@ export async function createEmulator(
     await waitForListening(server);
     const address = server.address();
     const port = address && typeof address === "object" ? address.port : (opts.port ?? 4000);
-    const baseUrl = resolveBaseUrl({ service: opts.service.name, port, baseUrl: opts.baseUrl });
+    const baseUrl = resolveBaseUrl({
+      service: opts.service.name,
+      port,
+      baseUrl: opts.baseUrl,
+      hostname: opts.hostname,
+    });
     runtime = await createCustomRuntime(opts.service, { ...opts, baseUrl });
     let closing: Promise<void> | undefined;
     return {
@@ -151,15 +161,18 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
   const loaded = await entry.load();
 
   let handler: ((request: Request) => Response | Promise<Response>) | undefined;
+  await assertPortFree(options.hostname, port);
   const httpServer = serve({
     fetch: (request) => (handler ? handler(request) : new Response("Starting", { status: 503 })),
     port,
     hostname: options.hostname,
+    abortOnClose: loaded.plugin.abortOnClose,
   });
   try {
     await waitForListening(httpServer);
     const address = httpServer.address();
     const actualPort = address && typeof address === "object" ? address.port : port;
+    const boundAddress = address && typeof address === "object" ? address.address : undefined;
 
     const tokens: Record<string, { login: string; id: number; scopes?: string[] }> = {};
     if (seedConfig?.tokens) {
@@ -182,7 +195,13 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
       typeof svcSeedConfig?.baseUrl === "string" && svcSeedConfig.baseUrl.length > 0
         ? svcSeedConfig.baseUrl
         : undefined;
-    const baseUrl = resolveBaseUrl({ service, port: actualPort, baseUrl: options.baseUrl, seedBaseUrl });
+    const baseUrl = resolveBaseUrl({
+      service,
+      port: actualPort,
+      baseUrl: options.baseUrl,
+      seedBaseUrl,
+      hostname: options.hostname,
+    });
 
     // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;
@@ -200,6 +219,7 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
       fallbackUser,
     });
     cachedResolver = loaded.createAppKeyResolver?.(store);
+    const startupTokens = structuredClone(serializeTokenMap(tokenMap));
 
     const seed = () => {
       loaded.plugin.seed?.(store, baseUrl);
@@ -210,15 +230,17 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
     seed();
 
     handler = app.fetch;
+    if (service === "ai" && boundAddress !== undefined && !isLoopbackHost(boundAddress)) {
+      console.warn(`Warning: ${aiNetworkWarning(boundAddress)}`);
+    }
     let closing: Promise<void> | undefined;
 
     return {
       url: baseUrl,
       generatedSecrets,
       reset() {
-        for (const [token, user] of tokenMap) {
-          if (user.installation) tokenMap.delete(token);
-        }
+        // Tokens issued or revoked at runtime belong to the store state being wiped, so go back to the startup tokens.
+        restoreTokenMap(tokenMap, structuredClone(startupTokens));
         store.reset();
         webhooks.clear();
         seed();

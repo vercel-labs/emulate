@@ -11,6 +11,7 @@ import {
   messageSegments,
   normalizePhoneNumber,
   parseTwilioBody,
+  requireActiveAccount,
   requireTwilioAuth,
   twilioError,
   twilioList,
@@ -34,6 +35,8 @@ export function messageRoutes({ app, store }: RouteContext): void {
   app.post("/2010-04-01/Accounts/:accountSid/Messages.json", async (c) => {
     const account = authenticatedAccount(c);
     if (account instanceof Response) return account;
+    const inactive = requireActiveAccount(c, account);
+    if (inactive) return inactive;
     const body = await parseTwilioBody(c);
     const to = normalizePhoneNumber(bodyString(body, "To"));
     if (!to) return twilioError(c, 400, "A 'To' phone number is required.", 21201);

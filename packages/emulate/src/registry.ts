@@ -41,6 +41,7 @@ const SERVICE_NAME_LIST = [
   "linear",
   "twilio",
   "discord",
+  "ai",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -395,7 +396,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   aws: {
     label: "AWS cloud service emulator",
     endpoints:
-      "S3 (buckets, objects), SQS (queues, messages), Cognito (User Pools, OAuth, JWTs, Identity Pools), IAM (users, roles, access keys), STS (assume role, caller identity)",
+      "S3 (buckets, objects), SQS (queues, messages), Cognito (User Pools, OAuth, JWTs, Identity Pools), IAM (users, roles, access keys), STS (assume role, web identity, caller identity), KMS (keys, encrypt, decrypt)",
     async load() {
       const mod = await import("@emulators/aws");
       return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
@@ -516,7 +517,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   linear: {
     label: "Linear GraphQL API emulator",
     endpoints:
-      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agents, inspector",
+      "GraphQL, OAuth, issues, teams, users, workflow states, comments, labels, projects, cycles, webhooks, agent sessions and activities, inspector",
     async load() {
       const mod = await import("@emulators/linear");
       return { plugin: mod.linearPlugin, seedFromConfig: mod.seedFromConfig };
@@ -667,6 +668,32 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             members: [{ user_id: "222222222222222222", roles: ["444444444444444444"] }],
             roles: [{ id: "444444444444444444", name: "admin", permissions: "8" }],
             channels: [{ id: "555555555555555555", name: "general", type: "GUILD_TEXT" }],
+          },
+        ],
+      },
+    },
+  },
+  ai: {
+    label: "AI provider emulator for OpenAI Responses, Chat Completions, and Anthropic Messages",
+    endpoints:
+      "OpenAI Responses, Chat Completions, Anthropic Messages, models list, stored responses, call record, live rules, reset, inspector",
+    async load() {
+      const mod = await import("@emulators/ai");
+      return { plugin: mod.aiPlugin, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "ai_test", id: 1, scopes: [] };
+    },
+    initConfig: {
+      ai: {
+        strict: false,
+        timing: { ttftMs: 0, chunkDelayMs: 0 },
+        models: ["gpt-x"],
+        rules: [
+          {
+            id: "greeting",
+            match: { textContains: "hello" },
+            reply: [{ type: "text", text: "Hello from the emulate AI service." }],
           },
         ],
       },
