@@ -3,6 +3,7 @@ import {
   restoreTokenMap,
   serializeTokenMap,
   type AppKeyResolver,
+  type AuthFallback,
   type TokenEntry,
   type TokenMap,
 } from "./middleware/auth.js";
@@ -48,6 +49,8 @@ export interface AdapterEmulatorEntry {
   seed?: Record<string, unknown>;
   inspector?: boolean | InspectorOptions;
   persistence?: PersistenceAdapter;
+  /** The user every unknown bearer token maps to, so clients work with any token. Without it an unknown token is rejected. */
+  fallbackUser?: AuthFallback;
 }
 export interface AdapterHandlerConfig {
   services: Record<string, AdapterEmulatorEntry>;
@@ -354,6 +357,7 @@ export function createAdapterRuntime(
         const server = createServer(plugin, {
           baseUrl,
           appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
+          fallbackUser: entry.fallbackUser,
         });
         if (entry.emulator.createAppKeyResolver) appKeyResolver = entry.emulator.createAppKeyResolver(server.store);
         serviceApps.set(name, { ...server, plugin });
