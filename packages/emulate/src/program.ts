@@ -99,6 +99,11 @@ AWS API coverage:
 Google Calendar discovery:
   GET /discovery/v1/apis/calendar/v3/rest returns the public discovery document for the emulated Calendar v3 surface.
 
+Google Admin SDK Directory:
+  Users, groups, and members under /admin/directory/v1; discovery at /$discovery/rest?version=directory_v1.
+  Seed google.users[].is_admin, or call users.makeAdmin, for super administrators; a suspended user cannot sign in.
+  In strict mode, calls need the method's admin.directory.* scope and a super administrator.
+
 Google OIDC:
   Discovery advertises RS256 ID tokens, and GET /oauth2/v3/certs returns the RSA public key used to verify them.
   Set google.strict_scopes: true in seed config to validate issued access tokens, expiry, revocation, and method scopes.

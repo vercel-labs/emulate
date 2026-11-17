@@ -207,6 +207,18 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const code_challenge = bodyStr(body.code_challenge);
     const code_challenge_method = bodyStr(body.code_challenge_method);
 
+    // "The user can't sign in to their account until an administrator restores the suspended account."
+    // (https://knowledge.workspace.google.com/admin/users/view-the-status-of-a-user-account) What Google's sign-in
+    // page shows then is not captured: the page and its 403 are the emulator's own.
+    const user = gs.users.findOneBy("email", email as GoogleUser["email"]);
+    if (user?.suspended === true) {
+      return c.html(
+        renderErrorPage("Account suspended", "This account has been suspended by an administrator.", SERVICE_LABEL),
+        403,
+      );
+    }
+    if (user) gs.users.update(user.id, { last_login_time: new Date().toISOString() });
+
     const code = randomBytes(20).toString("hex");
 
     getPendingCodes(store).set(code, {
