@@ -280,3 +280,30 @@ describe("AI unstreamed reply timing", () => {
     expect((await json<{ error: { code: string } }>(response)).error.code).toBe("state_reset");
   });
 });
+
+describe("AI reply ids", () => {
+  it("gives a streamed reply the next id without skipping one", async () => {
+    const app = createApp();
+    const streamed = await app.request(`${origin}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-x", stream: true, messages: [{ role: "user", content: "Hi" }] }),
+    });
+    const firstFrame = (await streamed.text()).split("\n\n")[0].replace(/^data: /, "");
+    const unary = await json<{ id: string }>(await chat(app, "gpt-x", "Hi"));
+
+    expect((JSON.parse(firstFrame) as { id: string }).id).toBe("chatcmpl-1");
+    expect(unary.id).toBe("chatcmpl-2");
+  });
+
+  it("keeps strict mode on after the strict miss hint body is sent back", async () => {
+    const app = createApp({ strict: true });
+    const miss = await json<{ error: { message: string } }>(await chat(app, "gpt-x", "Hi"));
+    const hint = miss.error.message;
+    const body = JSON.parse(hint.slice(hint.indexOf("{\n"))) as { rules: Array<{ match: { model: string } }> };
+
+    expect((await putRules(app, body)).status).toBe(200);
+    expect((await chat(app, "gpt-x", "Hi")).status).toBe(200);
+    expect((await chat(app, "another-model", "Hi")).status).toBe(400);
+  });
+});

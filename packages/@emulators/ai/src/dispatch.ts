@@ -311,17 +311,19 @@ async function handleGeneration(
   call.status = 200;
   call.reply = { finish: outcome.reply.finish, summary: summarize(outcome.reply) };
   let encoded: unknown;
-  try {
-    encoded = codec.encodeJson(outcome.reply, decoded, ctx);
-  } catch (error) {
-    scope.dispose();
-    throw error;
+  if (!request.stream) {
+    try {
+      encoded = codec.encodeJson(outcome.reply, decoded, ctx);
+    } catch (error) {
+      scope.dispose();
+      throw error;
+    }
   }
   if (scope.signal.aborted || !isCurrentGeneration(state, stamp)) {
     scope.dispose();
     throw staleStateError();
   }
-  codec.afterReply?.(outcome.reply, decoded, ctx, encoded);
+  codec.afterReply?.(outcome.reply, decoded, ctx);
   recordCall(state, call, stamp);
 
   if (!request.stream) {

@@ -77,23 +77,19 @@ export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Respo
 
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
-      const end = (delivery: Exclude<Delivery, "pending">) => {
+      /** Ends the stream once. Only a completed reply closes cleanly; an abort or a failure errors the stream, so a cut reply never looks finished. */
+      const finish = (delivery: Exclude<Delivery, "pending">, error?: unknown) => {
         settle(delivery);
         if (closed) return;
         closed = true;
-        controller.close();
-      };
-      const fail = (error: unknown) => {
-        settle("error");
-        if (closed) return;
-        closed = true;
-        controller.error(error);
+        if (delivery === "completed") controller.close();
+        else controller.error(error ?? new Error("Stream aborted"));
       };
 
       try {
         if (closed) return;
         if (stop.signal.aborted) {
-          end("client_aborted");
+          finish("client_aborted");
           return;
         }
 
@@ -103,14 +99,14 @@ export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Respo
           options.onFault?.(fault.kind);
           if (fault.kind === "disconnect") {
             await new Promise((resolve) => setTimeout(resolve, 0));
-            fail(new Error("Stream disconnected"));
+            finish("error", new Error("Stream disconnected"));
             return;
           }
 
           const ready = await delay(fault.stallMs ?? 0, stop.signal);
           if (closed) return;
           if (!ready) {
-            end("client_aborted");
+            finish("client_aborted");
             return;
           }
         }
@@ -120,7 +116,7 @@ export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Respo
           const ready = await delay(wait, stop.signal);
           if (closed) return;
           if (!ready) {
-            end("client_aborted");
+            finish("client_aborted");
             return;
           }
         }
@@ -128,15 +124,15 @@ export function sseResponse(frames: SseFrame[], options: SseOptions = {}): Respo
         const frame = frames[index];
         index += 1;
         if (!frame) {
-          end("completed");
+          finish("completed");
           return;
         }
 
         controller.enqueue(encoder.encode(formatFrame(frame)));
         if (frame.content !== undefined) contentChunks += 1;
-        if (index === frames.length) end("completed");
+        if (index === frames.length) finish("completed");
       } catch (error) {
-        fail(error);
+        finish("error", error);
       }
     },
     cancel() {
