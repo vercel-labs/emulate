@@ -116,7 +116,7 @@ Every condition in `match` must hold.
 | `reasoning` | `text`                             | Reasoning text in Responses; Chat reports only reasoning tokens                                                                    |
 | `refusal`   | `text`                             | A refusal in the format's native shape                                                                                             |
 
-Without `finish`, a reply with a tool call ends with `tool_calls`, a refusal ends with `refusal`, and anything else ends with `stop`. Set `finish` to `length` or `content_filter` to test those outcomes. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
+Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
 ### Errors and faults
 

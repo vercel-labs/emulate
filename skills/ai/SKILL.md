@@ -196,7 +196,7 @@ A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 | Reasoning | `{ type: reasoning, text }`            | Responses only; Chat omits reasoning text                                                              |
 | Refusal   | `{ type: refusal, text }`              | Native refusal shape                                                                                   |
 
-With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Stop reasons are otherwise inferred from the events.
+With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
 ### Errors and faults
 
