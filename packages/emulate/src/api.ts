@@ -9,6 +9,7 @@ import {
   type EmulatorDefinition,
   type CustomRuntime,
   type CustomRuntimeOptions,
+  type StoreSnapshot,
 } from "@emulators/core";
 import type { Server } from "node:http";
 export {
@@ -53,6 +54,8 @@ export interface Emulator {
   url: string;
   readonly generatedSecrets: readonly GeneratedSecret[];
   reset(): void;
+  snapshot(): StoreSnapshot;
+  restore(snapshot: StoreSnapshot): void;
   close(): Promise<void>;
 }
 
@@ -244,6 +247,12 @@ async function createBuiltinEmulator(options: EmulatorOptions): Promise<Emulator
         store.reset();
         webhooks.clear();
         seed();
+      },
+      snapshot(): StoreSnapshot {
+        return store.snapshot();
+      },
+      restore(snap: StoreSnapshot): void {
+        store.restore(snap);
       },
       close(): Promise<void> {
         return (closing ??= closeHttpServer(httpServer));
