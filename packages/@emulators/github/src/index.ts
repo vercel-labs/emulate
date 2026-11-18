@@ -620,7 +620,7 @@ async function deliverToAppWebhookUrls(
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-GitHub-Event": event,
-      "X-GitHub-Delivery": String(Date.now()),
+      "X-GitHub-Delivery": crypto.randomUUID(),
     };
     if (ghApp.webhook_secret) {
       const hmac = createHmac("sha256", ghApp.webhook_secret).update(body).digest("hex");
