@@ -46,6 +46,17 @@ This creates the following routes:
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
 
+## Accept Any Token
+
+An embedded emulator knows only the tokens in its seed, so a request with any other bearer token gets no user. Set `fallbackUser` on a service to treat every unknown token as that user, the way the CLI does:
+
+```typescript
+github: {
+  emulator: github,
+  fallbackUser: { login: 'octocat', id: 1, scopes: ['repo', 'user'] },
+},
+```
+
 ## GitHub App Private Keys
 
 GitHub App seeds may omit `private_key`; retain the handler and call server-only `generatedSecrets()`. Keep persisted generated keys private and implement atomic `initialize`.
@@ -140,6 +151,8 @@ Generated identities require atomic create-or-read `initialize`; see `@emulators
 3. **Strip prefix**: A new `Request` is created with the stripped path and forwarded to the GitHub service app
 4. **Rewrite response**: HTML `action` and `href` attributes, CSS `url()` font references, and `Location` headers get the service prefix prepended
 5. **Persist**: After mutating requests, state is saved via the persistence adapter
+
+Emulators share your app's origin, so the files they hand back (Vercel Blob content, S3 objects, Drive downloads, Slack files) are sent with `X-Content-Type-Options: nosniff`, and HTML, SVG, and XML files also carry `Content-Security-Policy: sandbox`. An uploaded file cannot run script in your app's origin.
 
 ## Limitations
 

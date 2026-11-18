@@ -7,6 +7,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  callbackRegistrationError,
   matchesRedirectUri,
   constantTimeSecretEqual,
   bodyStr,
@@ -206,6 +207,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const nonce = bodyStr(body.nonce);
     const code_challenge = bodyStr(body.code_challenge);
     const code_challenge_method = bodyStr(body.code_challenge_method);
+
+    const rejection = callbackRegistrationError(client_id, redirect_uri, gs.oauthClients.all());
+    if (rejection) return c.html(renderErrorPage(rejection.title, rejection.message, SERVICE_LABEL), 400);
 
     const code = randomBytes(20).toString("hex");
 

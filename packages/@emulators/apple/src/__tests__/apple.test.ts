@@ -290,6 +290,28 @@ describe("Apple plugin integration", () => {
     expect(second.userJson).toBeUndefined();
   });
 
+  it("refuses a callback for a redirect URI the client has not registered, and never posts to a script address", async () => {
+    seedFromConfig(store, base, {
+      oauth_clients: [
+        { client_id: "app", team_id: "TEAM", name: "App", redirect_uris: ["http://localhost:3000/callback"] },
+      ],
+    });
+    const post = (fields: Record<string, string>) =>
+      app.request(`${base}/auth/authorize/callback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ email: "testuser@example.com", client_id: "app", ...fields }).toString(),
+      });
+
+    const unregistered = await post({ redirect_uri: "javascript:alert(1)", response_mode: "form_post" });
+    expect(unregistered.status).toBe(400);
+    expect(await unregistered.text()).not.toContain("<form");
+
+    const registered = await post({ redirect_uri: "http://localhost:3000/callback", response_mode: "form_post" });
+    expect(registered.status).toBe(200);
+    expect(await registered.text()).toContain('action="http://localhost:3000/callback"');
+  });
+
   // --- form_post response mode ---
 
   it("returns auto-submit form for form_post response mode", async () => {

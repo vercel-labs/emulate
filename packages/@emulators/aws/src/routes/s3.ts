@@ -414,7 +414,6 @@ ${prefixesXml}
     }
 
     const headers: Record<string, string> = {
-      "Content-Type": obj.content_type,
       "Content-Length": String(obj.content_length),
       ETag: `"${obj.etag}"`,
       "Last-Modified": new Date(obj.last_modified).toUTCString(),
@@ -423,7 +422,7 @@ ${prefixesXml}
       headers[`x-amz-meta-${k}`] = v;
     }
 
-    return c.body(decodeS3ObjectBody(obj), 200, headers);
+    return c.file(decodeS3ObjectBody(obj), obj.content_type, headers);
   };
 
   const handleHeadObject = (c: S3ObjectContext) => {

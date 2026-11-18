@@ -10,6 +10,7 @@ import {
   renderErrorPage,
   renderSettingsPage,
   renderUserButton,
+  callbackRegistrationError,
   matchesRedirectUri,
   constantTimeSecretEqual,
   parseCookies,
@@ -158,6 +159,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const scope = String(body.scope ?? "");
     const state = String(body.state ?? "");
     const client_id = String(body.client_id ?? "");
+
+    const rejection = callbackRegistrationError(client_id, redirect_uri, gh.oauthApps.all());
+    if (rejection) return c.html(renderErrorPage(rejection.title, rejection.message, SERVICE_LABEL), 400);
 
     const code = randomBytes(20).toString("hex");
     getPendingCodes(store).set(code, {

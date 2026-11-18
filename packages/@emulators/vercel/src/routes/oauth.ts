@@ -6,6 +6,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  callbackRegistrationError,
   matchesRedirectUri,
   constantTimeSecretEqual,
   bodyStr,
@@ -122,6 +123,9 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const scope = bodyStr(body.scope);
     const state = bodyStr(body.state);
     const client_id = bodyStr(body.client_id);
+
+    const rejection = callbackRegistrationError(client_id, redirect_uri, vs.integrations.all());
+    if (rejection) return c.html(renderErrorPage(rejection.title, rejection.message, SERVICE_LABEL), 400);
 
     const code = randomBytes(20).toString("hex");
     const code_challenge = bodyStr(body.code_challenge);

@@ -83,12 +83,7 @@ export function driveRoutes({ app, store }: RouteContext): void {
 
     const url = new URL(c.req.url);
     if (url.searchParams.get("alt") === "media") {
-      return new Response(item.data ? Buffer.from(item.data, "base64url") : Buffer.alloc(0), {
-        status: 200,
-        headers: {
-          "Content-Type": item.mime_type,
-        },
-      });
+      return c.file(item.data ? Buffer.from(item.data, "base64url") : Buffer.alloc(0), item.mime_type);
     }
 
     return c.json(formatDriveItemResource(item));

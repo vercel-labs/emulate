@@ -158,6 +158,8 @@ export class HonoRequest<P extends string = string> {
   }
 }
 
+const RENDERS_AS_PAGE = /html|xml|xsl|rdf|svg/i;
+
 export class Context<E = unknown, P extends string = string> {
   readonly req: HonoRequest<P>;
   private readonly vars = new Map<string, unknown>();
@@ -207,6 +209,18 @@ export class Context<E = unknown, P extends string = string> {
 
   body(body: BodyInit | null, status?: ContentfulStatusCode, headers?: HeadersInit): Response {
     return this.response(body, status, headers);
+  }
+
+  /**
+   * Sends bytes a caller uploaded. Browsers may not sniff the type, and types that render as a page
+   * are sandboxed, so an uploaded file cannot run script in the origin that serves the emulator.
+   */
+  file(body: BodyInit, contentType: string, headers?: HeadersInit): Response {
+    const merged = new Headers(headers);
+    if (contentType) merged.set("Content-Type", contentType);
+    merged.set("X-Content-Type-Options", "nosniff");
+    if (!contentType || RENDERS_AS_PAGE.test(contentType)) merged.set("Content-Security-Policy", "sandbox");
+    return this.response(body, 200, merged);
   }
 
   redirect(location: string, status: ContentfulStatusCode = 302): Response {
