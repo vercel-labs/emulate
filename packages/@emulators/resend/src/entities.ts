@@ -68,3 +68,11 @@ export interface ResendContact extends Entity {
   last_name: string | null;
   unsubscribed: boolean;
 }
+
+export interface ResendWebhook extends Entity {
+  uuid: string;
+  endpoint: string;
+  events: string[];
+  status: "enabled" | "disabled";
+  signing_secret: string;
+}
