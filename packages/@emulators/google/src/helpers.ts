@@ -704,7 +704,259 @@ export function sendDraftMessage(gs: GoogleStore, draft: GoogleDraft): GoogleMes
     message.label_ids.filter((labelId) => labelId !== "DRAFT").concat("SENT"),
   );
   clearDraftRecordsForMessage(gs, message.user_email, message.gmail_id);
-  return sent;
+  return deliverSentMessage(gs, sent);
+}
+
+/**
+ * Delivers a sent message to the To, Cc, and Bcc recipients who are users of the emulator. Each
+ * recipient gets a copy labeled INBOX and UNREAD, with the Bcc header removed. A message the sender
+ * sends to themselves stays one message and gains INBOX and UNREAD. A From address that isn't one of
+ * the sender's send-as addresses is first replaced with their default one. Returns the sender's message.
+ */
+export function deliverSentMessage(gs: GoogleStore, message: GoogleMessage): GoogleMessage {
+  const sent = applySendAsFrom(gs, message);
+  const sender = sent.user_email.toLowerCase();
+  const recipients = new Set(
+    [sent.to, sent.cc, sent.bcc].flatMap((header) => (header ? parseAddressList(header) : [])),
+  );
+  let result = sent;
+  const raw = sent.raw ? removeRawHeader(sent.raw, "bcc") : null;
+
+  for (const address of recipients) {
+    const user = gs.users.all().find((candidate) => candidate.email.toLowerCase() === address);
+    if (!user) continue;
+    if (address === sender) {
+      // The sender's filters act on the incoming side too, so one that skips the inbox or marks read still applies.
+      const incoming = applyFiltersToLabelIds(gs, user.email, sent.from, [...result.label_ids, "INBOX", "UNREAD"]);
+      result = markMessageModified(gs, result, incoming);
+      continue;
+    }
+    createStoredMessage(gs, {
+      user_email: user.email,
+      raw: raw ?? undefined,
+      from: sent.from,
+      to: sent.to,
+      cc: sent.cc,
+      bcc: null,
+      reply_to: sent.reply_to,
+      subject: sent.subject,
+      body_text: sent.body_text,
+      body_html: sent.body_html,
+      message_id: sent.message_id,
+      references: sent.references,
+      in_reply_to: sent.in_reply_to,
+      internal_date: sent.internal_date,
+      label_ids: ["INBOX", "UNREAD"],
+    });
+  }
+  return result;
+}
+
+/**
+ * Gmail sends only from the account's send-as addresses
+ * (https://developers.google.com/workspace/gmail/api/guides/alias_and_signature_settings), so a token for one user
+ * can't put another address in From. The From is parsed as an RFC 5322 mailbox list, and it must hold exactly one
+ * mailbox whose address is a send-as address. Either way, the stored field and the raw MIME header are both rebuilt
+ * from the identity that was checked: the parsed name and address, or the default send-as address when the check fails.
+ */
+function applySendAsFrom(gs: GoogleStore, message: GoogleMessage): GoogleMessage {
+  const aliases = listSendAsForUser(gs, message.user_email);
+  const authorized = (header: string): string | null => {
+    const mailboxes = parseMailboxList(header);
+    if (mailboxes?.length !== 1) return null;
+    const [{ name, address }] = mailboxes;
+    if (!aliases.some((alias) => alias.send_as_email.toLowerCase() === address.toLowerCase())) return null;
+    return formatMailbox(name || null, address);
+  };
+  // messages.send fills the stored From with the caller's address, so a raw message's own From header is checked too.
+  const rawFrom = message.raw ? parseRawMessage(message.raw).from : "";
+  const fieldFrom = authorized(message.from);
+  let from = rawFrom ? authorized(rawFrom) : fieldFrom;
+  if (from === null || fieldFrom === null) {
+    const primary = aliases.find((alias) => alias.is_default) ?? aliases[0]!;
+    from = formatMailbox(primary.display_name, primary.send_as_email);
+  }
+  const raw = message.raw ? setRawHeader(message.raw, "from", from) : null;
+  if (from === message.from && raw === message.raw) return message;
+  return gs.messages.update(message.id, { from, raw }) ?? message;
+}
+
+function formatMailbox(name: string | null, address: string): string {
+  const display = name?.replace(/[\r\n]+/g, " ").trim();
+  if (!display) return address;
+  if (/^(=\?[^?\s]+\?[BbQq]\?[^?\s]*\?=\s*)+$/.test(display)) return `${display} <${address}>`;
+  if (/[^\x20-\x7e]/.test(display)) {
+    return `=?UTF-8?B?${Buffer.from(display, "utf8").toString("base64")}?= <${address}>`;
+  }
+  if (/^[\w .'-]+$/.test(display)) return `${display} <${address}>`;
+  return `"${display.replace(/["\\]/g, "\\$&")}" <${address}>`;
+}
+
+interface Mailbox {
+  name: string;
+  address: string;
+}
+
+type HeaderToken = { kind: "atom" | "quoted" | "literal" | "special"; value: string };
+
+const HEADER_SPECIALS = "<>@,;:.\\]";
+const ATOM_STOP = ` \t()"[${HEADER_SPECIALS}`;
+
+/**
+ * Parses an RFC 5322 mailbox list (section 3.4) such as `"Doe, Jane" <jane@example.com>, bob@example.com`, handling
+ * quoted strings, nested comments, and domain literals. Returns null for anything it can't read unambiguously,
+ * including groups, so callers treat it as invalid rather than guess.
+ */
+function parseMailboxList(header: string): Mailbox[] | null {
+  const text = header.replace(/\r?\n(?=[ \t])/g, "");
+  const tokens: HeaderToken[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const char = text[i]!;
+    if (char === " " || char === "\t") {
+      i++;
+    } else if (char === "(") {
+      let depth = 0;
+      for (; i < text.length; i++) {
+        if (text[i] === "\\") i++;
+        else if (text[i] === "(") depth++;
+        else if (text[i] === ")" && --depth === 0) break;
+      }
+      if (depth !== 0) return null;
+      i++;
+    } else if (char === '"') {
+      let value = "";
+      for (i++; i < text.length && text[i] !== '"'; i++) {
+        if (text[i] === "\\") i++;
+        if (i < text.length) value += text[i];
+      }
+      if (i >= text.length) return null;
+      tokens.push({ kind: "quoted", value });
+      i++;
+    } else if (char === "[") {
+      const end = text.indexOf("]", i);
+      if (end === -1) return null;
+      tokens.push({ kind: "literal", value: text.slice(i, end + 1) });
+      i = end + 1;
+    } else if (char === ")") {
+      // A closing parenthesis outside a comment is malformed.
+      return null;
+    } else if (HEADER_SPECIALS.includes(char)) {
+      tokens.push({ kind: "special", value: char });
+      i++;
+    } else {
+      let end = i;
+      while (end < text.length && !ATOM_STOP.includes(text[end]!)) end++;
+      // Every character that stops an atom has a branch above. Don't spin if one is ever added without one.
+      if (end === i) return null;
+      tokens.push({ kind: "atom", value: text.slice(i, end) });
+      i = end;
+    }
+  }
+
+  const mailboxes: Mailbox[] = [];
+  let current: HeaderToken[] = [];
+  for (const token of [...tokens, { kind: "special", value: "," } as HeaderToken]) {
+    if (token.kind !== "special" || token.value !== ",") {
+      current.push(token);
+      continue;
+    }
+    const mailbox = parseMailbox(current);
+    if (!mailbox) return null;
+    mailboxes.push(mailbox);
+    current = [];
+  }
+  return mailboxes;
+}
+
+function isSpecial(token: HeaderToken | undefined, value: string): boolean {
+  return token?.kind === "special" && token.value === value;
+}
+
+function parseMailbox(tokens: HeaderToken[]): Mailbox | null {
+  const open = tokens.findIndex((token) => isSpecial(token, "<"));
+  if (open === -1) {
+    const address = parseAddrSpec(tokens);
+    return address ? { name: "", address } : null;
+  }
+  if (!isSpecial(tokens[tokens.length - 1], ">")) return null;
+  const phrase = tokens.slice(0, open);
+  if (phrase.some((token) => token.kind !== "atom" && token.kind !== "quoted" && !isSpecial(token, "."))) return null;
+  const address = parseAddrSpec(tokens.slice(open + 1, -1));
+  return address ? { name: phrase.map((token) => token.value).join(" "), address } : null;
+}
+
+/** Reads `local@domain`, keeping a quoted local part quoted so it can't match an unquoted address. */
+function parseAddrSpec(tokens: HeaderToken[]): string | null {
+  const at = tokens.findIndex((token) => isSpecial(token, "@"));
+  if (at <= 0) return null;
+  const local = joinDotted(tokens.slice(0, at), true);
+  const domainTokens = tokens.slice(at + 1);
+  const domain =
+    domainTokens.length === 1 && domainTokens[0]!.kind === "literal"
+      ? domainTokens[0]!.value
+      : joinDotted(domainTokens, false);
+  return local && domain ? `${local}@${domain}` : null;
+}
+
+function joinDotted(tokens: HeaderToken[], allowQuoted: boolean): string | null {
+  if (tokens.length % 2 === 0) return null;
+  const parts: string[] = [];
+  for (const [index, token] of tokens.entries()) {
+    if (index % 2 === 1) {
+      if (!isSpecial(token, ".")) return null;
+    } else if (token.kind === "atom") {
+      parts.push(token.value);
+    } else if (token.kind === "quoted" && allowQuoted) {
+      parts.push(`"${token.value.replace(/["\\]/g, "\\$&")}"`);
+    } else {
+      return null;
+    }
+  }
+  return parts.join(".");
+}
+
+/** Lowercased addresses in an address-list header such as `Bob <bob@example.com>, carol@example.com`. */
+function parseAddressList(header: string): string[] {
+  const withoutNames = header.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/\([^)]*\)/g, "");
+  return (withoutNames.match(/[^\s<>,;:]+@[^\s<>,;]+/g) ?? []).map((address) => address.toLowerCase());
+}
+
+/** Removes a header, with its folded continuation lines, from a base64url MIME message. */
+function removeRawHeader(raw: string, name: string): string {
+  return setRawHeader(raw, name, null);
+}
+
+/**
+ * Replaces every occurrence of a header, with its folded continuation lines, in a base64url MIME message by one
+ * line carrying `value`, or removes them when `value` is null. A header that isn't there is added first.
+ */
+function setRawHeader(raw: string, name: string, value: string | null): string {
+  const source = decodeBase64Like(raw).toString("latin1");
+  const match = /\r?\n\r?\n/.exec(source);
+  const headerEnd = match ? match.index : source.length;
+  const lines = source.slice(0, headerEnd).split(/(?<=\n)/);
+  const eol = lines[0]?.endsWith("\r\n") || !lines[0]?.endsWith("\n") ? "\r\n" : "\n";
+  const replacement = value === null ? null : `${name.replace(/^./, (c) => c.toUpperCase())}: ${value}${eol}`;
+  const kept: string[] = [];
+  let skipping = false;
+  let replaced = false;
+  for (const line of lines) {
+    if (/^[ \t]/.test(line)) {
+      if (!skipping) kept.push(line);
+      continue;
+    }
+    skipping = line.slice(0, line.indexOf(":")).trim().toLowerCase() === name;
+    if (!skipping) kept.push(line);
+    else if (replacement && !replaced) {
+      kept.push(replacement);
+      replaced = true;
+    }
+  }
+  if (replacement && !replaced) kept.unshift(replacement);
+  // The header block ends without a line break, so drop the one a removed or replaced last header leaves behind.
+  const headers = kept.join("").replace(/\r?\n$/, "");
+  return Buffer.from(headers + source.slice(headerEnd), "latin1").toString("base64url");
 }
 
 export function deleteDraftMessage(gs: GoogleStore, draft: GoogleDraft): boolean {
