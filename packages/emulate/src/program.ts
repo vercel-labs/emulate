@@ -59,6 +59,8 @@ Custom emulators:
   Docs: https://emulate.dev/docs/custom-emulators
 
 GitHub API coverage:
+  SSH signing keys support authenticated create/list/get/delete and public paginated lists.
+  Ed25519, RSA and NIST ECDSA public keys are supported; authentication keys and certificates are not simulated.
   Includes repository contents, raw downloads, raw media negotiation for file Contents and README responses,
   commit history, commit details, ref comparisons, organization membership seeding with member/admin roles,
   and Checks list-by-ref endpoints for branch and tag refs containing slashes.
