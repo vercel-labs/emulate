@@ -67,7 +67,16 @@ To prepare a release:
 5. Remove the `<!-- release:start -->` and `<!-- release:end -->` markers from the previous release entry (only the latest release should have markers)
 6. Open a PR and merge to `main`
 
-CI compares the version in `packages/emulate/package.json` to what's on npm. If it differs, it builds, publishes all packages with provenance, and creates the GitHub release automatically. The release body is extracted from the content between the markers.
+On every push to `main`, the release workflow compares the version in `packages/emulate/package.json` to `emulate` on npm. If it differs, it builds, publishes every package in `EMULATOR_PACKAGES` with provenance, and creates the GitHub release automatically. The release body is extracted from the content between the markers. If `emulate` is already out at that version but a published package is behind, the run publishes only what is missing, which finishes a release that stopped halfway. Nothing else starts a release.
+
+### Adding a new package
+
+A release cannot create a package on npm, so a new `@emulators/*` package needs two steps before it can ship:
+
+1. Publish a `0.0.0` placeholder for it on npm by hand and set up trusted publishing for the new name.
+2. Add its name to `EMULATOR_PACKAGES` in `.github/workflows/release.yml`, in the release PR that should publish it.
+
+Leave the name out of `EMULATOR_PACKAGES` until then. CI fails when the list names a package npm has never seen, and notes every package under `packages/@emulators` that the list leaves out.
 
 <!-- opensrc:start -->
 
