@@ -15,7 +15,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 Google ID tokens are RS256-signed JWTs. The discovery document advertises RS256, and the JWKS endpoint returns the matching RSA public key used to verify issued tokens.
 
-Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
+Google authentication is permissive by default for local bearer-token workflows. Set `google.strict_scopes: true` in seed config to require emulator-issued, unexpired access tokens on Gmail, Calendar, Drive, Directory, and userinfo routes. Invalid credentials return `401 UNAUTHENTICATED`; missing method scopes return `403` with `insufficientPermissions`. Strict mode distinguishes read, write, send, settings, and metadata scopes, and userinfo includes only granted identity claims. Revoking an access or refresh token invalidates the linked access and refresh credentials. Discovery, signing keys, and the sign-in page remain public. This mode checks method scopes; resource-specific grants such as `drive.file` and Gmail add-on scopes are not modeled.
 
 ## Gmail
 
@@ -83,3 +83,12 @@ Google authentication is permissive by default for local bearer-token workflows.
 - `PATCH /drive/v3/files/:fileId` - update file metadata
 - `PUT /drive/v3/files/:fileId` - update file content
 - `POST /upload/drive/v3/files` - upload file
+
+## Directory
+
+Admin SDK Directory API: users, groups, and group members under `/admin/directory/v1`, with the discovery document at `/discovery/v1/apis/admin/directory_v1/rest` and `/$discovery/rest?version=directory_v1`. The account's users are those of a hosted domain; `customer=my_customer` or the `google.customer_id` seed value selects them. A seeded user with `is_admin: true`, or one made so with `users.makeAdmin`, is a super administrator, and a user with `suspended: true` (seeded, or set through `users.update`) cannot sign in. With `google.strict_scopes: true`, Directory calls need the method's `admin.directory.*` scope and a super administrator, and other users get `403` with `forbidden`. Responses honor the `fields` parameter. Search queries, batch requests, aliases, organizational units, renaming, and delegated administrator roles are not modeled.
+
+- `GET /discovery/v1/apis/admin/directory_v1/rest` and `GET /$discovery/rest?version=directory_v1` - Directory API discovery document
+- `GET /admin/directory/v1/users`, `POST /admin/directory/v1/users`, `GET /admin/directory/v1/users/:userKey`, `PUT /admin/directory/v1/users/:userKey`, `PATCH /admin/directory/v1/users/:userKey`, `DELETE /admin/directory/v1/users/:userKey`, `POST /admin/directory/v1/users/:userKey/makeAdmin`
+- `GET /admin/directory/v1/groups`, `POST /admin/directory/v1/groups`, `GET /admin/directory/v1/groups/:groupKey`, `PUT /admin/directory/v1/groups/:groupKey`, `PATCH /admin/directory/v1/groups/:groupKey`, `DELETE /admin/directory/v1/groups/:groupKey`
+- `GET /admin/directory/v1/groups/:groupKey/members`, `POST /admin/directory/v1/groups/:groupKey/members`, `GET /admin/directory/v1/groups/:groupKey/members/:memberKey`, `PUT /admin/directory/v1/groups/:groupKey/members/:memberKey`, `PATCH /admin/directory/v1/groups/:groupKey/members/:memberKey`, `DELETE /admin/directory/v1/groups/:groupKey/members/:memberKey`, `GET /admin/directory/v1/groups/:groupKey/hasMember/:memberKey`

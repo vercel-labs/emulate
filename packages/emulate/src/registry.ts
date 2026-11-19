@@ -141,9 +141,9 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
 
   google: {
-    label: "Google OAuth 2.0 / OpenID Connect + Gmail, Calendar, and Drive emulator",
+    label: "Google OAuth 2.0 / OpenID Connect + Gmail, Calendar, Drive, and Directory emulator",
     endpoints:
-      "OAuth authorize, token exchange, userinfo, RS256 OIDC discovery and JWKS, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar discovery/lists/events/freebusy, Drive files/uploads",
+      "OAuth authorize, token exchange, userinfo, RS256 OIDC discovery and JWKS, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar discovery/lists/events/freebusy, Drive files/uploads, Directory users/groups/members",
     async load() {
       const mod = await import("@emulators/google");
       return { plugin: mod.googlePlugin, seedFromConfig: mod.seedFromConfig };
