@@ -1,3 +1,4 @@
+import { zstdCompressSync } from "node:zlib";
 import OpenAI from "openai";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -94,5 +95,24 @@ describe("decision contract", () => {
     });
     expect(result.body.answers).toMatchObject({ team: { choice: "billing", confidence: 1 }, refund: { noul: 0.9 } });
     expect((await post("/v1/systemone", { model: "jev-latest", questions: { a: { type: "noul" } } })).status).toBe(422);
+  });
+  it("rejects zstd bodies that decompress past the size limit with 413", async () => {
+    const response = await fetch(`${origin}/v1/systemone`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-encoding": "zstd" },
+      body: zstdCompressSync(Buffer.alloc(80 * 1024 * 1024, 32)),
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it("records decision image URIs without credentials or query", async () => {
+    await post("/v1beta/decisions", {
+      model: "gemini-decision-1",
+      input: [{ type: "image", uri: "https://bucket.example/a.png?sig=secret", mime_type: "image/png" }],
+      questions: { a: { type: "noul", instructions: "Is it?" } },
+    });
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).toContain("https://bucket.example/a.png");
+    expect(calls).not.toContain("secret");
   });
 });

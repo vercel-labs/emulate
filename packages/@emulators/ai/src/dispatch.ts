@@ -101,6 +101,9 @@ function unrecordedError(store: Store, codec: Codec, error: unknown): Response {
 
 const MAX_SEEN_MODELS = 1000;
 
+/** The largest body a zstd-encoded request may decompress to. */
+const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
+
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
 /** Installs the anchored data router and the control routes; control routes are checked first. */
@@ -541,11 +544,19 @@ async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
     return { kind: "form", fields, files };
   }
   const raw = new Uint8Array(await c.req.arrayBuffer());
-  let bytes = raw;
+  let bytes: Uint8Array = raw;
   if ((c.req.header("content-encoding") ?? "").toLowerCase() === "zstd") {
     try {
-      bytes = new Uint8Array(zstdDecompressSync(raw));
-    } catch {
+      bytes = zstdDecompressSync(raw, { maxOutputLength: MAX_DECOMPRESSED_BYTES });
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "ERR_BUFFER_TOO_LARGE") {
+        throw new AiRequestError(
+          `The decompressed request body exceeds ${MAX_DECOMPRESSED_BYTES} bytes.`,
+          undefined,
+          "request_too_large",
+          413,
+        );
+      }
       throw new AiRequestError("Malformed zstd request body.", undefined, "invalid_encoding");
     }
   }

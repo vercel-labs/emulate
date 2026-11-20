@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { imageAttachment } from "../attachments.js";
+import { imageAttachment, redactedReference } from "../attachments.js";
 import type { CodecContext, Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import { AiRequestError } from "../errors.js";
@@ -84,7 +84,7 @@ function flatten(value: unknown, parts: InputPart[], path: string): void {
     const mediaType = typeof value.mime_type === "string" ? value.mime_type : "image/*";
     parts.push(
       typeof value.uri === "string"
-        ? { type: "file", mediaType, source: "url", ref: value.uri }
+        ? { type: "file", mediaType, source: "url", ref: redactedReference(value.uri, `${path}.uri`) }
         : inlinePart(String(value.data), mediaType),
     );
     return;
