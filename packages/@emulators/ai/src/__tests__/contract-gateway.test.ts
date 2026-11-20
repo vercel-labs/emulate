@@ -183,6 +183,13 @@ describe("AI Gateway contract", () => {
       body: JSON.stringify({ prompt: "x", n: 1, aspectRatio: "100000:1", duration: 1 }),
     });
     expect((await extreme.text()).length).toBeLessThan(100_000);
+    const huge = "9".repeat(400);
+    const overflow = await fetch(`${origin}/v4/ai/video-model/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "ai-model-id": "google/veo-3.1-generate-001" },
+      body: JSON.stringify({ prompt: "x", n: 1, aspectRatio: `${huge}:${huge}` }),
+    });
+    expect(overflow.status).toBe(400);
 
     await putRules([{ id: "slow", match: { format: "gateway", task: "video" }, reply: [{ type: "video", polls: 2 }] }]);
     const polled = await generateVideo({

@@ -84,11 +84,11 @@ export function dimensions(
   }
   if (aspectRatio === undefined || aspectRatio === "adaptive") return { width: long, height: long };
   const match = /^(\d+):(\d+)$/.exec(aspectRatio);
-  if (!match || Number(match[1]) === 0 || Number(match[2]) === 0)
+  const w = Number(match?.[1]);
+  const h = Number(match?.[2]);
+  if (!Number.isSafeInteger(w) || !Number.isSafeInteger(h) || w === 0 || h === 0)
     fail(`Invalid aspect ratio '${aspectRatio}'.`, aspectPath);
-  const w = Number(match[1]);
-  const h = Number(match[2]);
-  const short = Math.max(1, Math.round((long * Math.min(w, h)) / Math.max(w, h)));
+  const short = Math.max(1, Math.round(long * (Math.min(w, h) / Math.max(w, h))));
   return w >= h ? { width: long, height: short } : { width: short, height: long };
 }
 
