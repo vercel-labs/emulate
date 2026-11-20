@@ -571,6 +571,26 @@ describe("AWS plugin - S3 DeleteObjects conditions", () => {
     expect(await exists("b")).toBe(true);
   });
 
+  it("treats an empty ETag as a condition that fails", async () => {
+    await put("a");
+    await put("b");
+    const res = await deleteObjects(
+      `<Delete><Object><Key>a</Key><ETag/></Object><Object><Key>b</Key><ETag></ETag></Object></Delete>`,
+    );
+    const text = await res.text();
+    expect(text).toContain("<Error><Key>a</Key><Code>PreconditionFailed</Code>");
+    expect(text).toContain("<Error><Key>b</Key><Code>PreconditionFailed</Code>");
+    expect(await exists("a")).toBe(true);
+    expect(await exists("b")).toBe(true);
+  });
+
+  it("decodes each character reference once", async () => {
+    await put(encodeURIComponent("<"));
+    const res = await deleteObjects(`<Delete><Object><Key>&#38;lt;</Key></Object></Delete>`);
+    expect(await res.text()).toContain("<Deleted><Key>&amp;lt;</Key></Deleted>");
+    expect(await exists(encodeURIComponent("<"))).toBe(true);
+  });
+
   it("reports only errors in quiet mode", async () => {
     await put("a");
     await put("b");

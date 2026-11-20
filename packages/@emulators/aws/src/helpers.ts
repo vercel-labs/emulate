@@ -68,15 +68,14 @@ export function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+const XML_ENTITIES: Record<string, string> = { lt: "<", gt: ">", quot: '"', apos: "'", amp: "&" };
+
 export function unescapeXml(str: string): string {
-  return str
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#([0-9]+);/g, (_, dec: string) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
+  return str.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|lt|gt|quot|apos|amp);/g, (_, ref: string) => {
+    if (ref.startsWith("#x")) return String.fromCodePoint(parseInt(ref.slice(2), 16));
+    if (ref.startsWith("#")) return String.fromCodePoint(parseInt(ref.slice(1), 10));
+    return XML_ENTITIES[ref];
+  });
 }
 
 export function parseQueryString(body: string): Record<string, string> {

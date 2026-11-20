@@ -254,10 +254,10 @@ ${prefixesXml}
   const handleDeleteObjects = async (c: S3BucketContext, bucketName: string) => {
     const xml = await c.req.text();
     const entries = [...xml.matchAll(/<Object>([\s\S]*?)<\/Object>/g)].map((m) => {
-      const etag = /<ETag>([\s\S]*?)<\/ETag>/.exec(m[1])?.[1];
+      const etag = /<ETag\s*\/>|<ETag>([\s\S]*?)<\/ETag>/.exec(m[1]);
       return {
         key: unescapeXml(/<Key>([\s\S]*?)<\/Key>/.exec(m[1])?.[1] ?? ""),
-        etag: etag === undefined ? undefined : unescapeXml(etag),
+        etag: etag ? unescapeXml(etag[1] ?? "") : undefined,
       };
     });
     const quiet = /<Quiet>\s*true\s*<\/Quiet>/i.test(xml);
