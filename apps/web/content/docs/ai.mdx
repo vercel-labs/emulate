@@ -3,17 +3,17 @@ title: "AI Responses"
 navTitle: "AI"
 ---
 
-OpenAI Responses, Chat Completions, and Anthropic Messages emulation for CI and offline sandboxes. It is not a model: rules and deterministic defaults decide every reply, so text, structured output, tool calls, reasoning, refusals, errors, and stream timing repeat exactly on every run.
+Deterministic emulation for OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. Rules and deterministic defaults decide every reply, so the same config and request sequence repeat text, structured output, tool calls, reasoning, refusals, errors, and stream timing identically with no API key or network access.
 
 ```bash
 npx emulate start --service ai --port 4014
 ```
 
-Examples on this page use port 4014, the port AI gets when all services start. A sole AI service without `--port` starts on 4000.
+Examples on this page use port `4014`, the default port when all services start together. Starting `ai` alone without `--port` uses `EMULATE_PORT`, `PORT`, or `4000`.
 
 ## Clients
 
-Point any OpenAI client at `http://localhost:4014/v1`. Any API key and any model id work, including `provider/model` slugs, and the reply echoes the model.
+Point OpenAI clients at `http://localhost:4014/v1` and the Anthropic SDK at `http://localhost:4014`. Any API key and any model id work, including `provider/model` slugs, and replies echo the requested model.
 
 ```typescript
 import OpenAI from "openai";
@@ -24,43 +24,68 @@ const client = new OpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" 
 const anthropic = new Anthropic({ apiKey: "test", baseURL: "http://localhost:4014" });
 
 const openai = createOpenAI({ apiKey: "test", baseURL: "http://localhost:4014/v1" });
-openai("anthropic/claude-sonnet-5");
-openai.chat("anthropic/claude-sonnet-5");
+openai("anthropic/claude-sonnet-5"); // OpenAI Responses
+openai.chat("anthropic/claude-sonnet-5"); // OpenAI Chat Completions
 ```
 
-The Anthropic SDK adds `/v1/messages` itself, so give it the origin without `/v1`.
-
-- `openai(model)` uses Responses; `openai.chat(model)` uses Chat Completions.
-- `createOpenAICompatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`, or it sends `json_object` without a schema and the `{}` default fails its schema check.
-- To replace Vercel AI Gateway, swap `https://ai-gateway.vercel.sh/v1` for the emulator URL, or set `OPENAI_BASE_URL`.
-- Keys are never validated, stored, or logged. Some SDKs still need a placeholder.
-- Every generation response carries a deterministic request id: `x-request-id` on the OpenAI routes and `request-id` on the Anthropic Messages route.
+- The Anthropic SDK appends `/v1/messages`, so omit `/v1` from its `baseURL`.
+- `@ai-sdk/openai-compatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`; otherwise it sends `json_object` without a schema and the default `{}` reply fails validation.
+- To replace Vercel AI Gateway, point your OpenAI-compatible client at `http://localhost:4014/v1` instead of `https://ai-gateway.vercel.sh/v1`, or set `OPENAI_BASE_URL`. The private `@ai-sdk/gateway` protocol is not supported.
+- The emulator never validates, stores, or logs API keys, though most SDKs require a placeholder string.
+- Every generation response includes a deterministic request id header: `x-request-id` on OpenAI routes and `request-id` on Anthropic Messages.
 
 ## Routes
 
-The format is read from the end of the path, so any prefix works (`/v1`, `/api/v1`).
+The emulator matches routes by path suffix, so any prefix works (such as `/v1` or `/api/v1`).
 
-- `POST .../responses` — OpenAI Responses, unary and streamed
-- `POST .../chat/completions` — OpenAI Chat Completions, unary and streamed
-- `POST .../messages` — Anthropic Messages, unary and streamed
-- `GET .../responses/:id` — retrieve a stored response
-- `DELETE .../responses/:id` — delete a stored response
-- `GET .../models` — configured and previously requested models, in OpenAI's list shape
-- `GET /` — inspector
+| Method   | Path                   | Behavior                                                              |
+| -------- | ---------------------- | --------------------------------------------------------------------- |
+| `POST`   | `/v1/responses`        | OpenAI Responses, unary and streamed                                  |
+| `POST`   | `/v1/chat/completions` | OpenAI Chat Completions, unary and streamed                           |
+| `POST`   | `/v1/messages`         | Anthropic Messages, unary and streamed                                |
+| `GET`    | `/v1/responses/:id`    | Retrieve a stored response                                            |
+| `DELETE` | `/v1/responses/:id`    | Delete a stored response                                              |
+| `GET`    | `/v1/models`           | List configured and previously requested models in OpenAI's list form |
+| `GET`    | `/`                    | Read-only inspector                                                   |
 
-Other paths return the native OpenAI 404 naming the supported paths.
+Unsupported paths default to a native OpenAI 404 naming the supported paths.
 
-### Messages
+### Anthropic Messages
 
-The Messages route speaks Anthropic's wire format, not OpenAI's: `system` is a top-level field, `max_tokens` is required, content is a list of blocks (`text`, `image`, `document`, `search_result`, `tool_use`, `tool_result`). An image or document `url` source must be an HTTP or HTTPS URL. Replies use `stop_reason` (`end_turn`, `tool_use`, `max_tokens`, `stop_sequence`, `refusal`; a `content_filter` finish also maps to `refusal`) and content blocks, and a stream sends `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop`. Tool arguments stream as `input_json_delta` pieces of partial JSON. On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`. Messages errors use Anthropic's envelope, and a validation error starts with the failing field, as in `max_tokens: Expected a number.` Unsupported paths under `/v1/messages`, such as `count_tokens`, and any request with an `anthropic-version` header get a `not_found_error` in the same envelope.
+`POST /v1/messages` implements Anthropic's Messages wire format. Match `format: anthropic-messages` in a rule to target this route alone.
 
-Structured output arrives in `output_config.format` and comes back as a text block holding JSON. Errors use Anthropic's envelope, `{"type":"error","error":{"type":"invalid_request_error","message":"..."},"request_id":"..."}`, and keep Anthropic's error types: `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, and `overloaded_error`. Anthropic's schema limits apply, so `oneOf`, numeric and string constraints, and external references return a 400.
+| Area              | Behavior                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Required fields   | `model`, `messages`, and a positive integer `max_tokens`; `system` is top-level                                      |
+| Content blocks    | `text`, `image`, `document`, `search_result`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`             |
+| URL sources       | `http:` or `https:` URLs for image and document blocks                                                               |
+| Base64 media      | Images: `image/jpeg`, `image/png`, `image/gif`, `image/webp`; documents: `application/pdf`                           |
+| Tools             | Client tools accept optional `input_schema`; hosted tool types return 400                                            |
+| Structured output | Read from `output_config.format` (`type: "json_schema"`) and returned as a `text` block holding JSON                 |
+| `stop_reason`     | `end_turn`, `tool_use`, `max_tokens`, `stop_sequence`, or `refusal` (`content_filter` also maps to `refusal`)        |
+| Stream events     | `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop` |
+| Tool streaming    | Tool arguments stream as `input_json_delta` pieces of partial JSON                                                   |
 
-Rules, variants, timing, faults, and the inspector work the same way; match on `format: anthropic-messages` to target this route alone.
+Because `input_schema` is optional on client tools, Anthropic-defined client tools such as bash, text editor, computer use, and memory work by name. Hosted server tool types (`web_search_*`, `web_fetch_*`, `code_execution_*`, `tool_search_tool_*`, `mcp_toolset`) return 400.
+
+Errors use Anthropic's envelope and error types (`invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, `overloaded_error`), and validation errors start with the failing field:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "max_tokens: Expected a number."
+  },
+  "request_id": "req_1"
+}
+```
+
+Unsupported paths under `/v1/messages` (such as `/v1/messages/count_tokens`), or any unsupported data path sent with an `anthropic-version` header, return `not_found_error` in this envelope.
 
 ## Rules
 
-Rules come from the `ai` seed block or `PUT /_ai/rules`. They are checked in order and the first match answers. This pair drives a two-step tool loop:
+Save rules under `ai` in `emulate.config.yaml` (or pass `--seed <file>`), or replace them at runtime with `PUT /_ai/rules`. Rules are checked in order and the first match answers.
 
 ```yaml
 ai:
@@ -82,69 +107,92 @@ ai:
         hasToolResult: true
       reply:
         - type: text
-          text: The temperature is 20 C.
+          text: The temperature in Paris is 20 C.
 ```
 
-In a project config with a `services:` map, the seed goes under `services.<name>.seed`, not a top-level `ai:` block, which would start a second service named `ai`:
+In a project config with a `services:` map, put the seed under `services.<name>.seed`. A top-level `ai:` block starts a second service named `ai`.
 
 ```yaml
 services:
   llm:
     emulator: ai
-    seed: { rules: [{ id: weather, match: { textContains: weather }, reply: [{ type: text, text: Sunny }] }] }
+    seed:
+      rules:
+        - id: weather
+          match: { textContains: weather }
+          reply: [{ type: text, text: Sunny }]
 ```
 
 ### Rule fields
 
-| Field      | What it does                                                                                                                                             |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | Names the rule in the call record, the inspector, and `/_ai/rules`                                                                                       |
-| `match`    | Conditions the request must meet; omit it to match everything                                                                                            |
-| `times`    | How many times the rule can answer; omit it for unlimited                                                                                                |
-| `reply`    | The events to send back                                                                                                                                  |
-| `variants` | Bodies the seed picks from, one per matching call; each may override `finish`, `timing`, and `fault`                                                     |
-| `finish`   | Overrides the finish reason; the rule-level value is the default for its variants                                                                        |
-| `error`    | Returns an HTTP error instead of a reply                                                                                                                 |
-| `fault`    | Stalls or cuts a streamed reply partway through; the rule-level value is the default for its variants                                                    |
-| `timing`   | Per-rule `ttftMs` and `chunkDelayMs`, over the global timing; `chunkDelayMs` also takes a list, and the rule-level value is the default for its variants |
+| Field      | Purpose                                                        |
+| ---------- | -------------------------------------------------------------- |
+| `id`       | Names the rule in the call record, inspector, and `/_ai/rules` |
+| `match`    | Request conditions; omit to match every request                |
+| `times`    | Maximum matches before skipping; omit for unlimited            |
+| `reply`    | Ordered list of reply events                                   |
+| `variants` | Multiple reply or error bodies cycled per call                 |
+| `finish`   | Overrides the finish reason (default for variants)             |
+| `error`    | Returns an HTTP error instead of a reply                       |
+| `fault`    | Stalls or disconnects a stream (default for variants)          |
+| `timing`   | Per-rule `ttftMs` and `chunkDelayMs` (default for variants)    |
 
-A rule has one of `reply`, `variants`, or `error`. `finish`, `timing`, and `fault` apply only to `reply` and `variants`, and `fault` needs `match.stream: true`. Inside `variants`, each variant overrides the rule-level `finish`, `timing`, and `fault`. SDK retries spend the next variant.
-
-`times` is spent on every outcome, including errors, faults, and SDK retries. An exhausted rule is skipped until `POST /_ai/reset` or a `PUT /_ai/rules` replaces the rules; both restore every rule's full budget.
+- Every rule sets exactly one of `reply`, `variants`, or `error`. `finish`, `timing`, and `fault` apply only to `reply` and `variants`.
+- `times` is spent on every match, including errors, faults, and SDK retries. `POST /_ai/reset` and `PUT /_ai/rules` restore full budgets.
 
 ### Matching
 
 Every condition in `match` must hold.
 
-| Matcher         | Matches when                                                                                                                         |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `model`         | The model id matches; `*` wildcards allowed                                                                                          |
-| `format`        | The request format is `openai-chat`, `openai-responses`, or `anthropic-messages`                                                     |
-| `stream`        | The request does or does not stream                                                                                                  |
-| `textContains`  | The latest user text contains the string; tool results are ignored                                                                   |
-| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                          |
-| `hasToolResult` | The current turn does or does not carry a tool result                                                                                |
-| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type |
+| Matcher         | Matches when                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| `model`         | Model id matches (`*` wildcards allowed)                                                          |
+| `format`        | Wire format is `openai-chat`, `openai-responses`, or `anthropic-messages`                         |
+| `stream`        | Request is or is not streaming                                                                    |
+| `textContains`  | Latest user text contains the string (case-sensitive, ignores tool results)                       |
+| `tool`          | Request declares a matching tool (`*` wildcards allowed)                                          |
+| `hasToolResult` | Current turn does or does not carry a tool result                                                 |
+| `file`          | `true` for any attachment (including inside tool results), or a media-type glob such as `image/*` |
 
 ### Replies
 
-`reply` is a list of events. The service adds ids, usage, and the format's terminal events.
+`reply` is an ordered list of events. The emulator adds ids, usage estimates, and format-specific terminal events.
 
-| Event       | Fields                             | Sends                                                                                                                              |
-| ----------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `text`      | `text`                             | Assistant text                                                                                                                     |
-| `object`    | `value`                            | A JSON value for structured output                                                                                                 |
-| `tool_call` | `name`, `arguments`, optional `id` | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted |
-| `reasoning` | `text`                             | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                     |
-| `refusal`   | `text`                             | A refusal in the format's native shape                                                                                             |
+| Event       | Fields                             | Output                                                                                        |
+| ----------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| `text`      | `text`                             | Assistant text                                                                                |
+| `object`    | `value`                            | JSON text for structured output                                                               |
+| `tool_call` | `name`, `arguments`, optional `id` | Tool call (`arguments` must be a JSON object; id generated if omitted)                        |
+| `reasoning` | `text`                             | Reasoning summary in Responses; signed `thinking` block in Messages; token count only in Chat |
+| `refusal`   | `text`                             | Refusal in the format's native shape                                                          |
 
-Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
+Passing a JSON string for `tool_call.arguments` fails validation at startup and on `PUT /_ai/rules`.
 
-Request limits apply to every reply, scripted or default:
+#### Finish reasons
 
-- Stop sequences (`stop` on Chat Completions) cut the reply text at the first match. The sequence itself is not returned, nothing after it is sent, and the reply ends with `stop`. On Messages, `stop_sequences` works the same way, and the reply reports `stop_reason: "stop_sequence"` with the match in `stop_sequence`.
-- Token caps (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) count output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`. On Responses that is `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. On Messages, `max_tokens` is the cap, and a reply over it ends with `stop_reason: "max_tokens"`.
-- A rule's own `finish` still wins when it is set.
+Without `finish`, a reply containing a tool call ends with `tool_calls`, a refusal with no tool call is recorded as `refusal`, and anything else ends with `stop`.
+
+| `finish` value   | Chat Completions                                | Responses                                     | Messages                    |
+| ---------------- | ----------------------------------------------- | --------------------------------------------- | --------------------------- |
+| `stop`           | `finish_reason: "stop"`                         | `status: "completed"`                         | `stop_reason: "end_turn"`   |
+| `tool_calls`     | `finish_reason: "tool_calls"`                   | `status: "completed"`                         | `stop_reason: "tool_use"`   |
+| `length`         | `finish_reason: "length"`                       | `status: "incomplete"`                        | `stop_reason: "max_tokens"` |
+| `content_filter` | `finish_reason: "content_filter"`               | `status: "incomplete"`                        | `stop_reason: "refusal"`    |
+| `refusal`        | `finish_reason: "stop"` (recorded as `refusal`) | `status: "completed"` (recorded as `refusal`) | `stop_reason: "refusal"`    |
+
+A rule's `finish` value overrides inferred and limit-triggered finish reasons, even when the events themselves would produce a different outcome.
+
+#### Request limits
+
+Request limits apply to both scripted and default replies.
+
+| Limit          | Chat Completions                                   | Responses                                                                                      | Messages                                                                |
+| -------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Stop sequences | `stop` (ends with `stop`)                          | Not supported                                                                                  | `stop_sequences` (`stop_reason: "stop_sequence"`, sets `stop_sequence`) |
+| Token cap      | `max_completion_tokens` or `max_tokens` (`length`) | `max_output_tokens` (`status: "incomplete"`, `incomplete_details.reason: "max_output_tokens"`) | `max_tokens` (`stop_reason: "max_tokens"`)                              |
+
+- Stop sequences cut reply text at the first match and omit the matched sequence.
+- Token caps estimate 1 token per 4 characters. Text past the cap is truncated, and a tool call that does not fit is dropped whole.
 
 ### Errors and faults
 
@@ -174,32 +222,76 @@ ai:
         stallMs: 30000
 ```
 
-| Field                                     | What it does                                                |
-| ----------------------------------------- | ----------------------------------------------------------- |
-| `error.status`                            | HTTP status from 400 to 599                                 |
-| `error.message`                           | Error message in the native error body                      |
-| `error.type`, `error.code`, `error.param` | Optional native error fields                                |
-| `error.headers`                           | Response headers, such as `retry-after`                     |
-| `fault.kind`                              | `stall` pauses the stream; `disconnect` cuts the connection |
-| `fault.afterChunks`                       | Text or tool-argument deltas to send first                  |
-| `fault.stallMs`                           | How long a stall lasts                                      |
+| Field                                     | Behavior                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| `error.status`                            | HTTP status from `400` to `599`                                     |
+| `error.message`                           | Error message in the native error body                              |
+| `error.type`, `error.code`, `error.param` | Optional native error fields                                        |
+| `error.headers`                           | Response headers, such as `retry-after`                             |
+| `fault.kind`                              | `stall` pauses the stream; `disconnect` cuts the connection         |
+| `fault.afterChunks`                       | Content chunks (text or tool-argument deltas) sent before the fault |
+| `fault.stallMs`                           | Stall duration in milliseconds                                      |
 
-A fault needs `match.stream: true`. The call record shows the fault and whether delivery completed, failed, or the client aborted.
+Fault rules require `match.stream: true`. The call record separates `fault` (`none`, `disconnect`, `stall`) from `delivery` (`pending`, `completed`, `client_aborted`, `error`).
+
+### Variants
+
+Use `variants` instead of `reply` to cycle through different responses across matching calls.
+
+```yaml
+ai:
+  random:
+    seed: 7
+  rules:
+    - id: flaky-answer
+      match:
+        textContains: flaky
+      variants:
+        - reply: [{ type: text, text: Complete answer. }]
+        - reply: [{ type: text, text: Cut short. }]
+          finish: length
+        - reply: [{ type: text, text: Slow stream. }]
+          timing: { ttftMs: 400, chunkDelayMs: 120 }
+        - error: { status: 429, message: Slow down. }
+```
+
+- `ai.random.seed` shuffles each rule's variants into a cycle so every variant runs once before repeating. The same seed and match order always produce the same sequence, and a different seed changes the order.
+- Each rule tracks its own match count since startup, reset, or `PUT /_ai/rules`, so other rules do not shift its sequence.
+- Variants can hold `error` instead of `reply` and override rule-level `finish`, `timing`, and `fault`. SDK retries consume the next variant.
+
+### Timing
+
+- Replies are instant by default (`ttftMs: 0`, `chunkDelayMs: 0`).
+- `ai.timing.ttftMs` delays the first byte of both unary and streamed replies. `ai.timing.chunkDelayMs` sets the delay between streamed frames and accepts either a number or a list applied in frame order, with the last value repeating.
+- Pending timers cancel on client disconnect or reset. Streamed structured output splits only at JSON structural characters so a partial JSON parser can read values as they arrive.
 
 ## Defaults and strict mode
 
-With no matching rule:
+When no rule matches, the emulator returns a deterministic default:
 
-| Request                    | Reply                                            |
-| -------------------------- | ------------------------------------------------ |
-| Plain text                 | The latest user text, echoed                     |
-| Attachments only           | `Received N files (...)`                         |
-| JSON mode without a schema | `{}`                                             |
-| A JSON schema              | A schema-valid object, identical every run       |
-| A forced tool choice       | A call with arguments built from the tool schema |
-| A tool result              | `Received the result of <tool>.`                 |
+| Request                  | Default reply                                       |
+| ------------------------ | --------------------------------------------------- |
+| Plain text               | Echoes the latest user text                         |
+| Attachments only         | `Received N files (...)`                            |
+| JSON mode without schema | `{}`                                                |
+| JSON schema              | Deterministic, schema-valid object                  |
+| Forced tool choice       | Tool call with arguments generated from tool schema |
+| Tool result              | `Received the result of <tool or call id>.`         |
 
-A strict JSON Schema is checked against OpenAI's documented subset before anything is generated, and a rejected keyword returns OpenAI's own error:
+### Strict mode
+
+Set `ai.strict: true` to fail every unmatched request with a 400 instead of returning a default. The error names the model and declared tools, and prints the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
+
+### Schema validation and generation
+
+On Chat Completions (`response_format`) and Responses (`text.format`), models starting with `claude` (with or without a prefix such as `anthropic/`) use Anthropic schema rules, and all other models use OpenAI rules; errors keep the route's error envelope. On Messages, `output_config.format` and strict tools always use Anthropic schema rules regardless of model.
+
+| Dialect                 | Required shape                                                                                                                                                     | Rejected keywords                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| OpenAI (`strict: true`) | Objects require `additionalProperties: false` and every property in `required`                                                                                     | `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, `else`                        |
+| Anthropic               | On OpenAI routes, `response_format` requires `json_schema` with `strict: true` (`json_object` returns 400); on Messages, `output_config.format` uses `json_schema` | `oneOf`, numeric and string constraints, array constraints beyond `minItems` 0 or 1, external `$ref` |
+
+Non-strict OpenAI schemas skip validation. Strict response schemas return `param: "response_format"` on Chat Completions or `param: "text.format"` on Responses, while strict function tools return `Invalid schema for function '<name>'` with `code: "invalid_function_parameters"`:
 
 ```json
 {
@@ -212,89 +304,32 @@ A strict JSON Schema is checked against OpenAI's documented subset before anythi
 }
 ```
 
-Composition keywords `allOf`, `not`, `dependentRequired`, `dependentSchemas`, `if`, `then`, and `else` are rejected, on the Responses endpoint with `param: "text.format"`. An object that does not set `additionalProperties: false`, or leaves a property out of `required`, is rejected the same way. A function tool marked `strict` gets the same checks on its parameters, worded `Invalid schema for function '<name>'` with code `invalid_function_parameters`. Non-strict schemas are not checked, matching the API.
+Default schema generation supports a bounded subset:
 
-The emulator can generate `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, the first `anyOf` branch that yields a valid sample, the first `oneOf` branch whose sample matches exactly one branch (the native 400 when none does), string `format` values for the common formats, and local `$ref`. Keywords written next to `$ref`, `anyOf`, or `oneOf` shape the sample as well. A schema outside that set returns a 400 naming the schema path. A string with `pattern` is generated only when it also has a common `format` the generator knows; otherwise the request returns the native 400 asking for an explicit reply rule. A format sample, `enum` value, or `const` that fails the pattern returns the same 400, and pattern checks run under a time limit.
-
-Provider rules differ, so the dialect is chosen per request: a model name starting with `claude`, with or without a provider prefix such as `anthropic/`, is checked with Anthropic's rules, anything else with OpenAI's, on Chat Completions and Responses alike. The error envelope stays the one the endpoint speaks, which is what Anthropic's OpenAI compatibility layer does: same shape, different message.
-
-Anthropic is stricter about the request shape: `response_format` must be `json_schema` with `strict: true`, and `json_object` returns a 400. Its schema rules also reject `oneOf`, numeric and string constraints, array constraints beyond `minItems` 0 or 1, and external references.
-
-Set `ai.strict: true` to turn every default into a 400. The message names the model and tools and includes the missing rule as YAML and as a JSON body for `PUT /_ai/rules`.
-
-Replies are instant by default. Set `ai.timing.ttftMs` for the delay before the first byte of any reply, streamed or not, and `ai.timing.chunkDelayMs` for the gap between the frames of a stream. `chunkDelayMs` also takes a list, used in frame order with the last entry repeating, so a reply can start fast, slow down, and speed up again.
-
-Streamed structured output is split between JSON structural characters, never inside a string, so a client can parse partial values as they arrive.
-
-### Variants
-
-Give a rule `variants` instead of `reply` to vary the answer per call:
-
-```yaml
-ai:
-  random:
-    seed: 7
-  rules:
-    - id: tone
-      match:
-        textContains: hello
-      variants:
-        - reply:
-            - type: text
-              text: Morning.
-        - reply:
-            - type: text
-              text: Hey there.
-        - reply:
-            - type: text
-              text: Hello.
-```
-
-A variant can carry `error` instead of `reply`, so a test meets a 429 on some calls and a normal reply on others.
-
-Each variant may also override `finish`, `timing`, and `fault`, so one rule covers the same content delivered different ways:
-
-```yaml
-- id: flaky-answer
-  match:
-    textContains: flaky
-  variants:
-    - reply:
-        - type: text
-          text: A complete answer.
-    - reply:
-        - type: text
-          text: An answer that stops early.
-      finish: length
-    - reply:
-        - type: text
-          text: An answer that streams slowly.
-      timing:
-        ttftMs: 400
-        chunkDelayMs: 120
-```
-
-The seed shuffles the variants per rule and calls walk that order in a cycle, so every variant appears once before any repeat. The same seed and call order always produce the same sequence, and a different seed changes the order. Each rule counts its own matches since startup, reset, or a rules update, so requests answered by other rules do not shift its order.
+- Supported keywords: `type`, `properties`, `required`, `enum`, `const`, `items`, numeric and length bounds, `nullable`, `anyOf` (first valid branch), `oneOf` (first branch whose sample matches only one branch; returns a native 400 if none does), common string `format` values, and local `$ref`. Sibling keywords alongside `$ref`, `anyOf`, or `oneOf` apply too.
+- `pattern` generates only when paired with a known `format`; otherwise the request returns 400 asking for an explicit rule. Format samples, `enum`, or `const` values that fail `pattern` also return 400, and regex checks run under a time limit.
+- Unsupported keywords return a 400 naming the schema path.
 
 ## State
 
 ### Stored responses
 
-Responses are stored by default so multi-turn AI SDK sessions work. `previous_response_id` and `item_reference` inputs resolve before rules run. `@ai-sdk/openai` 3.x resends earlier turns as item references; 4.x sends tool-call history inline. Both work.
+Responses are stored by default (up to the 1000 most recent; older ones are evicted) so multi-turn sessions resolve `previous_response_id` and `item_reference` inputs before rules run. Both `@ai-sdk/openai` 3.x (item references) and 4.x (inline tool history) work.
 
-- An unknown id continues with empty context and is recorded as unresolved.
-- A function call with no matching `function_call_output` returns OpenAI's 400, `No tool output found for function call <id>.`, unless the history it refers to is missing.
-- `store: false` keeps nothing; the id later returns 404. The call is still recorded.
-- Deleting returns the native deleted object; a second delete returns 404.
-- Reset clears stored responses.
+- An unknown id continues with empty context and records an unresolved reference.
+- A function call with no matching `function_call_output` returns OpenAI's 400 (`No tool output found for function call <id>.`) unless its referenced history is missing.
+- `store: false` skips storage, so later lookups return 404 while the call is still recorded.
+- `DELETE` returns the native deleted object; a second delete returns 404. Reset clears stored responses.
 
 ### Control routes
 
-- `GET /_ai/calls` — call records as a bare array, oldest first
-- `DELETE /_ai/calls` — clear calls; returns `{ "deleted": n }`
-- `GET /_ai/rules` — active rules, each with `remaining` (`null` is unlimited), plus `strict`, `timing`, and `models`
-- `PUT /_ai/rules` — replace the runtime config
-- `POST /_ai/reset` — restore seeded rules and budgets, clear calls and stored responses; returns `{ "reset": true }`
+| Method   | Path         | Behavior                                                                                        |
+| -------- | ------------ | ----------------------------------------------------------------------------------------------- |
+| `GET`    | `/_ai/calls` | Recorded calls as a JSON array, oldest first                                                    |
+| `DELETE` | `/_ai/calls` | Clear calls; returns `{ "deleted": n }`                                                         |
+| `GET`    | `/_ai/rules` | Active config (`rules` with `remaining`, `strict`, `timing`, `random`, `models`)                |
+| `PUT`    | `/_ai/rules` | Replace runtime config; returns the same shape as `GET`                                         |
+| `POST`   | `/_ai/reset` | Restore seeded rules and budgets, clear calls and stored responses; returns `{ "reset": true }` |
 
 ```bash
 curl http://localhost:4014/_ai/rules > rules.json
@@ -302,26 +337,31 @@ curl -X PUT http://localhost:4014/_ai/rules \
   -H 'content-type: application/json' --data @rules.json
 ```
 
-`PUT` takes the same fields as the seed block (`rules`, `strict`, `timing`, `random`, `models`) and replaces all of them, so omitted fields reset to defaults. It ignores `remaining`, `port`, and `baseUrl`. Every replacement restores each rule's full `times` budget. `GET /_ai/rules` returns `rules`, `strict`, `timing`, `models`, and `random`, in the shape `PUT` accepts. An invalid body returns 400 with the failing path and keeps the old rules. Runtime changes never touch the seed file.
+- `PUT /_ai/rules` replaces the full config (`rules`, `strict`, `timing`, `random`, `models`), resetting omitted fields to defaults and restoring every rule's full `times` budget.
+- `remaining` (`null` for unlimited), `port`, and `baseUrl` are ignored on `PUT`.
+- Invalid bodies return 400 with the failing path and leave previous rules active. Runtime changes never touch the seed file.
 
-Control routes and the inspector refuse cross-origin browser requests. curl and tests, which send no `Origin`, work. Data routes accept SDK and server calls, which send no `Origin`, and browser pages served on this machine (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); a page on any other website gets 403. Startup warns when the service listens beyond loopback. The AI service also checks the request's own host, so a website whose name is rebound to this machine cannot read it: it answers only on loopback names, IP addresses, and the host of its base URL, and any other name gets 403. To allow another name, such as a Docker service name, start with `--base-url http://<host>:<port>`. When embedded through `createEmulateHandler`, set `publicUrl` to the public origin.
+### Access
+
+- Control routes and the inspector allow requests with no `Origin` (curl, tests) and same-origin requests; other origins get 403.
+- Data routes allow requests with no `Origin`, same-origin requests, and loopback browser origins (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`); foreign browser origins get 403.
+- Host-header validation allows only loopback names, IP addresses, and the configured base URL host to block DNS rebinding. Pass `--base-url http://<host>:<port>` for other hosts (such as Docker service names), or set `publicUrl` in `createEmulateHandler`.
+- Startup warns when listening beyond loopback.
 
 ### Inspector and call record
 
-Open `http://localhost:4014/` to browse calls and rules with their remaining budgets.
+Open `http://localhost:4014/` for read-only Calls and Rules tabs.
 
-Each call record keeps the format, path, model, normalized messages, tools, references, `matched`, a reply summary, status, fault, and delivery, for the last 500 generation requests. Stored responses are capped at the most recent 1000; older ones are evicted. `matched` is `{ id, remaining, rule }` for a rule, `{ default }` for a default, and `null` for a strict-mode miss.
-
-Prompts and tool arguments are recorded. API keys, auth headers, URL credentials, and file bytes are not; attachments keep only name, media type, size, and SHA-256.
+- The call record retains the last 500 generation requests with format, path, model, normalized messages, tools, references, `matched`, reply summary, status, fault, and delivery.
+- `matched` is `{ id, remaining, rule }` for a rule, `{ default }` for a default, or `null` for a strict-mode miss.
+- Prompts and tool arguments are recorded. API keys, auth headers, URL credentials, and file bytes are stripped; attachments keep only name, media type, size, and SHA-256.
 
 ## Limits
 
-- The Vercel AI SDK cannot parse native refusals. Script refusal-like content as `text`, or use the `openai` SDK.
-- Chat Completions carries no reasoning text, only reasoning tokens in usage, and omits OpenRouter's `reasoning` extensions.
-- The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
-- On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
-- Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
-- Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
-- Usage numbers are deterministic estimates.
-
-An unknown key in the `ai` seed block fails startup with its path. See [Configuration](/docs/configuration) for the file format.
+- `@ai-sdk/openai` cannot parse native refusal parts. Script refusal text as `text`, or test native refusals with the `openai` SDK.
+- Chat Completions carries no reasoning text field; usage reports only `reasoning_tokens`, and OpenRouter's `reasoning` extensions are ignored.
+- Attachments are input only: the emulator does not fetch remote files or use file contents to generate replies (inline bytes are decoded only to compute size and SHA-256). Chat Completions accepts only PDF files (no file URLs), and `@ai-sdk/openai` sends only images and PDFs unless `passThroughUnsupportedFiles` is set.
+- Unsupported OpenAI features return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, Conversations API, multiple candidates (`n > 1`), audio input or output, and legacy `functions`.
+- Unimplemented endpoints return a native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+- Unknown optional fields are ignored, reply text uses no templating, and token usage numbers are deterministic estimates.
+- An unknown key in the `ai` seed block fails startup with its path. See [Configuration](/docs/configuration).
