@@ -69,6 +69,24 @@ describe("GitHub issues routes", () => {
     expect(body.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("lists pull requests with issues, as GitHub does", async () => {
+    const pull = await app.request(`${base}/repos/octocat/hello-world/pulls`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "A pull request", head: "feature", base: "main" }),
+    });
+    expect(pull.status).toBe(201);
+
+    const res = await app.request(`${base}/repos/octocat/hello-world/issues?state=open`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(200);
+    const list = (await res.json()) as Array<{ number: number; title: string; pull_request?: { url: string } }>;
+    const found = list.find((issue) => issue.title === "A pull request");
+    expect(found).toBeDefined();
+    expect(found!.pull_request?.url).toBe(`${base}/repos/octocat/hello-world/pulls/${found!.number}`);
+  });
+
   it("gets an issue by number", async () => {
     await app.request(`${base}/repos/octocat/hello-world/issues`, {
       method: "POST",

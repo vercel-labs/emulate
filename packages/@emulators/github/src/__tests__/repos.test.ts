@@ -84,6 +84,31 @@ describe("GitHub repos routes", () => {
     expect(res.status).toBe(404);
   });
 
+  it("lists an organization's repos for a member, including private ones", async () => {
+    const { app, store } = createTestApp();
+    seedFromConfig(store, base, {
+      orgs: [{ login: "vercel-labs", members: [{ login: "octocat", role: "admin" }] }],
+      repos: [
+        { owner: "vercel-labs", name: "emulate", private: true },
+        { owner: "vercel-labs", name: "public-app" },
+      ],
+    });
+
+    const all = await app.request(`${base}/user/repos`, { headers: authHeaders() });
+    expect(all.status).toBe(200);
+    const names = ((await all.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
+    expect(names).toEqual(expect.arrayContaining(["vercel-labs/emulate", "vercel-labs/public-app"]));
+
+    const member = await app.request(`${base}/user/repos?type=member`, { headers: authHeaders() });
+    const memberNames = ((await member.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
+    expect(memberNames).toEqual(expect.arrayContaining(["vercel-labs/emulate"]));
+
+    const owner = await app.request(`${base}/user/repos?type=owner`, { headers: authHeaders() });
+    const ownerNames = ((await owner.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
+    expect(ownerNames).toContain("octocat/hello-world");
+    expect(ownerNames).not.toContain("vercel-labs/emulate");
+  });
+
   it("lists repos for a user", async () => {
     const res = await app.request(`${base}/users/octocat/repos`, {
       method: "GET",

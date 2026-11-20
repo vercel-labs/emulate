@@ -310,7 +310,8 @@ curl http://localhost:4001/repos/octocat/hello-world/compare/v1.0.0...main
 ### Issues
 
 ```bash
-# List issues (filter by state, labels, assignee, milestone, creator, since)
+# List issues and pull requests (filter by state, labels, assignee, milestone, creator, since)
+# A pull request appears here too, with its pull_request object
 curl "http://localhost:4001/repos/octocat/hello-world/issues?state=open&labels=bug"
 
 # Create issue

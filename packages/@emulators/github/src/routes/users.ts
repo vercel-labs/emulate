@@ -1,6 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
-import { assertAuthenticatedUser, canAccessRepo, notFoundResponse } from "../route-helpers.js";
+import { assertAuthenticatedUser, canAccessRepo, isOrgMember, notFoundResponse } from "../route-helpers.js";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
@@ -8,11 +8,16 @@ import { formatOrgBrief, formatRepo, formatUser, formatUserFull } from "../helpe
 
 function listReposForUser(gh: GitHubStore, user: GitHubUser, type: "all" | "owner" | "member"): GitHubRepo[] {
   const owned = gh.repos.all().filter((r) => r.owner_id === user.id && r.owner_type === "User");
-  const member = gh.collaborators
+  const collaborated = gh.collaborators
     .findBy("user_id", user.id)
     .map((c) => gh.repos.get(c.repo_id))
     .filter((r): r is GitHubRepo => Boolean(r))
     .filter((r) => !(r.owner_id === user.id && r.owner_type === "User"));
+  // A member of an organization sees its repositories, whether or not they collaborate on each one.
+  const member = gh.repos
+    .all()
+    .filter((r) => r.owner_type === "Organization" && isOrgMember(gh, user.id, r.owner_id))
+    .concat(collaborated);
 
   if (type === "owner") return owned;
   if (type === "member") return member;
