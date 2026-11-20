@@ -4,7 +4,9 @@ import type { Codec, CodecContext, Decoded } from "./codec.js";
 import { messagesCodec } from "./codecs/anthropic-messages.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
-import { decide } from "./engine.js";
+import { decide, decideMedia } from "./engine.js";
+import { imageRoutes } from "./media/openai-images.js";
+import type { MediaBody, MediaResult, MediaRoute, UploadedFile } from "./media/route.js";
 import { AiConfigError, AiRequestError, defaultErrorType } from "./errors.js";
 import { parseConfig, rulesView, type RuleView } from "./rules.js";
 import { renderAiInspector } from "./routes/inspector.js";
@@ -29,7 +31,9 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits";
+
+const MEDIA_ROUTES: readonly MediaRoute[] = [...imageRoutes];
 
 /** The OpenAI error envelope both V1 formats share. */
 export function aiErrorBody(
@@ -157,6 +161,16 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
       } catch (error) {
         return unrecordedError(store, codec, error);
       }
+    }
+  }
+
+  const mediaRoute = MEDIA_ROUTES.find((route) => route.matches(method, path));
+  if (mediaRoute) {
+    try {
+      return await handleMedia(c, store, state, mediaRoute, path, url.searchParams);
+    } catch (error) {
+      const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
+      return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
     }
   }
 
@@ -366,6 +380,138 @@ async function handleGeneration(
     },
   };
   return withRequestId(sseResponse(frames, options), codec, call.seq);
+}
+
+/**
+ * Runs one media request through the same lifecycle as a generation: decode, match a rule of the route's task, record the
+ * call, pace it, and render the route's wire shape.
+ */
+async function handleMedia(
+  c: Context<AppEnv>,
+  store: Store,
+  state: AiState,
+  route: MediaRoute,
+  path: string,
+  query: URLSearchParams,
+): Promise<Response> {
+  const scope = beginRequest(state, c.req.raw.signal);
+  const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
+  const ctx = context(store, state, path);
+  let body: MediaBody | undefined;
+  let decoded: Decoded;
+  try {
+    body = await readMediaBody(c);
+    decoded = route.decode(body, ctx, query);
+  } catch (error) {
+    const status = error instanceof AiRequestError ? error.status : 500;
+    const call = rejectedCall(state, route.format, path, body?.kind === "json" ? body.value : undefined, status);
+    call.task = route.task;
+    recordCall(state, call, stamp);
+    scope.dispose();
+    if (error instanceof AiRequestError) return mediaErrorResponse(route, failureOf(error), call.seq);
+    throw error;
+  }
+  if (scope.signal.aborted || !isCurrentGeneration(state, stamp)) {
+    scope.dispose();
+    throw staleStateError();
+  }
+
+  const request = decoded.request;
+  state.seenModels.add(request.model);
+  while (state.seenModels.size > MAX_SEEN_MODELS) {
+    state.seenModels.delete(state.seenModels.values().next().value as string);
+  }
+
+  const outcome = decideMedia(store, request, route.sample);
+  const call = freshCall(state, route.format, path);
+  fillCall(call, request);
+  call.task = route.task;
+  call.matched = outcome.matched;
+  if (outcome.kind === "error") {
+    call.status = outcome.failure.status;
+    call.delivery = "completed";
+    recordCall(state, call, stamp);
+    scope.dispose();
+    return mediaErrorResponse(route, outcome.failure, call.seq);
+  }
+
+  let result: MediaResult;
+  try {
+    result = route.render(outcome.events, decoded, ctx);
+  } catch (error) {
+    scope.dispose();
+    throw error;
+  }
+  call.status = result.kind === "json" ? (result.status ?? 200) : 200;
+  call.reply = { finish: "stop", summary: result.summary ?? route.task };
+  recordCall(state, call, stamp);
+  const requestId = { name: route.requestIdHeader ?? "x-request-id", value: `req_${call.seq}` };
+
+  if (result.kind === "sse") {
+    const response = sseResponse(result.frames, {
+      signal: scope.signal,
+      timing: outcome.timing,
+      fault: outcome.fault,
+      onFault(kind) {
+        call.fault = kind;
+      },
+      onSettled(delivery) {
+        settleCall(state, call, stamp, delivery);
+        scope.dispose();
+      },
+    });
+    response.headers.set(requestId.name, requestId.value);
+    return response;
+  }
+
+  const sent = await delay(outcome.timing.ttftMs, scope.signal);
+  settleCall(state, call, stamp, sent ? "completed" : "client_aborted");
+  scope.dispose();
+  if (!sent) throw staleStateError();
+  const headers = new Headers(result.kind === "text" ? {} : result.headers);
+  headers.set(requestId.name, requestId.value);
+  if (result.kind === "json") return Response.json(result.value, { status: call.status, headers });
+  headers.set("Content-Type", result.contentType);
+  return new Response(result.kind === "bytes" ? result.data : result.text, { status: 200, headers });
+}
+
+/** Reads a multipart body into fields and in-memory files, or a JSON body; an empty body reads as none. */
+async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
+  if (/^multipart\/form-data/i.test(c.req.header("content-type") ?? "")) {
+    let form: FormData;
+    try {
+      form = await c.req.raw.formData();
+    } catch {
+      throw new AiRequestError("Malformed multipart/form-data body.", undefined, "invalid_multipart");
+    }
+    const fields = new Map<string, string[]>();
+    const files = new Map<string, UploadedFile[]>();
+    for (const [name, value] of form.entries()) {
+      if (typeof value === "string") {
+        fields.set(name, [...(fields.get(name) ?? []), value]);
+      } else {
+        const file = { name: value.name, type: value.type, bytes: new Uint8Array(await value.arrayBuffer()) };
+        files.set(name, [...(files.get(name) ?? []), file]);
+      }
+    }
+    return { kind: "form", fields, files };
+  }
+  const text = await c.req.text();
+  if (text.trim() === "") return { kind: "none" };
+  try {
+    return { kind: "json", value: JSON.parse(text) as Json };
+  } catch {
+    throw new AiRequestError("Request body must be valid JSON.", undefined, "invalid_json");
+  }
+}
+
+function mediaErrorResponse(route: MediaRoute, failure: HttpFailure, seq: number): Response {
+  const headers = new Headers(failure.headers);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
+  const name = route.requestIdHeader ?? "x-request-id";
+  const requestId = headers.get(name) ?? `req_${seq}`;
+  headers.set(name, requestId);
+  return new Response(JSON.stringify(route.errorBody(failure, requestId)), { status: failure.status, headers });
 }
 
 function context(store: Store, state: AiState, path: string): CodecContext {

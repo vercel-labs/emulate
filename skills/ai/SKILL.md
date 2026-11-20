@@ -185,8 +185,9 @@ services:
 
 | Key             | Matches                                                                                                              |
 | --------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `task`          | `text` (default) or `image`; a rule answers only requests of its task                                                |
 | `model`         | Model id, with `*` wildcards                                                                                         |
-| `format`        | `openai-chat`, `openai-responses`, or `anthropic-messages`                                                           |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, or `openai-images`                                          |
 | `stream`        | Boolean                                                                                                              |
 | `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                           |
 | `tool`          | A declared tool name, with `*` wildcards                                                                             |
@@ -197,13 +198,14 @@ services:
 
 A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 
-| Event     | Shape                                  | Notes                                                                                                  |
-| --------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Text      | `{ type: text, text }`                 | Normal assistant text                                                                                  |
-| Object    | `{ type: object, value }`              | Sent as JSON text, for structured output                                                               |
-| Tool call | `{ type: tool_call, name, arguments }` | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
-| Reasoning | `{ type: reasoning, text }`            | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
-| Refusal   | `{ type: refusal, text }`              | Native refusal shape                                                                                   |
+| Event     | Shape                                    | Notes                                                                                                  |
+| --------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Text      | `{ type: text, text }`                   | Normal assistant text                                                                                  |
+| Object    | `{ type: object, value }`                | Sent as JSON text, for structured output                                                               |
+| Tool call | `{ type: tool_call, name, arguments }`   | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
+| Reasoning | `{ type: reasoning, text }`              | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
+| Refusal   | `{ type: refusal, text }`                | Native refusal shape                                                                                   |
+| Image     | `{ type: image, data?, revisedPrompt? }` | `task: image` rules only; `data` is base64 file bytes, and without it the emulator renders the image   |
 
 With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
@@ -477,6 +479,33 @@ Use `stream: true` in the matcher and add a fault. A disconnect ends the client 
     stallMs: 30000
 ```
 
+### Images
+
+`POST /v1/images/generations` and `POST /v1/images/edits` serve the OpenAI Images API and xAI's compatible image endpoints, so `openai.images.generate`, `openai.images.edit`, and AI SDK `generateImage` with `@ai-sdk/openai` or `@ai-sdk/xai` work offline. Images are real files in the requested `output_format` and `size`; unmatched requests render a solid color derived from the prompt, inputs, and position.
+
+```typescript
+import OpenAI from "openai";
+
+const openai = new OpenAI({ baseURL: "http://localhost:4014/v1", apiKey: "test" });
+const result = await openai.images.generate({ model: "gpt-image-2", prompt: "a fox", size: "1536x1024", n: 2 });
+```
+
+Script exact bytes or failures with `task: image` rules:
+
+```yaml
+ai:
+  rules:
+    - id: logo
+      match: { task: image, textContains: logo }
+      reply:
+        - type: image
+          data: iVBORw0KGgo... # base64, returned verbatim
+    - id: image-quota
+      match: { task: image }
+      times: 1
+      error: { status: 429, message: Image quota exceeded. }
+```
+
 ### Strict mode
 
 Set `ai.strict: true` to fail unmatched requests with a native 400. The message names the request's model and tools and includes the missing rule as YAML for a seed file and as a JSON body for `PUT /_ai/rules`. The JSON body keeps strict mode on, but `PUT /_ai/rules` replaces the whole configuration. Read the current rules with `GET /_ai/rules`, add the missing rule to them, send the result back, and retry. Replace the placeholder reply text first: it becomes the live reply if you send it unchanged.
@@ -537,7 +566,7 @@ Open `http://localhost:4014/` to browse calls and rule budgets in the inspector.
 
 ## Current Limits
 
-Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 

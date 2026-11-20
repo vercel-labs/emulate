@@ -5,7 +5,10 @@ export type Json = null | boolean | number | string | Json[] | { [key: string]: 
 export type JsonSchema = boolean | { [key: string]: Json };
 
 /** The wire format a request arrived in, selected from the request path. */
-export type AiFormat = "openai-chat" | "openai-responses" | "anthropic-messages";
+export type AiFormat = "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-images";
+
+/** What a request asks the model to produce; rules answer only requests of their own task. */
+export type AiTask = "text" | "image";
 
 /** Attachment metadata decoded from a request; file bytes are never kept. */
 export interface FilePart {
@@ -57,6 +60,8 @@ export interface HistoryReference {
 /** The format-neutral request every codec decodes into and the engine matches against. */
 export interface AIRequest {
   format: AiFormat;
+  /** The output the request asks for; absent means text. */
+  task?: AiTask;
   model: string;
   messages: Message[];
   tools: ToolDefinition[];
@@ -128,6 +133,8 @@ export interface Timing {
 
 /** Conditions a rule requires; every supplied condition must hold. `model` and `tool` accept `*` wildcards. */
 export interface RuleMatch {
+  /** The task a rule answers; absent means text. */
+  task?: AiTask;
   model?: string;
   format?: AiFormat;
   stream?: boolean;
@@ -143,7 +150,14 @@ export type RuleReplyEvent =
   | { type: "text"; text: string }
   | { type: "object"; value: Json }
   | { type: "tool_call"; name: string; arguments: Json; id?: string }
-  | { type: "refusal"; text: string };
+  | { type: "refusal"; text: string }
+  | MediaReplyEvent;
+
+/**
+ * A media reply event for a non-text task. Omitted `data` is rendered by the emulator as a deterministic, decodable file;
+ * `data` supplies base64 file bytes verbatim.
+ */
+export type MediaReplyEvent = { type: "image"; data?: string; revisedPrompt?: string };
 
 /** One alternate rule body: a reply or an error, with optional overrides for the rule-level delivery fields. */
 export interface RuleVariant {
@@ -186,7 +200,14 @@ export interface RuleSnapshot {
 }
 
 /** Which permissive default answered a request that no rule matched. */
-export type DefaultKind = "forced_tool" | "json_object" | "json_schema" | "tool_result" | "attachments" | "echo";
+export type DefaultKind =
+  | "forced_tool"
+  | "json_object"
+  | "json_schema"
+  | "tool_result"
+  | "attachments"
+  | "echo"
+  | "generated";
 
 /** What the engine decided for one request. */
 export type Outcome =
@@ -207,6 +228,8 @@ export interface CallRecord {
   seq: number;
   time: string;
   format: AiFormat;
+  /** Set for calls that asked for something other than text. */
+  task?: AiTask;
   path: string;
   model: string;
   stream: boolean;
