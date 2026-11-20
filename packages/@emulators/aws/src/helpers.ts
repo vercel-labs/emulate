@@ -68,6 +68,16 @@ export function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+const XML_ENTITIES: Record<string, string> = { lt: "<", gt: ">", quot: '"', apos: "'", amp: "&" };
+
+export function unescapeXml(str: string): string {
+  return str.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|lt|gt|quot|apos|amp);/g, (_, ref: string) => {
+    if (ref.startsWith("#x")) return String.fromCodePoint(parseInt(ref.slice(2), 16));
+    if (ref.startsWith("#")) return String.fromCodePoint(parseInt(ref.slice(1), 10));
+    return XML_ENTITIES[ref];
+  });
+}
+
 export function parseQueryString(body: string): Record<string, string> {
   const params = new URLSearchParams(body);
   const result: Record<string, string> = {};

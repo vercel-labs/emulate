@@ -2,7 +2,7 @@ import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext } from "@emulators/core";
 import type { S3Object } from "../entities.js";
 import { getAwsStore } from "../store.js";
-import { awsXmlResponse, awsErrorXml, decodeS3ObjectBody, md5, escapeXml } from "../helpers.js";
+import { awsXmlResponse, awsErrorXml, decodeS3ObjectBody, md5, escapeXml, unescapeXml } from "../helpers.js";
 
 // Handlers are reused across multiple routes (root paths + legacy `/s3/` aliases,
 // with and without trailing slashes). Parameterizing on the bucket/key path pattern
@@ -10,6 +10,87 @@ import { awsXmlResponse, awsErrorXml, decodeS3ObjectBody, md5, escapeXml } from 
 // `string | undefined`, since those segments are always present for these routes.
 type S3BucketContext = Context<AppEnv, "/:bucket">;
 type S3ObjectContext = Context<AppEnv, "/:bucket/:key">;
+
+function compareKeys(a: string, b: string): number {
+  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+function parseETagList(header: string): string[] {
+  return header
+    .split(",")
+    .map((tag) => tag.trim().replace(/^W\//, "").replace(/^"|"$/g, ""))
+    .filter((tag) => tag.length > 0);
+}
+
+function etagListMatches(header: string, etag: string): boolean {
+  const tags = parseETagList(header);
+  return tags.includes("*") || tags.includes(etag);
+}
+
+const PRECONDITION_FAILED = "At least one of the pre-conditions you specified did not hold";
+
+function failedWritePrecondition(c: Context<AppEnv>, existing: S3Object | undefined): Response | undefined {
+  const ifNoneMatch = c.req.header("If-None-Match");
+  const ifMatch = c.req.header("If-Match");
+  if (ifNoneMatch !== undefined && existing && etagListMatches(ifNoneMatch, existing.etag)) {
+    return awsErrorXml(c, "PreconditionFailed", PRECONDITION_FAILED, 412);
+  }
+  if (ifMatch !== undefined) {
+    if (!existing) {
+      return awsErrorXml(c, "NoSuchKey", "The specified key does not exist.", 404);
+    }
+    if (!etagListMatches(ifMatch, existing.etag)) {
+      return awsErrorXml(c, "PreconditionFailed", PRECONDITION_FAILED, 412);
+    }
+  }
+  return undefined;
+}
+
+type ReadCondition = "pass" | "not-modified" | "failed";
+
+function parseHttpDate(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? undefined : time;
+}
+
+function evaluateReadConditions(c: Context<AppEnv>, obj: S3Object, prefix: string): ReadCondition {
+  const header = (name: string) => c.req.header(prefix + name);
+  const modified = Math.floor(Date.parse(obj.last_modified) / 1000) * 1000;
+
+  const ifMatch = header("if-match");
+  if (ifMatch !== undefined) {
+    if (!etagListMatches(ifMatch, obj.etag)) return "failed";
+  } else {
+    const unmodifiedSince = parseHttpDate(header("if-unmodified-since"));
+    if (unmodifiedSince !== undefined && modified > unmodifiedSince) return "failed";
+  }
+
+  const ifNoneMatch = header("if-none-match");
+  if (ifNoneMatch !== undefined) {
+    return etagListMatches(ifNoneMatch, obj.etag) ? "not-modified" : "pass";
+  }
+  const modifiedSince = parseHttpDate(header("if-modified-since"));
+  if (modifiedSince !== undefined && modified <= modifiedSince) return "not-modified";
+  return "pass";
+}
+
+type ByteRange = { start: number; end: number };
+
+function parseRange(header: string | undefined, total: number): ByteRange | "unsatisfiable" | undefined {
+  if (header === undefined) return undefined;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (match[1] === "" && match[2] === "")) return undefined;
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0 || total === 0) return "unsatisfiable";
+    return { start: Math.max(total - suffix, 0), end: total - 1 };
+  }
+  const start = Number(match[1]);
+  if (match[2] !== "" && Number(match[2]) < start) return undefined;
+  if (start >= total) return "unsatisfiable";
+  return { start, end: match[2] === "" ? total - 1 : Math.min(Number(match[2]), total - 1) };
+}
 
 function writeObjectBody(body: Uint8Array): Pick<S3Object, "body_base64" | "body"> {
   return { body_base64: Buffer.from(body).toString("base64"), body: undefined };
@@ -111,13 +192,12 @@ ${bucketXml}
       objects = objects.filter((o) => o.key.startsWith(prefix));
     }
 
-    // Sort by key for stable pagination
-    objects.sort((a, b) => a.key.localeCompare(b.key));
+    objects.sort((a, b) => compareKeys(a.key, b.key));
 
     // Apply continuation-token or start-after
     const marker = continuationToken ?? startAfter;
     if (marker) {
-      const startIndex = objects.findIndex((o) => o.key > marker);
+      const startIndex = objects.findIndex((o) => compareKeys(o.key, marker) > 0);
       objects = startIndex >= 0 ? objects.slice(startIndex) : [];
     }
 
@@ -135,7 +215,7 @@ ${bucketXml}
           contents.push(obj);
         }
       }
-      commonPrefixes.push(...Array.from(prefixSet).sort());
+      commonPrefixes.push(...Array.from(prefixSet).sort(compareKeys));
     }
 
     const truncated = contents.length > maxKeys;
@@ -171,11 +251,53 @@ ${prefixesXml}
     return awsXmlResponse(c, xml);
   };
 
+  const handleDeleteObjects = async (c: S3BucketContext, bucketName: string) => {
+    const xml = await c.req.text();
+    const entries = [...xml.matchAll(/<Object>([\s\S]*?)<\/Object>/g)].map((m) => {
+      const etag = /<ETag\s*\/>|<ETag>([\s\S]*?)<\/ETag>/.exec(m[1]);
+      return {
+        key: unescapeXml(/<Key>([\s\S]*?)<\/Key>/.exec(m[1])?.[1] ?? ""),
+        etag: etag ? unescapeXml(etag[1] ?? "") : undefined,
+      };
+    });
+    const quiet = /<Quiet>\s*true\s*<\/Quiet>/i.test(xml);
+    const objects = aws().s3Objects.findBy("bucket_name", bucketName);
+    const results: string[] = [];
+    for (const { key, etag } of entries) {
+      const obj = objects.find((o) => o.key === key);
+      let error: [string, string] | undefined;
+      if (etag !== undefined && !obj) {
+        error = ["NoSuchKey", "The specified key does not exist."];
+      } else if (etag !== undefined && obj && !etagListMatches(etag, obj.etag)) {
+        error = ["PreconditionFailed", PRECONDITION_FAILED];
+      }
+      if (error) {
+        results.push(
+          `  <Error><Key>${escapeXml(key)}</Key><Code>${error[0]}</Code><Message>${escapeXml(error[1])}</Message></Error>`,
+        );
+        continue;
+      }
+      if (obj) aws().s3Objects.delete(obj.id);
+      if (!quiet) results.push(`  <Deleted><Key>${escapeXml(key)}</Key></Deleted>`);
+    }
+    return awsXmlResponse(
+      c,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+${results.join("\n")}
+</DeleteResult>`,
+    );
+  };
+
   const handlePresignedPost = async (c: S3BucketContext) => {
     const bucketName = c.req.param("bucket");
     const bucket = aws().s3Buckets.findOneBy("bucket_name", bucketName);
     if (!bucket) {
       return awsErrorXml(c, "NoSuchBucket", "The specified bucket does not exist.", 404);
+    }
+
+    if (new URL(c.req.url).searchParams.has("delete")) {
+      return handleDeleteObjects(c, bucketName);
     }
 
     const body = await c.req.parseBody();
@@ -297,8 +419,12 @@ ${prefixesXml}
     // Handle CopyObject via x-amz-copy-source header
     const copySource = c.req.header("x-amz-copy-source");
     if (copySource) {
-      // copySource format: /bucket/key or bucket/key
-      const normalized = copySource.startsWith("/") ? copySource.slice(1) : copySource;
+      let normalized: string;
+      try {
+        normalized = decodeURIComponent(copySource.split("?")[0].replace(/^\//, ""));
+      } catch {
+        return awsErrorXml(c, "InvalidArgument", "Invalid copy source.", 400);
+      }
       const slashIndex = normalized.indexOf("/");
       if (slashIndex < 0) {
         return awsErrorXml(c, "InvalidArgument", "Invalid copy source.", 400);
@@ -312,6 +438,9 @@ ${prefixesXml}
       if (!srcObj) {
         return awsErrorXml(c, "NoSuchKey", "The specified source key does not exist.", 404);
       }
+      if (evaluateReadConditions(c, srcObj, "x-amz-copy-source-") !== "pass") {
+        return awsErrorXml(c, "PreconditionFailed", PRECONDITION_FAILED, 412);
+      }
 
       const etag = srcObj.etag;
       const now = new Date().toISOString();
@@ -320,6 +449,8 @@ ${prefixesXml}
       const existing = aws()
         .s3Objects.findBy("bucket_name", bucketName)
         .find((o) => o.key === key);
+      const failed = failedWritePrecondition(c, existing);
+      if (failed) return failed;
 
       if (existing) {
         aws().s3Objects.update(existing.id, {
@@ -370,6 +501,8 @@ ${prefixesXml}
     const existing = aws()
       .s3Objects.findBy("bucket_name", bucketName)
       .find((o) => o.key === key);
+    const failed = failedWritePrecondition(c, existing);
+    if (failed) return failed;
 
     if (existing) {
       aws().s3Objects.update(existing.id, {
@@ -396,6 +529,45 @@ ${prefixesXml}
     return c.text("", 200, { ETag: `"${etag}"` });
   };
 
+  const respondWithObject = (c: S3ObjectContext, obj: S3Object, head: boolean) => {
+    const validators = {
+      ETag: `"${obj.etag}"`,
+      "Last-Modified": new Date(obj.last_modified).toUTCString(),
+    };
+    const condition = evaluateReadConditions(c, obj, "");
+    if (condition === "not-modified") {
+      return c.body(null, 304, validators);
+    }
+    if (condition === "failed") {
+      return head ? c.text("", 412) : awsErrorXml(c, "PreconditionFailed", PRECONDITION_FAILED, 412);
+    }
+
+    const range = parseRange(c.req.header("Range"), obj.content_length);
+    if (range === "unsatisfiable") {
+      return head ? c.text("", 416) : awsErrorXml(c, "InvalidRange", "The requested range is not satisfiable", 416);
+    }
+
+    const headers: Record<string, string> = {
+      ...validators,
+      "Content-Type": obj.content_type,
+      "Content-Length": String(obj.content_length),
+      "Accept-Ranges": "bytes",
+    };
+    for (const [k, v] of Object.entries(obj.metadata)) {
+      headers[`x-amz-meta-${k}`] = v;
+    }
+    const status = range ? 206 : 200;
+    if (range) {
+      headers["Content-Length"] = String(range.end - range.start + 1);
+      headers["Content-Range"] = `bytes ${range.start}-${range.end}/${obj.content_length}`;
+    }
+    if (head) {
+      return c.text("", status, headers);
+    }
+    const body = decodeS3ObjectBody(obj);
+    return c.body(range ? body.subarray(range.start, range.end + 1) : body, status, headers);
+  };
+
   const handleGetObject = (c: S3ObjectContext) => {
     const bucketName = c.req.param("bucket");
     const key = c.req.param("key");
@@ -413,17 +585,7 @@ ${prefixesXml}
       return awsErrorXml(c, "NoSuchKey", "The specified key does not exist.", 404);
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": obj.content_type,
-      "Content-Length": String(obj.content_length),
-      ETag: `"${obj.etag}"`,
-      "Last-Modified": new Date(obj.last_modified).toUTCString(),
-    };
-    for (const [k, v] of Object.entries(obj.metadata)) {
-      headers[`x-amz-meta-${k}`] = v;
-    }
-
-    return c.body(decodeS3ObjectBody(obj), 200, headers);
+    return respondWithObject(c, obj, false);
   };
 
   const handleHeadObject = (c: S3ObjectContext) => {
@@ -438,12 +600,7 @@ ${prefixesXml}
       return c.text("", 404);
     }
 
-    return c.text("", 200, {
-      "Content-Type": obj.content_type,
-      "Content-Length": String(obj.content_length),
-      ETag: `"${obj.etag}"`,
-      "Last-Modified": new Date(obj.last_modified).toUTCString(),
-    });
+    return respondWithObject(c, obj, true);
   };
 
   const handleDeleteObject = (c: S3ObjectContext) => {
@@ -453,6 +610,11 @@ ${prefixesXml}
     const obj = aws()
       .s3Objects.findBy("bucket_name", bucketName)
       .find((o) => o.key === key);
+
+    if (c.req.header("If-Match") !== undefined) {
+      const failed = failedWritePrecondition(c, obj);
+      if (failed) return failed;
+    }
 
     if (obj) {
       aws().s3Objects.delete(obj.id);

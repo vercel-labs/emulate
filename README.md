@@ -1572,12 +1572,15 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `PUT /:bucket` - create bucket
 - `DELETE /:bucket` - delete bucket
 - `HEAD /:bucket` - check existence
-- `GET /:bucket` - list objects (prefix, delimiter, max-keys, continuation-token, start-after)
+- `GET /:bucket` - list objects in ascending UTF-8 byte order (prefix, delimiter, max-keys, continuation-token, start-after)
 - `POST /:bucket` - presigned POST upload (browser-style multipart form with policy validation)
+- `POST /:bucket?delete` - delete multiple objects
 - `PUT /:bucket/:key` - put object (supports copy via `x-amz-copy-source`)
-- `GET /:bucket/:key` - get object
+- `GET /:bucket/:key` - get object (supports `Range`)
 - `HEAD /:bucket/:key` - head object
 - `DELETE /:bucket/:key` - delete object
+
+Conditional requests follow S3. `PutObject` and `CopyObject` accept `If-None-Match: *` and `If-Match`, and return `412 PreconditionFailed` when the condition fails; the check and the write are one atomic step, so exactly one of several concurrent conditional writes succeeds. `GetObject` and `HeadObject` honor `If-Match`, `If-None-Match`, `If-Modified-Since`, and `If-Unmodified-Since` with S3 precedence, returning `304 Not Modified` or `412`, and accept a single `Range`. `CopyObject` honors the `x-amz-copy-source-if-*` headers, and `DeleteObject` and `DeleteObjects` accept an ETag to match.
 
 ### SQS
 

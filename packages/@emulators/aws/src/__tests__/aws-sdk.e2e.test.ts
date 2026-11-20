@@ -11,6 +11,7 @@ import {
   DeleteObjectCommand,
   CopyObjectCommand,
   ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { startAwsTarget, type AwsTarget } from "./helpers.js";
@@ -198,6 +199,85 @@ describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
     expect(keys).not.toContain("page-02.txt");
     expect(keys).toContain("page-03.txt");
     expect(keys).toContain("page-04.txt");
+  });
+
+  it("PutObject honors IfNoneMatch and IfMatch", async () => {
+    const Bucket = "emulate-default";
+    const Key = "sdk-conditional.txt";
+    await s3.send(new DeleteObjectCommand({ Bucket, Key }));
+    const created = await s3.send(new PutObjectCommand({ Bucket, Key, Body: "one", IfNoneMatch: "*" }));
+    await expect(s3.send(new PutObjectCommand({ Bucket, Key, Body: "two", IfNoneMatch: "*" }))).rejects.toMatchObject({
+      $metadata: { httpStatusCode: 412 },
+    });
+    const swapped = await s3.send(new PutObjectCommand({ Bucket, Key, Body: "two", IfMatch: created.ETag }));
+    await expect(
+      s3.send(new PutObjectCommand({ Bucket, Key, Body: "stale", IfMatch: created.ETag })),
+    ).rejects.toMatchObject({ $metadata: { httpStatusCode: 412 } });
+    const got = await s3.send(new GetObjectCommand({ Bucket, Key }));
+    expect(got.ETag).toBe(swapped.ETag);
+    expect(await streamToString(got.Body)).toBe("two");
+  });
+
+  it("GetObject and HeadObject honor conditions and ranges", async () => {
+    const Bucket = "emulate-default";
+    const Key = "sdk-read.txt";
+    const { ETag } = await s3.send(new PutObjectCommand({ Bucket, Key, Body: "abcdefghij" }));
+
+    await expect(s3.send(new GetObjectCommand({ Bucket, Key, IfNoneMatch: ETag }))).rejects.toMatchObject({
+      $metadata: { httpStatusCode: 304 },
+    });
+    await expect(s3.send(new HeadObjectCommand({ Bucket, Key, IfMatch: '"0"' }))).rejects.toMatchObject({
+      $metadata: { httpStatusCode: 412 },
+    });
+
+    const ranged = await s3.send(new GetObjectCommand({ Bucket, Key, Range: "bytes=2-4", IfMatch: ETag }));
+    expect(ranged.$metadata.httpStatusCode).toBe(206);
+    expect(ranged.ContentRange).toBe("bytes 2-4/10");
+    expect(await streamToString(ranged.Body)).toBe("cde");
+  });
+
+  it("CopyObject honors source conditions", async () => {
+    const Bucket = "emulate-default";
+    const { ETag } = await s3.send(new PutObjectCommand({ Bucket, Key: "sdk copy src.txt", Body: "copy me" }));
+    await expect(
+      s3.send(
+        new CopyObjectCommand({
+          Bucket,
+          Key: "sdk-copy-dst.txt",
+          CopySource: `${Bucket}/${encodeURIComponent("sdk copy src.txt")}`,
+          CopySourceIfNoneMatch: ETag,
+        }),
+      ),
+    ).rejects.toMatchObject({ $metadata: { httpStatusCode: 412 } });
+    await s3.send(
+      new CopyObjectCommand({
+        Bucket,
+        Key: "sdk-copy-dst.txt",
+        CopySource: `${Bucket}/${encodeURIComponent("sdk copy src.txt")}`,
+        CopySourceIfMatch: ETag,
+      }),
+    );
+    const got = await s3.send(new GetObjectCommand({ Bucket, Key: "sdk-copy-dst.txt" }));
+    expect(await streamToString(got.Body)).toBe("copy me");
+  });
+
+  it("DeleteObjects deletes only objects whose ETag matches", async () => {
+    const Bucket = "emulate-default";
+    const { ETag } = await s3.send(new PutObjectCommand({ Bucket, Key: "sdk-del-a", Body: "a" }));
+    await s3.send(new PutObjectCommand({ Bucket, Key: "sdk-del-b", Body: "b" }));
+    const res = await s3.send(
+      new DeleteObjectsCommand({
+        Bucket,
+        Delete: {
+          Objects: [
+            { Key: "sdk-del-a", ETag },
+            { Key: "sdk-del-b", ETag: '"00000000000000000000000000000000"' },
+          ],
+        },
+      }),
+    );
+    expect((res.Deleted ?? []).map((d) => d.Key)).toEqual(["sdk-del-a"]);
+    expect(res.Errors?.[0]).toMatchObject({ Key: "sdk-del-b", Code: "PreconditionFailed" });
   });
 
   it("createPresignedPost uploads a file", async () => {
