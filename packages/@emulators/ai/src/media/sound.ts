@@ -22,9 +22,11 @@ export interface AudioShape {
 const SILENT_AAC_24K = Uint8Array.from([0xff, 0xf1, 0x58, 0x40, 0x01, 0x7f, 0xfc, 0x01, 0x18, 0x20, 0x07]);
 const SILENT_OPUS = Uint8Array.from([0xf8, 0xff, 0xfe]);
 
-/** Seconds a speech clip lasts for `text`: about fifteen characters a second at speed 1, never under half a second. */
+const MAX_SPEECH_SECONDS = 600;
+
+/** Seconds a speech clip lasts for `text`: about fifteen characters a second at speed 1, from half a second to ten minutes. */
 export function speechSeconds(text: string, speed = 1): number {
-  return Math.max(0.5, Math.round((text.length / 15 / speed) * 100) / 100);
+  return Math.min(MAX_SPEECH_SECONDS, Math.max(0.5, Math.round((text.length / 15 / speed) * 100) / 100));
 }
 
 /** Renders silence of the given shape as a real, decodable file. */

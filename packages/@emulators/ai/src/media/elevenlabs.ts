@@ -1,4 +1,5 @@
 import type { Decoded } from "../codec.js";
+import { redactedReference } from "../attachments.js";
 import { AiRequestError } from "../errors.js";
 import type { HttpFailure, RuleReplyEvent } from "../types.js";
 import {
@@ -21,13 +22,15 @@ import { timedWords } from "./transcript.js";
 
 const TTS_PATH = /\/v1\/text-to-speech\/([^/]+)(\/stream)?(\/with-timestamps)?$/;
 const STT_PATH = /\/v1\/speech-to-text$/;
-const CODECS: Record<string, AudioFormat> = {
-  mp3: "mp3",
-  pcm: "pcm",
-  wav: "wav",
-  ulaw: "ulaw",
-  alaw: "alaw",
-  opus: "opus",
+const PCM_RATES = [8000, 16000, 22050, 24000, 32000, 44100, 48000];
+/** The codecs and sample rates ElevenLabs offers in `output_format`. */
+const CODECS: Record<string, { format: AudioFormat; rates: readonly number[] }> = {
+  mp3: { format: "mp3", rates: [22050, 24000, 44100] },
+  pcm: { format: "pcm", rates: PCM_RATES },
+  wav: { format: "wav", rates: PCM_RATES },
+  ulaw: { format: "ulaw", rates: [8000] },
+  alaw: { format: "alaw", rates: [8000] },
+  opus: { format: "opus", rates: [48000] },
 };
 
 interface TtsExtras {
@@ -49,11 +52,12 @@ interface SttExtras {
 /** Parses an ElevenLabs `output_format` such as `mp3_44100_128`, `pcm_24000`, or `ulaw_8000`. */
 function outputFormat(value: string): { format: AudioFormat; sampleRate: number; contentType: string } {
   const [codec, rate] = value.split("_");
-  const format = CODECS[codec];
   const sampleRate = Number(rate);
-  if (!format || !Number.isInteger(sampleRate) || sampleRate <= 0) {
+  const spec = Object.hasOwn(CODECS, codec) ? CODECS[codec] : undefined;
+  if (!spec || !spec.rates.includes(sampleRate)) {
     fail(`Invalid output_format '${value}'.`, "output_format", "invalid_output_format", 422);
   }
+  const format = spec.format;
   return { format, sampleRate, contentType: format === "opus" ? "audio/ogg" : AUDIO_MEDIA_TYPES[format] };
 }
 
@@ -106,7 +110,12 @@ function decodeStt(fields: Fields): Decoded {
   };
   const part = file
     ? uploadedPart(file, file.type && file.type !== "application/octet-stream" ? file.type : sniffAudioType(file.bytes))
-    : { type: "file" as const, mediaType: "audio/*", source: "url" as const, ref: sourceUrl };
+    : {
+        type: "file" as const,
+        mediaType: "audio/*",
+        source: "url" as const,
+        ref: redactedReference(sourceUrl, "cloud_storage_url"),
+      };
   return {
     request: mediaRequest("elevenlabs", "transcription", model, [part], false),
     extras: extras as unknown as Record<string, unknown>,
