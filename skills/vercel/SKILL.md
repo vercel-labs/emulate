@@ -455,6 +455,22 @@ curl http://localhost:4000/login/oauth/userinfo \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+## OAuth device authorization
+
+A CLI-like client can sign in without a redirect. Start a grant, show the code, approve it as a seeded user, then poll the token endpoint:
+
+```bash
+curl -s -X POST http://localhost:4000/oauth/device_authorization \
+  -d client_id=oac_abc123 -d scope="openid email"
+
+# Poll until approved; authorization_pending and slow_down mean keep waiting
+curl -s -X POST http://localhost:4000/login/oauth/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:device_code \
+  -d client_id=oac_abc123 -d device_code=<device_code>
+```
+
+Open `http://localhost:4000/oauth/device?user_code=<user_code>` to pick a seeded user. `GET /.well-known/openid-configuration` advertises every endpoint.
+
 ## Common Patterns
 
 ### Create Project and Deploy

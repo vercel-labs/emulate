@@ -14,6 +14,7 @@ import {
 import { getVercelStore } from "../store.js";
 import { formatUser } from "../helpers.js";
 import type { VercelUser } from "../entities.js";
+import { DEVICE_GRANT_TYPE, deviceRoutes, exchangeDeviceGrant } from "./oauth-device.js";
 
 type PendingCode = {
   username: string;
@@ -42,8 +43,10 @@ function isPendingCodeExpired(p: PendingCode): boolean {
 
 const SERVICE_LABEL = "Vercel";
 
-export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
+export function oauthRoutes(context: RouteContext): void {
+  const { app, store, tokenMap } = context;
   const vs = getVercelStore(store);
+  deviceRoutes(context);
 
   // ---------- OAuth authorize page ----------
 
@@ -182,8 +185,23 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const code = typeof body.code === "string" ? body.code : "";
     const redirect_uri = typeof body.redirect_uri === "string" ? body.redirect_uri : "";
     const code_verifier = typeof body.code_verifier === "string" ? body.code_verifier : undefined;
-    const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
-    const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+    let bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
+    let bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+
+    // RFC 6749's HTTP Basic client authentication: client_id and client_secret, each form-urlencoded.
+    const basic = c.req.header("Authorization");
+    if (basic?.startsWith("Basic ")) {
+      try {
+        const decoded = Buffer.from(basic.slice(6), "base64").toString("utf8");
+        const at = decoded.indexOf(":");
+        if (at >= 0) {
+          if (!bodyClientId) bodyClientId = decodeURIComponent(decoded.slice(0, at));
+          if (!bodyClientSecret) bodyClientSecret = decodeURIComponent(decoded.slice(at + 1));
+        }
+      } catch {
+        // A malformed header falls through to the same invalid_client answer as a wrong secret.
+      }
+    }
 
     debug("vercel.oauth", `[Vercel token] code: ${code.slice(0, 8)}... (len=${code.length})`);
     debug("vercel.oauth", `[Vercel token] client_id: ${bodyClientId}`);
@@ -193,6 +211,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       `[Vercel token] code_verifier: ${code_verifier ? code_verifier.slice(0, 8) + "..." : "undefined"}`,
     );
 
+    const grantType = typeof body.grant_type === "string" ? body.grant_type : "authorization_code";
     const integrationsConfigured = vs.integrations.all().length > 0;
     if (integrationsConfigured) {
       const integration = vs.integrations.findOneBy("client_id", bodyClientId);
@@ -203,7 +222,8 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
           401,
         );
       }
-      if (!constantTimeSecretEqual(bodyClientSecret, integration.client_secret)) {
+      // The device grant is for public clients: the device code, not a client secret, is the credential it polls with.
+      if (grantType !== DEVICE_GRANT_TYPE && !constantTimeSecretEqual(bodyClientSecret, integration.client_secret)) {
         debug("vercel.oauth", `[Vercel token] REJECTED: client_secret mismatch`);
         return c.json(
           { error: "invalid_client", error_description: "The client_id and/or client_secret passed are incorrect." },
@@ -212,6 +232,9 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       }
       debug("vercel.oauth", `[Vercel token] client credentials OK (${integration.name})`);
     }
+
+    if (grantType === DEVICE_GRANT_TYPE)
+      return exchangeDeviceGrant(c, store, tokenMap, { ...body, client_id: bodyClientId });
 
     const pending = pendingCodes.get(code);
     if (!pending) {
