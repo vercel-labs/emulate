@@ -14,6 +14,7 @@ import {
 import { getVercelStore } from "../store.js";
 import { formatUser } from "../helpers.js";
 import type { VercelUser } from "../entities.js";
+import { DEVICE_GRANT_TYPE, deviceRoutes, exchangeDeviceGrant } from "./oauth-device.js";
 
 type PendingCode = {
   username: string;
@@ -42,8 +43,10 @@ function isPendingCodeExpired(p: PendingCode): boolean {
 
 const SERVICE_LABEL = "Vercel";
 
-export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
+export function oauthRoutes(context: RouteContext): void {
+  const { app, store, tokenMap } = context;
   const vs = getVercelStore(store);
+  deviceRoutes(context);
 
   // ---------- OAuth authorize page ----------
 
@@ -193,6 +196,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       `[Vercel token] code_verifier: ${code_verifier ? code_verifier.slice(0, 8) + "..." : "undefined"}`,
     );
 
+    const grantType = typeof body.grant_type === "string" ? body.grant_type : "authorization_code";
     const integrationsConfigured = vs.integrations.all().length > 0;
     if (integrationsConfigured) {
       const integration = vs.integrations.findOneBy("client_id", bodyClientId);
@@ -203,7 +207,8 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
           401,
         );
       }
-      if (!constantTimeSecretEqual(bodyClientSecret, integration.client_secret)) {
+      // The device grant is for public clients: the device code, not a client secret, is the credential it polls with.
+      if (grantType !== DEVICE_GRANT_TYPE && !constantTimeSecretEqual(bodyClientSecret, integration.client_secret)) {
         debug("vercel.oauth", `[Vercel token] REJECTED: client_secret mismatch`);
         return c.json(
           { error: "invalid_client", error_description: "The client_id and/or client_secret passed are incorrect." },
@@ -212,6 +217,8 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       }
       debug("vercel.oauth", `[Vercel token] client credentials OK (${integration.name})`);
     }
+
+    if (grantType === DEVICE_GRANT_TYPE) return exchangeDeviceGrant(c, store, tokenMap, body);
 
     const pending = pendingCodes.get(code);
     if (!pending) {
