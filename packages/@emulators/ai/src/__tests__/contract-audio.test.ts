@@ -125,4 +125,23 @@ describe("audio contract", () => {
     });
     expect(invalid.status).toBe(422);
   });
+  it("rejects ElevenLabs sample rates the provider does not offer", async () => {
+    const response = await fetch(`${origin}/v1/text-to-speech/voice?output_format=ulaw_96000`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "x" }),
+    });
+    expect(response.status).toBe(422);
+  });
+
+  it("records ElevenLabs source URLs without credentials or query", async () => {
+    const form = new FormData();
+    form.set("model_id", "scribe_v2");
+    form.set("cloud_storage_url", "https://user:pass@bucket.example/audio.wav?X-Amz-Signature=secret#frag");
+    expect((await fetch(`${origin}/v1/speech-to-text`, { method: "POST", body: form })).status).toBe(200);
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).toContain("https://bucket.example/audio.wav");
+    expect(calls).not.toContain("secret");
+    expect(calls).not.toContain("pass@");
+  });
 });

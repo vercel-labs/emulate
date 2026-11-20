@@ -99,4 +99,21 @@ describe("video contract", () => {
     const file = await fetch(samples[1].video.uri);
     expect(file.headers.get("content-type")).toBe("video/mp4");
   });
+  it("rejects xAI aspect ratios outside the supported set", async () => {
+    const response = await fetch(`${origin}/v1/videos/generations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "x", aspect_ratio: "100000:1" }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("records Veo media URIs without credentials or query", async () => {
+    await post("/v1beta/models/veo-3:predictLongRunning", {
+      instances: [{ prompt: "x", image: { gcsUri: "gs://bucket/in.png?token=secret", mimeType: "image/png" } }],
+    });
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).toContain("gs://bucket/in.png");
+    expect(calls).not.toContain("secret");
+  });
 });
