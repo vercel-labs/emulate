@@ -1,4 +1,4 @@
-import { imageAttachment } from "../attachments.js";
+import { imageAttachment, redactedReference } from "../attachments.js";
 import { CREATED_AT, type CodecContext, type Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import type { FilePart, HttpFailure, InputPart, MediaReplyEvent, RuleReplyEvent } from "../types.js";
@@ -8,6 +8,7 @@ import {
   fieldsOf,
   isRecord,
   mediaRequest,
+  optionalEnum,
   optionalInteger,
   optionalString,
   requiredString,
@@ -22,6 +23,8 @@ import { renderVideo } from "./video.js";
 
 const OPENAI_SECONDS = ["4", "8", "12", "16", "20"];
 const OPENAI_SIZES = ["720x1280", "1280x720", "1024x1792", "1792x1024", "1080x1920", "1920x1080"];
+const XAI_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"] as const;
+const XAI_RESOLUTIONS = ["480p", "720p"] as const;
 const POLL_AFTER_MS = "10";
 const EXPIRY_SECONDS = 3600;
 const GRAY = { r: 128, g: 128, b: 128, a: 255 };
@@ -234,8 +237,8 @@ function xaiCreate(fields: Fields): Decoded {
   const prompt = requiredString(fields, "prompt");
   const model = optionalString(fields, "model") ?? "grok-imagine-video";
   const duration = optionalInteger(fields, "duration", 1, 15) ?? 8;
-  const ratio = optionalString(fields, "aspect_ratio") ?? "16:9";
-  const resolution = optionalString(fields, "resolution") ?? "720p";
+  const ratio = optionalEnum(fields, "aspect_ratio", XAI_ASPECT_RATIOS) ?? "16:9";
+  const resolution = optionalEnum(fields, "resolution", XAI_RESOLUTIONS) ?? "720p";
   const files: InputPart[] = [];
   const image = fields.values.image;
   if (isRecord(image)) files.push(imageAttachment(image.url, "image.url"));
@@ -307,7 +310,7 @@ function veoDecode(provider: "gemini" | "vertex", model: string, fields: Fields)
     const mediaType = String(inline.mimeType ?? media.mimeType ?? (key === "video" ? "video/mp4" : "image/png"));
     const ref = media.gcsUri ?? media.uri;
     return typeof ref === "string"
-      ? [{ type: "file", mediaType, source: "url", ref }]
+      ? [{ type: "file", mediaType, source: "url", ref: redactedReference(ref, `instances[0].${key}`) }]
       : [{ type: "file", mediaType, source: "inline", name: key }];
   });
   const storage = parameters.storageUri ?? parameters.gcsOutputDirectory;
