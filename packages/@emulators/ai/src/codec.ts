@@ -11,6 +11,10 @@ export interface CodecContext {
   store: Store;
   state: AiState;
   path: string;
+  /** The scheme, host, and port the request was addressed to, for URLs the client must fetch back. */
+  origin?: string;
+  /** The request headers, for wire formats that carry the model or streaming flag outside the body. */
+  headers?: Headers;
   makeId(prefix: string): string;
 }
 
