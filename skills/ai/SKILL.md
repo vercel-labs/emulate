@@ -42,16 +42,16 @@ await anthropic.messages.create({ model: "claude-x", max_tokens: 16, messages: [
 
 ## Routes
 
-The path suffix selects the format. Any prefix works, such as `/v1` or `/api/v1`.
+The emulator matches routes by path suffix, so any prefix works (such as `/v1` or `/api/v1`).
 
-| Method   | Path suffix         | Behavior                                        |
-| -------- | ------------------- | ----------------------------------------------- |
-| `POST`   | `/responses`        | OpenAI Responses                                |
-| `POST`   | `/chat/completions` | OpenAI Chat Completions                         |
-| `POST`   | `/messages`         | Anthropic Messages                              |
-| `GET`    | `/responses/:id`    | Retrieve a stored response                      |
-| `DELETE` | `/responses/:id`    | Delete a stored response                        |
-| `GET`    | `/models`           | List configured and previously requested models |
+| Method   | Path                   | Behavior                                        |
+| -------- | ---------------------- | ----------------------------------------------- |
+| `POST`   | `/v1/responses`        | OpenAI Responses                                |
+| `POST`   | `/v1/chat/completions` | OpenAI Chat Completions                         |
+| `POST`   | `/v1/messages`         | Anthropic Messages                              |
+| `GET`    | `/v1/responses/:id`    | Retrieve a stored response                      |
+| `DELETE` | `/v1/responses/:id`    | Delete a stored response                        |
+| `GET`    | `/v1/models`           | List configured and previously requested models |
 
 Generation routes support streaming and send a deterministic id: `x-request-id` for OpenAI and `request-id` for Anthropic.
 

@@ -39,8 +39,6 @@ Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` wh
 
 Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks. Optional `resend.allowlist` restrictions let tests reject recipients while `resend.send_attempts` records accepted and rejected sends.
 
-The AI service answers OpenAI Responses, Chat Completions, and Anthropic Messages requests with deterministic, rule-driven replies, so apps using the `openai` SDK, the Anthropic SDK, the Vercel AI SDK, or an OpenAI-compatible gateway can be tested offline without keys. It covers text, streaming, structured output, tool loops, reasoning, refusals, stored responses, errors, disconnects, and stalls.
-
 ## Custom emulators
 
 Build and share emulators for the third-party HTTP APIs your app uses. Define a provider's behavior in TypeScript, run it alongside built-in services, and reuse it in tests and framework adapters. emulate provides seeds, resets, persistence, and request/state inspection.
@@ -1387,7 +1385,7 @@ const openai = createOpenAI({ baseURL: "http://localhost:4014/v1", apiKey: "test
 
 - Any path prefix works, such as `/api/v1`. Unsupported data paths default to a native OpenAI 404 naming the supported paths.
 - Messages client tools accept an optional `input_schema`. Hosted tool types return a 400.
-- Errors on `/v1/messages` use Anthropic's envelope. Unsupported paths under `.../messages`, or unsupported data paths sent with an `anthropic-version` header, return `not_found_error` in that envelope.
+- Errors on `/v1/messages` use Anthropic's envelope. Unsupported paths under `/v1/messages`, or unsupported data paths sent with an `anthropic-version` header, return `not_found_error` in that envelope.
 
 ### Seed rules
 

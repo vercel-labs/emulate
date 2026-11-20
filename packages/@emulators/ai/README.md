@@ -183,7 +183,7 @@ Set `strict: true` to turn every unmatched request into a native 400. The 400 na
 
 - Unsupported OpenAI features return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, Conversations API, multiple candidates (`n > 1`), audio input or output, and legacy `functions`.
 - Hosted Messages tool types return a 400: `web_search_*`, `web_fetch_*`, `code_execution_*`, `tool_search_tool_*`, and `mcp_toolset`.
-- Unimplemented routes return a native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation. Errors on `/v1/messages`, unsupported paths under `.../messages`, and unsupported data paths with an `anthropic-version` header use Anthropic's error envelope.
+- Unimplemented routes return a native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation. Errors on `/v1/messages`, unsupported paths under `/v1/messages`, and unsupported data paths with an `anthropic-version` header use Anthropic's error envelope.
 - OpenRouter `reasoning` fields and unknown optional fields have no effect. Reply text uses no templating, and usage numbers are deterministic estimates.
 
 ## Links

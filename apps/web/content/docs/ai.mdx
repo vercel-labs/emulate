@@ -36,23 +36,23 @@ openai.chat("anthropic/claude-sonnet-5"); // OpenAI Chat Completions
 
 ## Routes
 
-The emulator reads the wire format from the end of the path, so any prefix works (`/v1`, `/api/v1`).
+The emulator matches routes by path suffix, so any prefix works (such as `/v1` or `/api/v1`).
 
 | Method   | Path                   | Behavior                                                              |
 | -------- | ---------------------- | --------------------------------------------------------------------- |
-| `POST`   | `.../responses`        | OpenAI Responses, unary and streamed                                  |
-| `POST`   | `.../chat/completions` | OpenAI Chat Completions, unary and streamed                           |
-| `POST`   | `.../messages`         | Anthropic Messages, unary and streamed                                |
-| `GET`    | `.../responses/:id`    | Retrieve a stored response                                            |
-| `DELETE` | `.../responses/:id`    | Delete a stored response                                              |
-| `GET`    | `.../models`           | List configured and previously requested models in OpenAI's list form |
+| `POST`   | `/v1/responses`        | OpenAI Responses, unary and streamed                                  |
+| `POST`   | `/v1/chat/completions` | OpenAI Chat Completions, unary and streamed                           |
+| `POST`   | `/v1/messages`         | Anthropic Messages, unary and streamed                                |
+| `GET`    | `/v1/responses/:id`    | Retrieve a stored response                                            |
+| `DELETE` | `/v1/responses/:id`    | Delete a stored response                                              |
+| `GET`    | `/v1/models`           | List configured and previously requested models in OpenAI's list form |
 | `GET`    | `/`                    | Read-only inspector                                                   |
 
 Unsupported paths default to a native OpenAI 404 naming the supported paths.
 
 ### Anthropic Messages
 
-`POST .../messages` implements Anthropic's Messages wire format. Match `format: anthropic-messages` in a rule to target this route alone.
+`POST /v1/messages` implements Anthropic's Messages wire format. Match `format: anthropic-messages` in a rule to target this route alone.
 
 | Area              | Behavior                                                                                                             |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -81,7 +81,7 @@ Errors use Anthropic's envelope and error types (`invalid_request_error`, `authe
 }
 ```
 
-Unsupported paths under `.../messages` (such as `count_tokens`), or any unsupported data path sent with an `anthropic-version` header, return `not_found_error` in this envelope.
+Unsupported paths under `/v1/messages` (such as `/v1/messages/count_tokens`), or any unsupported data path sent with an `anthropic-version` header, return `not_found_error` in this envelope.
 
 ## Rules
 
