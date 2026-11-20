@@ -58,6 +58,62 @@ npm install @emulators/vercel
 - `PATCH /v9/projects/:idOrName/env/:id` — update env var
 - `DELETE /v9/projects/:idOrName/env/:id` — delete env var
 
+### Board
+
+The message board behind `@vercel/board` and its `vb` CLI, under `/v1/messageboard`. It keeps boards, channels, threads, messages, reactions, labels, changes, and grants, and answers the same error codes as Vercel's API.
+
+- `GET /v1/messageboard/boards`: the boards these credentials may use, and the default board's ID
+- `POST /v1/messageboard/boards/default`: make the team's default board
+- `POST /v1/messageboard/boards/ensure`: find or make a named board
+- `GET /v1/messageboard/boards/:board`: one board
+- `GET /v1/messageboard/boards/:board/me`: who these credentials are and what they may do there
+- `GET /v1/messageboard/boards/:board/channels`: channels by name, prefix, or page
+- `POST /v1/messageboard/boards/:board/channels`: make a channel
+- `GET /v1/messageboard/boards/:board/actors`: authors the board has seen
+- `GET /v1/messageboard/boards/:board/threads`: a channel's threads, with `include=messages`
+- `POST /v1/messageboard/boards/:board/threads`: start a thread
+- `GET /v1/messageboard/boards/:board/threads/:thread/messages`: a thread's messages
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages`: reply
+- `PATCH /v1/messageboard/boards/:board/threads/:thread/messages/:n`: edit a message
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages/:n/delete`: delete a message
+- `GET /v1/messageboard/boards/:board/threads/:thread/messages/:n/reactions`: a message's reactions
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages/:n/reactions`: react, or remove one
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages/:n/labels`: set or remove labels, with `if`
+- `GET /v1/messageboard/boards/:board/messages`: a channel's messages, from a cursor
+- `GET /v1/messageboard/boards/:board/messages/:id`: one message and its thread
+- `GET /v1/messageboard/boards/:board/changes`: a channel's feed, long-polled with `wait`
+- `GET /v1/messageboard/boards/:board/grants`: the board's grants
+- `POST /v1/messageboard/boards/:board/grants`: make a grant
+- `POST /v1/messageboard/boards/:board/grants/batch`: make several grants at once
+- `GET /v1/messageboard/boards/:board/grants/explain`: which grant decides a channel
+- `PATCH /v1/messageboard/boards/:board/grants/:grant`: add or remove principals, or replace `can`
+- `POST /v1/messageboard/boards/:board/grants/:grant/revoke`: revoke a grant
+
+Every board starts with Vercel's three default grants: everyone on the team may do everything, every project may read, post, react, label, and sync, and every app may read, post, react, and label. A board's grants are checked on every read and write, and what a caller cannot read answers 404 as it does in Vercel's API.
+
+Point the SDK at the emulator through its `fetch` hook, which is how requests reach Vercel's API. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
+
+```ts
+import { board } from '@vercel/board'
+
+const team = board({
+  fetch: (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString())
+    url.protocol = 'http:'
+    url.host = 'localhost:4000'
+    const headers = new Headers(init.headers)
+    headers.set('authorization', `Bearer ${process.env.BOARD_TOKEN ?? ''}`)
+    return fetch(url, { ...init, headers })
+  },
+})
+
+await team.post('general', 'hello from the emulator')
+```
+
+Board's bearer token picks the principal. A token registered in the emulator's `tokens` config acts as that user. `project:<project>:<environment>` acts as a project's deployment, `app:<client-id-or-name>` as an app, and `user:<username>` as a person. Profiles (`x-board-profile`) and narrowed callers (`x-board-can`) work as they do on Vercel.
+
+The real `vb` commands run on a board handle with `vb` from `@vercel/board/cli`, so `post`, `reply`, `read`, `react`, `label`, `wait`, `tail`, and `grants` print and fail exactly as the CLI does.
+
 ## Auth
 
 All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.
@@ -83,7 +139,35 @@ vercel:
       name: "My Vercel App"
       redirect_uris:
         - "http://localhost:3000/api/auth/callback/vercel"
+  boards:
+    - name: General
+      team: my-team
+      default: true
+      channels: [general, deploys]
+      threads:
+        - channel: deploys
+          by: developer
+          text: www@a1b2c3 is live
+          labels:
+            kind: deploy
+          reactions:
+            - emoji: tada
+              by: developer
+          replies:
+            - text: checking it now
+              by: developer
+              reactions:
+                - emoji: eyes
+                  by: developer
+      grants:
+        - principals:
+            - kind: user
+              email: dev@example.com
+          can:
+            deploys: [read, post, react, label]
 ```
+
+A board's `threads` seed its messages, `replies` their replies, `reactions` each message's reactors, and `grants` add to the board's default grants. `by` is a seeded username, user ID, or email.
 
 ## Links
 

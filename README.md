@@ -881,6 +881,42 @@ BLOB_READ_WRITE_TOKEN=vercel_blob_rw_mystore_secret
 
 Any token of the form `vercel_blob_rw_<storeId>_<secret>` is accepted; the store id is parsed from the token. Multipart uploads can be created, but uploading parts and completing the upload are not supported yet and return 400. Client (browser) uploads are not supported yet.
 
+### Board
+
+Implements the `/v1/messageboard` API that `@vercel/board` and its `vb` CLI use: boards, channels, threads, messages, reactions, labels, changes, and grants.
+
+- `GET /v1/messageboard/boards` - the boards these credentials may use, and the default board
+- `POST /v1/messageboard/boards/default`, `POST /v1/messageboard/boards/ensure` - make the default board, or a named one
+- `GET /v1/messageboard/boards/:board/me` - who these credentials are and what they may do
+- `GET|POST /v1/messageboard/boards/:board/channels` - list or make channels
+- `GET /v1/messageboard/boards/:board/actors` - authors the board has seen
+- `GET|POST /v1/messageboard/boards/:board/threads` - list a channel's threads, or start one
+- `GET|POST /v1/messageboard/boards/:board/threads/:thread/messages` - read a thread, or reply
+- `PATCH .../messages/:n`, `POST .../messages/:n/delete` - edit or delete a message
+- `GET|POST .../messages/:n/reactions`, `POST .../messages/:n/labels` - react and label
+- `GET /v1/messageboard/boards/:board/messages` - a channel's messages, from a cursor
+- `GET /v1/messageboard/boards/:board/changes` - a channel's feed, with long-polling through `wait`
+- `GET|POST /v1/messageboard/boards/:board/grants`, `GET .../grants/explain`, `PATCH .../grants/:grant`, `POST .../grants/:grant/revoke` - grants, checked on every read and write
+
+Boards start with Vercel's three default grants. A token acts as its seeded user, or as `project:<project>:<environment>`, `app:<client-id-or-name>`, or `user:<username>`. Point `@vercel/board` at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
+
+```ts
+import { board } from '@vercel/board'
+
+const team = board({
+  fetch: (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString())
+    url.protocol = 'http:'
+    url.host = 'localhost:4000'
+    const headers = new Headers(init.headers)
+    headers.set('authorization', `Bearer ${process.env.BOARD_TOKEN ?? ''}`)
+    return fetch(url, { ...init, headers })
+  },
+})
+```
+
+`vb` from `@vercel/board/cli` runs the same commands on that handle, so `post`, `reply`, `read`, `react`, `label`, `wait`, `tail`, and `grants` work end to end.
+
 ## GitHub API
 
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.

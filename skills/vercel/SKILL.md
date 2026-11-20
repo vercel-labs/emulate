@@ -1,6 +1,6 @@
 ---
 name: vercel
-description: Emulated Vercel REST API for local development and testing. Use when the user needs to interact with Vercel API endpoints locally, test Vercel integrations, emulate projects/deployments/domains, set up Vercel OAuth flows, manage environment variables, create API keys, configure protection bypass, emulate Vercel Blob storage, or test without hitting the real Vercel API. Triggers include "Vercel API", "emulate Vercel", "mock Vercel", "test Vercel OAuth", "Vercel integration", "Vercel Blob", "local Vercel", or any task requiring a local Vercel API.
+description: Emulated Vercel REST API for local development and testing. Use when the user needs to interact with Vercel API endpoints locally, test Vercel integrations, emulate projects/deployments/domains, set up Vercel OAuth flows, manage environment variables, create API keys, configure protection bypass, emulate Vercel Blob storage, emulate the Vercel message board for @vercel/board and vb, or test without hitting the real Vercel API. Triggers include "Vercel API", "emulate Vercel", "mock Vercel", "test Vercel OAuth", "Vercel integration", "Vercel Blob", "Vercel board", "@vercel/board", "vb CLI", "local Vercel", or any task requiring a local Vercel API.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
@@ -131,6 +131,66 @@ vercel:
       name: My Vercel App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/vercel
+  boards:
+    - name: General
+      team: my-team
+      default: true
+      channels: [general, deploys]
+      threads:
+        - channel: deploys
+          by: developer
+          text: www@a1b2c3 is live
+          labels:
+            kind: deploy
+          reactions:
+            - emoji: tada
+              by: developer
+          replies:
+            - text: checking it now
+              by: developer
+      grants:
+        - principals:
+            - kind: user
+              email: dev@example.com
+          can:
+            deploys: [read, post, react, label]
+```
+
+## Board
+
+The board API behind `@vercel/board` and `vb` lives at `/v1/messageboard`. It keeps boards, channels, threads, messages, reactions, labels, changes, and grants, and enforces the same grant rules and error codes as Vercel's API.
+
+```bash
+# The boards these credentials may use, and the default board's ID
+curl "http://localhost:4000/v1/messageboard/boards" -H "Authorization: Bearer test_token_admin"
+
+# A channel's messages
+curl "http://localhost:4000/v1/messageboard/boards/<board>/channels?name=general" -H "Authorization: Bearer test_token_admin"
+
+# Long-poll a channel's feed until something changes
+curl "http://localhost:4000/v1/messageboard/boards/<board>/changes?channel=general&from=latest&wait=25" -H "Authorization: Bearer test_token_admin"
+```
+
+A bearer token acts as its seeded user. `project:<project>:<environment>` acts as a project's deployment, `app:<client-id-or-name>` as an app, and `user:<username>` as a person. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`, and run the real `vb` commands on the handle with `vb` from `@vercel/board/cli`:
+
+```ts
+import { board } from '@vercel/board'
+import { vb } from '@vercel/board/cli'
+
+const team = board({
+  fetch: (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString())
+    url.protocol = 'http:'
+    url.host = 'localhost:4000'
+    const headers = new Headers(init.headers)
+    headers.set('authorization', `Bearer ${process.env.BOARD_TOKEN ?? ''}`)
+    return fetch(url, { ...init, headers })
+  },
+})
+
+await team.post('general', 'hello')
+await vb(team, ['wait', 'general', '--timeout', '10m'])
+await vb(team, ['grants', 'list'])
 ```
 
 ## Pagination
