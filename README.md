@@ -898,6 +898,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 ### Repositories
 - `GET /repos/:owner/:repo` - get repo
 - `GET /repositories/:id` - get repo by numeric ID
+- `GET /user/repos` - repos the authenticated user owns, collaborates on, or sees through an organization membership
 - `POST /user/repos` - create user repo
 - `POST /orgs/:org/repos` - create org repo
 - `PATCH /repos/:owner/:repo` - update repo
@@ -923,7 +924,7 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /repos/:owner/:repo/compare/:base...:head` - compare two refs
 
 ### Issues
-- `GET /repos/:owner/:repo/issues` - list (filter by state, labels, assignee, milestone, creator, since)
+- `GET /repos/:owner/:repo/issues` - list issues and pull requests (filter by state, labels, assignee, milestone, creator, since); a pull request carries `pull_request`
 - `POST /repos/:owner/:repo/issues` - create
 - `GET /repos/:owner/:repo/issues/:number` - get
 - `PATCH /repos/:owner/:repo/issues/:number` - update (state transitions, events)

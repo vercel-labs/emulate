@@ -1,18 +1,33 @@
 import type { RouteContext } from "@emulators/core";
 import { ApiError, parseJsonBody, parsePagination, setLinkHeader, unauthorized } from "@emulators/core";
-import { assertAuthenticatedUser, canAccessRepo, notFoundResponse } from "../route-helpers.js";
+import { assertAuthenticatedUser, canAccessRepo, isOrgMember, notFoundResponse } from "../route-helpers.js";
 import { getGitHubStore } from "../store.js";
 import type { GitHubStore } from "../store.js";
 import type { GitHubRepo, GitHubUser } from "../entities.js";
 import { formatOrgBrief, formatRepo, formatUser, formatUserFull } from "../helpers.js";
 
-function listReposForUser(gh: GitHubStore, user: GitHubUser, type: "all" | "owner" | "member"): GitHubRepo[] {
+function listReposForUser(
+  gh: GitHubStore,
+  user: GitHubUser,
+  type: "all" | "owner" | "member",
+  options: { expandOrgs: boolean },
+): GitHubRepo[] {
   const owned = gh.repos.all().filter((r) => r.owner_id === user.id && r.owner_type === "User");
-  const member = gh.collaborators
+  const collaborated = gh.collaborators
     .findBy("user_id", user.id)
     .map((c) => gh.repos.get(c.repo_id))
     .filter((r): r is GitHubRepo => Boolean(r))
     .filter((r) => !(r.owner_id === user.id && r.owner_type === "User"));
+  // A member of an organization sees its repositories in their own list, whether or not they collaborate on each
+  // one. Someone else's public list gets only what that person collaborates on, so their private access stays theirs.
+  const memberMap = new Map<number, GitHubRepo>();
+  if (options.expandOrgs)
+    for (const repo of gh.repos
+      .all()
+      .filter((r) => r.owner_type === "Organization" && isOrgMember(gh, user.id, r.owner_id)))
+      memberMap.set(repo.id, repo);
+  for (const repo of collaborated) memberMap.set(repo.id, repo);
+  const member = Array.from(memberMap.values());
 
   if (type === "owner") return owned;
   if (type === "member") return member;
@@ -149,7 +164,7 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     const { page, per_page } = parsePagination(c);
-    const allRepos = sortRepos(listReposForUser(gh, user, type), sort, direction).filter((r) =>
+    const allRepos = sortRepos(listReposForUser(gh, user, type, { expandOrgs: true }), sort, direction).filter((r) =>
       canAccessRepo(gh, authUser, r),
     );
     const total = allRepos.length;
@@ -208,7 +223,9 @@ export function usersRoutes({ app, store, baseUrl }: RouteContext): void {
     }
 
     const { page, per_page } = parsePagination(c);
-    const allRepos = sortRepos(listReposForUser(gh, user, type), sort, direction);
+    const allRepos = sortRepos(listReposForUser(gh, user, type, { expandOrgs: false }), sort, direction).filter(
+      (repo) => canAccessRepo(gh, c.get("authUser"), repo),
+    );
     const total = allRepos.length;
     const start = (page - 1) * per_page;
     const items = allRepos.slice(start, start + per_page).map((r) => formatRepo(r, gh, baseUrl));
