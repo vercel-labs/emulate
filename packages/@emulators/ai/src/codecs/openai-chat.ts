@@ -7,10 +7,11 @@ import type {
 import { assertOutputSupported, assertToolsSupported } from "../schema-dialects.js";
 import type { CompletionUsage } from "openai/resources/completions";
 import type { ErrorObject } from "openai/resources/shared";
-import { decodeChatAttachment } from "../attachments.js";
+import { decodeChatAttachment, inlineFilePart } from "../attachments.js";
 import { jsonChunks, textChunks } from "../chunks.js";
 import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../codec.js";
 import { AiRequestError, defaultErrorType } from "../errors.js";
+import { renderAudio, speechSeconds, type AudioFormat } from "../media/sound.js";
 import { decodeMetadata } from "../metadata.js";
 import type { SseFrame } from "../sse.js";
 import type {
@@ -34,7 +35,22 @@ export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "x
 
 interface ChatExtras {
   includeUsage: boolean;
+  /** The spoken format when the request asked for audio output. */
+  audio?: AudioFormat;
 }
+
+const AUDIO_OUTPUT_FORMATS: Record<string, AudioFormat> = {
+  wav: "wav",
+  aac: "aac",
+  mp3: "mp3",
+  flac: "flac",
+  opus: "opus",
+  pcm16: "pcm",
+};
+const AUDIO_INPUT_TYPES: Record<string, string> = { wav: "audio/wav", mp3: "audio/mpeg" };
+const MAX_AUDIO_INPUT_BYTES = 25_000_000;
+const AUDIO_EXPIRY_SECONDS = 3600;
+const AUDIO_DELTA_CHARS = 16384;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -93,8 +109,15 @@ function userParts(content: unknown, path: string): InputPart[] {
         if (!file) fail("Expected an attachment part.", at);
         return [file];
       }
-      case "input_audio":
-        return unsupported(`${at}.input_audio`, "audio input");
+      case "input_audio": {
+        if (!isRecord(part.input_audio)) fail("Expected an input_audio object.", `${at}.input_audio`);
+        const format = part.input_audio.format;
+        if (typeof format !== "string" || !Object.hasOwn(AUDIO_INPUT_TYPES, format)) {
+          fail("Expected one of wav, mp3.", `${at}.input_audio.format`);
+        }
+        const data = expectString(part.input_audio.data, `${at}.input_audio.data`);
+        return [inlineFilePart(data, AUDIO_INPUT_TYPES[format], `${at}.input_audio.data`, MAX_AUDIO_INPUT_BYTES)];
+      }
       case undefined:
         return fail("Expected a content part type.", `${at}.type`);
       default:
@@ -303,15 +326,48 @@ function decodeReasoning(raw: unknown): boolean {
   return effort !== "none";
 }
 
-function decodeChat(body: unknown): Decoded {
-  if (!isRecord(body)) fail("Expected a JSON object request body.", "body");
-  if (body.audio !== undefined && body.audio !== null) unsupported("audio", "audio output");
+/** Reads `modalities` and `audio`; audio output needs both `"audio"` in `modalities` and an `audio` object with a voice and format. */
+function decodeAudioOutput(body: Record<string, unknown>): AudioFormat | undefined {
+  let wantsAudio = false;
   if (body.modalities !== undefined && body.modalities !== null) {
     const modalities = body.modalities;
-    if (!Array.isArray(modalities) || modalities.some((value) => value !== "text")) {
-      unsupported("modalities", "audio output");
+    if (!Array.isArray(modalities) || modalities.some((value) => value !== "text" && value !== "audio")) {
+      fail('Expected modalities to list "text" and optionally "audio".', "modalities");
     }
+    wantsAudio = modalities.includes("audio");
   }
+  const audio = body.audio;
+  if (audio === undefined || audio === null) {
+    if (wantsAudio) fail('Audio output requires the "audio" parameter with a voice and format.', "audio");
+    return undefined;
+  }
+  if (!wantsAudio) fail('The "audio" parameter requires modalities ["text", "audio"].', "audio");
+  if (!isRecord(audio)) fail("Expected an audio object.", "audio");
+  const voice = audio.voice;
+  if (typeof voice !== "string" && !(isRecord(voice) && typeof voice.id === "string")) {
+    fail("Expected a voice name or an object with an id.", "audio.voice");
+  }
+  const format = audio.format;
+  if (typeof format !== "string" || !Object.hasOwn(AUDIO_OUTPUT_FORMATS, format)) {
+    fail(`Expected one of ${Object.keys(AUDIO_OUTPUT_FORMATS).join(", ")}.`, "audio.format");
+  }
+  return AUDIO_OUTPUT_FORMATS[format];
+}
+
+/** The spoken form of a reply's text: an audio clip as long as the text takes to read aloud. */
+function spokenAudio(format: AudioFormat, text: string, ctx: CodecContext) {
+  const bytes = renderAudio(format, { seconds: speechSeconds(text), sampleRate: 24000 });
+  return {
+    id: ctx.makeId("audio"),
+    data: Buffer.from(bytes).toString("base64"),
+    expires_at: CREATED_AT + AUDIO_EXPIRY_SECONDS,
+    transcript: text,
+  };
+}
+
+function decodeChat(body: unknown): Decoded {
+  if (!isRecord(body)) fail("Expected a JSON object request body.", "body");
+  const audio = decodeAudioOutput(body);
   if (body.web_search_options !== undefined && body.web_search_options !== null) {
     unsupported("web_search_options", "hosted tools");
   }
@@ -376,7 +432,7 @@ function decodeChat(body: unknown): Decoded {
     warnings: [],
   };
 
-  const extras: ChatExtras = { includeUsage };
+  const extras: ChatExtras = { includeUsage, ...(audio ? { audio } : {}) };
   return { request, extras: extras as unknown as Record<string, unknown> };
 }
 
@@ -431,11 +487,14 @@ function textOf(events: ReplyEvent[]): { text: string; refusal: string } {
 function encodeJson(reply: Reply, decoded: Decoded, ctx: CodecContext): ChatCompletion {
   const { text, refusal } = textOf(reply.events);
   const toolCalls = toolCallsOf(reply.events);
+  const { audio } = decoded.extras as unknown as ChatExtras;
+  const spoken = audio && text.length > 0 ? spokenAudio(audio, text, ctx) : undefined;
   const message: ChatCompletionMessage = {
     role: "assistant",
-    content: text.length > 0 ? text : null,
+    content: text.length > 0 && !spoken ? text : null,
     refusal: refusal.length > 0 ? refusal : null,
     annotations: [],
+    ...(spoken ? { audio: spoken } : {}),
     ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
   };
   const body: ChatCompletion = {
@@ -475,10 +534,12 @@ function chunk(
 }
 
 function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFrame[] {
-  const { includeUsage } = decoded.extras as unknown as ChatExtras;
+  const { includeUsage, audio } = decoded.extras as unknown as ChatExtras;
   const id = ctx.makeId("chatcmpl").replace("_", "-");
   const model = decoded.request.model;
   const frames: SseFrame[] = [{ data: chunk(id, model, { role: "assistant", content: "" }, null, includeUsage) }];
+  const spokenText = audio ? textOf(reply.events).text : "";
+  const spoken = audio && spokenText.length > 0 ? spokenAudio(audio, spokenText, ctx) : undefined;
 
   let toolIndex = 0;
   for (const event of reply.events) {
@@ -490,10 +551,10 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
         const text = event.type === "text" ? event.text : JSON.stringify(event.value);
         const pieces = event.type === "text" ? textChunks(text) : jsonChunks(text);
         for (const piece of pieces) {
-          frames.push({
-            data: chunk(id, model, { content: piece }, null, includeUsage),
-            content: piece,
-          });
+          const delta = spoken
+            ? ({ audio: { id: spoken.id, transcript: piece } } as ChatCompletionChunk.Choice.Delta)
+            : { content: piece };
+          frames.push({ data: chunk(id, model, delta, null, includeUsage), content: piece });
         }
         break;
       }
@@ -538,6 +599,15 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
     }
   }
 
+  if (spoken) {
+    for (let at = 0; at < spoken.data.length; at += AUDIO_DELTA_CHARS) {
+      const data = spoken.data.slice(at, at + AUDIO_DELTA_CHARS);
+      const delta = { audio: { id: spoken.id, data } } as ChatCompletionChunk.Choice.Delta;
+      frames.push({ data: chunk(id, model, delta, null, includeUsage), content: data });
+    }
+    const delta = { audio: { id: spoken.id, expires_at: spoken.expires_at } } as ChatCompletionChunk.Choice.Delta;
+    frames.push({ data: chunk(id, model, delta, null, includeUsage) });
+  }
   frames.push({
     data: chunk(id, model, {}, finishReason(reply.finish), includeUsage),
   });

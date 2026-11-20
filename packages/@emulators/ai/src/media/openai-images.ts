@@ -2,12 +2,13 @@ import { imageAttachment } from "../attachments.js";
 import { CREATED_AT, type Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import type { SseFrame } from "../sse.js";
-import type { AIRequest, FilePart, InputPart, MediaReplyEvent, RuleReplyEvent } from "../types.js";
+import type { FilePart, InputPart, MediaReplyEvent, RuleReplyEvent } from "../types.js";
 import {
   base64Bytes,
   fail,
   fieldsOf,
   isRecord,
+  mediaRequest,
   optionalBoolean,
   optionalEnum,
   optionalInteger,
@@ -133,20 +134,7 @@ function decodeImages(operation: "generation" | "edit", fields: Fields): Decoded
 
   const files = operation === "edit" ? editInputs(fields) : [];
   const parts: InputPart[] = [{ type: "text", text: prompt }, ...files];
-  const request: AIRequest = {
-    format: "openai-images",
-    task: "image",
-    model,
-    messages: [{ role: "user", parts }],
-    tools: [],
-    toolChoice: "auto",
-    parallelToolCalls: false,
-    stream,
-    reasoning: false,
-    store: false,
-    references: [],
-    warnings: [],
-  };
+  const request = mediaRequest("openai-images", "image", model, parts, stream);
   const extras: ImageRequestExtras = {
     operation,
     n,

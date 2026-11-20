@@ -48,6 +48,11 @@ The format is read from the end of the path, so any prefix works (`/v1`, `/api/v
 - `GET .../models` — configured and previously requested models, in OpenAI's list shape
 - `POST .../images/generations` — OpenAI and xAI image generation, unary and streamed
 - `POST .../images/edits` — OpenAI and xAI image edits, multipart or JSON, unary and streamed
+- `POST .../audio/speech` — OpenAI text to speech, as a file or as server-sent events
+- `POST .../audio/transcriptions` — OpenAI speech to text, unary and streamed
+- `POST .../audio/translations` — OpenAI speech translation to English
+- `POST /v1/text-to-speech/:voice_id` — ElevenLabs text to speech, also at `/stream` and `/with-timestamps`
+- `POST /v1/speech-to-text` — ElevenLabs speech to text
 - `GET /` — inspector
 
 Other paths return the native OpenAI 404 naming the supported paths.
@@ -83,6 +88,33 @@ ai:
 ```
 
 An `image` event without `data` renders the generated image. With `n` above the number of events, the events repeat in order. Errors, `times`, `variants`, `timing`, and `strict` behave as they do for text, and a strict miss suggests an image rule.
+
+### Audio
+
+`POST .../audio/speech` speaks the OpenAI speech API. It returns a real, decodable clip in `response_format` (`mp3` by default, `opus` in Ogg, `aac` in ADTS, `flac`, `wav`, or raw 24 kHz 16-bit `pcm`) with the matching `Content-Type`. The clip is silent and lasts about one second per fifteen characters of `input`, divided by `speed`, never under half a second. `stream_format: sse` sends `speech.audio.delta` events carrying base64 chunks and a final `speech.audio.done` with usage. `instructions` and `stream_format: sse` are rejected for `tts-1` and `tts-1-hd`, as the real API does.
+
+`POST .../audio/transcriptions` and `POST .../audio/translations` take multipart uploads (`file`, `model`, and the optional fields both the `openai` SDK and `@ai-sdk/openai` send). Each `response_format` has its real shape: `json`, `text`, `srt`, `vtt`, `verbose_json` with `segments` and, when `timestamp_granularities` asks for them, `words`, and `diarized_json` with speaker segments. The formats a model accepts follow OpenAI's rules, so `gpt-4o-transcribe` accepts only `json`. The duration comes from a WAV header, or is estimated at 128 kbit/s for other files, and word timings are spread across it in proportion to word length. `stream: true` on a non-Whisper model sends `transcript.text.delta` events and `transcript.text.done`. `include[]=logprobs` adds per-word log probabilities. With no matching rule the transcript is `This is a deterministic transcript of <file name>.`
+
+ElevenLabs is served at `POST /v1/text-to-speech/{voice_id}` (plus `/stream` and `/with-timestamps`) and `POST /v1/speech-to-text`. `output_format` sets the codec and sample rate, as in `mp3_44100_128`, `pcm_24000`, `wav_16000`, `ulaw_8000`, `alaw_8000`, or `opus_48000_64`. `/with-timestamps` returns `audio_base64` with character alignment. Speech to text returns `text` with timed `words` and `spacing` entries, plus `speaker_id` when `diarize` is set. Invalid bodies return 422 with ElevenLabs' `detail` envelope.
+
+Chat Completions speaks replies when the request sets `modalities: ["text", "audio"]` and `audio: { voice, format }`. The message then carries `audio` with an `id`, base64 `data` in the requested format, `expires_at`, and the reply text as `transcript`, and `content` is `null`. A stream sends the transcript in `delta.audio.transcript` pieces, then the audio in `delta.audio.data` pieces, then `delta.audio.expires_at`. `input_audio` content parts (`wav` or `mp3`) are accepted as attachments, so `match.file: audio/*` selects them.
+
+Speech rules set `match.task: speech` and reply with `{ type: audio, data }` to return exact bytes. Transcription rules set `match.task: transcription` and reply with `text` events, which become the transcript:
+
+```yaml
+ai:
+  rules:
+    - id: greeting
+      match: { task: speech, textContains: welcome }
+      reply:
+        - type: audio
+          data: UklGRiQAAABXQVZF... # base64, returned verbatim
+    - id: call-notes
+      match: { task: transcription, file: audio/wav }
+      reply:
+        - type: text
+          text: Customer asked about the refund. Agent approved it.
+```
 
 ## Rules
 
@@ -144,9 +176,9 @@ Every condition in `match` must hold.
 
 | Matcher         | Matches when                                                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `task`          | The request asks for `text` (the default when omitted) or `image`                                                                    |
+| `task`          | The request asks for `text` (the default when omitted), `image`, `speech`, or `transcription`                                        |
 | `model`         | The model id matches; `*` wildcards allowed                                                                                          |
-| `format`        | The request format is `openai-chat`, `openai-responses`, `anthropic-messages`, or `openai-images`                                    |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, or `elevenlabs`                            |
 | `stream`        | The request does or does not stream                                                                                                  |
 | `textContains`  | The latest user text contains the string; tool results are ignored                                                                   |
 | `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                          |
@@ -165,6 +197,7 @@ Every condition in `match` must hold.
 | `reasoning` | `text`                             | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                     |
 | `refusal`   | `text`                             | A refusal in the format's native shape                                                                                             |
 | `image`     | optional `data`, `revisedPrompt`   | An image for `task: image` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders the image     |
+| `audio`     | optional `data`                    | Speech for `task: speech` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders silence        |
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
@@ -347,7 +380,7 @@ Prompts and tool arguments are recorded. API keys, auth headers, URL credentials
 - The Vercel AI SDK cannot parse native refusals. Script refusal-like content as `text`, or use the `openai` SDK.
 - Chat Completions carries no reasoning text, only reasoning tokens in usage, and omits OpenRouter's `reasoning` extensions.
 - The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
-- On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
+- On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input and output on Responses, and legacy functions.
 - Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 - Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 - Usage numbers are deterministic estimates.
