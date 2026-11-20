@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { zstdDecompressSync } from "node:zlib";
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
 import { messagesCodec } from "./codecs/anthropic-messages.js";
@@ -9,6 +10,7 @@ import { elevenLabsRoutes } from "./media/elevenlabs.js";
 import { openaiAudioRoutes } from "./media/openai-audio.js";
 import { imageRoutes } from "./media/openai-images.js";
 import type { MediaBody, MediaResult, MediaRoute, StateRoute, UploadedFile } from "./media/route.js";
+import { decisionRoutes } from "./media/decisions.js";
 import { videoCreateRoutes, videoStateRoutes } from "./media/videos.js";
 import { AiConfigError, AiRequestError, defaultErrorType } from "./errors.js";
 import { parseConfig, rulesView, type RuleView } from "./rules.js";
@@ -34,13 +36,14 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation, POST .../decisions, POST .../systemone, POST .../alpha/decisions";
 
 const MEDIA_ROUTES: readonly MediaRoute[] = [
   ...imageRoutes,
   ...openaiAudioRoutes,
   ...elevenLabsRoutes,
   ...videoCreateRoutes,
+  ...decisionRoutes,
 ];
 
 const STATE_ROUTES: readonly StateRoute[] = [...videoStateRoutes];
@@ -174,10 +177,20 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
     }
   }
 
-  const mediaRoute = MEDIA_ROUTES.find((route) => route.matches(method, path));
-  if (mediaRoute) {
+  const candidates = MEDIA_ROUTES.filter((route) => route.matches(method, path));
+  if (candidates.length > 0) {
+    const shared = candidates.some((route) => route.accepts !== undefined);
+    const body = shared ? readMediaBody(c) : undefined;
+    const settled = body
+      ? await body.then(
+          (value) => value,
+          () => undefined,
+        )
+      : undefined;
+    const mediaRoute =
+      (settled && candidates.find((route) => !route.accepts || route.accepts(settled))) ?? candidates[0];
     try {
-      return await handleMedia(c, store, state, mediaRoute, path, url);
+      return await handleMedia(c, store, state, mediaRoute, path, url, body);
     } catch (error) {
       const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
       return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
@@ -423,6 +436,7 @@ async function handleMedia(
   route: MediaRoute,
   path: string,
   url: URL,
+  preread?: Promise<MediaBody>,
 ): Promise<Response> {
   const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
@@ -430,7 +444,7 @@ async function handleMedia(
   let body: MediaBody | undefined;
   let decoded: Decoded;
   try {
-    body = await readMediaBody(c);
+    body = await (preread ?? readMediaBody(c));
     decoded = route.decode(body, ctx, url.searchParams);
   } catch (error) {
     const status = error instanceof AiRequestError ? error.status : 500;
@@ -526,7 +540,16 @@ async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
     }
     return { kind: "form", fields, files };
   }
-  const text = await c.req.text();
+  const raw = new Uint8Array(await c.req.arrayBuffer());
+  let bytes = raw;
+  if ((c.req.header("content-encoding") ?? "").toLowerCase() === "zstd") {
+    try {
+      bytes = new Uint8Array(zstdDecompressSync(raw));
+    } catch {
+      throw new AiRequestError("Malformed zstd request body.", undefined, "invalid_encoding");
+    }
+  }
+  const text = new TextDecoder().decode(bytes);
   if (text.trim() === "") return { kind: "none" };
   try {
     return { kind: "json", value: JSON.parse(text) as Json };

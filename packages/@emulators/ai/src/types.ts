@@ -15,10 +15,15 @@ export type AiFormat =
   | "openai-videos"
   | "xai-videos"
   | "gemini-veo"
-  | "vertex-veo";
+  | "vertex-veo"
+  | "openai-decisions"
+  | "gemini-decisions"
+  | "typesafe-systemone"
+  | "openrouter-decisions"
+  | "perplexity-decisions";
 
 /** What a request asks the model to produce; rules answer only requests of their own task. */
-export type AiTask = "text" | "image" | "speech" | "transcription" | "video";
+export type AiTask = "text" | "image" | "speech" | "transcription" | "video" | "decision";
 
 /** Attachment metadata decoded from a request; file bytes are never kept. */
 export interface FilePart {
@@ -171,7 +176,8 @@ export type MediaReplyEvent =
   | { type: "image"; data?: string; revisedPrompt?: string }
   | { type: "audio"; data?: string }
   | { type: "video"; data?: string; polls?: number }
-  | { type: "video_error"; code: string; message: string; polls?: number };
+  | { type: "video_error"; code: string; message: string; polls?: number }
+  | { type: "decision"; answers: Record<string, Json> };
 
 /** One alternate rule body: a reply or an error, with optional overrides for the rule-level delivery fields. */
 export interface RuleVariant {

@@ -48,6 +48,7 @@ const AUDIO_EVENT_KEYS = new Set(["type", "data"]);
 const VIDEO_EVENT_KEYS = new Set(["type", "data", "polls"]);
 const VIDEO_ERROR_EVENT_KEYS = new Set(["type", "code", "message", "polls"]);
 const MAX_POLLS = 1000;
+const DECISION_EVENT_KEYS = new Set(["type", "answers"]);
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 const FORMATS: ReadonlySet<string> = new Set([
@@ -61,6 +62,11 @@ const FORMATS: ReadonlySet<string> = new Set([
   "xai-videos",
   "gemini-veo",
   "vertex-veo",
+  "openai-decisions",
+  "gemini-decisions",
+  "typesafe-systemone",
+  "openrouter-decisions",
+  "perplexity-decisions",
 ]);
 
 /** The reply event types each task can render. */
@@ -70,6 +76,7 @@ const TASK_EVENTS: Record<AiTask, ReadonlySet<string>> = {
   speech: new Set(["audio"]),
   transcription: new Set(["text"]),
   video: new Set(["video", "video_error"]),
+  decision: new Set(["decision"]),
 };
 const FINISH_REASONS: ReadonlySet<string> = new Set(["stop", "tool_calls", "length", "refusal", "content_filter"]);
 const FAULT_KINDS: ReadonlySet<string> = new Set(["disconnect", "stall"]);
@@ -485,6 +492,13 @@ function parseReplyEvent(raw: unknown, path: string): RuleReplyEvent {
         message: expectString(obj.message, `${path}.message`),
         ...(obj.polls === undefined ? {} : { polls: expectPolls(obj.polls, `${path}.polls`) }),
       };
+    case "decision": {
+      assertKnownKeys(obj, DECISION_EVENT_KEYS, path);
+      const answers = expectJson(obj.answers ?? {}, `${path}.answers`);
+      if (!isRecord(answers))
+        throw new AiConfigError("expected an object of answers keyed by question", `${path}.answers`);
+      return { type, answers: answers as Record<string, Json> };
+    }
     default:
       throw new AiConfigError(`unknown reply event type "${type}"`, `${path}.type`);
   }

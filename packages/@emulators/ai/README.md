@@ -68,6 +68,8 @@ openai.chat("gpt-x");
 - `POST /v1/videos/generations` and `GET /v1/videos/{request_id}` — xAI video jobs
 - `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/models/{model}/operations/{id}`, `GET /v1beta/files/{id}:download` — Gemini API Veo
 - `POST .../publishers/google/models/{model}:predictLongRunning` and `:fetchPredictOperation` — Vertex AI Veo
+- `POST /v1/decisions` — OpenAI, Gemini API, and Perplexity decision models, told apart by the body
+- `POST /v1/systemone` and `POST /api/alpha/decisions` — TypeSafe Jev and OpenRouter decisions
 
 An unsupported data path returns the native 404 naming the supported paths.
 
@@ -133,9 +135,9 @@ Rules are evaluated in order and the first match wins. Every supplied matcher mu
 
 Matchers:
 
-- `task` — `text` (the default when omitted), `image`, `speech`, `transcription`, or `video`; a rule answers only requests of its task
+- `task` — `text` (the default when omitted), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task
 - `model` — model id, with `*` wildcards
-- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, or `vertex-veo`
+- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions`
 - `stream` — boolean
 - `textContains` — case-sensitive text in the latest user instruction, excluding tool results
 - `tool` — a declared tool name, with `*` wildcards
@@ -167,6 +169,10 @@ Speech routes return real, decodable silence in the requested format (`mp3`, `op
 
 Video requests create jobs with an explicit state machine: `queued`, `in_progress`, then `completed` or `failed`. A job advances one step per status read, so polling is deterministic, and completed jobs serve a real H.264 MP4 at the requested size and duration. Video rules reply with `{ type: video, data?, polls? }` or `{ type: video_error, code, message, polls? }`.
 
+## Decisions
+
+Decision models (OpenAI `gpt-6-luna`, Gemini `gemini-decision-1`, TypeSafe Jev, OpenRouter, and Perplexity Decider) answer typed boolean, choice, score, box, and locate questions with deterministic probabilities in each provider's shape. Decision rules reply with `{ type: decision, answers }`, keyed by question id: a probability, an option, a score, explicit probabilities, or `null` for a refusal.
+
 ## Defaults
 
 With no matching rule, the service:
@@ -180,6 +186,7 @@ With no matching rule, the service:
 - renders deterministic images for image requests and silence for speech requests
 - transcribes audio as `This is a deterministic transcript of <file name>.`
 - completes video jobs on the second status read with a gray MP4
+- answers decision questions with deterministic probabilities
 
 Set `strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and JSON.
 
