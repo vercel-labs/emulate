@@ -1,7 +1,7 @@
 import { jsonChunks, textChunks } from "../chunks.js";
 import type { Codec, CodecContext, Decoded } from "../codec.js";
 import { AiRequestError } from "../errors.js";
-import { inlineFilePart } from "../attachments.js";
+import { inlineFilePart, redactedReference } from "../attachments.js";
 import { googleError } from "../media/videos.js";
 import type { SseFrame } from "../sse.js";
 import type {
@@ -21,6 +21,7 @@ import type {
 
 const FORMAT = "gemini";
 const MAX_INLINE_BYTES = 100_000_000;
+const SAMPLE_RATES = [8000, 16000, 22050, 24000, 32000, 44100, 48000];
 const MODEL_PATH = /\/models\/([^/:]+):(stream)?[gG]enerateContent$/;
 
 /** The Gemini-specific settings a reply needs beyond the shared request. */
@@ -66,7 +67,7 @@ function decodePart(part: unknown, path: string): InputPart[] {
   }
   const file = part.fileData ?? part.file_data;
   if (isRecord(file)) {
-    const ref = String(file.fileUri ?? file.file_uri ?? "");
+    const ref = redactedReference(file.fileUri ?? file.file_uri, `${path}.fileData.fileUri`);
     const mediaType = String(file.mimeType ?? file.mime_type ?? "application/octet-stream");
     return [{ type: "file", mediaType, source: "url", ref } satisfies FilePart];
   }
@@ -190,7 +191,10 @@ function decodeSpeech(config: Record<string, unknown>): { mimeType: string; samp
   const mimeType = AUDIO_TYPES[requested];
   if (!mimeType) fail(`Unsupported audio mimeType ${requested}.`, "generationConfig.responseFormat.audio.mimeType");
   const telephony = requested === "AUDIO_ALAW" || requested === "AUDIO_MULAW";
-  const sampleRate = typeof format.sampleRate === "number" ? format.sampleRate : telephony ? 8000 : 24000;
+  const sampleRate = format.sampleRate ?? (telephony ? 8000 : 24000);
+  if (typeof sampleRate !== "number" || !SAMPLE_RATES.includes(sampleRate)) {
+    fail(`Unsupported audio sampleRate ${String(sampleRate)}.`, "generationConfig.responseFormat.audio.sampleRate");
+  }
   return { mimeType, sampleRate };
 }
 

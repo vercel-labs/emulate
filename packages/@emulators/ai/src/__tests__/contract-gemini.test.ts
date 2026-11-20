@@ -106,4 +106,27 @@ describe("gemini contract", () => {
     expect(speech[0].inlineData?.mimeType).toBe("audio/L16;codec=pcm;rate=24000");
     expect(Buffer.from(speech[0].inlineData?.data ?? "", "base64").length).toBe(2 * 24000 * 2);
   });
+  it("rejects unsupported speech sample rates and redacts file URIs", async () => {
+    const speech = await generate("gemini-2.5-flash-preview-tts", {
+      contents: [{ parts: [{ text: "x" }] }],
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        responseFormat: { audio: { mimeType: "AUDIO_MULAW", sampleRate: 2_000_000_000 } },
+      },
+    });
+    expect(speech.status).toBe(400);
+    await generate("gemini-3-flash", {
+      contents: [
+        {
+          parts: [
+            { text: "x" },
+            { fileData: { mimeType: "audio/wav", fileUri: "https://files.example/a.wav?token=secret" } },
+          ],
+        },
+      ],
+    });
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).toContain("https://files.example/a.wav");
+    expect(calls).not.toContain("secret");
+  });
 });
