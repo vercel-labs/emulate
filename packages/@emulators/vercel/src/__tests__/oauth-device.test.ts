@@ -32,6 +32,12 @@ function createTestApp() {
         name: "Device App",
         redirect_uris: ["http://localhost:3000/callback"],
       },
+      {
+        client_id: "other_device_client",
+        client_secret: "other-secret",
+        name: "Other Device App",
+        redirect_uris: ["http://localhost:3000/other"],
+      },
     ],
   });
 
@@ -133,6 +139,70 @@ describe("Vercel device authorization grant", () => {
     const again = await poll(app, started.device_code);
     expect(again.status).toBe(400);
     expect(((await again.json()) as { error: string }).error).toBe("invalid_grant");
+  });
+
+  it("binds a device code to the client it was issued to", async () => {
+    const started = await deviceCode(app);
+    await app.request(`${base}/oauth/device/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: "developer", user_code: started.user_code }).toString(),
+    });
+    const other = await app.request(`${base}/login/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        client_id: "other_device_client",
+        device_code: started.device_code,
+      }).toString(),
+    });
+    expect(other.status).toBe(400);
+    expect(((await other.json()) as { error: string }).error).toBe("invalid_grant");
+  });
+
+  it("accepts HTTP Basic client authentication at the token endpoint", async () => {
+    const started = await deviceCode(app);
+    await app.request(`${base}/oauth/device/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: "developer", user_code: started.user_code }).toString(),
+    });
+    const basic = `Basic ${Buffer.from("emu_device_client:device-secret").toString("base64")}`;
+    const device = await app.request(`${base}/login/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: basic },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: started.device_code,
+      }).toString(),
+    });
+    expect(device.status).toBe(200);
+    expect(((await device.json()) as { access_token: string }).access_token).toMatch(/^vercel_/);
+
+    const callback = await app.request(`${base}/oauth/authorize/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        username: "developer",
+        redirect_uri: "http://localhost:3000/callback",
+        scope: "openid",
+        client_id: "emu_device_client",
+      }).toString(),
+    });
+    expect(callback.status).toBe(302);
+    const code = new URL(callback.headers.get("Location")!).searchParams.get("code")!;
+    const exchanged = await app.request(`${base}/login/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: basic },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "http://localhost:3000/callback",
+      }).toString(),
+    });
+    expect(exchanged.status).toBe(200);
+    expect(((await exchanged.json()) as { access_token: string }).access_token).toMatch(/^vercel_/);
   });
 
   it("answers a denial and an unknown code", async () => {

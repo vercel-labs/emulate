@@ -215,6 +215,9 @@ export function exchangeDeviceGrant(
     c.json({ error, error_description: description }, status);
 
   if (!grant) return fail("invalid_grant", "The device code is invalid or expired.");
+  const clientId = typeof body.client_id === "string" ? body.client_id : "";
+  if (grant.clientId && clientId !== grant.clientId)
+    return fail("invalid_grant", "The device code was issued to another client.");
   if (expired(grant)) {
     grants.delete(deviceCode);
     return fail("expired_token", "The device code has expired.");
