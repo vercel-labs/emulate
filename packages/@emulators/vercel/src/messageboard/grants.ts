@@ -120,7 +120,7 @@ function checkCan(can: unknown): Can | { error: { status: number; code: string; 
   const invalid = (message: string) => ({ error: { status: 400, code: "invalid_grant", message } });
   if (!can || typeof can !== "object" || Array.isArray(can) || Object.keys(can).length === 0)
     return invalid("can maps channel patterns to permissions");
-  const out: Can = {};
+  const out: Can = Object.create(null) as Can;
   for (const [pattern, grant] of Object.entries(can as Record<string, unknown>)) {
     if (!/^(\*|[a-z0-9_-]+(\/[a-z0-9_-]+)*\/?)$/.test(pattern)) return invalid(`${pattern} isn't a channel pattern`);
     if (grant === "all") out[pattern] = "all";

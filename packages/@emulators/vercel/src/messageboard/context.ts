@@ -24,10 +24,17 @@ export type Session = {
   vs: VercelStore;
   ms: MessageboardStore;
   baseUrl: string;
+  /** The tokens the emulator was configured with: a board request from any other bearer token is refused. */
+  tokens?: Map<string, unknown>;
 };
 
-export function sessionOf({ store, baseUrl }: RouteContext): Session {
-  return { vs: getVercelStore(store), ms: getMessageboardStore(store), baseUrl };
+export function sessionOf({ store, baseUrl, tokenMap }: RouteContext): Session {
+  return {
+    vs: getVercelStore(store),
+    ms: getMessageboardStore(store),
+    baseUrl,
+    ...(tokenMap ? { tokens: tokenMap } : {}),
+  };
 }
 
 /** Vercel's API's error body: a code and a message, as every board route answers. */
@@ -64,19 +71,20 @@ export type Identity = {
   limit: Can | undefined;
 };
 
-function principalOfToken(session: Session, token: string, team: VercelTeam | null): Principal | null {
-  const project = /^project:(.+):([A-Za-z0-9_-]+)$/.exec(token);
+/** The principal a configured token's login names: `project:<project>:<environment>`, `app:<client-id-or-name>`, or a user. */
+function principalOfLogin(session: Session, login: string, team: VercelTeam | null): Principal | null {
+  const project = /^project:(.+):([A-Za-z0-9_-]+)$/.exec(login);
   if (project) {
     const found = projectByIdOrName(session.vs, team?.uid ?? null, project[1]!);
     if (found) return { type: "project", projectId: found.uid, environment: project[2]! };
   }
-  const app = /^app:(.+)$/.exec(token);
+  const app = /^app:(.+)$/.exec(login);
   if (app) {
     const found =
       session.vs.integrations.findOneBy("client_id", app[1]!) ?? session.vs.integrations.findBy("name", app[1]!)[0];
     if (found) return { type: "app", clientId: found.client_id };
   }
-  const user = /^user:(.+)$/.exec(token);
+  const user = /^user:(.+)$/.exec(login);
   if (user) {
     const found = userByLogin(session.vs, user[1]!);
     if (found) return { type: "user", userId: found.uid };
@@ -86,13 +94,18 @@ function principalOfToken(session: Session, token: string, team: VercelTeam | nu
 
 /** Who a request is: the bearer token's principal, or the emulator token's user. */
 export function identityOf(c: Context, session: Session, team: VercelTeam | null): Identity | Response {
-  const authHeader = c.req.header("authorization");
-  const token = authHeader?.replace(/^(Bearer|token)\s+/i, "").trim() || c.get("authToken");
+  // Who the emulator's token map verified, and only that: a bearer token nobody configured is not a principal,
+  // and a token acts as a project or an app only when its configured login says so.
+  const raw =
+    c.req
+      .header("authorization")
+      ?.replace(/^(Bearer|token)\s+/i, "")
+      .trim() ?? "";
+  if (!raw || !session.tokens?.has(raw)) return fail(c, 401, "not_authenticated", "Authentication required");
   const auth = c.get("authUser") as { login: string } | undefined;
-  if (!token && !auth) return fail(c, 401, "not_authenticated", "Authentication required");
-  let principal: Principal | null = token ? principalOfToken(session, token, team) : null;
-  if (!principal && auth) principal = principalOfToken(session, auth.login, team);
-  if (!principal && auth) {
+  if (!auth) return fail(c, 401, "not_authenticated", "Authentication required");
+  let principal = principalOfLogin(session, auth.login, team);
+  if (!principal) {
     const user = userByLogin(session.vs, auth.login);
     if (user) principal = { type: "user", userId: user.uid };
   }
@@ -218,10 +231,9 @@ export function canWrite(session: Session, board: Board, who: Who, permission: P
 }
 
 export function channelOf(session: Session, board: Board, idOrName: string): Channel | undefined {
-  return (
-    session.ms.channels.findOneBy("uid", idOrName) ??
-    session.ms.channels.findBy("boardId", board.uid).find((channel) => channel.name === idOrName)
-  );
+  const byId = session.ms.channels.findOneBy("uid", idOrName);
+  if (byId) return byId.boardId === board.uid ? byId : undefined;
+  return session.ms.channels.findBy("boardId", board.uid).find((channel) => channel.name === idOrName);
 }
 
 export function channelNamed(session: Session, board: Board, name: string): Channel | undefined {
@@ -242,6 +254,7 @@ export function cursorAt(position: number, scope: string): string {
 }
 
 export function parseCursor(cursor: string): { position: number; scope: string } | null {
+  if (cursor.length > 128) return null;
   const found = /^c1\.(\d+)\.(.+)$/.exec(cursor);
   return found ? { position: Number(found[1]), scope: found[2]! } : null;
 }

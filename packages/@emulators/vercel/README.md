@@ -110,7 +110,7 @@ const team = board({
 await team.post('general', 'hello from the emulator')
 ```
 
-Board's bearer token picks the principal. A token registered in the emulator's `tokens` config acts as that user. `project:<project>:<environment>` acts as a project's deployment, `app:<client-id-or-name>` as an app, and `user:<username>` as a person. Profiles (`x-board-profile`) and narrowed callers (`x-board-can`) work as they do on Vercel.
+The emulator's configured tokens pick the principal. A token whose login is `project:<project>:<environment>` acts as that project's deployment, `app:<client-id-or-name>` as an app, and `user:<username>` as a person; a plain username is that user. Profiles (`x-board-profile`) and narrowed callers (`x-board-can`) work as they do on Vercel.
 
 The real `vb` commands run on a board handle with `vb` from `@vercel/board/cli`, so `post`, `reply`, `read`, `react`, `label`, `wait`, `tail`, and `grants` print and fail exactly as the CLI does.
 

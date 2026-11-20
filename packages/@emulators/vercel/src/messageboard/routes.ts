@@ -49,6 +49,7 @@ import { applyLabels, makeChannel, owns, principalKey, reply, startThread } from
 const BOARD_NAME = /^[^/]{1,64}$/;
 const CHANNEL_NAME = /^[a-z0-9_-]+(\/[a-z0-9_-]+)*$/;
 const CLIENT_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+const LABEL = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const EMOJI = /^[a-z0-9_+-]{1,64}$/;
 const THREAD_PAGE_MAX = 100;
 const MAIN_CHANNEL = "general";
@@ -86,6 +87,14 @@ function makeBoard(
   return board;
 }
 
+function labelsValid(value: Record<string, unknown>): boolean {
+  const entries = Object.entries(value);
+  return (
+    entries.length <= 16 &&
+    entries.every(([key, label]) => LABEL.test(key) && typeof label === "string" && label.length <= 200)
+  );
+}
+
 function validateText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   if (value.length > 10_000) return null;
@@ -96,11 +105,14 @@ function reservedLabels(value: Record<string, unknown>): boolean {
   return Object.keys(value).some((key) => key.startsWith("board."));
 }
 
+const BODY_MAX = 1_000_000;
+
 function threadPageCursor(scope: string, value: number): string {
   return Buffer.from(JSON.stringify({ scope, value: String(value) })).toString("base64url");
 }
 
 function readThreadCursor(cursor: string, scope: string): number | null {
+  if (cursor.length > 1024) return null;
   try {
     const found = JSON.parse(Buffer.from(cursor, "base64url").toString()) as { scope?: unknown; value?: unknown };
     if (found.scope !== scope) return null;
@@ -114,6 +126,14 @@ function readThreadCursor(cursor: string, scope: string): number | null {
 export function messageboardRoutes(context: RouteContext): void {
   const session = sessionOf(context);
   const app = context.app;
+
+  // A body larger than any board write needs is refused before it is read.
+  app.use("/v1/messageboard/*", async (c, next) => {
+    const length = Number(c.req.header("content-length") ?? 0);
+    if (Number.isFinite(length) && length > BODY_MAX)
+      return fail(c, 413, "entity_too_large", "The request body is too large.");
+    await next();
+  });
 
   // ---- Team-level routes -------------------------------------------------
 
@@ -228,7 +248,12 @@ export function messageboardRoutes(context: RouteContext): void {
       .filter((channel) => mayRead(session, board, who, channel));
     const name = c.req.query("name") ?? null;
     if (name !== null)
-      return tagged(c, { channels: readable.filter((channel) => channel.name === name), cursor: null });
+      return tagged(c, {
+        channels: readable
+          .filter((channel) => channel.name === name)
+          .map((channel) => ({ id: channel.uid, name: channel.name })),
+        cursor: null,
+      });
     const prefix = c.req.query("prefix") ?? null;
     const limit = Number(c.req.query("limit") ?? 50);
     if (!Number.isInteger(limit) || limit < 1 || limit > 500)
@@ -368,6 +393,7 @@ export function messageboardRoutes(context: RouteContext): void {
     if (name !== null && channelId !== null) return fail(c, 400, "invalid_request");
     if (name !== null && (!CHANNEL_NAME.test(name) || name.length > 80)) return fail(c, 400, "invalid_channel_name");
     const known = name !== null ? channelNamed(session, board, name) : channelOf(session, board, channelId!);
+    if (!known && name === null) return fail(c, 404, "channel_not_found");
     if (known && !canWrite(session, board, who, "post", known.name)) return fail(c, 403, "forbidden");
     if (!known && !tokenMay(who, "post", name!)) return fail(c, 403, "forbidden");
     if (!known && !canOf(session, board, who, name!).includes("post")) return fail(c, 403, "forbidden");
@@ -375,13 +401,14 @@ export function messageboardRoutes(context: RouteContext): void {
     if (text === null || text.trim().length === 0)
       return fail(c, 400, "invalid_message", "A message is 1 to 10000 characters.");
     const labels = body.labels && typeof body.labels === "object" ? body.labels : {};
+    if (!labelsValid(labels)) return fail(c, 400, "invalid_label");
     if (reservedLabels(labels)) return fail(c, 400, "reserved_label", "Labels under board. are the board's own.");
     if (body.task !== undefined) return fail(c, 400, "invalid_request", "A post takes no task.");
     const clientId = body.clientId;
     if (clientId !== undefined && (typeof clientId !== "string" || !CLIENT_ID.test(clientId)))
       return fail(c, 400, "invalid_client_id");
     if (typeof clientId === "string") {
-      const again = session.ms.messages.findOneBy("clientKey", `${principalKey(actor)}|${clientId}`);
+      const again = session.ms.messages.findOneBy("clientKey", `${board.uid}|${principalKey(actor)}|${clientId}`);
       if (again) {
         const thread = session.ms.threads.findOneBy("uid", again.threadId)!;
         const read: Record<string, unknown> = {
@@ -462,7 +489,7 @@ export function messageboardRoutes(context: RouteContext): void {
     if (clientId !== undefined && (typeof clientId !== "string" || !CLIENT_ID.test(clientId)))
       return fail(c, 400, "invalid_client_id");
     if (typeof clientId === "string") {
-      const again = session.ms.messages.findOneBy("clientKey", `${principalKey(actor)}|${clientId}`);
+      const again = session.ms.messages.findOneBy("clientKey", `${board.uid}|${principalKey(actor)}|${clientId}`);
       if (again) {
         const read: Record<string, unknown> = {
           thread: showThread(session.ms, thread, board),
@@ -479,6 +506,11 @@ export function messageboardRoutes(context: RouteContext): void {
     }
     const replyTo = body.replyTo !== undefined ? Number(body.replyTo) : undefined;
     if (replyTo !== undefined && (replyTo < 1 || replyTo > thread.messageCount)) return fail(c, 400, "invalid_reply");
+    if (body.labels && typeof body.labels === "object" && Object.keys(body.labels).length > 0) {
+      if (!labelsValid(body.labels)) return fail(c, 400, "invalid_label");
+      if (reservedLabels(body.labels))
+        return fail(c, 400, "reserved_label", "Labels under board. are the board's own.");
+    }
     const message = reply(
       session,
       board,
@@ -489,11 +521,8 @@ export function messageboardRoutes(context: RouteContext): void {
       replyTo,
       typeof clientId === "string" ? clientId : undefined,
     );
-    if (body.labels && typeof body.labels === "object" && Object.keys(body.labels).length > 0) {
-      if (reservedLabels(body.labels))
-        return fail(c, 400, "reserved_label", "Labels under board. are the board's own.");
+    if (body.labels && typeof body.labels === "object" && Object.keys(body.labels).length > 0)
       applyLabels(session, board, thread, channel, message, actor, body.labels as Record<string, string>, []);
-    }
     const read: Record<string, unknown> = {
       thread: showThread(session.ms, thread, board),
       message: showMessage(session.ms, message),
@@ -690,6 +719,8 @@ export function messageboardRoutes(context: RouteContext): void {
     const set = body.set && typeof body.set === "object" ? (body.set as Record<string, string>) : {};
     const unset = Array.isArray(body.unset) ? (body.unset as string[]) : [];
     if (unset.some((key) => Object.hasOwn(set, key))) return fail(c, 400, "invalid_label");
+    if (!Object.keys(set).every((key) => LABEL.test(key)) || !unset.every((key) => LABEL.test(key)))
+      return fail(c, 400, "invalid_label");
     if ([...Object.keys(set), ...unset].some((key) => key.startsWith("board.")))
       return fail(c, 400, "reserved_label", "Labels under board. are the board's own.");
     const expected = body.if && typeof body.if === "object" ? (body.if as Record<string, string | null>) : {};
@@ -777,7 +808,7 @@ export function messageboardRoutes(context: RouteContext): void {
     if (isFailure(board)) return board;
     const message = session.ms.messages.findOneBy(
       "clientKey",
-      `${principalKey(found.identity.actor)}|${c.req.param("client")}`,
+      `${board.uid}|${principalKey(found.identity.actor)}|${c.req.param("client")}`,
     );
     if (!message) return fail(c, 404, "post_not_found");
     const thread = session.ms.threads.findOneBy("uid", message.threadId);

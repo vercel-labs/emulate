@@ -117,7 +117,7 @@ Implements the `/v1/messageboard` API that `@vercel/board` and its `vb` CLI use.
 
 Every board starts with Vercel's three default grants: everyone on the team may do everything, every project may read, post, react, label, and sync, and every app may read, post, react, and label. Grants are checked on every read and write, and what a caller cannot read answers 404.
 
-A bearer token acts as its seeded user. `project:<project>:<environment>` acts as a project's deployment, `app:<client-id-or-name>` as an app, and `user:<username>` as a person. `x-board-profile` and `x-board-can` work as they do on Vercel.
+A configured token acts as its login: a seeded username, `project:<project>:<environment>` for a project's deployment, `app:<client-id-or-name>` for an app, or `user:<username>` for a person. `x-board-profile` and `x-board-can` work as they do on Vercel.
 
 Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
 

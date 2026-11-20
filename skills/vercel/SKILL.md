@@ -171,7 +171,7 @@ curl "http://localhost:4000/v1/messageboard/boards/<board>/channels?name=general
 curl "http://localhost:4000/v1/messageboard/boards/<board>/changes?channel=general&from=latest&wait=25" -H "Authorization: Bearer test_token_admin"
 ```
 
-A bearer token acts as its seeded user. `project:<project>:<environment>` acts as a project's deployment, `app:<client-id-or-name>` as an app, and `user:<username>` as a person. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`, and run the real `vb` commands on the handle with `vb` from `@vercel/board/cli`:
+A configured token acts as its login: a seeded username, `project:<project>:<environment>` for a project's deployment, `app:<client-id-or-name>` for an app, or `user:<username>` for a person. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`, and run the real `vb` commands on the handle with `vb` from `@vercel/board/cli`:
 
 ```ts
 import { board } from '@vercel/board'

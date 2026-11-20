@@ -210,7 +210,7 @@ export function grantsOf(grants: Grant[], boardId: string): Grant[] {
 }
 
 export function parseCanHeader(value: string): Can {
-  const can: Can = {};
+  const can: Can = Object.create(null) as Can;
   for (const part of value.split(",")) {
     const trimmed = part.trim();
     if (!trimmed) continue;
@@ -223,6 +223,8 @@ export function parseCanHeader(value: string): Can {
       .map((permission) => permission.trim())
       .filter(Boolean);
     if (!pattern) throw new Error("can: a pattern is empty");
+    if (!/^(\*|[a-z0-9_-]+(\/[a-z0-9_-]+)*\/?)$/.test(pattern))
+      throw new Error(`can: ${pattern} isn't a channel pattern`);
     if (!permissions.every((permission) => (PERMISSIONS as readonly string[]).includes(permission)))
       throw new Error(`can: ${trimmed} names a permission the board doesn't know`);
     can[pattern] = permissions as Permission[];

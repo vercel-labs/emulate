@@ -34,7 +34,8 @@ export function reply(
   clientId: string | undefined,
   labels: Record<string, string> = {},
 ): Message {
-  const sequence = thread.messageCount + 1;
+  const current = session.ms.threads.findOneBy("uid", thread.uid) ?? thread;
+  const sequence = current.messageCount + 1;
   const createdAt = now();
   const feedSequence = changesIn(session, board, channel.uid).length + 1;
   const message = session.ms.messages.insert({
@@ -50,9 +51,9 @@ export function reply(
     createdBy: actor,
     labels: { ...labels },
     feedSequence,
-    ...(clientId !== undefined ? { clientId, clientKey: `${principalKey(actor)}|${clientId}` } : {}),
+    ...(clientId !== undefined ? { clientId, clientKey: `${board.uid}|${principalKey(actor)}|${clientId}` } : {}),
   });
-  session.ms.threads.update(thread.id, {
+  session.ms.threads.update(current.id, {
     messageCount: sequence,
     lastActivityAt: createdAt,
     lastMessage: { id: message.uid, sequence, createdAt, createdBy: actor },

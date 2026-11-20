@@ -11,6 +11,7 @@ const TEST_TOKENS = [
   ["test_token_admin", "admin"],
   ["test_token_dev", "developer"],
   ["test_token_viewer", "viewer"],
+  ["test_token_project", "project:web:production"],
 ] as const;
 
 let server: Server;
@@ -64,7 +65,10 @@ beforeAll(async () => {
             by: "admin",
             text: "Welcome to the board",
             reactions: [{ emoji: "tada", by: "developer" }],
-            replies: [{ text: "first reply", by: "developer" }],
+            replies: [
+              { text: "first reply", by: "developer" },
+              { text: "second reply", by: "admin" },
+            ],
           },
         ],
       },
@@ -148,7 +152,7 @@ describe("Vercel board emulator", () => {
     const grants = JSON.parse(listed.stdout);
     expect(grants.grants.length).toBeGreaterThanOrEqual(3);
 
-    const project = sdk({ fetch: as("project:web:production") });
+    const project = sdk({ fetch: as("test_token_project") });
     const refused = await vb(project, ["grants", "list", "--json"]);
     expect(refused.code).not.toBe(0);
     expect(refused.stderr).toContain("grant_forbidden");
@@ -211,7 +215,7 @@ describe("Vercel board API surface", () => {
 
   it("enforces grants per channel and answers the API's refusal codes", async () => {
     const person = "test_token_admin";
-    const project = "project:web:production";
+    const project = "test_token_project";
     const made = await call("POST", "/boards/ensure", { token: person, body: { name: "Ops" } });
     expect(made.status).toBe(200);
     const board = made.body.board.id as string;
@@ -366,6 +370,17 @@ describe("Vercel board API surface", () => {
     expect(reply.body.error.code).toBe("newer_message");
   });
 
+  it("refuses a bearer token the emulator was not configured with", async () => {
+    const board = await defaultBoard("test_token_admin");
+    for (const token of ["user:admin", "project:web:production", "not-configured"]) {
+      const refused = await globalThis.fetch(`${api}/v1/messageboard/boards/${board}/me`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(refused.status).toBe(401);
+      expect(((await refused.json()) as any).error.code).toBe("not_authenticated");
+    }
+  });
+
   it("narrows a caller with x-board-can and caps a team viewer", async () => {
     const board = await defaultBoard("test_token_admin");
     const narrowed = await globalThis.fetch(`${api}/v1/messageboard/boards/${board}/me`, {
@@ -402,6 +417,70 @@ describe("Vercel board API surface", () => {
     });
     expect(viewerPost.status).toBe(403);
     expect(viewerPost.body.error.code).toBe("forbidden");
+  });
+
+  it("keeps channel IDs and client IDs inside their board", async () => {
+    const person = "test_token_admin";
+    const first = await defaultBoard(person);
+    const made = await call("POST", "/boards/ensure", { token: person, body: { name: "Second" } });
+    const second = made.body.board.id as string;
+    await call("POST", `/boards/${second}/channels`, { token: person, body: { name: "general" } });
+    const listed = await call("GET", `/boards/${second}/channels?name=general`, { token: person });
+    const secondGeneral = listed.body.channels[0].id as string;
+
+    const cross = await call("POST", `/boards/${first}/threads`, {
+      token: person,
+      body: { channelId: secondGeneral, text: "not this board's channel" },
+    });
+    expect(cross.status).toBe(404);
+    expect(cross.body.error.code).toBe("channel_not_found");
+
+    const a = await call("POST", `/boards/${first}/threads`, {
+      token: person,
+      body: { channel: "general", text: "first board", clientId: "same-id" },
+    });
+    expect(a.status).toBe(200);
+    const b = await call("POST", `/boards/${second}/threads`, {
+      token: person,
+      body: { channel: "general", text: "second board", clientId: "same-id" },
+    });
+    expect(b.status).toBe(200);
+    expect(b.body.message.id).not.toBe(a.body.message.id);
+    expect(b.body.message.text).toBe("second board");
+  });
+
+  it("refuses reserved labels before it writes a reply", async () => {
+    const person = "test_token_admin";
+    const board = await defaultBoard(person);
+    const posted = await call("POST", `/boards/${board}/threads`, {
+      token: person,
+      body: { channel: "general", text: "labels first" },
+    });
+    const before = await call("GET", `/boards/${board}/threads/${posted.body.message.threadId}/messages`, {
+      token: person,
+    });
+    const refused = await call("POST", `/boards/${board}/threads/${posted.body.message.threadId}/messages`, {
+      token: person,
+      body: { text: "reserved", labels: { "board.task": "ready" } },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error.code).toBe("reserved_label");
+    const after = await call("GET", `/boards/${board}/threads/${posted.body.message.threadId}/messages`, {
+      token: person,
+    });
+    expect(after.body.messages).toHaveLength(before.body.messages.length);
+  });
+
+  it("seeds every reply with its own sequence and message ID", async () => {
+    const board = await defaultBoard("test_token_admin");
+    const threads = await call("GET", `/boards/${board}/threads?channel=general&include=messages`, {
+      token: "test_token_admin",
+    });
+    const welcome = threads.body.threads.find((thread: any) => thread.rootMessage?.text === "Welcome to the board");
+    expect(welcome).toBeDefined();
+    const read = await call("GET", `/boards/${board}/threads/${welcome.id}/messages`, { token: "test_token_admin" });
+    expect(read.body.messages.map((message: any) => message.sequence)).toEqual([1, 2, 3]);
+    expect(new Set(read.body.messages.map((message: any) => message.id)).size).toBe(3);
   });
 
   it("feeds what comes next and long-polls for it", async () => {

@@ -898,7 +898,7 @@ Implements the `/v1/messageboard` API that `@vercel/board` and its `vb` CLI use:
 - `GET /v1/messageboard/boards/:board/changes` - a channel's feed, with long-polling through `wait`
 - `GET|POST /v1/messageboard/boards/:board/grants`, `GET .../grants/explain`, `PATCH .../grants/:grant`, `POST .../grants/:grant/revoke` - grants, checked on every read and write
 
-Boards start with Vercel's three default grants. A token acts as its seeded user, or as `project:<project>:<environment>`, `app:<client-id-or-name>`, or `user:<username>`. Point `@vercel/board` at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
+Boards start with Vercel's three default grants. A configured token acts as its login: a seeded username, or `project:<project>:<environment>`, `app:<client-id-or-name>`, or `user:<username>`. Point `@vercel/board` at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
 
 ```ts
 import { board } from '@vercel/board'
