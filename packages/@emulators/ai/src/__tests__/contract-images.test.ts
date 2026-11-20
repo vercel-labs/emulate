@@ -124,4 +124,13 @@ describe("images contract", () => {
       param: "size",
     });
   });
+  it("keeps multipart field names away from Object.prototype", async () => {
+    const form = new FormData();
+    form.set("__proto__[stream]", "bogus");
+    form.set("prompt", "x");
+    form.set("image", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "a.png");
+    expect((await fetch(`${origin}/v1/images/edits`, { method: "POST", body: form })).status).toBe(200);
+    expect(({} as Record<string, unknown>).stream).toBeUndefined();
+    await expect(openai.images.generate({ prompt: "after" })).resolves.toMatchObject({ created: expect.any(Number) });
+  });
 });
