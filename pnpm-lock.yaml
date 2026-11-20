@@ -230,6 +230,25 @@ importers:
         specifier: ^5.7
         version: 5.9.3
 
+  examples/expo-push-reminders:
+    dependencies:
+      expo-server-sdk:
+        specifier: ^8.0.0
+        version: 8.0.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.19.17
+      emulate:
+        specifier: workspace:*
+        version: link:../../packages/emulate
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(vite@8.0.1(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
+
   examples/nextjs-embedded:
     dependencies:
       '@base-ui/react':
@@ -917,6 +936,28 @@ importers:
         specifier: ^4.1.0
         version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(vite@8.0.1(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
 
+  packages/@emulators/expo-push:
+    dependencies:
+      '@emulators/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      expo-server-sdk:
+        specifier: ^8.0.0
+        version: 8.0.0
+      tsc-ts:
+        specifier: 0.1.3
+        version: 0.1.3
+      tsup:
+        specifier: ^8
+        version: 8.5.1(jiti@2.7.0)(postcss@8.5.23)(typescript@7.0.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(vite@8.0.1(@emnapi/core@1.10.0)(@emnapi/runtime@1.11.3)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0))
+
   packages/@emulators/github:
     dependencies:
       '@emulators/core':
@@ -1177,6 +1218,9 @@ importers:
       '@emulators/core':
         specifier: workspace:*
         version: link:../@emulators/core
+      '@emulators/expo-push':
+        specifier: workspace:*
+        version: link:../@emulators/expo-push
       '@emulators/github':
         specifier: workspace:*
         version: link:../@emulators/github
@@ -7990,6 +8034,9 @@ packages:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
     engines: {node: '>=0.12'}
 
+  err-code@2.0.3:
+    resolution: {integrity: sha512-2bmlRpNKBxT/CRmPOlyISQpNj+qSeYvcym/uT0Jx2bMOlKLtSy1ZmLuVxSEKKyor/N5yhvp/ZiG1oE3DEYMSFA==}
+
   error-stack-parser-es@1.0.5:
     resolution: {integrity: sha512-5qucVt2XcuGMcEGgWI7i+yZpmpByQ8J1lHhcL7PwqCwu9FPP3VUXzT4ltHe5i2z9dePwEHcDVOAfSnHsOlCXRA==}
 
@@ -8342,6 +8389,10 @@ packages:
   expect-type@1.3.0:
     resolution: {integrity: sha512-knvyeauYhqjOYvQ66MznSMs83wmHrCycNEN6Ao+2AeYEfxUIkuiVxdEa1qlGEPK+We3n0THiDciYSsCcgW/DoA==}
     engines: {node: '>=12.0.0'}
+
+  expo-server-sdk@8.0.0:
+    resolution: {integrity: sha512-AN0JuacmrO32hxv95EPqPfPIRqj0neCnh0ooxQFAd3lkJXu4ytWduvxzawzHEOSn4jV/1vx8xbtOXpuVV9Tg3Q==}
+    engines: {node: '>=22.12.0'}
 
   exsolve@1.1.0:
     resolution: {integrity: sha512-D+42+T12DdIlJM3uepa55qGiL3sYdLBOxIl2ifQCzCHz4c7eiolaHsi3BIqEr7JxBzxv2pYZQX9kw16ziMcEmw==}
@@ -10561,6 +10612,13 @@ packages:
   process@0.11.10:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==}
     engines: {node: '>= 0.6.0'}
+
+  promise-limit@2.7.0:
+    resolution: {integrity: sha512-7nJ6v5lnJsXwGprnGXga4wx6d1POjvi5Qmf1ivTRxTjH4Z/9Czja/UCMLVmB9N93GeWOU93XaFaEt6jbuoagNw==}
+
+  promise-retry@2.0.1:
+    resolution: {integrity: sha512-y+WKFlBR8BGXnsNlIHFGPZmyDf3DFMoLhaflAnyZgV6rG6xu+JwesTo2Q9R6XwYmtmwAFCkAk3e35jEdoeh/3g==}
+    engines: {node: '>=10'}
 
   prop-types@15.8.1:
     resolution: {integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==}
@@ -19575,6 +19633,8 @@ snapshots:
 
   entities@7.0.1: {}
 
+  err-code@2.0.3: {}
+
   error-stack-parser-es@1.0.5: {}
 
   errx@0.1.0: {}
@@ -20253,6 +20313,11 @@ snapshots:
     optional: true
 
   expect-type@1.3.0: {}
+
+  expo-server-sdk@8.0.0:
+    dependencies:
+      promise-limit: 2.7.0
+      promise-retry: 2.0.1
 
   exsolve@1.1.0: {}
 
@@ -23143,6 +23208,13 @@ snapshots:
   process-nextick-args@2.0.1: {}
 
   process@0.11.10: {}
+
+  promise-limit@2.7.0: {}
+
+  promise-retry@2.0.1:
+    dependencies:
+      err-code: 2.0.3
+      retry: 0.12.0
 
   prop-types@15.8.1:
     dependencies:

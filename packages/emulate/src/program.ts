@@ -110,6 +110,13 @@ Resend API coverage:
   Rejected batches create no emails or webhooks. Validated sends record resend.send_attempts in saved state.
   Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
+Expo Push API coverage:
+  POST /--/api/v2/push/send takes one message or an array, to as a token or an array, gzip bodies included.
+  POST /--/api/v2/push/getReceipts returns receipts by ticket id. Ticket ids repeat for the same expo-push.seed.
+  Failure rules in expo-push.failures inject ticket, receipt, and whole-request errors; a list of faults cycles
+  in a seed-shuffled order. Set EXPO_BASE_URL to the emulator URL before importing expo-server-sdk.
+  Sent messages at GET /_expo-push/messages; rules, devices, and reset at /_expo-push/*; inbox at /inbox.
+
 AI API coverage:
   Serves OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini generateContent, unary and streamed.
   Rules script text, structured output, tool calls, reasoning, refusals, errors, and stream faults.

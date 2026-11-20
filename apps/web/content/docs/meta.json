@@ -23,6 +23,7 @@
     "resend",
     "stripe",
     "ai",
+    "expo-push",
     "---Reference---",
     "authentication",
     "architecture"
