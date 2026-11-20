@@ -114,9 +114,9 @@ describe("images contract", () => {
     });
   });
 
-  it("rejects text events in image rules and invalid sizes", async () => {
+  it("rejects audio events in image rules and invalid sizes", async () => {
     const response = await putRules({
-      rules: [{ id: "x", match: { task: "image" }, reply: [{ type: "text", text: "t" }] }],
+      rules: [{ id: "x", match: { task: "image" }, reply: [{ type: "audio" }] }],
     });
     expect(response.status).toBe(400);
     await expect(openai.images.generate({ prompt: "x", size: "1000x1000" })).rejects.toMatchObject({

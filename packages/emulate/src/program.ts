@@ -111,7 +111,7 @@ Resend API coverage:
   Idempotency replays and malformed requests do not add attempts; rejected sends can be retried with the same key.
 
 AI API coverage:
-  Serves OpenAI Responses, Chat Completions, and Anthropic Messages at any path prefix, unary and streamed.
+  Serves OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini generateContent, unary and streamed.
   Rules script text, structured output, tool calls, reasoning, refusals, errors, and stream faults.
   Serves OpenAI and xAI image generations and edits with real, deterministic image files; match.task: image scopes rules.
   Serves OpenAI speech, transcription, translation, and Chat Completions audio, plus ElevenLabs speech and transcription.

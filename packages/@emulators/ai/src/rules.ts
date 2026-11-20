@@ -67,12 +67,13 @@ const FORMATS: ReadonlySet<string> = new Set([
   "typesafe-systemone",
   "openrouter-decisions",
   "perplexity-decisions",
+  "gemini",
 ]);
 
 /** The reply event types each task can render. */
 const TASK_EVENTS: Record<AiTask, ReadonlySet<string>> = {
   text: new Set(["reasoning", "text", "object", "tool_call", "refusal"]),
-  image: new Set(["image"]),
+  image: new Set(["image", "text"]),
   speech: new Set(["audio"]),
   transcription: new Set(["text"]),
   video: new Set(["video", "video_error"]),

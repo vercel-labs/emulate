@@ -23,7 +23,7 @@ packages/
     resend/         # Resend email API
     stripe/         # Stripe billing and payments API
     clerk/          # Clerk Backend API and OAuth
-    ai/             # OpenAI Responses, Chat Completions, and Anthropic Messages
+    ai/             # OpenAI, Anthropic, and Gemini text, plus image, audio, video, and decision APIs
 apps/
   web/              # Documentation site (Next.js)
 ```
@@ -45,7 +45,7 @@ Each service is a plugin that:
 
 Multiple services can run simultaneously, each on its own port (auto-incremented from the base port).
 
-The AI service adds a format-neutral engine with one codec per wire format. OpenAI Responses, Chat Completions, and Anthropic Messages share the same rules, defaults, stored responses, call record, and inspector; a codec only reads its native request and writes its native reply.
+The AI service adds a format-neutral engine with one codec per wire format. OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini generateContent share the same rules, defaults, stored responses, call record, and inspector; a codec only reads its native request and writes its native reply. Image, audio, video, and decision endpoints are media routes on the same rules, scoped by `match.task`, and video jobs advance through an explicit state machine one status read at a time.
 
 ## In-Memory State
 

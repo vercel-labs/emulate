@@ -20,7 +20,8 @@ export type AiFormat =
   | "gemini-decisions"
   | "typesafe-systemone"
   | "openrouter-decisions"
-  | "perplexity-decisions";
+  | "perplexity-decisions"
+  | "gemini";
 
 /** What a request asks the model to produce; rules answer only requests of their own task. */
 export type AiTask = "text" | "image" | "speech" | "transcription" | "video" | "decision";
