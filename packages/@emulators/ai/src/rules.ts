@@ -45,6 +45,9 @@ const OBJECT_EVENT_KEYS = new Set(["type", "value"]);
 const TOOL_CALL_EVENT_KEYS = new Set(["type", "name", "arguments", "id"]);
 const IMAGE_EVENT_KEYS = new Set(["type", "data", "revisedPrompt"]);
 const AUDIO_EVENT_KEYS = new Set(["type", "data"]);
+const VIDEO_EVENT_KEYS = new Set(["type", "data", "polls"]);
+const VIDEO_ERROR_EVENT_KEYS = new Set(["type", "code", "message", "polls"]);
+const MAX_POLLS = 1000;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 const FORMATS: ReadonlySet<string> = new Set([
@@ -54,6 +57,10 @@ const FORMATS: ReadonlySet<string> = new Set([
   "openai-images",
   "openai-audio",
   "elevenlabs",
+  "openai-videos",
+  "xai-videos",
+  "gemini-veo",
+  "vertex-veo",
 ]);
 
 /** The reply event types each task can render. */
@@ -62,6 +69,7 @@ const TASK_EVENTS: Record<AiTask, ReadonlySet<string>> = {
   image: new Set(["image"]),
   speech: new Set(["audio"]),
   transcription: new Set(["text"]),
+  video: new Set(["video", "video_error"]),
 };
 const FINISH_REASONS: ReadonlySet<string> = new Set(["stop", "tool_calls", "length", "refusal", "content_filter"]);
 const FAULT_KINDS: ReadonlySet<string> = new Set(["disconnect", "stall"]);
@@ -462,6 +470,21 @@ function parseReplyEvent(raw: unknown, path: string): RuleReplyEvent {
     case "audio":
       assertKnownKeys(obj, AUDIO_EVENT_KEYS, path);
       return { type, ...(obj.data === undefined ? {} : { data: expectBase64(obj.data, `${path}.data`) }) };
+    case "video":
+      assertKnownKeys(obj, VIDEO_EVENT_KEYS, path);
+      return {
+        type,
+        ...(obj.data === undefined ? {} : { data: expectBase64(obj.data, `${path}.data`) }),
+        ...(obj.polls === undefined ? {} : { polls: expectPolls(obj.polls, `${path}.polls`) }),
+      };
+    case "video_error":
+      assertKnownKeys(obj, VIDEO_ERROR_EVENT_KEYS, path);
+      return {
+        type,
+        code: expectString(obj.code, `${path}.code`, true),
+        message: expectString(obj.message, `${path}.message`),
+        ...(obj.polls === undefined ? {} : { polls: expectPolls(obj.polls, `${path}.polls`) }),
+      };
     default:
       throw new AiConfigError(`unknown reply event type "${type}"`, `${path}.type`);
   }
@@ -559,6 +582,12 @@ function expectBase64(value: unknown, path: string): string {
   const data = expectString(value, path, true);
   if (!BASE64.test(data)) throw new AiConfigError("expected base64 file bytes", path);
   return data;
+}
+
+function expectPolls(value: unknown, path: string): number {
+  const polls = expectSafeInteger(value, path, 0);
+  if (polls > MAX_POLLS) throw new AiConfigError(`expected at most ${MAX_POLLS} polls`, path);
+  return polls;
 }
 
 function expectBoolean(value: unknown, path: string): boolean {

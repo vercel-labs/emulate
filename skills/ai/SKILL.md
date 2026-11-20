@@ -183,30 +183,32 @@ services:
 
 ### Matchers
 
-| Key             | Matches                                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `task`          | `text` (default), `image`, `speech`, or `transcription`; a rule answers only requests of its task                    |
-| `model`         | Model id, with `*` wildcards                                                                                         |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, or `elevenlabs`            |
-| `stream`        | Boolean                                                                                                              |
-| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                           |
-| `tool`          | A declared tool name, with `*` wildcards                                                                             |
-| `hasToolResult` | Whether the current continuation carries a tool result                                                               |
-| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*` |
+| Key             | Matches                                                                                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | `text` (default), `image`, `speech`, `transcription`, or `video`; a rule answers only requests of its task                                                           |
+| `model`         | Model id, with `*` wildcards                                                                                                                                         |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, or `vertex-veo` |
+| `stream`        | Boolean                                                                                                                                                              |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                           |
+| `tool`          | A declared tool name, with `*` wildcards                                                                                                                             |
+| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                               |
+| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                 |
 
 ### Replies
 
 A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 
-| Event     | Shape                                    | Notes                                                                                                  |
-| --------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Text      | `{ type: text, text }`                   | Normal assistant text                                                                                  |
-| Object    | `{ type: object, value }`                | Sent as JSON text, for structured output                                                               |
-| Tool call | `{ type: tool_call, name, arguments }`   | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
-| Reasoning | `{ type: reasoning, text }`              | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
-| Refusal   | `{ type: refusal, text }`                | Native refusal shape                                                                                   |
-| Image     | `{ type: image, data?, revisedPrompt? }` | `task: image` rules only; `data` is base64 file bytes, and without it the emulator renders the image   |
-| Audio     | `{ type: audio, data? }`                 | `task: speech` rules only; `data` is base64 file bytes, and without it the emulator renders silence    |
+| Event       | Shape                                          | Notes                                                                                                  |
+| ----------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Text        | `{ type: text, text }`                         | Normal assistant text                                                                                  |
+| Object      | `{ type: object, value }`                      | Sent as JSON text, for structured output                                                               |
+| Tool call   | `{ type: tool_call, name, arguments }`         | `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; ids are generated |
+| Reasoning   | `{ type: reasoning, text }`                    | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
+| Refusal     | `{ type: refusal, text }`                      | Native refusal shape                                                                                   |
+| Image       | `{ type: image, data?, revisedPrompt? }`       | `task: image` rules only; `data` is base64 file bytes, and without it the emulator renders the image   |
+| Audio       | `{ type: audio, data? }`                       | `task: speech` rules only; `data` is base64 file bytes, and without it the emulator renders silence    |
+| Video       | `{ type: video, data?, polls? }`               | `task: video` rules only; completes the job after `polls` status reads (default 1)                     |
+| Video error | `{ type: video_error, code, message, polls? }` | `task: video` rules only; fails the job after `polls` status reads                                     |
 
 With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
@@ -533,6 +535,39 @@ ai:
     - id: call-notes
       match: { task: transcription }
       reply: [{ type: text, text: Customer asked about the refund. }]
+```
+
+### Video
+
+OpenAI video jobs, xAI video generation, and Veo on the Gemini API and Vertex AI are served as jobs with an explicit state machine (`queued`, `in_progress`, `completed` or `failed`). Each status read advances a job one step; by default the first read reports `in_progress` and the second completes it with a real H.264 MP4 at the requested size and duration. The AI SDK refuses `localhost` downloads, so pass `download` to `experimental_generateVideo` for xAI and Gemini API Veo:
+
+```typescript
+import { experimental_generateVideo as generateVideo } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+
+const google = createGoogleGenerativeAI({ baseURL: "http://localhost:4014/v1beta", apiKey: "test" });
+const { video } = await generateVideo({
+  model: google.video("veo-3.1-generate-preview"),
+  prompt: "waves at sunset",
+  providerOptions: { google: { pollIntervalMs: 10 } },
+  download: async ({ url }) => {
+    const response = await fetch(url);
+    return { data: new Uint8Array(await response.arrayBuffer()), mediaType: "video/mp4" };
+  },
+});
+```
+
+Script slow or failing jobs:
+
+```yaml
+ai:
+  rules:
+    - id: blocked
+      match: { task: video, textContains: violence }
+      reply: [{ type: video_error, code: moderation_blocked, message: Blocked., polls: 2 }]
+    - id: slow
+      match: { task: video }
+      reply: [{ type: video, polls: 5 }]
 ```
 
 ### Strict mode
