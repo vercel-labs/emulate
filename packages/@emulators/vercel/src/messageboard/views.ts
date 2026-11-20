@@ -134,8 +134,8 @@ export function reactionsOf(
   message: Message,
 ): { reactions: Record<string, number>; reactors: Record<string, string[]> } {
   const found = ms.reactions.findBy("messageUid", message.uid).sort((a, b) => a.createdAt - b.createdAt);
-  const counts: Record<string, number> = {};
-  const ids: Record<string, string[]> = {};
+  const counts: Record<string, number> = Object.create(null) as Record<string, number>;
+  const ids: Record<string, string[]> = Object.create(null) as Record<string, string[]>;
   for (const reaction of found) {
     counts[reaction.emoji] = (counts[reaction.emoji] ?? 0) + 1;
     (ids[reaction.emoji] ??= []).push(reaction.actorId);

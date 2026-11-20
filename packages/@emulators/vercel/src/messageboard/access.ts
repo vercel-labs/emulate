@@ -189,19 +189,19 @@ export function canGrant(
   who: Who,
   directory: Directory,
   patterns: readonly string[],
-  after: readonly Grant[],
+  _after: readonly Grant[],
 ): boolean {
   if (who.kind === "user" && who.role === "owner" && who.limit === undefined) return true;
-  for (const pattern of patterns) if (!canManageAt(after as Grant[], who, directory, pattern)) return false;
+  // Authority is what the grants give now: a new grant cannot be the thing that gives the caller the power to make it.
+  for (const pattern of patterns) if (!canManageAt(grants, who, directory, pattern)) return false;
   // Whatever everyone gets where the grant reaches, the grantor must have too: anyone a grant lets in gets it.
   const spots = [
-    ...after
+    ...grants
       .filter((grant) => grant.principals.some((principal) => principal.kind === "everyone"))
       .flatMap((grant) => Object.keys(grant.can)),
   ];
   for (const pattern of patterns)
-    for (const spot of spots)
-      if (covers(pattern, spot) && !canManageAt(after as Grant[], who, directory, spot)) return false;
+    for (const spot of spots) if (covers(pattern, spot) && !canManageAt(grants, who, directory, spot)) return false;
   return true;
 }
 

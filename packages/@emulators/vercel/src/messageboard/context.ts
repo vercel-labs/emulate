@@ -75,7 +75,9 @@ export type Identity = {
 function principalOfLogin(session: Session, login: string, team: VercelTeam | null): Principal | null {
   const project = /^project:(.+):([A-Za-z0-9_-]+)$/.exec(login);
   if (project) {
-    const found = projectByIdOrName(session.vs, team?.uid ?? null, project[1]!);
+    const found =
+      projectByIdOrName(session.vs, team?.uid ?? null, project[1]!) ??
+      session.vs.projects.findBy("name", project[1]!)[0];
     if (found) return { type: "project", projectId: found.uid, environment: project[2]! };
   }
   const app = /^app:(.+)$/.exec(login);
@@ -185,6 +187,11 @@ export function boardOf(c: Context, session: Session, identity: Identity): Board
     !mayUse(session, found, identity.actor.principal)
   )
     return fail(c, 404, "board_not_found", "No such board.");
+  // A caller's role is the one it has on the board's team, not on the first team a request happens to see.
+  if (identity.who.kind === "user") {
+    const own = session.vs.teams.findOneBy("uid", found.teamId) ?? null;
+    identity.who.role = roleOf(session.vs, own, identity.who.userId);
+  }
   return found;
 }
 

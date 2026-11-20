@@ -165,12 +165,12 @@ export function messageboardRoutes(context: RouteContext): void {
     const name = c.req.query("name")?.trim().normalize("NFC") ?? null;
     if (name !== null && !BOARD_NAME.test(name))
       return fail(c, 400, "invalid_request", "A board name is 1 to 64 characters with no /.");
-    const listed = session.ms.boards
-      .findBy("teamId", team?.uid ?? "")
+    const scoped = c.req.query("teamId") !== undefined || c.req.query("slug") !== undefined;
+    const usable = session.ms.boards
+      .all()
       .filter((board) => mayUse(session, board, identity.actor.principal))
+      .filter((board) => !scoped || board.teamId === team?.uid)
       .filter((board) => name === null || board.name.toLowerCase() === name.toLowerCase());
-    const fallback = session.ms.boards.all().filter((board) => mayUse(session, board, identity.actor.principal));
-    const usable = team ? listed : fallback;
     const preferred = usable.find((board) => board.isDefault) ?? usable[0];
     return c.json({ boards: usable.map(boardView), defaultBoardId: preferred?.uid ?? null, cursor: null });
   });
@@ -194,21 +194,26 @@ export function messageboardRoutes(context: RouteContext): void {
     const found = identified(c, session);
     if (isFailure(found)) return found;
     const { identity, team } = found;
-    if (!team) return fail(c, 404, "board_not_found", "No team for this board.");
+    const account =
+      identity.actor.principal.type === "project"
+        ? session.vs.projects.findOneBy("uid", identity.actor.principal.projectId)?.accountId
+        : undefined;
+    const owner = account ? session.vs.teams.findOneBy("uid", account) : team;
+    if (!owner) return fail(c, 404, "board_not_found", "No team for this board.");
     const body = await bodyOf(c);
     if (body === null) return fail(c, 400, "invalid_request", "The request body isn't JSON.");
     const name = typeof body.name === "string" ? body.name.trim().normalize("NFC") : null;
     if (name === null || !BOARD_NAME.test(name))
       return fail(c, 400, "invalid_request", "A board name is 1 to 64 characters with no /.");
     const some = session.ms.boards
-      .findBy("teamId", team.uid)
+      .findBy("teamId", owner.uid)
       .find((board) => board.name.toLowerCase() === name.toLowerCase());
     if (some) {
       if (!mayUse(session, some, identity.actor.principal))
         return fail(c, 409, "board_name_taken", "A board has that name.");
       return c.json({ board: boardView(some), created: false });
     }
-    const board = makeBoard(session, team.uid, name);
+    const board = makeBoard(session, owner.uid, name);
     return c.json({ board: boardView(board), created: true });
   });
 
@@ -660,7 +665,8 @@ export function messageboardRoutes(context: RouteContext): void {
     if (!message) return fail(c, 404, "message_not_found");
     const body = await bodyOf(c);
     if (body === null) return fail(c, 400, "invalid_request", "The request body isn't JSON.");
-    if (typeof body.emoji !== "string" || !EMOJI.test(body.emoji)) return fail(c, 400, "invalid_emoji");
+    if (typeof body.emoji !== "string" || !EMOJI.test(body.emoji) || Object.hasOwn(Object.prototype, body.emoji))
+      return fail(c, 400, "invalid_emoji");
     if (message.deletedAt !== undefined) return fail(c, 409, "message_deleted");
     const { actor } = found.identity;
     const existing = session.ms.reactions
@@ -840,16 +846,19 @@ export function messageboardRoutes(context: RouteContext): void {
       return fail(c, 404, "channel_not_found");
     if (channel && !mayRead(session, board, who, channel)) return fail(c, 404, "channel_not_found");
     if (!channel) {
-      const readable = session.ms.channels
-        .findBy("boardId", board.uid)
-        .filter((candidate) => mayRead(session, board, who, candidate));
       const all = session.ms.channels.findBy("boardId", board.uid);
-      if (readable.length !== all.length && trees === null)
+      const inScope =
+        trees === null
+          ? all
+          : all.filter((candidate) => candidate.name === trees.slice(0, -1) || candidate.name.startsWith(trees));
+      if (inScope.some((candidate) => !mayRead(session, board, who, candidate)))
         return fail(
           c,
           403,
           "feed_needs_every_channel",
-          "You can't read every channel of this board, so you can't read its feed across channels: read a channel's.",
+          trees === null
+            ? "You can't read every channel of this board, so you can't read its feed across channels: read a channel's."
+            : `You can't read every channel under ${trees}, so you can't read its feed: read a channel's.`,
         );
     }
 

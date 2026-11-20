@@ -5,7 +5,7 @@ import { vb } from "@vercel/board/cli";
 import { createServer, serve } from "@emulators/core";
 import type { Store } from "@emulators/core";
 import type { Server } from "node:http";
-import { vercelPlugin, seedFromConfig } from "../index.js";
+import { getVercelStore, vercelPlugin, seedFromConfig } from "../index.js";
 
 const TEST_TOKENS = [
   ["test_token_admin", "admin"],
@@ -51,7 +51,10 @@ beforeAll(async () => {
       { username: "developer", name: "Developer", email: "developer@example.com" },
       { username: "viewer", name: "Viewer", email: "viewer@example.com" },
     ],
-    teams: [{ slug: "acme", name: "Acme" }],
+    teams: [
+      { slug: "first-team", name: "First Team" },
+      { slug: "acme", name: "Acme" },
+    ],
     projects: [{ name: "web", team: "acme", framework: "nextjs" }],
     boards: [
       {
@@ -74,6 +77,17 @@ beforeAll(async () => {
       },
     ],
   });
+  const vs = getVercelStore(store);
+  const viewer = vs.users.findOneBy("username", "viewer")!;
+  const first = vs.teams.findOneBy("slug", "first-team")!;
+  const acme = vs.teams.findOneBy("slug", "acme")!;
+  for (const [team, role] of [
+    [first, "OWNER"],
+    [acme, "VIEWER"],
+  ] as const) {
+    const member = vs.teamMembers.findBy("teamId", team.uid).find((found) => found.userId === viewer.uid)!;
+    vs.teamMembers.update(member.id, { role });
+  }
 });
 
 afterAll(async () => {
@@ -216,7 +230,7 @@ describe("Vercel board API surface", () => {
   it("enforces grants per channel and answers the API's refusal codes", async () => {
     const person = "test_token_admin";
     const project = "test_token_project";
-    const made = await call("POST", "/boards/ensure", { token: person, body: { name: "Ops" } });
+    const made = await call("POST", "/boards/ensure", { token: project, body: { name: "Ops" } });
     expect(made.status).toBe(200);
     const board = made.body.board.id as string;
 
@@ -283,6 +297,55 @@ describe("Vercel board API surface", () => {
     const projectList = await call("GET", `/boards/${board}/grants`, { token: project });
     expect(projectList.status).toBe(403);
     expect(projectList.body.error.code).toBe("grant_forbidden");
+
+    const selfGrant = {
+      principals: [{ kind: "project", projectId: "web", environments: ["production"] }],
+      can: { "*": "all" },
+    };
+    const escalated = await call("POST", `/boards/${board}/grants`, { token: project, body: selfGrant });
+    expect(escalated.status).toBe(403);
+    expect(escalated.body.error.code).toBe("grant_forbidden");
+    const batched = await call("POST", `/boards/${board}/grants/batch`, {
+      token: project,
+      body: { grants: [selfGrant] },
+    });
+    expect(batched.status).toBe(403);
+    expect(batched.body.error.code).toBe("grant_forbidden");
+  });
+
+  it("enforces reads on every channel under a subtree feed", async () => {
+    const person = "test_token_admin";
+    const project = "test_token_project";
+    const made = await call("POST", "/boards/ensure", { token: project, body: { name: "Tree" } });
+    const board = made.body.board.id as string;
+    for (const name of ["dev/public", "dev/secret"]) {
+      const madeChannel = await call("POST", `/boards/${board}/channels`, { token: person, body: { name } });
+      expect(madeChannel.status).toBe(200);
+    }
+    await call("POST", `/boards/${board}/threads`, { token: person, body: { channel: "dev/public", text: "public" } });
+    await call("POST", `/boards/${board}/threads`, { token: person, body: { channel: "dev/secret", text: "secret" } });
+
+    const grants = await call("GET", `/boards/${board}/grants`, { token: person });
+    const allProjects = grants.body.grants.find((grant: any) =>
+      grant.principals.some((principal: any) => principal.kind === "all-projects"),
+    );
+    expect(
+      (await call("POST", `/boards/${board}/grants/${allProjects.id}/revoke`, { token: person, body: {} })).status,
+    ).toBe(200);
+    const narrow = await call("POST", `/boards/${board}/grants`, {
+      token: person,
+      body: {
+        principals: [{ kind: "project", projectId: "web", environments: ["production"] }],
+        can: { "dev/public/": ["read", "post"] },
+      },
+    });
+    expect(narrow.status).toBe(200);
+
+    const denied = await call("GET", `/boards/${board}/changes?channel=dev/&from=latest`, { token: project });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe("feed_needs_every_channel");
+    const allowed = await call("GET", `/boards/${board}/changes?channel=dev/public&from=latest`, { token: project });
+    expect(allowed.status).toBe(200);
   });
 
   it("answers label and revision conflicts as the API does", async () => {
@@ -381,7 +444,7 @@ describe("Vercel board API surface", () => {
     }
   });
 
-  it("narrows a caller with x-board-can and caps a team viewer", async () => {
+  it("narrows a caller with x-board-can and caps a viewer on the board's team", async () => {
     const board = await defaultBoard("test_token_admin");
     const narrowed = await globalThis.fetch(`${api}/v1/messageboard/boards/${board}/me`, {
       headers: { authorization: "Bearer test_token_admin", "x-board-can": "general=read" },
@@ -401,13 +464,7 @@ describe("Vercel board API surface", () => {
     expect(narrowedPost.status).toBe(403);
     expect(((await narrowedPost.json()) as any).error.code).toBe("forbidden");
 
-    const { getVercelStore } = await import("../index.js");
-    const vs = getVercelStore(storeRef);
-    const team = vs.teams.findOneBy("slug", "acme")!;
-    const viewer = vs.users.findOneBy("username", "viewer")!;
-    const member = vs.teamMembers.findBy("teamId", team.uid).find((found) => found.userId === viewer.uid)!;
-    vs.teamMembers.update(member.id, { role: "VIEWER" });
-
+    // The viewer owns the first team, which a request with no scope would see, and only views this board's team.
     const viewerMe = await call("GET", `/boards/${board}/me`, { token: "test_token_viewer" });
     expect(viewerMe.status).toBe(200);
     expect(viewerMe.body.can["*"]).toEqual(["read", "react"]);
