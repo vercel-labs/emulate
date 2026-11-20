@@ -3,7 +3,7 @@ import { Hono } from "@emulators/core";
 import { Store } from "@emulators/core";
 import { WebhookDispatcher } from "@emulators/core";
 import { authMiddleware, createApiErrorHandler, createErrorHandler, type TokenMap } from "@emulators/core";
-import { githubPlugin, seedFromConfig } from "../index.js";
+import { getGitHubStore, githubPlugin, seedFromConfig } from "../index.js";
 
 const base = "http://localhost:4000";
 
@@ -99,14 +99,27 @@ describe("GitHub repos routes", () => {
     const names = ((await all.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
     expect(names).toEqual(expect.arrayContaining(["vercel-labs/emulate", "vercel-labs/public-app"]));
 
+    const vs = getGitHubStore(store);
+    const octocat = vs.users.findOneBy("login", "octocat")!;
+    const emulate = vs.repos.findOneBy("full_name", "vercel-labs/emulate")!;
+    vs.collaborators.insert({ repo_id: emulate.id, user_id: octocat.id, permission: "push" });
+
     const member = await app.request(`${base}/user/repos?type=member`, { headers: authHeaders() });
     const memberNames = ((await member.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
     expect(memberNames).toEqual(expect.arrayContaining(["vercel-labs/emulate"]));
+    expect(memberNames.filter((name) => name === "vercel-labs/emulate")).toHaveLength(1);
 
     const owner = await app.request(`${base}/user/repos?type=owner`, { headers: authHeaders() });
     const ownerNames = ((await owner.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
     expect(ownerNames).toContain("octocat/hello-world");
     expect(ownerNames).not.toContain("vercel-labs/emulate");
+
+    // Someone else's public list doesn't get the organization's private repos.
+    const anonymous = await app.request(`${base}/users/octocat/repos?type=all`);
+    expect(anonymous.status).toBe(200);
+    const anonymousNames = ((await anonymous.json()) as Array<{ full_name: string }>).map((repo) => repo.full_name);
+    expect(anonymousNames).not.toContain("vercel-labs/emulate");
+    expect(anonymousNames).not.toContain("vercel-labs/public-app");
   });
 
   it("lists repos for a user", async () => {
