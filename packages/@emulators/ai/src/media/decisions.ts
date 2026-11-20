@@ -305,8 +305,9 @@ function spread(seed: string, labels: string[]): number[] {
   return probs;
 }
 
-function defaultAnswer(question: Question, text: string): Answer {
-  const seed = `${question.seed}|${text}`;
+/** Answers from a seed of fixed-size digests, so the work per option does not grow with the input or instructions. */
+function defaultAnswer(question: Question, inputHash: number, firstWord: RegExpExecArray | null): Answer {
+  const seed = `${hash32(question.seed)}|${inputHash}`;
   switch (question.kind) {
     case "boolean":
       return { kind: "boolean", p: (1 + (hash32(seed) % 99)) / 100 };
@@ -317,7 +318,7 @@ function defaultAnswer(question: Question, text: string): Answer {
     case "box":
       return { kind: "box", box: { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 } };
     case "locate": {
-      const word = /\S+/.exec(text);
+      const word = firstWord;
       return {
         kind: "locate",
         spans: word ? [{ start: word.index, end: word.index + word[0].length, text: word[0], score: 0.9 }] : [],
@@ -390,10 +391,12 @@ function scriptedAnswer(question: Question, value: Json): Answer {
 function answersFor(events: RuleReplyEvent[] | undefined, extras: DecisionExtras): Answer[] {
   const scripted = events?.find((event) => event.type === "decision");
   const answers = scripted?.type === "decision" ? scripted.answers : {};
+  const inputHash = hash32(extras.text);
+  const firstWord = /\S+/.exec(extras.text);
   return extras.questions.map((question) =>
     Object.hasOwn(answers, question.key)
       ? scriptedAnswer(question, answers[question.key])
-      : defaultAnswer(question, extras.text),
+      : defaultAnswer(question, inputHash, firstWord),
   );
 }
 
