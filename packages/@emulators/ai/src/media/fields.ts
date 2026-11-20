@@ -43,25 +43,32 @@ export function fail(message: string, param?: string, code = "invalid_value", st
   throw new AiRequestError(message, param, code, status);
 }
 
-/** Reads a JSON or multipart body into plain values; a JSON body must be an object. */
+/**
+ * Reads a JSON or multipart body into plain values; a JSON body must be an object. Multipart values are built on
+ * null-prototype objects, so a field named `__proto__[x]` stays an own property instead of reaching Object.prototype.
+ */
 export function fieldsOf(body: MediaBody): Fields {
   if (body.kind === "json") {
     if (!isRecord(body.value)) fail("Expected a JSON object body.", undefined, "invalid_json");
     return { values: body.value, files: new Map(), multipart: false };
   }
   if (body.kind === "none") return { values: {}, files: new Map(), multipart: false };
-  const values: Record<string, unknown> = {};
+  const values: Record<string, unknown> = Object.create(null);
   for (const [name, list] of body.fields) {
     const nested = /^([^[\]]+)\[([^[\]]+)\](?:\[([^[\]]+)\])?$/.exec(name);
     if (name.endsWith("[]")) {
       values[name.slice(0, -2)] = [...((values[name.slice(0, -2)] as string[] | undefined) ?? []), ...list];
     } else if (nested) {
       const [, outer, inner, leaf] = nested;
-      const parent = (isRecord(values[outer]) ? values[outer] : (values[outer] = {})) as Record<string, unknown>;
+      const parent = (isRecord(values[outer]) ? values[outer] : (values[outer] = Object.create(null))) as Record<
+        string,
+        unknown
+      >;
       if (leaf === undefined) parent[inner] = list.at(-1);
       else
-        ((isRecord(parent[inner]) ? parent[inner] : (parent[inner] = {})) as Record<string, unknown>)[leaf] =
-          list.at(-1);
+        ((isRecord(parent[inner]) ? parent[inner] : (parent[inner] = Object.create(null))) as Record<string, unknown>)[
+          leaf
+        ] = list.at(-1);
     } else {
       values[name] = list.length === 1 ? list[0] : list;
     }
