@@ -253,14 +253,13 @@ function decodeVideo(body: MediaBody, ctx: CodecContext): Decoded {
     fail("Expected a duration from 1 to 60 seconds.", "duration");
   const aspectRatio = optionalText(value, "aspectRatio") ?? "16:9";
   const { width, height } = dimensions(optionalText(value, "resolution"), aspectRatio, 1280, "resolution");
-  const scaled = optionalText(value, "resolution") === undefined ? scaleTo720(width, height) : { width, height };
   const job: Omit<VideoJob, "id" | "outcome" | "polls" | "reads" | "status" | "progress" | "createdAt"> = {
     provider: "gateway",
     model,
     prompt,
     seconds: duration,
-    width: scaled.width,
-    height: scaled.height,
+    width,
+    height,
     samples: count(value),
   };
   return {
@@ -273,14 +272,6 @@ function decodeVideo(body: MediaBody, ctx: CodecContext): Decoded {
     ),
     extras: { job } as unknown as Record<string, unknown>,
   };
-}
-
-/** Sizes an aspect ratio with a 720-pixel short side, the default most video models render. */
-function scaleTo720(width: number, height: number): { width: number; height: number } {
-  const short = Math.min(width, height);
-  const factor = 720 / short;
-  const even = (value: number) => Math.round((value * factor) / 2) * 2;
-  return { width: even(width), height: even(height) };
 }
 
 function videoFiles(bytes: Uint8Array, samples: number): Json[] {
