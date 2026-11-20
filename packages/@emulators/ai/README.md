@@ -161,7 +161,7 @@ The Images routes return real, decodable `png`, `jpeg`, `webp`, `gif`, or `svg` 
 
 ## Audio
 
-Speech routes return real, decodable silence in the requested format (`mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`, and ElevenLabs `ulaw` and `alaw`), lasting about one second per fifteen characters. Transcription routes return every OpenAI `response_format` and ElevenLabs' timed words, with timings spread across the uploaded audio's duration. Chat Completions speaks replies when `modalities` includes `audio`, and accepts `input_audio` parts. Speech rules reply with `{ type: audio, data }`; transcription rules reply with `text` events.
+Speech routes return real, decodable silence in the requested format (`mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`, and ElevenLabs `ulaw` and `alaw`), lasting about one second per fifteen characters, up to ten minutes. Transcription routes return every OpenAI `response_format` and ElevenLabs' timed words, with timings spread across the uploaded audio's duration. Chat Completions speaks replies when `modalities` includes `audio`, and accepts `input_audio` parts. Speech rules reply with `{ type: audio, data }`; transcription rules reply with `text` events.
 
 ## Video
 
