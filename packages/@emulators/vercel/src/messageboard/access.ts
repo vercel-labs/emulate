@@ -178,6 +178,11 @@ export function canManageAt(grants: Grant[], who: Who, directory: Directory, pat
   return decide(grants, who, pattern, directory).can.includes("manage");
 }
 
+/** Whether `who` may manage at `pattern` on its own: without relying on an `everyone` grant. */
+export function canManageOwnAt(grants: Grant[], who: Who, directory: Directory, pattern: string): boolean {
+  return decide(grants, who, pattern, directory, true).can.includes("manage");
+}
+
 /** Whether `who` may list the board's grants or explain anyone: a team owner, or manage at `*`. */
 export function canList(grants: Grant[], who: Who, directory: Directory): boolean {
   return canManageAt(grants, who, directory, "*");
@@ -192,16 +197,17 @@ export function canGrant(
   _after: readonly Grant[],
 ): boolean {
   if (who.kind === "user" && who.role === "owner" && who.limit === undefined) return true;
-  // Authority is what the grants give now: a new grant cannot be the thing that gives the caller the power to make it.
-  for (const pattern of patterns) if (!canManageAt(grants, who, directory, pattern)) return false;
-  // Whatever everyone gets where the grant reaches, the grantor must have too: anyone a grant lets in gets it.
-  const spots = [
-    ...grants
-      .filter((grant) => grant.principals.some((principal) => principal.kind === "everyone"))
-      .flatMap((grant) => Object.keys(grant.can)),
-  ];
-  for (const pattern of patterns)
-    for (const spot of spots) if (covers(pattern, spot) && !canManageAt(grants, who, directory, spot)) return false;
+  // Every path a new pattern covers has to be one the caller manages now: a parent pattern is not a way around
+  // a subtree the caller is narrowed out of. Spots are the patterns grants name and the caller's own limits.
+  const spots = new Set<string>([
+    ...grants.flatMap((grant) => Object.keys(grant.can)),
+    ...Object.keys(who.limit ?? {}),
+  ]);
+  for (const pattern of patterns) {
+    if (!canManageAt(grants, who, directory, pattern)) return false;
+    for (const spot of spots)
+      if (spot !== pattern && covers(pattern, spot) && !canManageOwnAt(grants, who, directory, spot)) return false;
+  }
   return true;
 }
 

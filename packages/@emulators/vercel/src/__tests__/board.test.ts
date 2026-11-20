@@ -175,10 +175,15 @@ describe("Vercel board emulator", () => {
 
 type Json = { status: number; body: any };
 
-async function call(method: string, path: string, options: { token?: string; body?: unknown } = {}): Promise<Json> {
+async function call(
+  method: string,
+  path: string,
+  options: { token?: string; body?: unknown; headers?: Record<string, string> } = {},
+): Promise<Json> {
   const response = await globalThis.fetch(`${api}/v1/messageboard${path}`, {
     method,
     headers: {
+      ...(options.headers ?? {}),
       ...(options.token !== undefined ? { authorization: `Bearer ${options.token}` } : {}),
       "content-type": "application/json",
     },
@@ -311,6 +316,32 @@ describe("Vercel board API surface", () => {
     });
     expect(batched.status).toBe(403);
     expect(batched.body.error.code).toBe("grant_forbidden");
+  });
+
+  it("refuses a parent grant pattern that covers a subtree the caller cannot manage", async () => {
+    const person = "test_token_admin";
+    const made = await call("POST", "/boards/ensure", { token: person, body: { name: "Narrow" } });
+    const board = made.body.board.id as string;
+    for (const name of ["dev/public", "dev/secret"]) {
+      expect((await call("POST", `/boards/${board}/channels`, { token: person, body: { name } })).status).toBe(200);
+    }
+    const headers = { "x-board-can": "dev/=manage,dev/secret/=read" };
+    const principal = { kind: "user", email: "developer@example.com" };
+
+    const parent = await call("POST", `/boards/${board}/grants`, {
+      token: person,
+      headers,
+      body: { principals: [principal], can: { "dev/": ["read"] } },
+    });
+    expect(parent.status).toBe(403);
+    expect(parent.body.error.code).toBe("grant_forbidden");
+
+    const own = await call("POST", `/boards/${board}/grants`, {
+      token: person,
+      headers,
+      body: { principals: [principal], can: { "dev/public/": ["read"] } },
+    });
+    expect(own.status).toBe(200);
   });
 
   it("enforces reads on every channel under a subtree feed", async () => {
