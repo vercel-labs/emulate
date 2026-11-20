@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { imageAttachment, redactedReference } from "../attachments.js";
 import type { CodecContext, Decoded } from "../codec.js";
+import { gatewayErrorBody, gatewayFile, gatewayMetadata, gatewayModel } from "../codecs/gateway.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import { AiRequestError } from "../errors.js";
 import type { AiFormat, FilePart, HttpFailure, InputPart, Json, RuleReplyEvent } from "../types.js";
@@ -9,7 +10,7 @@ import { hash32 } from "./pixels.js";
 import type { MediaBody, MediaResult, MediaRoute } from "./route.js";
 import { googleError } from "./videos.js";
 
-type Family = "openai" | "gemini" | "typesafe" | "openrouter" | "perplexity";
+type Family = "openai" | "gemini" | "typesafe" | "openrouter" | "perplexity" | "gateway";
 type Kind = "boolean" | "choice" | "score" | "box" | "locate";
 
 /** One question in a provider-neutral shape; `key` is the map key, or an OpenAI question's name or position. */
@@ -44,6 +45,7 @@ const FORMATS: Record<Family, AiFormat> = {
   typesafe: "typesafe-systemone",
   openrouter: "openrouter-decisions",
   perplexity: "perplexity-decisions",
+  gateway: "gateway",
 };
 
 const OPENAI_TYPES: Record<string, Kind> = { predicate: "boolean", choice: "choice", score: "score" };
@@ -53,6 +55,7 @@ const MAP_TYPES: Record<Family, Record<string, Kind>> = {
   typesafe: { noul: "boolean", choice: "choice", score: "score", box: "box" },
   openrouter: { noul: "boolean", choice: "choice", score: "score", box: "box" },
   perplexity: { noul: "boolean", choice: "choice", score: "score", locate: "locate" },
+  gateway: { boolean: "boolean", choice: "choice", score: "score" },
 };
 const GEMINI_KEY = /^[A-Za-z0-9_-]{1,64}$/;
 const PERPLEXITY_KEYS = new Set(["model", "state", "questions", "mode", "max_staleness"]);
@@ -265,7 +268,25 @@ function decodeMap(family: Family, body: Record<string, unknown>): { questions: 
   return { questions, input: body[field] };
 }
 
-function decodeDecision(family: Family, body: MediaBody): Decoded {
+/** Reads the AI SDK state parts `@ai-sdk/gateway` sends: text, JSON values, and files. */
+function gatewayState(state: unknown): InputPart[] {
+  if (!Array.isArray(state)) fail("stateParts: expected an array.", "stateParts");
+  return state.map((part, index): InputPart => {
+    const at = `stateParts[${index}]`;
+    if (!isRecord(part)) fail(`${at}: expected an object.`, at);
+    if (part.type === "text" && typeof part.text === "string") return { type: "text", text: part.text };
+    if (part.type === "json") return { type: "text", text: JSON.stringify(part.value ?? null) };
+    if (part.type === "file" && typeof part.mediaType === "string")
+      return gatewayFile(part.data, part.mediaType, `${at}.data`);
+    return fail(`${at}.type: expected text, json, or file.`, `${at}.type`);
+  });
+}
+
+function decodeDecision(family: Family, body: MediaBody, ctx: CodecContext): Decoded {
+  if (family === "gateway" && body.kind === "json" && isRecord(body.value)) {
+    const parts = gatewayState(body.value.stateParts);
+    body = { kind: "json", value: { model: gatewayModel(ctx), state: parts, questions: body.value.questions } };
+  }
   let value: unknown = body.kind === "json" ? body.value : undefined;
   if (body.kind === "form") {
     const request = body.fields.get("request")?.[0];
@@ -279,7 +300,8 @@ function decodeDecision(family: Family, body: MediaBody): Decoded {
   if (!isRecord(value)) fail("Expected a JSON object body.", undefined, "invalid_json");
   const { questions, input } = family === "openai" ? decodeOpenAI(value) : decodeMap(family, value);
   const parts: InputPart[] = [];
-  flatten(input, parts, family === "gemini" || family === "openai" ? "input" : "state");
+  if (family === "gateway") parts.push(...(input as InputPart[]));
+  else flatten(input, parts, family === "gemini" || family === "openai" ? "input" : "state");
   const model = String(value.model);
   const text = textOf(parts);
   const extras: DecisionExtras = {
@@ -422,7 +444,31 @@ function expected(probs: number[]): number {
   return round2(probs.reduce((sum, p, index) => sum + p * index, 0));
 }
 
+function gatewayAnswer(question: Question, answer: Answer): Json {
+  switch (answer.kind) {
+    case "boolean":
+      return { type: "boolean", probability: answer.p };
+    case "choice":
+      return {
+        type: "choice",
+        choice: String(question.options[argmax(answer.probs)]),
+        probabilities: Object.fromEntries(
+          question.options.map((option, index) => [String(option), answer.probs[index]]),
+        ),
+      };
+    case "score":
+      return {
+        type: "score",
+        score: expected(answer.probs),
+        probabilities: Object.fromEntries(answer.probs.map((p, index) => [String(index), p])),
+      };
+    default:
+      return { type: "refusal" };
+  }
+}
+
 function mapAnswer(family: Family, question: Question, answer: Answer): Json {
+  if (family === "gateway") return gatewayAnswer(question, answer);
   const gemini = family === "gemini";
   switch (answer.kind) {
     case "refusal":
@@ -519,6 +565,19 @@ function renderDecision(events: RuleReplyEvent[] | undefined, decoded: Decoded, 
   const mapped = Object.fromEntries(
     extras.questions.map((question, index) => [question.key, mapAnswer(extras.family, question, answers[index])]),
   );
+  if (extras.family === "gateway") {
+    return {
+      kind: "json",
+      summary,
+      value: {
+        answers: mapped,
+        model: extras.model,
+        usage: { inputTokens: input, outputTokens: 0 },
+        warnings: [],
+        providerMetadata: gatewayMetadata(extras.model, ctx.makeId("gen")),
+      },
+    };
+  }
   if (extras.family === "gemini") {
     return {
       kind: "json",
@@ -574,6 +633,7 @@ const ERROR_BODIES: Record<Family, (failure: HttpFailure, requestId: string) => 
   gemini: googleError,
   typesafe: typesafeError,
   openrouter: openrouterError,
+  gateway: gatewayErrorBody,
 };
 
 function bodyValue(body: MediaBody): Record<string, unknown> | undefined {
@@ -591,9 +651,9 @@ function decisionRoute(
     sample: { type: "decision", answers: {} },
     matches: (method, path) => method === "POST" && matches(path),
     ...(accepts ? { accepts: (body: MediaBody) => accepts(bodyValue(body) ?? {}) } : {}),
-    decode: (body) => {
+    decode: (body, ctx) => {
       try {
-        return decodeDecision(family, body);
+        return decodeDecision(family, body, ctx);
       } catch (error) {
         if (family === "typesafe" && error instanceof AiRequestError && error.status === 400) {
           throw new AiRequestError(error.message, error.param, error.code, 422);
@@ -611,6 +671,7 @@ const isDecisions = (path: string) => path === "/decisions" || path.endsWith("/d
 
 /** Decision routes. `/decisions` is shared by OpenAI, Gemini, and Perplexity, so the body picks the wire format. */
 export const decisionRoutes: MediaRoute[] = [
+  decisionRoute("gateway", (path) => path.endsWith("/decision-model")),
   decisionRoute("openrouter", (path) => path.endsWith("/alpha/decisions")),
   decisionRoute("typesafe", (path) => path.endsWith("/systemone")),
   decisionRoute(

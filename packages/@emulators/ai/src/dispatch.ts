@@ -3,6 +3,7 @@ import { zstdDecompressSync } from "node:zlib";
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
 import { messagesCodec } from "./codecs/anthropic-messages.js";
+import { gatewayCodec } from "./codecs/gateway.js";
 import { geminiCodec } from "./codecs/gemini.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
@@ -12,6 +13,8 @@ import { openaiAudioRoutes } from "./media/openai-audio.js";
 import { imageRoutes } from "./media/openai-images.js";
 import type { MediaBody, MediaResult, MediaRoute, StateRoute, UploadedFile } from "./media/route.js";
 import { decisionRoutes } from "./media/decisions.js";
+import { chatImageRoutes } from "./media/chat-images.js";
+import { gatewayMediaRoutes, gatewayStateRoutes } from "./media/gateway.js";
 import { geminiMediaRoutes } from "./media/gemini.js";
 import { videoCreateRoutes, videoStateRoutes } from "./media/videos.js";
 import { AiConfigError, AiRequestError, defaultErrorType } from "./errors.js";
@@ -38,7 +41,7 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation, POST .../decisions, POST .../systemone, POST .../alpha/decisions, POST .../models/{model}:generateContent, POST .../models/{model}:streamGenerateContent";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation, POST .../decisions, POST .../systemone, POST .../alpha/decisions, POST .../models/{model}:generateContent, POST .../models/{model}:streamGenerateContent, POST .../language-model, POST .../image-model, POST .../speech-model, POST .../transcription-model, POST .../video-model, POST .../video-model/start, POST .../video-model/status, POST .../decision-model";
 
 const MEDIA_ROUTES: readonly MediaRoute[] = [
   ...imageRoutes,
@@ -47,9 +50,11 @@ const MEDIA_ROUTES: readonly MediaRoute[] = [
   ...videoCreateRoutes,
   ...decisionRoutes,
   ...geminiMediaRoutes,
+  ...gatewayMediaRoutes,
+  ...chatImageRoutes,
 ];
 
-const STATE_ROUTES: readonly StateRoute[] = [...videoStateRoutes];
+const STATE_ROUTES: readonly StateRoute[] = [...videoStateRoutes, ...gatewayStateRoutes];
 
 /** The OpenAI error envelope both V1 formats share. */
 export function aiErrorBody(
@@ -81,6 +86,7 @@ const CODECS: ReadonlyArray<{ suffix: string; codec: Codec }> = [
   { suffix: "/messages", codec: messagesCodec },
   { suffix: ":generateContent", codec: geminiCodec },
   { suffix: ":streamGenerateContent", codec: geminiCodec },
+  { suffix: "/language-model", codec: gatewayCodec },
 ];
 
 const MESSAGES_FAMILY = /(?:^|\/)messages(?:\/|$)/;
@@ -214,7 +220,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
       const body = await readMediaBody(c);
       const result = stateRoute.handle(
         { method, path, body, query: url.searchParams },
-        context(store, state, path, url.origin),
+        context(store, state, path, url.origin, c.req.raw.headers),
       );
       const headers = new Headers(result.kind === "text" ? {} : result.headers);
       headers.set("x-request-id", `req_${seq}`);
@@ -328,7 +334,7 @@ async function handleGeneration(
 ): Promise<Response> {
   const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
-  const ctx = context(store, state, path);
+  const ctx = context(store, state, path, undefined, c.req.raw.headers);
   let body: unknown;
   let decoded: Decoded;
   try {
@@ -451,7 +457,7 @@ async function handleMedia(
 ): Promise<Response> {
   const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
-  const ctx = context(store, state, path, url.origin);
+  const ctx = context(store, state, path, url.origin, c.req.raw.headers);
   let body: MediaBody | undefined;
   let decoded: Decoded;
   try {
@@ -590,12 +596,13 @@ function mediaErrorResponse(
   return new Response(JSON.stringify(route.errorBody(failure, requestId)), { status: failure.status, headers });
 }
 
-function context(store: Store, state: AiState, path: string, origin?: string): CodecContext {
+function context(store: Store, state: AiState, path: string, origin?: string, headers?: Headers): CodecContext {
   return {
     store,
     state,
     path,
     ...(origin === undefined ? {} : { origin }),
+    ...(headers === undefined ? {} : { headers }),
     makeId(prefix: string): string {
       return `${prefix}_${nextId(state)}`;
     },

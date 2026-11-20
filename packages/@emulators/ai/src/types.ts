@@ -21,7 +21,8 @@ export type AiFormat =
   | "typesafe-systemone"
   | "openrouter-decisions"
   | "perplexity-decisions"
-  | "gemini";
+  | "gemini"
+  | "gateway";
 
 /** What a request asks the model to produce; rules answer only requests of their own task. */
 export type AiTask = "text" | "image" | "speech" | "transcription" | "video" | "decision";
