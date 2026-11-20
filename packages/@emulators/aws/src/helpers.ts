@@ -68,6 +68,17 @@ export function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+export function unescapeXml(str: string): string {
+  return str
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/g, (_, dec: string) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 export function parseQueryString(body: string): Record<string, string> {
   const params = new URLSearchParams(body);
   const result: Record<string, string> = {};
