@@ -91,6 +91,46 @@ describe("gemini contract", () => {
     expect(parts[0].thoughtSignature).toEqual(expect.any(String));
   });
 
+  it("reads snake_case field names and keeps schema property names", async () => {
+    const forced = await partsOf(
+      await generate("gemini-3-flash", {
+        contents: [{ parts: [{ text: "weather" }] }],
+        tools: [
+          {
+            function_declarations: [
+              {
+                name: "get_weather",
+                parameters: { type: "OBJECT", properties: { city_name: { type: "STRING" } }, required: ["city_name"] },
+              },
+            ],
+          },
+        ],
+        tool_config: { function_calling_config: { mode: "ANY" } },
+      }),
+    );
+    expect(forced[0].functionCall?.name).toBe("get_weather");
+    expect(Object.keys(forced[0].functionCall?.args ?? {})).toEqual(["city_name"]);
+    const image = await partsOf(
+      await generate("gemini-3-flash-image", {
+        contents: [{ parts: [{ text: "a fox" }] }],
+        generation_config: { response_modalities: ["IMAGE"], image_config: { aspect_ratio: "16:9" } },
+      }),
+    );
+    expect(imageSize(new Uint8Array(Buffer.from(image[0].inlineData?.data ?? "", "base64")))).toEqual({
+      width: 1024,
+      height: 576,
+    });
+  });
+
+  it("rejects aspect ratios too large to size", async () => {
+    const huge = "9".repeat(400);
+    const response = await generate("gemini-3-flash-image", {
+      contents: [{ parts: [{ text: "a fox" }] }],
+      generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: `${huge}:${huge}` } },
+    });
+    expect(response.status).toBe(400);
+  });
+
   it("renders images and speech for IMAGE and AUDIO response modalities", async () => {
     const image = await partsOf(
       await generate("gemini-3-flash-image", {

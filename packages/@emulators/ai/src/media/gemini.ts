@@ -1,5 +1,5 @@
 import type { CodecContext, Decoded } from "../codec.js";
-import { decodeGemini, geminiResponse, type GeminiExtras } from "../codecs/gemini.js";
+import { decodeGemini, geminiResponse, protoJson, type GeminiExtras } from "../codecs/gemini.js";
 import type { Json, RuleReplyEvent } from "../types.js";
 import { base64Bytes, fail, isRecord, textTokens, toBase64 } from "./fields.js";
 import { colorFor, renderImage, sniffImageType } from "./pixels.js";
@@ -19,8 +19,9 @@ const AUDIO_FORMATS: Record<string, AudioFormat> = {
 };
 
 function modalities(body: MediaBody): string[] {
-  if (body.kind !== "json" || !isRecord(body.value) || !isRecord(body.value.generationConfig)) return [];
-  const raw = body.value.generationConfig.responseModalities;
+  const value = body.kind === "json" ? protoJson(body.value) : undefined;
+  if (!isRecord(value) || !isRecord(value.generationConfig)) return [];
+  const raw = value.generationConfig.responseModalities;
   return Array.isArray(raw) ? raw.map((value) => String(value).toUpperCase()) : [];
 }
 
@@ -29,12 +30,12 @@ function imageDimensions(aspectRatio: string, imageSize: string): { width: numbe
   const long = IMAGE_SIZES[imageSize];
   if (long === undefined) fail(`Unsupported imageSize ${imageSize}.`, "generationConfig.imageConfig.imageSize");
   const match = /^(\d+):(\d+)$/.exec(aspectRatio);
-  if (!match || Number(match[1]) === 0 || Number(match[2]) === 0) {
+  const w = Number(match?.[1]);
+  const h = Number(match?.[2]);
+  if (!Number.isSafeInteger(w) || !Number.isSafeInteger(h) || w === 0 || h === 0) {
     fail(`Unsupported aspectRatio ${aspectRatio}.`, "generationConfig.imageConfig.aspectRatio");
   }
-  const w = Number(match[1]);
-  const h = Number(match[2]);
-  const short = Math.max(1, Math.round((long * Math.min(w, h)) / Math.max(w, h)));
+  const short = Math.max(1, Math.round(long * (Math.min(w, h) / Math.max(w, h))));
   return w >= h ? { width: long, height: short } : { width: short, height: long };
 }
 
