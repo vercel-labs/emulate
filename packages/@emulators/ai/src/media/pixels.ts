@@ -293,7 +293,7 @@ function u16le(value: number): number[] {
 
 /** Encodes a solid color as a single-frame GIF with a two-entry palette and an LZW stream of one repeated index. */
 function encodeGif(width: number, height: number, color: Rgba): Uint8Array {
-  const transparent = color.a < 128;
+  const transparent = color.a < 255;
   const writer = new LsbBitWriter();
   const clear = 4;
   const end = 5;
