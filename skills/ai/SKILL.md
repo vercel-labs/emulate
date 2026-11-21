@@ -183,16 +183,16 @@ services:
 
 ### Matchers
 
-| Key             | Matches                                                                                                                                                                                                                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task`          | `text` (default), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task                                                                                                                                                             |
-| `model`         | Model id, with `*` wildcards                                                                                                                                                                                                                                                       |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions` |
-| `stream`        | Boolean                                                                                                                                                                                                                                                                            |
-| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                                                                                                                                         |
-| `tool`          | A declared tool name, with `*` wildcards                                                                                                                                                                                                                                           |
-| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                                                                                                                                             |
-| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                                                                                                                               |
+| Key             | Matches                                                                                                                                                                                                                                                                                      |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | `text` (default), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task                                                                                                                                                                       |
+| `model`         | Model id, with `*` wildcards                                                                                                                                                                                                                                                                 |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions` |
+| `stream`        | Boolean                                                                                                                                                                                                                                                                                      |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                                                                                                                                                   |
+| `tool`          | A declared tool name, with `*` wildcards                                                                                                                                                                                                                                                     |
+| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                                                                                                                                                       |
+| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                                                                                                                                         |
 
 ### Replies
 
@@ -483,6 +483,19 @@ Use `stream: true` in the matcher and add a fault. A disconnect ends the client 
     stallMs: 30000
 ```
 
+### Gemini
+
+`POST /v1beta/models/{model}:generateContent` and `:streamGenerateContent` serve `@google/genai` and `@ai-sdk/google`. Text, streaming, function calls, structured output, and thoughts use the same rules as the OpenAI routes; match `format: gemini` to target them. `responseModalities: ["TEXT", "IMAGE"]` answers with PNG `inlineData` (image rules may include `text` events), and `["AUDIO"]` answers with 24 kHz L16 speech.
+
+```typescript
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: "test", httpOptions: { baseUrl: "http://localhost:4014" } });
+const response = await ai.models.generateContent({ model: "gemini-3-flash", contents: "Hello" });
+```
+
+With the AI SDK, use `createGoogleGenerativeAI({ baseURL: "http://localhost:4014/v1beta", apiKey: "test" })`.
+
 ### Images
 
 `POST /v1/images/generations` and `POST /v1/images/edits` serve the OpenAI Images API and xAI's compatible image endpoints, so `openai.images.generate`, `openai.images.edit`, and AI SDK `generateImage` with `@ai-sdk/openai` or `@ai-sdk/xai` work offline. Images are real files in the requested `output_format` and `size`; unmatched requests render a solid color derived from the prompt, inputs, and position.
@@ -658,7 +671,7 @@ Open `http://localhost:4014/` to browse calls and rule budgets in the inspector.
 
 ## Current Limits
 
-Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: the Gemini Interactions API, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 
