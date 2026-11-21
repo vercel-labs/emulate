@@ -42,6 +42,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Free-form values whose keys are user data, kept exactly as sent. */
+const FREE_FORM = new Set(["args", "response", "parametersJsonSchema", "responseJsonSchema"]);
+
+function camelCase(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_, char: string) => char.toUpperCase());
+}
+
+/**
+ * Reads a body the way Gemini's proto JSON parser does, which accepts snake_case field names as well as camelCase.
+ * Field names become camelCase; free-form values and schema property names keep their keys.
+ */
+export function protoJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(protoJson);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => {
+      const name = camelCase(key);
+      if (FREE_FORM.has(name)) return [name, nested];
+      if (name === "properties" && isRecord(nested)) {
+        return [name, Object.fromEntries(Object.entries(nested).map(([field, schema]) => [field, protoJson(schema)]))];
+      }
+      return [name, protoJson(nested)];
+    }),
+  );
+}
+
 /** Lowercases OpenAPI-style `type` values (`OBJECT`, `STRING`) so a Gemini `responseSchema` reads as JSON Schema. */
 function jsonSchemaOf(schema: unknown): Json {
   if (Array.isArray(schema)) return schema.map(jsonSchemaOf);
@@ -58,20 +84,20 @@ function decodePart(part: unknown, path: string): InputPart[] {
   if (!isRecord(part)) fail("Expected a part object.", path);
   if (part.thought === true) return [];
   if (typeof part.text === "string") return [{ type: "text", text: part.text }];
-  const inline = part.inlineData ?? part.inline_data;
+  const inline = part.inlineData;
   if (isRecord(inline)) {
-    const mediaType = String(inline.mimeType ?? inline.mime_type ?? "");
+    const mediaType = String(inline.mimeType ?? "");
     if (mediaType === "") fail("inlineData.mimeType is required.", `${path}.inlineData.mimeType`);
     if (typeof inline.data !== "string") fail("inlineData.data is required.", `${path}.inlineData.data`);
     return [inlineFilePart(inline.data, mediaType.toLowerCase(), `${path}.inlineData.data`, MAX_INLINE_BYTES)];
   }
-  const file = part.fileData ?? part.file_data;
+  const file = part.fileData;
   if (isRecord(file)) {
-    const ref = redactedReference(file.fileUri ?? file.file_uri, `${path}.fileData.fileUri`);
-    const mediaType = String(file.mimeType ?? file.mime_type ?? "application/octet-stream");
+    const ref = redactedReference(file.fileUri, `${path}.fileData.fileUri`);
+    const mediaType = String(file.mimeType ?? "application/octet-stream");
     return [{ type: "file", mediaType, source: "url", ref } satisfies FilePart];
   }
-  const call = part.functionCall ?? part.function_call;
+  const call = part.functionCall;
   if (isRecord(call)) {
     const name = String(call.name ?? "");
     if (name === "") fail("functionCall.name is required.", `${path}.functionCall.name`);
@@ -84,7 +110,7 @@ function decodePart(part: unknown, path: string): InputPart[] {
       },
     ];
   }
-  const response = part.functionResponse ?? part.function_response;
+  const response = part.functionResponse;
   if (isRecord(response)) {
     const name = String(response.name ?? "");
     if (name === "") fail("functionResponse.name is required.", `${path}.functionResponse.name`);
@@ -122,7 +148,7 @@ function decodeTools(raw: unknown): ToolDefinition[] {
   if (!Array.isArray(raw)) fail("Expected an array of tools.", "tools");
   return raw.flatMap((tool, index): ToolDefinition[] => {
     if (!isRecord(tool)) fail("Expected a tool object.", `tools[${index}]`);
-    const declarations = tool.functionDeclarations ?? tool.function_declarations;
+    const declarations = tool.functionDeclarations;
     if (declarations === undefined) return [];
     if (!Array.isArray(declarations))
       fail("Expected an array of function declarations.", `tools[${index}].functionDeclarations`);
@@ -201,7 +227,8 @@ function decodeSpeech(config: Record<string, unknown>): { mimeType: string; samp
 }
 
 /** Validates a generateContent body. `responseModalities` picks the task: IMAGE asks for an image, AUDIO for speech. */
-export function decodeGemini(body: unknown, ctx: CodecContext): Decoded {
+export function decodeGemini(raw: unknown, ctx: CodecContext): Decoded {
+  const body = protoJson(raw);
   if (!isRecord(body)) fail("Expected a JSON object body.");
   const match = MODEL_PATH.exec(ctx.path);
   const model = match?.[1] ?? "";
@@ -220,7 +247,7 @@ export function decodeGemini(body: unknown, ctx: CodecContext): Decoded {
   const task: AiTask = modalities.includes("AUDIO") ? "speech" : modalities.includes("IMAGE") ? "image" : "text";
 
   const messages: Message[] = [];
-  const system = body.systemInstruction ?? body.system_instruction;
+  const system = body.systemInstruction;
   if (isRecord(system) && Array.isArray(system.parts)) {
     messages.push({
       role: "system",

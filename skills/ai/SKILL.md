@@ -573,7 +573,7 @@ const google = createGoogleGenerativeAI({ baseURL: "http://localhost:4014/v1beta
 const { video } = await generateVideo({
   model: google.video("veo-3.1-generate-preview"),
   prompt: "waves at sunset",
-  providerOptions: { google: { pollIntervalMs: 10 } },
+  poll: { intervalMs: 10 },
   download: async ({ url }) => {
     const response = await fetch(url);
     return { data: new Uint8Array(await response.arrayBuffer()), mediaType: "video/mp4" };

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { imageAttachment, redactedReference } from "../attachments.js";
+import { decodeResponsesAttachment, imageAttachment, mediaAttachment, redactedReference } from "../attachments.js";
 import type { CodecContext, Decoded } from "../codec.js";
 import { gatewayErrorBody, gatewayFile, gatewayMetadata, gatewayModel } from "../codecs/gateway.js";
 import { chatCodec } from "../codecs/openai-chat.js";
@@ -64,7 +64,38 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Walks a request's input or state, collecting its text for rule matching and its images as attachments. */
+const AUDIO_FORMATS: Record<string, string> = { wav: "audio/wav", mp3: "audio/mpeg" };
+
+/** Reads one attachment part in any decision input or state shape, or returns undefined for anything else. */
+function attachmentOf(value: Record<string, unknown>, path: string): FilePart | undefined {
+  const responses = decodeResponsesAttachment(value, path);
+  if (responses) return responses;
+  if (value.type === "image_url") {
+    const url = isRecord(value.image_url) ? value.image_url.url : value.image_url;
+    return imageAttachment(url, `${path}.image_url`);
+  }
+  if (value.type === "video_url") {
+    const url = isRecord(value.video_url) ? value.video_url.url : value.video_url;
+    return mediaAttachment(url, "video/*", `${path}.video_url`);
+  }
+  if (value.type === "input_audio" && isRecord(value.input_audio)) {
+    const format = String(value.input_audio.format ?? "");
+    const mediaType = AUDIO_FORMATS[format] ?? `audio/${format || "*"}`;
+    return inlinePart(String(value.input_audio.data ?? ""), mediaType);
+  }
+  if (value.type === "image" && (typeof value.data === "string" || typeof value.uri === "string")) {
+    const mediaType = typeof value.mime_type === "string" ? value.mime_type : "image/*";
+    return typeof value.uri === "string"
+      ? { type: "file", mediaType, source: "url", ref: redactedReference(value.uri, `${path}.uri`) }
+      : inlinePart(String(value.data), mediaType);
+  }
+  return undefined;
+}
+
+/**
+ * Walks a request's input or state, collecting its text for rule matching and its attachments as file parts. Any other
+ * object is kept as JSON text, with attachments found anywhere inside it recorded as file parts instead of text.
+ */
 function flatten(value: unknown, parts: InputPart[], path: string): void {
   if (typeof value === "string") {
     parts.push({ type: "text", text: value });
@@ -78,18 +109,9 @@ function flatten(value: unknown, parts: InputPart[], path: string): void {
     if (value !== null && value !== undefined) parts.push({ type: "text", text: JSON.stringify(value) });
     return;
   }
-  if (value.type === "input_image" || value.type === "image_url") {
-    const url = isRecord(value.image_url) ? value.image_url.url : value.image_url;
-    parts.push(imageAttachment(url, `${path}.image_url`));
-    return;
-  }
-  if (value.type === "image" && (typeof value.data === "string" || typeof value.uri === "string")) {
-    const mediaType = typeof value.mime_type === "string" ? value.mime_type : "image/*";
-    parts.push(
-      typeof value.uri === "string"
-        ? { type: "file", mediaType, source: "url", ref: redactedReference(value.uri, `${path}.uri`) }
-        : inlinePart(String(value.data), mediaType),
-    );
+  const attachment = attachmentOf(value, path);
+  if (attachment) {
+    parts.push(attachment);
     return;
   }
   if (value.type === "input_text" || value.type === "text" || value.type === "output_text") {
@@ -108,7 +130,13 @@ function flatten(value: unknown, parts: InputPart[], path: string): void {
     flatten(value.output, parts, `${path}.output`);
     return;
   }
-  parts.push({ type: "text", text: JSON.stringify(value) });
+  const text = JSON.stringify(value, (key, nested: unknown) => {
+    const file = key !== "" && isRecord(nested) ? attachmentOf(nested, `${path}.${key}`) : undefined;
+    if (!file) return nested;
+    parts.push(file);
+    return undefined;
+  });
+  parts.push({ type: "text", text });
 }
 
 function inlinePart(data: string, mediaType: string): FilePart {
@@ -235,7 +263,10 @@ function decodeMap(family: Family, body: Record<string, unknown>): { questions: 
     if (!kind) fail(`${at}.type: expected one of ${Object.keys(MAP_TYPES[family]).join(", ")}.`, `${at}.type`);
     if (family === "gemini" && (typeof item.instructions !== "string" || item.instructions === ""))
       fail(`${at}.instructions: Field required.`, `${at}.instructions`);
-    if ((kind === "box" || kind === "locate") && (typeof item.instructions !== "string" || item.instructions === "")) {
+    if (kind === "locate" && (typeof item.instructions !== "string" || item.instructions === "")) {
+      fail(`${at}.instructions: Field required.`, `${at}.instructions`);
+    }
+    if (kind === "box" && family === "openrouter" && (item.instructions ?? "") === "") {
       fail(`${at}.instructions: Field required.`, `${at}.instructions`);
     }
     if (kind === "locate" && typeof body.state !== "string")
@@ -355,6 +386,10 @@ function defaultAnswer(question: Question, inputHash: number, firstWord: RegExpE
   }
 }
 
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && value >= 0 && value <= 1;
+}
+
 function badAnswer(question: Question, expected: string): never {
   throw new AiRequestError(
     `The decision rule's answer for question '${question.key}' must be ${expected}.`,
@@ -369,14 +404,15 @@ function scriptedAnswer(question: Question, value: Json): Answer {
   if (value === null) return { kind: "refusal" };
   switch (question.kind) {
     case "boolean":
-      if (typeof value !== "number" || value < 0 || value > 1) badAnswer(question, "a probability from 0 to 1");
+      if (!isProbability(value)) badAnswer(question, "a probability from 0 to 1");
       return { kind: "boolean", p: value };
     case "choice": {
       if (isRecord(value)) {
-        return {
-          kind: "choice",
-          probs: question.options.map((option) => Number((value as Record<string, Json>)[String(option)] ?? 0)),
-        };
+        const labels = question.options.map(String);
+        const entries = Object.entries(value);
+        if (entries.some(([label, p]) => !labels.includes(label) || !isProbability(p)))
+          badAnswer(question, `probabilities from 0 to 1 keyed by ${labels.join(", ")}`);
+        return { kind: "choice", probs: labels.map((label) => (value[label] as number | undefined) ?? 0) };
       }
       const exactIndex = question.options.findIndex((option) => option === value);
       const index =
@@ -386,8 +422,8 @@ function scriptedAnswer(question: Question, value: Json): Answer {
     }
     case "score": {
       if (Array.isArray(value)) {
-        if (value.length !== question.levels.length || value.some((p) => typeof p !== "number"))
-          badAnswer(question, `${question.levels.length} probabilities`);
+        if (value.length !== question.levels.length || !value.every(isProbability))
+          badAnswer(question, `${question.levels.length} probabilities from 0 to 1`);
         return { kind: "score", probs: value as number[] };
       }
       if (typeof value !== "number" || value < 0 || value > question.levels.length - 1)
@@ -401,20 +437,24 @@ function scriptedAnswer(question: Question, value: Json): Answer {
         ),
       };
     }
-    case "box":
-      if (!isRecord(value)) badAnswer(question, "a box with top, bottom, left, and right");
-      return {
-        kind: "box",
-        box: {
-          top: Number(value.top),
-          bottom: Number(value.bottom),
-          left: Number(value.left),
-          right: Number(value.right),
-        },
-      };
-    case "locate":
-      if (!Array.isArray(value)) badAnswer(question, "a list of spans");
+    case "box": {
+      const sides = ["top", "bottom", "left", "right"] as const;
+      if (!isRecord(value) || !sides.every((side) => isProbability(value[side])))
+        badAnswer(question, "a box with top, bottom, left, and right from 0 to 1");
+      const box = value as Record<(typeof sides)[number], number>;
+      return { kind: "box", box: { top: box.top, bottom: box.bottom, left: box.left, right: box.right } };
+    }
+    case "locate": {
+      const isSpan = (span: Json) =>
+        isRecord(span) &&
+        Number.isInteger(span.start) &&
+        Number.isInteger(span.end) &&
+        typeof span.text === "string" &&
+        isProbability(span.score);
+      if (!Array.isArray(value) || !value.every(isSpan))
+        badAnswer(question, "a list of spans with integer start and end, text, and a score from 0 to 1");
       return { kind: "locate", spans: value as Array<{ start: number; end: number; text: string; score: number }> };
+    }
   }
 }
 
