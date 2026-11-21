@@ -126,4 +126,59 @@ describe("decision contract", () => {
     expect(calls).toContain("https://bucket.example/a.png");
     expect(calls).not.toContain("secret");
   });
+
+  it("records files, video, audio, and nested images as attachments, never as text", async () => {
+    const audio = Buffer.from("RIFF-audio-bytes").toString("base64");
+    await post("/v1/decisions", {
+      model: "gpt-6-luna",
+      input: [
+        { role: "user", content: [{ type: "input_file", file_url: "https://bucket.example/a.pdf?sig=SECRET1" }] },
+      ],
+      questions: [{ type: "predicate", instructions: "i" }],
+    });
+    await post("/api/alpha/decisions", {
+      model: "typesafe/jev-latest",
+      state: [
+        { type: "video_url", video_url: { url: "https://user:pass@bucket.example/v.mp4?token=SECRET2" } },
+        { type: "input_audio", input_audio: { data: audio, format: "wav" } },
+        { order: 7, photo: { type: "image_url", image_url: { url: "https://bucket.example/p.png?sig=SECRET3" } } },
+      ],
+      questions: { a: { type: "noul" } },
+    });
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).toContain("https://bucket.example/a.pdf");
+    expect(calls).toContain("https://bucket.example/v.mp4");
+    expect(calls).toContain("https://bucket.example/p.png");
+    expect(calls).toContain('{\\"order\\":7}');
+    for (const secret of ["SECRET1", "SECRET2", "SECRET3", "pass@", audio]) expect(calls).not.toContain(secret);
+  });
+
+  it("rejects mistyped scripted answers", async () => {
+    await fetch(`${origin}/_ai/rules`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        rules: [
+          { id: "typo", match: { task: "decision" }, reply: [{ type: "decision", answers: { c: { emial: 0.7 } } }] },
+        ],
+      }),
+    });
+    const result = await post("/v1/systemone", {
+      model: "jev",
+      state: "x",
+      questions: { c: { type: "choice", criteria: { email: null, phone: null } } },
+    });
+    expect(result.status).toBe(500);
+    expect(result.body.detail).toContain("answer for question 'c' must be probabilities");
+  });
+
+  it("accepts rich OpenRouter box instructions", async () => {
+    const result = await post("/api/alpha/decisions", {
+      model: "typesafe/jev-latest",
+      state: [{ type: "image_url", image_url: { url: "https://bucket.example/dog.png" } }],
+      questions: { dog: { type: "box", instructions: [{ type: "text", text: "The dog" }] } },
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.answers).toMatchObject({ dog: { type: "box" } });
+  });
 });

@@ -1,6 +1,6 @@
 import OpenAI, { toFile } from "openai";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { imageSize, sniffImageType } from "../media/pixels.js";
+import { imageSize, renderImage, sniffImageType } from "../media/pixels.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -114,7 +114,16 @@ describe("images contract", () => {
     });
   });
 
-  it("rejects audio events in image rules and invalid sizes", async () => {
+  it("reports the size of scripted image bytes", async () => {
+    const small = Buffer.from(renderImage("png", 64, 64, { r: 1, g: 2, b: 3, a: 255 })).toString("base64");
+    await putRules({ rules: [{ id: "small", match: { task: "image" }, reply: [{ type: "image", data: small }] }] });
+    const result = await openai.images.generate({ prompt: "logo", size: "1536x1024" });
+    expect(result).toMatchObject({ output_format: "png", size: "64x64" });
+    const calls = (await (await fetch(`${origin}/_ai/calls`)).json()) as Array<{ reply: { summary: string } }>;
+    expect(calls[calls.length - 1].reply.summary).toBe("1 image (png, 64x64)");
+  });
+
+  it("rejects text events in image rules and invalid sizes", async () => {
     const response = await putRules({
       rules: [{ id: "x", match: { task: "image" }, reply: [{ type: "audio" }] }],
     });
