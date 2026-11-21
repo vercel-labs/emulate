@@ -44,3 +44,13 @@ export interface MediaRoute {
   /** The header carrying the deterministic request id; defaults to x-request-id. */
   requestIdHeader?: string;
 }
+
+/** A read or housekeeping endpoint over stored media state, such as polling a job; it is answered without rules or a call record. */
+export interface StateRoute {
+  matches(method: string, path: string): boolean;
+  handle(
+    input: { method: string; path: string; body: MediaBody; query: URLSearchParams },
+    ctx: CodecContext,
+  ): Exclude<MediaResult, { kind: "sse" }>;
+  errorBody(failure: HttpFailure, requestId: string): unknown;
+}

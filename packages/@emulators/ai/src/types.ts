@@ -11,10 +11,14 @@ export type AiFormat =
   | "anthropic-messages"
   | "openai-images"
   | "openai-audio"
-  | "elevenlabs";
+  | "elevenlabs"
+  | "openai-videos"
+  | "xai-videos"
+  | "gemini-veo"
+  | "vertex-veo";
 
 /** What a request asks the model to produce; rules answer only requests of their own task. */
-export type AiTask = "text" | "image" | "speech" | "transcription";
+export type AiTask = "text" | "image" | "speech" | "transcription" | "video";
 
 /** Attachment metadata decoded from a request; file bytes are never kept. */
 export interface FilePart {
@@ -165,7 +169,9 @@ export type RuleReplyEvent =
  */
 export type MediaReplyEvent =
   | { type: "image"; data?: string; revisedPrompt?: string }
-  | { type: "audio"; data?: string };
+  | { type: "audio"; data?: string }
+  | { type: "video"; data?: string; polls?: number }
+  | { type: "video_error"; code: string; message: string; polls?: number };
 
 /** One alternate rule body: a reply or an error, with optional overrides for the rule-level delivery fields. */
 export interface RuleVariant {

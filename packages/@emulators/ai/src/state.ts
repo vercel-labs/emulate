@@ -1,5 +1,6 @@
 import type { Store } from "@emulators/core";
 import { initialBudgets, parseConfig, type RuleBudgets } from "./rules.js";
+import type { VideoJob } from "./media/jobs.js";
 import type { AiConfig, CallRecord, Delivery, StoredResponse } from "./types.js";
 
 /** Maximum number of calls kept in the per-instance call record. */
@@ -19,6 +20,7 @@ export interface AiState {
   callsGeneration: number;
   calls: CallRecord[];
   responses: Map<string, StoredResponse>;
+  jobs: Map<string, VideoJob>;
   seenModels: Set<string>;
   nextId: number;
 }
@@ -41,6 +43,7 @@ const VARIANT_HITS_KEY = "ai.state.variantHits";
 const CALL_SEQ_KEY = "ai.state.callSeq";
 const CALLS_KEY = "ai.state.calls";
 const RESPONSES_KEY = "ai.state.responses";
+const JOBS_KEY = "ai.state.jobs";
 const SEEN_MODELS_KEY = "ai.state.seenModels";
 const NEXT_ID_KEY = "ai.state.nextId";
 const SEED_KEY = "ai.seed";
@@ -140,6 +143,14 @@ class StoreBackedAiState implements AiState {
     this.store.setData(RESPONSES_KEY, value);
   }
 
+  get jobs(): Map<string, VideoJob> {
+    return this.read(JOBS_KEY, () => new Map<string, VideoJob>());
+  }
+
+  set jobs(value: Map<string, VideoJob>) {
+    this.store.setData(JOBS_KEY, value);
+  }
+
   get seenModels(): Set<string> {
     return this.read(SEEN_MODELS_KEY, () => new Set<string>());
   }
@@ -191,7 +202,7 @@ export function setAiConfig(state: AiState, config: AiConfig): void {
 }
 
 /**
- * Resets an instance's rules, budgets, variant positions, ids, call record, and stored responses.
+ * Resets an instance's rules, budgets, variant positions, ids, call record, stored responses, and video jobs.
  * Aborts any stream still running under the previous generation.
  */
 export function resetAiState(store: Store, config: AiConfig): AiState {
@@ -204,6 +215,7 @@ export function resetAiState(store: Store, config: AiConfig): AiState {
   state.callsGeneration += 1;
   state.calls = [];
   state.responses.clear();
+  state.jobs.clear();
   state.seenModels.clear();
   state.nextId = 1;
   return state;
