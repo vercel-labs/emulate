@@ -34,6 +34,7 @@ const SPEECH_CONTENT_TYPES: Record<(typeof SPEECH_FORMATS)[number], string> = {
   pcm: "audio/pcm",
 };
 const TRANSCRIPT_FORMATS = ["json", "text", "srt", "verbose_json", "vtt", "diarized_json"] as const;
+const WHISPER_FORMATS = ["json", "text", "srt", "verbose_json", "vtt"] as const;
 const AUDIO_CHUNK_BYTES = 8192;
 
 type TranscriptFormat = (typeof TRANSCRIPT_FORMATS)[number];
@@ -125,11 +126,11 @@ function renderSpeech(events: RuleReplyEvent[] | undefined, decoded: Decoded): M
 }
 
 function allowedFormats(model: string, task: "transcribe" | "translate"): readonly TranscriptFormat[] {
-  if (task === "translate") return ["json", "text", "srt", "verbose_json", "vtt"];
+  if (task === "translate") return WHISPER_FORMATS;
   if (model.startsWith("gpt-4o-transcribe-diarize")) return ["json", "text", "diarized_json"];
   if (model.startsWith("gpt-4o-transcribe") || model.startsWith("gpt-4o-mini-transcribe")) return ["json"];
   if (model.startsWith("gpt-transcribe")) return ["json", "text"];
-  return TRANSCRIPT_FORMATS;
+  return WHISPER_FORMATS;
 }
 
 function decodeTranscript(task: "transcribe" | "translate", fields: Fields): Decoded {
