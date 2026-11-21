@@ -32,6 +32,7 @@ import {
   takeCallSeq,
   type AiState,
   type CallStamp,
+  type RequestScope,
 } from "./state.js";
 import { delay, sseResponse, type SseOptions } from "./sse.js";
 import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, Json, Reply, Rule } from "./types.js";
@@ -177,7 +178,9 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
   const codec = method === "POST" ? CODECS.find(({ suffix }) => hasSuffix(path, suffix))?.codec : undefined;
   const candidates = MEDIA_ROUTES.filter((route) => route.matches(method, path));
   let preread: Promise<MediaBody> | undefined;
+  let scope: RequestScope | undefined;
   if (candidates.length > 0) {
+    scope = beginRequest(state, c.req.raw.signal);
     const shared = candidates.some((route) => route.accepts !== undefined);
     const body = shared ? readMediaBody(c) : undefined;
     preread = body;
@@ -191,7 +194,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
     const mediaRoute = accepted || (codec ? undefined : candidates[0]);
     if (mediaRoute) {
       try {
-        return await handleMedia(c, store, state, mediaRoute, path, url, body);
+        return await handleMedia(c, store, state, scope, mediaRoute, path, url, body);
       } catch (error) {
         const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
         return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
@@ -201,7 +204,15 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
 
   if (codec) {
     try {
-      return await handleGeneration(c, store, state, codec, path, preread);
+      return await handleGeneration(
+        c,
+        store,
+        state,
+        scope ?? beginRequest(state, c.req.raw.signal),
+        codec,
+        path,
+        preread,
+      );
     } catch (error) {
       return unrecordedError(store, codec, error);
     }
@@ -322,11 +333,11 @@ async function handleGeneration(
   c: Context<AppEnv>,
   store: Store,
   state: AiState,
+  scope: RequestScope,
   codec: Codec,
   path: string,
   preread?: Promise<MediaBody>,
 ): Promise<Response> {
-  const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
   const ctx = context(store, state, path);
   let body: unknown;
@@ -438,18 +449,19 @@ async function handleGeneration(
 
 /**
  * Runs one media request through the same lifecycle as a generation: decode, match a rule of the route's task, record the
- * call, pace it, and render the route's wire shape.
+ * call, pace it, and render the route's wire shape. The caller begins `scope` before reading the body, so a reset during
+ * the read ends the request.
  */
 async function handleMedia(
   c: Context<AppEnv>,
   store: Store,
   state: AiState,
+  scope: RequestScope,
   route: MediaRoute,
   path: string,
   url: URL,
   preread?: Promise<MediaBody>,
 ): Promise<Response> {
-  const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
   const ctx = context(store, state, path, url.origin);
   let body: MediaBody | undefined;

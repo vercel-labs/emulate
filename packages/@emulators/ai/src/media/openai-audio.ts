@@ -1,4 +1,5 @@
 import type { Decoded } from "../codec.js";
+import { textChunks } from "../chunks.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import type { SseFrame } from "../sse.js";
 import type { RuleReplyEvent } from "../types.js";
@@ -230,10 +231,10 @@ function renderTranscript(events: RuleReplyEvent[] | undefined, decoded: Decoded
   const summary = text.length > 200 ? `${text.slice(0, 197)}...` : text;
 
   if (extras.stream) {
-    const frames: SseFrame[] = timedWords(text, extras.seconds).map((word, index) => {
-      const delta = index === 0 ? word.word : ` ${word.word}`;
-      return { data: { type: "transcript.text.delta", delta }, content: delta };
-    });
+    const frames: SseFrame[] = textChunks(text).map((delta) => ({
+      data: { type: "transcript.text.delta", delta },
+      content: delta,
+    }));
     frames.push({ data: { type: "transcript.text.done", text, usage } });
     return { kind: "sse", frames, summary };
   }

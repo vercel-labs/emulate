@@ -111,6 +111,17 @@ describe("decision contract", () => {
       input: [{ type: "image", uri: "https://bucket.example/a.png?sig=secret", mime_type: "image/png" }],
       questions: { a: { type: "noul", instructions: "Is it?" } },
     });
+    await post("/v1/decisions", {
+      model: "gpt-6-luna",
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "c1",
+          output: [{ type: "input_image", image_url: "https://bucket.example/b.png?sig=secret" }],
+        },
+      ],
+      questions: [{ type: "predicate", instructions: "Is it?" }],
+    });
     const calls = await (await fetch(`${origin}/_ai/calls`)).text();
     expect(calls).toContain("https://bucket.example/a.png");
     expect(calls).not.toContain("secret");

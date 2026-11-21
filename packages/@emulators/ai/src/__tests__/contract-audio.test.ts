@@ -108,6 +108,13 @@ describe("audio contract", () => {
     expect(message.content).toBeNull();
     expect(message.audio?.transcript).toBe("Say hello");
     expect(sniffAudioType(new Uint8Array(Buffer.from(message.audio?.data ?? "", "base64")))).toBe("audio/wav");
+    const followUp = await openai.chat.completions.create({
+      model: "gpt-audio-1.5",
+      modalities: ["text", "audio"],
+      audio: { voice: "alloy", format: "wav" },
+      messages: [{ role: "user", content: "Say hello" }, message, { role: "user", content: "Again" }],
+    });
+    expect(followUp.choices[0].message.audio?.transcript).toBe("Again");
   });
 
   it("serves ElevenLabs speech at the requested output format and rejects bodies with 422", async () => {
