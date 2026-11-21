@@ -73,6 +73,16 @@ export function redactedUrl(value: unknown, path: string): string {
   return stripUrl(url);
 }
 
+/** Strips credentials, query, and hash from a URL reference of any scheme, such as `https:` or `gs:`. */
+export function redactedReference(value: unknown, path: string): string {
+  if (typeof value !== "string") fail("Expected a URL.", path);
+  try {
+    return stripUrl(new URL(value));
+  } catch {
+    return fail("Expected a URL.", path);
+  }
+}
+
 function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
   if (value.length > Math.ceil(maxBytes / 3) * 4 + 2) fail("Inline attachment exceeds the size limit.", path);
   if (value.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {

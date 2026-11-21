@@ -61,6 +61,9 @@ openai.chat("gpt-x");
 - `GET /v1/models` — list configured and previously requested model ids
 - `POST /v1/images/generations` — OpenAI and xAI image generation, unary or streamed
 - `POST /v1/images/edits` — OpenAI and xAI image edits, multipart or JSON, unary or streamed
+- `POST /v1/audio/speech` — OpenAI text to speech, as a file or server-sent events
+- `POST /v1/audio/transcriptions` and `POST /v1/audio/translations` — OpenAI speech to text in every `response_format`, streamed on gpt-4o models
+- `POST /v1/text-to-speech/{voice_id}` and `POST /v1/speech-to-text` — ElevenLabs speech and transcription
 
 An unsupported data path returns the native 404 naming the supported paths.
 
@@ -126,9 +129,9 @@ Rules are evaluated in order and the first match wins. Every supplied matcher mu
 
 Matchers:
 
-- `task` — `text` (the default when omitted) or `image`; a rule answers only requests of its task
+- `task` — `text` (the default when omitted), `image`, `speech`, or `transcription`; a rule answers only requests of its task
 - `model` — model id, with `*` wildcards
-- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, or `openai-images`
+- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, or `elevenlabs`
 - `stream` — boolean
 - `textContains` — case-sensitive text in the latest user instruction, excluding tool results
 - `tool` — a declared tool name, with `*` wildcards
@@ -152,6 +155,10 @@ Request limits apply to every reply, scripted or default. A stop sequence (`stop
 
 The Images routes return real, decodable `png`, `jpeg`, `webp`, `gif`, or `svg` files at the requested `size`. With no matching rule each image is a solid color derived from the prompt, input files, and position, so output repeats exactly and `n` images differ. Edits accept multipart uploads (`image`, `image[]`, `mask`) and JSON image references. `stream: true` sends `partial_images` partial events and a `completed` event per image. `response_format: url` returns a `data:` URL.
 
+## Audio
+
+Speech routes return real, decodable silence in the requested format (`mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`, and ElevenLabs `ulaw` and `alaw`), lasting about one second per fifteen characters, up to ten minutes. Transcription routes return every OpenAI `response_format` and ElevenLabs' timed words, with timings spread across the uploaded audio's duration. Chat Completions speaks replies when `modalities` includes `audio`, and accepts `input_audio` parts. Speech rules reply with `{ type: audio, data }`; transcription rules reply with `text` events.
+
 ## Defaults
 
 With no matching rule, the service:
@@ -162,7 +169,8 @@ With no matching rule, the service:
 - returns a generated call when the request forces a tool
 - acknowledges a tool result or an attachment-only request
 - accepts and echoes any model id
-- renders deterministic images for image requests
+- renders deterministic images for image requests and silence for speech requests
+- transcribes audio as `This is a deterministic transcript of <file name>.`
 
 Set `strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and JSON.
 
@@ -174,7 +182,7 @@ Every generation request is recorded with its format, model, `matched`, normaliz
 
 ## Limits
 
-Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
+Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input and output on Responses, and legacy functions.
 
 Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 

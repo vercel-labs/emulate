@@ -44,6 +44,7 @@ const TEXT_EVENT_KEYS = new Set(["type", "text"]);
 const OBJECT_EVENT_KEYS = new Set(["type", "value"]);
 const TOOL_CALL_EVENT_KEYS = new Set(["type", "name", "arguments", "id"]);
 const IMAGE_EVENT_KEYS = new Set(["type", "data", "revisedPrompt"]);
+const AUDIO_EVENT_KEYS = new Set(["type", "data"]);
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 const FORMATS: ReadonlySet<string> = new Set([
@@ -51,12 +52,16 @@ const FORMATS: ReadonlySet<string> = new Set([
   "openai-responses",
   "anthropic-messages",
   "openai-images",
+  "openai-audio",
+  "elevenlabs",
 ]);
 
 /** The reply event types each task can render. */
 const TASK_EVENTS: Record<AiTask, ReadonlySet<string>> = {
   text: new Set(["reasoning", "text", "object", "tool_call", "refusal"]),
   image: new Set(["image"]),
+  speech: new Set(["audio"]),
+  transcription: new Set(["text"]),
 };
 const FINISH_REASONS: ReadonlySet<string> = new Set(["stop", "tool_calls", "length", "refusal", "content_filter"]);
 const FAULT_KINDS: ReadonlySet<string> = new Set(["disconnect", "stall"]);
@@ -454,6 +459,9 @@ function parseReplyEvent(raw: unknown, path: string): RuleReplyEvent {
           ? {}
           : { revisedPrompt: expectString(obj.revisedPrompt, `${path}.revisedPrompt`) }),
       };
+    case "audio":
+      assertKnownKeys(obj, AUDIO_EVENT_KEYS, path);
+      return { type, ...(obj.data === undefined ? {} : { data: expectBase64(obj.data, `${path}.data`) }) };
     default:
       throw new AiConfigError(`unknown reply event type "${type}"`, `${path}.type`);
   }

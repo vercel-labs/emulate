@@ -5,10 +5,16 @@ export type Json = null | boolean | number | string | Json[] | { [key: string]: 
 export type JsonSchema = boolean | { [key: string]: Json };
 
 /** The wire format a request arrived in, selected from the request path. */
-export type AiFormat = "openai-chat" | "openai-responses" | "anthropic-messages" | "openai-images";
+export type AiFormat =
+  | "openai-chat"
+  | "openai-responses"
+  | "anthropic-messages"
+  | "openai-images"
+  | "openai-audio"
+  | "elevenlabs";
 
 /** What a request asks the model to produce; rules answer only requests of their own task. */
-export type AiTask = "text" | "image";
+export type AiTask = "text" | "image" | "speech" | "transcription";
 
 /** Attachment metadata decoded from a request; file bytes are never kept. */
 export interface FilePart {
@@ -157,7 +163,9 @@ export type RuleReplyEvent =
  * A media reply event for a non-text task. Omitted `data` is rendered by the emulator as a deterministic, decodable file;
  * `data` supplies base64 file bytes verbatim.
  */
-export type MediaReplyEvent = { type: "image"; data?: string; revisedPrompt?: string };
+export type MediaReplyEvent =
+  | { type: "image"; data?: string; revisedPrompt?: string }
+  | { type: "audio"; data?: string };
 
 /** One alternate rule body: a reply or an error, with optional overrides for the rule-level delivery fields. */
 export interface RuleVariant {

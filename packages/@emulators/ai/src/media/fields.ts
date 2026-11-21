@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AiRequestError } from "../errors.js";
-import type { FilePart } from "../types.js";
+import type { AIRequest, AiFormat, AiTask, FilePart, InputPart } from "../types.js";
 import type { MediaBody, UploadedFile } from "./route.js";
 
 /** A request body as plain values: JSON as sent, or multipart fields folded so `a[]`, repeated `a`, and `a[b]` read like JSON. */
@@ -12,6 +12,30 @@ export interface Fields {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The request rules match on for a media call: one user message holding the prompt text and input files. */
+export function mediaRequest(
+  format: AiFormat,
+  task: AiTask,
+  model: string,
+  parts: InputPart[],
+  stream: boolean,
+): AIRequest {
+  return {
+    format,
+    task,
+    model,
+    messages: [{ role: "user", parts }],
+    tools: [],
+    toolChoice: "auto",
+    parallelToolCalls: false,
+    stream,
+    reasoning: false,
+    store: false,
+    references: [],
+    warnings: [],
+  };
 }
 
 /** Throws the client error every media route renders in its native error body. */
