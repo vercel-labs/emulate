@@ -150,6 +150,11 @@ function assistantParts(message: Record<string, unknown>, path: string): InputPa
   if (message.function_call !== undefined && message.function_call !== null) {
     unsupported(`${path}.function_call`, "legacy function_call");
   }
+  const audio = message.audio ?? undefined;
+  if (audio !== undefined) {
+    if (!isRecord(audio)) fail("Expected an audio object.", `${path}.audio`);
+    expectString(audio.id, `${path}.audio.id`, true);
+  }
   if (message.tool_calls !== undefined) {
     if (!Array.isArray(message.tool_calls)) fail("Expected an array of tool calls.", `${path}.tool_calls`);
     message.tool_calls.forEach((call, index) => {
@@ -168,8 +173,8 @@ function assistantParts(message: Record<string, unknown>, path: string): InputPa
       });
     });
   }
-  if (parts.length === 0 && message.tool_calls === undefined) {
-    fail("Assistant messages require content or tool_calls.", path);
+  if (parts.length === 0 && message.tool_calls === undefined && audio === undefined) {
+    fail("Assistant messages require content, audio, or tool_calls.", path);
   }
   return parts;
 }
