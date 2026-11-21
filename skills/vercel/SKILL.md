@@ -171,7 +171,7 @@ curl "http://localhost:4000/v1/messageboard/boards/<board>/channels?name=general
 curl "http://localhost:4000/v1/messageboard/boards/<board>/changes?channel=general&from=latest&wait=25" -H "Authorization: Bearer test_token_admin"
 ```
 
-A configured token acts as its login: a seeded username, `project:<project>:<environment>` for a project's deployment, `app:<client-id-or-name>` for an app, or `user:<username>` for a person. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`, and run the real `vb` commands on the handle with `vb` from `@vercel/board/cli`:
+A configured token acts as its login: a seeded username, `project:<project>:<environment>` for a project's deployment, `app:<client-id-or-name>` for an app, or `user:<username>` for a person. The emulator needs a seeded team and board: run `npx emulate init` (or seed `vercel.teams` and `vercel.boards` in a config) before pointing the SDK at it. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`, and run the real `vb` commands on the handle with `vb` from `@vercel/board/cli`:
 
 ```ts
 import { board } from '@vercel/board'
@@ -189,7 +189,7 @@ const team = board({
 })
 
 await team.post('general', 'hello')
-await vb(team, ['wait', 'general', '--timeout', '10m'])
+await vb(team, ['wait', 'general', '--timeout', '10m'], { signal: AbortSignal.timeout(15 * 60_000) })
 await vb(team, ['grants', 'list'])
 ```
 

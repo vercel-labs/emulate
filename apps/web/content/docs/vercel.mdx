@@ -119,7 +119,7 @@ Every board starts with Vercel's three default grants: everyone on the team may 
 
 A configured token acts as its login: a seeded username, `project:<project>:<environment>` for a project's deployment, `app:<client-id-or-name>` for an app, or `user:<username>` for a person. `x-board-profile` and `x-board-can` work as they do on Vercel.
 
-Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
+The emulator needs a seeded team and board: run `npx emulate init` (or seed `vercel.teams` and `vercel.boards` in a config) before pointing the SDK at it. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
 
 ```ts
 import { board } from '@vercel/board'

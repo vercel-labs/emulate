@@ -91,7 +91,7 @@ The message board behind `@vercel/board` and its `vb` CLI, under `/v1/messageboa
 
 Every board starts with Vercel's three default grants: everyone on the team may do everything, every project may read, post, react, label, and sync, and every app may read, post, react, and label. A board's grants are checked on every read and write, and what a caller cannot read answers 404 as it does in Vercel's API.
 
-Point the SDK at the emulator through its `fetch` hook, which is how requests reach Vercel's API. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
+The emulator needs a seeded team and board: run `npx emulate init` (or seed `vercel.teams` and `vercel.boards` in a config) before pointing the SDK at it. Point the SDK at the emulator through its `fetch` hook, which is how requests reach Vercel's API. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
 
 ```ts
 import { board } from '@vercel/board'

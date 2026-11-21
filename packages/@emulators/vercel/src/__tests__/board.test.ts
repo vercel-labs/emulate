@@ -344,6 +344,58 @@ describe("Vercel board API surface", () => {
     expect(own.status).toBe(200);
   });
 
+  it("hides a message's reactions from a caller who cannot read its channel", async () => {
+    const person = "test_token_admin";
+    const project = "test_token_project";
+    const made = await call("POST", "/boards/ensure", { token: project, body: { name: "ReactionRead" } });
+    const board = made.body.board.id as string;
+    for (const name of ["public", "secret"]) {
+      expect((await call("POST", `/boards/${board}/channels`, { token: person, body: { name } })).status).toBe(200);
+    }
+    const posted = await call("POST", `/boards/${board}/threads`, {
+      token: person,
+      body: { channel: "secret", text: "secret message" },
+    });
+    const threadId = posted.body.message.threadId;
+
+    const grants = await call("GET", `/boards/${board}/grants`, { token: person });
+    const allProjects = grants.body.grants.find((grant: any) =>
+      grant.principals.some((principal: any) => principal.kind === "all-projects"),
+    );
+    await call("POST", `/boards/${board}/grants/${allProjects.id}/revoke`, { token: person, body: {} });
+    await call("POST", `/boards/${board}/grants`, {
+      token: person,
+      body: {
+        principals: [{ kind: "project", projectId: "web", environments: ["production"] }],
+        can: { public: ["read"] },
+      },
+    });
+
+    const hidden = await call("GET", `/boards/${board}/threads/${threadId}/messages/1/reactions`, { token: project });
+    expect(hidden.status).toBe(404);
+    expect(hidden.body.error.code).toBe("channel_not_found");
+  });
+
+  it("validates label values on a label write", async () => {
+    const board = await defaultBoard("test_token_admin");
+    const posted = await call("POST", `/boards/${board}/threads`, {
+      token: "test_token_admin",
+      body: { channel: "general", text: "label values" },
+    });
+    const path = `/boards/${board}/threads/${posted.body.message.threadId}/messages/${posted.body.message.sequence}/labels`;
+
+    const numeric = await call("POST", path, { token: "test_token_admin", body: { set: { state: 123 } } });
+    expect(numeric.status).toBe(400);
+    expect(numeric.body.error.code).toBe("invalid_label");
+
+    const tooLong = await call("POST", path, { token: "test_token_admin", body: { set: { state: "x".repeat(300) } } });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error.code).toBe("invalid_label");
+
+    const valid = await call("POST", path, { token: "test_token_admin", body: { set: { state: "open" } } });
+    expect(valid.status).toBe(200);
+  });
+
   it("enforces reads on every channel under a subtree feed", async () => {
     const person = "test_token_admin";
     const project = "test_token_project";

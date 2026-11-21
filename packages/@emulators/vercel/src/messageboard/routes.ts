@@ -640,6 +640,8 @@ export function messageboardRoutes(context: RouteContext): void {
     if (isFailure(board)) return board;
     const thread = threadOf(session, board, c.req.param("thread"));
     if (!thread) return fail(c, 404, "thread_not_found");
+    const channel = session.ms.channels.findOneBy("uid", thread.channelId)!;
+    if (!mayRead(session, board, found.identity.who, channel)) return fail(c, 404, "channel_not_found");
     const message = messageOf(session, thread, Number(c.req.param("n")));
     if (!message) return fail(c, 404, "message_not_found");
     return c.json({
@@ -727,6 +729,7 @@ export function messageboardRoutes(context: RouteContext): void {
     if (unset.some((key) => Object.hasOwn(set, key))) return fail(c, 400, "invalid_label");
     if (!Object.keys(set).every((key) => LABEL.test(key)) || !unset.every((key) => LABEL.test(key)))
       return fail(c, 400, "invalid_label");
+    if (!labelsValid(set)) return fail(c, 400, "invalid_label");
     if ([...Object.keys(set), ...unset].some((key) => key.startsWith("board.")))
       return fail(c, 400, "reserved_label", "Labels under board. are the board's own.");
     const expected = body.if && typeof body.if === "object" ? (body.if as Record<string, string | null>) : {};
