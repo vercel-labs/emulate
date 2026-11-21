@@ -180,7 +180,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
   let preread: Promise<MediaBody> | undefined;
   let scope: RequestScope | undefined;
   if (candidates.length > 0) {
-    scope = beginRequest(state, c.req.raw.signal);
+    const scope = beginRequest(state, c.req.raw.signal);
     const shared = candidates.some((route) => route.accepts !== undefined);
     const body = shared ? readMediaBody(c) : undefined;
     preread = body;
@@ -204,15 +204,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
 
   if (codec) {
     try {
-      return await handleGeneration(
-        c,
-        store,
-        state,
-        scope ?? beginRequest(state, c.req.raw.signal),
-        codec,
-        path,
-        preread,
-      );
+      return await handleMedia(c, store, state, scope, mediaRoute, path, url, body);
     } catch (error) {
       return unrecordedError(store, codec, error);
     }
