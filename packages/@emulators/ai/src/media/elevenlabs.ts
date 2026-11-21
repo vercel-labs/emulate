@@ -87,11 +87,11 @@ function renderTts(events: RuleReplyEvent[] | undefined, decoded: Decoded): Medi
     character_start_times_seconds: characters.map((_, index) => Math.round(index * step * 1000) / 1000),
     character_end_times_seconds: characters.map((_, index) => Math.round((index + 1) * step * 1000) / 1000),
   };
-  return {
-    kind: "json",
-    summary,
-    value: { audio_base64: toBase64(audio), alignment, normalized_alignment: alignment },
-  };
+  const value = { audio_base64: toBase64(audio), alignment, normalized_alignment: alignment };
+  if (decoded.request.stream) {
+    return { kind: "text", text: `${JSON.stringify(value)}\n`, contentType: "application/json", summary };
+  }
+  return { kind: "json", summary, value };
 }
 
 function decodeStt(fields: Fields): Decoded {
