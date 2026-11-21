@@ -76,11 +76,15 @@ describe("gemini contract", () => {
         tools: [
           {
             functionDeclarations: [
-              { name: "get_weather", parameters: { type: "OBJECT", properties: { city: { type: "STRING" } } } },
+              { name: "get_time" },
+              {
+                name: "get_weather",
+                parameters: { type: "OBJECT", properties: { city: { type: "STRING" } }, propertyOrdering: ["city"] },
+              },
             ],
           },
         ],
-        toolConfig: { functionCallingConfig: { mode: "ANY" } },
+        toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: ["get_weather", "get_time"] } },
       }),
     );
     expect(parts[0].functionCall?.name).toBe("get_weather");

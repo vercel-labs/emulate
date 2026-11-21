@@ -104,6 +104,10 @@ function flatten(value: unknown, parts: InputPart[], path: string): void {
     flatten(value.content, parts, `${path}.content`);
     return;
   }
+  if (value.type === "function_call_output" || value.type === "custom_tool_call_output") {
+    flatten(value.output, parts, `${path}.output`);
+    return;
+  }
   parts.push({ type: "text", text: JSON.stringify(value) });
 }
 
@@ -321,10 +325,12 @@ function decodeDecision(family: Family, body: MediaBody, ctx: CodecContext): Dec
 function spread(seed: string, labels: string[]): number[] {
   const weights = labels.map((label) => (1 + (hash32(`${seed}|${label}`) % 100)) ** 3);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
-  const probs = weights.map((weight) => round2(weight / total));
-  const top = probs.indexOf(Math.max(...probs));
-  probs[top] = round2(probs[top] + 1 - probs.reduce((sum, p) => sum + p, 0));
-  return probs;
+  const exact = weights.map((weight) => (weight * 100) / total);
+  const cents = exact.map(Math.floor);
+  const byRemainder = exact.map((_, index) => index).sort((a, b) => exact[b] - cents[b] - (exact[a] - cents[a]));
+  const missing = 100 - cents.reduce((sum, cent) => sum + cent, 0);
+  byRemainder.slice(0, missing).forEach((index) => (cents[index] += 1));
+  return cents.map((cent) => cent / 100);
 }
 
 /** Answers from a seed of fixed-size digests, so the work per option does not grow with the input or instructions. */
@@ -372,7 +378,9 @@ function scriptedAnswer(question: Question, value: Json): Answer {
           probs: question.options.map((option) => Number((value as Record<string, Json>)[String(option)] ?? 0)),
         };
       }
-      const index = question.options.findIndex((option) => option === value || String(option) === String(value));
+      const exactIndex = question.options.findIndex((option) => option === value);
+      const index =
+        exactIndex === -1 ? question.options.findIndex((option) => String(option) === String(value)) : exactIndex;
       if (index === -1) badAnswer(question, `one of ${question.options.map(String).join(", ")}`);
       return { kind: "choice", probs: question.options.map((_, at) => (at === index ? 1 : 0)) };
     }
