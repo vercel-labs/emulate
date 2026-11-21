@@ -176,6 +176,34 @@ describe("AI Gateway contract", () => {
     expect(result.text).toBe("Saw the screenshot.");
   });
 
+  it("matches URL images by type and answers Anthropic structured output", async () => {
+    await putRules([
+      { id: "seen", match: { format: "gateway", file: "image/*" }, reply: [{ type: "text", text: "matched file" }] },
+    ]);
+    const seen = await generateText({
+      model: gateway("openai/gpt-5.5"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "look" },
+            { type: "image", image: new URL("https://example.com/a.png") },
+          ],
+        },
+      ],
+      maxRetries: 0,
+    });
+    expect(seen.text).toBe("matched file");
+
+    const object = await generateText({
+      model: gateway("anthropic/claude-sonnet-5"),
+      output: Output.object({ schema: z.object({ city: z.string() }) }),
+      prompt: "Weather?",
+      maxRetries: 0,
+    });
+    expect(object.output).toEqual({ city: expect.any(String) });
+  });
+
   it("returns errors in the gateway envelope the client maps to typed errors", async () => {
     await putRules([{ id: "limited", match: { format: "gateway" }, error: { status: 429, message: "Slow down" } }]);
     await expect(generateText({ model: gateway("openai/gpt-5.5"), prompt: "x", maxRetries: 0 })).rejects.toMatchObject({

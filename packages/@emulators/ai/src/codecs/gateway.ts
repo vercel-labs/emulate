@@ -2,7 +2,7 @@ import { inlineFilePart, redactedReference } from "../attachments.js";
 import { jsonChunks, textChunks } from "../chunks.js";
 import { CREATED_AT, type Codec, type CodecContext, type Decoded } from "../codec.js";
 import { AiRequestError } from "../errors.js";
-import { assertOutputSupported, assertToolsSupported } from "../schema-dialects.js";
+import { assertToolsSupported } from "../schema-dialects.js";
 import type { SseFrame } from "../sse.js";
 import type {
   AIRequest,
@@ -90,8 +90,12 @@ export function gatewayMetadata(model: string, generationId: string): Record<str
   };
 }
 
-/** Reads one AI SDK file part's data into attachment metadata; URLs are kept without their query or credentials. */
-export function gatewayFile(data: unknown, mediaType: string, path: string, name?: string): FilePart {
+/**
+ * Reads one AI SDK file part's data into attachment metadata; URLs are kept without their query or credentials. A bare
+ * top-level type such as `image`, which the AI SDK sends for URL images, is widened to `image/*`.
+ */
+export function gatewayFile(data: unknown, requested: string, path: string, name?: string): FilePart {
+  const mediaType = requested.includes("/") ? requested : `${requested}/*`;
   if (typeof data === "string" && data.includes(":")) {
     const inline = /^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s.exec(data);
     if (inline) return inlineFilePart(inline[2], inline[1] || mediaType, path, MAX_FILE_BYTES, name);
@@ -285,7 +289,6 @@ function decodeLanguage(body: unknown, ctx: CodecContext): Decoded {
   const tools = decodeTools(body.tools);
   assertToolsSupported(model, tools, (index) => `tools[${index}].inputSchema`);
   const output = decodeOutput(body.responseFormat);
-  assertOutputSupported(model, output, { format: "responseFormat", strict: "responseFormat.schema" });
   const maxOutputTokens = body.maxOutputTokens;
   if (maxOutputTokens !== undefined && (typeof maxOutputTokens !== "number" || !Number.isInteger(maxOutputTokens))) {
     fail("Expected an integer.", "maxOutputTokens");
