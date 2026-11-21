@@ -146,6 +146,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
 
   const authority = c.req.header("host") ?? url.host;
   const addressed = parseUrl(`${url.protocol}//${authority}`);
+  const origin = (configured ?? url).origin;
   const caller = callerOf(c.req.header("origin"), addressed, configured);
 
   if (caller === "untrusted-host") {
@@ -195,7 +196,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
     const mediaRoute =
       (settled && candidates.find((route) => !route.accepts || route.accepts(settled))) ?? candidates[0];
     try {
-      return await handleMedia(c, store, state, scope, mediaRoute, path, url, body);
+      return await handleMedia(c, store, state, mediaRoute, path, url, origin);
     } catch (error) {
       const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
       return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
@@ -209,7 +210,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
       const body = await readMediaBody(c);
       const result = stateRoute.handle(
         { method, path, body, query: url.searchParams },
-        context(store, state, path, url.origin),
+        context(store, state, path, origin),
       );
       const headers = new Headers(result.kind === "text" ? {} : result.headers);
       headers.set("x-request-id", `req_${seq}`);
@@ -443,10 +444,10 @@ async function handleMedia(
   route: MediaRoute,
   path: string,
   url: URL,
-  preread?: Promise<MediaBody>,
+  origin: string,
 ): Promise<Response> {
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
-  const ctx = context(store, state, path, url.origin);
+  const ctx = context(store, state, path, origin);
   let body: MediaBody | undefined;
   let decoded: Decoded;
   try {

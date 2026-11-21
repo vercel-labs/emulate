@@ -1,5 +1,7 @@
+import { createServer } from "@emulators/core";
 import OpenAI from "openai";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { aiPlugin } from "../index.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -106,6 +108,21 @@ describe("video contract", () => {
       body: JSON.stringify({ prompt: "x", aspect_ratio: "100000:1" }),
     });
     expect(response.status).toBe(400);
+  });
+
+  it("links video downloads at the configured base URL", async () => {
+    const { app } = createServer(aiPlugin, { baseUrl: "https://ai.example.test" });
+    const created = await app.request("http://ai.example.test/v1/videos/generations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "x" }),
+    });
+    const { request_id: id } = (await created.json()) as { request_id: string };
+    await app.request(`http://ai.example.test/v1/videos/${id}`);
+    const done = (await (await app.request(`http://ai.example.test/v1/videos/${id}`)).json()) as {
+      video: { url: string };
+    };
+    expect(done.video.url).toBe(`https://ai.example.test/v1/videos/${id}/content`);
   });
 
   it("records Veo media URIs without credentials or query", async () => {
