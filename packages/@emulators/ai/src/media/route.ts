@@ -36,6 +36,8 @@ export interface MediaRoute {
   /** The reply event a strict-mode miss suggests for this task. */
   sample: RuleReplyEvent;
   matches(method: string, path: string): boolean;
+  /** When several routes share a path, picks this one only for bodies in its wire format. */
+  accepts?(body: MediaBody): boolean;
   /** Validates the request into the shared shape rules match on; throws AiRequestError for client errors. */
   decode(body: MediaBody, ctx: CodecContext, query: URLSearchParams): Decoded;
   /** Renders the reply; `events` is absent when the emulator generates the output itself. */

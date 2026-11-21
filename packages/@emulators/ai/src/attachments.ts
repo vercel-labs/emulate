@@ -205,6 +205,14 @@ export function urlAttachment(ref: string, kind: "image" | "file"): FilePart {
   };
 }
 
+/** Decodes media given as a base64 data URL or a URL of any scheme; a URL is kept without credentials, query, or hash. */
+export function mediaAttachment(value: unknown, mediaType: string, path: string): FilePart {
+  if (typeof value === "string" && value.startsWith("data:")) {
+    return inlineAttachment(value, undefined, path, MAX_OPENAI_FILE_BYTES, false);
+  }
+  return { type: "file", mediaType, source: "url", ref: redactedReference(value, path) };
+}
+
 /** Decodes an image given as an HTTPS URL or a base64 data URL into attachment metadata. */
 export function imageAttachment(value: unknown, path: string): FilePart {
   if (typeof value !== "string") fail("Expected an image URL.", path);

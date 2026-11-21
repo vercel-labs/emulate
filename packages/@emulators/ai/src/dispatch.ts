@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { zstdDecompressSync } from "node:zlib";
 import type { AppEnv, Context, Hono, Store } from "@emulators/core";
 import type { Codec, CodecContext, Decoded } from "./codec.js";
 import { messagesCodec } from "./codecs/anthropic-messages.js";
@@ -9,6 +10,7 @@ import { elevenLabsRoutes } from "./media/elevenlabs.js";
 import { openaiAudioRoutes } from "./media/openai-audio.js";
 import { imageRoutes } from "./media/openai-images.js";
 import type { MediaBody, MediaResult, MediaRoute, StateRoute, UploadedFile } from "./media/route.js";
+import { decisionRoutes } from "./media/decisions.js";
 import { videoCreateRoutes, videoStateRoutes } from "./media/videos.js";
 import { AiConfigError, AiRequestError, defaultErrorType } from "./errors.js";
 import { parseConfig, rulesView, type RuleView } from "./rules.js";
@@ -28,19 +30,21 @@ import {
   takeCallSeq,
   type AiState,
   type CallStamp,
+  type RequestScope,
 } from "./state.js";
 import { delay, sseResponse, type SseOptions } from "./sse.js";
 import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, Json, Reply, Rule } from "./types.js";
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation, POST .../decisions, POST .../systemone, POST .../alpha/decisions";
 
 const MEDIA_ROUTES: readonly MediaRoute[] = [
   ...imageRoutes,
   ...openaiAudioRoutes,
   ...elevenLabsRoutes,
   ...videoCreateRoutes,
+  ...decisionRoutes,
 ];
 
 const STATE_ROUTES: readonly StateRoute[] = [...videoStateRoutes];
@@ -97,6 +101,9 @@ function unrecordedError(store: Store, codec: Codec, error: unknown): Response {
 }
 
 const MAX_SEEN_MODELS = 1000;
+
+/** The largest body a zstd-encoded request may decompress to. */
+const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
 
 const RESPONSE_ID = /(?:^|\/)responses\/([^/]+)$/;
 
@@ -175,10 +182,21 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
     }
   }
 
-  const mediaRoute = MEDIA_ROUTES.find((route) => route.matches(method, path));
-  if (mediaRoute) {
+  const candidates = MEDIA_ROUTES.filter((route) => route.matches(method, path));
+  if (candidates.length > 0) {
+    const scope = beginRequest(state, c.req.raw.signal);
+    const shared = candidates.some((route) => route.accepts !== undefined);
+    const body = shared ? readMediaBody(c) : undefined;
+    const settled = body
+      ? await body.then(
+          (value) => value,
+          () => undefined,
+        )
+      : undefined;
+    const mediaRoute =
+      (settled && candidates.find((route) => !route.accepts || route.accepts(settled))) ?? candidates[0];
     try {
-      return await handleMedia(c, store, state, mediaRoute, path, url, origin);
+      return await handleMedia(c, store, state, scope, mediaRoute, path, url, origin, body);
     } catch (error) {
       const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
       return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
@@ -415,24 +433,26 @@ async function handleGeneration(
 
 /**
  * Runs one media request through the same lifecycle as a generation: decode, match a rule of the route's task, record the
- * call, pace it, and render the route's wire shape.
+ * call, pace it, and render the route's wire shape. The caller begins `scope` before reading the body, so a reset during
+ * the read ends the request.
  */
 async function handleMedia(
   c: Context<AppEnv>,
   store: Store,
   state: AiState,
+  scope: RequestScope,
   route: MediaRoute,
   path: string,
   url: URL,
   origin: string,
+  preread?: Promise<MediaBody>,
 ): Promise<Response> {
-  const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
   const ctx = context(store, state, path, origin);
   let body: MediaBody | undefined;
   let decoded: Decoded;
   try {
-    body = await readMediaBody(c);
+    body = await (preread ?? readMediaBody(c));
     decoded = route.decode(body, ctx, url.searchParams);
   } catch (error) {
     const status = error instanceof AiRequestError ? error.status : 500;
@@ -507,12 +527,30 @@ async function handleMedia(
   return new Response(result.kind === "bytes" ? result.data : result.text, { status: 200, headers });
 }
 
-/** Reads a multipart body into fields and in-memory files, or a JSON body; an empty body reads as none. */
+/** Undoes a zstd content encoding, then reads a multipart body into fields and in-memory files, or a JSON body; an empty body reads as none. */
 async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
-  if (/^multipart\/form-data/i.test(c.req.header("content-type") ?? "")) {
+  const raw = new Uint8Array(await c.req.arrayBuffer());
+  let bytes: Uint8Array = raw;
+  if ((c.req.header("content-encoding") ?? "").toLowerCase() === "zstd") {
+    try {
+      bytes = zstdDecompressSync(raw, { maxOutputLength: MAX_DECOMPRESSED_BYTES });
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "ERR_BUFFER_TOO_LARGE") {
+        throw new AiRequestError(
+          `The decompressed request body exceeds ${MAX_DECOMPRESSED_BYTES} bytes.`,
+          undefined,
+          "request_too_large",
+          413,
+        );
+      }
+      throw new AiRequestError("Malformed zstd request body.", undefined, "invalid_encoding");
+    }
+  }
+  const contentType = c.req.header("content-type") ?? "";
+  if (/^multipart\/form-data/i.test(contentType)) {
     let form: FormData;
     try {
-      form = await c.req.raw.formData();
+      form = await new Response(bytes, { headers: { "content-type": contentType } }).formData();
     } catch {
       throw new AiRequestError("Malformed multipart/form-data body.", undefined, "invalid_multipart");
     }
@@ -528,7 +566,7 @@ async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
     }
     return { kind: "form", fields, files };
   }
-  const text = await c.req.text();
+  const text = new TextDecoder().decode(bytes);
   if (text.trim() === "") return { kind: "none" };
   try {
     return { kind: "json", value: JSON.parse(text) as Json };

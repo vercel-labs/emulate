@@ -57,6 +57,9 @@ The format is read from the end of the path, so any prefix works (`/v1`, `/api/v
 - `POST .../videos/generations` and `GET .../videos/:request_id` — xAI video jobs
 - `POST .../models/:model:predictLongRunning`, `GET .../operations/:id`, `GET .../files/:id:download` — Gemini API Veo
 - `POST .../publishers/google/models/:model:predictLongRunning` and `POST .../:fetchPredictOperation` — Vertex AI Veo
+- `POST .../decisions` — OpenAI, Gemini API, and Perplexity decision models, told apart by the body
+- `POST .../systemone` — TypeSafe Jev decisions
+- `POST /api/alpha/decisions` — OpenRouter decisions
 - `GET /` — inspector
 
 Other paths return the native OpenAI 404 naming the supported paths.
@@ -154,6 +157,39 @@ ai:
 
 The AI SDK refuses to download video URLs on `localhost`. With `experimental_generateVideo` and a URL-returning provider (xAI, Gemini API Veo), pass a `download` function that fetches the URL. Vertex AI returns bytes and needs no `download`.
 
+### Decisions
+
+Decision models answer typed questions about an input with probabilities instead of text. Every provider's wire format is served:
+
+| Provider           | Route                                         | Shape                                                                                                                                |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| OpenAI (and Azure) | `POST .../decisions` with a `questions` array | `input` plus `predicate`, `choice` (`choices`), and `score` (`levels`) questions; `answers` come back as an array in question order  |
+| Gemini API         | `POST .../decisions` with `input` and a map   | `noul`, `choice`, and `score` questions keyed by id; choice options are evaluated in sorted order; `noul` answers carry `confidence` |
+| TypeSafe Jev       | `POST .../systemone`                          | `state` plus `noul`, `choice`, `score`, and `box` questions keyed by id; zstd-compressed bodies and multipart requests are accepted  |
+| OpenRouter         | `POST /api/alpha/decisions`                   | The TypeSafe shape, plus an `id`, `provider`, `usage.cost`, and `refusal` answers                                                    |
+| Perplexity         | `POST .../decisions` with `state` and a map   | The TypeSafe shape with `locate` questions; unknown top-level fields are rejected                                                    |
+
+`/decisions` is shared, so the body picks the format: a `questions` array is OpenAI, `state` is Perplexity, and `input` with a question map is Gemini. Each provider's limits apply, such as 1 to 400 OpenAI questions with 2 to 255 choices and 2 to 10 levels, and errors use each provider's envelope: OpenAI's, Google's, TypeSafe's 422 `detail` list, and OpenRouter's `error.code`.
+
+With no matching rule, answers are deterministic per question and input. Probabilities have two decimals and sum to one, the choice is the most likely option, a score is the probability-weighted level, and a legend echoes the levels. Confidence follows each provider's formula. Decision rules set `match.task: decision` and reply with a `decision` event whose `answers` are keyed by question id (an OpenAI question's `name`, or its position when unnamed):
+
+```yaml
+ai:
+  rules:
+    - id: triage
+      match: { task: decision, textContains: refund }
+      reply:
+        - type: decision
+          answers:
+            is_refund: 0.97 # boolean question: a probability
+            team: billing # choice question: the chosen option
+            urgency: 1.5 # score question: a level, split across its neighbours
+            channel: { email: 0.7, phone: 0.3 } # explicit probabilities
+            policy: null # a refusal, on OpenAI and OpenRouter
+```
+
+Questions a rule does not answer get the deterministic default.
+
 ## Rules
 
 Rules come from the `ai` seed block or `PUT /_ai/rules`. They are checked in order and the first match answers. This pair drives a two-step tool loop:
@@ -212,32 +248,33 @@ A rule has one of `reply`, `variants`, or `error`. `finish`, `timing`, and `faul
 
 Every condition in `match` must hold.
 
-| Matcher         | Matches when                                                                                                                                                         |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task`          | The request asks for `text` (the default when omitted), `image`, `speech`, `transcription`, or `video`                                                               |
-| `model`         | The model id matches; `*` wildcards allowed                                                                                                                          |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, or `vertex-veo` |
-| `stream`        | The request does or does not stream                                                                                                                                  |
-| `textContains`  | The latest user text contains the string; tool results are ignored                                                                                                   |
-| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                                                          |
-| `hasToolResult` | The current turn does or does not carry a tool result                                                                                                                |
-| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type                                 |
+| Matcher         | Matches when                                                                                                                                                                                                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | The request asks for `text` (the default when omitted), `image`, `speech`, `transcription`, `video`, or `decision`                                                                                                                                                                 |
+| `model`         | The model id matches; `*` wildcards allowed                                                                                                                                                                                                                                        |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions` |
+| `stream`        | The request does or does not stream                                                                                                                                                                                                                                                |
+| `textContains`  | The latest user text contains the string; tool results are ignored                                                                                                                                                                                                                 |
+| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                                                                                                                                                                        |
+| `hasToolResult` | The current turn does or does not carry a tool result                                                                                                                                                                                                                              |
+| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type                                                                                                                                               |
 
 ### Replies
 
 `reply` is a list of events. The service adds ids, usage, and the format's terminal events.
 
-| Event         | Fields                              | Sends                                                                                                                                        |
-| ------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `text`        | `text`                              | Assistant text                                                                                                                               |
-| `object`      | `value`                             | A JSON value for structured output                                                                                                           |
-| `tool_call`   | `name`, `arguments`, optional `id`  | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted           |
-| `reasoning`   | `text`                              | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                               |
-| `refusal`     | `text`                              | A refusal in the format's native shape                                                                                                       |
-| `image`       | optional `data`, `revisedPrompt`    | An image for `task: image` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders the image               |
-| `audio`       | optional `data`                     | Speech for `task: speech` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders silence                  |
-| `video`       | optional `data`, `polls`            | Completes a `task: video` job after `polls` status reads (default 1); `data` is base64 MP4 bytes, and without it the emulator renders a clip |
-| `video_error` | `code`, `message`, optional `polls` | Fails a `task: video` job with that error after `polls` status reads                                                                         |
+| Event         | Fields                              | Sends                                                                                                                                         |
+| ------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`        | `text`                              | Assistant text                                                                                                                                |
+| `object`      | `value`                             | A JSON value for structured output                                                                                                            |
+| `tool_call`   | `name`, `arguments`, optional `id`  | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted            |
+| `reasoning`   | `text`                              | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                                |
+| `refusal`     | `text`                              | A refusal in the format's native shape                                                                                                        |
+| `image`       | optional `data`, `revisedPrompt`    | An image for `task: image` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders the image                |
+| `audio`       | optional `data`                     | Speech for `task: speech` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders silence                   |
+| `video`       | optional `data`, `polls`            | Completes a `task: video` job after `polls` status reads (default 1); `data` is base64 MP4 bytes, and without it the emulator renders a clip  |
+| `video_error` | `code`, `message`, optional `polls` | Fails a `task: video` job with that error after `polls` status reads                                                                          |
+| `decision`    | `answers`                           | Answers for a `task: decision` rule, keyed by question id: a probability, an option, a score, explicit probabilities, or `null` for a refusal |
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
