@@ -47,7 +47,7 @@ openai.chat("gpt-x");
 
 `openai('gpt-x')` posts to `/v1/responses`, and `openai.chat('gpt-x')` posts to `/v1/chat/completions`.
 
-`@ai-sdk/openai-compatible` works in Chat mode with the same base URL. Vercel AI Gateway's OpenAI-compatible `/v1` shape works too. Any model id is accepted and echoed back. `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check: set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule. The private `@ai-sdk/gateway` protocol is not supported.
+`@ai-sdk/openai-compatible` works in Chat mode with the same base URL. Vercel AI Gateway's OpenAI-compatible `/v1` shape works too. Any model id is accepted and echoed back. `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check: set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule. Code that passes plain model strings goes through `@ai-sdk/gateway`, whose protocol is served too: set `globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: "http://localhost:4014/v4/ai", apiKey: "test" })` and text, images, speech, transcription, video, and decisions run offline.
 
 ## Endpoints
 
@@ -138,7 +138,7 @@ Matchers:
 
 - `task` — `text` (the default when omitted), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task
 - `model` — model id, with `*` wildcards
-- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions`
+- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, `perplexity-decisions`, or `gateway`
 - `stream` — boolean
 - `textContains` — case-sensitive text in the latest user instruction, excluding tool results
 - `tool` — a declared tool name, with `*` wildcards

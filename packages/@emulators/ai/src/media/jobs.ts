@@ -15,7 +15,7 @@ export type JobOutcome = { kind: "video"; data?: string } | { kind: "error"; cod
 /** One video job. Status advances only when a client reads it, so polling is deterministic. */
 export interface VideoJob {
   id: string;
-  provider: "openai" | "xai" | "gemini" | "vertex";
+  provider: "openai" | "xai" | "gemini" | "vertex" | "gateway";
   model: string;
   prompt: string;
   status: JobStatus;

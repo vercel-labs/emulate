@@ -30,6 +30,9 @@ import type {
 
 const FORMAT = "openai-chat";
 
+/** The backend fingerprint stamped on every completion; OpenRouter's SDK requires one. */
+export const SYSTEM_FINGERPRINT = "fp_emulate";
+
 /** The reasoning efforts OpenAI accepts, shared by the Chat Completions and Responses codecs. */
 export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -147,6 +150,14 @@ function assistantParts(message: Record<string, unknown>, path: string): InputPa
   if (message.refusal !== undefined && message.refusal !== null) {
     parts.push({ type: "text", text: expectString(message.refusal, `${path}.refusal`) });
   }
+  if (message.images !== undefined && message.images !== null) {
+    if (!Array.isArray(message.images)) fail("Expected an array of images.", `${path}.images`);
+    message.images.forEach((image, index) => {
+      const file = decodeChatAttachment(image, `${path}.images[${index}]`);
+      if (!file) fail("Expected an image_url part.", `${path}.images[${index}]`);
+      parts.push(file);
+    });
+  }
   if (message.function_call !== undefined && message.function_call !== null) {
     unsupported(`${path}.function_call`, "legacy function_call");
   }
@@ -174,7 +185,7 @@ function assistantParts(message: Record<string, unknown>, path: string): InputPa
     });
   }
   if (parts.length === 0 && message.tool_calls === undefined && audio === undefined) {
-    fail("Assistant messages require content, audio, or tool_calls.", path);
+    fail("Assistant messages require content, images, audio, or tool_calls.", path);
   }
   return parts;
 }
@@ -336,8 +347,11 @@ function decodeAudioOutput(body: Record<string, unknown>): AudioFormat | undefin
   let wantsAudio = false;
   if (body.modalities !== undefined && body.modalities !== null) {
     const modalities = body.modalities;
-    if (!Array.isArray(modalities) || modalities.some((value) => value !== "text" && value !== "audio")) {
-      fail('Expected modalities to list "text" and optionally "audio".', "modalities");
+    if (
+      !Array.isArray(modalities) ||
+      modalities.some((value) => value !== "text" && value !== "audio" && value !== "image")
+    ) {
+      fail('Expected modalities to list "text" and optionally "audio" or "image".', "modalities");
     }
     wantsAudio = modalities.includes("audio");
   }
@@ -507,6 +521,7 @@ function encodeJson(reply: Reply, decoded: Decoded, ctx: CodecContext): ChatComp
     object: "chat.completion",
     created: CREATED_AT,
     model: decoded.request.model,
+    system_fingerprint: SYSTEM_FINGERPRINT,
     choices: [
       {
         index: 0,
@@ -533,6 +548,7 @@ function chunk(
     object: "chat.completion.chunk",
     created: CREATED_AT,
     model,
+    system_fingerprint: SYSTEM_FINGERPRINT,
     choices: [{ index: 0, delta, logprobs: null, finish_reason: choiceFinish }],
     ...(includeUsage ? { usage } : {}),
   };
@@ -623,6 +639,7 @@ function streamFrames(reply: Reply, decoded: Decoded, ctx: CodecContext): SseFra
         object: "chat.completion.chunk",
         created: CREATED_AT,
         model,
+        system_fingerprint: SYSTEM_FINGERPRINT,
         choices: [],
         usage: usageBody(reply),
       } satisfies ChatCompletionChunk,

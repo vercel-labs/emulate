@@ -32,7 +32,7 @@ The Anthropic SDK adds `/v1/messages` itself, so give it the origin without `/v1
 
 - `openai(model)` uses Responses; `openai.chat(model)` uses Chat Completions.
 - `createOpenAICompatible` uses Chat Completions. Set `supportsStructuredOutputs: true` for `generateObject`, or it sends `json_object` without a schema and the `{}` default fails its schema check.
-- To replace Vercel AI Gateway, swap `https://ai-gateway.vercel.sh/v1` for the emulator URL, or set `OPENAI_BASE_URL`.
+- To replace Vercel AI Gateway's OpenAI-compatible API, swap `https://ai-gateway.vercel.sh/v1` for the emulator URL, or set `OPENAI_BASE_URL`. For AI SDK code that passes plain model strings, see [AI Gateway](#ai-gateway).
 - Keys are never validated, stored, or logged. Some SDKs still need a placeholder.
 - Every generation response carries a deterministic request id: `x-request-id` on the OpenAI and Gemini routes and `request-id` on the Anthropic Messages route.
 - Point `@google/genai` at the origin with `httpOptions.baseUrl`, and `@ai-sdk/google` at `http://localhost:4014/v1beta`.
@@ -62,6 +62,7 @@ The format is read from the end of the path, so any prefix works (`/v1`, `/api/v
 - `POST .../decisions` — OpenAI, Gemini API, and Perplexity decision models, told apart by the body
 - `POST .../systemone` — TypeSafe Jev decisions
 - `POST /api/alpha/decisions` — OpenRouter decisions
+- `POST .../language-model`, `.../image-model`, `.../speech-model`, `.../transcription-model`, `.../video-model`, `.../video-model/start`, `.../video-model/status`, `.../decision-model` — the AI Gateway protocol `@ai-sdk/gateway` speaks
 - `GET /` — inspector
 
 Other paths return the native OpenAI 404 naming the supported paths.
@@ -79,6 +80,22 @@ Rules, variants, timing, faults, and the inspector work the same way; match on `
 `POST /v1beta/models/:model:generateContent` and `:streamGenerateContent` (also under `/v1`) speak the Gemini API, so `@google/genai` and `@ai-sdk/google` work with `baseUrl` (or `baseURL` ending in `/v1beta`) pointed at the emulator. The model comes from the path. `contents` (`text`, `inlineData`, `fileData`, `functionCall`, and `functionResponse` parts), `systemInstruction`, `tools` with `functionDeclarations`, `toolConfig` (`AUTO`, `ANY`, `NONE`), and `generationConfig` (`maxOutputTokens`, `stopSequences`, `responseMimeType` with `responseSchema` or `responseJsonSchema`, and `thinkingConfig.includeThoughts`) map onto the same rules and defaults as the other text routes. Function calls carry a `thoughtSignature`, as Gemini 3 models return. A stream sends one `GenerateContentResponse` per `data:` event and puts `finishReason` and `usageMetadata` on the last one. Field names may be camelCase or snake_case, as the Gemini API accepts both. Errors use Google's envelope, `{"error":{"code":400,"message":"...","status":"INVALID_ARGUMENT"}}`.
 
 `generationConfig.responseModalities` picks the task. `IMAGE` (alone or with `TEXT`) is an image request answered with `inlineData` PNG parts sized by `imageConfig.aspectRatio` and `imageSize` (`512`, `1K` by default, `2K`, or `4K`); image rules may add `text` events, which come back as text parts. `AUDIO` is a speech request answered with raw 24 kHz 16-bit audio labelled `audio/L16;codec=pcm;rate=24000`, or the format `responseFormat.audio.mimeType` asks for (`AUDIO_WAV`, `AUDIO_MP3`, `AUDIO_OGG_OPUS`, `AUDIO_ALAW`, `AUDIO_MULAW`). Match `format: gemini` to target these routes. The Interactions API (`/v1beta/interactions`) is not served.
+
+### AI Gateway
+
+The AI SDK sends plain model strings such as `"openai/gpt-5.5"` to Vercel AI Gateway through `@ai-sdk/gateway`. The emulator serves that protocol, so point the default provider at it and the same code runs offline across every modality:
+
+```typescript
+import { createGateway, generateText } from "ai";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: "http://localhost:4014/v4/ai", apiKey: "test" });
+
+await generateText({ model: "anthropic/claude-sonnet-5", prompt: "Hi" });
+```
+
+The model id comes from the `ai-model-id` header (`ai-language-model-id` for text), and every route matches `format: gateway` with the usual `task`. Text, streaming, structured output, tool loops, reasoning, and files share the rules and defaults of the other text routes; results carry `providerMetadata.gateway` with routing, a zero `cost`, and a `generationId`. `generateImage` returns PNGs sized by `size` or `aspectRatio` (long side 1024). `generateSpeech` returns `mp3` by default or `wav`, `pcm`, `flac`, `opus`, or `aac`, and reports any other `outputFormat` as a warning. `transcribe` returns timed segments and words. `generateVideo` returns base64 MP4s in one server-sent event, or, with `poll`, starts a job that each status read moves through the same state machine as the other video routes; a `video_error` event fails it. `decide` answers `boolean`, `choice`, and `score` questions. Errors use the gateway envelope, `{"error":{"message":"...","type":"rate_limit_exceeded"},"generationId":"..."}`, which the client turns into typed errors such as `GatewayRateLimitError`; set `error.type` for types like `model_not_found` or `quota_for_entity_exceeded`. Streaming speech, transcription, and realtime use WebSockets and are not served.
+
+Chat Completions requests with `"image"` in `modalities`, as AI Gateway and OpenRouter accept for image models, are image requests answered with `message.images` (`delta.images` when streaming) holding `data:` URL PNGs sized by `image_config.aspect_ratio` and `image_size`. Image rules may add `text` events, which come back as `content`.
 
 ### Images
 
@@ -256,16 +273,16 @@ A rule has one of `reply`, `variants`, or `error`. `finish`, `timing`, and `faul
 
 Every condition in `match` must hold.
 
-| Matcher         | Matches when                                                                                                                                                                                                                                                                                 |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task`          | The request asks for `text` (the default when omitted), `image`, `speech`, `transcription`, `video`, or `decision`                                                                                                                                                                           |
-| `model`         | The model id matches; `*` wildcards allowed                                                                                                                                                                                                                                                  |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions` |
-| `stream`        | The request does or does not stream                                                                                                                                                                                                                                                          |
-| `textContains`  | The latest user text contains the string; tool results are ignored                                                                                                                                                                                                                           |
-| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                                                                                                                                                                                  |
-| `hasToolResult` | The current turn does or does not carry a tool result                                                                                                                                                                                                                                        |
-| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type                                                                                                                                                         |
+| Matcher         | Matches when                                                                                                                                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | The request asks for `text` (the default when omitted), `image`, `speech`, `transcription`, `video`, or `decision`                                                                                                                                                                                      |
+| `model`         | The model id matches; `*` wildcards allowed                                                                                                                                                                                                                                                             |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, `perplexity-decisions`, or `gateway` |
+| `stream`        | The request does or does not stream                                                                                                                                                                                                                                                                     |
+| `textContains`  | The latest user text contains the string; tool results are ignored                                                                                                                                                                                                                                      |
+| `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                                                                                                                                                                                             |
+| `hasToolResult` | The current turn does or does not carry a tool result                                                                                                                                                                                                                                                   |
+| `file`          | `true` matches any attachment, including one returned inside a tool result; a media type or glob such as `image/*` matches that type                                                                                                                                                                    |
 
 ### Replies
 

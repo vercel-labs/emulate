@@ -48,7 +48,12 @@ function videoEvent(events: RuleReplyEvent[] | undefined): VideoEvent | undefine
 }
 
 /** Stores a new queued job whose outcome and pacing come from the matching rule, or a rendered video after one poll. */
-function createJob(events: RuleReplyEvent[] | undefined, decoded: Decoded, ctx: CodecContext, id: string): VideoJob {
+export function createJob(
+  events: RuleReplyEvent[] | undefined,
+  decoded: Decoded,
+  ctx: CodecContext,
+  id: string,
+): VideoJob {
   const { job } = decoded.extras as unknown as VideoExtras;
   const event = videoEvent(events);
   const outcome: JobOutcome =
@@ -70,7 +75,7 @@ function createJob(events: RuleReplyEvent[] | undefined, decoded: Decoded, ctx: 
 }
 
 /** The job's video file: the rule's bytes, or a gray H.264 MP4 at the job's size and length. */
-function videoBytes(job: VideoJob): Uint8Array {
+export function videoBytes(job: VideoJob): Uint8Array {
   if (job.outcome.kind === "video" && job.outcome.data !== undefined) return base64Bytes(job.outcome.data);
   return renderVideo(job.width, job.height, job.seconds);
 }

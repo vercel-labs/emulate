@@ -68,6 +68,7 @@ const FORMATS: ReadonlySet<string> = new Set([
   "openrouter-decisions",
   "perplexity-decisions",
   "gemini",
+  "gateway",
 ]);
 
 /** The reply event types each task can render. */

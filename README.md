@@ -39,7 +39,7 @@ Slack event callbacks use `X-Slack-Request-Timestamp` and `X-Slack-Signature` wh
 
 Resend `POST /emails` and `POST /emails/batch` support 24-hour `Idempotency-Key` replay, returning the original email IDs without duplicate emails or webhooks. Optional `resend.allowlist` restrictions let tests reject recipients while `resend.send_attempts` records accepted and rejected sends.
 
-The AI service answers OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini generateContent requests with deterministic, rule-driven replies, so apps using the `openai` SDK, the Anthropic SDK, `@google/genai`, the Vercel AI SDK, or an OpenAI-compatible gateway can be tested offline without keys. It covers text, streaming, structured output, tool loops, reasoning, refusals, stored responses, errors, disconnects, and stalls. The OpenAI Images API (also used by xAI) returns real, deterministic image files for generations and edits, scripted by `task: image` rules. OpenAI speech, transcription, and Chat Completions audio, plus ElevenLabs speech and transcription, return real audio files and timed transcripts. OpenAI, xAI, and Veo (Gemini API and Vertex AI) video jobs run through an explicit, poll-driven state machine and serve real H.264 MP4s. Decision models (OpenAI, Gemini, TypeSafe Jev, OpenRouter, and Perplexity) answer typed questions with deterministic probabilities.
+The AI service answers OpenAI Responses, Chat Completions, Anthropic Messages, and Gemini generateContent requests with deterministic, rule-driven replies, so apps using the `openai` SDK, the Anthropic SDK, `@google/genai`, the Vercel AI SDK, or an OpenAI-compatible gateway can be tested offline without keys. It covers text, streaming, structured output, tool loops, reasoning, refusals, stored responses, errors, disconnects, and stalls. The OpenAI Images API (also used by xAI) returns real, deterministic image files for generations and edits, scripted by `task: image` rules. OpenAI speech, transcription, and Chat Completions audio, plus ElevenLabs speech and transcription, return real audio files and timed transcripts. OpenAI, xAI, and Veo (Gemini API and Vertex AI) video jobs run through an explicit, poll-driven state machine and serve real H.264 MP4s. Decision models (OpenAI, Gemini, TypeSafe Jev, OpenRouter, and Perplexity) answer typed questions with deterministic probabilities. The AI SDK's default Vercel AI Gateway provider works for every modality, and Chat Completions image output (`message.images`) works as AI Gateway and OpenRouter return it.
 
 ## Custom emulators
 
@@ -1397,7 +1397,15 @@ const chat = await generateText({
 })
 ```
 
-`@ai-sdk/openai-compatible` works in Chat mode against the same base URL. Vercel AI Gateway's OpenAI-compatible `/v1` surface works through either provider, and any model slug is accepted and echoed back. `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check: set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule. The private `@ai-sdk/gateway` protocol is not supported.
+`@ai-sdk/openai-compatible` works in Chat mode against the same base URL. Vercel AI Gateway's OpenAI-compatible `/v1` surface works through either provider, and any model slug is accepted and echoed back. `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check: set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule. Code that passes plain model strings goes through `@ai-sdk/gateway`, whose protocol the emulator also serves for text, images, speech, transcription, video, and decisions:
+
+```typescript
+import { createGateway, generateText } from 'ai'
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: 'http://localhost:4014/v4/ai', apiKey: 'test' })
+
+const result = await generateText({ model: 'anthropic/claude-sonnet-5', prompt: 'Hi' })
+```
 
 ### Data routes
 
