@@ -232,7 +232,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
       const body = await readMediaBody(c);
       const result = stateRoute.handle(
         { method, path, body, query: url.searchParams },
-        context(store, state, path, origin),
+        context(store, state, path, origin, c.req.raw.headers),
       );
       const headers = new Headers(result.kind === "text" ? {} : result.headers);
       headers.set("x-request-id", `req_${seq}`);
@@ -471,7 +471,7 @@ async function handleMedia(
   preread?: Promise<MediaBody>,
 ): Promise<Response> {
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
-  const ctx = context(store, state, path, origin);
+  const ctx = context(store, state, path, origin, c.req.raw.headers);
   let body: MediaBody | undefined;
   let decoded: Decoded;
   try {
