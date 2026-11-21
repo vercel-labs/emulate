@@ -1,5 +1,10 @@
-import { createHash } from "node:crypto";
-import { decodeResponsesAttachment, imageAttachment, mediaAttachment, redactedReference } from "../attachments.js";
+import {
+  decodeResponsesAttachment,
+  imageAttachment,
+  inlineFilePart,
+  mediaAttachment,
+  redactedReference,
+} from "../attachments.js";
 import type { CodecContext, Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import { AiRequestError } from "../errors.js";
@@ -62,6 +67,13 @@ function round2(value: number): number {
 }
 
 const AUDIO_FORMATS: Record<string, string> = { wav: "audio/wav", mp3: "audio/mpeg" };
+const MAX_INLINE_BYTES = 100_000_000;
+const GEMINI_MEDIA: Record<string, string> = {
+  image: "image/*",
+  audio: "audio/*",
+  video: "video/*",
+  document: "application/*",
+};
 
 /** Reads one attachment part in any decision input or state shape, or returns undefined for anything else. */
 function attachmentOf(value: Record<string, unknown>, path: string): FilePart | undefined {
@@ -78,13 +90,19 @@ function attachmentOf(value: Record<string, unknown>, path: string): FilePart | 
   if (value.type === "input_audio" && isRecord(value.input_audio)) {
     const format = String(value.input_audio.format ?? "");
     const mediaType = AUDIO_FORMATS[format] ?? `audio/${format || "*"}`;
-    return inlinePart(String(value.input_audio.data ?? ""), mediaType);
+    return inlineFilePart(
+      String(value.input_audio.data ?? ""),
+      mediaType,
+      `${path}.input_audio.data`,
+      MAX_INLINE_BYTES,
+    );
   }
-  if (value.type === "image" && (typeof value.data === "string" || typeof value.uri === "string")) {
-    const mediaType = typeof value.mime_type === "string" ? value.mime_type : "image/*";
+  const geminiType = typeof value.type === "string" && Object.hasOwn(GEMINI_MEDIA, value.type) ? value.type : undefined;
+  if (geminiType && (typeof value.data === "string" || typeof value.uri === "string")) {
+    const mediaType = typeof value.mime_type === "string" ? value.mime_type : GEMINI_MEDIA[geminiType];
     return typeof value.uri === "string"
       ? { type: "file", mediaType, source: "url", ref: redactedReference(value.uri, `${path}.uri`) }
-      : inlinePart(String(value.data), mediaType);
+      : inlineFilePart(String(value.data), mediaType, `${path}.data`, MAX_INLINE_BYTES);
   }
   return undefined;
 }
@@ -134,16 +152,6 @@ function flatten(value: unknown, parts: InputPart[], path: string): void {
     return undefined;
   });
   parts.push({ type: "text", text });
-}
-
-function inlinePart(data: string, mediaType: string): FilePart {
-  return {
-    type: "file",
-    mediaType,
-    source: "inline",
-    bytes: Math.floor((data.length * 3) / 4),
-    sha256: createHash("sha256").update(data).digest("hex"),
-  };
 }
 
 function textOf(parts: InputPart[]): string {
@@ -300,6 +308,21 @@ function decodeMap(family: Family, body: Record<string, unknown>): { questions: 
   return { questions, input: body[field] };
 }
 
+/** The attachments inside question instructions, recorded with the input's so `file` rules see them. */
+function instructionFiles(questions: unknown): FilePart[] {
+  const entries = Array.isArray(questions)
+    ? questions.map((question, index): [string, unknown] => [`[${index}]`, question])
+    : isRecord(questions)
+      ? Object.entries(questions).map(([key, question]): [string, unknown] => [`.${key}`, question])
+      : [];
+  return entries.flatMap(([at, question]) => {
+    if (!isRecord(question) || question.instructions === undefined) return [];
+    const nested: InputPart[] = [];
+    flatten(question.instructions, nested, `questions${at}.instructions`);
+    return nested.filter((part): part is FilePart => part.type === "file");
+  });
+}
+
 function decodeDecision(family: Family, body: MediaBody): Decoded {
   let value: unknown = body.kind === "json" ? body.value : undefined;
   if (body.kind === "form") {
@@ -315,6 +338,7 @@ function decodeDecision(family: Family, body: MediaBody): Decoded {
   const { questions, input } = family === "openai" ? decodeOpenAI(value) : decodeMap(family, value);
   const parts: InputPart[] = [];
   flatten(input, parts, family === "gemini" || family === "openai" ? "input" : "state");
+  parts.push(...instructionFiles(value.questions));
   const model = String(value.model);
   const text = textOf(parts);
   const extras: DecisionExtras = {
