@@ -196,7 +196,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
     const mediaRoute =
       (settled && candidates.find((route) => !route.accepts || route.accepts(settled))) ?? candidates[0];
     try {
-      return await handleMedia(c, store, state, mediaRoute, path, url, origin);
+      return await handleMedia(c, store, state, scope, mediaRoute, path, url, origin, body);
     } catch (error) {
       const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
       return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
@@ -445,6 +445,7 @@ async function handleMedia(
   path: string,
   url: URL,
   origin: string,
+  preread?: Promise<MediaBody>,
 ): Promise<Response> {
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
   const ctx = context(store, state, path, origin);
