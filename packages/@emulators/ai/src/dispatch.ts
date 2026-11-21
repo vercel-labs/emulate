@@ -544,27 +544,8 @@ async function handleMedia(
   return new Response(result.kind === "bytes" ? result.data : result.text, { status: 200, headers });
 }
 
-/** Reads a multipart body into fields and in-memory files, or a JSON body; an empty body reads as none. */
+/** Undoes a zstd content encoding, then reads a multipart body into fields and in-memory files, or a JSON body; an empty body reads as none. */
 async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
-  if (/^multipart\/form-data/i.test(c.req.header("content-type") ?? "")) {
-    let form: FormData;
-    try {
-      form = await c.req.raw.formData();
-    } catch {
-      throw new AiRequestError("Malformed multipart/form-data body.", undefined, "invalid_multipart");
-    }
-    const fields = new Map<string, string[]>();
-    const files = new Map<string, UploadedFile[]>();
-    for (const [name, value] of form.entries()) {
-      if (typeof value === "string") {
-        fields.set(name, [...(fields.get(name) ?? []), value]);
-      } else {
-        const file = { name: value.name, type: value.type, bytes: new Uint8Array(await value.arrayBuffer()) };
-        files.set(name, [...(files.get(name) ?? []), file]);
-      }
-    }
-    return { kind: "form", fields, files };
-  }
   const raw = new Uint8Array(await c.req.arrayBuffer());
   let bytes: Uint8Array = raw;
   if ((c.req.header("content-encoding") ?? "").toLowerCase() === "zstd") {
@@ -581,6 +562,26 @@ async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
       }
       throw new AiRequestError("Malformed zstd request body.", undefined, "invalid_encoding");
     }
+  }
+  const contentType = c.req.header("content-type") ?? "";
+  if (/^multipart\/form-data/i.test(contentType)) {
+    let form: FormData;
+    try {
+      form = await new Response(bytes, { headers: { "content-type": contentType } }).formData();
+    } catch {
+      throw new AiRequestError("Malformed multipart/form-data body.", undefined, "invalid_multipart");
+    }
+    const fields = new Map<string, string[]>();
+    const files = new Map<string, UploadedFile[]>();
+    for (const [name, value] of form.entries()) {
+      if (typeof value === "string") {
+        fields.set(name, [...(fields.get(name) ?? []), value]);
+      } else {
+        const file = { name: value.name, type: value.type, bytes: new Uint8Array(await value.arrayBuffer()) };
+        files.set(name, [...(files.get(name) ?? []), file]);
+      }
+    }
+    return { kind: "form", fields, files };
   }
   const text = new TextDecoder().decode(bytes);
   if (text.trim() === "") return { kind: "none" };
