@@ -2,7 +2,30 @@ import type { Store } from "@emulators/core";
 import { defaultEvents, estimateUsage, eventText, eventTokens, strictMissFailure, toolCallPrefix } from "./defaults.js";
 import { matchRule, ruleEvents } from "./rules.js";
 import { getAiState, nextId, type AiState } from "./state.js";
-import type { AIRequest, FinishReason, Outcome, Reply, ReplyEvent, Rule } from "./types.js";
+import type {
+  AIRequest,
+  FinishReason,
+  HttpFailure,
+  Outcome,
+  Reply,
+  ReplyEvent,
+  Rule,
+  RuleReplyEvent,
+  RuleSnapshot,
+  StreamFault,
+  Timing,
+} from "./types.js";
+
+/** What the engine decided for one media request; `events` is absent when no rule matched and the emulator generates the output. */
+export type MediaOutcome =
+  | {
+      kind: "reply";
+      events?: RuleReplyEvent[];
+      matched: RuleSnapshot | { default: "generated" };
+      timing: Timing;
+      fault?: StreamFault;
+    }
+  | { kind: "error"; failure: HttpFailure; matched: RuleSnapshot | null };
 
 /** How the request's own limits ended a reply: untouched, cut at a stop sequence, or cut at the token cap. */
 type Ending = { kind: "complete" } | { kind: "stop_sequence"; sequence: string } | { kind: "max_tokens" };
@@ -191,4 +214,26 @@ export function decide(store: Store, request: AIRequest): Outcome {
     timing: { ...state.config.timing },
     reply: replyOf(request, events),
   };
+}
+
+/** Decides one media request: the first matching rule of its task under budget, else generated output or the strict-mode failure. */
+export function decideMedia(store: Store, request: AIRequest, sample: RuleReplyEvent): MediaOutcome {
+  const state = getAiState(store);
+  const match = matchRule(state.config, state.budgets, request);
+  if ("rule" in match) {
+    const rule = applyVariant(match.rule, state);
+    if (rule.error) return { kind: "error", matched: match.snapshot, failure: rule.error };
+    return {
+      kind: "reply",
+      matched: match.snapshot,
+      timing: { ...state.config.timing, ...rule.timing },
+      ...(rule.reply ? { events: rule.reply } : {}),
+      ...(rule.fault ? { fault: rule.fault } : {}),
+    };
+  }
+  if (state.config.strict) {
+    const ruleIds = state.config.rules.map((rule) => rule.id);
+    return { kind: "error", matched: null, failure: strictMissFailure(request, match.exhausted, ruleIds, sample) };
+  }
+  return { kind: "reply", matched: { default: "generated" }, timing: { ...state.config.timing } };
 }
