@@ -63,14 +63,13 @@ function outputFormat(value: string): { format: AudioFormat; sampleRate: number;
 
 function decodeTts(fields: Fields, path: string, query: URLSearchParams): Decoded {
   const match = TTS_PATH.exec(path);
-  const voice = decodeURIComponent(match?.[1] ?? "");
   const text = requiredString(fields, "text");
   const model = optionalString(fields, "model_id") ?? "eleven_multilingual_v2";
   const { format, sampleRate, contentType } = outputFormat(query.get("output_format") ?? "mp3_44100_128");
   const extras: TtsExtras = { text, format, sampleRate, contentType, timestamps: match?.[3] !== undefined };
   return {
     request: mediaRequest("elevenlabs", "speech", model, [{ type: "text", text }], match?.[2] !== undefined),
-    extras: { ...extras, voice } as unknown as Record<string, unknown>,
+    extras: extras as unknown as Record<string, unknown>,
   };
 }
 
