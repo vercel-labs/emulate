@@ -11,6 +11,8 @@ import { envRoutes } from "./routes/env.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { apiKeysRoutes } from "./routes/api-keys.js";
 import { blobRoutes } from "./routes/blob/index.js";
+import { messageboardRoutes } from "./messageboard/routes.js";
+import { seedBoards, type BoardSeedConfig } from "./messageboard/seed.js";
 
 export { getVercelStore, type VercelStore } from "./store.js";
 export * from "./entities.js";
@@ -48,6 +50,7 @@ export interface VercelSeedConfig {
     name: string;
     redirect_uris: string[];
   }>;
+  boards?: BoardSeedConfig[];
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -206,6 +209,8 @@ export function seedFromConfig(store: Store, baseUrl: string, config: VercelSeed
       });
     }
   }
+
+  seedBoards(store, baseUrl, config);
 }
 
 export const vercelPlugin: ServicePlugin = {
@@ -220,6 +225,7 @@ export const vercelPlugin: ServicePlugin = {
     envRoutes(ctx);
     apiKeysRoutes(ctx);
     blobRoutes(ctx);
+    messageboardRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

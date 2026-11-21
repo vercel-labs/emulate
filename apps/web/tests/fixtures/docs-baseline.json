@@ -132,7 +132,7 @@
       "description": "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation.",
       "ogImage": "/og/vercel",
       "ogTitle": "Vercel API | emulate",
-      "headings": ["User & Teams", "Projects", "Deployments", "Domains", "Environment Variables", "Blob"]
+      "headings": ["User & Teams", "Projects", "Deployments", "Domains", "Environment Variables", "Blob", "Board"]
     },
     "/docs/github": {
       "title": "GitHub API | emulate",

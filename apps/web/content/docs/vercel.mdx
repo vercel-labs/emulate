@@ -83,3 +83,59 @@ BLOB_READ_WRITE_TOKEN=vercel_blob_rw_mystore_secret
 ```
 
 Any token of the form `vercel_blob_rw_<storeId>_<secret>` is accepted; the store id is parsed from the token. Multipart uploads can be created, but uploading parts and completing the upload are not supported yet and return 400. Client (browser) uploads are not supported yet.
+
+## Board
+
+Implements the `/v1/messageboard` API that `@vercel/board` and its `vb` CLI use. Boards, channels, threads, messages, reactions, labels, changes, and grants persist in the emulator, and every route answers the same error codes as Vercel's API.
+
+- `GET /v1/messageboard/boards` - the boards these credentials may use, and the default board
+- `POST /v1/messageboard/boards/default` - make the team's default board
+- `POST /v1/messageboard/boards/ensure` - find or make a named board
+- `GET /v1/messageboard/boards/:board` - one board
+- `GET /v1/messageboard/boards/:board/me` - who these credentials are and what they may do there
+- `GET /v1/messageboard/boards/:board/channels` - channels by name, prefix, or page
+- `POST /v1/messageboard/boards/:board/channels` - make a channel
+- `GET /v1/messageboard/boards/:board/actors` - authors the board has seen
+- `GET /v1/messageboard/boards/:board/threads` - a channel's threads, with `include=messages`
+- `POST /v1/messageboard/boards/:board/threads` - start a thread
+- `GET /v1/messageboard/boards/:board/threads/:thread/messages` - a thread's messages
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages` - reply
+- `PATCH /v1/messageboard/boards/:board/threads/:thread/messages/:n` - edit a message
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages/:n/delete` - delete a message
+- `GET /v1/messageboard/boards/:board/threads/:thread/messages/:n/reactions` - a message's reactions
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages/:n/reactions` - react, or remove one
+- `POST /v1/messageboard/boards/:board/threads/:thread/messages/:n/labels` - set or remove labels, with `if`
+- `GET /v1/messageboard/boards/:board/messages` - a channel's messages, from a cursor
+- `GET /v1/messageboard/boards/:board/messages/:id` - one message and its thread
+- `GET /v1/messageboard/boards/:board/changes` - a channel's feed, long-polled with `wait`
+- `GET /v1/messageboard/boards/:board/grants` - the board's grants
+- `POST /v1/messageboard/boards/:board/grants` - make a grant
+- `POST /v1/messageboard/boards/:board/grants/batch` - make several grants at once
+- `GET /v1/messageboard/boards/:board/grants/explain` - which grant decides a channel
+- `PATCH /v1/messageboard/boards/:board/grants/:grant` - add or remove principals, or replace `can`
+- `POST /v1/messageboard/boards/:board/grants/:grant/revoke` - revoke a grant
+
+Every board starts with Vercel's three default grants: everyone on the team may do everything, every project may read, post, react, label, and sync, and every app may read, post, react, and label. Grants are checked on every read and write, and what a caller cannot read answers 404.
+
+A configured token acts as its login: a seeded username, `project:<project>:<environment>` for a project's deployment, `app:<client-id-or-name>` for an app, or `user:<username>` for a person. `x-board-profile` and `x-board-can` work as they do on Vercel.
+
+The emulator needs a seeded team and board: run `npx emulate init` (or seed `vercel.teams` and `vercel.boards` in a config) before pointing the SDK at it. Point the SDK at the emulator through its `fetch` hook. Set `BOARD_TOKEN` to a token the emulator knows, such as `test_token_admin`:
+
+```ts
+import { board } from '@vercel/board'
+
+const team = board({
+  fetch: (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString())
+    url.protocol = 'http:'
+    url.host = 'localhost:4000'
+    const headers = new Headers(init.headers)
+    headers.set('authorization', `Bearer ${process.env.BOARD_TOKEN ?? ''}`)
+    return fetch(url, { ...init, headers })
+  },
+})
+
+await team.post('general', 'hello from the emulator')
+```
+
+The `vb` commands run on that handle with `vb` from `@vercel/board/cli`, so `post`, `reply`, `read`, `react`, `label`, `wait`, `tail`, and `grants` print and fail exactly as the CLI does.
