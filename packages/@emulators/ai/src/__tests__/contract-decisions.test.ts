@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { zstdCompressSync } from "node:zlib";
 import OpenAI from "openai";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -151,6 +152,62 @@ describe("decision contract", () => {
     expect(calls).toContain("https://bucket.example/p.png");
     expect(calls).toContain('{\\"order\\":7}');
     for (const secret of ["SECRET1", "SECRET2", "SECRET3", "pass@", audio]) expect(calls).not.toContain(secret);
+  });
+
+  it("records Gemini media parts, instruction images, and true inline sizes", async () => {
+    await post("/v1beta/decisions", {
+      model: "gemini-decision-1",
+      input: [
+        { type: "document", data: Buffer.from("%PDF-1.7").toString("base64"), mime_type: "application/pdf" },
+        { type: "video", uri: "https://bucket.example/v.mp4?sig=SECRET4" },
+      ],
+      questions: { a: { type: "noul", instructions: "Is it?" } },
+    });
+    await post("/v1/decisions", {
+      model: "gpt-6-luna",
+      input: [{ role: "user", content: [{ type: "input_audio", input_audio: { data: "QUJDRA==", format: "wav" } }] }],
+      questions: [
+        {
+          type: "predicate",
+          instructions: [
+            { type: "input_text", text: "Is it?" },
+            { type: "input_image", image_url: "https://bucket.example/q.png?sig=SECRET5" },
+          ],
+        },
+      ],
+    });
+    const calls = (await (await fetch(`${origin}/_ai/calls`)).json()) as Array<{
+      messages: Array<{ parts: Array<Record<string, unknown>> }>;
+    }>;
+    const [gemini, openaiCall] = calls
+      .slice(-2)
+      .map((call) => call.messages[0].parts.filter((part) => part.type === "file"));
+    expect(gemini).toEqual([
+      expect.objectContaining({ mediaType: "application/pdf", source: "inline", bytes: 8 }),
+      expect.objectContaining({ mediaType: "video/*", source: "url", ref: "https://bucket.example/v.mp4" }),
+    ]);
+    expect(openaiCall).toEqual([
+      expect.objectContaining({
+        mediaType: "audio/wav",
+        bytes: 4,
+        sha256: createHash("sha256").update("ABCD").digest("hex"),
+      }),
+      expect.objectContaining({ source: "url", ref: "https://bucket.example/q.png" }),
+    ]);
+    expect(JSON.stringify(calls)).not.toMatch(/SECRET4|SECRET5|JVBERi0xLjc/);
+  });
+
+  it("reads zstd-compressed multipart TypeSafe requests", async () => {
+    const form = new FormData();
+    form.set("request", JSON.stringify({ model: "jev-latest", state: "x", questions: { a: { type: "noul" } } }));
+    form.set("dog", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "dog.png");
+    const encoded = new Response(form);
+    const response = await fetch(`${origin}/v1/systemone`, {
+      method: "POST",
+      headers: { "content-type": encoded.headers.get("content-type") ?? "", "content-encoding": "zstd" },
+      body: zstdCompressSync(Buffer.from(await encoded.arrayBuffer())),
+    });
+    expect(response.status).toBe(200);
   });
 
   it("rejects mistyped scripted answers", async () => {

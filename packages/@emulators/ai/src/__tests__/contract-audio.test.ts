@@ -158,6 +158,16 @@ describe("audio contract", () => {
     expect(response.status).toBe(422);
   });
 
+  it("speaks for any voice id, including one with a malformed escape", async () => {
+    const response = await fetch(`${origin}/v1/text-to-speech/%E0%A4%A`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "x" }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("audio/mpeg");
+  });
+
   it("records ElevenLabs source URLs without credentials or query", async () => {
     const form = new FormData();
     form.set("model_id", "scribe_v2");
