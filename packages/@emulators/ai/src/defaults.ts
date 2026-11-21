@@ -40,6 +40,7 @@ const keywords = new Set([
   "minItems",
   "maxItems",
   "nullable",
+  "propertyOrdering",
   "anyOf",
   "oneOf",
   "format",

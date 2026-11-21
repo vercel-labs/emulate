@@ -145,14 +145,16 @@ function decodeTools(raw: unknown): ToolDefinition[] {
 function decodeToolChoice(raw: unknown, tools: ToolDefinition[]): ToolChoice {
   if (!isRecord(raw) || !isRecord(raw.functionCallingConfig)) return "auto";
   const config = raw.functionCallingConfig;
-  const mode = String(config.mode ?? "AUTO").toUpperCase();
-  if (mode === "NONE") return "none";
-  if (mode === "ANY" || mode === "VALIDATED") {
-    const allowed = Array.isArray(config.allowedFunctionNames) ? config.allowedFunctionNames : [];
-    if (allowed.length === 1 && typeof allowed[0] === "string") return { name: allowed[0] };
-    return tools.length > 0 ? "required" : "auto";
+  const allowed = Array.isArray(config.allowedFunctionNames) ? config.allowedFunctionNames : [];
+  switch (String(config.mode ?? "AUTO").toUpperCase()) {
+    case "NONE":
+      return "none";
+    case "ANY":
+      if (typeof allowed[0] === "string") return { name: allowed[0] };
+      return tools.length > 0 ? "required" : "auto";
+    default:
+      return "auto";
   }
-  return "auto";
 }
 
 function decodeOutput(config: Record<string, unknown>): OutputSpec | undefined {
