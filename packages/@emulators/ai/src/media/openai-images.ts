@@ -18,7 +18,7 @@ import {
   uploadedPart,
   type Fields,
 } from "./fields.js";
-import { colorFor, IMAGE_MEDIA_TYPES, renderImage, sniffImageType, type ImageFormat } from "./pixels.js";
+import { colorFor, IMAGE_MEDIA_TYPES, imageSize, renderImage, sniffImageType, type ImageFormat } from "./pixels.js";
 import type { MediaRoute, MediaResult } from "./route.js";
 
 type ImageEvent = Extract<MediaReplyEvent, { type: "image" }>;
@@ -166,6 +166,8 @@ function decodeImages(operation: "generation" | "edit", fields: Fields): Decoded
 interface RenderedImage {
   bytes: Uint8Array;
   format: string;
+  width: number;
+  height: number;
   revisedPrompt?: string;
 }
 
@@ -176,9 +178,11 @@ function imageAt(events: ImageEvent[] | undefined, index: number, extras: ImageR
     const bytes = base64Bytes(event.data);
     const sniffed = sniffImageType(bytes);
     const format = (Object.keys(IMAGE_MEDIA_TYPES) as ImageFormat[]).find((key) => IMAGE_MEDIA_TYPES[key] === sniffed);
+    const size = imageSize(bytes) ?? { width: extras.width, height: extras.height };
     return {
       bytes,
       format: format ?? extras.outputFormat,
+      ...size,
       ...(event.revisedPrompt ? { revisedPrompt: event.revisedPrompt } : {}),
     };
   }
@@ -187,17 +191,17 @@ function imageAt(events: ImageEvent[] | undefined, index: number, extras: ImageR
   return {
     bytes: renderImage(extras.outputFormat, extras.width, extras.height, color),
     format: extras.outputFormat,
+    width: extras.width,
+    height: extras.height,
     ...(event?.revisedPrompt ? { revisedPrompt: event.revisedPrompt } : {}),
   };
 }
 
-function usageOf(extras: ImageRequestExtras, images: number, inputImages: number) {
-  const perImage = Math.ceil(
-    ((extras.width * extras.height) / (1024 * 1024)) * (QUALITY_TOKENS[extras.quality] ?? QUALITY_TOKENS.high),
-  );
+function usageOf(extras: ImageRequestExtras, images: RenderedImage[], inputImages: number) {
+  const perPixel = (QUALITY_TOKENS[extras.quality] ?? QUALITY_TOKENS.high) / (1024 * 1024);
   const textTokensIn = textTokens(extras.prompt);
   const imageTokensIn = inputImages * QUALITY_TOKENS.low;
-  const output = perImage * images;
+  const output = images.reduce((sum, image) => sum + Math.ceil(image.width * image.height * perPixel), 0);
   return {
     input_tokens: textTokensIn + imageTokensIn,
     input_tokens_details: { image_tokens: imageTokensIn, text_tokens: textTokensIn },
@@ -212,12 +216,12 @@ function renderImages(events: RuleReplyEvent[] | undefined, decoded: Decoded): M
   const imageEvents = events?.filter((event): event is ImageEvent => event.type === "image");
   const images = Array.from({ length: extras.n }, (_, index) => imageAt(imageEvents, index, extras));
   const inputImages = decoded.request.messages[0].parts.filter((part) => part.type === "file").length;
-  const usage = usageOf(extras, images.length, inputImages);
+  const usage = usageOf(extras, images, inputImages);
   const meta = {
     background: extras.background,
     output_format: images[0]?.format ?? extras.outputFormat,
     quality: extras.quality,
-    size: extras.size,
+    size: images[0] ? sizeOf(images[0]) : extras.size,
   };
 
   if (extras.stream) {
@@ -236,6 +240,7 @@ function renderImages(events: RuleReplyEvent[] | undefined, decoded: Decoded): M
             partial_image_index: partial,
             ...meta,
             output_format: image.format,
+            size: sizeOf(image),
           },
           content: b64,
         });
@@ -249,17 +254,18 @@ function renderImages(events: RuleReplyEvent[] | undefined, decoded: Decoded): M
           created_at: CREATED_AT,
           ...meta,
           output_format: image.format,
-          usage: index === images.length - 1 ? usage : usageOf(extras, 1, 0),
+          size: sizeOf(image),
+          usage: index === images.length - 1 ? usage : usageOf(extras, [image], 0),
         },
         content: b64,
       });
     });
-    return { kind: "sse", frames, summary: summaryOf(images, extras) };
+    return { kind: "sse", frames, summary: summaryOf(images) };
   }
 
   return {
     kind: "json",
-    summary: summaryOf(images, extras),
+    summary: summaryOf(images),
     value: {
       created: CREATED_AT,
       ...meta,
@@ -276,8 +282,14 @@ function renderImages(events: RuleReplyEvent[] | undefined, decoded: Decoded): M
   };
 }
 
-function summaryOf(images: RenderedImage[], extras: ImageRequestExtras): string {
-  return `${images.length} ${images.length === 1 ? "image" : "images"} (${[...new Set(images.map((image) => image.format))].join(", ")}, ${extras.size})`;
+function sizeOf(image: RenderedImage): string {
+  return `${image.width}x${image.height}`;
+}
+
+function summaryOf(images: RenderedImage[]): string {
+  const formats = [...new Set(images.map((image) => image.format))].join(", ");
+  const sizes = [...new Set(images.map(sizeOf))].join(", ");
+  return `${images.length} ${images.length === 1 ? "image" : "images"} (${formats}, ${sizes})`;
 }
 
 function imagesRoute(suffix: string, operation: "generation" | "edit"): MediaRoute {
