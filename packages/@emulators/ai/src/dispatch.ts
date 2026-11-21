@@ -195,7 +195,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
     const mediaRoute = accepted || (codec ? undefined : candidates[0]);
     if (mediaRoute) {
       try {
-        return await handleMedia(c, store, state, scope, mediaRoute, path, url, body);
+        return await handleMedia(c, store, state, scope, mediaRoute, path, url, origin, body);
       } catch (error) {
         const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
         return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
@@ -205,7 +205,15 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
 
   if (codec) {
     try {
-      return await handleMedia(c, store, state, scope, mediaRoute, path, url, origin, body);
+      return await handleGeneration(
+        c,
+        store,
+        state,
+        scope ?? beginRequest(state, c.req.raw.signal),
+        codec,
+        path,
+        preread,
+      );
     } catch (error) {
       return unrecordedError(store, codec, error);
     }
