@@ -110,7 +110,7 @@ describe("video contract", () => {
 
   it("records Veo media URIs without credentials or query", async () => {
     await post("/v1beta/models/veo-3:predictLongRunning", {
-      instances: [{ prompt: "x", image: { gcsUri: "gs://bucket/in.png?token=secret", mimeType: "image/png" } }],
+      instances: [{ image: { gcsUri: "gs://bucket/in.png?token=secret", mimeType: "image/png" } }],
     });
     const calls = await (await fetch(`${origin}/_ai/calls`)).text();
     expect(calls).toContain("gs://bucket/in.png");

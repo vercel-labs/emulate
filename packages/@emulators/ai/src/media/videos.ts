@@ -178,7 +178,11 @@ function openaiDerived(kind: "remix" | "edit" | "extend", fields: Fields, ctx: C
   return openaiDecoded(
     optionalString(fields, "model") ?? base.model,
     prompt,
-    upload ? [uploadedPart(upload, upload.type || "video/mp4")] : [],
+    source
+      ? [{ type: "file", mediaType: "video/mp4", source: "file_id", ref: source.id }]
+      : upload
+        ? [uploadedPart(upload, upload.type || "video/mp4")]
+        : [],
     { seconds: base.seconds + added, width: base.width, height: base.height },
     source?.id,
   );
@@ -288,8 +292,9 @@ function veoDecode(provider: "gemini" | "vertex", model: string, fields: Fields)
     fail("instances: expected a non-empty list.", "instances");
   }
   const instance = instances[0];
-  if (typeof instance.prompt !== "string" || instance.prompt === "")
-    fail("instances[0].prompt is required.", "instances[0].prompt");
+  const prompt = instance.prompt ?? "";
+  if (typeof prompt !== "string" || (prompt === "" && !isRecord(instance.image) && !isRecord(instance.video)))
+    fail("instances[0].prompt is required unless an image or video is provided.", "instances[0].prompt");
   const parameters = isRecord(fields.values.parameters) ? fields.values.parameters : {};
   const count = parameters.sampleCount ?? parameters.numberOfVideos ?? 1;
   if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > 4) {
@@ -318,7 +323,7 @@ function veoDecode(provider: "gemini" | "vertex", model: string, fields: Fields)
     job: {
       provider,
       model,
-      prompt: instance.prompt,
+      prompt,
       samples: count,
       seconds: duration,
       ...aspectSize(ratio, resolution),
@@ -332,7 +337,7 @@ function veoDecode(provider: "gemini" | "vertex", model: string, fields: Fields)
       provider === "gemini" ? "gemini-veo" : "vertex-veo",
       "video",
       model,
-      [{ type: "text", text: instance.prompt }, ...files],
+      [{ type: "text", text: prompt }, ...files],
       false,
     ),
     extras: extras as unknown as Record<string, unknown>,

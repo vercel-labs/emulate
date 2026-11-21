@@ -68,9 +68,9 @@ function parseSize(value: string): { width: number; height: number } {
   return { width, height };
 }
 
-/** Sizes an xAI-style aspect ratio with its long side at 1024 pixels, or 2048 for the `2k` resolution. */
+/** Sizes an xAI-style aspect ratio, rendering `auto` as square, with its long side at 1024 pixels, or 2048 for the `2k` resolution. */
 function aspectSize(ratio: string, resolution: string | undefined): { width: number; height: number } {
-  const match = /^(\d+):(\d+)$/.exec(ratio);
+  const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(ratio === "auto" ? "1:1" : ratio);
   if (!match || Number(match[1]) === 0 || Number(match[2]) === 0)
     fail(`Invalid aspect_ratio '${ratio}'.`, "aspect_ratio");
   const long = resolution === "2k" ? 2048 : 1024;
@@ -81,31 +81,32 @@ function aspectSize(ratio: string, resolution: string | undefined): { width: num
   return { width: round(w), height: round(h) };
 }
 
-/** The attachments an edit request names: multipart uploads, OpenAI `images` references, or xAI `image`/`images` objects. */
+/** Reads one JSON image reference: an OpenAI `{ file_id }` or `{ image_url }` object, or an xAI `{ url }` object. */
+function imageReference(entry: unknown, param: string): FilePart {
+  if (!isRecord(entry)) fail(`Invalid type for '${param}': expected an object.`, param, "invalid_type");
+  if (typeof entry.file_id === "string" && entry.file_id !== "") {
+    return { type: "file", mediaType: "image/*", source: "file_id", ref: entry.file_id };
+  }
+  const url = entry.image_url ?? entry.url;
+  return imageAttachment(url, `${param}.${entry.image_url === undefined ? "url" : "image_url"}`);
+}
+
+/** The attachments an edit request names: multipart uploads, OpenAI `images` references, or xAI `image`/`images` objects, then the mask. */
 function editInputs(fields: Fields): FilePart[] {
   const uploads = [...(fields.files.get("image") ?? [])].map((file) =>
     uploadedPart(file, file.type || sniffImageType(file.bytes)),
   );
-  const references: FilePart[] = [];
   const raw = fields.values.images ?? (fields.values.image === undefined ? undefined : [fields.values.image]);
-  if (raw !== undefined) {
-    if (!Array.isArray(raw)) fail("Invalid type for 'images': expected an array.", "images", "invalid_type");
-    raw.forEach((entry, index) => {
-      const param = `images[${index}]`;
-      if (!isRecord(entry)) fail(`Invalid type for '${param}': expected an object.`, param, "invalid_type");
-      if (typeof entry.file_id === "string" && entry.file_id !== "") {
-        references.push({ type: "file", mediaType: "image/*", source: "file_id", ref: entry.file_id });
-        return;
-      }
-      const url = entry.image_url ?? entry.url;
-      references.push(imageAttachment(url, `${param}.${entry.image_url === undefined ? "url" : "image_url"}`));
-    });
-  }
+  if (raw !== undefined && !Array.isArray(raw))
+    fail("Invalid type for 'images': expected an array.", "images", "invalid_type");
+  const references = (raw ?? []).map((entry, index) => imageReference(entry, `images[${index}]`));
   const inputs = [...uploads, ...references];
   if (inputs.length === 0) fail("Missing required parameter: 'image'.", "image", "missing_required_parameter");
   if (inputs.length > 16) fail("Invalid 'image': at most 16 images may be provided.", "image");
   const mask = fields.files.get("mask")?.[0];
   if (mask) inputs.push({ ...uploadedPart(mask, mask.type || sniffImageType(mask.bytes)), name: mask.name || "mask" });
+  else if (fields.values.mask !== undefined)
+    inputs.push({ ...imageReference(fields.values.mask, "mask"), name: "mask" });
   return inputs;
 }
 
@@ -124,13 +125,10 @@ function decodeImages(operation: "generation" | "edit", fields: Fields): Decoded
     fail(`Transparent backgrounds require output_format 'png', 'webp', or 'gif', not '${outputFormat}'.`, "background");
   }
   const requestedSize = optionalString(fields, "size") ?? "auto";
-  const aspectRatio = optionalString(fields, "aspect_ratio");
   const { width, height } =
     requestedSize !== "auto"
       ? parseSize(requestedSize)
-      : aspectRatio !== undefined
-        ? aspectSize(aspectRatio, optionalString(fields, "resolution"))
-        : { width: 1024, height: 1024 };
+      : aspectSize(optionalString(fields, "aspect_ratio") ?? "auto", optionalString(fields, "resolution"));
 
   const files = operation === "edit" ? editInputs(fields) : [];
   const parts: InputPart[] = [{ type: "text", text: prompt }, ...files];
