@@ -11,6 +11,7 @@ import {
   tool,
   transcribe,
 } from "ai";
+import { createGateway as createGatewayV6, generateText as generateTextV6 } from "ai-v6";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { imageSize, sniffImageType } from "../media/pixels.js";
@@ -117,6 +118,64 @@ describe("AI Gateway contract", () => {
     expect(loop.steps.map((step) => step.finishReason)).toEqual(["tool-calls", "stop"]);
   });
 
+  it("reads AI SDK 6 file URLs and files inside tool results", async () => {
+    const gatewayV6 = createGatewayV6({ baseURL: `${origin}/v4/ai`, apiKey: "test" });
+    await generateTextV6({
+      model: gatewayV6("openai/gpt-5.5"),
+      maxRetries: 0,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "describe" },
+            { type: "file", data: new URL("https://example.com/a.pdf?sig=secret"), mediaType: "application/pdf" },
+          ],
+        },
+      ],
+    });
+    const calls = (await (await fetch(`${origin}/_ai/calls`)).json()) as Array<{
+      messages: Array<{ parts: Array<{ type: string; ref?: string }> }>;
+    }>;
+    expect(calls[calls.length - 1].messages[0].parts[1]).toMatchObject({
+      type: "file",
+      ref: "https://example.com/a.pdf",
+    });
+
+    await putRules([
+      {
+        id: "shoot",
+        match: { format: "gateway", hasToolResult: false },
+        reply: [{ type: "tool_call", name: "screenshot", arguments: {} }],
+      },
+      {
+        id: "seen",
+        match: { format: "gateway", hasToolResult: true, file: "image/*" },
+        reply: [{ type: "text", text: "Saw the screenshot." }],
+      },
+    ]);
+    const png = Buffer.from("iVBORw0KGgo=", "base64").toString("base64");
+    const result = await generateText({
+      model: gateway("openai/gpt-5.5"),
+      prompt: "Take a screenshot",
+      tools: {
+        screenshot: tool({
+          inputSchema: z.object({}),
+          execute: async () => "ok",
+          toModelOutput: () => ({
+            type: "content",
+            value: [
+              { type: "text", text: "screenshot" },
+              { type: "file-data", data: png, mediaType: "image/png" },
+            ],
+          }),
+        }),
+      },
+      stopWhen: stepCountIs(2),
+      maxRetries: 0,
+    });
+    expect(result.text).toBe("Saw the screenshot.");
+  });
+
   it("returns errors in the gateway envelope the client maps to typed errors", async () => {
     await putRules([{ id: "limited", match: { format: "gateway" }, error: { status: 429, message: "Slow down" } }]);
     await expect(generateText({ model: gateway("openai/gpt-5.5"), prompt: "x", maxRetries: 0 })).rejects.toMatchObject({
@@ -130,6 +189,30 @@ describe("AI Gateway contract", () => {
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { type: "invalid_request_error", param: "prompt" } });
+  });
+
+  it("answers chat image requests and accepts generated images in later turns", async () => {
+    const chat = (messages: unknown[]) =>
+      fetch(`${origin}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-3.1-flash-image-preview",
+          modalities: ["text", "image"],
+          messages,
+        }),
+      });
+    const first = (await (await chat([{ role: "user", content: "Draw a cat" }])).json()) as {
+      choices: Array<{ message: { content: string | null; images: Array<{ image_url: { url: string } }> } }>;
+    };
+    const message = first.choices[0].message;
+    expect(message.images[0].image_url.url).toMatch(/^data:image\/png;base64,/);
+    const second = await chat([
+      { role: "user", content: "Draw a cat" },
+      { role: "assistant", content: message.content, images: message.images },
+      { role: "user", content: "Make it blue" },
+    ]);
+    expect(second.status).toBe(200);
   });
 
   it("generates images, speech, and transcripts", async () => {

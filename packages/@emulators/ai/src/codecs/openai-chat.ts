@@ -150,6 +150,14 @@ function assistantParts(message: Record<string, unknown>, path: string): InputPa
   if (message.refusal !== undefined && message.refusal !== null) {
     parts.push({ type: "text", text: expectString(message.refusal, `${path}.refusal`) });
   }
+  if (message.images !== undefined && message.images !== null) {
+    if (!Array.isArray(message.images)) fail("Expected an array of images.", `${path}.images`);
+    message.images.forEach((image, index) => {
+      const file = decodeChatAttachment(image, `${path}.images[${index}]`);
+      if (!file) fail("Expected an image_url part.", `${path}.images[${index}]`);
+      parts.push(file);
+    });
+  }
   if (message.function_call !== undefined && message.function_call !== null) {
     unsupported(`${path}.function_call`, "legacy function_call");
   }
@@ -177,7 +185,7 @@ function assistantParts(message: Record<string, unknown>, path: string): InputPa
     });
   }
   if (parts.length === 0 && message.tool_calls === undefined && audio === undefined) {
-    fail("Assistant messages require content, audio, or tool_calls.", path);
+    fail("Assistant messages require content, images, audio, or tool_calls.", path);
   }
   return parts;
 }

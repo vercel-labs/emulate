@@ -92,6 +92,11 @@ export function gatewayMetadata(model: string, generationId: string): Record<str
 
 /** Reads one AI SDK file part's data into attachment metadata; URLs are kept without their query or credentials. */
 export function gatewayFile(data: unknown, mediaType: string, path: string, name?: string): FilePart {
+  if (typeof data === "string" && data.includes(":")) {
+    const inline = /^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s.exec(data);
+    if (inline) return inlineFilePart(inline[2], inline[1] || mediaType, path, MAX_FILE_BYTES, name);
+    return gatewayFile({ type: "url", url: data }, mediaType, path, name);
+  }
   if (typeof data === "string") return inlineFilePart(data, mediaType, path, MAX_FILE_BYTES, name);
   if (!isRecord(data)) fail("Expected file data.", path);
   switch (data.type) {
@@ -120,6 +125,32 @@ function filePart(part: Record<string, unknown>, path: string): FilePart {
   const mediaType = expectString(part.mediaType, `${path}.mediaType`, true);
   const name = part.filename === undefined ? undefined : expectString(part.filename, `${path}.filename`);
   return gatewayFile(part.data, mediaType, `${path}.data`, name);
+}
+
+/** Reads a file item of a `content` tool result: the AI SDK 7 `file` shape or the AI SDK 6 data and URL shapes. */
+function toolResultFile(item: Record<string, unknown>, path: string): FilePart | undefined {
+  const mediaType = typeof item.mediaType === "string" ? item.mediaType : "application/octet-stream";
+  switch (item.type) {
+    case "file":
+    case "file-data":
+    case "image-data":
+    case "media":
+      return gatewayFile(item.data, mediaType, `${path}.data`);
+    case "file-url":
+    case "image-url":
+      return gatewayFile({ type: "url", url: item.url }, mediaType, `${path}.url`);
+    default:
+      return undefined;
+  }
+}
+
+/** The files a `content` tool result carries, recorded beside the result like the other wire formats do. */
+function toolResultFiles(output: unknown, path: string): FilePart[] {
+  if (!isRecord(output) || output.type !== "content" || !Array.isArray(output.value)) return [];
+  return output.value.flatMap((item, index) => {
+    const file = isRecord(item) ? toolResultFile(item, `${path}.value[${index}]`) : undefined;
+    return file ? [file] : [];
+  });
 }
 
 function toolOutput(output: unknown, path: string): { output: string; isError?: boolean } {
@@ -175,6 +206,7 @@ function contentPart(part: unknown, role: Message["role"], path: string): InputP
     case "tool-result":
       if (role !== "assistant" && role !== "tool") break;
       return [
+        ...toolResultFiles(part.output, `${path}.output`),
         {
           type: "tool_result",
           id: expectString(part.toolCallId, `${path}.toolCallId`, true),
