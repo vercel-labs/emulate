@@ -71,13 +71,13 @@ function parseSize(value: string): { width: number; height: number } {
 /** Sizes an xAI-style aspect ratio, rendering `auto` as square, with its long side at 1024 pixels, or 2048 for the `2k` resolution. */
 function aspectSize(ratio: string, resolution: string | undefined): { width: number; height: number } {
   const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(ratio === "auto" ? "1:1" : ratio);
-  if (!match || Number(match[1]) === 0 || Number(match[2]) === 0)
+  const w = Number(match?.[1]);
+  const h = Number(match?.[2]);
+  if (!(w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h)))
     fail(`Invalid aspect_ratio '${ratio}'.`, "aspect_ratio");
   const long = resolution === "2k" ? 2048 : 1024;
-  const w = Number(match[1]);
-  const h = Number(match[2]);
-  const scale = long / Math.max(w, h);
-  const round = (side: number) => Math.max(16, Math.round((side * scale) / 16) * 16);
+  const top = Math.max(w, h);
+  const round = (side: number) => Math.max(16, Math.round((long * (side / top)) / 16) * 16);
   return { width: round(w), height: round(h) };
 }
 

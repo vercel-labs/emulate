@@ -124,6 +124,20 @@ describe("images contract", () => {
       param: "size",
     });
   });
+  it("sizes extreme xAI aspect ratios within bounds", async () => {
+    const tiny = `0.${"0".repeat(315)}1`;
+    const result = await openai.images.generate({
+      model: "grok-imagine-image",
+      prompt: "x",
+      output_format: "jpeg",
+      aspect_ratio: `${tiny}:${tiny}`,
+    } as never);
+    expect(imageSize(bytesOf(result.data?.[0].b64_json))).toEqual({ width: 1024, height: 1024 });
+    const huge = "9".repeat(400);
+    await expect(
+      openai.images.generate({ model: "grok-imagine-image", prompt: "x", aspect_ratio: `${huge}:1` } as never),
+    ).rejects.toMatchObject({ status: 400, param: "aspect_ratio" });
+  });
   it("keeps multipart field names away from Object.prototype", async () => {
     const form = new FormData();
     form.set("__proto__[stream]", "bogus");
