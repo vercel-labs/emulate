@@ -72,6 +72,23 @@ describe("audio contract", () => {
     expect(result.segments?.[0]).toMatchObject({ start: 0, end: 10 });
   });
 
+  it("offers diarized_json only on the diarize model", async () => {
+    const wav = await speech({ response_format: "wav" });
+    await expect(
+      openai.audio.transcriptions.create({
+        model: "whisper-1",
+        file: await toFile(wav, "call.wav", { type: "audio/wav" }),
+        response_format: "diarized_json",
+      } as never),
+    ).rejects.toMatchObject({ status: 400, param: "response_format" });
+    const diarized = await openai.audio.transcriptions.create({
+      model: "gpt-4o-transcribe-diarize",
+      file: await toFile(wav, "call.wav", { type: "audio/wav" }),
+      response_format: "diarized_json",
+    } as never);
+    expect(diarized).toMatchObject({ text: expect.any(String) });
+  });
+
   it("answers transcription and speech requests only from rules of their task", async () => {
     const wav = await speech({ response_format: "wav" });
     const response = await putRules({
