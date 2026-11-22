@@ -1,5 +1,5 @@
 import type { CodecContext, Decoded } from "../codec.js";
-import { decodeGemini, geminiResponse, protoJson, type GeminiExtras } from "../codecs/gemini.js";
+import { decodeGemini, geminiResponse, type GeminiExtras } from "../codecs/gemini.js";
 import type { Json, RuleReplyEvent } from "../types.js";
 import { base64Bytes, fail, isRecord, textTokens, toBase64 } from "./fields.js";
 import { colorFor, renderImage, sniffImageType } from "./pixels.js";
@@ -18,11 +18,14 @@ const AUDIO_FORMATS: Record<string, AudioFormat> = {
   "audio/mulaw": "ulaw",
 };
 
+/** Reads the requested modalities with a shallow look at either field spelling, so route selection cannot throw. */
 function modalities(body: MediaBody): string[] {
-  const value = body.kind === "json" ? protoJson(body.value) : undefined;
-  if (!isRecord(value) || !isRecord(value.generationConfig)) return [];
-  const raw = value.generationConfig.responseModalities;
-  return Array.isArray(raw) ? raw.map((value) => String(value).toUpperCase()) : [];
+  if (body.kind !== "json" || !isRecord(body.value)) return [];
+  const config = body.value.generationConfig ?? body.value.generation_config;
+  if (!isRecord(config)) return [];
+  const raw = config.responseModalities ?? config.response_modalities;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is string => typeof value === "string").map((value) => value.toUpperCase());
 }
 
 /** Sizes an aspect ratio with its long side at the requested image size. */

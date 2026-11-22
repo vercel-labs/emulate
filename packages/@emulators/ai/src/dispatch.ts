@@ -197,7 +197,13 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
           () => undefined,
         )
       : undefined;
-    const accepted = settled && candidates.find((route) => !route.accepts || route.accepts(settled));
+    let accepted: MediaRoute | undefined;
+    try {
+      accepted = settled && candidates.find((route) => !route.accepts || route.accepts(settled));
+    } catch (error) {
+      scope.dispose();
+      throw error;
+    }
     const mediaRoute = accepted || (codec ? undefined : candidates[0]);
     if (mediaRoute) {
       try {

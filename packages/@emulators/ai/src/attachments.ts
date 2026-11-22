@@ -73,14 +73,20 @@ export function redactedUrl(value: unknown, path: string): string {
   return stripUrl(url);
 }
 
-/** Strips credentials, query, and hash from a URL reference of any scheme, such as `https:` or `gs:`. */
+/**
+ * Strips credentials, query, and hash from a URL reference of any scheme, such as `https:` or `gs:`. A `data:` URL
+ * carries the file itself rather than a reference to it, so it is rejected instead of being recorded.
+ */
 export function redactedReference(value: unknown, path: string): string {
   if (typeof value !== "string") fail("Expected a URL.", path);
+  let url: URL;
   try {
-    return stripUrl(new URL(value));
+    url = new URL(value);
   } catch {
     return fail("Expected a URL.", path);
   }
+  if (url.protocol === "data:") fail("Expected a URL reference, not inline data.", path);
+  return stripUrl(url);
 }
 
 function decodeBase64(value: string, path: string, maxBytes: number): Buffer {
