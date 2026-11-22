@@ -161,6 +161,13 @@ function textOf(parts: InputPart[]): string {
   return parts.map((part) => (part.type === "text" ? part.text : "")).join("\n");
 }
 
+/** Whether a question carries instructions: non-empty text, a content block, or a non-empty list of blocks. */
+function hasInstructions(value: unknown): boolean {
+  if (typeof value === "string") return value !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return isRecord(value);
+}
+
 function instructionsText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
@@ -269,12 +276,12 @@ function decodeMap(family: Family, body: Record<string, unknown>): { questions: 
     if (!isRecord(item)) fail(`${at}: expected an object.`, at);
     const kind = MAP_TYPES[family][String(item.type)];
     if (!kind) fail(`${at}.type: expected one of ${Object.keys(MAP_TYPES[family]).join(", ")}.`, `${at}.type`);
-    if (family === "gemini" && (typeof item.instructions !== "string" || item.instructions === ""))
+    if (family === "gemini" && !hasInstructions(item.instructions))
       fail(`${at}.instructions: Field required.`, `${at}.instructions`);
     if (kind === "locate" && (typeof item.instructions !== "string" || item.instructions === "")) {
       fail(`${at}.instructions: Field required.`, `${at}.instructions`);
     }
-    if (kind === "box" && family === "openrouter" && (item.instructions ?? "") === "") {
+    if (kind === "box" && family === "openrouter" && !hasInstructions(item.instructions)) {
       fail(`${at}.instructions: Field required.`, `${at}.instructions`);
     }
     if (kind === "locate" && typeof body.state !== "string")

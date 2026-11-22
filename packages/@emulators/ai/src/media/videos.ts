@@ -189,7 +189,7 @@ function openaiDerived(kind: "remix" | "edit" | "extend", fields: Fields, ctx: C
         ? [uploadedPart(upload, upload.type || "video/mp4")]
         : [],
     { seconds: base.seconds + added, width: base.width, height: base.height },
-    source?.id,
+    kind === "remix" ? source?.id : undefined,
   );
 }
 

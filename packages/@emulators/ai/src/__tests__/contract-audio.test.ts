@@ -87,6 +87,34 @@ describe("audio contract", () => {
       response_format: "diarized_json",
     } as never);
     expect(diarized).toMatchObject({ text: expect.any(String) });
+    const plain = await openai.audio.transcriptions.create({
+      model: "gpt-4o-transcribe-diarize",
+      file: await toFile(wav, "call.wav", { type: "audio/wav" }),
+    });
+    expect(plain).not.toHaveProperty("segments");
+  });
+
+  it("accepts the Whisper formats on gpt-transcribe", async () => {
+    const wav = await speech({ response_format: "wav" });
+    const srt = await openai.audio.transcriptions.create({
+      model: "gpt-transcribe",
+      file: await toFile(wav, "call.wav", { type: "audio/wav" }),
+      response_format: "srt",
+    });
+    expect(String(srt)).toContain("-->");
+  });
+
+  it("adds per-character timings for ElevenLabs character granularity", async () => {
+    const wav = await speech({ response_format: "wav" });
+    const form = new FormData();
+    form.set("model_id", "scribe_v2");
+    form.set("timestamps_granularity", "character");
+    form.set("file", new Blob([wav], { type: "audio/wav" }), "call.wav");
+    const result = (await (await fetch(`${origin}/v1/speech-to-text`, { method: "POST", body: form })).json()) as {
+      words: Array<{ text: string; start: number; end: number; characters?: Array<{ text: string }> }>;
+    };
+    const word = result.words[0];
+    expect(word.characters?.map((char) => char.text).join("")).toBe(word.text);
   });
 
   it("answers transcription and speech requests only from rules of their task", async () => {

@@ -121,33 +121,40 @@ function decodeStt(fields: Fields): Decoded {
   };
 }
 
+/** Spreads an entry's span evenly over its characters, the per-character timings `timestamps_granularity: character` adds. */
+function characterTimings(
+  value: string,
+  start: number,
+  end: number,
+): Array<{ text: string; start: number; end: number }> {
+  const characters = Array.from(value);
+  const span = (end - start) / characters.length;
+  const round = (seconds: number) => Math.round(seconds * 1000) / 1000;
+  return characters.map((char, index) => ({
+    text: char,
+    start: round(start + index * span),
+    end: round(start + (index + 1) * span),
+  }));
+}
+
 function renderStt(events: RuleReplyEvent[] | undefined, decoded: Decoded): MediaResult {
   const extras = decoded.extras as unknown as SttExtras;
   const text = transcriptText(events, extras.fileName);
+  const entry = (value: string, start: number, end: number, type: "word" | "spacing") => ({
+    text: value,
+    start,
+    end,
+    type,
+    logprob: 0,
+    ...(extras.diarize ? { speaker_id: "speaker_0" } : {}),
+    ...(extras.granularity === "character" ? { characters: characterTimings(value, start, end) } : {}),
+  });
   const words =
     extras.granularity === "none"
       ? []
       : timedWords(text, extras.seconds).flatMap((word, index, all) => [
-          {
-            text: word.word,
-            start: word.start,
-            end: word.end,
-            type: "word",
-            logprob: 0,
-            ...(extras.diarize ? { speaker_id: "speaker_0" } : {}),
-          },
-          ...(index < all.length - 1
-            ? [
-                {
-                  text: " ",
-                  start: word.end,
-                  end: all[index + 1].start,
-                  type: "spacing",
-                  logprob: 0,
-                  ...(extras.diarize ? { speaker_id: "speaker_0" } : {}),
-                },
-              ]
-            : []),
+          entry(word.word, word.start, word.end, "word"),
+          ...(index < all.length - 1 ? [entry(" ", word.end, all[index + 1].start, "spacing")] : []),
         ]);
   return {
     kind: "json",
