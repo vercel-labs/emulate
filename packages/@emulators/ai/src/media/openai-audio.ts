@@ -258,7 +258,7 @@ function renderTranscript(events: RuleReplyEvent[] | undefined, decoded: Decoded
     if (extras.format === "diarized_json") {
       segments.forEach((segment, index) => {
         const event = diarizedSegment(segment, index);
-        pushDeltas(index === 0 ? segment.text : ` ${segment.text}`, event.id);
+        pushDeltas(segment.source, event.id);
         frames.push({ data: event });
       });
     } else {

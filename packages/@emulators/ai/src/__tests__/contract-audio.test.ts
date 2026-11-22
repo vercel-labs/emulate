@@ -98,7 +98,7 @@ describe("audio contract", () => {
     const wav = await speech({ response_format: "wav", input: "x".repeat(60) });
     await putRules({
       rules: [
-        { id: "two", match: { task: "transcription" }, reply: [{ type: "text", text: "First one. Second one." }] },
+        { id: "two", match: { task: "transcription" }, reply: [{ type: "text", text: "First one.\n\nSecond   one." }] },
       ],
     });
     const withLogprobs = await openai.audio.transcriptions.create({
@@ -129,7 +129,7 @@ describe("audio contract", () => {
       { text: "First one.", speaker: "A" },
       { text: "Second one.", speaker: "A" },
     ]);
-    expect(text).toBe("First one. Second one.");
+    expect(text).toBe("First one.\n\nSecond   one.");
     expect(types.at(-1)).toBe("transcript.text.done");
   });
 
