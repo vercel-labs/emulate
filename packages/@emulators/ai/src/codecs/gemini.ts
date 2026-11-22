@@ -233,13 +233,13 @@ export function decodeGemini(raw: unknown, ctx: CodecContext): Decoded {
   const match = MODEL_PATH.exec(ctx.path);
   const model = match?.[1] ?? "";
   const config = isRecord(body.generationConfig) ? body.generationConfig : {};
-  const modalities = Array.isArray(config.responseModalities)
-    ? config.responseModalities.map((value) => String(value).toUpperCase())
-    : ["TEXT"];
-  for (const modality of modalities) {
-    if (!["TEXT", "IMAGE", "AUDIO"].includes(modality))
-      fail(`Unsupported response modality ${modality}.`, "generationConfig.responseModalities");
-  }
+  const requested: unknown[] = Array.isArray(config.responseModalities) ? config.responseModalities : ["TEXT"];
+  const modalities = requested.map((modality) => {
+    const name = typeof modality === "string" ? modality.toUpperCase() : "";
+    if (!["TEXT", "IMAGE", "AUDIO"].includes(name))
+      fail(`Unsupported response modality ${JSON.stringify(modality)}.`, "generationConfig.responseModalities");
+    return name;
+  });
   if (modalities.includes("AUDIO") && modalities.length > 1)
     fail("AUDIO cannot be combined with other response modalities.", "generationConfig.responseModalities");
   if (typeof config.candidateCount === "number" && config.candidateCount !== 1)

@@ -1,5 +1,9 @@
+import { getEventListeners } from "node:events";
+import { createServer } from "@emulators/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { aiPlugin } from "../index.js";
 import { imageSize, sniffImageType } from "../media/pixels.js";
+import { getAiState } from "../state.js";
 
 vi.mock("@emulators/ai", async () => import("../index.js"));
 
@@ -120,6 +124,24 @@ describe("gemini contract", () => {
       width: 1024,
       height: 576,
     });
+  });
+
+  it("rejects non-string modalities without keeping the request scope", async () => {
+    const server = createServer(aiPlugin, { baseUrl: "http://localhost:4000" });
+    const state = getAiState(server.store);
+    const before = getEventListeners(state.controller.signal, "abort").length;
+    for (let i = 0; i < 3; i += 1) {
+      const response = await server.app.request("http://localhost:4000/v1beta/models/gemini-3-flash:generateContent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "x" }] }],
+          generationConfig: { responseModalities: [{ toString: 1 }] },
+        }),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(getEventListeners(state.controller.signal, "abort")).toHaveLength(before);
   });
 
   it("rejects aspect ratios too large to size", async () => {
