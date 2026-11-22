@@ -178,4 +178,13 @@ describe("audio contract", () => {
     expect(calls).not.toContain("secret");
     expect(calls).not.toContain("pass@");
   });
+
+  it("rejects inline data where a source URL is expected and never records it", async () => {
+    const form = new FormData();
+    form.set("model_id", "scribe_v2");
+    form.set("cloud_storage_url", `data:audio/wav;base64,${Buffer.from("PRIVATE-AUDIO").toString("base64")}`);
+    expect((await fetch(`${origin}/v1/speech-to-text`, { method: "POST", body: form })).status).toBe(422);
+    const calls = await (await fetch(`${origin}/_ai/calls`)).text();
+    expect(calls).not.toContain(Buffer.from("PRIVATE-AUDIO").toString("base64"));
+  });
 });
