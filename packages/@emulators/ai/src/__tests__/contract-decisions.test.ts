@@ -274,6 +274,25 @@ describe("decision contract", () => {
     expect(result.body.detail).toContain("probabilities that sum to 1");
   });
 
+  it("accepts Gemini instructions given as content blocks", async () => {
+    const block = await post("/v1beta/decisions", {
+      model: "gemini-decision-1",
+      input: "My package arrived crushed.",
+      questions: { a: { type: "noul", instructions: { type: "text", text: "Is it damaged?" } } },
+    });
+    const list = await post("/v1beta/decisions", {
+      model: "gemini-decision-1",
+      input: "My package arrived crushed.",
+      questions: { a: { type: "noul", instructions: [{ type: "text", text: "Is it damaged?" }] } },
+    });
+    const empty = await post("/v1beta/decisions", {
+      model: "gemini-decision-1",
+      input: "x",
+      questions: { a: { type: "noul", instructions: [] } },
+    });
+    expect([block.status, list.status, empty.status]).toEqual([200, 200, 400]);
+  });
+
   it("rejects mistyped scripted answers", async () => {
     await fetch(`${origin}/_ai/rules`, {
       method: "PUT",
