@@ -220,6 +220,21 @@ function tokenUsage(text: string, seconds: number) {
   };
 }
 
+function logprobOf(token: string) {
+  return { token, logprob: -0.1, bytes: [...new TextEncoder().encode(token)] };
+}
+
+function diarizedSegment(segment: { start: number; end: number; text: string }, index: number) {
+  return {
+    type: "transcript.text.segment" as const,
+    id: `seg_${String(index + 1).padStart(3, "0")}`,
+    start: segment.start,
+    end: segment.end,
+    text: segment.text,
+    speaker: "A",
+  };
+}
+
 function renderTranscript(events: RuleReplyEvent[] | undefined, decoded: Decoded): MediaResult {
   const extras = decoded.extras as unknown as TranscriptExtras;
   const text = transcriptText(events, extras.fileName);
@@ -230,11 +245,27 @@ function renderTranscript(events: RuleReplyEvent[] | undefined, decoded: Decoded
   const summary = text.length > 200 ? `${text.slice(0, 197)}...` : text;
 
   if (extras.stream) {
-    const frames: SseFrame[] = textChunks(text).map((delta) => ({
-      data: { type: "transcript.text.delta", delta },
-      content: delta,
-    }));
-    frames.push({ data: { type: "transcript.text.done", text, usage } });
+    const frames: SseFrame[] = [];
+    const deltas: string[] = [];
+    const pushDeltas = (value: string, segmentId?: string) => {
+      for (const delta of textChunks(value)) {
+        deltas.push(delta);
+        const logprobs = extras.logprobs ? { logprobs: [logprobOf(delta)] } : {};
+        const segment = segmentId === undefined ? {} : { segment_id: segmentId };
+        frames.push({ data: { type: "transcript.text.delta", delta, ...logprobs, ...segment }, content: delta });
+      }
+    };
+    if (extras.format === "diarized_json") {
+      segments.forEach((segment, index) => {
+        const event = diarizedSegment(segment, index);
+        pushDeltas(index === 0 ? segment.text : ` ${segment.text}`, event.id);
+        frames.push({ data: event });
+      });
+    } else {
+      pushDeltas(text);
+    }
+    const logprobs = extras.logprobs ? { logprobs: deltas.map(logprobOf) } : {};
+    frames.push({ data: { type: "transcript.text.done", text, ...logprobs, usage } });
     return { kind: "sse", frames, summary };
   }
 
@@ -285,14 +316,7 @@ function renderTranscript(events: RuleReplyEvent[] | undefined, decoded: Decoded
           task: "transcribe",
           duration: extras.seconds,
           text,
-          segments: segments.map((segment, index) => ({
-            type: "transcript.text.segment",
-            id: `seg_${String(index + 1).padStart(3, "0")}`,
-            start: segment.start,
-            end: segment.end,
-            text: segment.text,
-            speaker: "A",
-          })),
+          segments: segments.map(diarizedSegment),
           usage,
         },
       };
@@ -304,11 +328,7 @@ function renderTranscript(events: RuleReplyEvent[] | undefined, decoded: Decoded
           text,
           ...(extras.logprobs
             ? {
-                logprobs: timedWords(text, extras.seconds).map((word) => ({
-                  token: word.word,
-                  logprob: -0.1,
-                  bytes: [...new TextEncoder().encode(word.word)],
-                })),
+                logprobs: timedWords(text, extras.seconds).map((word) => logprobOf(word.word)),
               }
             : {}),
           ...(extras.task === "translate" ? {} : { usage }),
