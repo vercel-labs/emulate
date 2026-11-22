@@ -144,6 +144,27 @@ describe("gemini contract", () => {
     expect(getEventListeners(state.controller.signal, "abort")).toHaveLength(before);
   });
 
+  it("routes by the same field spelling decoding uses and releases the scope when matching fails", async () => {
+    const server = createServer(aiPlugin, { baseUrl: "http://localhost:4000" });
+    const state = getAiState(server.store);
+    const before = getEventListeners(state.controller.signal, "abort").length;
+    const forced = { tool_config: { function_calling_config: { mode: "ANY", allowed_function_names: ["missing"] } } };
+    const conflicting = {
+      generationConfig: { responseModalities: ["IMAGE"] },
+      generation_config: { response_modalities: ["TEXT"] },
+    };
+    for (let i = 0; i < 3; i += 1) {
+      const response = await server.app.request("http://localhost:4000/v1beta/models/gemini-3-flash:generateContent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "x" }] }], ...conflicting, ...forced }),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(getEventListeners(state.controller.signal, "abort")).toHaveLength(before);
+    expect(state.calls.map((call) => call.task ?? "text")).toEqual(["text", "text", "text"]);
+  });
+
   it("rejects aspect ratios too large to size", async () => {
     const huge = "9".repeat(400);
     const response = await generate("gemini-3-flash-image", {

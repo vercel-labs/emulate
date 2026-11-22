@@ -503,7 +503,19 @@ async function handleMedia(
     state.seenModels.delete(state.seenModels.values().next().value as string);
   }
 
-  const outcome = decideMedia(store, request, route.sample);
+  let outcome;
+  try {
+    outcome = decideMedia(store, request, route.sample);
+  } catch (error) {
+    const status = error instanceof AiRequestError ? error.status : 500;
+    const call = rejectedCall(state, route.format, path, body?.kind === "json" ? body.value : undefined, status);
+    fillCall(call, request);
+    call.task = route.task;
+    recordCall(state, call, stamp);
+    scope.dispose();
+    if (error instanceof AiRequestError) return mediaErrorResponse(route, failureOf(error), call.seq);
+    throw error;
+  }
   const call = freshCall(state, route.format, path);
   fillCall(call, request);
   call.task = route.task;

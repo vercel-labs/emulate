@@ -328,25 +328,30 @@ function instructionFiles(questions: unknown): FilePart[] {
 
 /**
  * The images a request sends in its `assets` map: TypeSafe multipart entries that name a file part, or base64 data
- * as OpenRouter sends it.
+ * as OpenRouter sends it. Each uploaded part is recorded once, however many aliases name it.
  */
 function assetFiles(assets: unknown, body: MediaBody): FilePart[] {
   if (!isRecord(assets)) return [];
-  return Object.entries(assets).map(([alias, asset]): FilePart => {
+  const parts = new Set<string>();
+  const files: FilePart[] = [];
+  for (const [alias, asset] of Object.entries(assets)) {
     const at = `assets.${alias}`;
     if (!isRecord(asset)) fail(`${at}: expected an object.`, at);
     if (typeof asset.part === "string") {
+      if (parts.has(asset.part)) continue;
       const file = body.kind === "form" ? body.files.get(asset.part)?.[0] : undefined;
       if (!file) fail(`${at}.part: no multipart file named '${asset.part}'.`, `${at}.part`);
-      return uploadedPart(file, file.type || "image/*");
-    }
-    if (typeof asset.data_base64 === "string") {
+      parts.add(asset.part);
+      files.push(uploadedPart(file, file.type || "image/*"));
+    } else if (typeof asset.data_base64 === "string") {
       const format = String(asset.format ?? "png").toLowerCase();
       const mediaType = `image/${format === "jpg" ? "jpeg" : format}`;
-      return inlineFilePart(asset.data_base64, mediaType, `${at}.data_base64`, MAX_INLINE_BYTES);
+      files.push(inlineFilePart(asset.data_base64, mediaType, `${at}.data_base64`, MAX_INLINE_BYTES));
+    } else {
+      fail(`${at}: expected a part or data_base64.`, at);
     }
-    return fail(`${at}: expected a part or data_base64.`, at);
-  });
+  }
+  return files;
 }
 
 /** Reads the AI SDK state parts `@ai-sdk/gateway` sends: text, JSON values, and files. */
