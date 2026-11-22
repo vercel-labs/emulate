@@ -349,7 +349,25 @@ function assetFiles(assets: unknown, body: MediaBody): FilePart[] {
   });
 }
 
-function decodeDecision(family: Family, body: MediaBody): Decoded {
+/** Reads the AI SDK state parts `@ai-sdk/gateway` sends: text, JSON values, and files. */
+function gatewayState(state: unknown): InputPart[] {
+  if (!Array.isArray(state)) fail("stateParts: expected an array.", "stateParts");
+  return state.map((part, index): InputPart => {
+    const at = `stateParts[${index}]`;
+    if (!isRecord(part)) fail(`${at}: expected an object.`, at);
+    if (part.type === "text" && typeof part.text === "string") return { type: "text", text: part.text };
+    if (part.type === "json") return { type: "text", text: JSON.stringify(part.value ?? null) };
+    if (part.type === "file" && typeof part.mediaType === "string")
+      return gatewayFile(part.data, part.mediaType, `${at}.data`);
+    return fail(`${at}.type: expected text, json, or file.`, `${at}.type`);
+  });
+}
+
+function decodeDecision(family: Family, body: MediaBody, ctx: CodecContext): Decoded {
+  if (family === "gateway" && body.kind === "json" && isRecord(body.value)) {
+    const parts = gatewayState(body.value.stateParts);
+    body = { kind: "json", value: { model: gatewayModel(ctx), state: parts, questions: body.value.questions } };
+  }
   let value: unknown = body.kind === "json" ? body.value : undefined;
   if (body.kind === "form") {
     const request = body.fields.get("request")?.[0];
@@ -363,7 +381,8 @@ function decodeDecision(family: Family, body: MediaBody): Decoded {
   if (!isRecord(value)) fail("Expected a JSON object body.", undefined, "invalid_json");
   const { questions, input } = family === "openai" ? decodeOpenAI(value) : decodeMap(family, value);
   const parts: InputPart[] = [];
-  flatten(input, parts, family === "gemini" || family === "openai" ? "input" : "state");
+  if (family === "gateway") parts.push(...(input as InputPart[]));
+  else flatten(input, parts, family === "gemini" || family === "openai" ? "input" : "state");
   parts.push(...instructionFiles(value.questions), ...assetFiles(value.assets, body));
   const model = String(value.model);
   const text = textOf(parts);
