@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Context, ContentfulStatusCode } from "@emulators/core";
 import type { TwilioAccount } from "./entities.js";
 import type { TwilioStore } from "./store.js";
-import type { Entity } from "@emulators/core";
 
 export type TwilioBody = Record<string, string | string[]>;
 
@@ -155,20 +154,23 @@ export function pageNumber(c: Context): number {
   return Math.max(0, requested);
 }
 
-export function twilioList<T extends Entity>(
+export function twilioList<T>(
   c: Context,
   key: string,
   items: T[],
   uri: string,
   formatter: (item: T) => Record<string, unknown>,
+  filters: Record<string, string> = {},
 ) {
   const size = pageSize(c);
   const page = pageNumber(c);
   const start = page * size;
   const records = items.slice(start, start + size);
-  const firstPageUri = `${uri}?PageSize=${size}&Page=0`;
-  const previousPageUri = page > 0 ? `${uri}?PageSize=${size}&Page=${page - 1}` : null;
-  const nextPageUri = start + size < items.length ? `${uri}?PageSize=${size}&Page=${page + 1}` : null;
+  const pageUri = (target: number) =>
+    `${uri}?${new URLSearchParams({ ...filters, PageSize: String(size), Page: String(target) })}`;
+  const firstPageUri = pageUri(0);
+  const previousPageUri = page > 0 ? pageUri(page - 1) : null;
+  const nextPageUri = start + size < items.length ? pageUri(page + 1) : null;
   return c.json({
     [key]: records.map(formatter),
     end: start + records.length,

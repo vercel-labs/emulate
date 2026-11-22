@@ -50,6 +50,28 @@ describe("Twilio SDK compatibility", () => {
     expect(requestClient.lastResponse?.statusCode).toBe(200);
   });
 
+  it("searches for and buys an available number through twilio-node", async () => {
+    const search = () =>
+      client.availablePhoneNumbers("CA").local.list({ areaCode: 306, voiceEnabled: true, smsEnabled: true, limit: 5 });
+
+    const available = await search();
+    expect(available.map((number) => number.phoneNumber)).toEqual([
+      "+13065550100",
+      "+13065550101",
+      "+13065550102",
+      "+13065550103",
+      "+13065550104",
+    ]);
+    expect(available[0].capabilities).toMatchObject({ voice: true, SMS: true });
+
+    const bought = await client.incomingPhoneNumbers.create({ phoneNumber: available[0].phoneNumber });
+    expect(bought.sid).toMatch(/^PN/);
+
+    const after = await search();
+    expect(after.map((number) => number.phoneNumber)).not.toContain(available[0].phoneNumber);
+    expect(after).toHaveLength(5);
+  });
+
   it("creates and updates calls through twilio-node", async () => {
     const call = await client.calls.create({
       to: "+15550006666",

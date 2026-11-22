@@ -3,7 +3,7 @@ title: "Twilio API"
 navTitle: "Twilio"
 ---
 
-Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
+Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, available phone number search, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector.
 
 ## Start
 
@@ -42,6 +42,9 @@ Only an `active` account can send messages or place calls. Set the seeded accoun
 - `GET /2010-04-01/Accounts/{AccountSid}.json`
 - `GET /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`
 - `POST /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Local.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Mobile.json`
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/TollFree.json`
 - `POST /2010-04-01/Accounts/{AccountSid}/Messages.json`
 - `GET /2010-04-01/Accounts/{AccountSid}/Messages.json`
 - `GET /2010-04-01/Accounts/{AccountSid}/Messages/{MessageSid}.json`
@@ -57,6 +60,8 @@ Only an `active` account can send messages or place calls. Set the seeded accoun
 - `POST /conversations/v1/Services/{ServiceSid}/Conversations`
 - `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Participants`
 - `POST /conversations/v1/Services/{ServiceSid}/Conversations/{ConversationSid}/Messages`
+
+Number searches return the `available_phone_numbers` seed entries for the requested country and `type`. `Local.json` returns `local` entries, `Mobile.json` returns `mobile` entries, and `TollFree.json` returns `toll_free` entries. When the seed has no entries for a country and type, local searches in `US` and `CA` return 100 generated numbers from the fictional 555-0100 to 555-0199 range. Generated numbers use the requested `AreaCode`, so area code 306 starts at `+13065550100`. Without an `AreaCode`, `US` searches use 415 and `CA` searches use 416. Mobile and toll-free searches return only seeded numbers. `AreaCode`, `Contains`, `SmsEnabled`, `MmsEnabled`, `VoiceEnabled`, and `PageSize` filter the results. A number already bought as an incoming phone number is left out until it is released. Results use the live API's capability keys `voice`, `SMS`, `MMS`, and `fax`, while seed entries use lower-case keys. An `AreaCode` that is not a North American area code returns HTTP 400 with error `21451`, "Invalid area code". `TollFree.json` returns the same error for an `AreaCode` that is not a toll-free prefix.
 
 ## SMS And OTP Testing
 
@@ -97,6 +102,15 @@ twilio:
       friendly_name: Local SMS and Voice Number
       sms_url: http://localhost:3000/api/twilio/sms
       voice_url: http://localhost:3000/api/twilio/voice
+  # Optional. Seeding a country and type replaces its generated numbers.
+  available_phone_numbers:
+    - phone_number: "+15105550100"
+      friendly_name: "(510) 555-0100"
+      iso_country: US
+      type: local
+      locality: Oakland
+      region: CA
+      capabilities: { voice: true, sms: true, mms: false }
   messaging_services:
     - friendly_name: Local Messaging Service
       phone_numbers: ["+15551234567"]

@@ -583,7 +583,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   twilio: {
     label: "Twilio API emulator",
     endpoints:
-      "accounts, API keys, phone numbers, Programmable Messaging, Messaging Services, Verify, Voice, webhooks, simulator, inspector",
+      "accounts, API keys, phone numbers, available phone number search, Programmable Messaging, Messaging Services, Verify, Voice, webhooks, simulator, inspector",
     async load() {
       const mod = await import("@emulators/twilio");
       return { plugin: mod.twilioPlugin, seedFromConfig: mod.seedFromConfig };

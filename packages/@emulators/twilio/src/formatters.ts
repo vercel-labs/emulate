@@ -1,5 +1,7 @@
+import type { InsertInput } from "@emulators/core";
 import type {
   TwilioAccount,
+  TwilioAvailablePhoneNumber,
   TwilioCall,
   TwilioConversation,
   TwilioConversationMessage,
@@ -52,6 +54,30 @@ export function formatPhoneNumber(number: TwilioIncomingPhoneNumber): Record<str
     date_created: twilioDate(number.created_at),
     date_updated: twilioDate(number.updated_at),
     uri: `/${API_VERSION}/Accounts/${number.account_sid}/IncomingPhoneNumbers/${number.sid}.json`,
+  };
+}
+
+export function formatAvailablePhoneNumber(number: InsertInput<TwilioAvailablePhoneNumber>): Record<string, unknown> {
+  return {
+    friendly_name: number.friendly_name,
+    phone_number: number.phone_number,
+    lata: number.lata,
+    locality: number.locality,
+    rate_center: number.rate_center,
+    latitude: number.latitude,
+    longitude: number.longitude,
+    region: number.region,
+    postal_code: number.postal_code,
+    iso_country: number.iso_country,
+    address_requirements: number.address_requirements,
+    beta: number.beta,
+    // Twilio sends SMS and MMS in upper case on number search, though its published schema says lower case.
+    capabilities: {
+      voice: number.capabilities.voice,
+      SMS: number.capabilities.sms,
+      MMS: number.capabilities.mms,
+      fax: number.capabilities.fax,
+    },
   };
 }
 

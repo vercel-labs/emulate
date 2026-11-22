@@ -1283,7 +1283,7 @@ Current Linear limits: full schema coverage, exact production rate limiting, not
 
 ## Twilio API
 
-Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector. No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, or SendGrid traffic is performed.
+Stateful Twilio REST emulation with seeded accounts, Auth Tokens, API keys, incoming phone numbers, available phone number search, Programmable Messaging, Messaging Services, Verify, basic Voice calls, Conversations REST resources, signed webhooks, local simulator routes, and an inspector. No real SMS, MMS, WhatsApp, email, voice, carrier, compliance, billing, or SendGrid traffic is performed.
 
 Default local credentials:
 
@@ -1300,6 +1300,9 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 
 - `GET /2010-04-01/Accounts/{AccountSid}.json` - fetch account
 - `GET /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json` - list phone numbers
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Local.json` - search local numbers to buy
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Mobile.json` - search mobile numbers to buy
+- `GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/TollFree.json` - search toll-free numbers to buy
 - `POST /2010-04-01/Accounts/{AccountSid}/Messages.json` - create outbound message
 - `GET /2010-04-01/Accounts/{AccountSid}/Messages.json` - list messages
 - `POST /2010-04-01/Accounts/{AccountSid}/Calls.json` - create outbound call
@@ -1314,6 +1317,8 @@ TWILIO_VERIFY_SERVICE_SID=VA00000000000000000000000000000000
 Twilio uses multiple product hosts. For local SDK tests, rewrite Twilio SDK requests to the emulator and map `messaging.twilio.com` to `/messaging`, `verify.twilio.com` to `/verify`, and `conversations.twilio.com` to `/conversations`.
 
 Only an `active` account can send messages or place calls. Set the seeded account `status` to `suspended` or `closed`, or update it with `POST /2010-04-01/Accounts/{AccountSid}.json` and `Status`, to test the failure: message and call creation return HTTP 401 with error `20005`, "Account not active". Set the status back to `active` to restore them.
+
+Number searches return the `available_phone_numbers` seed entries for the requested country and `type`. `Local.json` returns `local` entries, `Mobile.json` returns `mobile` entries, and `TollFree.json` returns `toll_free` entries. When the seed has no entries for a country and type, local searches in `US` and `CA` return 100 generated numbers from the fictional 555-0100 to 555-0199 range. Generated numbers use the requested `AreaCode`, so area code 306 starts at `+13065550100`. Without an `AreaCode`, `US` searches use 415 and `CA` searches use 416. Mobile and toll-free searches return only seeded numbers. `AreaCode`, `Contains`, `SmsEnabled`, `MmsEnabled`, `VoiceEnabled`, and `PageSize` filter the results. A number already bought as an incoming phone number is left out until it is released. Results use the live API's capability keys `voice`, `SMS`, `MMS`, and `fax`, while seed entries use lower-case keys. An `AreaCode` that is not a North American area code returns HTTP 400 with error `21451`, "Invalid area code". `TollFree.json` returns the same error for an `AreaCode` that is not a toll-free prefix.
 
 ### SMS And OTP Testing
 

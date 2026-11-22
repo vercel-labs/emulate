@@ -146,6 +146,8 @@ Configuration:
 
 Twilio API coverage:
   Accounts, API keys, phone numbers, Messaging, Verify, Voice, Conversations, webhooks, simulators, and inspector.
+  GET /2010-04-01/Accounts/{AccountSid}/AvailablePhoneNumbers/{CountryCode}/Local.json, Mobile.json, and TollFree.json
+  search numbers to buy.
 
 Slack interactivity:
   Configure slack.oauth_apps[].interactivity_url and slack.signing_secret for signed button and modal callbacks.
