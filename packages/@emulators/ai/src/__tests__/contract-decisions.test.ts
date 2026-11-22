@@ -210,6 +210,53 @@ describe("decision contract", () => {
     expect(response.status).toBe(200);
   });
 
+  it("records images sent in the assets map", async () => {
+    const form = new FormData();
+    form.set(
+      "request",
+      JSON.stringify({
+        model: "jev-latest",
+        state: { photo: "photo" },
+        questions: { a: { type: "noul", instructions: "Is it a dog?" } },
+        assets: { photo: { type: "image", part: "asset-0" } },
+      }),
+    );
+    form.set("asset-0", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "asset-0");
+    expect((await fetch(`${origin}/v1/systemone`, { method: "POST", body: form })).status).toBe(200);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString("base64");
+    await post("/api/alpha/decisions", {
+      model: "typesafe/jev-latest",
+      state: "photo",
+      questions: { a: { type: "noul", instructions: "Is it a dog?" } },
+      assets: { photo: { type: "image", format: "jpg", data_base64: jpeg } },
+    });
+    const calls = (await (await fetch(`${origin}/_ai/calls`)).json()) as Array<{
+      messages: Array<{ parts: Array<Record<string, unknown>> }>;
+    }>;
+    const files = calls.slice(-2).map((call) => call.messages[0].parts.filter((part) => part.type === "file"));
+    expect(files).toEqual([
+      [expect.objectContaining({ mediaType: "image/png", source: "inline", bytes: 4 })],
+      [expect.objectContaining({ mediaType: "image/jpeg", source: "inline", bytes: 4 })],
+    ]);
+  });
+
+  it("rejects scripted score probabilities that do not sum to one", async () => {
+    await fetch(`${origin}/_ai/rules`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        rules: [{ id: "sum", match: { task: "decision" }, reply: [{ type: "decision", answers: { s: [1, 1, 1] } }] }],
+      }),
+    });
+    const result = await post("/v1/systemone", {
+      model: "jev",
+      state: "x",
+      questions: { s: { type: "score", criteria: ["low", "mid", "high"] } },
+    });
+    expect(result.status).toBe(500);
+    expect(result.body.detail).toContain("probabilities that sum to 1");
+  });
+
   it("rejects mistyped scripted answers", async () => {
     await fetch(`${origin}/_ai/rules`, {
       method: "PUT",

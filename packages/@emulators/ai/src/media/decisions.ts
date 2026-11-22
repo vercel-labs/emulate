@@ -9,7 +9,7 @@ import type { CodecContext, Decoded } from "../codec.js";
 import { chatCodec } from "../codecs/openai-chat.js";
 import { AiRequestError } from "../errors.js";
 import type { AiFormat, FilePart, HttpFailure, InputPart, Json, RuleReplyEvent } from "../types.js";
-import { fail, isRecord, mediaRequest, textTokens } from "./fields.js";
+import { fail, isRecord, mediaRequest, textTokens, uploadedPart } from "./fields.js";
 import { hash32 } from "./pixels.js";
 import type { MediaBody, MediaResult, MediaRoute } from "./route.js";
 import { googleError } from "./videos.js";
@@ -323,6 +323,29 @@ function instructionFiles(questions: unknown): FilePart[] {
   });
 }
 
+/**
+ * The images a request sends in its `assets` map: TypeSafe multipart entries that name a file part, or base64 data
+ * as OpenRouter sends it.
+ */
+function assetFiles(assets: unknown, body: MediaBody): FilePart[] {
+  if (!isRecord(assets)) return [];
+  return Object.entries(assets).map(([alias, asset]): FilePart => {
+    const at = `assets.${alias}`;
+    if (!isRecord(asset)) fail(`${at}: expected an object.`, at);
+    if (typeof asset.part === "string") {
+      const file = body.kind === "form" ? body.files.get(asset.part)?.[0] : undefined;
+      if (!file) fail(`${at}.part: no multipart file named '${asset.part}'.`, `${at}.part`);
+      return uploadedPart(file, file.type || "image/*");
+    }
+    if (typeof asset.data_base64 === "string") {
+      const format = String(asset.format ?? "png").toLowerCase();
+      const mediaType = `image/${format === "jpg" ? "jpeg" : format}`;
+      return inlineFilePart(asset.data_base64, mediaType, `${at}.data_base64`, MAX_INLINE_BYTES);
+    }
+    return fail(`${at}: expected a part or data_base64.`, at);
+  });
+}
+
 function decodeDecision(family: Family, body: MediaBody): Decoded {
   let value: unknown = body.kind === "json" ? body.value : undefined;
   if (body.kind === "form") {
@@ -338,7 +361,7 @@ function decodeDecision(family: Family, body: MediaBody): Decoded {
   const { questions, input } = family === "openai" ? decodeOpenAI(value) : decodeMap(family, value);
   const parts: InputPart[] = [];
   flatten(input, parts, family === "gemini" || family === "openai" ? "input" : "state");
-  parts.push(...instructionFiles(value.questions));
+  parts.push(...instructionFiles(value.questions), ...assetFiles(value.assets, body));
   const model = String(value.model);
   const text = textOf(parts);
   const extras: DecisionExtras = {
@@ -392,6 +415,11 @@ function isProbability(value: unknown): value is number {
   return typeof value === "number" && value >= 0 && value <= 1;
 }
 
+/** Whether explicit probabilities form a distribution: they sum to one, allowing for two-decimal rounding. */
+function sumsToOne(probs: number[]): boolean {
+  return Math.abs(probs.reduce((sum, p) => sum + p, 0) - 1) <= 0.01;
+}
+
 function badAnswer(question: Question, expected: string): never {
   throw new AiRequestError(
     `The decision rule's answer for question '${question.key}' must be ${expected}.`,
@@ -412,9 +440,10 @@ function scriptedAnswer(question: Question, value: Json): Answer {
       if (isRecord(value)) {
         const labels = question.options.map(String);
         const entries = Object.entries(value);
-        if (entries.some(([label, p]) => !labels.includes(label) || !isProbability(p)))
-          badAnswer(question, `probabilities from 0 to 1 keyed by ${labels.join(", ")}`);
-        return { kind: "choice", probs: labels.map((label) => (value[label] as number | undefined) ?? 0) };
+        const probs = labels.map((label) => (value[label] as number | undefined) ?? 0);
+        if (entries.some(([label, p]) => !labels.includes(label) || !isProbability(p)) || !sumsToOne(probs))
+          badAnswer(question, `probabilities keyed by ${labels.join(", ")} that sum to 1`);
+        return { kind: "choice", probs };
       }
       const exactIndex = question.options.findIndex((option) => option === value);
       const index =
@@ -424,8 +453,8 @@ function scriptedAnswer(question: Question, value: Json): Answer {
     }
     case "score": {
       if (Array.isArray(value)) {
-        if (value.length !== question.levels.length || !value.every(isProbability))
-          badAnswer(question, `${question.levels.length} probabilities from 0 to 1`);
+        if (value.length !== question.levels.length || !value.every(isProbability) || !sumsToOne(value as number[]))
+          badAnswer(question, `${question.levels.length} probabilities that sum to 1`);
         return { kind: "score", probs: value as number[] };
       }
       if (typeof value !== "number" || value < 0 || value > question.levels.length - 1)
