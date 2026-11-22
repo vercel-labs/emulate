@@ -64,6 +64,18 @@ describe("video contract", () => {
     await expect(openai.videos.retrieve(created.id)).rejects.toMatchObject({ status: 404 });
   });
 
+  it("reports the source video only on remixes", async () => {
+    const source = await openai.videos.create({ prompt: "a cat" });
+    await openai.videos.retrieve(source.id);
+    await openai.videos.retrieve(source.id);
+    const remix = await post(`/v1/videos/${source.id}/remix`, { prompt: "a dog" });
+    const edit = await post("/v1/videos/edits", { prompt: "brighter", video: { id: source.id } });
+    const extension = await post("/v1/videos/extensions", { prompt: "longer", video: { id: source.id } });
+    expect(remix.remixed_from_video_id).toBe(source.id);
+    expect(edit.remixed_from_video_id).toBeNull();
+    expect(extension.remixed_from_video_id).toBeNull();
+  });
+
   it("fails a job after the polls a video_error rule asks for", async () => {
     await putRules({
       rules: [

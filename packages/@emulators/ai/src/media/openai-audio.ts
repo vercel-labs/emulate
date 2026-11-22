@@ -129,7 +129,6 @@ function allowedFormats(model: string, task: "transcribe" | "translate"): readon
   if (task === "translate") return WHISPER_FORMATS;
   if (model.startsWith("gpt-4o-transcribe-diarize")) return ["json", "text", "diarized_json"];
   if (model.startsWith("gpt-4o-transcribe") || model.startsWith("gpt-4o-mini-transcribe")) return ["json"];
-  if (model.startsWith("gpt-transcribe")) return ["json", "text"];
   return WHISPER_FORMATS;
 }
 
@@ -139,8 +138,7 @@ function decodeTranscript(task: "transcribe" | "translate", fields: Fields): Dec
   if (file.bytes.length === 0) fail("The audio file is empty.", "file");
   const model = requiredString(fields, "model");
   const isWhisper = model.startsWith("whisper");
-  const defaultFormat = model.startsWith("gpt-4o-transcribe-diarize") ? "diarized_json" : "json";
-  const format = optionalEnum(fields, "response_format", TRANSCRIPT_FORMATS) ?? defaultFormat;
+  const format = optionalEnum(fields, "response_format", TRANSCRIPT_FORMATS) ?? "json";
   const allowed = allowedFormats(model, task);
   if (!allowed.includes(format)) {
     fail(
