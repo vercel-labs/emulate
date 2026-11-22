@@ -240,6 +240,23 @@ describe("decision contract", () => {
     ]);
   });
 
+  it("records an uploaded asset once however many aliases name it", async () => {
+    const form = new FormData();
+    const assets = Object.fromEntries(
+      Array.from({ length: 50 }, (_, i) => [`alias${i}`, { type: "image", part: "asset-0" }]),
+    );
+    form.set(
+      "request",
+      JSON.stringify({ model: "jev-latest", state: "x", questions: { a: { type: "noul" } }, assets }),
+    );
+    form.set("asset-0", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "asset-0");
+    expect((await fetch(`${origin}/v1/systemone`, { method: "POST", body: form })).status).toBe(200);
+    const calls = (await (await fetch(`${origin}/_ai/calls`)).json()) as Array<{
+      messages: Array<{ parts: Array<Record<string, unknown>> }>;
+    }>;
+    expect(calls[calls.length - 1].messages[0].parts.filter((part) => part.type === "file")).toHaveLength(1);
+  });
+
   it("rejects scripted score probabilities that do not sum to one", async () => {
     await fetch(`${origin}/_ai/rules`, {
       method: "PUT",
