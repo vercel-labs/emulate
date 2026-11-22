@@ -94,6 +94,45 @@ describe("audio contract", () => {
     expect(plain).not.toHaveProperty("segments");
   });
 
+  it("streams logprobs and diarized segments when they are requested", async () => {
+    const wav = await speech({ response_format: "wav", input: "x".repeat(60) });
+    await putRules({
+      rules: [
+        { id: "two", match: { task: "transcription" }, reply: [{ type: "text", text: "First one. Second one." }] },
+      ],
+    });
+    const withLogprobs = await openai.audio.transcriptions.create({
+      model: "gpt-4o-transcribe",
+      file: await toFile(wav, "call.wav", { type: "audio/wav" }),
+      include: ["logprobs"],
+      stream: true,
+    });
+    const logprobEvents: Array<{ type: string; logprobs?: unknown[] }> = [];
+    for await (const event of withLogprobs) logprobEvents.push(event as { type: string; logprobs?: unknown[] });
+    expect(logprobEvents.every((event) => (event.logprobs?.length ?? 0) > 0)).toBe(true);
+
+    const diarized = await openai.audio.transcriptions.create({
+      model: "gpt-4o-transcribe-diarize",
+      file: await toFile(wav, "call.wav", { type: "audio/wav" }),
+      response_format: "diarized_json",
+      stream: true,
+    } as never);
+    const types: string[] = [];
+    const segments: Array<{ text: string; speaker: string }> = [];
+    let text = "";
+    for await (const event of diarized as unknown as AsyncIterable<Record<string, string>>) {
+      types.push(event.type);
+      if (event.type === "transcript.text.segment") segments.push({ text: event.text, speaker: event.speaker });
+      if (event.type === "transcript.text.delta") text += event.delta;
+    }
+    expect(segments).toEqual([
+      { text: "First one.", speaker: "A" },
+      { text: "Second one.", speaker: "A" },
+    ]);
+    expect(text).toBe("First one. Second one.");
+    expect(types.at(-1)).toBe("transcript.text.done");
+  });
+
   it("accepts the Whisper formats on gpt-transcribe", async () => {
     const wav = await speech({ response_format: "wav" });
     const srt = await openai.audio.transcriptions.create({
