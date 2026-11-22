@@ -5,9 +5,10 @@ export interface TimedWord {
   end: number;
 }
 
-/** One timed sentence of a transcript. */
+/** One timed sentence of a transcript; `source` is its exact span of the original text, whitespace included. */
 export interface TimedSegment {
   text: string;
+  source: string;
   start: number;
   end: number;
   words: TimedWord[];
@@ -30,25 +31,32 @@ export function timedWords(text: string, seconds: number): TimedWord[] {
   });
 }
 
-/** Groups timed words into sentences ending at `.`, `!`, or `?`. */
+/**
+ * Groups timed words into sentences ending at `.`, `!`, or `?`. The sources split the original text at each sentence's
+ * first word, so joined in order they reproduce it exactly.
+ */
 export function timedSegments(text: string, seconds: number): TimedSegment[] {
+  const positions = [...text.matchAll(/\S+/g)].map((match) => match.index);
   const segments: TimedSegment[] = [];
   let current: TimedWord[] = [];
-  const flush = () => {
+  let first = 0;
+  const flush = (next: number) => {
     if (current.length === 0) return;
     segments.push({
       text: current.map((word) => word.word).join(" "),
+      source: text.slice(segments.length === 0 ? 0 : positions[first], positions[next] ?? text.length),
       start: current[0].start,
       end: current[current.length - 1].end,
       words: current,
     });
+    first = next;
     current = [];
   };
-  for (const word of timedWords(text, seconds)) {
+  timedWords(text, seconds).forEach((word, index) => {
     current.push(word);
-    if (/[.!?]$/.test(word.word)) flush();
-  }
-  flush();
+    if (/[.!?]$/.test(word.word)) flush(index + 1);
+  });
+  flush(positions.length);
   return segments;
 }
 
