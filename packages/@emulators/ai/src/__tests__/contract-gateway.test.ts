@@ -176,6 +176,51 @@ describe("AI Gateway contract", () => {
     expect(result.text).toBe("Saw the screenshot.");
   });
 
+  it("records data URLs inside tool results as inline metadata, never as their contents", async () => {
+    const secret = Buffer.from("PRIVATE-TOOL-FILE").toString("base64");
+    const prompt = [
+      { role: "user", content: [{ type: "text", text: "look" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "c1", toolName: "fetch", input: {} }],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "fetch",
+            output: {
+              type: "content",
+              value: [
+                { type: "image-url", url: `data:image/png;base64,${secret}` },
+                { type: "file-url", url: `data:application/pdf;base64,${secret}` },
+              ],
+            },
+          },
+        ],
+      },
+    ];
+    const response = await fetch(`${origin}/v4/ai/language-model`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "ai-language-model-id": "openai/gpt-5.5" },
+      body: JSON.stringify({ prompt }),
+    });
+    expect(response.status).toBe(200);
+    const calls = (await (await fetch(`${origin}/_ai/calls`)).json()) as Array<{
+      messages: Array<{ parts: Array<Record<string, unknown>> }>;
+    }>;
+    const files = calls[calls.length - 1].messages.flatMap((message) =>
+      message.parts.filter((part) => part.type === "file"),
+    );
+    expect(files).toEqual([
+      expect.objectContaining({ mediaType: "image/png", source: "inline", bytes: 17 }),
+      expect.objectContaining({ mediaType: "application/pdf", source: "inline", bytes: 17 }),
+    ]);
+    expect(JSON.stringify(calls)).not.toContain(secret);
+  });
+
   it("matches URL images by type and answers Anthropic structured output", async () => {
     await putRules([
       { id: "seen", match: { format: "gateway", file: "image/*" }, reply: [{ type: "text", text: "matched file" }] },

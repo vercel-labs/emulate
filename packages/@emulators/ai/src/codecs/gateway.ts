@@ -90,30 +90,33 @@ export function gatewayMetadata(model: string, generationId: string): Record<str
   };
 }
 
+/** Reads a file given by URL: a base64 data URL is decoded into size and hash metadata, and any other URL is kept as a redacted reference. */
+function urlFile(url: unknown, mediaType: string, path: string, name?: string): FilePart {
+  const inline = typeof url === "string" ? /^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s.exec(url) : null;
+  if (inline) return inlineFilePart(inline[2], inline[1] || mediaType, path, MAX_FILE_BYTES, name);
+  return {
+    type: "file",
+    mediaType,
+    ...(name === undefined ? {} : { name }),
+    source: "url",
+    ref: redactedReference(url, path),
+  };
+}
+
 /**
  * Reads one AI SDK file part's data into attachment metadata; URLs are kept without their query or credentials. A bare
  * top-level type such as `image`, which the AI SDK sends for URL images, is widened to `image/*`.
  */
 export function gatewayFile(data: unknown, requested: string, path: string, name?: string): FilePart {
   const mediaType = requested.includes("/") ? requested : `${requested}/*`;
-  if (typeof data === "string" && data.includes(":")) {
-    const inline = /^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/s.exec(data);
-    if (inline) return inlineFilePart(inline[2], inline[1] || mediaType, path, MAX_FILE_BYTES, name);
-    return gatewayFile({ type: "url", url: data }, mediaType, path, name);
-  }
+  if (typeof data === "string" && data.includes(":")) return urlFile(data, mediaType, path, name);
   if (typeof data === "string") return inlineFilePart(data, mediaType, path, MAX_FILE_BYTES, name);
   if (!isRecord(data)) fail("Expected file data.", path);
   switch (data.type) {
     case "data":
       return inlineFilePart(expectString(data.data, `${path}.data`), mediaType, `${path}.data`, MAX_FILE_BYTES, name);
     case "url":
-      return {
-        type: "file",
-        mediaType,
-        ...(name === undefined ? {} : { name }),
-        source: "url",
-        ref: redactedReference(data.url, `${path}.url`),
-      };
+      return urlFile(data.url, mediaType, `${path}.url`, name);
     case "reference":
       return { type: "file", mediaType, ...(name === undefined ? {} : { name }), source: "file_id" };
     case "text": {
