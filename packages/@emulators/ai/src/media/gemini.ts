@@ -1,9 +1,9 @@
 import type { CodecContext, Decoded } from "../codec.js";
-import { decodeGemini, geminiResponse, type GeminiExtras } from "../codecs/gemini.js";
+import { decodeGemini, geminiResponse, requestedModalities, type GeminiExtras } from "../codecs/gemini.js";
 import type { Json, RuleReplyEvent } from "../types.js";
 import { base64Bytes, fail, isRecord, textTokens, toBase64 } from "./fields.js";
 import { colorFor, renderImage, sniffImageType } from "./pixels.js";
-import type { MediaBody, MediaResult, MediaRoute } from "./route.js";
+import type { MediaResult, MediaRoute } from "./route.js";
 import { renderAudio, speechSeconds, type AudioFormat } from "./sound.js";
 import { googleError } from "./videos.js";
 
@@ -17,16 +17,6 @@ const AUDIO_FORMATS: Record<string, AudioFormat> = {
   "audio/alaw": "alaw",
   "audio/mulaw": "ulaw",
 };
-
-/** Reads the requested modalities with a shallow look at either field spelling, so route selection cannot throw. */
-function modalities(body: MediaBody): string[] {
-  if (body.kind !== "json" || !isRecord(body.value)) return [];
-  const config = body.value.generationConfig ?? body.value.generation_config;
-  if (!isRecord(config)) return [];
-  const raw = config.responseModalities ?? config.response_modalities;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((value): value is string => typeof value === "string").map((value) => value.toUpperCase());
-}
 
 /** Sizes an aspect ratio with its long side at the requested image size. */
 function imageDimensions(aspectRatio: string, imageSize: string): { width: number; height: number } {
@@ -122,7 +112,7 @@ function geminiMediaRoute(task: "image" | "speech", modality: string): MediaRout
     task,
     sample: task === "image" ? { type: "image" } : { type: "audio" },
     matches: (method, path) => method === "POST" && GENERATE.test(path),
-    accepts: (body) => modalities(body).includes(modality),
+    accepts: (body) => body.kind === "json" && requestedModalities(body.value).includes(modality),
     decode: (body, ctx: CodecContext) => decodeGemini(body.kind === "json" ? body.value : undefined, ctx),
     render: task === "image" ? renderGeminiImage : renderGeminiSpeech,
     errorBody: googleError,

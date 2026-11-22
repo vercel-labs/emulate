@@ -226,6 +226,17 @@ function decodeSpeech(config: Record<string, unknown>): { mimeType: string; samp
   return { mimeType, sampleRate };
 }
 
+/**
+ * The response modalities a body asks for, read after proto JSON normalization so route selection and decoding agree on
+ * which field spelling wins; entries are uppercased, and an entry that is not a string reads as an empty name.
+ */
+export function requestedModalities(raw: unknown): string[] {
+  const body = protoJson(raw);
+  const config = isRecord(body) && isRecord(body.generationConfig) ? body.generationConfig : {};
+  const requested: unknown[] = Array.isArray(config.responseModalities) ? config.responseModalities : ["TEXT"];
+  return requested.map((modality) => (typeof modality === "string" ? modality.toUpperCase() : ""));
+}
+
 /** Validates a generateContent body. `responseModalities` picks the task: IMAGE asks for an image, AUDIO for speech. */
 export function decodeGemini(raw: unknown, ctx: CodecContext): Decoded {
   const body = protoJson(raw);
@@ -233,11 +244,9 @@ export function decodeGemini(raw: unknown, ctx: CodecContext): Decoded {
   const match = MODEL_PATH.exec(ctx.path);
   const model = match?.[1] ?? "";
   const config = isRecord(body.generationConfig) ? body.generationConfig : {};
-  const requested: unknown[] = Array.isArray(config.responseModalities) ? config.responseModalities : ["TEXT"];
-  const modalities = requested.map((modality) => {
-    const name = typeof modality === "string" ? modality.toUpperCase() : "";
+  const modalities = requestedModalities(body).map((name) => {
     if (!["TEXT", "IMAGE", "AUDIO"].includes(name))
-      fail(`Unsupported response modality ${JSON.stringify(modality)}.`, "generationConfig.responseModalities");
+      fail(`Unsupported response modality ${JSON.stringify(name)}.`, "generationConfig.responseModalities");
     return name;
   });
   if (modalities.includes("AUDIO") && modalities.length > 1)
