@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { versionedOgImage } from "./og-version";
 import { PAGE_TITLES } from "./page-titles";
 import { canonicalUrlFor, isPreview, siteDescription } from "./site";
 
@@ -14,7 +15,7 @@ export function pageMetadata(slug: string): Metadata {
 
   const displayTitle = title.replace(/\n/g, " ");
   const fullTitle = `${displayTitle} | emulate`;
-  const ogImageUrl = slug ? `/og/${slug}` : "/og";
+  const ogImageUrl = versionedOgImage(`/og/${slug}`, title);
 
   return {
     ...indexing,

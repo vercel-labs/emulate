@@ -8,10 +8,13 @@ import { cookies } from "next/headers";
 import { DocsChat } from "@/components/docs-chat";
 import { DocsProvider } from "@/components/geistdocs-provider";
 import { config } from "@/lib/geistdocs/config";
+import { versionedOgImage } from "@/lib/og-version";
+import { getPageTitle } from "@/lib/page-titles";
 import { isPreview, siteUrl } from "@/lib/site";
 import "./globals.css";
 
 const title = "emulate | API emulators for local dev, CI and sandboxes";
+const ogImage = versionedOgImage("/og", getPageTitle("")!);
 const description =
   "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.";
 
@@ -33,13 +36,13 @@ export const metadata: Metadata = {
     siteName: "emulate",
     title,
     description,
-    images: [{ url: "/og", width: 1200, height: 630, alt: "emulate" }],
+    images: [{ url: ogImage, width: 1200, height: 630, alt: "emulate" }],
   },
   twitter: {
     card: "summary_large_image",
     title,
     description,
-    images: ["/og"],
+    images: [{ url: ogImage, width: 1200, height: 630, alt: "emulate" }],
   },
 };
 
