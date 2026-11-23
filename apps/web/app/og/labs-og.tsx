@@ -43,6 +43,8 @@ const titleLinePitch = 76;
 const titleMaxWidth = 700;
 const maxTitleLines = 3;
 const titleShrinkStep = 4;
+const titleMinSize = 56;
+const maxTitleLinesAtMin = 4;
 const titleCenterShift = 38.04;
 
 // A two-line title carries the reference card's per-line metrics.
@@ -114,16 +116,19 @@ function titleLines(font: Font, title: string | string[]): Line[] {
     });
   }
   let lineSize = titleSize;
+  let maxLines = maxTitleLines;
   let lines = wrap(font, title, lineSize, titleTracking, titleMaxWidth);
-  while (lines.length > maxTitleLines && lineSize > titleShrinkStep) {
-    lineSize -= titleShrinkStep;
+  while (lines.length > maxLines && lineSize > titleMinSize) {
+    lineSize = Math.max(titleMinSize, lineSize - titleShrinkStep);
+    if (lineSize === titleMinSize) maxLines = maxTitleLinesAtMin;
     lines = wrap(font, title, lineSize, titleTracking, titleMaxWidth);
   }
-  const firstBaseline = titleBaseline - titleCenterShift * (lines.length - 2);
+  const pitch = (lineSize * titleLinePitch) / titleSize;
+  const firstBaseline = titleBaseline - (pitch / 2) * (lines.length - 2);
   return lines.map((text, index) => ({
     text,
     left: titleLeft,
-    baseline: firstBaseline + index * titleLinePitch,
+    baseline: firstBaseline + index * pitch,
     size: lineSize,
     letterSpacing: titleTracking * lineSize,
   }));
