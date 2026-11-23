@@ -599,10 +599,14 @@ async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
     const files = new Map<string, UploadedFile[]>();
     for (const [name, value] of form.entries()) {
       if (typeof value === "string") {
-        fields.set(name, [...(fields.get(name) ?? []), value]);
+        const list = fields.get(name);
+        if (list) list.push(value);
+        else fields.set(name, [value]);
       } else {
         const file = { name: value.name, type: value.type, bytes: new Uint8Array(await value.arrayBuffer()) };
-        files.set(name, [...(files.get(name) ?? []), file]);
+        const list = files.get(name);
+        if (list) list.push(file);
+        else files.set(name, [file]);
       }
     }
     return { kind: "form", fields, files };
