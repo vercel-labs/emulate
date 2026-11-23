@@ -11,7 +11,7 @@ import { config } from "@/lib/geistdocs/config";
 import { isPreview, siteUrl } from "@/lib/site";
 import "./globals.css";
 
-const title = "emulate | Local API Emulation for CI & Sandboxes";
+const title = "emulate | API emulators for local dev, CI and sandboxes";
 const description =
   "Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.";
 
