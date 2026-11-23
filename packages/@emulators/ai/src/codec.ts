@@ -11,6 +11,8 @@ export interface CodecContext {
   store: Store;
   state: AiState;
   path: string;
+  /** The scheme, host, and port the request was addressed to, for URLs the client must fetch back. */
+  origin?: string;
   makeId(prefix: string): string;
 }
 

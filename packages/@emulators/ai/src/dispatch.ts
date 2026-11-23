@@ -8,7 +8,8 @@ import { decide, decideMedia } from "./engine.js";
 import { elevenLabsRoutes } from "./media/elevenlabs.js";
 import { openaiAudioRoutes } from "./media/openai-audio.js";
 import { imageRoutes } from "./media/openai-images.js";
-import type { MediaBody, MediaResult, MediaRoute, UploadedFile } from "./media/route.js";
+import type { MediaBody, MediaResult, MediaRoute, StateRoute, UploadedFile } from "./media/route.js";
+import { videoCreateRoutes, videoStateRoutes } from "./media/videos.js";
 import { AiConfigError, AiRequestError, defaultErrorType } from "./errors.js";
 import { parseConfig, rulesView, type RuleView } from "./rules.js";
 import { renderAiInspector } from "./routes/inspector.js";
@@ -33,9 +34,16 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text, POST .../videos, GET .../videos, GET or DELETE .../videos/{id}, GET .../videos/{id}/content, POST .../videos/{id}/remix, POST .../videos/edits, POST .../videos/extensions, POST .../videos/generations, POST .../models/{model}:predictLongRunning, GET .../operations/{id}, GET .../files/{id}:download, POST .../models/{model}:fetchPredictOperation";
 
-const MEDIA_ROUTES: readonly MediaRoute[] = [...imageRoutes, ...openaiAudioRoutes, ...elevenLabsRoutes];
+const MEDIA_ROUTES: readonly MediaRoute[] = [
+  ...imageRoutes,
+  ...openaiAudioRoutes,
+  ...elevenLabsRoutes,
+  ...videoCreateRoutes,
+];
+
+const STATE_ROUTES: readonly StateRoute[] = [...videoStateRoutes];
 
 /** The OpenAI error envelope both V1 formats share. */
 export function aiErrorBody(
@@ -131,6 +139,7 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
 
   const authority = c.req.header("host") ?? url.host;
   const addressed = parseUrl(`${url.protocol}//${authority}`);
+  const origin = (configured ?? url).origin;
   const caller = callerOf(c.req.header("origin"), addressed, configured);
 
   if (caller === "untrusted-host") {
@@ -169,10 +178,30 @@ async function handleRequest(c: Context<AppEnv>, store: Store, configured: URL |
   const mediaRoute = MEDIA_ROUTES.find((route) => route.matches(method, path));
   if (mediaRoute) {
     try {
-      return await handleMedia(c, store, state, mediaRoute, path, url.searchParams);
+      return await handleMedia(c, store, state, mediaRoute, path, url, origin);
     } catch (error) {
       const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
       return mediaErrorResponse(mediaRoute, failure, takeCallSeq(state));
+    }
+  }
+
+  const stateRoute = STATE_ROUTES.find((route) => route.matches(method, path));
+  if (stateRoute) {
+    const seq = takeCallSeq(state);
+    try {
+      const body = await readMediaBody(c);
+      const result = stateRoute.handle(
+        { method, path, body, query: url.searchParams },
+        context(store, state, path, origin),
+      );
+      const headers = new Headers(result.kind === "text" ? {} : result.headers);
+      headers.set("x-request-id", `req_${seq}`);
+      if (result.kind === "json") return Response.json(result.value, { status: result.status ?? 200, headers });
+      headers.set("Content-Type", result.contentType);
+      return new Response(result.kind === "bytes" ? result.data : result.text, { status: 200, headers });
+    } catch (error) {
+      const failure = error instanceof AiRequestError ? failureOf(error) : internalFailure(error);
+      return mediaErrorResponse({ errorBody: stateRoute.errorBody }, failure, seq);
     }
   }
 
@@ -394,16 +423,17 @@ async function handleMedia(
   state: AiState,
   route: MediaRoute,
   path: string,
-  query: URLSearchParams,
+  url: URL,
+  origin: string,
 ): Promise<Response> {
   const scope = beginRequest(state, c.req.raw.signal);
   const stamp: CallStamp = { generation: scope.generation, callsGeneration: scope.callsGeneration };
-  const ctx = context(store, state, path);
+  const ctx = context(store, state, path, origin);
   let body: MediaBody | undefined;
   let decoded: Decoded;
   try {
     body = await readMediaBody(c);
-    decoded = route.decode(body, ctx, query);
+    decoded = route.decode(body, ctx, url.searchParams);
   } catch (error) {
     const status = error instanceof AiRequestError ? error.status : 500;
     const call = rejectedCall(state, route.format, path, body?.kind === "json" ? body.value : undefined, status);
@@ -507,7 +537,11 @@ async function readMediaBody(c: Context<AppEnv>): Promise<MediaBody> {
   }
 }
 
-function mediaErrorResponse(route: MediaRoute, failure: HttpFailure, seq: number): Response {
+function mediaErrorResponse(
+  route: Pick<MediaRoute, "errorBody" | "requestIdHeader">,
+  failure: HttpFailure,
+  seq: number,
+): Response {
   const headers = new Headers(failure.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json; charset=utf-8");
   const name = route.requestIdHeader ?? "x-request-id";
@@ -516,11 +550,12 @@ function mediaErrorResponse(route: MediaRoute, failure: HttpFailure, seq: number
   return new Response(JSON.stringify(route.errorBody(failure, requestId)), { status: failure.status, headers });
 }
 
-function context(store: Store, state: AiState, path: string): CodecContext {
+function context(store: Store, state: AiState, path: string, origin?: string): CodecContext {
   return {
     store,
     state,
     path,
+    ...(origin === undefined ? {} : { origin }),
     makeId(prefix: string): string {
       return `${prefix}_${nextId(state)}`;
     },

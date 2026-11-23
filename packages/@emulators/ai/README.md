@@ -64,6 +64,10 @@ openai.chat("gpt-x");
 - `POST /v1/audio/speech` — OpenAI text to speech, as a file or server-sent events
 - `POST /v1/audio/transcriptions` and `POST /v1/audio/translations` — OpenAI speech to text in every `response_format`, streamed on gpt-4o models
 - `POST /v1/text-to-speech/{voice_id}` and `POST /v1/speech-to-text` — ElevenLabs speech and transcription
+- `POST /v1/videos`, `GET /v1/videos`, `GET` or `DELETE /v1/videos/{id}`, `GET /v1/videos/{id}/content`, remix, edits, and extensions — OpenAI video jobs
+- `POST /v1/videos/generations` and `GET /v1/videos/{request_id}` — xAI video jobs
+- `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/models/{model}/operations/{id}`, `GET /v1beta/files/{id}:download` — Gemini API Veo
+- `POST .../publishers/google/models/{model}:predictLongRunning` and `:fetchPredictOperation` — Vertex AI Veo
 
 An unsupported data path returns the native 404 naming the supported paths.
 
@@ -129,9 +133,9 @@ Rules are evaluated in order and the first match wins. Every supplied matcher mu
 
 Matchers:
 
-- `task` — `text` (the default when omitted), `image`, `speech`, or `transcription`; a rule answers only requests of its task
+- `task` — `text` (the default when omitted), `image`, `speech`, `transcription`, or `video`; a rule answers only requests of its task
 - `model` — model id, with `*` wildcards
-- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, or `elevenlabs`
+- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, or `vertex-veo`
 - `stream` — boolean
 - `textContains` — case-sensitive text in the latest user instruction, excluding tool results
 - `tool` — a declared tool name, with `*` wildcards
@@ -159,6 +163,10 @@ The Images routes return real, decodable `png`, `jpeg`, `webp`, `gif`, or `svg` 
 
 Speech routes return real, decodable silence in the requested format (`mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`, and ElevenLabs `ulaw` and `alaw`), lasting about one second per fifteen characters, up to ten minutes. Transcription routes return every OpenAI `response_format` and ElevenLabs' timed words, with timings spread across the uploaded audio's duration. Chat Completions speaks replies when `modalities` includes `audio`, and accepts `input_audio` parts. Speech rules reply with `{ type: audio, data }`; transcription rules reply with `text` events.
 
+## Video
+
+Video requests create jobs with an explicit state machine: `queued`, `in_progress`, then `completed` or `failed`. A job advances one step per status read, so polling is deterministic, and completed jobs serve a real H.264 MP4 at the requested size and duration. Video rules reply with `{ type: video, data?, polls? }` or `{ type: video_error, code, message, polls? }`.
+
 ## Defaults
 
 With no matching rule, the service:
@@ -171,6 +179,7 @@ With no matching rule, the service:
 - accepts and echoes any model id
 - renders deterministic images for image requests and silence for speech requests
 - transcribes audio as `This is a deterministic transcript of <file name>.`
+- completes video jobs on the second status read with a gray MP4
 
 Set `strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and JSON.
 
