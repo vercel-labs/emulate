@@ -59,6 +59,8 @@ openai.chat("gpt-x");
 - `GET /v1/responses/{id}` — retrieve a stored response
 - `DELETE /v1/responses/{id}` — delete a stored response
 - `GET /v1/models` — list configured and previously requested model ids
+- `POST /v1/images/generations` — OpenAI and xAI image generation, unary or streamed
+- `POST /v1/images/edits` — OpenAI and xAI image edits, multipart or JSON, unary or streamed
 
 An unsupported data path returns the native 404 naming the supported paths.
 
@@ -124,8 +126,9 @@ Rules are evaluated in order and the first match wins. Every supplied matcher mu
 
 Matchers:
 
+- `task` — `text` (the default when omitted) or `image`; a rule answers only requests of its task
 - `model` — model id, with `*` wildcards
-- `format` — `openai-chat`, `openai-responses`, or `anthropic-messages`
+- `format` — `openai-chat`, `openai-responses`, `anthropic-messages`, or `openai-images`
 - `stream` — boolean
 - `textContains` — case-sensitive text in the latest user instruction, excluding tool results
 - `tool` — a declared tool name, with `*` wildcards
@@ -139,10 +142,15 @@ Reply events:
 - `tool_call` — `{ type: tool_call, name, arguments }`; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT /_ai/rules`
 - `reasoning` — `{ type: reasoning, text }`, a reasoning summary on Responses and a signed `thinking` block on Messages; Chat Completions has no field for it and reports only reasoning tokens
 - `refusal` — `{ type: refusal, text }`, native refusal shape
+- `image` — `{ type: image, data?, revisedPrompt? }` for `task: image` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders the image
 
 A rule has one of `reply`, `variants`, or `error`. With `variants`, the seed in `ai.random.seed` shuffles the variants per rule and each rule's own matches walk that order in a cycle, so the same seed replays the same sequence and every variant appears once per cycle. A variant holds either `reply` or `error`, and SDK retries spend the next variant. It may also override `finish`, `timing`, and `fault`, with the rule-level values as defaults. Reply rules may also set `finish` (`stop`, `tool_calls`, `length`, `refusal`, or `content_filter`), `timing`, or `fault`, and `fault` also requires `match.stream: true`. Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses; a `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
 Request limits apply to every reply, scripted or default. A stop sequence (`stop` on Chat Completions) cuts the reply text at the first match; the sequence is not returned, nothing after it is sent, and the reply ends with `stop`. On Messages, `stop_sequences` works the same way, and the reply reports `stop_reason: "stop_sequence"` with the match in `stop_sequence`. A token cap (`max_completion_tokens` or `max_tokens` on Chat Completions, `max_output_tokens` on Responses) counts output at one token per four characters, the same estimate the usage numbers use. A reply over the cap is cut there and ends with `length`, which Responses reports as `status: "incomplete"` with `incomplete_details.reason: "max_output_tokens"`. A tool call that does not fit is dropped whole rather than sent partially. On Messages, `max_tokens` is the cap, and a reply over it ends with `stop_reason: "max_tokens"`. A rule's own `finish` still wins when it is set. A fault disconnects or stalls a stream after a counted number of content chunks. `timing.ttftMs` is the wait before the first byte of any reply, streamed or not, and `timing.chunkDelayMs` is the gap between the frames of a stream.
+
+## Images
+
+The Images routes return real, decodable `png`, `jpeg`, `webp`, `gif`, or `svg` files at the requested `size`. With no matching rule each image is a solid color derived from the prompt, input files, and position, so output repeats exactly and `n` images differ. Edits accept multipart uploads (`image`, `image[]`, `mask`) and JSON image references. `stream: true` sends `partial_images` partial events and a `completed` event per image. `response_format: url` returns a `data:` URL.
 
 ## Defaults
 
@@ -154,6 +162,7 @@ With no matching rule, the service:
 - returns a generated call when the request forces a tool
 - acknowledges a tool result or an attachment-only request
 - accepts and echoes any model id
+- renders deterministic images for image requests
 
 Set `strict: true` to turn every unmatched request into a native 400 naming the model and tools and including the missing rule as YAML and JSON.
 
@@ -167,7 +176,7 @@ Every generation request is recorded with its format, model, `matched`, normaliz
 
 Result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
 
-Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 
 Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 

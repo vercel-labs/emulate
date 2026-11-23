@@ -46,6 +46,8 @@ The format is read from the end of the path, so any prefix works (`/v1`, `/api/v
 - `GET .../responses/:id` — retrieve a stored response
 - `DELETE .../responses/:id` — delete a stored response
 - `GET .../models` — configured and previously requested models, in OpenAI's list shape
+- `POST .../images/generations` — OpenAI and xAI image generation, unary and streamed
+- `POST .../images/edits` — OpenAI and xAI image edits, multipart or JSON, unary and streamed
 - `GET /` — inspector
 
 Other paths return the native OpenAI 404 naming the supported paths.
@@ -57,6 +59,30 @@ The Messages route speaks Anthropic's wire format, not OpenAI's: `system` is a t
 Structured output arrives in `output_config.format` and comes back as a text block holding JSON. Errors use Anthropic's envelope, `{"type":"error","error":{"type":"invalid_request_error","message":"..."},"request_id":"..."}`, and keep Anthropic's error types: `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, and `overloaded_error`. Anthropic's schema limits apply, so `oneOf`, numeric and string constraints, and external references return a 400.
 
 Rules, variants, timing, faults, and the inspector work the same way; match on `format: anthropic-messages` to target this route alone.
+
+### Images
+
+`POST .../images/generations` and `POST .../images/edits` speak the OpenAI Images API, which xAI's image endpoints share. Generations take JSON. Edits take multipart uploads (`image`, repeated `image` or `image[]`, and an optional `mask`), OpenAI's JSON `images` list of `image_url` or `file_id` references, or xAI's JSON `image` and `images` URL objects.
+
+Every image is a real, decodable file at the requested size: `png` (the default), `jpeg`, `webp`, `gif`, or `svg` from `output_format`. `size` takes `auto` (1024x1024) or `WIDTHxHEIGHT` with both sides divisible by 16, each at most 3840, and an aspect ratio within 3:1; xAI's `aspect_ratio` sizes the long side at 1024, or 2048 with `resolution: 2k`. With no matching rule each image is a solid color derived from the prompt, the input files, and its position, so the same request returns the same bytes and `n` images differ from one another. `background: transparent` renders a translucent image and is rejected with `jpeg` and `svg`. Replies carry `b64_json`, or a `data:` URL in `url` when `response_format: url`, plus `created`, `background`, `output_format`, `quality`, `size`, and deterministic token `usage`. `stream: true` sends `partial_image_index` events for each of `partial_images` (0 to 3) and then a `completed` event per image, named `image_generation.*` for generations and `image_edit.*` for edits.
+
+Image rules set `match.task: image`, so text rules never answer an image request and image rules never answer a chat:
+
+```yaml
+ai:
+  rules:
+    - id: logo
+      match: { task: image, textContains: logo }
+      reply:
+        - type: image
+          data: iVBORw0KGgo... # base64 file bytes, returned verbatim
+          revisedPrompt: A minimal fox logo
+    - id: image-quota
+      match: { task: image, textContains: quota }
+      error: { status: 429, message: Image quota exceeded. }
+```
+
+An `image` event without `data` renders the generated image. With `n` above the number of events, the events repeat in order. Errors, `times`, `variants`, `timing`, and `strict` behave as they do for text, and a strict miss suggests an image rule.
 
 ## Rules
 
@@ -118,8 +144,9 @@ Every condition in `match` must hold.
 
 | Matcher         | Matches when                                                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `task`          | The request asks for `text` (the default when omitted) or `image`                                                                    |
 | `model`         | The model id matches; `*` wildcards allowed                                                                                          |
-| `format`        | The request format is `openai-chat`, `openai-responses`, or `anthropic-messages`                                                     |
+| `format`        | The request format is `openai-chat`, `openai-responses`, `anthropic-messages`, or `openai-images`                                    |
 | `stream`        | The request does or does not stream                                                                                                  |
 | `textContains`  | The latest user text contains the string; tool results are ignored                                                                   |
 | `tool`          | The request declares a matching tool; `*` wildcards allowed                                                                          |
@@ -137,6 +164,7 @@ Every condition in `match` must hold.
 | `tool_call` | `name`, `arguments`, optional `id` | A tool call; `arguments` must be a JSON object, and a string is rejected at startup and on `PUT`; the id is generated when omitted |
 | `reasoning` | `text`                             | A reasoning summary in Responses and a signed `thinking` block in Messages; Chat reports only reasoning tokens                     |
 | `refusal`   | `text`                             | A refusal in the format's native shape                                                                                             |
+| `image`     | optional `data`, `revisedPrompt`   | An image for `task: image` rules; `data` is base64 file bytes returned verbatim, and without it the emulator renders the image     |
 
 Without `finish`, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal with no tool call is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. Set `finish` to `length` or `content_filter` to test those outcomes; Chat Completions returns them as `finish_reason`, and Responses returns `status: "incomplete"`. The override is used as given, so it can describe an outcome your events would not produce, such as `length` on plain text.
 
@@ -320,7 +348,7 @@ Prompts and tool arguments are recorded. API keys, auth headers, URL credentials
 - Chat Completions carries no reasoning text, only reasoning tokens in usage, and omits OpenRouter's `reasoning` extensions.
 - The AI SDK sends only PDFs and images unless `passThroughUnsupportedFiles` is set. Chat Completions accepts only PDF files and no file URLs.
 - On the OpenAI routes, result-changing features outside this version return a native 400 naming the feature: hosted tools, custom tools, allowed tool choice, background mode, the Conversations API, multiple candidates, audio input, audio output, and legacy functions.
-- Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image generation, file uploads, input item listing, token counting, and response cancellation.
+- Paths with no route return the native 404 naming the supported paths: Gemini, embeddings, image variations, file uploads, input item listing, token counting, and response cancellation.
 - Accepted and ignored, with no effect on replies: OpenRouter `reasoning` fields and unknown optional fields. Reply text is sent as written with no templating.
 - Usage numbers are deterministic estimates.
 

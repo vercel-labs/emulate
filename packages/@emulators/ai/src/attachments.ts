@@ -195,7 +195,8 @@ export function urlAttachment(ref: string, kind: "image" | "file"): FilePart {
   };
 }
 
-function imageAttachment(value: unknown, path: string): FilePart {
+/** Decodes an image given as an HTTPS URL or a base64 data URL into attachment metadata. */
+export function imageAttachment(value: unknown, path: string): FilePart {
   if (typeof value !== "string") fail("Expected an image URL.", path);
   if (value.startsWith("data:")) {
     const result = inlineAttachment(value, undefined, path, MAX_OPENAI_IMAGE_BYTES, false);
