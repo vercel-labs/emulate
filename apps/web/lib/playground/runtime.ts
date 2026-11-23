@@ -50,7 +50,9 @@ async function workerAnswers(): Promise<boolean> {
 /**
  * Registers the playground service worker, which runs every emulator, and waits until this build's worker answers
  * this page. Until it does, the page asks an active worker to take control and asks the browser to fetch the newest
- * one, which covers a first visit, a hard reload, and a worker left over from an earlier build.
+ * one, which covers a first visit, a hard reload, and a worker left over from an earlier build. The scope is the whole
+ * site because a client-side link into the playground keeps the document it started on, and a worker can only take
+ * control of a document that was opened inside its scope.
  */
 function workerControlsPage(): Promise<void> {
   workerReady ??= (async () => {
@@ -58,7 +60,7 @@ function workerControlsPage(): Promise<void> {
       throw new Error("The playground needs service workers, and this browser has them turned off.");
     }
     const registration = await navigator.serviceWorker.register(new URL("./sw/worker.ts", import.meta.url), {
-      scope: "/playground/",
+      scope: "/",
       updateViaCache: "none",
     });
     const deadline = Date.now() + START_TIMEOUT_MS;

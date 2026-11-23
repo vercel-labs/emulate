@@ -86,7 +86,7 @@ export const apple: ConsoleService = {
         {
           label: "Revoke access token",
           description:
-            "Removes an access token so it stops working, and returns an empty 200. The token comes from Exchange authorization code or Refresh access token.",
+            "Revokes the access token from Exchange authorization code or Refresh access token, and returns an empty 200.",
           method: "POST",
           path: "/auth/revoke",
           headers: FORM_HEADERS,

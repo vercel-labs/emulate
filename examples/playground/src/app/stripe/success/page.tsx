@@ -1,10 +1,10 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import Stripe from "stripe";
 import { stripe } from "@/lib/stripe/stripe";
 import { getOrder } from "@/lib/stripe/orders";
-import { formatCurrency } from "@/lib/stripe/products";
 import { ClearCart } from "./clear-cart";
 
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -20,7 +20,12 @@ export default async function SuccessPage({ searchParams }: { searchParams: Prom
   const { session_id } = await searchParams;
   if (!session_id) redirect("/stripe");
 
-  const session = await stripe.checkout.sessions.retrieve(session_id);
+  const session = await stripe.checkout.sessions.retrieve(session_id).catch((error: unknown) => {
+    if (error instanceof Stripe.errors.StripeInvalidRequestError && error.statusCode === 404) return null;
+    throw error;
+  });
+  if (!session) notFound();
+  if (session.payment_status !== "paid") redirect("/stripe/cart");
   const order = getOrder(session_id);
 
   let customer: { name: string | null; email: string | null } | null = null;
@@ -46,18 +51,7 @@ export default async function SuccessPage({ searchParams }: { searchParams: Prom
         <Row label="Session" value={session.id} mono />
         <Row label="Status" value={session.payment_status ?? "unknown"} />
         {order?.completedAt && <Row label="Confirmed" value={new Date(order.completedAt).toLocaleTimeString()} />}
-        {order?.paymentIntentId && <Row label="Payment Intent" value={order.paymentIntentId} mono />}
-        {order?.chargeId && <Row label="Charge" value={order.chargeId} mono />}
       </div>
-
-      {session.amount_total != null && (
-        <div className="flex items-center justify-between border-b border-border py-4">
-          <span className="text-[10px] tracking-[0.3em] uppercase font-medium">Total</span>
-          <span className="font-mono text-sm tabular-nums">
-            {formatCurrency(session.amount_total, session.currency ?? "usd")}
-          </span>
-        </div>
-      )}
 
       <div className="mt-10 text-center">
         <Link

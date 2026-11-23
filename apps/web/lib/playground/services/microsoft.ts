@@ -158,7 +158,7 @@ export const microsoft: ConsoleService = {
         {
           label: "Revoke access token",
           description:
-            "Revokes the access token, so later userinfo and Graph calls return 401. Keep it last, because it ends the token for the rest of this list.",
+            "Revokes the access token. Userinfo and Graph presets still answer afterwards, because the emulator treats an unknown bearer token as its default user.",
           method: "POST",
           path: "/oauth2/v2.0/revoke",
           headers: FORM,

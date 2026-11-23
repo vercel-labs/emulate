@@ -498,7 +498,7 @@ export const okta: ConsoleService = {
         {
           label: "Revoke access token",
           description:
-            "Revokes the access token from Exchange authorization code, so Bearer presets fail until you run that exchange again. Keep it near the end.",
+            "Revokes the access token from Exchange authorization code: Get user info answers 401 and Introspect access token reports it inactive. The management presets still answer, because the emulator treats an unknown bearer token as its default user.",
           method: "POST",
           path: "/oauth2/v1/revoke",
           headers: FORM,
