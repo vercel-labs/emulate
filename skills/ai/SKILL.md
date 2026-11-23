@@ -105,7 +105,17 @@ const gateway = createOpenAICompatible({
 
 `createOpenAICompatible` sends `json_object` without a schema unless the provider sets `supportsStructuredOutputs: true`, so `generateObject` against the default `{}` reply fails its schema check. Set `supportsStructuredOutputs: true`, or script the object with an `object` reply rule.
 
-The private `@ai-sdk/gateway` protocol is not supported. Use an OpenAI-compatible provider instead.
+Code that passes plain model strings goes through `@ai-sdk/gateway`, whose protocol the emulator serves for text, images, speech, transcription, video, and decisions. Point the AI SDK's default provider at it:
+
+```typescript
+import { createGateway, generateText } from "ai";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({ baseURL: "http://localhost:4014/v4/ai", apiKey: "test" });
+
+await generateText({ model: "anthropic/claude-sonnet-5", prompt: "Hi" });
+```
+
+Gateway routes match `format: gateway`, and errors come back in the gateway envelope that the client turns into typed errors such as `GatewayRateLimitError`.
 
 An unsupported data path such as `/v1/embeddings` returns a native 404 naming the supported data paths.
 
@@ -183,16 +193,16 @@ services:
 
 ### Matchers
 
-| Key             | Matches                                                                                                                                                                                                                                                                                      |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task`          | `text` (default), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task                                                                                                                                                                       |
-| `model`         | Model id, with `*` wildcards                                                                                                                                                                                                                                                                 |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions` |
-| `stream`        | Boolean                                                                                                                                                                                                                                                                                      |
-| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                                                                                                                                                   |
-| `tool`          | A declared tool name, with `*` wildcards                                                                                                                                                                                                                                                     |
-| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                                                                                                                                                       |
-| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                                                                                                                                         |
+| Key             | Matches                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | `text` (default), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task                                                                                                                                                                                  |
+| `model`         | Model id, with `*` wildcards                                                                                                                                                                                                                                                                            |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, `perplexity-decisions`, or `gateway` |
+| `stream`        | Boolean                                                                                                                                                                                                                                                                                                 |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                                                                                                                                                              |
+| `tool`          | A declared tool name, with `*` wildcards                                                                                                                                                                                                                                                                |
+| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                                                                                                                                                                  |
+| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                                                                                                                                                    |
 
 ### Replies
 
