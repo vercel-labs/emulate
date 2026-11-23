@@ -5,7 +5,11 @@ export const config = defineConfig({
   title: "emulate",
   siteUrl,
   defaultLanguage: "en",
-  logo: <span className="font-[family-name:var(--font-geist-pixel-square)] text-lg">emulate</span>,
+  logo: (
+    <span className="font-[family-name:var(--font-geist-sans)] text-[24.4px] font-semibold leading-none tracking-[-0.05em] text-black dark:text-white">
+      emulate
+    </span>
+  ),
   navbarActiveProduct: "emulate",
   navbarBrand: "labs",
   github: {
