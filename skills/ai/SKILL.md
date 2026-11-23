@@ -183,16 +183,16 @@ services:
 
 ### Matchers
 
-| Key             | Matches                                                                                                                                                              |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task`          | `text` (default), `image`, `speech`, `transcription`, or `video`; a rule answers only requests of its task                                                           |
-| `model`         | Model id, with `*` wildcards                                                                                                                                         |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, or `vertex-veo` |
-| `stream`        | Boolean                                                                                                                                                              |
-| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                           |
-| `tool`          | A declared tool name, with `*` wildcards                                                                                                                             |
-| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                               |
-| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                 |
+| Key             | Matches                                                                                                                                                                                                                                                                            |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`          | `text` (default), `image`, `speech`, `transcription`, `video`, or `decision`; a rule answers only requests of its task                                                                                                                                                             |
+| `model`         | Model id, with `*` wildcards                                                                                                                                                                                                                                                       |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, `elevenlabs`, `openai-videos`, `xai-videos`, `gemini-veo`, `vertex-veo`, `openai-decisions`, `gemini-decisions`, `typesafe-systemone`, `openrouter-decisions`, or `perplexity-decisions` |
+| `stream`        | Boolean                                                                                                                                                                                                                                                                            |
+| `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                                                                                                                                                                                         |
+| `tool`          | A declared tool name, with `*` wildcards                                                                                                                                                                                                                                           |
+| `hasToolResult` | Whether the current continuation carries a tool result                                                                                                                                                                                                                             |
+| `file`          | `true` for any attachment, including one returned inside a tool result, or a media-type glob such as `application/*`                                                                                                                                                               |
 
 ### Replies
 
@@ -209,6 +209,7 @@ A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 | Audio       | `{ type: audio, data? }`                       | `task: speech` rules only; `data` is base64 file bytes, and without it the emulator renders silence    |
 | Video       | `{ type: video, data?, polls? }`               | `task: video` rules only; completes the job after `polls` status reads (default 1)                     |
 | Video error | `{ type: video_error, code, message, polls? }` | `task: video` rules only; fails the job after `polls` status reads                                     |
+| Decision    | `{ type: decision, answers }`                  | `task: decision` rules only; answers keyed by question id, `null` for a refusal                        |
 
 With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
@@ -568,6 +569,34 @@ ai:
     - id: slow
       match: { task: video }
       reply: [{ type: video, polls: 5 }]
+```
+
+### Decisions
+
+Decision models answer typed questions with probabilities. `openai.decisions.create`, `@google/genai` `ai.decisions.create`, the TypeSafe SDK's `systemOne`, OpenRouter `alpha.decisions.create`, Perplexity's `/v1/decisions`, and AI SDK `experimental_decide` with `@ai-sdk/openai`, `@ai-sdk/google`, or `@ai-sdk/perplexity` all work offline. Point the TypeSafe SDK at the emulator with `baseURL`, and pass `serverURL` per call to the OpenRouter SDK's decisions method, which ignores the client-level `serverURL`.
+
+```typescript
+import { experimental_decide as decide } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+
+const openai = createOpenAI({ baseURL: "http://localhost:4014/v1", apiKey: "test" });
+const { answers } = await decide({
+  model: openai.decisionModel("gpt-6-luna"),
+  state: "My order arrived broken.",
+  questions: { damaged: { type: "boolean", instructions: "Is the item damaged?" } },
+});
+```
+
+Script answers by question id:
+
+```yaml
+ai:
+  rules:
+    - id: triage
+      match: { task: decision }
+      reply:
+        - type: decision
+          answers: { damaged: 0.97, team: billing, urgency: 2 }
 ```
 
 ### Strict mode

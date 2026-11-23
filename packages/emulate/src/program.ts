@@ -116,6 +116,7 @@ AI API coverage:
   Serves OpenAI and xAI image generations and edits with real, deterministic image files; match.task: image scopes rules.
   Serves OpenAI speech, transcription, translation, and Chat Completions audio, plus ElevenLabs speech and transcription.
   Serves OpenAI, xAI, and Veo video jobs; each status read advances a job from queued to in_progress to completed or failed.
+  Serves OpenAI, Gemini, TypeSafe, OpenRouter, and Perplexity decision models with deterministic probabilities.
   Rules may list reply variants; ai.random.seed makes the pick repeat on every run.
   ai.timing.ttftMs delays the first byte of every reply, streamed or not.
   ai.timing.chunkDelayMs accepts a list to vary the gap between frames, and structured output streams between JSON tokens.
