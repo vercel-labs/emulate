@@ -10,6 +10,7 @@ import { DocsProvider } from "@/components/geistdocs-provider";
 import { config } from "@/lib/geistdocs/config";
 import { isPreview, siteUrl } from "@/lib/site";
 import "./globals.css";
+import "./labs-lockup.css";
 
 const title = "emulate | API emulators for local dev, CI and sandboxes";
 const description =
