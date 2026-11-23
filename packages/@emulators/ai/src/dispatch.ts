@@ -5,6 +5,8 @@ import { messagesCodec } from "./codecs/anthropic-messages.js";
 import { chatCodec } from "./codecs/openai-chat.js";
 import { deleteStoredResponse, getStoredResponse, responsesCodec } from "./codecs/openai-responses.js";
 import { decide, decideMedia } from "./engine.js";
+import { elevenLabsRoutes } from "./media/elevenlabs.js";
+import { openaiAudioRoutes } from "./media/openai-audio.js";
 import { imageRoutes } from "./media/openai-images.js";
 import type { MediaBody, MediaResult, MediaRoute, UploadedFile } from "./media/route.js";
 import { AiConfigError, AiRequestError, defaultErrorType } from "./errors.js";
@@ -31,9 +33,9 @@ import type { AIRequest, AiConfig, AiFormat, CallRecord, Delivery, HttpFailure, 
 
 /** The data paths the service answers; the native 404 and startup output name them. */
 export const SUPPORTED_DATA_PATHS =
-  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits";
+  "POST .../chat/completions, POST .../responses, POST .../messages, GET .../models, GET or DELETE .../responses/{id}, POST .../images/generations, POST .../images/edits, POST .../audio/speech, POST .../audio/transcriptions, POST .../audio/translations, POST /v1/text-to-speech/{voice_id}, POST /v1/speech-to-text";
 
-const MEDIA_ROUTES: readonly MediaRoute[] = [...imageRoutes];
+const MEDIA_ROUTES: readonly MediaRoute[] = [...imageRoutes, ...openaiAudioRoutes, ...elevenLabsRoutes];
 
 /** The OpenAI error envelope both V1 formats share. */
 export function aiErrorBody(

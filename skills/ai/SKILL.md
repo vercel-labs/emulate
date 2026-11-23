@@ -185,9 +185,9 @@ services:
 
 | Key             | Matches                                                                                                              |
 | --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `task`          | `text` (default) or `image`; a rule answers only requests of its task                                                |
+| `task`          | `text` (default), `image`, `speech`, or `transcription`; a rule answers only requests of its task                    |
 | `model`         | Model id, with `*` wildcards                                                                                         |
-| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, or `openai-images`                                          |
+| `format`        | `openai-chat`, `openai-responses`, `anthropic-messages`, `openai-images`, `openai-audio`, or `elevenlabs`            |
 | `stream`        | Boolean                                                                                                              |
 | `textContains`  | Case-sensitive text in the latest user instruction, excluding tool results                                           |
 | `tool`          | A declared tool name, with `*` wildcards                                                                             |
@@ -206,6 +206,7 @@ A rule has one of `reply`, `variants`, or `error`. Reply events are ordered:
 | Reasoning | `{ type: reasoning, text }`              | A Responses summary or a Messages `thinking` block; Chat has no field for it                           |
 | Refusal   | `{ type: refusal, text }`                | Native refusal shape                                                                                   |
 | Image     | `{ type: image, data?, revisedPrompt? }` | `task: image` rules only; `data` is base64 file bytes, and without it the emulator renders the image   |
+| Audio     | `{ type: audio, data? }`                 | `task: speech` rules only; `data` is base64 file bytes, and without it the emulator renders silence    |
 
 With `reply` or `variants`, a rule may set `finish` to `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`. Without it, a reply with a tool call ends with `tool_calls`, and anything else ends with `stop`. A refusal is recorded as `refusal` in the call record, but the client still sees `stop` on Chat Completions and `completed` on Responses. A `finish: refusal` override is recorded the same way. `length` and `content_filter` reach the client as `finish_reason` on Chat Completions and as `status: "incomplete"` on Responses.
 
@@ -506,6 +507,34 @@ ai:
       error: { status: 429, message: Image quota exceeded. }
 ```
 
+### Audio
+
+OpenAI speech (`POST /v1/audio/speech`), transcription, and translation, ElevenLabs text to speech and speech to text, and Chat Completions audio output all work offline. Speech returns real silence in the requested format, sized to the input; transcripts default to `This is a deterministic transcript of <file name>.` with word timings spread across the audio. `@ai-sdk/elevenlabs` has no base URL option, so route it through a custom `fetch`:
+
+```typescript
+import { generateSpeech, transcribe } from "ai";
+import { createElevenLabs } from "@ai-sdk/elevenlabs";
+
+const elevenlabs = createElevenLabs({
+  apiKey: "test",
+  fetch: (url, init) => fetch(String(url).replace("https://api.elevenlabs.io", "http://localhost:4014"), init),
+});
+const { audio } = await generateSpeech({ model: elevenlabs.speech("eleven_multilingual_v2"), text: "Hello" });
+```
+
+Script exact audio and transcripts:
+
+```yaml
+ai:
+  rules:
+    - id: greeting
+      match: { task: speech, textContains: welcome }
+      reply: [{ type: audio, data: UklGRiQAAABXQVZF... }]
+    - id: call-notes
+      match: { task: transcription }
+      reply: [{ type: text, text: Customer asked about the refund. }]
+```
+
 ### Strict mode
 
 Set `ai.strict: true` to fail unmatched requests with a native 400. The message names the request's model and tools and includes the missing rule as YAML for a seed file and as a JSON body for `PUT /_ai/rules`. The JSON body keeps strict mode on, but `PUT /_ai/rules` replaces the whole configuration. Read the current rules with `GET /_ai/rules`, add the missing rule to them, send the result back, and retry. Replace the placeholder reply text first: it becomes the live reply if you send it unchanged.
@@ -544,8 +573,7 @@ On the OpenAI routes, result-changing features outside this version return a nat
 - background mode
 - the Conversations API
 - multiple candidates (`n` above 1)
-- audio input
-- audio output
+- audio input and output on Responses
 - legacy functions
 
 On the Messages route, tools carry `input_schema`, except Anthropic-defined client tools (bash, text editor, computer use, memory), which are accepted by name without one. Server-side tools (web search, web fetch, code execution, tool search, MCP toolset) return a 400. A base64 image source must be `image/jpeg`, `image/png`, `image/gif`, or `image/webp`, and a base64 document source must be `application/pdf`. Messages errors use Anthropic's envelope, and a validation error starts with the failing field, as in `max_tokens: Expected a number.` Unsupported paths under `/v1/messages`, such as `count_tokens`, and any request with an `anthropic-version` header get a `not_found_error` in the same envelope.
